@@ -687,6 +687,9 @@ class Settings(BaseSettings):
     execution_engine: Literal["asyncio"] = "asyncio"
     """Execution engine for the fast-agent application"""
 
+    environment_dir: str | None = None
+    """Base directory for fast-agent runtime data (defaults to .fast-agent)."""
+
     default_model: str | None = None
     """
     Default model for agents. Format is provider.model_name.<reasoning_effort>, for example openai.o3-mini.low
@@ -698,7 +701,7 @@ class Settings(BaseSettings):
     """Enable automatic sampling model selection if not explicitly configured"""
 
     session_history: bool = True
-    """Persist session history in .fast-agent/sessions (default: True)."""
+    """Persist session history in the environment sessions folder (default: True)."""
 
     session_history_window: int = 20
     """Maximum number of sessions to keep in the rolling window (default: 20)."""

@@ -27,7 +27,7 @@ from fast_agent.cli.commands.go import (
 )
 from fast_agent.cli.commands.server_helpers import add_servers_to_config, generate_server_name
 from fast_agent.cli.commands.url_parser import generate_server_configs, parse_server_urls
-from fast_agent.core.agent_card_validation import find_loaded_agent_issues
+from fast_agent.core.agent_card_validation import collect_agent_card_names, find_loaded_agent_issues
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
@@ -316,9 +316,13 @@ async def run_agents(
         if config and getattr(config, "mcp", None) and getattr(config.mcp, "servers", None):
             server_names = set(config.mcp.servers.keys())
 
+        extra_agent_names = {"setup", "huggingface"}
+        if merged_card_tools:
+            extra_agent_names |= collect_agent_card_names(merged_card_tools)
+
         issues, invalid_names = find_loaded_agent_issues(
             fast.agents,
-            extra_agent_names={"setup", "huggingface"},
+            extra_agent_names=extra_agent_names,
             server_names=server_names,
         )
         if invalid_names:

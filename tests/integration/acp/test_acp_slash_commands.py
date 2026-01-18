@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 from dataclasses import dataclass, field
@@ -16,11 +17,18 @@ from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+from fast_agent.session import get_session_manager
+from fast_agent.session import session_manager as session_manager_module
 
 if TYPE_CHECKING:
     from acp.schema import StopReason
 
     from fast_agent.core.fastagent import AgentInstance
+    from fast_agent.interfaces import AgentProtocol
+else:
+    class AgentProtocol:  # pragma: no cover
+        pass
+
 
 TEST_DIR = Path(__file__).parent
 if str(TEST_DIR) not in sys.path:
@@ -198,6 +206,49 @@ async def test_slash_command_status_system() -> None:
     assert "test-agent" in response.lower()
     # Should contain the instruction/system prompt
     assert stub_agent.instruction in response
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_session_resume_switches_current_mode(tmp_path: Path) -> None:
+    """Test /session resume switches current mode when a single agent has history."""
+    original_cwd = Path.cwd()
+    os.chdir(tmp_path)
+    session_manager_module._session_manager = None
+    try:
+        manager = get_session_manager()
+        session = manager.create_session()
+
+        history_message = PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="resume me")],
+        )
+        alpha_agent = StubAgent(name="alpha", message_history=[history_message])
+        await session.save_history(cast("AgentProtocol", alpha_agent))
+
+        beta_agent = StubAgent(name="beta")
+        instance = StubAgentInstance(agents={"alpha": alpha_agent, "beta": beta_agent})
+        switched: list[str] = []
+
+        def _set_current_mode(agent_name: str) -> None:
+            switched.append(agent_name)
+
+        handler = _handler(
+            instance,
+            agent_name="beta",
+            set_current_mode_callback=_set_current_mode,
+        )
+        response = await handler.execute_command(
+            "session",
+            f"resume {session.info.name}",
+        )
+
+        assert "Switched current mode to: alpha" in response
+        assert handler.current_agent_name == "alpha"
+        assert switched == ["alpha"]
+    finally:
+        session_manager_module._session_manager = None
+        os.chdir(original_cwd)
 
 
 @pytest.mark.integration

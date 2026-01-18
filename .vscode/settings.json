@@ -18,5 +18,6 @@
   "python.analysis.typeCheckingMode": "standard",
   "python.analysis.nodeExecutable": "auto",
   "python-envs.pythonProjects": [],
-  "python.languageServer": "None"
+  "python.languageServer": "None",
+  "python-envs.defaultEnvManager": "ms-python.python:system"
 }

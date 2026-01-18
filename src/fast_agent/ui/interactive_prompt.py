@@ -49,6 +49,7 @@ from fast_agent.skills.manager import (
 )
 from fast_agent.skills.registry import SkillManifest, format_skills_for_prompt
 from fast_agent.types import PromptMessageExtended
+from fast_agent.types.conversation_summary import split_into_turns
 from fast_agent.ui import enhanced_prompt
 from fast_agent.ui.command_payloads import (
     AgentCommand,
@@ -58,6 +59,7 @@ from fast_agent.ui.command_payloads import (
     CreateSessionCommand,
     ForkSessionCommand,
     HashAgentCommand,
+    HistoryRewindCommand,
     ListPromptsCommand,
     ListSessionsCommand,
     ListSkillsCommand,
@@ -99,6 +101,38 @@ SendFunc = Callable[[Union[str, PromptMessage, PromptMessageExtended], str], Awa
 
 # Type alias for the agent getter function
 AgentGetter = Callable[[str], object | None]
+
+
+def _collect_user_turns(
+    history: list[PromptMessageExtended],
+) -> list[tuple[int, PromptMessageExtended]]:
+    turns = split_into_turns(list(history))
+    user_turns: list[tuple[int, PromptMessageExtended]] = []
+    offset = 0
+    for turn in turns:
+        if not turn:
+            continue
+        first = turn[0]
+        if first.role != "user" or first.tool_results:
+            offset += len(turn)
+            continue
+        user_turns.append((offset, first))
+        offset += len(turn)
+    return user_turns
+
+
+def _trim_history_for_rewind(
+    history: list[PromptMessageExtended],
+    *,
+    turn_start_index: int,
+    template_messages: list[PromptMessageExtended] | None = None,
+) -> list[PromptMessageExtended]:
+    for idx in range(turn_start_index - 1, -1, -1):
+        if history[idx].role == "assistant":
+            return history[: idx + 1]
+    if template_messages:
+        return template_messages
+    return history[:turn_start_index]
 
 
 class InteractivePrompt:
@@ -323,6 +357,52 @@ class InteractivePrompt:
                         usage = getattr(agent_obj, "usage_accumulator", None)
                         display_history_overview(target_agent, history, usage)
                         continue
+
+                    case HistoryRewindCommand(turn_index=turn_index, error=error):
+                        if error:
+                            rich_print(f"[red]{error}[/red]")
+                            continue
+                        if turn_index is None:
+                            rich_print("[yellow]Usage: /history rewind <turn>[/yellow]")
+                            rich_print("[dim]Tip: press Tab after '/history rewind ' to see turn options.[/dim]")
+                            continue
+                        try:
+                            agent_obj = prompt_provider._agent(agent)
+                        except Exception:
+                            rich_print(f"[red]Unable to load agent '{agent}'[/red]")
+                            continue
+                        history = getattr(agent_obj, "message_history", [])
+                        user_turns = _collect_user_turns(list(history))
+                        if not user_turns:
+                            rich_print("[yellow]No user turns available to rewind.[/yellow]")
+                            continue
+                        if turn_index < 1 or turn_index > len(user_turns):
+                            rich_print("[red]Turn index out of range.[/red]")
+                            continue
+                        turn_start, user_message = user_turns[turn_index - 1]
+                        user_text = user_message.all_text()
+                        if not user_text or user_text == "<no text>":
+                            user_text = user_message.first_text()
+                        if not user_text or user_text == "<no text>":
+                            rich_print("[red]Selected turn has no text content to rewind.[/red]")
+                            continue
+                        template_messages = getattr(agent_obj, "template_messages", None)
+                        trimmed = _trim_history_for_rewind(
+                            list(history),
+                            turn_start_index=turn_start,
+                            template_messages=template_messages,
+                        )
+                        load_history = getattr(agent_obj, "load_message_history", None)
+                        if callable(load_history):
+                            load_history(trimmed)
+                        else:
+                            existing_history = getattr(agent_obj, "message_history", None)
+                            if isinstance(existing_history, list):
+                                existing_history.clear()
+                                existing_history.extend(trimmed)
+                        buffer_prefill = user_text
+                        rich_print("[green]History rewound. User turn loaded into input buffer.[/green]")
+                        continue
                     case ClearCommand(kind="clear_last", agent=target_agent):
                         target_agent = target_agent or agent
                         try:
@@ -505,6 +585,26 @@ class InteractivePrompt:
                             rich_print(
                                 f"[yellow]Missing agents from session: {missing_list}[/yellow]"
                             )
+                        if missing_agents or not loaded:
+                            from fast_agent.session import (
+                                format_history_summary,
+                                summarize_session_histories,
+                            )
+
+                            summary = summarize_session_histories(session)
+                            summary_text = format_history_summary(summary)
+                            if summary_text:
+                                rich_print(
+                                    f"[dim]Available histories:[/dim] {summary_text}"
+                                )
+                        if len(loaded) == 1:
+                            loaded_agent = next(iter(loaded.keys()))
+                            if loaded_agent != agent:
+                                agent = loaded_agent
+                                agent_obj = prompt_provider._agent(agent)
+                                rich_print(
+                                    f"[green]Switched to agent:[/green] {agent}"
+                                )
                         usage = getattr(agent_obj, "usage_accumulator", None)
                         if usage and usage.model is None:
                             llm = getattr(agent_obj, "llm", None)

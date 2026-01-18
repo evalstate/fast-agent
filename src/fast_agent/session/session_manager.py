@@ -1,7 +1,7 @@
 """
 Session management for fast-agent.
 
-Provides automatic saving and loading of conversation sessions in .fast-agent/sessions/.
+Provides automatic saving and loading of conversation sessions in the fast-agent environment.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Mapping
 
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.paths import resolve_environment_paths
 
 if TYPE_CHECKING:
     from fast_agent.interfaces import AgentProtocol
@@ -37,6 +38,9 @@ SESSION_ID_PATTERN = re.compile(
 )
 SESSION_LOCK_FILENAME = ".session.lock"
 SESSION_LOCK_STALE_SECONDS = 300
+HISTORY_PREFIX = "history_"
+HISTORY_SUFFIX = ".json"
+HISTORY_PREVIOUS_SUFFIX = "_previous.json"
 
 
 def display_session_name(name: str) -> str:
@@ -52,6 +56,16 @@ def _sanitize_component(name: str, limit: int = 100) -> str:
     name = name.replace(" ", "_").replace("/", "_").replace("\\", "_")
     name = "".join(c for c in name if c.isalnum() or c in "_-.")
     return name[:limit] or "agent"
+
+
+def _extract_history_agent(filename: str) -> str:
+    """Extract agent name from a history filename."""
+    if filename.startswith(HISTORY_PREFIX) and filename.endswith(HISTORY_SUFFIX):
+        agent_name = filename[len(HISTORY_PREFIX) : -len(HISTORY_SUFFIX)]
+        if agent_name.endswith("_previous"):
+            agent_name = agent_name[: -len("_previous")]
+        return agent_name or "agent"
+    return pathlib.Path(filename).stem
 
 
 def _first_user_preview(
@@ -82,6 +96,33 @@ def get_session_history_window() -> int:
         return int(value)
     except Exception:
         return 20
+
+
+def summarize_session_histories(session: "Session") -> dict[str, int]:
+    """Summarize available histories for a session by agent name."""
+    history_files = list(session.info.history_files)
+    if not history_files:
+        history_files = [path.name for path in session.directory.glob("history_*.json")]
+
+    summary: dict[str, int] = {}
+    for filename in history_files:
+        if filename.endswith(HISTORY_PREVIOUS_SUFFIX):
+            continue
+        path = session.directory / filename
+        if not path.exists():
+            continue
+
+        agent_name = _extract_history_agent(filename)
+        try:
+            from fast_agent.mcp.prompt_serialization import load_messages
+
+            summary[agent_name] = len(load_messages(str(path)))
+        except Exception as exc:
+            logger.warning(
+                "Failed to summarize session history",
+                data={"session": session.info.name, "file": filename, "error": str(exc)},
+            )
+    return summary
 
 
 @dataclass
@@ -385,13 +426,12 @@ class Session:
 
 
 class SessionManager:
-    """Manages conversation sessions stored in .fast-agent/sessions/."""
-
-    SESSIONS_DIR = ".fast-agent/sessions"
+    """Manages conversation sessions stored in the fast-agent environment."""
 
     def __init__(self) -> None:
         """Initialize session manager."""
-        self.base_dir = pathlib.Path.cwd() / self.SESSIONS_DIR
+        env_paths = resolve_environment_paths(cwd=pathlib.Path.cwd())
+        self.base_dir = env_paths.sessions
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self._current_session: Session | None = None
 

@@ -2,6 +2,7 @@
 
 import importlib
 import os
+from pathlib import Path
 
 import click
 import typer
@@ -120,6 +121,9 @@ def main(
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Disable output"),
     color: bool = typer.Option(True, "--color/--no-color", help="Enable/disable color output"),
     version: bool = typer.Option(False, "--version", help="Show version and exit"),
+    env: Path | None = typer.Option(
+        None, "--env", help="Override the base fast-agent environment directory"
+    ),
 ) -> None:
     """fast-agent - Build effective agents using Model Context Protocol (MCP).
 
@@ -132,6 +136,9 @@ def main(
             err=True,
         )
         raise typer.Exit(1)
+
+    if env is not None:
+        os.environ["ENVIRONMENT_DIR"] = str(env)
 
     application.verbosity = 1 if verbose else 0 if not quiet else -1
     if not color:

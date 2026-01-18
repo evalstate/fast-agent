@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
@@ -137,8 +138,12 @@ class ToolRunner:
 
     async def until_done(self) -> PromptMessageExtended:
         last: PromptMessageExtended | None = None
-        async for message in self:
-            last = message
+        try:
+            async for message in self:
+                last = message
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            self._reset_history_after_cancelled_turn()
+            raise
         if last is None:
             raise RuntimeError("ToolRunner produced no messages")
 
@@ -147,6 +152,35 @@ class ToolRunner:
             await self._hooks.after_turn_complete(self, last)
 
         return last
+
+    def _reset_history_after_cancelled_turn(self) -> None:
+        history = self._agent.message_history
+        if not history:
+            return
+
+        last_success_idx: int | None = None
+        for idx in range(len(history) - 1, -1, -1):
+            msg = history[idx]
+            if msg.role != "assistant":
+                continue
+            if msg.stop_reason in (LlmStopReason.TOOL_USE, LlmStopReason.CANCELLED):
+                continue
+            last_success_idx = idx
+            break
+
+        if last_success_idx is None:
+            template_prefix: list[PromptMessageExtended] = []
+            for msg in history:
+                if msg.is_template:
+                    template_prefix.append(msg)
+                else:
+                    break
+            if len(template_prefix) != len(history):
+                self._agent.load_message_history(template_prefix)
+            return
+
+        if last_success_idx < len(history) - 1:
+            self._agent.load_message_history(history[: last_success_idx + 1])
 
     async def generate_tool_call_response(self) -> PromptMessageExtended | None:
         if self._pending_tool_request is None:

@@ -14,8 +14,8 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from fast_agent.config import Settings, get_settings
-from fast_agent.constants import DEFAULT_SKILLS_PATHS
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.paths import default_skill_paths
 from fast_agent.skills.registry import SkillManifest, SkillRegistry
 
 logger = get_logger(__name__)
@@ -173,7 +173,7 @@ def get_manager_directory(
         if skills_settings.directories:
             directory = skills_settings.directories[0]
     if not directory:
-        directory = DEFAULT_SKILLS_PATHS[0]
+        directory = default_skill_paths(resolved_settings, cwd=base)[0]
 
     path = Path(directory).expanduser()
     if not path.is_absolute():

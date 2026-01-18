@@ -10,10 +10,10 @@ import yaml
 from rich.table import Table
 from rich.text import Text
 
-from fast_agent.cli.commands.go import DEFAULT_AGENT_CARDS_DIR, DEFAULT_TOOL_CARDS_DIR
 from fast_agent.core.agent_card_validation import scan_agent_card_directory
 from fast_agent.llm.provider_key_manager import API_KEY_HINT_TEXT, ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
+from fast_agent.paths import resolve_environment_paths
 from fast_agent.skills import SkillRegistry
 from fast_agent.ui.console import console
 
@@ -716,9 +716,10 @@ def show_check_summary() -> None:
             }
 
     _print_section_header("Agent Cards", color="blue")
+    env_paths = resolve_environment_paths()
     card_directories = [
-        ("Agent Cards", DEFAULT_AGENT_CARDS_DIR),
-        ("Tool Cards", DEFAULT_TOOL_CARDS_DIR),
+        ("Agent Cards", env_paths.agent_cards),
+        ("Tool Cards", env_paths.tool_cards),
     ]
     found_card_dir = False
     all_card_names: set[str] = set()
@@ -774,7 +775,7 @@ def show_check_summary() -> None:
 
     if not found_card_dir:
         console.print(
-            "[dim]No local AgentCard directories found (.fast-agent/agent-cards or .fast-agent/tool-cards).[/dim]"
+            "[dim]No local AgentCard directories found in the fast-agent environment.[/dim]"
         )
 
     # Show help tips

@@ -6,10 +6,15 @@ import re
 import subprocess
 import webbrowser
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
 
 from mcp.types import BlobResourceContents, ContentBlock, EmbeddedResource, TextResourceContents
+
+from fast_agent.paths import resolve_mcp_ui_output_dir
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
 
 """
 Utilities for handling MCP-UI resources carried in PromptMessageExtended.channels.
@@ -39,18 +44,7 @@ def _safe_filename(name: str) -> str:
 
 
 def _ensure_output_dir() -> Path:
-    # Read output directory from settings, defaulting to .fast-agent/ui
-    try:
-        from fast_agent.config import get_settings
-
-        settings = get_settings()
-        dir_setting = getattr(settings, "mcp_ui_output_dir", ".fast-agent/ui") or ".fast-agent/ui"
-    except Exception:
-        dir_setting = ".fast-agent/ui"
-
-    base = Path(dir_setting)
-    if not base.is_absolute():
-        base = Path.cwd() / base
+    base = resolve_mcp_ui_output_dir()
     base.mkdir(parents=True, exist_ok=True)
     return base
 

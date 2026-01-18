@@ -121,6 +121,7 @@ class FastAgent:
         ignore_unknown_args: bool = False,
         parse_cli_args: bool = True,
         quiet: bool = False,  # Add quiet parameter
+        environment_dir: str | pathlib.Path | None = None,
         skills_directory: str | pathlib.Path | Sequence[str | pathlib.Path] | None = None,
         **kwargs,
     ) -> None:
@@ -140,6 +141,7 @@ class FastAgent:
 
         self.args = argparse.Namespace()  # Initialize args always
         self._programmatic_quiet = quiet  # Store the programmatic quiet setting
+        self._environment_dir_override = self._normalize_environment_dir(environment_dir)
         self._skills_directory_override = self._normalize_skill_directories(skills_directory)
         self._default_skill_manifests: list[SkillManifest] = []
         self._server_instance_factory = None
@@ -204,6 +206,10 @@ class FastAgent:
                 choices=["shared", "connection", "request"],
                 default="shared",
                 help="Control MCP agent instancing behaviour (shared, connection, request)",
+            )
+            parser.add_argument(
+                "--env",
+                help="Override the base fast-agent environment directory",
             )
             parser.add_argument(
                 "--skills",
@@ -305,7 +311,15 @@ class FastAgent:
         if self._programmatic_quiet:
             self.args.quiet = True
 
-        # Apply CLI skills directory if not already set programmatically
+        # Apply CLI environment directory if not already set programmatically
+        if (
+            self._environment_dir_override is None
+            and hasattr(self.args, "env")
+            and self.args.env
+        ):
+            self._environment_dir_override = self._normalize_environment_dir(self.args.env)
+
+                # Apply CLI skills directory if not already set programmatically
         if (
             self._skills_directory_override is None
             and hasattr(self.args, "skills")
@@ -327,6 +341,10 @@ class FastAgent:
                 self.config["logger"]["progress_display"] = False
                 self.config["logger"]["show_chat"] = False
                 self.config["logger"]["show_tools"] = False
+
+            # Propagate environment dir override into config so path helpers resolve consistently
+            if self._environment_dir_override is not None and hasattr(self, "config"):
+                self.config["environment_dir"] = str(self._environment_dir_override)
 
             # Propagate CLI skills override into config so resolve_skill_directories() works everywhere
             if self._skills_directory_override is not None and hasattr(self, "config"):
@@ -393,6 +411,12 @@ class FastAgent:
         else:
             entries = list(value)
         return [Path(entry).expanduser() for entry in entries]
+
+    @staticmethod
+    def _normalize_environment_dir(value: str | Path | None) -> Path | None:
+        if value is None:
+            return None
+        return Path(value).expanduser()
 
     def _load_config(self) -> None:
         """Load configuration from YAML file including secrets using get_settings

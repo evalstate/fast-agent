@@ -33,6 +33,7 @@ from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, FAST_AGENT_REMOVED_ME
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.mcp.types import McpAgentProtocol
+from fast_agent.types.conversation_summary import split_into_turns
 from fast_agent.ui.command_payloads import (
     AgentCommand,
     ClearCommand,
@@ -41,6 +42,7 @@ from fast_agent.ui.command_payloads import (
     CreateSessionCommand,
     ForkSessionCommand,
     HashAgentCommand,
+    HistoryRewindCommand,
     ListSessionsCommand,
     ListToolsCommand,
     LoadAgentCardCommand,
@@ -162,6 +164,10 @@ def _save_history_cmd(filename: str | None) -> SaveHistoryCommand:
 
 def _load_history_cmd(filename: str | None, error: str | None) -> LoadHistoryCommand:
     return LoadHistoryCommand(filename=filename, error=error)
+
+
+def _history_rewind_cmd(turn_index: int | None, error: str | None) -> HistoryRewindCommand:
+    return HistoryRewindCommand(turn_index=turn_index, error=error)
 
 
 def _load_agent_card_cmd(
@@ -554,13 +560,15 @@ class AgentCompleter(Completer):
         agent_types: dict[str, AgentType] | None = None,
         is_human_input: bool = False,
         current_agent: str | None = None,
+        agent_provider: "AgentApp | None" = None,
     ) -> None:
         self.agents = agents
         self.current_agent = current_agent
+        self.agent_provider = agent_provider
         # Map commands to their descriptions for better completion hints
         self.commands = {
             "mcp": "Show MCP server status",
-            "history": "Show conversation history overview (or /history save|load)",
+            "history": "Show conversation history overview (or /history save|load|rewind)",
             "tools": "List available MCP Tools",
             "skills": "Manage skills (/skills, /skills add, /skills remove, /skills registry)",
             "prompt": "List and choose MCP prompts, or apply specific prompt (/prompt <name>)",
@@ -648,18 +656,74 @@ class AgentCompleter(Completer):
         except PermissionError:
             pass  # Skip directories we can't read
 
+    def _normalize_turn_preview(self, text: str, *, limit: int = 60) -> str:
+        normalized = " ".join(text.split())
+        if not normalized:
+            return "<no text>"
+        if len(normalized) <= limit:
+            return normalized
+        return normalized[: limit - 1] + "…"
+
+    def _iter_user_turns(self):
+        if not self.agent_provider or not self.current_agent:
+            return []
+        try:
+            agent_obj = self.agent_provider._agent(self.current_agent)
+        except Exception:
+            return []
+        history = getattr(agent_obj, "message_history", [])
+        turns = split_into_turns(list(history))
+        user_turns = []
+        for turn in turns:
+            if not turn:
+                continue
+            first = turn[0]
+            if first.role != "user" or first.tool_results:
+                continue
+            user_turns.append(first)
+        return user_turns
+
+    def _complete_history_rewind(self, partial: str):
+        user_turns = self._iter_user_turns()
+        if not user_turns:
+            return
+        partial_clean = partial.strip()
+        for index, message in enumerate(user_turns, start=1):
+            index_str = str(index)
+            if partial_clean and not index_str.startswith(partial_clean):
+                continue
+            text = message.all_text()
+            if not text or text == "<no text>":
+                text = message.first_text()
+            preview = self._normalize_turn_preview(text or "")
+            yield Completion(
+                index_str,
+                start_position=-len(partial),
+                display=f"turn {index_str}",
+                display_meta=preview,
+            )
+
     def _complete_session_ids(self, partial: str):
         """Generate completions for recent session ids."""
-        from fast_agent.session import get_session_history_window, get_session_manager
+        from fast_agent.session import (
+            display_session_name,
+            get_session_history_window,
+            get_session_manager,
+        )
 
         manager = get_session_manager()
         sessions = manager.list_sessions()
         limit = get_session_history_window()
         if limit > 0:
             sessions = sessions[:limit]
+        partial_lower = partial.lower()
         for session_info in sessions:
             session_id = session_info.name
-            if partial and not session_id.lower().startswith(partial.lower()):
+            display_name = display_session_name(session_id)
+            if partial and not (
+                session_id.lower().startswith(partial_lower)
+                or display_name.lower().startswith(partial_lower)
+            ):
                 continue
             display_time = session_info.last_activity.strftime("%Y-%m-%d %H:%M")
             metadata = session_info.metadata or {}
@@ -678,7 +742,7 @@ class AgentCompleter(Completer):
             yield Completion(
                 session_id,
                 start_position=-len(partial),
-                display=session_id,
+                display=display_name,
                 display_meta=display_meta,
             )
 
@@ -782,22 +846,32 @@ class AgentCompleter(Completer):
         if active_url and active_url not in configured_urls:
             configured_urls.append(active_url)
 
+        unique_urls: list[str] = []
+        seen_urls = set()
+        for url in configured_urls:
+            if url in seen_urls:
+                continue
+            seen_urls.add(url)
+            unique_urls.append(url)
+
         partial_lower = partial.lower()
-        for index, url in enumerate(configured_urls, 1):
+        include_numbers = not partial or partial.isdigit()
+        include_urls = bool(partial) and not partial.isdigit()
+        for index, url in enumerate(unique_urls, 1):
             display = format_marketplace_display_url(url)
             index_text = str(index)
-            if not partial or index_text.startswith(partial):
+            if include_numbers and index_text.startswith(partial):
                 yield Completion(
                     index_text,
                     start_position=-len(partial),
                     display=index_text,
                     display_meta=display,
                 )
-            if not partial or url.lower().startswith(partial_lower):
+            if include_urls and url.lower().startswith(partial_lower):
                 yield Completion(
                     url,
                     start_position=-len(partial),
-                    display=url,
+                    display=index_text,
                     display_meta=display,
                 )
 
@@ -893,6 +967,11 @@ class AgentCompleter(Completer):
             yield from self._complete_history_files(partial)
             return
 
+        if text_lower.startswith("/history rewind "):
+            partial = text[len("/history rewind ") :]
+            yield from self._complete_history_rewind(partial)
+            return
+
         if text_lower.startswith("/resume "):
             partial = text[len("/resume ") :]
             yield from self._complete_session_ids(partial)
@@ -954,6 +1033,7 @@ class AgentCompleter(Completer):
                 "show": "Show history overview",
                 "save": "Save history to a file",
                 "load": "Load history from a file",
+                "rewind": "Rewind to a previous user turn",
             }
             for subcmd, description in subcommands.items():
                 if subcmd.startswith(partial.lower()):
@@ -1329,6 +1409,14 @@ def parse_special_input(text: str) -> str | CommandPayload:
                 if not argument:
                     return _load_history_cmd(None, "Filename required for /history load")
                 return _load_history_cmd(argument, None)
+            if subcmd == "rewind":
+                if not argument:
+                    return _history_rewind_cmd(None, "Turn number required for /history rewind")
+                try:
+                    turn_index = int(argument)
+                except ValueError:
+                    return _history_rewind_cmd(None, "Turn number must be an integer")
+                return _history_rewind_cmd(turn_index, None)
             return _show_history_cmd(remainder)
         if cmd == "clear":
             target_agent = None
@@ -1793,6 +1881,7 @@ async def get_enhanced_input(
             agent_types=agent_types or {},
             is_human_input=is_human_input,
             current_agent=agent_name,
+            agent_provider=agent_provider,
         ),
         lexer=ShellPrefixLexer(),
         complete_while_typing=True,
@@ -2181,6 +2270,7 @@ async def handle_special_commands(
             "      [dim]Default: Timestamped filename (e.g., 25_01_15_14_30-conversation.json)[/dim]"
         )
         rich_print("  /history load <filename> - Load chat history from a file")
+        rich_print("  /history rewind <turn> - Rewind to a prior user turn")
         rich_print("  /resume [id|number] - Resume the last or specified session")
         rich_print("  /session list - List recent sessions")
         rich_print("  /session new [title] - Create a new session")

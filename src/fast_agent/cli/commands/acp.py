@@ -8,6 +8,7 @@ import typer
 from fast_agent.cli.commands import serve
 from fast_agent.cli.commands.go import (
     collect_stdio_commands,
+    resolve_environment_dir_option,
     resolve_instruction_option,
     run_async_agent,
 )
@@ -58,6 +59,11 @@ def run_acp(
     ),
     model: str | None = typer.Option(
         None, "--model", "--models", help="Override the default model (e.g., haiku, sonnet, gpt-4)"
+    ),
+    env_dir: Path | None = typer.Option(
+        None,
+        "--env",
+        help="Override the base fast-agent environment directory",
     ),
     skills_dir: Path | None = typer.Option(
         None,
@@ -115,6 +121,8 @@ def run_acp(
     This mirrors `fast-agent serve --transport acp` but provides a shorter command and
     a distinct default name so ACP-specific tooling can integrate more easily.
     """
+    env_dir = resolve_environment_dir_option(ctx, env_dir)
+
     stdio_commands = collect_stdio_commands(npx, uvx, stdio)
     shell_enabled = shell
 
@@ -135,6 +143,7 @@ def run_acp(
         stdio_commands=stdio_commands,
         agent_name=agent_name,
         skills_directory=skills_dir,
+        environment_dir=env_dir,
         shell_enabled=shell_enabled,
         mode="serve",
         transport=serve.ServeTransport.ACP.value,

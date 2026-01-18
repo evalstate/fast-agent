@@ -56,6 +56,37 @@ def collect_agent_card_files(directory: Path) -> list[Path]:
     ]
 
 
+
+
+def collect_agent_card_names(sources: Iterable[str]) -> set[str]:
+    """Collect AgentCard names from local files or directories.
+
+    URL sources are ignored. Any card parsing errors are treated as best-effort
+    and skipped, mirroring validation behavior elsewhere.
+    """
+    names: set[str] = set()
+    for source in sources:
+        if source.startswith(("http://", "https://")):
+            continue
+        source_path = Path(source).expanduser()
+        if source_path.is_dir():
+            entries = scan_agent_card_directory(source_path)
+            for entry in entries:
+                if entry.name != "—" and entry.ignored_reason is None:
+                    names.add(entry.name)
+            continue
+        try:
+            from fast_agent.core.agent_card_loader import load_agent_cards
+
+            cards = load_agent_cards(source_path)
+        except Exception:  # noqa: BLE001
+            continue
+        for card in cards:
+            names.add(card.name)
+
+    return names
+
+
 def scan_agent_card_directory(
     directory: Path,
     *,

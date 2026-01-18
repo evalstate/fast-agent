@@ -45,8 +45,11 @@ DEFAULT_AGENT_INSTRUCTION = """You are a helpful AI Agent.
 
 The current date is {{currentDate}}."""
 
+
+DEFAULT_ENVIRONMENT_DIR = ".fast-agent"
+
 DEFAULT_SKILLS_PATHS = [
-    ".fast-agent/skills",
+    f"{DEFAULT_ENVIRONMENT_DIR}/skills",
     ".claude/skills",
 ]
 

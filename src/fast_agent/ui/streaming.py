@@ -129,6 +129,7 @@ class StreamingMessageHandle:
         self._pending_batch_meta: dict[str, Any] | None = None
         self._scrolling_started = False
         self._scroll_start_time: float | None = None
+        self._display_truncated = False
         try:
             self._loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
         except RuntimeError:
@@ -195,10 +196,15 @@ class StreamingMessageHandle:
         width = console.console.size.width
         left_text = Text.from_markup(self._header_left)
 
-        if self._header_right and self._header_right.strip():
+        right_content = self._header_right.strip()
+        if self._display_truncated:
+            indicator = "[black on blue]display truncated[/black on blue]"
+            right_content = f"{right_content} {indicator}" if right_content else indicator
+
+        if right_content:
             right_text = Text()
             right_text.append("[", style="dim")
-            right_text.append_text(Text.from_markup(self._header_right))
+            right_text.append_text(Text.from_markup(right_content))
             right_text.append("]", style="dim")
             separator_count = width - left_text.cell_len - right_text.cell_len
             if separator_count < 1:
@@ -362,6 +368,7 @@ class StreamingMessageHandle:
         is_truncated = len(window_segments) < len(segments) or (
             window_segments and segments and window_segments[0] is not segments[0]
         )
+        self._display_truncated = is_truncated
         if is_truncated and not self._scrolling_started:
             self._scrolling_started = True
             self._scroll_start_time = time.monotonic()

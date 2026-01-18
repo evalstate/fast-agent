@@ -3,7 +3,12 @@
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from fast_agent.session import format_session_entries, get_session_manager
+from fast_agent.session import (
+    format_history_summary,
+    format_session_entries,
+    get_session_manager,
+    summarize_session_histories,
+)
 from fast_agent.ui.command_payloads import (
     CreateSessionCommand,
     ForkSessionCommand,
@@ -134,6 +139,11 @@ async def handle_resume_session_cmd(
     if missing_agents:
         missing_list = ", ".join(sorted(missing_agents))
         rich_print(f"[yellow]Missing agents from session: {missing_list}[/yellow]")
+    if missing_agents or not loaded:
+        summary = summarize_session_histories(session)
+        summary_text = format_history_summary(summary)
+        if summary_text:
+            rich_print(f"[dim]Available histories:[/dim] {summary_text}")
     return True
 
 

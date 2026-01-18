@@ -11,6 +11,7 @@ ACPAwareProtocol.
 
 from __future__ import annotations
 
+import inspect
 import shlex
 import textwrap
 import time
@@ -48,6 +49,7 @@ from fast_agent.interfaces import ACPAwareProtocol, AgentProtocol
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompts.prompt_load import load_history_into_agent
+from fast_agent.paths import resolve_environment_paths
 from fast_agent.skills.manager import (
     DEFAULT_SKILL_REGISTRIES,
     MarketplaceSkill,
@@ -142,6 +144,7 @@ class SlashCommandHandler:
         | None = None,
         dump_agent_callback: Callable[[str], Awaitable[str]] | None = None,
         reload_callback: Callable[[], Awaitable[bool]] | None = None,
+        set_current_mode_callback: Callable[[str], Awaitable[None] | None] | None = None,
     ):
         """
         Initialize the slash command handler.
@@ -176,6 +179,7 @@ class SlashCommandHandler:
         self._detach_agent_callback = detach_agent_callback
         self._dump_agent_callback = dump_agent_callback
         self._reload_callback = reload_callback
+        self._set_current_mode_callback = set_current_mode_callback
 
         # Session-level commands (always available, operate on current agent)
         self._session_commands: dict[str, AvailableCommand] = {
@@ -297,6 +301,17 @@ class SlashCommandHandler:
             agent_name: Name of the agent to use for slash commands
         """
         self.current_agent_name = agent_name
+
+    async def _switch_current_mode(self, agent_name: str) -> bool:
+        """Switch current mode for ACP session state if available."""
+        if agent_name not in self.instance.agents:
+            return False
+        self.set_current_agent(agent_name)
+        if self._set_current_mode_callback:
+            result = self._set_current_mode_callback(agent_name)
+            if inspect.isawaitable(result):
+                await result
+        return True
 
     def update_session_instruction(self, agent_name: str, instruction: str | None) -> None:
         """
@@ -467,7 +482,7 @@ class SlashCommandHandler:
         if subcmd == "new":
             return self._handle_session_new(argument)
         if subcmd == "resume":
-            return self._handle_session_resume(argument)
+            return await self._handle_session_resume(argument)
         if subcmd == "title":
             return self._handle_session_title(argument)
         if subcmd == "fork":
@@ -798,7 +813,7 @@ class SlashCommandHandler:
         lines = [heading, "", *entries, "", "Usage: /session resume <id|number>"]
         return "\n".join(lines)
 
-    def _handle_session_resume(self, argument: str) -> str:
+    async def _handle_session_resume(self, argument: str) -> str:
         from fast_agent.session import get_session_manager
 
         session_id = argument or None
@@ -824,6 +839,18 @@ class SlashCommandHandler:
         if missing_agents:
             missing_list = ", ".join(sorted(missing_agents))
             lines.append(f"Missing agents: {missing_list}")
+        if missing_agents or not loaded:
+            from fast_agent.session import format_history_summary, summarize_session_histories
+
+            summary = summarize_session_histories(session)
+            summary_text = format_history_summary(summary)
+            if summary_text:
+                lines.append(f"Available histories: {summary_text}")
+        if len(loaded) == 1:
+            loaded_agent = next(iter(loaded.keys()))
+            if loaded_agent != self.current_agent_name:
+                if await self._switch_current_mode(loaded_agent):
+                    lines.append(f"Switched current mode to: {loaded_agent}")
         return "\n".join(lines)
 
     def _handle_session_title(self, argument: str) -> str:
@@ -898,7 +925,7 @@ class SlashCommandHandler:
     def _handle_status_auth(self) -> str:
         """Handle the /status auth command to show permissions from auths.md."""
         heading = "# permissions"
-        auths_path = Path("./.fast-agent/auths.md")
+        auths_path = resolve_environment_paths().permissions_file
         resolved_path = auths_path.resolve()
 
         if not auths_path.exists():
@@ -937,7 +964,7 @@ class SlashCommandHandler:
     def _handle_status_authreset(self) -> str:
         """Handle the /status authreset command to remove the auths.md file."""
         heading = "# reset permissions"
-        auths_path = Path("./.fast-agent/auths.md")
+        auths_path = resolve_environment_paths().permissions_file
         resolved_path = auths_path.resolve()
 
         if not auths_path.exists():

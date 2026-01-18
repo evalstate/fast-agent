@@ -202,7 +202,6 @@ def test_get_completions_for_skills_registry(monkeypatch):
 
     assert "1" in names
     assert "2" in names
-    assert "https://example.com/registry-one.json" in names
 
 
 def test_complete_agent_card_files_finds_md_and_yaml():

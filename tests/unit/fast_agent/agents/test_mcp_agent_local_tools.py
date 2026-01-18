@@ -2,29 +2,32 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 from mcp.types import CallToolRequest, CallToolRequestParams, TextContent
+from rich.text import Text
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.context import Context
+from fast_agent.types import PromptMessageExtended
+from fast_agent.ui.console_display import ConsoleDisplay
 
 if TYPE_CHECKING:
     from mcp.types import CallToolResult
 
 
-
-class CaptureDisplay:
+class CaptureDisplay(ConsoleDisplay):
     def __init__(self) -> None:
+        super().__init__(config=None)
         self.calls: list[dict[str, object]] = []
 
     async def show_assistant_message(
         self,
-        message_text,
+        message_text: str | Text | PromptMessageExtended,
         bottom_items: list[str] | None = None,
         highlight_index: int | None = None,
         max_item_length: int | None = None,
         name: str | None = None,
         model: str | None = None,
-        additional_message=None,
+        additional_message: Text | None = None,
         render_markdown: bool | None = None,
     ) -> None:
         self.calls.append(

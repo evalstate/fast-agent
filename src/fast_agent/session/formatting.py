@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Literal
 from fast_agent.session.session_manager import display_session_name
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Mapping
 
     from .session_manager import SessionInfo
 
@@ -73,3 +73,14 @@ def format_session_entries(
         )
 
     return lines
+
+
+def format_history_summary(summary: "Mapping[str, int]") -> str:
+    """Format a history summary for display."""
+    if not summary:
+        return ""
+    entries = ", ".join(
+        f"{agent} ({count} messages)"
+        for agent, count in sorted(summary.items())
+    )
+    return entries
