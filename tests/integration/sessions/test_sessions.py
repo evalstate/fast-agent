@@ -8,6 +8,11 @@ import pytest
 from fast_agent import FastAgent
 from fast_agent.mcp.prompt_serialization import load_messages
 from fast_agent.session import get_session_manager
+from fast_agent.session.session_manager import (
+    SESSION_ID_LENGTH,
+    SESSION_ID_PATTERN,
+    display_session_name,
+)
 
 
 def _create_fast_agent(config_path: Path) -> FastAgent:
@@ -63,7 +68,11 @@ async def test_session_history_autosave_default_on(tmp_path, monkeypatch):
     assert len(session_dirs) == 1
 
     session_id = session_dirs[0].name
-    assert re.fullmatch(r"[A-Za-z0-9]{6}", session_id)
+    assert SESSION_ID_PATTERN.fullmatch(session_id)
+    assert re.fullmatch(
+        rf"[A-Za-z0-9]{{{SESSION_ID_LENGTH}}}",
+        display_session_name(session_id),
+    )
 
     metadata_path = session_dirs[0] / "session.json"
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
