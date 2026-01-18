@@ -663,7 +663,7 @@ class FastAgent:
         else:
             changed_card_files = set(current_card_stats.keys())
 
-        def _load_cards(path_entry: Path) -> list[Any]:
+        def _load_cards(path_entry: Path) -> list[LoadedAgentCard]:
             try:
                 return load_agent_cards(path_entry)
             except AgentConfigError as exc:
@@ -691,7 +691,7 @@ class FastAgent:
                 )
                 return []
 
-        cards: list[Any] = []
+        cards: list[LoadedAgentCard] = []
         loaded_card_files: set[Path] = set()
         for path_entry in sorted(changed_card_files):
             loaded_cards = _load_cards(path_entry)
@@ -849,7 +849,7 @@ class FastAgent:
         *,
         current_files: set[Path],
         removed_files: set[Path],
-        changed_cards: list[Any],
+        changed_cards: list[LoadedAgentCard],
         current_stats: dict[Path, tuple[int, int]],
     ) -> None:
         removed_names = {
@@ -870,8 +870,6 @@ class FastAgent:
         seen_names: dict[str, Path] = {}
         changed_names: set[str] = set()
         for card in changed_cards:
-            if not hasattr(card, "name") or not hasattr(card, "path"):
-                raise AgentConfigError("Invalid AgentCard payload during reload")
             changed_names.add(card.name)
             if card.name in seen_names:
                 raise AgentConfigError(
@@ -1025,6 +1023,7 @@ class FastAgent:
     # Decorator methods with precise signatures for IDE completion
     # Provide annotations so IDEs can discover these attributes on instances
     if TYPE_CHECKING:  # pragma: no cover - typing aid only
+        from fast_agent.core.agent_card_loader import LoadedAgentCard
         from collections.abc import Coroutine
         from pathlib import Path
 
