@@ -11,7 +11,8 @@ use_history: false
 skills: []
 tool_hooks:
   before_tool_call: ../hooks/fix_ripgrep_tool_calls.py:fix_ripgrep_tool_calls
-  after_turn_complete: ../hooks/save_history.py:save_history_to_file
+# uncomment to save sub-agent traces
+#  after_turn_complete: ../hooks/save_history.py:save_history_to_file
 ---
 
 You are a specialized search assistant using ripgrep (rg).
