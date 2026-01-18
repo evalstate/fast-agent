@@ -28,6 +28,9 @@ from typing import (
     TypeVar,
 )
 
+if TYPE_CHECKING:
+    from fast_agent.core.agent_card_loader import LoadedAgentCard
+
 import yaml
 import yaml.parser
 from opentelemetry import trace
@@ -1023,7 +1026,6 @@ class FastAgent:
     # Decorator methods with precise signatures for IDE completion
     # Provide annotations so IDEs can discover these attributes on instances
     if TYPE_CHECKING:  # pragma: no cover - typing aid only
-        from fast_agent.core.agent_card_loader import LoadedAgentCard
         from collections.abc import Coroutine
         from pathlib import Path
 
