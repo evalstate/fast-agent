@@ -175,6 +175,12 @@ class ShellCommand(CommandBase):
     kind: Literal["shell_command"] = "shell_command"
 
 
+@dataclass(frozen=True, slots=True)
+class UnknownCommand(CommandBase):
+    command: str
+    kind: Literal["unknown_command"] = "unknown_command"
+
+
 CommandPayload = (
     ShowUsageCommand
     | ShowSystemCommand
@@ -203,6 +209,7 @@ CommandPayload = (
     | ForkSessionCommand
     | ClearSessionsCommand
     | ShellCommand
+    | UnknownCommand
 )
 
 

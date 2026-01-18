@@ -53,6 +53,7 @@ from fast_agent.ui.command_payloads import (
     SelectPromptCommand,
     ShellCommand,
     ShowHistoryCommand,
+    UnknownCommand,
     ShowMarkdownCommand,
     ShowMcpStatusCommand,
     ShowSystemCommand,
@@ -1594,6 +1595,8 @@ def parse_special_input(text: str) -> str | CommandPayload:
             return "EXIT"
         if cmd.lower() == "stop":
             return "STOP"
+
+        return UnknownCommand(command=cmd_line)
 
     if cmd_line and cmd_line.startswith("@"):
         return _switch_agent_cmd(cmd_line[1:].strip())
