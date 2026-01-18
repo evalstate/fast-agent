@@ -34,8 +34,8 @@ class ModelParameters(BaseModel):
     system_role: None | str = "system"
     """Role to use for the System Prompt"""
 
-    cache_ttl_minutes: int | None = None
-    """Cache time-to-live in minutes. None if provider doesn't support caching."""
+    cache_ttl: Literal["5m", "1h"] | None = None
+    """Cache TTL for providers that support caching. None if not supported."""
 
 
 class ModelDatabase:
@@ -98,14 +98,14 @@ class ModelDatabase:
         context_window=200000,
         max_output_tokens=4096,
         tokenizes=ANTHROPIC_MULTIMODAL,
-        cache_ttl_minutes=5,
+        cache_ttl="5m",
     )
 
     ANTHROPIC_35_SERIES = ModelParameters(
         context_window=200000,
         max_output_tokens=8192,
         tokenizes=ANTHROPIC_MULTIMODAL,
-        cache_ttl_minutes=5,
+        cache_ttl="5m",
     )
 
     # TODO--- TO USE 64,000 NEED TO SUPPORT STREAMING
@@ -113,7 +113,7 @@ class ModelDatabase:
         context_window=200000,
         max_output_tokens=16384,
         tokenizes=ANTHROPIC_MULTIMODAL,
-        cache_ttl_minutes=5,
+        cache_ttl="5m",
     )
 
     QWEN_STANDARD = ModelParameters(
@@ -174,14 +174,14 @@ class ModelDatabase:
         max_output_tokens=32000,
         tokenizes=ANTHROPIC_MULTIMODAL,
         reasoning="anthropic_thinking",
-        cache_ttl_minutes=5,
+        cache_ttl="5m",
     )
     ANTHROPIC_SONNET_4_VERSIONED = ModelParameters(
         context_window=200000,
         max_output_tokens=64000,
         tokenizes=ANTHROPIC_MULTIMODAL,
         reasoning="anthropic_thinking",
-        cache_ttl_minutes=5,
+        cache_ttl="5m",
     )
     # Claude 3.7 Sonnet supports extended thinking (deprecated but still available)
     ANTHROPIC_37_SERIES_THINKING = ModelParameters(
@@ -189,7 +189,7 @@ class ModelDatabase:
         max_output_tokens=16384,
         tokenizes=ANTHROPIC_MULTIMODAL,
         reasoning="anthropic_thinking",
-        cache_ttl_minutes=5,
+        cache_ttl="5m",
     )
 
     DEEPSEEK_CHAT_STANDARD = ModelParameters(
@@ -547,10 +547,10 @@ class ModelDatabase:
         return 2048  # Fallback for unknown models
 
     @classmethod
-    def get_cache_ttl(cls, model: str) -> int | None:
-        """Get cache TTL in minutes for a model, or None if not supported"""
+    def get_cache_ttl(cls, model: str) -> Literal["5m", "1h"] | None:
+        """Get cache TTL for a model, or None if not supported"""
         params = cls.get_model_params(model)
-        return params.cache_ttl_minutes if params else None
+        return params.cache_ttl if params else None
 
     @classmethod
     def list_models(cls) -> list[str]:

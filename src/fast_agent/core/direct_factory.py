@@ -31,6 +31,7 @@ from fast_agent.interfaces import (
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.mcp.ui_agent import McpAgentWithUI
 from fast_agent.tools.function_tool_loader import load_function_tools
+from fast_agent.tools.hook_loader import load_tool_runner_hooks
 from fast_agent.types import RequestParams
 
 # Type aliases for improved readability and IDE support
@@ -70,6 +71,104 @@ def _create_agent_with_ui_if_needed(
     else:
         # Create the original agent instance
         return agent_class(config=config, context=context, **kwargs)
+
+
+def _apply_tool_hooks(
+    agent: LlmAgent,
+    config: AgentConfig,
+    source_path: str | None = None,
+    *,
+    enable_session_history: bool = False,
+) -> None:
+    """
+    Apply tool runner hooks to an agent based on config.
+
+    Handles both:
+    - tool_hooks: dict mapping hook types to function specs
+    - trim_tool_history: shortcut to apply built-in history trimmer
+
+    Args:
+        agent: The agent to apply hooks to
+        config: Agent configuration with tool_hooks and/or trim_tool_history
+        source_path: Path to the source file for resolving relative hook paths
+    """
+    # Import here to avoid circular imports
+    from fast_agent.agents.tool_runner import ToolRunnerHooks
+    from fast_agent.hooks import save_session_history, trim_tool_loop_history
+    from fast_agent.hooks.hook_context import HookContext
+
+    hooks_config = config.tool_hooks
+    trim_history = config.trim_tool_history
+
+    # If trim_tool_history is set and no after_turn_complete hook is configured,
+    # add the built-in trimmer
+    if trim_history:
+        if hooks_config is None:
+            hooks_config = {}
+        if "after_turn_complete" not in hooks_config:
+            # Use a wrapper that creates HookContext for the built-in trimmer
+            async def _trimmer_wrapper(runner, message):
+                ctx = HookContext(
+                    runner=runner,
+                    agent=agent,
+                    message=message,
+                    hook_type="after_turn_complete",
+                )
+                await trim_tool_loop_history(ctx)
+
+            # Set the hooks directly since we have a callable, not a spec string
+            existing_hooks = getattr(agent, "tool_runner_hooks", None) or ToolRunnerHooks()
+            agent.tool_runner_hooks = ToolRunnerHooks(
+                before_llm_call=existing_hooks.before_llm_call,
+                after_llm_call=existing_hooks.after_llm_call,
+                before_tool_call=existing_hooks.before_tool_call,
+                after_tool_call=existing_hooks.after_tool_call,
+                after_turn_complete=_trimmer_wrapper,
+            )
+            # If we only had trim_tool_history and it's now applied, we're done
+            if not config.tool_hooks:
+                return
+
+    # Load custom hooks from config
+    if hooks_config:
+        base_path = Path(source_path).parent if source_path else None
+        loaded_hooks = load_tool_runner_hooks(hooks_config, agent, base_path)
+        if loaded_hooks:
+            # Merge with any existing hooks (trim_tool_history wrapper)
+            existing = getattr(agent, "tool_runner_hooks", None)
+            if existing:
+                agent.tool_runner_hooks = ToolRunnerHooks(
+                    before_llm_call=loaded_hooks.before_llm_call or existing.before_llm_call,
+                    after_llm_call=loaded_hooks.after_llm_call or existing.after_llm_call,
+                    before_tool_call=loaded_hooks.before_tool_call or existing.before_tool_call,
+                    after_tool_call=loaded_hooks.after_tool_call or existing.after_tool_call,
+                    after_turn_complete=loaded_hooks.after_turn_complete or existing.after_turn_complete,
+                )
+            else:
+                agent.tool_runner_hooks = loaded_hooks
+
+    if enable_session_history:
+        existing_hooks = getattr(agent, "tool_runner_hooks", None) or ToolRunnerHooks()
+        existing_after_turn = existing_hooks.after_turn_complete
+
+        async def _session_history_wrapper(runner, message):
+            if existing_after_turn is not None:
+                await existing_after_turn(runner, message)
+            ctx = HookContext(
+                runner=runner,
+                agent=agent,
+                message=message,
+                hook_type="after_turn_complete",
+            )
+            await save_session_history(ctx)
+
+        agent.tool_runner_hooks = ToolRunnerHooks(
+            before_llm_call=existing_hooks.before_llm_call,
+            after_llm_call=existing_hooks.after_llm_call,
+            before_tool_call=existing_hooks.before_tool_call,
+            after_tool_call=existing_hooks.after_tool_call,
+            after_turn_complete=_session_history_wrapper,
+        )
 
 
 class AgentCreatorProtocol(Protocol):
@@ -200,6 +299,9 @@ async def create_agents_by_type(
 
     # Create a dictionary to store the initialized agents
     result_agents: AgentDict = {}
+    session_history_enabled = True
+    if app_instance.context and app_instance.context.config:
+        session_history_enabled = getattr(app_instance.context.config, "session_history", True)
 
     # Get all agents of the specified type
     for name, agent_data in agents_dict.items():
@@ -292,6 +394,16 @@ async def create_agents_by_type(
                         request_params=config.default_request_params,
                         api_key=config.api_key,
                     )
+
+                    # Apply tool hooks if configured
+                    if config.tool_hooks or config.trim_tool_history or session_history_enabled:
+                        _apply_tool_hooks(
+                            agent,
+                            config,
+                            agent_data.get("source_path"),
+                            enable_session_history=session_history_enabled,
+                        )
+
                     result_agents[name] = agent
 
                     # Log successful agent creation
@@ -334,6 +446,16 @@ async def create_agents_by_type(
                         request_params=config.default_request_params,
                         api_key=config.api_key,
                     )
+
+                    # Apply tool hooks if configured
+                    if config.tool_hooks or config.trim_tool_history or session_history_enabled:
+                        _apply_tool_hooks(
+                            agent,
+                            config,
+                            agent_data.get("source_path"),
+                            enable_session_history=session_history_enabled,
+                        )
+
                     result_agents[name] = agent
 
                     # Log successful agent creation
@@ -369,6 +491,31 @@ async def create_agents_by_type(
                     request_params=config.default_request_params,
                     api_key=config.api_key,
                 )
+
+                # Handle child_agents for custom agents (attach them as tools)
+                child_names = agent_data.get("child_agents", []) or []
+                if child_names:
+                    add_tool_fn = getattr(agent, "add_agent_tool", None)
+                    if callable(add_tool_fn):
+                        for child_name in child_names:
+                            if child_name not in active_agents:
+                                logger.warning(
+                                    "Skipping missing child agent",
+                                    data={"agent_name": child_name, "parent": name},
+                                )
+                                continue
+                            child_agent = active_agents[child_name]
+                            add_tool_fn(child_agent)
+
+                # Apply tool hooks if configured
+                if config.tool_hooks or config.trim_tool_history or session_history_enabled:
+                    _apply_tool_hooks(
+                        agent,
+                        config,
+                        agent_data.get("source_path"),
+                        enable_session_history=session_history_enabled,
+                    )
+
                 result_agents[name] = agent
 
                 # Log successful agent creation

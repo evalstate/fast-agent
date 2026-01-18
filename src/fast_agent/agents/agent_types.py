@@ -50,6 +50,11 @@ FunctionToolConfig: TypeAlias = Callable[..., Any] | str
 FunctionToolsConfig: TypeAlias = list[FunctionToolConfig] | None
 
 
+# Tool hooks config maps hook type to function spec string
+# e.g., {"after_turn_complete": "hooks.py:my_hook"}
+ToolHooksConfig: TypeAlias = dict[str, str] | None
+
+
 @dataclass
 class AgentConfig:
     """Configuration for an Agent instance"""
@@ -75,6 +80,8 @@ class AgentConfig:
     function_tools: FunctionToolsConfig = None
     shell: bool = False
     cwd: Path | None = None
+    tool_hooks: ToolHooksConfig = None
+    trim_tool_history: bool = False
 
     def __post_init__(self):
         """Ensure default_request_params exists with proper history setting"""

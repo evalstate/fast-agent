@@ -50,6 +50,7 @@ _ALLOWED_FIELDS_BY_TYPE: dict[str, set[str]] = {
         "max_display_instances",
         "function_tools",
         "tool_hooks",
+        "trim_tool_history",
         "messages",
         "shell",
         "cwd",
@@ -478,6 +479,17 @@ def _build_agent_data(
             raise AgentConfigError(f"'cwd' must be a string in {path}")
         cwd = Path(cwd_str).expanduser()
 
+    # Parse tool_hooks - dict mapping hook type to function spec
+    tool_hooks_raw = raw.get("tool_hooks")
+    tool_hooks: dict[str, str] | None = None
+    if tool_hooks_raw is not None:
+        if not isinstance(tool_hooks_raw, dict):
+            raise AgentConfigError(f"'tool_hooks' must be a dict in {path}")
+        tool_hooks = {str(k): str(v) for k, v in tool_hooks_raw.items()}
+
+    # Parse trim_tool_history shortcut
+    trim_tool_history = _ensure_bool(raw.get("trim_tool_history"), "trim_tool_history", path)
+
     config = AgentConfig(
         name=name,
         instruction=instruction,
@@ -496,6 +508,8 @@ def _build_agent_data(
         function_tools=function_tools,
         shell=shell,
         cwd=cwd,
+        tool_hooks=tool_hooks,
+        trim_tool_history=trim_tool_history,
     )
 
     if request_params is not None:
@@ -520,8 +534,6 @@ def _build_agent_data(
                 agent_data["agents_as_tools_options"] = opts
         if "function_tools" in raw:
             agent_data["function_tools"] = raw.get("function_tools")
-        if "tool_hooks" in raw:
-            agent_data["tool_hooks"] = raw.get("tool_hooks")
     elif type_key == "chain":
         sequence = _ensure_str_list(raw.get("sequence", []), "sequence", path)
         if not sequence:
@@ -864,9 +876,12 @@ def _build_card_dump(
         function_tools = _serialize_string_list(agent_data.get("function_tools"))
         if function_tools is not None:
             card["function_tools"] = function_tools
-        tool_hooks = _serialize_string_list(agent_data.get("tool_hooks"))
-        if tool_hooks is not None:
-            card["tool_hooks"] = tool_hooks
+        # tool_hooks is a dict, get from config
+        config = agent_data.get("config")
+        if isinstance(config, AgentConfig) and config.tool_hooks:
+            card["tool_hooks"] = config.tool_hooks
+        if config and config.trim_tool_history:
+            card["trim_tool_history"] = True
     elif card_type == "chain":
         card["sequence"] = list(agent_data.get("sequence") or [])
         cumulative = agent_data.get("cumulative", False)

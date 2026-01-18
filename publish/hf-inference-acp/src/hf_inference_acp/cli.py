@@ -27,7 +27,7 @@ from fast_agent.cli.commands.go import (
 )
 from fast_agent.cli.commands.server_helpers import add_servers_to_config, generate_server_name
 from fast_agent.cli.commands.url_parser import generate_server_configs, parse_server_urls
-from fast_agent.core.agent_card_validation import find_loaded_agent_issues
+from fast_agent.core.agent_card_validation import collect_agent_card_names, find_loaded_agent_issues
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
@@ -307,7 +307,6 @@ async def run_agents(
     merged_card_tools = _merge_card_sources(card_tools, DEFAULT_TOOL_CARDS_DIR)
 
     # Load agent cards BEFORE defining agents so we can add them as child agents
-    child_agent_names: list[str] = []
     card_errors: list[str] = []
     if merged_agent_cards:
         _, card_errors = _load_agent_cards(fast, merged_agent_cards)
@@ -317,9 +316,13 @@ async def run_agents(
         if config and getattr(config, "mcp", None) and getattr(config.mcp, "servers", None):
             server_names = set(config.mcp.servers.keys())
 
+        extra_agent_names = {"setup", "huggingface"}
+        if merged_card_tools:
+            extra_agent_names |= collect_agent_card_names(merged_card_tools)
+
         issues, invalid_names = find_loaded_agent_issues(
             fast.agents,
-            extra_agent_names={"setup", "huggingface"},
+            extra_agent_names=extra_agent_names,
             server_names=server_names,
         )
         if invalid_names:
@@ -339,11 +342,6 @@ async def run_agents(
             formatted = _format_agent_card_error(issue.source, issue.message)
             card_errors.append(formatted)
             typer.echo(f"Warning: {formatted}", err=True)
-        # Collect names of all loaded agents (excluding our built-in ones)
-        child_agent_names = [
-            name for name in fast.agents.keys()
-            if name not in {"setup", "huggingface"}
-        ]
         if card_errors:
             setattr(fast.app.context, "agent_card_errors", card_errors)
 
@@ -374,26 +372,40 @@ async def run_agents(
 
     # Register the HuggingFace agent (uses HF LLM)
     # Always register so the mode is visible; defaults to Setup mode when token is missing
-    # Include any loaded agent cards as child agents (available as tools)
+    # Note: Agent cards are loaded as separate agents/modes, NOT as tools.
+    # Tool cards (from .fast-agent/tool-cards) are attached as tools below.
     @fast.custom(
         HuggingFaceAgent,
         name="huggingface",
         instruction=instruction,
         model=effective_model if hf_token_present else "wizard-setup",
         servers=server_list,
-        agents=child_agent_names if child_agent_names else None,
         default=hf_token_present,
     )
     async def hf_agent():
         pass
 
-    # Set card_tools for start_server() to process (--card-tool option)
+    # Load tool cards and attach them to the default agent
     if merged_card_tools:
-        from argparse import Namespace
+        tool_loaded_names: list[str] = []
+        for card_source in merged_card_tools:
+            try:
+                if card_source.startswith(("http://", "https://")):
+                    tool_loaded_names.extend(fast.load_agents_from_url(card_source))
+                else:
+                    tool_loaded_names.extend(fast.load_agents(card_source))
+            except Exception as exc:  # noqa: BLE001
+                formatted = _format_agent_card_error(card_source, exc)
+                typer.echo(f"Warning: {formatted}", err=True)
 
-        if not hasattr(fast, "args") or fast.args is None:
-            fast.args = Namespace()
-        fast.args.card_tools = merged_card_tools
+        if tool_loaded_names:
+            # Attach tool cards to the default agent (e.g., "huggingface" when HF token is present)
+            target_name = fast.get_default_agent_name()
+            if target_name:
+                try:
+                    fast.attach_agent_tools(target_name, tool_loaded_names)
+                except Exception as exc:  # noqa: BLE001
+                    typer.echo(f"Warning: Failed to attach tool cards: {exc}", err=True)
 
     # Start the ACP server
     await fast.start_server(

@@ -8,9 +8,12 @@ import typer
 from fast_agent.cli.commands import serve
 from fast_agent.cli.commands.go import (
     collect_stdio_commands,
+    resolve_environment_dir_option,
     resolve_instruction_option,
     run_async_agent,
 )
+from fast_agent.cli.constants import RESUME_LATEST_SENTINEL
+from fast_agent.cli.shared_options import CommonAgentOptions
 
 app = typer.Typer(
     help="Run FastAgent as an ACP stdio server without specifying --transport=acp explicitly.",
@@ -35,45 +38,18 @@ def run_acp(
     instruction: str | None = typer.Option(
         None, "--instruction", "-i", help="Path to file or URL containing instruction for the agent"
     ),
-    config_path: str | None = typer.Option(None, "--config-path", "-c", help="Path to config file"),
-    servers: str | None = typer.Option(
-        None, "--servers", help="Comma-separated list of server names to enable from config"
-    ),
-    agent_cards: list[str] | None = typer.Option(
-        None,
-        "--agent-cards",
-        "--card",
-        help="Path or URL to an AgentCard file or directory (repeatable)",
-    ),
-    card_tools: list[str] | None = typer.Option(
-        None,
-        "--card-tool",
-        help="Path or URL to an AgentCard file or directory to load as tools (repeatable)",
-    ),
-    urls: str | None = typer.Option(
-        None, "--url", help="Comma-separated list of HTTP/SSE URLs to connect to"
-    ),
-    auth: str | None = typer.Option(
-        None, "--auth", help="Bearer token for authorization with URL-based servers"
-    ),
-    model: str | None = typer.Option(
-        None, "--model", "--models", help="Override the default model (e.g., haiku, sonnet, gpt-4)"
-    ),
-    skills_dir: Path | None = typer.Option(
-        None,
-        "--skills-dir",
-        "--skills",
-        help="Override the default skills directory",
-    ),
-    npx: str | None = typer.Option(
-        None, "--npx", help="NPX package and args to run as MCP server (quoted)"
-    ),
-    uvx: str | None = typer.Option(
-        None, "--uvx", help="UVX package and args to run as MCP server (quoted)"
-    ),
-    stdio: str | None = typer.Option(
-        None, "--stdio", help="Command to run as STDIO MCP server (quoted)"
-    ),
+    config_path: str | None = CommonAgentOptions.config_path(),
+    servers: str | None = CommonAgentOptions.servers(),
+    agent_cards: list[str] | None = CommonAgentOptions.agent_cards(),
+    card_tools: list[str] | None = CommonAgentOptions.card_tools(),
+    urls: str | None = CommonAgentOptions.urls(),
+    auth: str | None = CommonAgentOptions.auth(),
+    model: str | None = CommonAgentOptions.model(),
+    env_dir: Path | None = CommonAgentOptions.env_dir(),
+    skills_dir: Path | None = CommonAgentOptions.skills_dir(),
+    npx: str | None = CommonAgentOptions.npx(),
+    uvx: str | None = CommonAgentOptions.uvx(),
+    stdio: str | None = CommonAgentOptions.stdio(),
     description: str | None = typer.Option(
         None,
         "--description",
@@ -106,8 +82,14 @@ def run_acp(
         "--no-permissions",
         help="Disable tool permission requests (allow all tool executions without asking)",
     ),
-    reload: bool = typer.Option(False, "--reload", help="Enable manual AgentCard reloads"),
-    watch: bool = typer.Option(False, "--watch", help="Watch AgentCard paths and reload"),
+    resume: str | None = typer.Option(
+        None,
+        "--resume",
+        flag_value=RESUME_LATEST_SENTINEL,
+        help="Resume the last session or the specified session id",
+    ),
+    reload: bool = CommonAgentOptions.reload(),
+    watch: bool = CommonAgentOptions.watch(),
 ) -> None:
     """
     Run FastAgent with ACP transport defaults.
@@ -115,6 +97,8 @@ def run_acp(
     This mirrors `fast-agent serve --transport acp` but provides a shorter command and
     a distinct default name so ACP-specific tooling can integrate more easily.
     """
+    env_dir = resolve_environment_dir_option(ctx, env_dir)
+
     stdio_commands = collect_stdio_commands(npx, uvx, stdio)
     shell_enabled = shell
 
@@ -125,6 +109,7 @@ def run_acp(
         instruction=resolved_instruction,
         config_path=config_path,
         servers=servers,
+        resume=resume,
         agent_cards=agent_cards,
         card_tools=card_tools,
         urls=urls,
@@ -135,6 +120,7 @@ def run_acp(
         stdio_commands=stdio_commands,
         agent_name=agent_name,
         skills_directory=skills_dir,
+        environment_dir=env_dir,
         shell_enabled=shell_enabled,
         mode="serve",
         transport=serve.ServeTransport.ACP.value,

@@ -239,12 +239,16 @@ class UsageAccumulator(BaseModel):
 
     turns: list[TurnUsage] = Field(default_factory=list)
     model: str | None = None
+    last_cache_activity_time: float | None = None
 
     def add_turn(self, turn: TurnUsage) -> None:
         """Add a new turn to the accumulator"""
         self.turns.append(turn)
         if self.model is None:
             self.model = turn.model
+        # Track when cache was last used for expiry estimation
+        if turn.cache_usage.has_cache_activity:
+            self.last_cache_activity_time = turn.timestamp
 
     # add tool call count to the last turn (if present)
     # not ideal way to do it, but works well enough. full history would be available through the

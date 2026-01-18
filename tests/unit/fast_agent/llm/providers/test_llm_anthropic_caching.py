@@ -24,21 +24,25 @@ class TestAnthropicCaching:
     """Test cases for Anthropic caching functionality."""
 
     def _create_context_with_cache_mode(
-        self, cache_mode: Literal["off", "prompt", "auto"]
+        self,
+        cache_mode: Literal["off", "prompt", "auto"],
+        cache_ttl: Literal["5m", "1h"] = "5m",
     ) -> Context:
-        """Create a context with specified cache mode."""
+        """Create a context with specified cache mode and TTL."""
         ctx = Context()
         ctx.config = Settings()
         ctx.config.anthropic = AnthropicSettings(
-            api_key="test_key", cache_mode=cache_mode
+            api_key="test_key", cache_mode=cache_mode, cache_ttl=cache_ttl
         )
         return ctx
 
     def _create_llm(
-        self, cache_mode: Literal["off", "prompt", "auto"] = "off"
+        self,
+        cache_mode: Literal["off", "prompt", "auto"] = "off",
+        cache_ttl: Literal["5m", "1h"] = "5m",
     ) -> AnthropicLLM:
-        """Create an AnthropicLLM instance with specified cache mode."""
-        ctx = self._create_context_with_cache_mode(cache_mode)
+        """Create an AnthropicLLM instance with specified cache mode and TTL."""
+        ctx = self._create_context_with_cache_mode(cache_mode, cache_ttl)
         llm = AnthropicLLM(context=ctx)
         return llm
 
@@ -47,12 +51,13 @@ class TestAnthropicCaching:
         messages: list[PromptMessageExtended],
         cache_mode: Literal["off", "prompt", "auto"],
         system_blocks: int = 0,
+        cache_ttl: Literal["5m", "1h"] = "5m",
     ) -> list[MessageParam]:
         planner = AnthropicCachePlanner()
         plan = planner.plan_indices(messages, cache_mode=cache_mode, system_cache_blocks=system_blocks)
         converted = [AnthropicConverter.convert_to_anthropic(m) for m in messages]
         for idx in plan:
-            AnthropicLLM._apply_cache_control_to_message(converted[idx])
+            AnthropicLLM._apply_cache_control_to_message(converted[idx], ttl=cache_ttl)
         return converted
 
     def test_conversion_off_mode_no_cache_control(self):
@@ -111,6 +116,7 @@ class TestAnthropicCaching:
                     if isinstance(block, dict) and "cache_control" in block:
                         found_cache_control = True
                         assert block["cache_control"]["type"] == "ephemeral"
+                        assert block["cache_control"]["ttl"] == "5m"
 
         assert found_cache_control, "Template messages should have cache_control in 'prompt' mode"
 
@@ -145,6 +151,7 @@ class TestAnthropicCaching:
                 if isinstance(block, dict) and "cache_control" in block:
                     found_cache_control = True
                     assert block["cache_control"]["type"] == "ephemeral"
+                    assert block["cache_control"]["ttl"] == "5m"
 
         assert found_cache_control, "Template messages should have cache_control in 'auto' mode"
 
@@ -305,6 +312,91 @@ class TestAnthropicCaching:
             isinstance(block, dict) and "cache_control" in block for block in content_blocks
         )
         assert found_cache_control, "Template should have cache_control"
+
+    def test_conversion_prompt_mode_with_1h_ttl(self):
+        """Test that cache_ttl='1h' produces correct cache_control with 1h TTL."""
+        template_msgs = [
+            PromptMessageExtended(
+                role="user", content=[TextContent(type="text", text="System context")], is_template=True
+            ),
+            PromptMessageExtended(
+                role="assistant", content=[TextContent(type="text", text="Understood")], is_template=True
+            ),
+        ]
+        conversation_msgs = [
+            PromptMessageExtended(
+                role="user", content=[TextContent(type="text", text="Question")]
+            ),
+        ]
+
+        converted = self._apply_cache_plan(
+            template_msgs + conversation_msgs, cache_mode="prompt", cache_ttl="1h"
+        )
+
+        # Verify we have 3 messages (2 templates + 1 conversation)
+        assert len(converted) == 3
+
+        # Template messages should have cache_control with 1h TTL
+        found_1h_cache_control = False
+        template_count = len(template_msgs)
+        for msg in converted[:template_count]:
+            if "content" in msg:
+                for block in msg["content"]:
+                    if isinstance(block, dict) and "cache_control" in block:
+                        assert block["cache_control"]["type"] == "ephemeral"
+                        assert block["cache_control"]["ttl"] == "1h"
+                        found_1h_cache_control = True
+
+        assert found_1h_cache_control, "Template messages should have cache_control with 1h TTL"
+
+    def test_conversion_auto_mode_with_1h_ttl(self):
+        """Test that cache_ttl='1h' works correctly in 'auto' mode."""
+        template_msgs = [
+            PromptMessageExtended(
+                role="user", content=[TextContent(type="text", text="Template")], is_template=True
+            ),
+        ]
+        conversation_msgs = [
+            PromptMessageExtended(
+                role="user", content=[TextContent(type="text", text="Question")]
+            ),
+        ]
+
+        converted = self._apply_cache_plan(
+            template_msgs + conversation_msgs, cache_mode="auto", cache_ttl="1h"
+        )
+
+        # Template message should have cache_control with 1h TTL
+        found_1h_cache_control = False
+        template_msg = converted[0]
+        if "content" in template_msg:
+            for block in template_msg["content"]:
+                if isinstance(block, dict) and "cache_control" in block:
+                    assert block["cache_control"]["type"] == "ephemeral"
+                    assert block["cache_control"]["ttl"] == "1h"
+                    found_1h_cache_control = True
+
+        assert found_1h_cache_control, "Template messages should have cache_control with 1h TTL in 'auto' mode"
+
+    @pytest.mark.parametrize("cache_ttl", ["5m", "1h"])
+    def test_cache_ttl_values(self, cache_ttl: Literal["5m", "1h"]):
+        """Test that both valid TTL values produce correct cache_control."""
+        template_msgs = [
+            PromptMessageExtended(
+                role="user", content=[TextContent(type="text", text="Template")], is_template=True
+            ),
+        ]
+
+        converted = self._apply_cache_plan(template_msgs, cache_mode="prompt", cache_ttl=cache_ttl)
+
+        # Find the cache_control and verify TTL
+        for block in converted[0].get("content", []):
+            if isinstance(block, dict) and "cache_control" in block:
+                assert block["cache_control"]["type"] == "ephemeral"
+                assert block["cache_control"]["ttl"] == cache_ttl
+                return
+
+        pytest.fail(f"No cache_control found for TTL {cache_ttl}")
 
 
 if __name__ == "__main__":

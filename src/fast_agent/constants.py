@@ -45,9 +45,15 @@ DEFAULT_AGENT_INSTRUCTION = """You are a helpful AI Agent.
 
 The current date is {{currentDate}}."""
 
+
+DEFAULT_ENVIRONMENT_DIR = ".fast-agent"
+
 DEFAULT_SKILLS_PATHS = [
-    ".fast-agent/skills",
+    f"{DEFAULT_ENVIRONMENT_DIR}/skills",
     ".claude/skills",
 ]
 
 CONTROL_MESSAGE_SAVE_HISTORY = "***SAVE_HISTORY"
+
+FAST_AGENT_SHELL_CHILD_ENV = "FAST_AGENT_SHELL_CHILD"
+"""Environment variable set when running fast-agent shell commands."""

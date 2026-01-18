@@ -1,6 +1,6 @@
 [project]
 name = "fast-agent-mcp"
-version = "0.4.31"
+version = "0.4.32"
 description = "Define, Prompt and Test MCP enabled Agents and Workflows"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -110,6 +110,7 @@ testpaths = ["tests"]
 [dependency-groups]
 dev = [
     "boto3>=1.35.0",
+    "multilspy>=0.0.15",
     "pre-commit>=4.0.1",
     "pydantic>=2.10.4",
     "ruamel.yaml>=0.18.0",

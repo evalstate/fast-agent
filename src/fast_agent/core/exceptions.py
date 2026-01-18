@@ -13,6 +13,13 @@ class FastAgentError(Exception):
         super().__init__(f"{message}\n\n{details}" if details else message)
 
 
+def format_fast_agent_error(error: "FastAgentError", *, single_line: bool = True) -> str:
+    message = f"{error.message}: {error.details}" if error.details else error.message
+    if not single_line:
+        return message
+    return " ".join(message.splitlines())
+
+
 class ServerConfigError(FastAgentError):
     """Raised when there are issues with MCP server configuration
     Example: Server name referenced in agent.servers[] but not defined in config

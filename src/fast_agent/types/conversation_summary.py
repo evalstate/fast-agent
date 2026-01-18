@@ -15,6 +15,47 @@ from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 
+def split_into_turns(
+    messages: list[PromptMessageExtended],
+) -> list[list[PromptMessageExtended]]:
+    """
+    Split a conversation into turns.
+
+    A turn starts with a user message that does NOT contain tool_results
+    (i.e., a fresh user input, not a tool response).
+
+    Args:
+        messages: List of PromptMessageExtended messages to split.
+
+    Returns:
+        List of turns, where each turn is a list of messages.
+
+    Example:
+        Input: [user, assistant, user(tool_result), assistant, user, assistant]
+        Output: [[user, assistant, user(tool_result), assistant], [user, assistant]]
+    """
+    if not messages:
+        return []
+
+    turns: list[list[PromptMessageExtended]] = []
+    current_turn: list[PromptMessageExtended] = []
+
+    for msg in messages:
+        # Check if this is a turn boundary (user message without tool_results)
+        if msg.role == "user" and not msg.tool_results:
+            if current_turn:
+                turns.append(current_turn)
+            current_turn = [msg]
+        else:
+            current_turn.append(msg)
+
+    # Don't forget the last turn
+    if current_turn:
+        turns.append(current_turn)
+
+    return turns
+
+
 class ConversationSummary(BaseModel):
     """
     Analyzes a conversation's message history and provides computed statistics.
@@ -162,6 +203,22 @@ class ConversationSummary(BaseModel):
     def has_tool_errors(self) -> bool:
         """Whether any tool errors occurred in this conversation."""
         return self.tool_errors > 0
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def turns(self) -> list[list[PromptMessageExtended]]:
+        """
+        Split messages into logical turns.
+
+        A turn starts with a user message that does NOT contain tool_results.
+        """
+        return split_into_turns(self.messages)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def turn_count(self) -> int:
+        """Number of turns in the conversation."""
+        return len(self.turns)
 
     @computed_field  # type: ignore[prop-decorator]
     @property

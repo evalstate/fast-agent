@@ -102,10 +102,12 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         self._execution_tools: dict[str, FastMCPTool] = {}
         self._tool_schemas: list[Tool] = []
         self._agent_tools: dict[str, LlmAgent] = {}
+        self._card_tool_names: set[str] = set()
         self.tool_runner_hooks: ToolRunnerHooks | None = None
 
         # Build a working list of tools and auto-inject human-input tool if missing
         working_tools: list[FastMCPTool | Callable] = list(tools) if tools else []
+        card_tool_source_ids = {id(tool) for tool in working_tools}
         # Only auto-inject if enabled via AgentConfig
         if self.config.human_input:
             existing_names = {
@@ -128,6 +130,8 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 continue
 
             self._execution_tools[fast_tool.name] = fast_tool
+            if id(tool) in card_tool_source_ids:
+                self._card_tool_names.add(fast_tool.name)
             # Create MCP Tool schema for the LLM interface
             self._tool_schemas.append(
                 Tool(
@@ -157,6 +161,19 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 description=tool.description,
                 inputSchema=tool.parameters,
             )
+        )
+
+    def _card_tools_label(self) -> str | None:
+        if not self._card_tool_names:
+            return None
+        return "card_tools"
+
+    def _card_tools_used(self, message: PromptMessageExtended) -> bool:
+        if not self._card_tool_names or not message.tool_calls:
+            return False
+        return any(
+            tool_request.params.name in self._card_tool_names
+            for tool_request in message.tool_calls.values()
         )
 
     def add_agent_tool(
@@ -217,6 +234,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 before_tool_call = existing_hooks.before_tool_call if existing_hooks else None
                 after_llm_call = existing_hooks.after_llm_call if existing_hooks else None
                 after_tool_call = existing_hooks.after_tool_call if existing_hooks else None
+                after_turn_complete = existing_hooks.after_turn_complete if existing_hooks else None
 
                 async def handle_before_llm_call(runner, messages):
                     if before_llm_call:
@@ -233,6 +251,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                     after_llm_call=after_llm_call,
                     before_tool_call=handle_before_tool_call,
                     after_tool_call=after_tool_call,
+                    after_turn_complete=after_turn_complete,
                 )
                 hooks_set = True
 

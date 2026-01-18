@@ -41,6 +41,7 @@ __all__ = [
     "FastAgentLLMProtocol",
     "StreamingAgentProtocol",
     "LlmAgentProtocol",
+    "MessageHistoryAgentProtocol",
     "AgentProtocol",
     "ToolRunnerHookCapable",
     "ACPAwareProtocol",
@@ -51,6 +52,18 @@ __all__ = [
 
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
+
+
+class MessageHistoryAgentProtocol(Protocol):
+    """Protocol for agents that support message history operations."""
+
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def message_history(self) -> list[PromptMessageExtended]: ...
+
+    def load_message_history(self, messages: list[PromptMessageExtended] | None) -> None: ...
 
 
 class LLMFactoryProtocol(Protocol):

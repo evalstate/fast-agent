@@ -96,6 +96,13 @@ class LoadHistoryCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class HistoryRewindCommand(CommandBase):
+    turn_index: int | None
+    error: str | None
+    kind: Literal["history_rewind"] = "history_rewind"
+
+
+@dataclass(frozen=True, slots=True)
 class LoadAgentCardCommand(CommandBase):
     filename: str | None
     add_tool: bool
@@ -119,6 +126,55 @@ class AgentCommand(CommandBase):
     kind: Literal["agent_command"] = "agent_command"
 
 
+@dataclass(frozen=True, slots=True)
+class ListSessionsCommand(CommandBase):
+    kind: Literal["list_sessions"] = "list_sessions"
+
+
+@dataclass(frozen=True, slots=True)
+class CreateSessionCommand(CommandBase):
+    session_name: str | None
+    kind: Literal["create_session"] = "create_session"
+
+
+@dataclass(frozen=True, slots=True)
+class SwitchSessionCommand(CommandBase):
+    session_name: str
+    kind: Literal["switch_session"] = "switch_session"
+
+
+@dataclass(frozen=True, slots=True)
+class ResumeSessionCommand(CommandBase):
+    session_id: str | None
+    kind: Literal["resume_session"] = "resume_session"
+
+
+@dataclass(frozen=True, slots=True)
+class TitleSessionCommand(CommandBase):
+    title: str
+    kind: Literal["title_session"] = "title_session"
+
+
+@dataclass(frozen=True, slots=True)
+class ForkSessionCommand(CommandBase):
+    title: str | None
+    kind: Literal["fork_session"] = "fork_session"
+
+
+@dataclass(frozen=True, slots=True)
+class ClearSessionsCommand(CommandBase):
+    target: str | None
+    kind: Literal["clear_sessions"] = "clear_sessions"
+
+
+@dataclass(frozen=True, slots=True)
+class ShellCommand(CommandBase):
+    """Execute a shell command directly."""
+
+    command: str
+    kind: Literal["shell_command"] = "shell_command"
+
+
 CommandPayload = (
     ShowUsageCommand
     | ShowSystemCommand
@@ -135,9 +191,18 @@ CommandPayload = (
     | HashAgentCommand
     | SaveHistoryCommand
     | LoadHistoryCommand
+    | HistoryRewindCommand
     | LoadAgentCardCommand
     | ReloadAgentsCommand
     | AgentCommand
+    | ListSessionsCommand
+    | CreateSessionCommand
+    | SwitchSessionCommand
+    | ResumeSessionCommand
+    | TitleSessionCommand
+    | ForkSessionCommand
+    | ClearSessionsCommand
+    | ShellCommand
 )
 
 

@@ -246,7 +246,7 @@ class ShellRuntime:
 
                         if output_truncated and not truncation_notice_printed:
                             console.console.print(
-                                "▶ Output truncated - limit reached",
+                                "▶ Agent output truncated - limit reached",
                                 style="black on red",
                             )
                             truncation_notice_printed = True

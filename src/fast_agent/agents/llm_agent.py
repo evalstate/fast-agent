@@ -8,7 +8,7 @@ This class extends LlmDecorator with LLM-specific interaction behaviors includin
 - Chat display integration
 """
 
-from typing import Callable, List, Optional, Tuple
+from typing import TYPE_CHECKING, Callable, List, Optional, Tuple
 
 from a2a.types import AgentCapabilities
 from mcp import Tool
@@ -32,6 +32,8 @@ from fast_agent.workflow_telemetry import (
     WorkflowTelemetryProvider,
 )
 
+if TYPE_CHECKING:
+    from fast_agent.agents.tool_runner import ToolRunnerHooks
 # TODO -- decide what to do with type safety for model/chat_turn()
 
 DEFAULT_CAPABILITIES = AgentCapabilities(
@@ -57,6 +59,7 @@ class LlmAgent(LlmDecorator):
 
         # Initialize display component
         self._display = ConsoleDisplay(config=self._context.config if self._context else None)
+        self.tool_runner_hooks: "ToolRunnerHooks | None" = None
         self._workflow_telemetry_provider: WorkflowTelemetryProvider = (
             NoOpWorkflowTelemetryProvider()
         )

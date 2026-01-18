@@ -12,6 +12,7 @@ import yaml
 from frontmatter import loads as load_frontmatter
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.core.exceptions import AgentConfigError, format_fast_agent_error
 
 CARD_EXTENSIONS = {".md", ".markdown", ".yaml", ".yml"}
 
@@ -55,10 +56,42 @@ def collect_agent_card_files(directory: Path) -> list[Path]:
     ]
 
 
+
+
+def collect_agent_card_names(sources: Iterable[str]) -> set[str]:
+    """Collect AgentCard names from local files or directories.
+
+    URL sources are ignored. Any card parsing errors are treated as best-effort
+    and skipped, mirroring validation behavior elsewhere.
+    """
+    names: set[str] = set()
+    for source in sources:
+        if source.startswith(("http://", "https://")):
+            continue
+        source_path = Path(source).expanduser()
+        if source_path.is_dir():
+            entries = scan_agent_card_directory(source_path)
+            for entry in entries:
+                if entry.name != "—" and entry.ignored_reason is None:
+                    names.add(entry.name)
+            continue
+        try:
+            from fast_agent.core.agent_card_loader import load_agent_cards
+
+            cards = load_agent_cards(source_path)
+        except Exception:  # noqa: BLE001
+            continue
+        for card in cards:
+            names.add(card.name)
+
+    return names
+
+
 def scan_agent_card_directory(
     directory: Path,
     *,
     server_names: set[str] | None = None,
+    extra_agent_names: set[str] | None = None,
 ) -> list[AgentCardScanResult]:
     entries: list[AgentCardScanResult] = []
     card_files = collect_agent_card_files(directory)
@@ -164,12 +197,7 @@ def scan_agent_card_directory(
                     errors.append(error)
 
         if messages:
-            for message_path_str in messages:
-                message_path = Path(message_path_str).expanduser()
-                if not message_path.is_absolute():
-                    message_path = (card_path.parent / message_path).resolve()
-                if not message_path.exists():
-                    errors.append(f"History file not found ({message_path})")
+            _validate_message_files(messages, card_path.parent, errors)
 
         entries[-1] = AgentCardScanResult(
             name=name,
@@ -199,6 +227,8 @@ def scan_agent_card_directory(
         for entry in entries
         if entry.name != "—" and entry.ignored_reason is None
     }
+    if extra_agent_names:
+        available_names |= extra_agent_names
     for idx, entry in enumerate(entries):
         missing = sorted(dep for dep in entry.dependencies if dep not in available_names)
         if missing:
@@ -380,6 +410,47 @@ def _ensure_str(value: Any, field: str, errors: list[str]) -> str | None:
         errors.append(f"'{field}' must be a non-empty string")
         return None
     return value.strip()
+
+
+def _resolve_message_path(message_path_str: str, base_path: Path) -> Path:
+    message_path = Path(message_path_str).expanduser()
+    if not message_path.is_absolute():
+        message_path = (base_path / message_path).resolve()
+    return message_path
+
+
+def _validate_message_files(
+    messages: list[str],
+    base_path: Path,
+    errors: list[str],
+) -> None:
+    message_paths: list[Path] = []
+    for message_path_str in messages:
+        message_path = _resolve_message_path(message_path_str, base_path)
+        if not message_path.exists():
+            errors.append(f"History file not found ({message_path})")
+            continue
+        message_paths.append(message_path)
+
+    if not message_paths:
+        return
+
+    from fast_agent.mcp.prompts.prompt_load import load_prompt
+
+    for message_path in message_paths:
+        try:
+            load_prompt(message_path)
+        except AgentConfigError as exc:
+            errors.append(
+                " ".join(
+                    [
+                        f"History file failed to load ({message_path}):",
+                        format_fast_agent_error(exc),
+                    ]
+                )
+            )
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"History file failed to load ({message_path}): {exc}")
 
 
 def _check_function_tool_spec(spec: str, base_path: Path) -> str | None:

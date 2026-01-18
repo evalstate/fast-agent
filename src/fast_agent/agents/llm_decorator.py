@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from rich.text import Text
 
     from fast_agent.agents.llm_agent import LlmAgent
+    from fast_agent.agents.tool_runner import ToolRunnerHooks
 
 from a2a.types import AgentCard
 from mcp import ListToolsResult, Tool
@@ -54,6 +55,7 @@ from fast_agent.interfaces import (
     FastAgentLLMProtocol,
     LLMFactoryProtocol,
     StreamingAgentProtocol,
+    ToolRunnerHookCapable,
 )
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider_types import Provider
@@ -62,6 +64,7 @@ from fast_agent.llm.usage_tracking import UsageAccumulator
 from fast_agent.mcp.helpers.content_helpers import normalize_to_extended_list, text_content
 from fast_agent.mcp.mime_utils import is_text_mime_type
 from fast_agent.types import PromptMessageExtended, RequestParams
+from fast_agent.types.llm_stop_reason import LlmStopReason
 
 # Define a TypeVar for models
 ModelT = TypeVar("ModelT", bound=BaseModel)
@@ -296,6 +299,13 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         constructor_kwargs = self._clone_constructor_kwargs()
         clone = type(self)(config=new_config, context=self.context, **constructor_kwargs)
         await clone.initialize()
+
+        # Copy tool_runner_hooks if present
+        hooks: ToolRunnerHooks | None = None
+        if isinstance(self, ToolRunnerHookCapable):
+            hooks = self.tool_runner_hooks
+        if hooks is not None and isinstance(clone, ToolRunnerHookCapable):
+            clone.tool_runner_hooks = hooks
 
         if self._llm_factory_ref is not None:
             if self._llm_attach_kwargs is None:
@@ -619,6 +629,24 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             call_params.use_history = True
 
         base_history = self._message_history if use_history else self._template_prefix_messages()
+
+        # Check for pending tool calls in history that were never answered
+        if base_history:
+            last_msg = base_history[-1]
+            if (
+                last_msg.role == "assistant"
+                and last_msg.tool_calls
+                and last_msg.stop_reason == LlmStopReason.TOOL_USE
+            ):
+                logger.error(
+                    "History ends with unanswered tool call - session may have been "
+                    "interrupted mid-turn. The LLM will likely reject this request.",
+                    data={
+                        "tool_calls": list(last_msg.tool_calls.keys()),
+                        "history_length": len(base_history),
+                    },
+                )
+
         full_history = [msg.model_copy(deep=True) for msg in base_history]
         full_history.extend(sanitized_messages)
 

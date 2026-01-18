@@ -141,6 +141,13 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             cache_mode = self.context.config.anthropic.cache_mode
         return cache_mode
 
+    def _get_cache_ttl(self) -> str:
+        """Get the cache TTL configuration ('5m' or '1h')."""
+        cache_ttl = "5m"  # Default to 5 minutes
+        if self.context.config and self.context.config.anthropic:
+            cache_ttl = self.context.config.anthropic.cache_ttl
+        return cache_ttl
+
     def _is_thinking_enabled(self, model: str) -> bool:
         """Check if extended thinking should be enabled for this request."""
         from fast_agent.llm.model_database import ModelDatabase
@@ -186,11 +193,14 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         system_content: SystemParam | None = base_args.get("system")
 
         if cache_mode != "off" and system_content:
+            cache_ttl = self._get_cache_ttl()
             # Convert string to list format with cache control
             if isinstance(system_content, str):
                 base_args["system"] = [
                     TextBlockParam(
-                        type="text", text=system_content, cache_control={"type": "ephemeral"}
+                        type="text",
+                        text=system_content,
+                        cache_control={"type": "ephemeral", "ttl": cache_ttl},
                     )
                 ]
                 logger.debug(
@@ -206,7 +216,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         return 0
 
     @staticmethod
-    def _apply_cache_control_to_message(message: MessageParam) -> bool:
+    def _apply_cache_control_to_message(message: MessageParam, ttl: str = "5m") -> bool:
         """Apply cache control to the last content block of a message."""
         if not isinstance(message, dict) or "content" not in message:
             return False
@@ -217,7 +227,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
         for content_block in reversed(content_list):
             if isinstance(content_block, dict):
-                content_block["cache_control"] = {"type": "ephemeral"}
+                content_block["cache_control"] = {"type": "ephemeral", "ttl": ttl}
                 return True
 
         return False
@@ -662,9 +672,10 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         cache_indices = planner.plan_indices(
             plan_messages, cache_mode=cache_mode, system_cache_blocks=system_cache_applied
         )
+        cache_ttl = self._get_cache_ttl()
         for idx in cache_indices:
             if 0 <= idx < len(messages):
-                self._apply_cache_control_to_message(messages[idx])
+                self._apply_cache_control_to_message(messages[idx], ttl=cache_ttl)
 
         logger.debug(f"{arguments}")
 

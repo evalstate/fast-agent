@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 import shlex
 import sys
 from pathlib import Path
@@ -11,8 +12,11 @@ import typer
 
 from fast_agent.cli.commands.server_helpers import add_servers_to_config, generate_server_name
 from fast_agent.cli.commands.url_parser import generate_server_configs, parse_server_urls
-from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
+from fast_agent.cli.constants import RESUME_LATEST_SENTINEL
+from fast_agent.cli.shared_options import CommonAgentOptions
+from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION, FAST_AGENT_SHELL_CHILD_ENV
 from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.paths import resolve_environment_paths
 from fast_agent.utils.async_utils import configure_uvloop, create_event_loop, ensure_event_loop
 
 app = typer.Typer(
@@ -23,8 +27,28 @@ app = typer.Typer(
 default_instruction = DEFAULT_AGENT_INSTRUCTION
 
 CARD_EXTENSIONS = {".md", ".markdown", ".yaml", ".yml"}
-DEFAULT_AGENT_CARDS_DIR = Path(".fast-agent/agent-cards")
-DEFAULT_TOOL_CARDS_DIR = Path(".fast-agent/tool-cards")
+
+DEFAULT_ENV_PATHS = resolve_environment_paths()
+DEFAULT_AGENT_CARDS_DIR = DEFAULT_ENV_PATHS.agent_cards
+DEFAULT_TOOL_CARDS_DIR = DEFAULT_ENV_PATHS.tool_cards
+
+def resolve_environment_dir_option(
+    ctx: typer.Context | None,
+    env_dir: Path | None,
+) -> Path | None:
+    if env_dir is not None:
+        return env_dir
+    if ctx is None:
+        return None
+    parent = ctx.parent
+    if parent is None:
+        return None
+    value = parent.params.get("env")
+    if isinstance(value, Path):
+        return value
+    if isinstance(value, str):
+        return Path(value)
+    return None
 
 
 def _merge_card_sources(
@@ -38,15 +62,14 @@ def _merge_card_sources(
             if entry not in seen:
                 merged.append(entry)
                 seen.add(entry)
+        return merged
     if default_dir.is_dir():
         has_cards = any(
             entry.is_file() and entry.suffix.lower() in CARD_EXTENSIONS
             for entry in default_dir.iterdir()
         )
         if has_cards:
-            default_entry = str(default_dir)
-            if default_entry not in seen:
-                merged.append(default_entry)
+            merged.append(str(default_dir))
     return merged or None
 
 
@@ -140,10 +163,12 @@ async def _run_agent(
     model: str | None = None,
     message: str | None = None,
     prompt_file: str | None = None,
+    resume: str | None = None,
     url_servers: dict[str, dict[str, Any]] | None = None,
     stdio_servers: dict[str, dict[str, Any]] | None = None,
     agent_name: str | None = "agent",
     skills_directory: Path | None = None,
+    environment_dir: Path | None = None,
     shell_runtime: bool = False,
     mode: Literal["interactive", "serve"] = "interactive",
     transport: str = "http",
@@ -166,6 +191,71 @@ async def _run_agent(
     from fast_agent.mcp.prompts.prompt_load import load_prompt
     from fast_agent.ui.console_display import ConsoleDisplay
 
+    def _resume_session_if_requested(agent_app) -> None:
+        if not resume:
+            return
+        from fast_agent.session import get_session_manager
+        from fast_agent.ui.enhanced_prompt import queue_startup_notice
+
+        manager = get_session_manager()
+        session_id = None if resume in ("", RESUME_LATEST_SENTINEL) else resume
+        default_agent = agent_app._agent(None)
+        result = manager.resume_session_agents(
+            agent_app._agents,
+            session_id,
+            default_agent_name=getattr(default_agent, "name", None),
+        )
+        interactive_notice = message is None and prompt_file is None
+        if not result:
+            if session_id:
+                notice = f"[yellow]Session not found:[/yellow] {session_id}"
+            else:
+                notice = "[yellow]No sessions found to resume.[/yellow]"
+            if interactive_notice:
+                queue_startup_notice(notice)
+            else:
+                typer.echo(
+                    notice.replace("[yellow]", "").replace("[/yellow]", ""),
+                    err=True,
+                )
+            return
+
+        session, loaded, missing_agents = result
+        session_time = session.info.last_activity.strftime("%y-%m-%d %H:%M")
+        resume_notice = (
+            f"[dim]Resumed session[/dim] [cyan]{session.info.name}[/cyan] [dim]({session_time})[/dim]"
+        )
+        if interactive_notice:
+            queue_startup_notice(resume_notice)
+        else:
+            typer.echo(
+                f"Resumed session {session.info.name} ({session_time})", err=True
+            )
+        if missing_agents:
+            missing_list = ", ".join(sorted(missing_agents))
+            missing_notice = f"[yellow]Missing agents from session:[/yellow] {missing_list}"
+            if interactive_notice:
+                queue_startup_notice(missing_notice)
+            else:
+                typer.echo(
+                    f"Missing agents from session: {missing_list}", err=True
+                )
+        if missing_agents or not loaded:
+            from fast_agent.session import format_history_summary, summarize_session_histories
+
+            summary = summarize_session_histories(session)
+            summary_text = format_history_summary(summary)
+            if summary_text:
+                summary_notice = (
+                    f"[dim]Available histories:[/dim] {summary_text}"
+                )
+                if interactive_notice:
+                    queue_startup_notice(summary_notice)
+                else:
+                    typer.echo(
+                        f"Available histories: {summary_text}", err=True
+                    )
+
     # Create the FastAgent instance
 
     fast = FastAgent(
@@ -175,6 +265,7 @@ async def _run_agent(
         parse_cli_args=False,  # Don't parse CLI args, we're handling it ourselves
         quiet=mode == "serve",
         skills_directory=skills_directory,
+        environment_dir=environment_dir,
     )
 
     # Set model on args so model source detection works correctly
@@ -234,9 +325,10 @@ async def _run_agent(
                         tool_loaded_names.extend(fast.load_agents(card_source))
 
             if tool_loaded_names:
-                target_name = agent_name or "agent"
-                if target_name not in fast.agents:
-                    target_name = next(iter(fast.agents.keys()), None)
+                # Use explicit agent_name if provided and exists, otherwise find the default
+                target_name = agent_name if agent_name and agent_name in fast.agents else None
+                if not target_name:
+                    target_name = fast.get_default_agent_name()
                 if target_name:
                     fast.attach_agent_tools(target_name, tool_loaded_names)
         except AgentConfigError as exc:
@@ -262,6 +354,7 @@ async def _run_agent(
 
         async def cli_agent():
             async with fast.run() as agent:
+                _resume_session_if_requested(agent)
                 if message:
                     response = await agent.send(message)
                     print(response)
@@ -322,6 +415,7 @@ async def _run_agent(
         )
         async def cli_agent():
             async with fast.run() as agent:
+                _resume_session_if_requested(agent)
                 if message:
                     await agent.parallel.send(message)
                     display = ConsoleDisplay(config=None)
@@ -345,6 +439,7 @@ async def _run_agent(
         )
         async def cli_agent():
             async with fast.run() as agent:
+                _resume_session_if_requested(agent)
                 if message:
                     response = await agent.send(message)
                     # Print the response and exit
@@ -383,9 +478,11 @@ def run_async_agent(
     model: str | None = None,
     message: str | None = None,
     prompt_file: str | None = None,
+    resume: str | None = None,
     stdio_commands: list[str] | None = None,
     agent_name: str | None = None,
     skills_directory: Path | None = None,
+    environment_dir: Path | None = None,
     shell_enabled: bool = False,
     mode: Literal["interactive", "serve"] = "interactive",
     transport: str = "http",
@@ -471,8 +568,16 @@ def run_async_agent(
                 print(f"Error parsing stdio command '{stdio_cmd}': {e}", file=sys.stderr)
                 continue
 
-    agent_cards = _merge_card_sources(agent_cards, DEFAULT_AGENT_CARDS_DIR)
-    card_tools = _merge_card_sources(card_tools, DEFAULT_TOOL_CARDS_DIR)
+    if environment_dir:
+        env_paths = resolve_environment_paths(override=environment_dir)
+        default_agent_cards_dir = env_paths.agent_cards
+        default_tool_cards_dir = env_paths.tool_cards
+    else:
+        default_agent_cards_dir = DEFAULT_AGENT_CARDS_DIR
+        default_tool_cards_dir = DEFAULT_TOOL_CARDS_DIR
+
+    agent_cards = _merge_card_sources(agent_cards, default_agent_cards_dir)
+    card_tools = _merge_card_sources(card_tools, default_tool_cards_dir)
 
     # Check if we're already in an event loop
     loop = ensure_event_loop()
@@ -495,10 +600,12 @@ def run_async_agent(
                 model=model,
                 message=message,
                 prompt_file=prompt_file,
+                resume=resume,
                 url_servers=url_servers,
                 stdio_servers=stdio_servers,
                 agent_name=agent_name,
                 skills_directory=skills_directory,
+                environment_dir=environment_dir,
                 shell_runtime=shell_enabled,
                 mode=mode,
                 transport=transport,
@@ -539,59 +646,33 @@ def go(
     instruction: str | None = typer.Option(
         None, "--instruction", "-i", help="Path to file or URL containing instruction for the agent"
     ),
-    config_path: str | None = typer.Option(None, "--config-path", "-c", help="Path to config file"),
-    servers: str | None = typer.Option(
-        None, "--servers", help="Comma-separated list of server names to enable from config"
-    ),
-    agent_cards: list[str] | None = typer.Option(
-        None,
-        "--agent-cards",
-        "--card",
-        help="Path or URL to an AgentCard file or directory (repeatable)",
-    ),
-    card_tools: list[str] | None = typer.Option(
-        None,
-        "--card-tool",
-        help="Path or URL to an AgentCard file or directory to load as tools (repeatable)",
-    ),
-    urls: str | None = typer.Option(
-        None, "--url", help="Comma-separated list of HTTP/SSE URLs to connect to"
-    ),
-    auth: str | None = typer.Option(
-        None, "--auth", help="Bearer token for authorization with URL-based servers"
-    ),
-    model: str | None = typer.Option(
-        None, "--model", "--models", help="Override the default model (e.g., haiku, sonnet, gpt-4)"
-    ),
+    config_path: str | None = CommonAgentOptions.config_path(),
+    servers: str | None = CommonAgentOptions.servers(),
+    agent_cards: list[str] | None = CommonAgentOptions.agent_cards(),
+    card_tools: list[str] | None = CommonAgentOptions.card_tools(),
+    urls: str | None = CommonAgentOptions.urls(),
+    auth: str | None = CommonAgentOptions.auth(),
+    model: str | None = CommonAgentOptions.model(),
     message: str | None = typer.Option(
         None, "--message", "-m", help="Message to send to the agent (skips interactive mode)"
     ),
     prompt_file: str | None = typer.Option(
         None, "--prompt-file", "-p", help="Path to a prompt file to use (either text or JSON)"
     ),
-    skills_dir: Path | None = typer.Option(
+    resume: str | None = typer.Option(
         None,
-        "--skills-dir",
-        "--skills",
-        help="Override the default skills directory",
+        "--resume",
+        flag_value=RESUME_LATEST_SENTINEL,
+        help="Resume the last session or the specified session id",
     ),
-    npx: str | None = typer.Option(
-        None, "--npx", help="NPX package and args to run as MCP server (quoted)"
-    ),
-    uvx: str | None = typer.Option(
-        None, "--uvx", help="UVX package and args to run as MCP server (quoted)"
-    ),
-    stdio: str | None = typer.Option(
-        None, "--stdio", help="Command to run as STDIO MCP server (quoted)"
-    ),
-    shell: bool = typer.Option(
-        False,
-        "--shell",
-        "-x",
-        help="Enable a local shell runtime and expose the execute tool (bash or pwsh).",
-    ),
+    env_dir: Path | None = CommonAgentOptions.env_dir(),
+    skills_dir: Path | None = CommonAgentOptions.skills_dir(),
+    npx: str | None = CommonAgentOptions.npx(),
+    uvx: str | None = CommonAgentOptions.uvx(),
+    stdio: str | None = CommonAgentOptions.stdio(),
+    shell: bool = CommonAgentOptions.shell(),
     reload: bool = typer.Option(False, "--reload", help="Enable manual AgentCard reloads (/reload)"),
-    watch: bool = typer.Option(False, "--watch", help="Watch AgentCard paths and reload"),
+    watch: bool = CommonAgentOptions.watch(),
 ) -> None:
     """
     Run an interactive agent directly from the command line.
@@ -622,9 +703,11 @@ def go(
         --auth                Bearer token for authorization with URL-based servers
         --message, -m         Send a single message and exit
         --prompt-file, -p     Use a prompt file instead of interactive mode
+        --resume [session_id] Resume the last or specified session
         --agent-cards         Load AgentCards from a file or directory
         --card-tool           Load AgentCards and attach them as tools to the default agent
         --skills              Override the default skills folder
+        --env                 Override the base fast-agent environment directory
         --shell, -x           Enable local shell runtime
         --npx                 NPX package and args to run as MCP server (quoted)
         --uvx                 UVX package and args to run as MCP server (quoted)
@@ -632,7 +715,17 @@ def go(
         --reload              Enable manual AgentCard reloads (/reload)
         --watch               Watch AgentCard paths and reload
     """
+    if os.getenv(FAST_AGENT_SHELL_CHILD_ENV):
+        typer.echo(
+            "fast-agent is already running inside a fast-agent shell command. "
+            "Exit the shell or unset FAST_AGENT_SHELL_CHILD to continue.",
+            err=True,
+        )
+        raise typer.Exit(1)
+
     # Collect all stdio commands from convenience options
+    env_dir = resolve_environment_dir_option(ctx, env_dir)
+
     stdio_commands = collect_stdio_commands(npx, uvx, stdio)
     shell_enabled = shell
 
@@ -653,9 +746,11 @@ def go(
         model=model,
         message=message,
         prompt_file=prompt_file,
+        resume=resume,
         stdio_commands=stdio_commands,
         agent_name=agent_name,
         skills_directory=skills_dir,
+        environment_dir=env_dir,
         shell_enabled=shell_enabled,
         instance_scope="shared",
         reload=reload,

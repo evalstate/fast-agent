@@ -10,10 +10,10 @@ import yaml
 from rich.table import Table
 from rich.text import Text
 
-from fast_agent.cli.commands.go import DEFAULT_AGENT_CARDS_DIR, DEFAULT_TOOL_CARDS_DIR
 from fast_agent.core.agent_card_validation import scan_agent_card_directory
 from fast_agent.llm.provider_key_manager import API_KEY_HINT_TEXT, ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
+from fast_agent.paths import resolve_environment_paths
 from fast_agent.skills import SkillRegistry
 from fast_agent.ui.console import console
 
@@ -124,14 +124,22 @@ def check_api_keys(secrets_summary: dict, config_summary: dict) -> dict:
                 results[provider_name]["config"] = "DefaultAzureCredential"
                 continue
 
-        # Check secrets file if it was parsed successfully
+        # Check secrets file first, then fall back to main config file
+        config_key = None
         if secrets_status == "parsed":
             config_key = ProviderKeyManager.get_config_file_key(provider_name, secrets)
-            if config_key and config_key != API_KEY_HINT_TEXT:
-                if len(config_key) > 5:
-                    results[provider_name]["config"] = f"...{config_key[-5:]}"
-                else:
-                    results[provider_name]["config"] = "...***"
+
+        # Fall back to main config file if not found in secrets
+        if not config_key or config_key == API_KEY_HINT_TEXT:
+            main_config = config.get("config", {})
+            if main_config:
+                config_key = ProviderKeyManager.get_config_file_key(provider_name, main_config)
+
+        if config_key and config_key != API_KEY_HINT_TEXT:
+            if len(config_key) > 5:
+                results[provider_name]["config"] = f"...{config_key[-5:]}"
+            else:
+                results[provider_name]["config"] = "...***"
 
     return results
 
@@ -188,6 +196,7 @@ def get_config_summary(config_path: Path | None) -> dict:
 
         # Mark as successfully parsed
         result["status"] = "parsed"
+        result["config"] = config  # Store raw config for API key checking
 
         if not config:
             return result
@@ -707,18 +716,32 @@ def show_check_summary() -> None:
             }
 
     _print_section_header("Agent Cards", color="blue")
+    env_paths = resolve_environment_paths()
     card_directories = [
-        ("Agent Cards", DEFAULT_AGENT_CARDS_DIR),
-        ("Tool Cards", DEFAULT_TOOL_CARDS_DIR),
+        ("Agent Cards", env_paths.agent_cards),
+        ("Tool Cards", env_paths.tool_cards),
     ]
     found_card_dir = False
-    for label, directory in card_directories:
+    all_card_names: set[str] = set()
+    for _, directory in card_directories:
         if not directory.is_dir():
             continue
         found_card_dir = True
+        entries = scan_agent_card_directory(directory, server_names=server_names)
+        for entry in entries:
+            if entry.name != "—" and entry.ignored_reason is None:
+                all_card_names.add(entry.name)
+
+    for label, directory in card_directories:
+        if not directory.is_dir():
+            continue
         console.print(f"{label} Directory: [green]{_relative_path(directory)}[/green]")
 
-        entries = scan_agent_card_directory(directory, server_names=server_names)
+        entries = scan_agent_card_directory(
+            directory,
+            server_names=server_names,
+            extra_agent_names=all_card_names,
+        )
         if not entries:
             console.print("[yellow]No AgentCards found in this directory[/yellow]")
             continue
@@ -752,7 +775,7 @@ def show_check_summary() -> None:
 
     if not found_card_dir:
         console.print(
-            "[dim]No local AgentCard directories found (.fast-agent/agent-cards or .fast-agent/tool-cards).[/dim]"
+            "[dim]No local AgentCard directories found in the fast-agent environment.[/dim]"
         )
 
     # Show help tips

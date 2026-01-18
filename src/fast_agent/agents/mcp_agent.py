@@ -42,6 +42,7 @@ from fast_agent.constants import FORCE_SEQUENTIAL_TOOL_CALLS, HUMAN_INPUT_TOOL_N
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import FastAgentLLMProtocol
+from fast_agent.llm.terminal_output_limits import calculate_terminal_output_limit_for_model
 from fast_agent.mcp.common import (
     get_resource_name,
     get_server_name,
@@ -169,11 +170,16 @@ class McpAgent(ABC, ToolAgent):
         skills_directory = None
         if self._skill_manifests:
             # Get the skills directory from the first manifest's path
-            # Path structure: .fast-agent/skills/skill-name/SKILL.md
+            # Path structure: <env>/skills/skill-name/SKILL.md
             # So we need parent.parent of the manifest path
             first_manifest = self._skill_manifests[0]
             if first_manifest.path:
                 skills_directory = first_manifest.path.parent.parent
+
+        model_name = self.config.model
+        if not model_name and context and context.config:
+            model_name = getattr(context.config, "default_model", None)
+        output_byte_limit = calculate_terminal_output_limit_for_model(model_name)
 
         self._shell_runtime = ShellRuntime(
             self._shell_runtime_activation_reason,
@@ -182,11 +188,12 @@ class McpAgent(ABC, ToolAgent):
             warning_interval_seconds=warning_interval_seconds,
             skills_directory=skills_directory,
             working_directory=self.config.cwd,
+            output_byte_limit=output_byte_limit,
         )
         self._shell_runtime_enabled = self._shell_runtime.enabled
         self._shell_access_modes: tuple[str, ...] = ()
         if self._shell_runtime_enabled:
-            modes: list[str] = ["[red]direct[/red]"]
+            modes: list[str] = []
             if skills_configured:
                 modes.append("skills")
             if shell_flag_requested:
@@ -298,12 +305,19 @@ class McpAgent(ABC, ToolAgent):
 
         # Create a new shell runtime with the activation reason
         self._shell_runtime_activation_reason = "via enable_shell() call"
+
+        model_name = self.config.model
+        if not model_name and self.context and self.context.config:
+            model_name = getattr(self.context.config, "default_model", None)
+        output_byte_limit = calculate_terminal_output_limit_for_model(model_name)
+
         self._shell_runtime = ShellRuntime(
             self._shell_runtime_activation_reason,
             self.logger,
             timeout_seconds=timeout_seconds,
             warning_interval_seconds=warning_interval_seconds,
             working_directory=working_directory,
+            output_byte_limit=output_byte_limit,
         )
         self._shell_runtime_enabled = self._shell_runtime.enabled
         self._bash_tool = self._shell_runtime.tool
@@ -375,10 +389,7 @@ class McpAgent(ABC, ToolAgent):
 
         # Warn if skills configured but placeholder missing
         if self._skill_manifests and "{{agentSkills}}" not in self._instruction_template:
-            warning_message = (
-                "Agent skills are configured but the system prompt does not include {{agentSkills}}. "
-                "Skill descriptions will not be added to the system prompt."
-            )
+            warning_message = f"[dim]Agent '{self._name}' skills are configured but no {{{{agentSkills}}}} in system prompt.[/dim]"
             self._record_warning(warning_message)
 
         self.logger.debug(f"Applied instruction templates for agent {self._name}")
@@ -1422,6 +1433,10 @@ class McpAgent(ABC, ToolAgent):
                 if agent_name not in server_names:
                     server_names.append(agent_name)
 
+        card_tools_label = self._card_tools_label()
+        if card_tools_label and card_tools_label not in server_names:
+            server_names.append(card_tools_label)
+
         # Extract servers from tool calls in the message for highlighting
         if highlight_items is None:
             highlight_servers = self._extract_servers_from_message(message)
@@ -1430,7 +1445,11 @@ class McpAgent(ABC, ToolAgent):
             if isinstance(highlight_items, str):
                 highlight_servers = [highlight_items]
             else:
-                highlight_servers = highlight_items
+                highlight_servers = list(highlight_items)
+
+        if card_tools_label and self._card_tools_used(message):
+            if card_tools_label not in highlight_servers:
+                highlight_servers.append(card_tools_label)
 
         # Call parent's implementation with server information
         await super().show_assistant_message(

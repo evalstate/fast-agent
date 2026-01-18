@@ -148,6 +148,9 @@ class ShellSettings(BaseModel):
     warning_interval_seconds: int = 30
     """Show timeout warnings every N seconds (default: 30s)"""
 
+    interactive_use_pty: bool = True
+    """Use a PTY for interactive prompt shell commands to preserve colors and interactivity."""
+
     model_config = ConfigDict(extra="ignore")
 
     @field_validator("timeout_seconds", mode="before")
@@ -339,11 +342,11 @@ class AnthropicSettings(BaseModel):
     - "auto": Currently same as "prompt" - caches tools+system prompt (1 block) and template content.
     """
 
-    cache_ttl_minutes: int = 5
+    cache_ttl: Literal["5m", "1h"] = "5m"
     """
-    Cache time-to-live in minutes for display purposes.
-    Default is 5 minutes (standard Anthropic ephemeral cache).
-    Set to 60 for extended 1-hour cache TTL.
+    Cache time-to-live for Anthropic ephemeral cache.
+    - "5m": Standard 5-minute cache (default)
+    - "1h": Extended 1-hour cache (additional cost)
     """
 
     thinking_enabled: bool = False
@@ -684,6 +687,9 @@ class Settings(BaseSettings):
     execution_engine: Literal["asyncio"] = "asyncio"
     """Execution engine for the fast-agent application"""
 
+    environment_dir: str | None = None
+    """Base directory for fast-agent runtime data (defaults to .fast-agent)."""
+
     default_model: str | None = None
     """
     Default model for agents. Format is provider.model_name.<reasoning_effort>, for example openai.o3-mini.low
@@ -693,6 +699,12 @@ class Settings(BaseSettings):
 
     auto_sampling: bool = True
     """Enable automatic sampling model selection if not explicitly configured"""
+
+    session_history: bool = True
+    """Persist session history in the environment sessions folder (default: True)."""
+
+    session_history_window: int = 20
+    """Maximum number of sessions to keep in the rolling window (default: 20)."""
 
     anthropic: AnthropicSettings | None = None
     """Settings for using Anthropic models in the fast-agent application"""

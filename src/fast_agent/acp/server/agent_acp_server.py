@@ -67,10 +67,6 @@ from fast_agent.acp.tool_progress import ACPToolProgressManager
 from fast_agent.agents.tool_runner import ToolRunnerHooks
 from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
-    MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
-    TERMINAL_AVG_BYTES_PER_TOKEN,
-    TERMINAL_OUTPUT_TOKEN_HEADROOM_RATIO,
-    TERMINAL_OUTPUT_TOKEN_RATIO,
 )
 from fast_agent.context import Context
 from fast_agent.core.fastagent import AgentInstance
@@ -85,8 +81,8 @@ from fast_agent.interfaces import (
     StreamingAgentProtocol,
     ToolRunnerHookCapable,
 )
-from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.stream_types import StreamChunk
+from fast_agent.llm.terminal_output_limits import calculate_terminal_output_limit_for_model
 from fast_agent.llm.usage_tracking import last_turn_usage
 from fast_agent.mcp.helpers.content_helpers import is_text_content
 from fast_agent.mcp.types import McpAgentProtocol
@@ -210,9 +206,7 @@ class AgentACPServer(ACPAgent):
         skills_directory_override: Sequence[str | Path] | str | Path | None = None,
         permissions_enabled: bool = True,
         get_registry_version: Callable[[], int] | None = None,
-        load_card_callback: Callable[
-            [str, str | None], Awaitable[tuple[list[str], list[str]]]
-        ]
+        load_card_callback: Callable[[str, str | None], Awaitable[tuple[list[str], list[str]]]]
         | None = None,
         attach_agent_tools_callback: Callable[[str, Sequence[str]], Awaitable[list[str]]]
         | None = None,
@@ -237,7 +231,7 @@ class AgentACPServer(ACPAgent):
             attach_agent_tools_callback: Optional callback to attach agent tools at runtime
             detach_agent_tools_callback: Optional callback to detach agent tools at runtime
             dump_agent_card_callback: Optional callback to dump AgentCards at runtime
-            reload_callback: Optional callback to reload AgentCards from disk
+            reload_callback: Optional callback to reload AgentCards
         """
         super().__init__()
 
@@ -326,18 +320,7 @@ class AgentACPServer(ACPAgent):
         if not model_name:
             return DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
 
-        max_tokens = ModelDatabase.get_max_output_tokens(model_name)
-        if not max_tokens:
-            return DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
-
-        terminal_token_budget = max(int(max_tokens * TERMINAL_OUTPUT_TOKEN_RATIO), 1)
-        terminal_token_budget = max(
-            int(terminal_token_budget * (1 - TERMINAL_OUTPUT_TOKEN_HEADROOM_RATIO)), 1
-        )
-        terminal_byte_budget = int(terminal_token_budget * TERMINAL_AVG_BYTES_PER_TOKEN)
-
-        terminal_byte_budget = min(terminal_byte_budget, MAX_TERMINAL_OUTPUT_BYTE_LIMIT)
-        return max(DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT, terminal_byte_budget)
+        return calculate_terminal_output_limit_for_model(model_name)
 
     async def initialize(
         self,
@@ -406,7 +389,9 @@ class AgentACPServer(ACPAgent):
                 terminal=self._client_supports_terminal,
                 fs_read=self._client_supports_fs_read,
                 fs_write=self._client_supports_fs_write,
-                _meta=self._client_capabilities.get("_meta", {}) if self._client_capabilities else {},
+                _meta=self._client_capabilities.get("_meta", {})
+                if self._client_capabilities
+                else {},
             )
             self._parsed_client_info = ClientInfo.from_acp_info(client_info)
 
@@ -693,10 +678,7 @@ class AgentACPServer(ACPAgent):
 
         if session_state.terminal_runtime:
             for agent_name, agent in instance.agents.items():
-                if (
-                    isinstance(agent, ShellRuntimeCapable)
-                    and agent._shell_runtime_enabled
-                ):
+                if isinstance(agent, ShellRuntimeCapable) and agent._shell_runtime_enabled:
                     agent.set_external_runtime(session_state.terminal_runtime)
 
         if session_state.filesystem_runtime:
@@ -739,6 +721,11 @@ class AgentACPServer(ACPAgent):
         async def reload_cards() -> bool:
             return await self._reload_agent_cards_for_session(session_state.session_id)
 
+        async def set_current_mode(agent_name: str) -> None:
+            session_state.current_agent_name = agent_name
+            if session_state.acp_context:
+                await session_state.acp_context.switch_mode(agent_name)
+
         slash_handler = SlashCommandHandler(
             session_state.session_id,
             instance,
@@ -754,10 +741,9 @@ class AgentACPServer(ACPAgent):
             detach_agent_callback=(
                 detach_agent_tools if self._detach_agent_tools_callback else None
             ),
-            dump_agent_callback=(
-                dump_agent_card if self._dump_agent_card_callback else None
-            ),
+            dump_agent_callback=(dump_agent_card if self._dump_agent_card_callback else None),
             reload_callback=reload_cards if self._reload_callback else None,
+            set_current_mode_callback=set_current_mode,
         )
         session_state.slash_handler = slash_handler
 
@@ -1034,6 +1020,9 @@ class AgentACPServer(ACPAgent):
             after_llm_call=merge(base.after_llm_call, extra.after_llm_call),
             before_tool_call=merge(base.before_tool_call, extra.before_tool_call),
             after_tool_call=merge(base.after_tool_call, extra.after_tool_call),
+            after_turn_complete=merge(
+                base.after_turn_complete, extra.after_turn_complete
+            ),
         )
 
     async def _send_status_line_update(
@@ -1203,10 +1192,7 @@ class AgentACPServer(ACPAgent):
                 if self._client_supports_terminal:
                     # Check if any agent has shell runtime enabled
                     for agent_name, agent in instance.agents.items():
-                        if (
-                            isinstance(agent, ShellRuntimeCapable)
-                            and agent._shell_runtime_enabled
-                        ):
+                        if isinstance(agent, ShellRuntimeCapable) and agent._shell_runtime_enabled:
                             # Create ACPTerminalRuntime for this session
                             default_limit = self._calculate_terminal_output_limit(agent)
                             # Get permission handler if enabled for this session
@@ -1216,7 +1202,9 @@ class AgentACPServer(ACPAgent):
                                 session_id=session_id,
                                 activation_reason="via ACP terminal support",
                                 timeout_seconds=getattr(
-                                    agent._shell_runtime, "timeout_seconds", 90  # ty: ignore[unresolved-attribute]
+                                    agent._shell_runtime,
+                                    "timeout_seconds",
+                                    90,  # ty: ignore[unresolved-attribute]
                                 ),
                                 tool_handler=tool_handler,
                                 default_output_byte_limit=default_limit,
@@ -1297,9 +1285,7 @@ class AgentACPServer(ACPAgent):
                 try:
                     agent.set_instruction_context(session_context)
                 except Exception as e:
-                    logger.warning(
-                        f"Failed to set instruction context on agent {agent_name}: {e}"
-                    )
+                    logger.warning(f"Failed to set instruction context on agent {agent_name}: {e}")
 
         # Create slash command handler for this session
         resolved_prompts = session_state.resolved_instructions
@@ -1326,6 +1312,11 @@ class AgentACPServer(ACPAgent):
         async def reload_cards() -> bool:
             return await self._reload_agent_cards_for_session(session_id)
 
+        async def set_current_mode(agent_name: str) -> None:
+            session_state.current_agent_name = agent_name
+            if session_state.acp_context:
+                await session_state.acp_context.switch_mode(agent_name)
+
         slash_handler = SlashCommandHandler(
             session_id,
             instance,
@@ -1338,10 +1329,9 @@ class AgentACPServer(ACPAgent):
             attach_agent_callback=(
                 attach_agent_tools if self._attach_agent_tools_callback else None
             ),
-            dump_agent_callback=(
-                dump_agent_card if self._dump_agent_card_callback else None
-            ),
+            dump_agent_callback=(dump_agent_card if self._dump_agent_card_callback else None),
             reload_callback=reload_cards if self._reload_callback else None,
+            set_current_mode_callback=set_current_mode,
         )
         session_state.slash_handler = slash_handler
 
@@ -1581,18 +1571,14 @@ class AgentACPServer(ACPAgent):
         # Mark this session as having an active prompt
 
         async with self._session_lock:
-
             self._active_prompts.add(session_id)
-
 
             # Track the current task for proper cancellation via asyncio.Task.cancel()
 
             current_task = asyncio.current_task()
 
             if current_task:
-
                 self._session_tasks[session_id] = current_task
-
 
         # Use try/finally to ensure session is always removed from active prompts
         try:
@@ -2063,7 +2049,9 @@ class AgentACPServer(ACPAgent):
             for session_id, state in list(self._session_state.items()):
                 if state.terminal_runtime:
                     try:
-                        logger.debug(f"Terminal runtime for session {session_id} will be cleaned up")
+                        logger.debug(
+                            f"Terminal runtime for session {session_id} will be cleaned up"
+                        )
                     except Exception as e:
                         logger.error(
                             f"Error noting terminal cleanup for session {session_id}: {e}",

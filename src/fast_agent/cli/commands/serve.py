@@ -7,6 +7,7 @@ import typer
 
 from fast_agent.cli.commands.go import (
     collect_stdio_commands,
+    resolve_environment_dir_option,
     resolve_instruction_option,
     run_async_agent,
 )
@@ -61,6 +62,11 @@ def serve(
     ),
     model: str | None = typer.Option(
         None, "--model", "--models", help="Override the default model (e.g., haiku, sonnet, gpt-4)"
+    ),
+    env_dir: Path | None = typer.Option(
+        None,
+        "--env",
+        help="Override the base fast-agent environment directory",
     ),
     skills_dir: Path | None = typer.Option(
         None,
@@ -128,6 +134,8 @@ def serve(
         fast-agent serve --description "Interact with the {agent} assistant"
         fast-agent serve --agent-cards ./agents --transport=http --port=8000
     """
+    env_dir = resolve_environment_dir_option(ctx, env_dir)
+
     stdio_commands = collect_stdio_commands(npx, uvx, stdio)
     shell_enabled = shell
 
@@ -148,6 +156,7 @@ def serve(
         stdio_commands=stdio_commands,
         agent_name=agent_name,
         skills_directory=skills_dir,
+        environment_dir=env_dir,
         shell_enabled=shell_enabled,
         mode="serve",
         transport=transport.value,

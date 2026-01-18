@@ -490,6 +490,13 @@ def _build_context_bar_line(
         detail = Text(f"{format_chars(current)} tokens (unknown window)", style="dim")
         return bar, detail
 
+    if current <= 0:
+        bar.append("░" * width, style=Colours.TIMELINE_EMPTY)
+        bar.append("|", style="dim")
+        bar.append(" pending", style="dim")
+        detail = Text(f"pending / {format_chars(window)} →", style="dim")
+        return bar, detail
+
     percent = current / window if window else 0.0
     filled = min(width, int(round(min(percent, 1.0) * width)))
 
