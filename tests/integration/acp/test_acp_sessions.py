@@ -7,11 +7,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import pytest
-from mcp.types import TextContent
-from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from acp.helpers import text_block
 from acp.schema import ClientCapabilities, FileSystemCapability, Implementation
 from acp.stdio import spawn_agent_process
+from mcp.types import TextContent
+
+from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+from fast_agent.session import get_session_manager
+from fast_agent.session import session_manager as session_manager_module
 
 TEST_DIR = Path(__file__).parent
 if str(TEST_DIR) not in sys.path:
@@ -19,15 +22,10 @@ if str(TEST_DIR) not in sys.path:
 
 from test_client import TestClient  # noqa: E402
 
-from fast_agent.session import get_session_manager
-from fast_agent.session import session_manager as session_manager_module
-
 if TYPE_CHECKING:
     from acp.client.connection import ClientSideConnection
+
     from fast_agent.interfaces import AgentProtocol
-else:
-    class AgentProtocol:  # pragma: no cover
-        pass
 
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
@@ -89,34 +87,21 @@ async def test_acp_session_resume_emits_current_mode_update(
     beta_card = cards_dir / "beta.md"
 
     alpha_card.write_text(
-        """---
-"
-        "type: agent
-"
-        "name: alpha
-"
-        "model: passthrough
-"
-        "instruction: Alpha agent.
-"
-        "---
-"
+        "---\n"
+        "type: agent\n"
+        "name: alpha\n"
+        "model: passthrough\n"
+        "instruction: Alpha agent.\n"
+        "---\n"
     )
     beta_card.write_text(
-        """---
-"
-        "type: agent
-"
-        "name: beta
-"
-        "default: true
-"
-        "model: passthrough
-"
-        "instruction: Beta agent.
-"
-        "---
-"
+        "---\n"
+        "type: agent\n"
+        "name: beta\n"
+        "default: true\n"
+        "model: passthrough\n"
+        "instruction: Beta agent.\n"
+        "---\n"
     )
 
     original_cwd = Path.cwd()

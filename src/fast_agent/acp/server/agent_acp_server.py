@@ -721,10 +721,10 @@ class AgentACPServer(ACPAgent):
         async def reload_cards() -> bool:
             return await self._reload_agent_cards_for_session(session_state.session_id)
 
-        def set_current_mode(agent_name: str) -> None:
+        async def set_current_mode(agent_name: str) -> None:
             session_state.current_agent_name = agent_name
             if session_state.acp_context:
-                session_state.acp_context.set_current_mode(agent_name)
+                await session_state.acp_context.switch_mode(agent_name)
 
         slash_handler = SlashCommandHandler(
             session_state.session_id,
@@ -1312,10 +1312,10 @@ class AgentACPServer(ACPAgent):
         async def reload_cards() -> bool:
             return await self._reload_agent_cards_for_session(session_id)
 
-        def set_current_mode(agent_name: str) -> None:
+        async def set_current_mode(agent_name: str) -> None:
             session_state.current_agent_name = agent_name
             if session_state.acp_context:
-                session_state.acp_context.set_current_mode(agent_name)
+                await session_state.acp_context.switch_mode(agent_name)
 
         slash_handler = SlashCommandHandler(
             session_id,
