@@ -24,6 +24,7 @@ from fast_agent.session import session_manager as session_manager_module
 
 if TYPE_CHECKING:
     from acp.client.connection import ClientSideConnection
+    from fast_agent.interfaces import AgentProtocol
 else:
     class AgentProtocol:  # pragma: no cover
         pass
