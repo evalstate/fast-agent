@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
+from mcp.types import TextContent
+from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from acp.helpers import text_block
 from acp.schema import ClientCapabilities, FileSystemCapability, Implementation
 from acp.stdio import spawn_agent_process
@@ -16,8 +19,15 @@ if str(TEST_DIR) not in sys.path:
 
 from test_client import TestClient  # noqa: E402
 
+from fast_agent.session import get_session_manager
+from fast_agent.session import session_manager as session_manager_module
+
 if TYPE_CHECKING:
     from acp.client.connection import ClientSideConnection
+else:
+    class AgentProtocol:  # pragma: no cover
+        pass
+
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
 
@@ -66,6 +76,107 @@ async def test_acp_prompt_saves_session_history(
     assert history_files
     for filename in history_files:
         assert (session_dir / filename).exists()
+
+
+@pytest.mark.integration
+async def test_acp_session_resume_emits_current_mode_update(
+    tmp_path: Path,
+) -> None:
+    cards_dir = tmp_path / "cards"
+    cards_dir.mkdir()
+    alpha_card = cards_dir / "alpha.md"
+    beta_card = cards_dir / "beta.md"
+
+    alpha_card.write_text(
+        """---
+"
+        "type: agent
+"
+        "name: alpha
+"
+        "model: passthrough
+"
+        "instruction: Alpha agent.
+"
+        "---
+"
+    )
+    beta_card.write_text(
+        """---
+"
+        "type: agent
+"
+        "name: beta
+"
+        "default: true
+"
+        "model: passthrough
+"
+        "instruction: Beta agent.
+"
+        "---
+"
+    )
+
+    original_cwd = Path.cwd()
+    os.chdir(tmp_path)
+    session_manager_module._session_manager = None
+    try:
+        manager = get_session_manager()
+        session = manager.create_session()
+        history_message = PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="resume me")],
+        )
+
+        class StubAgent:
+            def __init__(self) -> None:
+                self.name = "alpha"
+                self.message_history = [history_message]
+
+        await session.save_history(cast("AgentProtocol", StubAgent()))
+    finally:
+        session_manager_module._session_manager = None
+        os.chdir(original_cwd)
+
+    config_path = TEST_DIR / "fastagent.config.yaml"
+    cmd = [
+        sys.executable,
+        "-m",
+        "fast_agent.cli",
+        "serve",
+        "--config-path",
+        str(config_path),
+        "--transport",
+        "acp",
+        "--model",
+        "passthrough",
+        "--agent-cards",
+        str(alpha_card),
+        "--agent-cards",
+        str(beta_card),
+    ]
+
+    client = TestClient()
+    async with spawn_agent_process(
+        lambda _: client,
+        *cmd,
+        cwd=tmp_path,
+    ) as (connection, _process):
+        await _initialize_connection(connection)
+        session_response = await connection.new_session(mcp_servers=[], cwd=str(tmp_path))
+        await connection.prompt(
+            session_id=session_response.session_id,
+            prompt=[text_block(f"/session resume {session.info.name}")],
+        )
+
+    mode_updates = [
+        note["update"]
+        for note in client.notifications
+        if getattr(note["update"], "session_update", None) == "current_mode_update"
+    ]
+    assert mode_updates
+    assert mode_updates[-1].current_mode_id == "alpha"
 
 
 async def _initialize_connection(connection: "ClientSideConnection") -> None:
