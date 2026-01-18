@@ -6,8 +6,8 @@ Fixes two common problems:
 2. Hallucinated tool name variations (exec → execute)
 """
 
-from fast_agent.hooks.hook_context import HookContext
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.hooks.hook_context import HookContext
 
 logger = get_logger(__name__)
 

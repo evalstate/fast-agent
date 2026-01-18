@@ -28,9 +28,6 @@ from typing import (
     TypeVar,
 )
 
-if TYPE_CHECKING:
-    from fast_agent.core.agent_card_loader import LoadedAgentCard
-
 import yaml
 import yaml.parser
 from opentelemetry import trace
@@ -102,6 +99,7 @@ if TYPE_CHECKING:
 
     from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
     from fast_agent.context import Context
+    from fast_agent.core.agent_card_loader import LoadedAgentCard
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.types import PromptMessageExtended
 
