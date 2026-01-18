@@ -53,7 +53,6 @@ from fast_agent.ui.command_payloads import (
     SelectPromptCommand,
     ShellCommand,
     ShowHistoryCommand,
-    UnknownCommand,
     ShowMarkdownCommand,
     ShowMcpStatusCommand,
     ShowSystemCommand,
@@ -61,6 +60,7 @@ from fast_agent.ui.command_payloads import (
     SkillsCommand,
     SwitchAgentCommand,
     TitleSessionCommand,
+    UnknownCommand,
     is_command_payload,
 )
 from fast_agent.ui.mcp_display import render_mcp_status

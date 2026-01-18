@@ -6,8 +6,9 @@ from mcp import CallToolRequest
 from mcp.types import CallToolRequestParams, CallToolResult, TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
+from fast_agent.agents.tool_agent import ToolAgent
+from fast_agent.agents.tool_agent import logger as tool_logger
 from fast_agent.core.logging.events import Event
-from fast_agent.agents.tool_agent import ToolAgent, logger as tool_logger
 from fast_agent.core.prompt import Prompt
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.provider_types import Provider
@@ -71,14 +72,15 @@ async def _capture_events(coro: Awaitable[object]) -> list[Event]:
     previous_queue = bus._queue
 
     bus._running = True
-    bus._queue = asyncio.Queue()
+    queue: asyncio.Queue[Event] = asyncio.Queue()
+    bus._queue = queue
 
     await coro
     await _drain_emit_tasks()
 
     events: list[Event] = []
-    while not bus._queue.empty():
-        events.append(await bus._queue.get())
+    while not queue.empty():
+        events.append(await queue.get())
 
     bus._running = previous_running
     bus._queue = previous_queue

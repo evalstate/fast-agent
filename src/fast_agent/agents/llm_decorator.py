@@ -64,7 +64,6 @@ from fast_agent.llm.usage_tracking import UsageAccumulator
 from fast_agent.mcp.helpers.content_helpers import normalize_to_extended_list, text_content
 from fast_agent.mcp.mime_utils import is_text_mime_type
 from fast_agent.types import PromptMessageExtended, RequestParams
-from fast_agent.types.llm_stop_reason import LlmStopReason
 
 # Define a TypeVar for models
 ModelT = TypeVar("ModelT", bound=BaseModel)
