@@ -25,6 +25,8 @@ def test_check_uses_env_dir_for_config(tmp_path: Path) -> None:
 
     env = os.environ.copy()
     env.pop("ENVIRONMENT_DIR", None)
+    env["COLUMNS"] = "200"
+    env["RICH_WIDTH"] = "200"
 
     result = subprocess.run(
         ["uv", "run", "fast-agent", "check", "--env", str(env_dir)],
