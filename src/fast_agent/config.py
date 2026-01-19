@@ -616,6 +616,9 @@ class LoggerSettings(BaseModel):
     streaming: Literal["markdown", "plain", "none"] = "markdown"
     """Streaming renderer for assistant responses"""
 
+    message_style: Literal["classic", "a3"] = "a3"
+    """Chat message layout style for console output."""
+
 
 def find_fastagent_config_files(start_path: Path) -> tuple[Path | None, Path | None]:
     """

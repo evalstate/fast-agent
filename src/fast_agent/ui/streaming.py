@@ -193,31 +193,12 @@ class StreamingMessageHandle:
             self._render_current_buffer()
 
     def _build_header(self) -> Text:
-        width = console.console.size.width
-        left_text = Text.from_markup(self._header_left)
-
         right_content = self._header_right.strip()
         if self._display_truncated:
             indicator = "[black on blue]display truncated[/black on blue]"
             right_content = f"{right_content} {indicator}" if right_content else indicator
 
-        if right_content:
-            right_text = Text()
-            right_text.append("[", style="dim")
-            right_text.append_text(Text.from_markup(right_content))
-            right_text.append("]", style="dim")
-            separator_count = width - left_text.cell_len - right_text.cell_len
-            if separator_count < 1:
-                separator_count = 1
-        else:
-            right_text = Text("")
-            separator_count = width - left_text.cell_len
-
-        combined = Text()
-        combined.append_text(left_text)
-        combined.append(" ", style="default")
-        combined.append("─" * (separator_count - 1), style="dim")
-        combined.append_text(right_text)
+        combined = self._display._format_header_line(self._header_left, right_content)
         return combined
 
     def _pause_progress_display(self) -> None:
