@@ -3,8 +3,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
+from mcp import CallToolRequest
+from mcp.types import CallToolRequestParams
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.core.prompt import Prompt
+from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui import enhanced_prompt, interactive_prompt
 from fast_agent.ui.interactive_prompt import InteractivePrompt
 
@@ -163,3 +167,91 @@ async def test_card_command_attach(monkeypatch, capsys: Any) -> None:
     output = capsys.readouterr().out
     assert "Loaded AgentCard(s): sizer" in output
     assert "Attached agent tool(s): sizer" in output
+
+
+@pytest.mark.asyncio
+async def test_history_fix_trims_pending_tool_call(monkeypatch, capsys: Any) -> None:
+    _patch_input(monkeypatch, ["/history fix", "STOP"])
+
+    class _HistoryAgent(_FakeAgent):
+        def __init__(self) -> None:
+            pending_tool_call = CallToolRequest(
+                params=CallToolRequestParams(name="fake_tool", arguments={})
+            )
+            self._message_history = [
+                Prompt.assistant(
+                    "pending",
+                    stop_reason=LlmStopReason.TOOL_USE,
+                    tool_calls={"call-1": pending_tool_call},
+                )
+            ]
+
+        @property
+        def message_history(self):
+            return self._message_history
+
+        def load_message_history(self, history):
+            self._message_history = list(history)
+
+    class _HistoryAgentApp(_FakeAgentApp):
+        def __init__(self):
+            super().__init__(["test"])
+            self._agents["test"] = _HistoryAgent()
+
+        def _agent(self, agent_name: str | None):
+            if agent_name is None:
+                return self._agents["test"]
+            return self._agents[agent_name]
+
+    async def fake_send(*_args: Any, **_kwargs: Any) -> str:
+        return ""
+
+    prompt_ui = InteractivePrompt()
+    agent_app = _HistoryAgentApp()
+
+    await prompt_ui.prompt_loop(
+        send_func=fake_send,
+        default_agent="test",
+        available_agents=["test"],
+        prompt_provider=cast("AgentApp", agent_app),
+    )
+
+    output = capsys.readouterr().out
+    assert "Removed pending tool call" in output
+    assert agent_app._agent("test").message_history == []
+
+
+@pytest.mark.asyncio
+async def test_history_fix_notice_on_cancelled_turn(monkeypatch, capsys: Any) -> None:
+    _patch_input(monkeypatch, ["STOP"])
+
+    class _CancelledAgent(_FakeAgent):
+        def __init__(self) -> None:
+            self._last_turn_cancelled = True
+            self._last_turn_cancel_reason = "cancelled"
+
+    class _CancelledAgentApp(_FakeAgentApp):
+        def __init__(self):
+            super().__init__(["test"])
+            self._agents["test"] = _CancelledAgent()
+
+        def _agent(self, agent_name: str | None):
+            if agent_name is None:
+                return self._agents["test"]
+            return self._agents[agent_name]
+
+    async def fake_send(*_args: Any, **_kwargs: Any) -> str:
+        return ""
+
+    prompt_ui = InteractivePrompt()
+    agent_app = _CancelledAgentApp()
+
+    await prompt_ui.prompt_loop(
+        send_func=fake_send,
+        default_agent="test",
+        available_agents=["test"],
+        prompt_provider=cast("AgentApp", agent_app),
+    )
+
+    output = capsys.readouterr().out
+    assert "Previous turn was cancelled" in output

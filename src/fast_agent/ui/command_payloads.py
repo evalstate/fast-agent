@@ -103,6 +103,19 @@ class HistoryRewindCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class HistoryReviewCommand(CommandBase):
+    turn_index: int | None
+    error: str | None
+    kind: Literal["history_review"] = "history_review"
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryFixCommand(CommandBase):
+    agent: str | None
+    kind: Literal["history_fix"] = "history_fix"
+
+
+@dataclass(frozen=True, slots=True)
 class LoadAgentCardCommand(CommandBase):
     filename: str | None
     add_tool: bool
@@ -198,6 +211,8 @@ CommandPayload = (
     | SaveHistoryCommand
     | LoadHistoryCommand
     | HistoryRewindCommand
+    | HistoryReviewCommand
+    | HistoryFixCommand
     | LoadAgentCardCommand
     | ReloadAgentsCommand
     | AgentCommand

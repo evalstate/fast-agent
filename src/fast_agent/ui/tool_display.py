@@ -26,6 +26,90 @@ class ToolDisplay:
     def _markup(self) -> bool:
         return self._display._markup
 
+    @staticmethod
+    def _normalize_tool_name(tool_name: str) -> str:
+        normalized = tool_name.lower()
+        for sep in ("/", ".", ":"):
+            if sep in normalized:
+                normalized = normalized.rsplit(sep, 1)[-1]
+        return normalized
+
+    def _shell_output_line_limit(self, tool_name: str | None) -> int | None:
+        if not tool_name:
+            return None
+        normalized = self._normalize_tool_name(tool_name)
+        if normalized not in {"execute", "bash", "shell"}:
+            return None
+        config = self._display.config
+        if not config:
+            return None
+        shell_config = getattr(config, "shell_execution", None)
+        if not shell_config:
+            return None
+        return getattr(shell_config, "output_display_lines", None)
+
+    def _shell_show_bash(self, tool_name: str | None) -> bool:
+        if not tool_name:
+            return True
+        normalized = self._normalize_tool_name(tool_name)
+        if normalized not in {"execute", "bash", "shell"}:
+            return True
+        config = self._display.config
+        if not config:
+            return True
+        shell_config = getattr(config, "shell_execution", None)
+        if not shell_config:
+            return True
+        return bool(getattr(shell_config, "show_bash", True))
+
+    @staticmethod
+    def _extract_exit_code_line(lines: list[str]) -> tuple[list[str], str | None]:
+        if not lines:
+            return lines, None
+        index = len(lines) - 1
+        while index >= 0 and not lines[index].strip():
+            index -= 1
+        if index < 0:
+            return lines, None
+        candidate = lines[index].strip()
+        if candidate.startswith("[Exit code:") or candidate.startswith("process exit code was"):
+            return lines[:index], candidate
+        return lines, None
+
+    def _limit_shell_output_text(self, text: str, line_limit: int) -> str:
+        if line_limit < 0:
+            return text
+        lines = text.splitlines()
+        if not lines:
+            return text if line_limit != 0 else ""
+        if line_limit == 0:
+            _, exit_line = self._extract_exit_code_line(lines)
+            return exit_line or ""
+
+        lines_without_exit, exit_line = self._extract_exit_code_line(lines)
+        if line_limit >= len(lines_without_exit):
+            return text
+
+        output_lines = lines_without_exit[:line_limit]
+        if len(lines_without_exit) > line_limit:
+            output_lines.append("...")
+        if exit_line:
+            output_lines.append(exit_line)
+        return "\n".join(output_lines)
+
+    def _limit_shell_output_content(self, content, line_limit: int):
+        from mcp.types import TextContent
+
+        from fast_agent.mcp.helpers.content_helpers import get_text, is_text_content
+
+        if not content or len(content) != 1 or not is_text_content(content[0]):
+            return content
+        text = get_text(content[0]) or ""
+        limited = self._limit_shell_output_text(text, line_limit)
+        if limited == text:
+            return content
+        return [TextContent(type="text", text=limited)]
+
     def show_tool_result(
         self,
         result: CallToolResult,
@@ -35,6 +119,7 @@ class ToolDisplay:
         skybridge_config: "SkybridgeServerConfig | None" = None,
         timing_ms: float | None = None,
         type_label: str = "tool result",
+        truncate_content: bool = True,
     ) -> None:
         """Display a tool result in the console."""
         config = self._display.config
@@ -46,6 +131,17 @@ class ToolDisplay:
         content = result.content
         structured_content = getattr(result, "structuredContent", None)
         has_structured = structured_content is not None
+        display_content = content
+        if truncate_content:
+            show_bash_output = self._shell_show_bash(tool_name)
+            if not show_bash_output:
+                display_content = self._limit_shell_output_content(content, 0)
+                truncate_content = False
+            else:
+                line_limit = self._shell_output_line_limit(tool_name)
+                if line_limit is not None:
+                    display_content = self._limit_shell_output_content(content, line_limit)
+                    truncate_content = False
 
         is_skybridge_tool = False
         skybridge_resource_uri: str | None = None
@@ -119,8 +215,8 @@ class ToolDisplay:
             self._display._create_combined_separator_status(left, right_info)
 
             self._display._display_content(
-                content,
-                True,
+                display_content,
+                truncate_content,
                 result.isError,
                 MessageType.TOOL_RESULT,
                 check_markdown_markers=False,
@@ -184,13 +280,13 @@ class ToolDisplay:
                 console.console.print()
         else:
             self._display.display_message(
-                content=content,
+                content=display_content,
                 message_type=MessageType.TOOL_RESULT,
                 name=name,
                 right_info=right_info,
                 bottom_metadata=bottom_metadata,
                 is_error=result.isError,
-                truncate_content=True,
+                truncate_content=truncate_content,
             )
 
     def show_tool_call(
@@ -220,6 +316,7 @@ class ToolDisplay:
 
         if metadata.get("variant") == "shell":
             bottom_items = list()
+            highlight_index = None
             max_item_length = 50
             command = metadata.get("command") or tool_args.get("command")
 

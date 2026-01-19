@@ -547,6 +547,23 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                         notified_tool_indices=notified_tool_indices,
                     )
 
+        if tool_call_started:
+            incomplete_tools = [
+                f"{info.get('tool_name', 'unknown')}:{info.get('tool_use_id', 'unknown')}"
+                for info in tool_call_started.values()
+            ]
+            self.logger.error(
+                "Tool call streaming incomplete - started but never finished",
+                data={
+                    "incomplete_tools": incomplete_tools,
+                    "tool_count": len(tool_call_started),
+                },
+            )
+            raise RuntimeError(
+                "Streaming completed but tool call(s) never finished: "
+                f"{', '.join(incomplete_tools)}"
+            )
+
         # Check if we hit the length limit to avoid LengthFinishReasonError
         current_snapshot = state.current_completion_snapshot
         if current_snapshot.choices and current_snapshot.choices[0].finish_reason == "length":
@@ -744,6 +761,23 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             if hasattr(chunk, "usage") and chunk.usage:
                 usage_data = chunk.usage
 
+        if tool_call_started:
+            incomplete_tools = [
+                f"{info.get('tool_name', 'unknown')}:{info.get('tool_use_id', 'unknown')}"
+                for info in tool_call_started.values()
+            ]
+            self.logger.error(
+                "Tool call streaming incomplete - started but never finished",
+                data={
+                    "incomplete_tools": incomplete_tools,
+                    "tool_count": len(tool_call_started),
+                },
+            )
+            raise RuntimeError(
+                "Streaming completed but tool call(s) never finished: "
+                f"{', '.join(incomplete_tools)}"
+            )
+
         # Convert accumulated tool calls to proper format.
         tool_calls = None
         if tool_calls_map:
@@ -880,9 +914,29 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             async with self._openai_client() as client:
                 stream = await client.chat.completions.create(**arguments)
                 # Process the stream
-                response, streamed_reasoning = await self._process_stream(
-                    stream, model_name, capture_filename
-                )
+                timeout = request_params.streaming_timeout
+                if timeout is None:
+                    response, streamed_reasoning = await self._process_stream(
+                        stream, model_name, capture_filename
+                    )
+                else:
+                    try:
+                        response, streamed_reasoning = await asyncio.wait_for(
+                            self._process_stream(stream, model_name, capture_filename),
+                            timeout=timeout,
+                        )
+                    except asyncio.TimeoutError as exc:
+                        self.logger.error(
+                            "Streaming timeout while waiting for OpenAI completion",
+                            data={
+                                "model": model_name,
+                                "timeout_seconds": timeout,
+                            },
+                        )
+                        raise TimeoutError(
+                            "Streaming did not complete within "
+                            f"{timeout} seconds."
+                        ) from exc
         except asyncio.CancelledError as e:
             reason = str(e) if e.args else "cancelled"
             self.logger.info(f"OpenAI completion cancelled: {reason}")

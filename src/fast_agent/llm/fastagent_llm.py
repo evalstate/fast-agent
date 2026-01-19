@@ -101,9 +101,15 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     PARAM_MCP_METADATA = "mcp_metadata"
     PARAM_TOOL_HANDLER = "tool_execution_handler"
     PARAM_LOOP_PROGRESS = "emit_loop_progress"
+    PARAM_STREAMING_TIMEOUT = "streaming_timeout"
 
     # Base set of fields that should always be excluded
-    BASE_EXCLUDE_FIELDS = {PARAM_METADATA, PARAM_TOOL_HANDLER, PARAM_LOOP_PROGRESS}
+    BASE_EXCLUDE_FIELDS = {
+        PARAM_METADATA,
+        PARAM_TOOL_HANDLER,
+        PARAM_LOOP_PROGRESS,
+        PARAM_STREAMING_TIMEOUT,
+    }
 
     """
     Implementation of the Llm Protocol - intended be subclassed for Provider

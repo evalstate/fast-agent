@@ -265,3 +265,22 @@ async def test_after_turn_complete_receives_final_message():
 
     text = get_text(msg.content[0]) if msg.content else ""
     assert text == "done"
+
+
+class FailingBeforeToolHookAgent(ToolAgent):
+    def _tool_runner_hooks(self) -> ToolRunnerHooks | None:
+        async def before_tool_call(runner, message):
+            raise RuntimeError("hook boom")
+
+        return ToolRunnerHooks(before_tool_call=before_tool_call)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_tool_hook_error_returns_tool_result():
+    llm = TwoStepToolUseLlm()
+    agent = FailingBeforeToolHookAgent(AgentConfig("hook-error"), [tool_one, tool_two])
+    agent._llm = llm
+
+    result = await agent.generate("hi")
+    assert result.stop_reason == LlmStopReason.ERROR

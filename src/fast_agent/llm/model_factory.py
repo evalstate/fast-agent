@@ -116,6 +116,7 @@ class ModelFactory:
         "gpt51": "responses.gpt-5.1",
         "gpt52": "responses.gpt-5.2",
         "codex": "responses.gpt-5.2-codex",
+        "codexplan": "codexresponses.gpt-5.2-codex",
         "sonnet": "claude-sonnet-4-5",
         "sonnet4": "claude-sonnet-4-0",
         "sonnet45": "claude-sonnet-4-5",
@@ -385,6 +386,10 @@ class ModelFactory:
                 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 
                 return ResponsesLLM
+            if provider == Provider.CODEX_RESPONSES:
+                from fast_agent.llm.provider.openai.codex_responses import CodexResponsesLLM
+
+                return CodexResponsesLLM
             if provider == Provider.OPENRESPONSES:
                 from fast_agent.llm.provider.openai.openresponses import OpenResponsesLLM
 

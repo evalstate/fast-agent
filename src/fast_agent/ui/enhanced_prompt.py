@@ -2,6 +2,8 @@
 Enhanced prompt functionality with advanced prompt_toolkit features.
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import os
@@ -11,7 +13,6 @@ import shutil
 import subprocess
 import tempfile
 import time
-from collections.abc import Callable, Iterable
 from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -32,8 +33,8 @@ from fast_agent.agents.workflow.router_agent import RouterAgent
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, FAST_AGENT_REMOVED_METADATA_CHANNEL
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.llm.model_info import ModelInfo
+from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.types import McpAgentProtocol
-from fast_agent.types.conversation_summary import split_into_turns
 from fast_agent.ui.command_payloads import (
     AgentCommand,
     ClearCommand,
@@ -42,6 +43,8 @@ from fast_agent.ui.command_payloads import (
     CreateSessionCommand,
     ForkSessionCommand,
     HashAgentCommand,
+    HistoryFixCommand,
+    HistoryReviewCommand,
     HistoryRewindCommand,
     ListSessionsCommand,
     ListToolsCommand,
@@ -67,7 +70,10 @@ from fast_agent.ui.mcp_display import render_mcp_status
 from fast_agent.ui.model_display import format_model_display
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable
+
     from fast_agent.core.agent_app import AgentApp
+    from fast_agent.types import PromptMessageExtended
 
 # Get the application version
 try:
@@ -169,6 +175,14 @@ def _load_history_cmd(filename: str | None, error: str | None) -> LoadHistoryCom
 
 def _history_rewind_cmd(turn_index: int | None, error: str | None) -> HistoryRewindCommand:
     return HistoryRewindCommand(turn_index=turn_index, error=error)
+
+
+def _history_review_cmd(turn_index: int | None, error: str | None) -> HistoryReviewCommand:
+    return HistoryReviewCommand(turn_index=turn_index, error=error)
+
+
+def _history_fix_cmd(target_agent: str | None) -> HistoryFixCommand:
+    return HistoryFixCommand(agent=target_agent)
 
 
 def _load_agent_card_cmd(
@@ -569,7 +583,7 @@ class AgentCompleter(Completer):
         # Map commands to their descriptions for better completion hints
         self.commands = {
             "mcp": "Show MCP server status",
-            "history": "Show conversation history overview (or /history save|load|rewind)",
+            "history": "Show conversation history overview (or /history save|load|rewind|review|fix)",
             "tools": "List available MCP Tools",
             "skills": "Manage skills (/skills, /skills add, /skills remove, /skills registry)",
             "prompt": "List and choose MCP prompts, or apply specific prompt (/prompt <name>)",
@@ -673,7 +687,32 @@ class AgentCompleter(Completer):
         except Exception:
             return []
         history = getattr(agent_obj, "message_history", [])
-        turns = split_into_turns(list(history))
+        turns: list[list[PromptMessageExtended]] = []
+        current: list[PromptMessageExtended] = []
+        saw_assistant = False
+
+        for message in list(history):
+            is_new_user = message.role == "user" and not message.tool_results
+            if is_new_user:
+                if not current:
+                    current = [message]
+                    saw_assistant = False
+                    continue
+                if not saw_assistant:
+                    current.append(message)
+                    continue
+                turns.append(current)
+                current = [message]
+                saw_assistant = False
+                continue
+            if current:
+                current.append(message)
+                if message.role == "assistant":
+                    saw_assistant = True
+
+        if current:
+            turns.append(current)
+
         user_turns = []
         for turn in turns:
             if not turn:
@@ -693,9 +732,14 @@ class AgentCompleter(Completer):
             index_str = str(index)
             if partial_clean and not index_str.startswith(partial_clean):
                 continue
-            text = message.all_text()
+            content = getattr(message, "content", []) or []
+            text = None
+            if content:
+                from fast_agent.mcp.helpers.content_helpers import get_text
+
+                text = get_text(content[0])
             if not text or text == "<no text>":
-                text = message.first_text()
+                text = ""
             preview = self._normalize_turn_preview(text or "")
             yield Completion(
                 index_str,
@@ -973,6 +1017,11 @@ class AgentCompleter(Completer):
             yield from self._complete_history_rewind(partial)
             return
 
+        if text_lower.startswith("/history review "):
+            partial = text[len("/history review ") :]
+            yield from self._complete_history_rewind(partial)
+            return
+
         if text_lower.startswith("/resume "):
             partial = text[len("/resume ") :]
             yield from self._complete_session_ids(partial)
@@ -1035,6 +1084,7 @@ class AgentCompleter(Completer):
                 "save": "Save history to a file",
                 "load": "Load history from a file",
                 "rewind": "Rewind to a previous user turn",
+                "review": "Review a previous user turn in full",
             }
             for subcmd, description in subcommands.items():
                 if subcmd.startswith(partial.lower()):
@@ -1410,6 +1460,16 @@ def parse_special_input(text: str) -> str | CommandPayload:
                 if not argument:
                     return _load_history_cmd(None, "Filename required for /history load")
                 return _load_history_cmd(argument, None)
+            if subcmd == "review":
+                if not argument:
+                    return _history_review_cmd(None, "Turn number required for /history review")
+                try:
+                    turn_index = int(argument)
+                except ValueError:
+                    return _history_review_cmd(None, "Turn number must be an integer")
+                return _history_review_cmd(turn_index, None)
+            if subcmd == "fix":
+                return _history_fix_cmd(argument or None)
             if subcmd == "rewind":
                 if not argument:
                     return _history_rewind_cmd(None, "Turn number required for /history rewind")
@@ -1743,6 +1803,8 @@ async def get_enhanced_input(
 
             if model_name:
                 display_name = format_model_display(model_name) or model_name
+                if llm and getattr(llm, "provider", None) == Provider.CODEX_RESPONSES:
+                    display_name = f"{display_name} (plan)"
                 max_len = 25
                 model_display = (
                     display_name[: max_len - 1] + "…"
@@ -2274,6 +2336,8 @@ async def handle_special_commands(
         )
         rich_print("  /history load <filename> - Load chat history from a file")
         rich_print("  /history rewind <turn> - Rewind to a prior user turn")
+        rich_print("  /history review <turn> - Review a prior user turn in full")
+        rich_print("  /history fix [agent_name] - Remove the last pending tool call")
         rich_print("  /resume [id|number] - Resume the last or specified session")
         rich_print("  /session list - List recent sessions")
         rich_print("  /session new [title] - Create a new session")

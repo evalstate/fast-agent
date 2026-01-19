@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
 
 from fast_agent.agents.agent_types import AgentType
-from fast_agent.config import get_settings
+from fast_agent.config import Settings, get_settings
 from fast_agent.constants import CONTROL_MESSAGE_SAVE_HISTORY
 from fast_agent.core.exceptions import AgentConfigError, format_fast_agent_error
 from fast_agent.core.instruction_refresh import rebuild_agent_instruction
@@ -48,8 +48,7 @@ from fast_agent.skills.manager import (
     select_skill_by_name_or_index,
 )
 from fast_agent.skills.registry import SkillManifest, format_skills_for_prompt
-from fast_agent.types import PromptMessageExtended
-from fast_agent.types.conversation_summary import split_into_turns
+from fast_agent.types import LlmStopReason, PromptMessageExtended
 from fast_agent.ui import enhanced_prompt
 from fast_agent.ui.command_payloads import (
     AgentCommand,
@@ -59,6 +58,8 @@ from fast_agent.ui.command_payloads import (
     CreateSessionCommand,
     ForkSessionCommand,
     HashAgentCommand,
+    HistoryFixCommand,
+    HistoryReviewCommand,
     HistoryRewindCommand,
     ListPromptsCommand,
     ListSessionsCommand,
@@ -104,21 +105,53 @@ SendFunc = Callable[[Union[str, PromptMessage, PromptMessageExtended], str], Awa
 AgentGetter = Callable[[str], object | None]
 
 
+def _group_turns_for_history_actions(
+    history: list[PromptMessageExtended],
+) -> list[tuple[int, list[PromptMessageExtended]]]:
+    turns: list[tuple[int, list[PromptMessageExtended]]] = []
+    current: list[PromptMessageExtended] = []
+    current_start = 0
+    saw_assistant = False
+
+    for idx, message in enumerate(history):
+        is_new_user = message.role == "user" and not message.tool_results
+        if is_new_user:
+            if not current:
+                current = [message]
+                current_start = idx
+                saw_assistant = False
+                continue
+            if not saw_assistant:
+                current.append(message)
+                continue
+            turns.append((current_start, current))
+            current = [message]
+            current_start = idx
+            saw_assistant = False
+            continue
+
+        if current:
+            current.append(message)
+            if message.role == "assistant":
+                saw_assistant = True
+
+    if current:
+        turns.append((current_start, current))
+    return turns
+
+
 def _collect_user_turns(
     history: list[PromptMessageExtended],
 ) -> list[tuple[int, PromptMessageExtended]]:
-    turns = split_into_turns(list(history))
+    turns = _group_turns_for_history_actions(list(history))
     user_turns: list[tuple[int, PromptMessageExtended]] = []
-    offset = 0
-    for turn in turns:
+    for offset, turn in turns:
         if not turn:
             continue
         first = turn[0]
         if first.role != "user" or first.tool_results:
-            offset += len(turn)
             continue
         user_turns.append((offset, first))
-        offset += len(turn)
     return user_turns
 
 
@@ -134,6 +167,71 @@ def _trim_history_for_rewind(
     if template_messages:
         return template_messages
     return history[:turn_start_index]
+
+
+def _display_history_turn(
+    agent_name: str,
+    turn: list[PromptMessageExtended],
+    *,
+    config: Settings | None,
+) -> None:
+    from fast_agent.ui.console_display import ConsoleDisplay
+    from fast_agent.ui.message_primitives import MessageType
+
+    display = ConsoleDisplay(config=config)
+
+    for message in turn:
+        role_raw = getattr(message, "role", "assistant")
+        role_value = getattr(role_raw, "value", role_raw)
+        role = str(role_value).lower() if role_value else "assistant"
+
+        content = getattr(message, "content", []) or []
+        if content:
+            if role == "user":
+                display.display_message(
+                    content=content,
+                    message_type=MessageType.USER,
+                    truncate_content=False,
+                )
+            elif role == "assistant":
+                display.display_message(
+                    content=content,
+                    message_type=MessageType.ASSISTANT,
+                    name=agent_name,
+                    truncate_content=False,
+                )
+            else:
+                display.display_message(
+                    content=content,
+                    message_type=MessageType.SYSTEM,
+                    name=agent_name,
+                    truncate_content=False,
+                )
+
+        tool_calls = getattr(message, "tool_calls", None)
+        if tool_calls:
+            for tool_call in tool_calls.values():
+                params = getattr(tool_call, "params", None)
+                tool_name = (
+                    getattr(params, "name", None) or getattr(tool_call, "name", None) or "tool"
+                )
+                tool_args = getattr(params, "arguments", None) if params else None
+                if tool_args is None:
+                    tool_args = {}
+                display.show_tool_call(
+                    tool_name=tool_name,
+                    tool_args=tool_args,
+                    name=agent_name,
+                )
+
+        tool_results = getattr(message, "tool_results", None)
+        if tool_results:
+            for result in tool_results.values():
+                display.show_tool_result(
+                    result=result,
+                    name=agent_name,
+                    truncate_content=False,
+                )
 
 
 class InteractivePrompt:
@@ -197,6 +295,19 @@ class InteractivePrompt:
             progress_display.pause()
 
             refreshed = await prompt_provider.refresh_if_needed()
+            try:
+                agent_obj = prompt_provider._agent(agent)
+            except Exception:
+                agent_obj = None
+
+            if agent_obj is not None and getattr(agent_obj, "_last_turn_cancelled", False):
+                reason = getattr(agent_obj, "_last_turn_cancel_reason", "cancelled")
+                setattr(agent_obj, "_last_turn_cancelled", False)
+                rich_print(
+                    "[yellow]Previous turn was {reason}. If the session now shows a pending tool call, "
+                    "run /history fix or /clear history.[/yellow]".format(reason=reason)
+                )
+
             if refreshed:
                 available_agents = list(prompt_provider.agent_names())
                 available_agents_set = set(available_agents)
@@ -282,9 +393,7 @@ class InteractivePrompt:
                             rich_print(f"[red]Agent '{target_agent}' not found[/red]")
                             continue
                         if not hash_message:
-                            rich_print(
-                                f"[yellow]Usage: #{target_agent} <message>[/yellow]"
-                            )
+                            rich_print(f"[yellow]Usage: #{target_agent} <message>[/yellow]")
                             continue
                         # Set up for sending outside the paused context
                         hash_send_target = target_agent
@@ -299,9 +408,7 @@ class InteractivePrompt:
                         # Use the prompt_provider directly
                         await self._list_prompts(prompt_provider, agent)
                         continue
-                    case SelectPromptCommand(
-                        prompt_name=prompt_name, prompt_index=prompt_index
-                    ):
+                    case SelectPromptCommand(prompt_name=prompt_name, prompt_index=prompt_index):
                         # Handle prompt selection, using both list_prompts and apply_prompt
                         # If a specific index was provided (from /prompt <number>)
                         if prompt_index is not None:
@@ -365,7 +472,9 @@ class InteractivePrompt:
                             continue
                         if turn_index is None:
                             rich_print("[yellow]Usage: /history rewind <turn>[/yellow]")
-                            rich_print("[dim]Tip: press Tab after '/history rewind ' to see turn options.[/dim]")
+                            rich_print(
+                                "[dim]Tip: press Tab after '/history rewind ' to see turn options.[/dim]"
+                            )
                             continue
                         try:
                             agent_obj = prompt_provider._agent(agent)
@@ -381,9 +490,12 @@ class InteractivePrompt:
                             rich_print("[red]Turn index out of range.[/red]")
                             continue
                         turn_start, user_message = user_turns[turn_index - 1]
-                        user_text = user_message.all_text()
-                        if not user_text or user_text == "<no text>":
-                            user_text = user_message.first_text()
+                        content = getattr(user_message, "content", []) or []
+                        user_text = None
+                        if content:
+                            from fast_agent.mcp.helpers.content_helpers import get_text
+
+                            user_text = get_text(content[0])
                         if not user_text or user_text == "<no text>":
                             rich_print("[red]Selected turn has no text content to rewind.[/red]")
                             continue
@@ -402,7 +514,81 @@ class InteractivePrompt:
                                 existing_history.clear()
                                 existing_history.extend(trimmed)
                         buffer_prefill = user_text
-                        rich_print("[green]History rewound. User turn loaded into input buffer.[/green]")
+                        rich_print(
+                            "[green]History rewound. User turn loaded into input buffer.[/green]"
+                        )
+                        continue
+                    case HistoryReviewCommand(turn_index=turn_index, error=error):
+                        if error:
+                            rich_print(f"[red]{error}[/red]")
+                            continue
+                        if turn_index is None:
+                            rich_print("[yellow]Usage: /history review <turn>[/yellow]")
+                            rich_print(
+                                "[dim]Tip: press Tab after '/history review ' to see turn options.[/dim]"
+                            )
+                            continue
+                        try:
+                            agent_obj = prompt_provider._agent(agent)
+                        except Exception:
+                            rich_print(f"[red]Unable to load agent '{agent}'[/red]")
+                            continue
+                        history = getattr(agent_obj, "message_history", [])
+                        turns = [
+                            turn
+                            for _, turn in _group_turns_for_history_actions(list(history))
+                            if turn and turn[0].role == "user" and not turn[0].tool_results
+                        ]
+                        user_turns = turns
+                        if not user_turns:
+                            rich_print("[yellow]No user turns available to review.[/yellow]")
+                            continue
+                        if turn_index < 1 or turn_index > len(user_turns):
+                            rich_print("[red]Turn index out of range.[/red]")
+                            continue
+                        selected_turn = user_turns[turn_index - 1]
+                        rich_print(f"[green]History review: turn {turn_index}[/green]")
+                        _display_history_turn(
+                            agent_obj.name if hasattr(agent_obj, "name") else agent,
+                            list(selected_turn),
+                            config=get_settings(),
+                        )
+                        continue
+                    case HistoryFixCommand(agent=target_agent):
+                        target_agent = target_agent or agent
+                        try:
+                            agent_obj = prompt_provider._agent(target_agent)
+                        except Exception:
+                            rich_print(f"[red]Unable to load agent '{target_agent}'[/red]")
+                            continue
+
+                        history = list(getattr(agent_obj, "message_history", []))
+                        if not history:
+                            rich_print("[yellow]No history to fix.[/yellow]")
+                            continue
+
+                        last_msg = history[-1]
+                        if (
+                            last_msg.role == "assistant"
+                            and last_msg.tool_calls
+                            and last_msg.stop_reason == LlmStopReason.TOOL_USE
+                        ):
+                            trimmed = history[:-1]
+                            load_history = getattr(agent_obj, "load_message_history", None)
+                            if callable(load_history):
+                                load_history(trimmed)
+                            else:
+                                existing_history = getattr(agent_obj, "message_history", None)
+                                if isinstance(existing_history, list):
+                                    existing_history.clear()
+                                    existing_history.extend(trimmed)
+                            rich_print(
+                                f"[green]Removed pending tool call from '{target_agent}'.[/green]"
+                            )
+                        else:
+                            rich_print(
+                                "[yellow]No pending tool call found at end of history.[/yellow]"
+                            )
                         continue
                     case ClearCommand(kind="clear_last", agent=target_agent):
                         target_agent = target_agent or agent
@@ -426,9 +612,7 @@ class InteractivePrompt:
 
                         if removed_message:
                             role = getattr(removed_message, "role", "message")
-                            role_display = (
-                                role.capitalize() if isinstance(role, str) else "Message"
-                            )
+                            role_display = role.capitalize() if isinstance(role, str) else "Message"
                             rich_print(
                                 f"[green]Removed last {role_display} for agent '{target_agent}'.[/green]"
                             )
@@ -514,9 +698,7 @@ class InteractivePrompt:
                         )
 
                         if not target:
-                            rich_print(
-                                "[yellow]Usage: /session clear <id|number|all>[/yellow]"
-                            )
+                            rich_print("[yellow]Usage: /session clear <id|number|all>[/yellow]")
                             continue
 
                         manager = get_session_manager()
@@ -595,17 +777,13 @@ class InteractivePrompt:
                             summary = summarize_session_histories(session)
                             summary_text = format_history_summary(summary)
                             if summary_text:
-                                rich_print(
-                                    f"[dim]Available histories:[/dim] {summary_text}"
-                                )
+                                rich_print(f"[dim]Available histories:[/dim] {summary_text}")
                         if len(loaded) == 1:
                             loaded_agent = next(iter(loaded.keys()))
                             if loaded_agent != agent:
                                 agent = loaded_agent
                                 agent_obj = prompt_provider._agent(agent)
-                                rich_print(
-                                    f"[green]Switched to agent:[/green] {agent}"
-                                )
+                                rich_print(f"[green]Switched to agent:[/green] {agent}")
                         usage = getattr(agent_obj, "usage_accumulator", None)
                         if usage and usage.model is None:
                             llm = getattr(agent_obj, "llm", None)
@@ -716,15 +894,15 @@ class InteractivePrompt:
 
                         try:
                             if add_tool and not remove_tool:
-                                loaded_names, attached_names = (
-                                    await prompt_provider.load_agent_card(
-                                        filename, agent
-                                    )
-                                )
+                                (
+                                    loaded_names,
+                                    attached_names,
+                                ) = await prompt_provider.load_agent_card(filename, agent)
                             else:
-                                loaded_names, attached_names = (
-                                    await prompt_provider.load_agent_card(filename)
-                                )
+                                (
+                                    loaded_names,
+                                    attached_names,
+                                ) = await prompt_provider.load_agent_card(filename)
                         except Exception as exc:
                             rich_print(f"[red]AgentCard load failed: {exc}[/red]")
                             continue
@@ -757,19 +935,13 @@ class InteractivePrompt:
                                     agent, loaded_names
                                 )
                             except Exception as exc:
-                                rich_print(
-                                    f"[red]Agent tool detach failed: {exc}[/red]"
-                                )
+                                rich_print(f"[red]Agent tool detach failed: {exc}[/red]")
                                 continue
                             if removed:
                                 removed_list = ", ".join(removed)
-                                rich_print(
-                                    f"[green]Detached agent tool(s): {removed_list}[/green]"
-                                )
+                                rich_print(f"[green]Detached agent tool(s): {removed_list}[/green]")
                             else:
-                                rich_print(
-                                    "[yellow]No agent tools detached.[/yellow]"
-                                )
+                                rich_print("[yellow]No agent tools detached.[/yellow]")
                             continue
                         if add_tool:
                             if attached_names:
@@ -798,9 +970,7 @@ class InteractivePrompt:
                                 )
                                 continue
                             try:
-                                card_text = await prompt_provider.dump_agent_card(
-                                    target_agent
-                                )
+                                card_text = await prompt_provider.dump_agent_card(target_agent)
                             except Exception as exc:
                                 rich_print(f"[red]AgentCard dump failed: {exc}[/red]")
                                 continue
@@ -818,30 +988,20 @@ class InteractivePrompt:
                                     agent, [target_agent]
                                 )
                             except Exception as exc:
-                                rich_print(
-                                    f"[red]Agent tool detach failed: {exc}[/red]"
-                                )
+                                rich_print(f"[red]Agent tool detach failed: {exc}[/red]")
                                 continue
                             if removed:
                                 removed_list = ", ".join(removed)
-                                rich_print(
-                                    f"[green]Detached agent tool(s): {removed_list}[/green]"
-                                )
+                                rich_print(f"[green]Detached agent tool(s): {removed_list}[/green]")
                             else:
-                                rich_print(
-                                    "[yellow]No agent tools detached.[/yellow]"
-                                )
+                                rich_print("[yellow]No agent tools detached.[/yellow]")
                             continue
                         if add_tool:
                             if target_agent == agent:
-                                rich_print(
-                                    "[yellow]Can't attach agent to itself.[/yellow]"
-                                )
+                                rich_print("[yellow]Can't attach agent to itself.[/yellow]")
                                 continue
                             if target_agent not in available_agents_set:
-                                rich_print(
-                                    f"[red]Agent '{target_agent}' not found[/red]"
-                                )
+                                rich_print(f"[red]Agent '{target_agent}' not found[/red]")
                                 continue
                             if not prompt_provider.can_attach_agent_tools():
                                 rich_print(
@@ -853,9 +1013,7 @@ class InteractivePrompt:
                                     agent, [target_agent]
                                 )
                             except Exception as exc:
-                                rich_print(
-                                    f"[red]Agent tool attach failed: {exc}[/red]"
-                                )
+                                rich_print(f"[red]Agent tool attach failed: {exc}[/red]")
                                 continue
 
                             if attached:
@@ -864,18 +1022,14 @@ class InteractivePrompt:
                                     f"[green]Attached agent tool(s): {attached_list}[/green]"
                                 )
                             else:
-                                rich_print(
-                                    "[yellow]No agent tools attached.[/yellow]"
-                                )
+                                rich_print("[yellow]No agent tools attached.[/yellow]")
                             continue
 
                         rich_print("[red]Invalid /agent command.[/red]")
                         continue
                     case ReloadAgentsCommand():
                         if not prompt_provider.can_reload_agents():
-                            rich_print(
-                                "[yellow]Reload is not available in this session.[/yellow]"
-                            )
+                            rich_print("[yellow]Reload is not available in this session.[/yellow]")
                             continue
 
                         reloadable = prompt_provider.reload_agents
@@ -897,9 +1051,7 @@ class InteractivePrompt:
                             if available_agents:
                                 agent = available_agents[0]
                             else:
-                                rich_print(
-                                    "[red]No agents available after reload.[/red]"
-                                )
+                                rich_print("[red]No agents available after reload.[/red]")
                                 return result
 
                         rich_print("[green]AgentCards reloaded.[/green]")
@@ -954,9 +1106,7 @@ class InteractivePrompt:
                         f"[green]Response from {hash_send_target} loaded into input buffer[/green]"
                     )
                 else:
-                    rich_print(
-                        f"[yellow]No response received from {hash_send_target}[/yellow]"
-                    )
+                    rich_print(f"[yellow]No response received from {hash_send_target}[/yellow]")
                 continue
 
             # Handle shell command after input handling
@@ -981,6 +1131,10 @@ class InteractivePrompt:
                 result = await send_func(user_input, agent)
             finally:
                 progress_display.pause()
+
+            if result and result.startswith("⚠️ **System Error:**"):
+                # rich_print(result)
+                print(result)
 
             # Update last copyable output with assistant response for Ctrl+Y
             if result:
@@ -1672,7 +1826,9 @@ class InteractivePrompt:
             directories = resolve_skill_directories()
             all_manifests: dict[Path, list[SkillManifest]] = {}
             for directory in directories:
-                all_manifests[directory] = list_local_skills(directory) if directory.exists() else []
+                all_manifests[directory] = (
+                    list_local_skills(directory) if directory.exists() else []
+                )
             self._render_local_skills_by_directory(all_manifests)
 
         except Exception as exc:  # noqa: BLE001
@@ -1704,9 +1860,9 @@ class InteractivePrompt:
 
     async def _set_skills_registry(self, argument: str | None) -> None:
         settings = get_settings()
-        configured_urls = (
-            settings.skills.marketplace_urls if settings.skills else None
-        ) or list(DEFAULT_SKILL_REGISTRIES)
+        configured_urls = (settings.skills.marketplace_urls if settings.skills else None) or list(
+            DEFAULT_SKILL_REGISTRIES
+        )
 
         if not argument:
             current = get_marketplace_url(settings)
@@ -1941,7 +2097,9 @@ class InteractivePrompt:
         rich_print("[dim]Use /skills add to install a skill[/dim]")
         rich_print("[dim]Remove a skill with /skills remove <number|name>[/dim]")
 
-    def _render_local_skills_by_directory(self, manifests_by_dir: dict[Path, list[SkillManifest]]) -> None:
+    def _render_local_skills_by_directory(
+        self, manifests_by_dir: dict[Path, list[SkillManifest]]
+    ) -> None:
         from rich.text import Text
 
         total_skills = sum(len(m) for m in manifests_by_dir.values())

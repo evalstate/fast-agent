@@ -13,6 +13,7 @@ import typer
 from fast_agent.cli.commands.server_helpers import add_servers_to_config, generate_server_name
 from fast_agent.cli.commands.url_parser import generate_server_configs, parse_server_urls
 from fast_agent.cli.constants import RESUME_LATEST_SENTINEL
+from fast_agent.cli.env_helpers import resolve_environment_dir_option
 from fast_agent.cli.shared_options import CommonAgentOptions
 from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION, FAST_AGENT_SHELL_CHILD_ENV
 from fast_agent.core.exceptions import AgentConfigError
@@ -31,24 +32,6 @@ CARD_EXTENSIONS = {".md", ".markdown", ".yaml", ".yml"}
 DEFAULT_ENV_PATHS = resolve_environment_paths()
 DEFAULT_AGENT_CARDS_DIR = DEFAULT_ENV_PATHS.agent_cards
 DEFAULT_TOOL_CARDS_DIR = DEFAULT_ENV_PATHS.tool_cards
-
-def resolve_environment_dir_option(
-    ctx: typer.Context | None,
-    env_dir: Path | None,
-) -> Path | None:
-    if env_dir is not None:
-        return env_dir
-    if ctx is None:
-        return None
-    parent = ctx.parent
-    if parent is None:
-        return None
-    value = parent.params.get("env")
-    if isinstance(value, Path):
-        return value
-    if isinstance(value, str):
-        return Path(value)
-    return None
 
 
 def _merge_card_sources(

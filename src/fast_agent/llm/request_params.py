@@ -8,7 +8,7 @@ from mcp import SamplingMessage
 from mcp.types import CreateMessageRequestParams
 from pydantic import Field
 
-from fast_agent.constants import DEFAULT_MAX_ITERATIONS
+from fast_agent.constants import DEFAULT_MAX_ITERATIONS, DEFAULT_STREAMING_TIMEOUT
 
 if TYPE_CHECKING:
     from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
@@ -73,4 +73,9 @@ class RequestParams(CreateMessageRequestParams):
     emit_loop_progress: bool = False
     """
     Emit monotonic progress updates for the internal tool loop when supported.
+    """
+
+    streaming_timeout: float | None = DEFAULT_STREAMING_TIMEOUT
+    """
+    Maximum time in seconds to wait for streaming completion. Set to None to disable.
     """

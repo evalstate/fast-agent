@@ -1,5 +1,6 @@
 """Command to check FastAgent configuration."""
 
+import os
 import platform
 import sys
 from importlib.metadata import version
@@ -10,6 +11,8 @@ import yaml
 from rich.table import Table
 from rich.text import Text
 
+from fast_agent.cli.env_helpers import resolve_environment_dir_option
+from fast_agent.config import resolve_config_search_root
 from fast_agent.core.agent_card_validation import scan_agent_card_directory
 from fast_agent.llm.provider_key_manager import API_KEY_HINT_TEXT, ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
@@ -23,11 +26,12 @@ app = typer.Typer(
 )
 
 
-def find_config_files(start_path: Path) -> dict[str, Path | None]:
+def find_config_files(start_path: Path, env_dir: Path | None = None) -> dict[str, Path | None]:
     """Find FastAgent configuration files, preferring secrets file next to config file."""
-    from fast_agent.config import find_fastagent_config_files
+    from fast_agent.config import find_fastagent_config_files, resolve_config_search_root
 
-    config_path, secrets_path = find_fastagent_config_files(start_path)
+    search_root = resolve_config_search_root(start_path, env_dir=env_dir)
+    config_path, secrets_path = find_fastagent_config_files(search_root)
     return {
         "config": config_path,
         "secrets": secrets_path,
@@ -81,8 +85,7 @@ def check_api_keys(secrets_summary: dict, config_summary: dict) -> dict:
     """Check if API keys are configured in secrets file or environment, including Azure DefaultAzureCredential.
     Now also checks Azure config in main config file for retrocompatibility.
     """
-    import os
-
+    
     results = {
         provider.config_name: {"env": "", "config": ""}
         for provider in Provider
@@ -310,10 +313,11 @@ def get_config_summary(config_path: Path | None) -> dict:
     return result
 
 
-def show_check_summary() -> None:
+def show_check_summary(env_dir: Path | None = None) -> None:
     """Show a summary of checks with colorful styling."""
     cwd = Path.cwd()
-    config_files = find_config_files(cwd)
+    search_root = resolve_config_search_root(cwd, env_dir=env_dir)
+    config_files = find_config_files(cwd, env_dir=env_dir)
     system_info = get_system_info()
     config_summary = get_config_summary(config_files["config"])
     secrets_summary = get_secrets_summary(config_files["secrets"])
@@ -413,7 +417,7 @@ def show_check_summary() -> None:
 
     def _relative_path(path: Path) -> str:
         try:
-            return str(path.relative_to(cwd))
+            return str(path.relative_to(search_root))
         except ValueError:
             return str(path)
 
@@ -428,7 +432,7 @@ def show_check_summary() -> None:
         if isinstance(skills_override, list)
         else None
     )
-    skills_registry = SkillRegistry(base_dir=cwd, directories=override_directories)
+    skills_registry = SkillRegistry(base_dir=search_root, directories=override_directories)
     skills_dirs = skills_registry.directories
     skills_manifests, skill_errors = skills_registry.load_manifests_with_errors()
 
@@ -583,6 +587,47 @@ def show_check_summary() -> None:
     _print_section_header("API Keys", color="blue")
     console.print(keys_table)
 
+    # Codex OAuth panel (separate from API keys)
+    try:
+        from datetime import datetime
+
+        from fast_agent.llm.provider.openai.codex_oauth import (
+            get_codex_token_status,
+            keyring_available,
+        )
+
+        codex_status = get_codex_token_status()
+        codex_table = Table(show_header=True, box=None)
+        codex_table.add_column("Token", style="white", header_style="bold bright_white")
+        codex_table.add_column("Expires", style="white", header_style="bold bright_white")
+        codex_table.add_column("Keyring", style="white", header_style="bold bright_white")
+
+        if not keyring_available():
+            keyring_display = "[red]not available[/red]"
+        else:
+            keyring_display = "[green]available[/green]"
+
+        if not codex_status["present"]:
+            token_display = "[dim]Not configured[/dim]"
+            expires_display = "[dim]-[/dim]"
+        else:
+            token_display = "[bold green]OAuth token[/bold green]"
+            expires_at = codex_status.get("expires_at")
+            if expires_at:
+                expires_display = datetime.fromtimestamp(expires_at).strftime("%Y-%m-%d %H:%M")
+                if codex_status.get("expired"):
+                    expires_display = f"[red]expired {expires_display}[/red]"
+                else:
+                    expires_display = f"[green]{expires_display}[/green]"
+            else:
+                expires_display = "[green]unknown[/green]"
+
+        codex_table.add_row(token_display, expires_display, keyring_display)
+        _print_section_header("Codex OAuth", color="blue")
+        console.print(codex_table)
+    except Exception:
+        pass
+
     # MCP Servers panel (shown after API Keys)
     if config_summary.get("status") == "parsed":
         mcp_servers = config_summary.get("mcp_servers", [])
@@ -716,7 +761,7 @@ def show_check_summary() -> None:
             }
 
     _print_section_header("Agent Cards", color="blue")
-    env_paths = resolve_environment_paths()
+    env_paths = resolve_environment_paths(override=env_dir)
     card_directories = [
         ("Agent Cards", env_paths.agent_cards),
         ("Tool Cards", env_paths.tool_cards),
@@ -858,7 +903,13 @@ def show(
 
 
 @app.callback(invoke_without_command=True)
-def main(ctx: typer.Context) -> None:
+def main(
+    ctx: typer.Context,
+    env_dir: Path | None = typer.Option(
+        None, "--env", help="Override the base fast-agent environment directory"
+    ),
+) -> None:
     """Check and diagnose FastAgent configuration."""
+    env_dir = resolve_environment_dir_option(ctx, env_dir)
     if ctx.invoked_subcommand is None:
-        show_check_summary()
+        show_check_summary(env_dir=env_dir)

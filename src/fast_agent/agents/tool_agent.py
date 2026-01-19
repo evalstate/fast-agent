@@ -300,13 +300,20 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                     and last_msg.tool_calls
                     and last_msg.stop_reason == LlmStopReason.TOOL_USE
                 ):
+                    tool_call_ids = list(last_msg.tool_calls.keys())
                     logger.error(
                         "History ends with unanswered tool call - session may have been "
-                        "interrupted mid-turn. The LLM will likely reject this request.",
+                        "interrupted mid-turn. Cannot proceed with LLM call.",
                         data={
-                            "tool_calls": list(last_msg.tool_calls.keys()),
+                            "tool_calls": tool_call_ids,
                             "history_length": len(history),
                         },
+                    )
+                    raise ValueError(
+                        "Invalid conversation history: assistant message has pending tool "
+                        f"calls {tool_call_ids} but no user message with tool results follows. "
+                        "The session may have been interrupted. Please clear the history or "
+                        "remove the incomplete tool call before continuing."
                     )
 
         if tools is None:
@@ -422,6 +429,9 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         tools: list[Tool] | None = None,
     ) -> PromptMessageExtended:
         return await super().generate_impl(messages, request_params=request_params, tools=tools)
+
+    def _should_display_user_message(self, message: PromptMessageExtended) -> bool:
+        return not message.tool_results
 
     # we take care of tool results, so skip displaying them
     def show_user_message(self, message: PromptMessageExtended) -> None:

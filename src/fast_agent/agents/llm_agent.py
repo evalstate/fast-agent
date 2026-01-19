@@ -24,7 +24,7 @@ from fast_agent.mcp.helpers.content_helpers import (
     is_resource_content,
     is_resource_link,
 )
-from fast_agent.types import PromptMessageExtended, RequestParams
+from fast_agent.types import ConversationSummary, PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.console_display import ConsoleDisplay
 from fast_agent.workflow_telemetry import (
@@ -235,12 +235,10 @@ class LlmAgent(LlmDecorator):
             render_markdown=render_markdown,
         )
 
-    def show_user_message(self, message: PromptMessageExtended) -> None:
-        """Display a user message in a formatted panel."""
-        model = self.llm.model_name if self.llm else None
-        chat_turn = self.llm.chat_turn() if self.llm else 0
+    def _should_display_user_message(self, message: PromptMessageExtended) -> bool:
+        return True
 
-        # Extract attachment descriptions from non-text content
+    def _extract_user_attachments(self, message: PromptMessageExtended) -> list[str]:
         attachments: list[str] = []
         for content in message.content:
             if is_resource_link(content):
@@ -259,14 +257,77 @@ class LlmAgent(LlmDecorator):
                 assert isinstance(content, EmbeddedResource)
                 label = getattr(content.resource, "name", None) or str(content.resource.uri)
                 attachments.append(label)
+        return attachments
+
+    def _build_user_message_display(
+        self, messages: list[PromptMessageExtended]
+    ) -> tuple[str, list[str] | None]:
+        if not messages:
+            return "", None
+
+        if len(messages) == 1:
+            message = messages[0]
+            message_text = message.last_text() or ""
+            attachments = self._extract_user_attachments(message)
+            return message_text, attachments or None
+
+        lines: list[str] = []
+        for index, message in enumerate(messages, start=1):
+            attachments = self._extract_user_attachments(message)
+            if attachments:
+                lines.append(f"🔗 {', '.join(attachments)}")
+            message_text = message.last_text() or ""
+            if message_text:
+                lines.append(message_text)
+            if index < len(messages):
+                lines.append("")
+
+        return "\n".join(lines), None
+
+    def _display_user_messages(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+    ) -> None:
+        if not messages:
+            return
+
+        display_messages = [
+            message for message in messages if self._should_display_user_message(message)
+        ]
+        if not display_messages:
+            return
+
+        use_history = True if request_params is None else request_params.use_history
+        if use_history:
+            full_history = [*self.message_history, *messages]
+        else:
+            full_history = list(messages)
+
+        total_turns = ConversationSummary(messages=full_history).turn_count if full_history else 0
+        part_count = len(display_messages)
+
+        turn_range: tuple[int, int] | None = None
+        if total_turns > 0:
+            turn_end = total_turns
+            turn_start = max(1, turn_end - part_count + 1)
+            turn_range = (turn_start, turn_end)
+
+        message_text, attachments = self._build_user_message_display(display_messages)
 
         self.display.show_user_message(
-            message.last_text() or "",
-            model,
-            chat_turn,
+            message_text,
+            chat_turn=0,
+            total_turns=total_turns if total_turns > 0 else None,
+            turn_range=turn_range,
             name=self.name,
             attachments=attachments if attachments else None,
+            part_count=part_count if part_count > 1 else None,
         )
+
+    def show_user_message(self, message: PromptMessageExtended) -> None:
+        """Display a user message in a formatted panel."""
+        self._display_user_messages([message])
 
     def _should_stream(self) -> bool:
         """Determine whether streaming display should be used."""
@@ -291,8 +352,9 @@ class LlmAgent(LlmDecorator):
                 if message.role != "user":
                     break
                 trailing_users.append(message)
-            for message in reversed(trailing_users):
-                self.show_user_message(message=message)
+            self._display_user_messages(
+                list(reversed(trailing_users)), request_params=request_params
+            )
 
         # TODO - manage error catch, recovery, pause
         summary_text: Text | None = None
@@ -364,8 +426,9 @@ class LlmAgent(LlmDecorator):
                 if message.role != "user":
                     break
                 trailing_users.append(message)
-            for message in reversed(trailing_users):
-                self.show_user_message(message=message)
+            self._display_user_messages(
+                list(reversed(trailing_users)), request_params=request_params
+            )
 
         (result, message), summary = await self._structured_with_summary(
             messages, model, request_params

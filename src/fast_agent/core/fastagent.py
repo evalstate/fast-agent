@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import inspect
+import os
 import pathlib
 import sys
 from contextlib import asynccontextmanager
@@ -320,7 +321,10 @@ class FastAgent:
         ):
             self._environment_dir_override = self._normalize_environment_dir(self.args.env)
 
-                # Apply CLI skills directory if not already set programmatically
+        if self._environment_dir_override is not None:
+            os.environ["ENVIRONMENT_DIR"] = str(self._environment_dir_override)
+
+        # Apply CLI skills directory if not already set programmatically
         if (
             self._skills_directory_override is None
             and hasattr(self.args, "skills")

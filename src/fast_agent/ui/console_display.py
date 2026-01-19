@@ -606,10 +606,14 @@ class ConsoleDisplay:
             if not bottom_metadata or highlight_index is None:
                 return
 
-            console.console.print()
             display_items = bottom_metadata
             if max_item_length:
                 display_items = self._shorten_items(bottom_metadata, max_item_length)
+
+            if highlight_index < 0 or highlight_index >= len(display_items):
+                return
+
+            console.console.print()
 
             total_width = console.console.size.width
             prefix = Text("▎• ", style="dim")
@@ -728,12 +732,14 @@ class ConsoleDisplay:
         skybridge_config: "SkybridgeServerConfig | None" = None,
         timing_ms: float | None = None,
         type_label: str | None = None,
+        truncate_content: bool = True,
     ) -> None:
         kwargs: dict[str, Any] = {
             "name": name,
             "tool_name": tool_name,
             "skybridge_config": skybridge_config,
             "timing_ms": timing_ms,
+            "truncate_content": truncate_content,
         }
         if type_label is not None:
             kwargs["type_label"] = type_label
@@ -1055,20 +1061,52 @@ class ConsoleDisplay:
         message: Union[str, Text],
         model: str | None = None,
         chat_turn: int = 0,
+        total_turns: int | None = None,
+        turn_range: tuple[int, int] | None = None,
         name: str | None = None,
         attachments: list[str] | None = None,
+        part_count: int | None = None,
     ) -> None:
         """Display a user message in the new visual style."""
         if self.config and not self.config.logger.show_chat:
             return
 
-        # Build right side with model and turn
-        display_model = format_model_display(model)
-        right_parts = []
-        if display_model:
-            right_parts.append(display_model)
-        if chat_turn > 0:
-            right_parts.append(f"turn {chat_turn}")
+        _ = model
+
+        # Build right side with turn info and parts
+        right_parts: list[str] = []
+
+        turn_info = ""
+        if part_count and part_count > 1:
+            turn_number = 0
+            if turn_range:
+                turn_number = turn_range[0]
+            elif chat_turn > 0:
+                turn_number = chat_turn
+            if turn_number > 0:
+                turn_info = f"turn ({turn_number})"
+        elif turn_range:
+            turn_start, turn_end = turn_range
+            if total_turns:
+                if turn_start == turn_end:
+                    turn_info = f"turn {turn_start} ({total_turns})"
+                else:
+                    turn_info = f"turn {turn_start}-{turn_end} ({total_turns})"
+            elif turn_start == turn_end:
+                turn_info = f"turn {turn_start}"
+            else:
+                turn_info = f"turn {turn_start}-{turn_end}"
+        elif chat_turn > 0:
+            if total_turns:
+                turn_info = f"turn {chat_turn} ({total_turns})"
+            else:
+                turn_info = f"turn {chat_turn}"
+
+        if turn_info:
+            right_parts.append(turn_info)
+
+        if part_count and part_count > 1:
+            right_parts.append(f"{part_count} parts")
 
         right_info = f"[dim]{' '.join(right_parts)}[/dim]" if right_parts else ""
 

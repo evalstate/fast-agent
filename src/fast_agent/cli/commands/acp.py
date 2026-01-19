@@ -8,11 +8,11 @@ import typer
 from fast_agent.cli.commands import serve
 from fast_agent.cli.commands.go import (
     collect_stdio_commands,
-    resolve_environment_dir_option,
     resolve_instruction_option,
     run_async_agent,
 )
 from fast_agent.cli.constants import RESUME_LATEST_SENTINEL
+from fast_agent.cli.env_helpers import resolve_environment_dir_option
 from fast_agent.cli.shared_options import CommonAgentOptions
 
 app = typer.Typer(

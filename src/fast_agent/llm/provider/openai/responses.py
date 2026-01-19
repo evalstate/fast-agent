@@ -232,9 +232,29 @@ class ResponsesLLM(
                 capture_filename = _stream_capture_filename(self.chat_turn())
                 _save_stream_request(capture_filename, arguments)
                 async with client.responses.stream(**arguments) as stream:
-                    response, streamed_summary = await self._process_stream(
-                        stream, model_name, capture_filename
-                    )
+                    timeout = request_params.streaming_timeout
+                    if timeout is None:
+                        response, streamed_summary = await self._process_stream(
+                            stream, model_name, capture_filename
+                        )
+                    else:
+                        try:
+                            response, streamed_summary = await asyncio.wait_for(
+                                self._process_stream(stream, model_name, capture_filename),
+                                timeout=timeout,
+                            )
+                        except asyncio.TimeoutError as exc:
+                            self.logger.error(
+                                "Streaming timeout while waiting for Responses",
+                                data={
+                                    "model": model_name,
+                                    "timeout_seconds": timeout,
+                                },
+                            )
+                            raise TimeoutError(
+                                "Streaming did not complete within "
+                                f"{timeout} seconds."
+                            ) from exc
         except AuthenticationError as e:
             raise ProviderKeyError(
                 "Invalid OpenAI API key",
