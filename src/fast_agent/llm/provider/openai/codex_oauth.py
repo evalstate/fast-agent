@@ -211,8 +211,17 @@ def _get_keyring_password() -> str | None:
 def _set_keyring_password(payload: str) -> None:
     import keyring
 
-    keyring.set_password(CODEX_KEYRING_SERVICE, CODEX_TOKEN_KEY, payload)
-    add_identity_to_index(CODEX_KEYRING_SERVICE, CODEX_KEYRING_IDENTITY)
+    try:
+        keyring.set_password(CODEX_KEYRING_SERVICE, CODEX_TOKEN_KEY, payload)
+        add_identity_to_index(CODEX_KEYRING_SERVICE, CODEX_KEYRING_IDENTITY)
+    except Exception as exc:
+        raise ProviderKeyError(
+            "Keyring unavailable",
+            "Codex OAuth tokens could not be saved to the keyring. "
+            "Install/enable a keyring backend (e.g., SecretService/gnome-keyring), "
+            "or set PYTHON_KEYRING_BACKEND to a file-based backend "
+            "(e.g., keyrings.alt.file.PlaintextKeyring).",
+        ) from exc
 
 
 def _delete_keyring_password() -> None:
