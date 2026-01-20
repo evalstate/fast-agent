@@ -396,9 +396,7 @@ class ConsoleDisplay:
                     # If so, skip markdown rendering as it turns XML into an unreadable blob.
                     # Ignore markdown autolinks like <https://...>.
                     xml_probe = re.sub(r"<(?:https?://|mailto:)[^>]+>", "", content)
-                    has_substantial_xml = (
-                        xml_probe.count("<") > 5 and xml_probe.count(">") > 5
-                    )
+                    has_substantial_xml = xml_probe.count("<") > 5 and xml_probe.count(">") > 5
 
                     # Check if it looks like markdown
                     if self._looks_like_markdown(content) and not has_substantial_xml:
@@ -800,9 +798,7 @@ class ConsoleDisplay:
     ) -> None:
         self._tool_display.show_skybridge_summary(agent_name, configs)
 
-    def _extract_reasoning_content(
-        self, message: "PromptMessageExtended"
-    ) -> Text | Group | None:
+    def _extract_reasoning_content(self, message: "PromptMessageExtended") -> Text | Group | None:
         """Extract reasoning channel content as dim text."""
         channels = message.channels or {}
         reasoning_blocks = channels.get(REASONING) or []
@@ -1084,7 +1080,7 @@ class ConsoleDisplay:
             elif chat_turn > 0:
                 turn_number = chat_turn
             if turn_number > 0:
-                turn_info = f"turn ({turn_number})"
+                turn_info = f"turn {turn_number}"
         elif turn_range:
             turn_start, turn_end = turn_range
             if total_turns:
@@ -1106,7 +1102,7 @@ class ConsoleDisplay:
             right_parts.append(turn_info)
 
         if part_count and part_count > 1:
-            right_parts.append(f"{part_count} parts")
+            right_parts.append(f"({part_count} parts)")
 
         right_info = f"[dim]{' '.join(right_parts)}[/dim]" if right_parts else ""
 

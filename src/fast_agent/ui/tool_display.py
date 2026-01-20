@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Mapping
 from rich.syntax import Syntax
 from rich.text import Text
 
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.ui import console
 from fast_agent.ui.message_primitives import MESSAGE_CONFIGS, MessageType
 
@@ -122,171 +123,184 @@ class ToolDisplay:
         truncate_content: bool = True,
     ) -> None:
         """Display a tool result in the console."""
+        logger = get_logger(__name__)
         config = self._display.config
         if config and not config.logger.show_tools:
             return
 
-        from fast_agent.mcp.helpers.content_helpers import get_text, is_text_content
+        try:
+            from fast_agent.mcp.helpers.content_helpers import get_text, is_text_content
 
-        content = result.content
-        structured_content = getattr(result, "structuredContent", None)
-        has_structured = structured_content is not None
-        display_content = content
-        if truncate_content:
-            show_bash_output = self._shell_show_bash(tool_name)
-            if not show_bash_output:
-                display_content = self._limit_shell_output_content(content, 0)
-                truncate_content = False
-            else:
-                line_limit = self._shell_output_line_limit(tool_name)
-                if line_limit is not None:
-                    display_content = self._limit_shell_output_content(content, line_limit)
+            content = result.content
+            structured_content = getattr(result, "structuredContent", None)
+            has_structured = structured_content is not None
+            display_content = content
+            if truncate_content:
+                show_bash_output = self._shell_show_bash(tool_name)
+                if not show_bash_output:
+                    display_content = self._limit_shell_output_content(content, 0)
                     truncate_content = False
-
-        is_skybridge_tool = False
-        skybridge_resource_uri: str | None = None
-        if has_structured and tool_name and skybridge_config:
-            for tool_cfg in skybridge_config.tools:
-                if tool_cfg.tool_name == tool_name and tool_cfg.is_valid:
-                    is_skybridge_tool = True
-                    skybridge_resource_uri = (
-                        str(tool_cfg.resource_uri) if tool_cfg.resource_uri is not None else None
-                    )
-                    break
-
-        if result.isError:
-            status = "ERROR"
-        else:
-            if not content:
-                status = "No Content"
-            elif len(content) == 1 and is_text_content(content[0]):
-                text_content = get_text(content[0])
-                char_count = len(text_content) if text_content else 0
-                status = f"Text Only {char_count} chars"
-            else:
-                text_count = sum(1 for item in content if is_text_content(item))
-                if text_count == len(content):
-                    status = f"{len(content)} Text Blocks" if len(content) > 1 else "1 Text Block"
                 else:
-                    status = (
-                        f"{len(content)} Content Blocks" if len(content) > 1 else "1 Content Block"
+                    line_limit = self._shell_output_line_limit(tool_name)
+                    if line_limit is not None:
+                        display_content = self._limit_shell_output_content(content, line_limit)
+                        truncate_content = False
+
+            is_skybridge_tool = False
+            skybridge_resource_uri: str | None = None
+            if has_structured and tool_name and skybridge_config:
+                for tool_cfg in skybridge_config.tools:
+                    if tool_cfg.tool_name == tool_name and tool_cfg.is_valid:
+                        is_skybridge_tool = True
+                        skybridge_resource_uri = (
+                            str(tool_cfg.resource_uri) if tool_cfg.resource_uri is not None else None
+                        )
+                        break
+
+            if result.isError:
+                status = "ERROR"
+            else:
+                if not content:
+                    status = "No Content"
+                elif len(content) == 1 and is_text_content(content[0]):
+                    text_content = get_text(content[0])
+                    char_count = len(text_content) if text_content else 0
+                    status = f"Text Only {char_count} chars"
+                else:
+                    text_count = sum(1 for item in content if is_text_content(item))
+                    if text_count == len(content):
+                        status = (
+                            f"{len(content)} Text Blocks" if len(content) > 1 else "1 Text Block"
+                        )
+                    else:
+                        status = (
+                            f"{len(content)} Content Blocks"
+                            if len(content) > 1
+                            else "1 Content Block"
+                        )
+
+            channel = getattr(result, "transport_channel", None)
+            bottom_metadata_items: list[str] = []
+            if channel:
+                if channel == "post-json":
+                    transport_info = "HTTP (JSON-RPC)"
+                elif channel == "post-sse":
+                    transport_info = "HTTP (SSE)"
+                elif channel == "get":
+                    transport_info = "Legacy SSE"
+                elif channel == "resumption":
+                    transport_info = "Resumption"
+                elif channel == "stdio":
+                    transport_info = "STDIO"
+                else:
+                    transport_info = channel.upper()
+
+                bottom_metadata_items.append(transport_info)
+
+            # Use timing from FAST_AGENT_TOOL_TIMING (passed as parameter)
+            if timing_ms is not None:
+                # Convert ms to seconds for display
+                timing_seconds = timing_ms / 1000.0
+                bottom_metadata_items.append(self._display._format_elapsed(timing_seconds))
+
+            if has_structured:
+                bottom_metadata_items.append("Structured ■")
+
+            bottom_metadata = bottom_metadata_items or None
+            right_info = f"[dim]{type_label} - {status}[/dim]"
+
+            if has_structured:
+                config_map = MESSAGE_CONFIGS[MessageType.TOOL_RESULT]
+                block_color = "red" if result.isError else config_map["block_color"]
+                arrow = config_map["arrow"]
+                arrow_style = config_map["arrow_style"]
+                left = f"[{block_color}]▎[/{block_color}][{arrow_style}]{arrow}[/{arrow_style}]"
+                if name:
+                    name_color = block_color if not result.isError else "red"
+                    left += f" [{name_color}]{name}[/{name_color}]"
+
+                self._display._create_combined_separator_status(left, right_info)
+
+                self._display._display_content(
+                    display_content,
+                    truncate_content,
+                    result.isError,
+                    MessageType.TOOL_RESULT,
+                    check_markdown_markers=False,
+                )
+
+                console.console.print()
+                total_width = console.console.size.width
+
+                if is_skybridge_tool:
+                    resource_label = (
+                        f"skybridge resource: {skybridge_resource_uri}"
+                        if skybridge_resource_uri
+                        else "skybridge resource"
+                    )
+                    prefix = Text("─| ")
+                    prefix.stylize("dim")
+                    resource_text = Text(resource_label, style="magenta")
+                    suffix = Text(" |")
+                    suffix.stylize("dim")
+
+                    separator_line = Text()
+                    separator_line.append_text(prefix)
+                    separator_line.append_text(resource_text)
+                    separator_line.append_text(suffix)
+                    remaining = total_width - separator_line.cell_len
+                    if remaining > 0:
+                        separator_line.append("─" * remaining, style="dim")
+                    console.console.print(separator_line, markup=self._markup)
+                    console.console.print()
+
+                    json_str = json.dumps(structured_content, indent=2)
+                    syntax_obj = Syntax(
+                        json_str,
+                        "json",
+                        theme=self._display.code_style,
+                        background_color="default",
+                    )
+                    console.console.print(syntax_obj, markup=self._markup)
+                else:
+                    prefix = Text("─| ")
+                    prefix.stylize("dim")
+                    suffix = Text(" |")
+                    suffix.stylize("dim")
+                    available = max(0, total_width - prefix.cell_len - suffix.cell_len)
+
+                    metadata_text = self._display._format_bottom_metadata(
+                        bottom_metadata_items,
+                        None,
+                        config_map["highlight_color"],
+                        max_width=available,
                     )
 
-        channel = getattr(result, "transport_channel", None)
-        bottom_metadata_items: list[str] = []
-        if channel:
-            if channel == "post-json":
-                transport_info = "HTTP (JSON-RPC)"
-            elif channel == "post-sse":
-                transport_info = "HTTP (SSE)"
-            elif channel == "get":
-                transport_info = "Legacy SSE"
-            elif channel == "resumption":
-                transport_info = "Resumption"
-            elif channel == "stdio":
-                transport_info = "STDIO"
+                    line = Text()
+                    line.append_text(prefix)
+                    line.append_text(metadata_text)
+                    line.append_text(suffix)
+                    remaining = total_width - line.cell_len
+                    if remaining > 0:
+                        line.append("─" * remaining, style="dim")
+                    console.console.print(line, markup=self._markup)
+                    console.console.print()
             else:
-                transport_info = channel.upper()
-
-            bottom_metadata_items.append(transport_info)
-
-        # Use timing from FAST_AGENT_TOOL_TIMING (passed as parameter)
-        if timing_ms is not None:
-            # Convert ms to seconds for display
-            timing_seconds = timing_ms / 1000.0
-            bottom_metadata_items.append(self._display._format_elapsed(timing_seconds))
-
-        if has_structured:
-            bottom_metadata_items.append("Structured ■")
-
-        bottom_metadata = bottom_metadata_items or None
-        right_info = f"[dim]{type_label} - {status}[/dim]"
-
-        if has_structured:
-            config_map = MESSAGE_CONFIGS[MessageType.TOOL_RESULT]
-            block_color = "red" if result.isError else config_map["block_color"]
-            arrow = config_map["arrow"]
-            arrow_style = config_map["arrow_style"]
-            left = f"[{block_color}]▎[/{block_color}][{arrow_style}]{arrow}[/{arrow_style}]"
-            if name:
-                name_color = block_color if not result.isError else "red"
-                left += f" [{name_color}]{name}[/{name_color}]"
-
-            self._display._create_combined_separator_status(left, right_info)
-
-            self._display._display_content(
-                display_content,
-                truncate_content,
-                result.isError,
-                MessageType.TOOL_RESULT,
-                check_markdown_markers=False,
-            )
-
-            console.console.print()
-            total_width = console.console.size.width
-
-            if is_skybridge_tool:
-                resource_label = (
-                    f"skybridge resource: {skybridge_resource_uri}"
-                    if skybridge_resource_uri
-                    else "skybridge resource"
+                self._display.display_message(
+                    content=display_content,
+                    message_type=MessageType.TOOL_RESULT,
+                    name=name,
+                    right_info=right_info,
+                    bottom_metadata=bottom_metadata,
+                    is_error=result.isError,
+                    truncate_content=truncate_content,
                 )
-                prefix = Text("─| ")
-                prefix.stylize("dim")
-                resource_text = Text(resource_label, style="magenta")
-                suffix = Text(" |")
-                suffix.stylize("dim")
-
-                separator_line = Text()
-                separator_line.append_text(prefix)
-                separator_line.append_text(resource_text)
-                separator_line.append_text(suffix)
-                remaining = total_width - separator_line.cell_len
-                if remaining > 0:
-                    separator_line.append("─" * remaining, style="dim")
-                console.console.print(separator_line, markup=self._markup)
-                console.console.print()
-
-                json_str = json.dumps(structured_content, indent=2)
-                syntax_obj = Syntax(
-                    json_str,
-                    "json",
-                    theme=self._display.code_style,
-                    background_color="default",
-                )
-                console.console.print(syntax_obj, markup=self._markup)
-            else:
-                prefix = Text("─| ")
-                prefix.stylize("dim")
-                suffix = Text(" |")
-                suffix.stylize("dim")
-                available = max(0, total_width - prefix.cell_len - suffix.cell_len)
-
-                metadata_text = self._display._format_bottom_metadata(
-                    bottom_metadata_items,
-                    None,
-                    config_map["highlight_color"],
-                    max_width=available,
-                )
-
-                line = Text()
-                line.append_text(prefix)
-                line.append_text(metadata_text)
-                line.append_text(suffix)
-                remaining = total_width - line.cell_len
-                if remaining > 0:
-                    line.append("─" * remaining, style="dim")
-                console.console.print(line, markup=self._markup)
-                console.console.print()
-        else:
-            self._display.display_message(
-                content=display_content,
-                message_type=MessageType.TOOL_RESULT,
-                name=name,
-                right_info=right_info,
-                bottom_metadata=bottom_metadata,
+        except Exception:
+            logger.exception(
+                "Tool result display failed",
+                tool_name=tool_name,
+                agent_name=name,
                 is_error=result.isError,
-                truncate_content=truncate_content,
             )
 
     def show_tool_call(
@@ -302,71 +316,81 @@ class ToolDisplay:
         type_label: str = "tool call",
     ) -> None:
         """Display a tool call header and body."""
+        logger = get_logger(__name__)
         config = self._display.config
         if config and not config.logger.show_tools:
             return
 
-        tool_args = tool_args or {}
-        metadata = metadata or {}
+        try:
+            tool_args = tool_args or {}
+            metadata = metadata or {}
 
-        right_info = f"[dim]{type_label} - {tool_name}[/dim]"
-        content: Any = tool_args
-        pre_content: Text | None = None
-        truncate_content = True
+            right_info = f"[dim]{type_label} - {tool_name}[/dim]"
+            content: Any = tool_args
+            pre_content: Text | None = None
+            truncate_content = True
 
-        if metadata.get("variant") == "shell":
-            bottom_items = list()
-            highlight_index = None
-            max_item_length = 50
-            command = metadata.get("command") or tool_args.get("command")
+            if metadata.get("variant") == "shell":
+                bottom_items = list()
+                highlight_index = None
+                max_item_length = 50
+                command = metadata.get("command") or tool_args.get("command")
 
-            command_text = Text()
-            if command and isinstance(command, str):
-                command_text.append("$ ", style="magenta")
-                command_text.append(command, style="white")
-            else:
-                command_text.append("$ ", style="magenta")
-                command_text.append("(no shell command provided)", style="dim")
+                command_text = Text()
+                if command and isinstance(command, str):
+                    command_text.append("$ ", style="magenta")
+                    command_text.append(command, style="white")
+                else:
+                    command_text.append("$ ", style="magenta")
+                    command_text.append("(no shell command provided)", style="dim")
 
-            content = command_text
+                content = command_text
 
-            shell_name = metadata.get("shell_name") or "shell"
-            shell_path = metadata.get("shell_path")
-            if shell_path:
-                bottom_items.append(str(shell_path))
+                shell_name = metadata.get("shell_name") or "shell"
+                shell_path = metadata.get("shell_path")
+                if shell_path:
+                    bottom_items.append(str(shell_path))
 
-            right_parts: list[str] = []
-            if shell_path and shell_path != shell_name:
-                right_parts.append(f"{shell_name} ({shell_path})")
-            elif shell_name:
-                right_parts.append(shell_name)
+                right_parts: list[str] = []
+                if shell_path and shell_path != shell_name:
+                    right_parts.append(f"{shell_name} ({shell_path})")
+                elif shell_name:
+                    right_parts.append(shell_name)
 
-            right_info = f"[dim]{' | '.join(right_parts)}[/dim]" if right_parts else ""
-            truncate_content = False
+                right_info = f"[dim]{' | '.join(right_parts)}[/dim]" if right_parts else ""
+                truncate_content = False
 
-            working_dir_display = metadata.get("working_dir_display") or metadata.get("working_dir")
-            if working_dir_display:
-                bottom_items.append(f"cwd: {working_dir_display}")
-
-            timeout_seconds = metadata.get("timeout_seconds")
-            warning_interval = metadata.get("warning_interval_seconds")
-
-            if timeout_seconds and warning_interval:
-                bottom_items.append(
-                    f"timeout: {timeout_seconds}s, warning every {warning_interval}s"
+                working_dir_display = metadata.get("working_dir_display") or metadata.get(
+                    "working_dir"
                 )
+                if working_dir_display:
+                    bottom_items.append(f"cwd: {working_dir_display}")
 
-        self._display.display_message(
-            content=content,
-            message_type=MessageType.TOOL_CALL,
-            name=name,
-            pre_content=pre_content,
-            right_info=right_info,
-            bottom_metadata=bottom_items,
-            highlight_index=highlight_index,
-            max_item_length=max_item_length,
-            truncate_content=truncate_content,
-        )
+                timeout_seconds = metadata.get("timeout_seconds")
+                warning_interval = metadata.get("warning_interval_seconds")
+
+                if timeout_seconds and warning_interval:
+                    bottom_items.append(
+                        f"timeout: {timeout_seconds}s, warning every {warning_interval}s"
+                    )
+
+            self._display.display_message(
+                content=content,
+                message_type=MessageType.TOOL_CALL,
+                name=name,
+                pre_content=pre_content,
+                right_info=right_info,
+                bottom_metadata=bottom_items,
+                highlight_index=highlight_index,
+                max_item_length=max_item_length,
+                truncate_content=truncate_content,
+            )
+        except Exception:
+            logger.exception(
+                "Tool call display failed",
+                tool_name=tool_name,
+                agent_name=name,
+            )
 
     async def show_tool_update(self, updated_server: str, *, agent_name: str | None = None) -> None:
         """Show a background tool update notification."""
