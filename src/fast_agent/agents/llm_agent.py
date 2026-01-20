@@ -18,15 +18,11 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_decorator import LlmDecorator, ModelT
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.context import Context
-from fast_agent.mcp.helpers.content_helpers import (
-    get_text,
-    is_image_content,
-    is_resource_content,
-    is_resource_link,
-)
+from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types import ConversationSummary, PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.console_display import ConsoleDisplay
+from fast_agent.ui.message_display_helpers import build_user_message_display
 from fast_agent.workflow_telemetry import (
     NoOpWorkflowTelemetryProvider,
     WorkflowTelemetryProvider,
@@ -235,55 +231,6 @@ class LlmAgent(LlmDecorator):
             render_markdown=render_markdown,
         )
 
-    def _should_display_user_message(self, message: PromptMessageExtended) -> bool:
-        return True
-
-    def _extract_user_attachments(self, message: PromptMessageExtended) -> list[str]:
-        attachments: list[str] = []
-        for content in message.content:
-            if is_resource_link(content):
-                # ResourceLink: show name or mime type
-                from mcp.types import ResourceLink
-
-                assert isinstance(content, ResourceLink)
-                label = content.name or content.mimeType or "resource"
-                attachments.append(label)
-            elif is_image_content(content):
-                attachments.append("image")
-            elif is_resource_content(content):
-                # EmbeddedResource: show name or uri
-                from mcp.types import EmbeddedResource
-
-                assert isinstance(content, EmbeddedResource)
-                label = getattr(content.resource, "name", None) or str(content.resource.uri)
-                attachments.append(label)
-        return attachments
-
-    def _build_user_message_display(
-        self, messages: list[PromptMessageExtended]
-    ) -> tuple[str, list[str] | None]:
-        if not messages:
-            return "", None
-
-        if len(messages) == 1:
-            message = messages[0]
-            message_text = message.last_text() or ""
-            attachments = self._extract_user_attachments(message)
-            return message_text, attachments or None
-
-        lines: list[str] = []
-        for index, message in enumerate(messages, start=1):
-            attachments = self._extract_user_attachments(message)
-            if attachments:
-                lines.append(f"🔗 {', '.join(attachments)}")
-            message_text = message.last_text() or ""
-            if message_text:
-                lines.append(message_text)
-            if index < len(messages):
-                lines.append("")
-
-        return "\n".join(lines), None
-
     def _display_user_messages(
         self,
         messages: list[PromptMessageExtended],
@@ -313,7 +260,7 @@ class LlmAgent(LlmDecorator):
             turn_start = max(1, turn_end - part_count + 1)
             turn_range = (turn_start, turn_end)
 
-        message_text, attachments = self._build_user_message_display(display_messages)
+        message_text, attachments = build_user_message_display(display_messages)
 
         self.display.show_user_message(
             message_text,
@@ -328,6 +275,9 @@ class LlmAgent(LlmDecorator):
     def show_user_message(self, message: PromptMessageExtended) -> None:
         """Display a user message in a formatted panel."""
         self._display_user_messages([message])
+
+    def _should_display_user_message(self, message: PromptMessageExtended) -> bool:
+        return True
 
     def _should_stream(self) -> bool:
         """Determine whether streaming display should be used."""

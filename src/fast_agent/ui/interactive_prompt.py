@@ -169,51 +169,82 @@ def _trim_history_for_rewind(
     return history[:turn_start_index]
 
 
-def _display_history_turn(
+async def _display_history_turn(
     agent_name: str,
     turn: list[PromptMessageExtended],
     *,
     config: Settings | None,
+    turn_index: int | None = None,
+    total_turns: int | None = None,
 ) -> None:
     from fast_agent.ui.console_display import ConsoleDisplay
+    from fast_agent.ui.message_display_helpers import build_user_message_display
     from fast_agent.ui.message_primitives import MessageType
 
     display = ConsoleDisplay(config=config)
+    user_group: list[PromptMessageExtended] = []
+
+    def _flush_user_group() -> None:
+        if not user_group:
+            return
+        message_text, attachments = build_user_message_display(user_group)
+        part_count = len(user_group)
+        turn_range = (turn_index, turn_index) if turn_index else None
+        display.show_user_message(
+            message_text,
+            name=agent_name,
+            attachments=attachments if attachments else None,
+            part_count=part_count if part_count > 1 else None,
+            turn_range=turn_range,
+            total_turns=total_turns if total_turns else None,
+        )
+        user_group.clear()
 
     for message in turn:
         role_raw = getattr(message, "role", "assistant")
         role_value = getattr(role_raw, "value", role_raw)
         role = str(role_value).lower() if role_value else "assistant"
 
-        content = getattr(message, "content", []) or []
-        if content:
-            if role == "user":
-                display.display_message(
-                    content=content,
-                    message_type=MessageType.USER,
-                    truncate_content=False,
-                )
-            elif role == "assistant":
-                display.display_message(
-                    content=content,
-                    message_type=MessageType.ASSISTANT,
-                    name=agent_name,
-                    truncate_content=False,
-                )
+        is_user = role == "user" and not message.tool_results
+        if is_user:
+            user_group.append(message)
+        else:
+            _flush_user_group()
+            content = getattr(message, "content", []) or []
+            if role == "assistant":
+                if content:
+                    await display.show_assistant_message(message, name=agent_name)
+            elif role == "system":
+                system_prompt = message.last_text() or ""
+                if system_prompt:
+                    display.show_system_message(
+                        system_prompt=system_prompt,
+                        agent_name=agent_name,
+                    )
+                elif content:
+                    display.display_message(
+                        content=content,
+                        message_type=MessageType.SYSTEM,
+                        name=agent_name,
+                        truncate_content=False,
+                    )
             else:
-                display.display_message(
-                    content=content,
-                    message_type=MessageType.SYSTEM,
-                    name=agent_name,
-                    truncate_content=False,
-                )
+                if content:
+                    display.display_message(
+                        content=content,
+                        message_type=MessageType.SYSTEM,
+                        name=agent_name,
+                        truncate_content=False,
+                    )
 
         tool_calls = getattr(message, "tool_calls", None)
         if tool_calls:
             for tool_call in tool_calls.values():
                 params = getattr(tool_call, "params", None)
                 tool_name = (
-                    getattr(params, "name", None) or getattr(tool_call, "name", None) or "tool"
+                    getattr(params, "name", None)
+                    or getattr(tool_call, "name", None)
+                    or "tool"
                 )
                 tool_args = getattr(params, "arguments", None) if params else None
                 if tool_args is None:
@@ -232,6 +263,8 @@ def _display_history_turn(
                     name=agent_name,
                     truncate_content=False,
                 )
+
+    _flush_user_group()
 
 
 class InteractivePrompt:
@@ -548,10 +581,12 @@ class InteractivePrompt:
                             continue
                         selected_turn = user_turns[turn_index - 1]
                         rich_print(f"[green]History review: turn {turn_index}[/green]")
-                        _display_history_turn(
+                        await _display_history_turn(
                             agent_obj.name if hasattr(agent_obj, "name") else agent,
                             list(selected_turn),
                             config=get_settings(),
+                            turn_index=turn_index,
+                            total_turns=len(user_turns),
                         )
                         continue
                     case HistoryFixCommand(agent=target_agent):
