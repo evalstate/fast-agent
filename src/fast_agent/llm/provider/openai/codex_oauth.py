@@ -270,7 +270,10 @@ def _normalize_codex_cli_payload(payload: dict[str, Any]) -> dict[str, Any] | No
 
 
 def _load_codex_cli_tokens() -> CodexOAuthTokens | None:
-    if not CODEX_CLI_AUTH_PATH.exists():
+    try:
+        if not CODEX_CLI_AUTH_PATH.exists():
+            return None
+    except OSError:
         return None
     try:
         payload = json.loads(CODEX_CLI_AUTH_PATH.read_text())
