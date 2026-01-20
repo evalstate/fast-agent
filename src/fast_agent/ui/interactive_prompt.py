@@ -20,9 +20,11 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, Union, cast
 
 from mcp.types import Prompt, PromptMessage
 from rich import print as rich_print
+from rich.text import Text
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
+    from fast_agent.ui.console_display import ConsoleDisplay
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.config import Settings, get_settings
@@ -95,6 +97,7 @@ from fast_agent.ui.enhanced_prompt import (
 )
 from fast_agent.ui.history_display import display_history_overview
 from fast_agent.ui.interactive_shell import run_interactive_shell_command
+from fast_agent.ui.message_primitives import MessageType
 from fast_agent.ui.progress_display import progress_display
 from fast_agent.ui.usage_display import collect_agents_from_provider, display_usage_report
 
@@ -452,7 +455,14 @@ class InteractivePrompt:
                             # First get a list of all prompts to look up the index
                             all_prompts = await self._get_all_prompts(prompt_provider, agent)
                             if not all_prompts:
-                                rich_print("[yellow]No prompts available[/yellow]")
+                                display = self._resolve_display(prompt_provider, agent)
+                                display.display_message(
+                                    content="No prompts available for this agent.",
+                                    message_type=MessageType.SYSTEM,
+                                    name=agent,
+                                    right_info="prompt selection",
+                                    truncate_content=False,
+                                )
                                 continue
 
                             # Check if the index is valid
@@ -466,8 +476,16 @@ class InteractivePrompt:
                                     selected_prompt["namespaced_name"],
                                 )
                             else:
-                                rich_print(
-                                    f"[red]Invalid prompt number: {prompt_index}. Valid range is 1-{len(all_prompts)}[/red]"
+                                display = self._resolve_display(prompt_provider, agent)
+                                display.display_message(
+                                    content=Text(
+                                        f"Invalid prompt number: {prompt_index}. Valid range is 1-{len(all_prompts)}.",
+                                        style="red",
+                                    ),
+                                    message_type=MessageType.SYSTEM,
+                                    name=agent,
+                                    right_info="prompt selection",
+                                    truncate_content=False,
                                 )
                                 # Show the prompt list for convenience
                                 await self._list_prompts(prompt_provider, agent)
@@ -1305,6 +1323,112 @@ class InteractivePrompt:
             rich_print(f"[dim]{traceback.format_exc()}[/dim]")
             return []
 
+
+
+
+    def _resolve_display(self, prompt_provider: "AgentApp", agent_name: str | None) -> "ConsoleDisplay":
+        from fast_agent.ui.console_display import ConsoleDisplay
+
+        agent = None
+        if agent_name and hasattr(prompt_provider, "_agent"):
+            try:
+                agent = prompt_provider._agent(agent_name)
+            except Exception:
+                agent = None
+
+        display = getattr(agent, "display", None) if agent is not None else None
+        if display is not None:
+            return display
+
+        config = None
+        if agent is not None:
+            agent_context = getattr(agent, "context", None)
+            config = getattr(agent_context, "config", None) if agent_context else None
+
+        if config is None:
+            config = get_settings()
+
+        return ConsoleDisplay(config=config)
+
+    @staticmethod
+    def _truncate_prompt_description(description: str, char_limit: int = 240) -> str:
+        description = description.strip()
+        if len(description) <= char_limit:
+            return description
+
+        truncate_pos = char_limit
+        sentence_break = description.rfind(". ", 0, char_limit + 20)
+        if sentence_break > char_limit - 50:
+            truncate_pos = sentence_break + 1
+        else:
+            word_break = description.rfind(" ", 0, char_limit + 10)
+            if word_break > char_limit - 30:
+                truncate_pos = word_break
+
+        return description[:truncate_pos].rstrip() + "..."
+
+    @staticmethod
+    def _format_prompt_args(prompt: dict[str, Any]) -> str:
+        arg_names = prompt.get("arg_names", [])
+        required_args = set(prompt.get("required_args", []))
+        if arg_names:
+            arg_list = [f"{name}*" if name in required_args else name for name in arg_names]
+            args_text = ", ".join(arg_list)
+            if len(args_text) > 80:
+                args_text = args_text[:77] + "..."
+            return args_text
+
+        arg_count = prompt.get("arg_count", 0)
+        plural = "s" if arg_count != 1 else ""
+        return f"{arg_count} parameter{plural}"
+
+    def _build_prompt_list_text(
+        self,
+        prompts: list[dict[str, Any]],
+        *,
+        include_usage: bool,
+    ) -> Text:
+        content = Text()
+
+        for index, prompt in enumerate(prompts, 1):
+            if content.plain:
+                content.append("\n")
+
+            line = Text()
+            line.append(f"[{index:2}] ", style="dim cyan")
+            line.append(f"{prompt['server']}•", style="dim green")
+            line.append(prompt["name"], style="bright_blue bold")
+
+            if prompt.get("title") and str(prompt["title"]).strip():
+                line.append(f" {prompt['title']}", style="default")
+
+            content.append_text(line)
+
+            description = (prompt.get("description") or "").strip()
+            if description:
+                truncated = self._truncate_prompt_description(description)
+                for line_text in textwrap.wrap(truncated, width=72):
+                    content.append("\n")
+                    content.append("     ", style="dim")
+                    content.append(line_text, style="white")
+
+            if prompt.get("arg_count", 0) > 0:
+                args_text = self._format_prompt_args(prompt)
+                content.append("\n")
+                content.append("     ", style="dim")
+                content.append(f"args: {args_text}", style="dim magenta")
+
+            content.append("\n")
+
+        if include_usage:
+            content.append("\n")
+            content.append(
+                "Usage: /prompt <number> to select by number, or /prompts for interactive selection",
+                style="dim",
+            )
+
+        return content
+
     async def _list_prompts(self, prompt_provider: "AgentApp", agent_name: str) -> None:
         """
         List available prompts for an agent.
@@ -1316,96 +1440,46 @@ class InteractivePrompt:
         try:
             # Get all prompts using the helper function
             all_prompts = await self._get_all_prompts(prompt_provider, agent_name)
-
-            rich_print(f"\n[bold]Prompts for agent [cyan]{agent_name}[/cyan]:[/bold]")
+            display = self._resolve_display(prompt_provider, agent_name)
 
             if not all_prompts:
-                rich_print("[yellow]No prompts available for this agent[/yellow]")
+                display.display_message(
+                    content="No prompts available for this agent.",
+                    message_type=MessageType.SYSTEM,
+                    name=agent_name,
+                    right_info="prompt list",
+                    truncate_content=False,
+                )
                 return
 
-            rich_print()
-
-            # Display prompts using clean compact format
-            for i, prompt in enumerate(all_prompts, 1):
-                # Main line: [ 1] server•prompt_name Title
-                from rich.text import Text
-
-                prompt_line = Text()
-                prompt_line.append(f"[{i:2}] ", style="dim cyan")
-                prompt_line.append(f"{prompt['server']}•", style="dim green")
-                prompt_line.append(prompt["name"], style="bright_blue bold")
-
-                # Add title if available
-                if prompt["title"] and prompt["title"].strip():
-                    prompt_line.append(f" {prompt['title']}", style="default")
-
-                rich_print(prompt_line)
-
-                # Description lines - show 2-3 rows if needed
-                if prompt["description"] and prompt["description"].strip():
-                    description = prompt["description"].strip()
-                    # Calculate rough character limit for 2-3 lines (assuming ~80 chars per line with indent)
-                    char_limit = 240  # About 3 lines worth
-
-                    if len(description) > char_limit:
-                        # Find a good break point near the limit (prefer sentence/word boundaries)
-                        truncate_pos = char_limit
-                        # Look back for sentence end
-                        sentence_break = description.rfind(". ", 0, char_limit + 20)
-                        if sentence_break > char_limit - 50:  # If we found a nearby sentence break
-                            truncate_pos = sentence_break + 1
-                        else:
-                            # Look for word boundary
-                            word_break = description.rfind(" ", 0, char_limit + 10)
-                            if word_break > char_limit - 30:  # If we found a nearby word break
-                                truncate_pos = word_break
-
-                        description = description[:truncate_pos].rstrip() + "..."
-
-                    # Split into lines and wrap
-                    import textwrap
-
-                    wrapped_lines = textwrap.wrap(description, width=72, subsequent_indent="     ")
-                    for line in wrapped_lines:
-                        if line.startswith("     "):  # Already indented continuation line
-                            rich_print(f"     [white]{line[5:]}[/white]")
-                        else:  # First line needs indent
-                            rich_print(f"     [white]{line}[/white]")
-
-                # Arguments line - show argument names if available
-                if prompt["arg_count"] > 0:
-                    arg_names = prompt.get("arg_names", [])
-                    required_args = prompt.get("required_args", [])
-
-                    if arg_names:
-                        arg_list = []
-                        for arg_name in arg_names:
-                            if arg_name in required_args:
-                                arg_list.append(f"{arg_name}*")
-                            else:
-                                arg_list.append(arg_name)
-
-                        args_text = ", ".join(arg_list)
-                        if len(args_text) > 80:
-                            args_text = args_text[:77] + "..."
-                        rich_print(f"     [dim magenta]args: {args_text}[/dim magenta]")
-                    else:
-                        rich_print(
-                            f"     [dim magenta]args: {prompt['arg_count']} parameter{'s' if prompt['arg_count'] != 1 else ''}[/dim magenta]"
-                        )
-
-                rich_print()  # Space between prompts
-
-            # Add usage instructions
-            rich_print(
-                "[dim]Usage: /prompt <number> to select by number, or /prompts for interactive selection[/dim]"
+            content = self._build_prompt_list_text(all_prompts, include_usage=True)
+            display.display_message(
+                content=content,
+                message_type=MessageType.SYSTEM,
+                name=agent_name,
+                right_info="prompt list",
+                truncate_content=False,
             )
 
         except Exception as e:
             import traceback
 
-            rich_print(f"[red]Error listing prompts: {e}[/red]")
-            rich_print(f"[dim]{traceback.format_exc()}[/dim]")
+            display = self._resolve_display(prompt_provider, agent_name)
+            error_text = Text(f"Error listing prompts: {e}", style="red")
+            display.display_message(
+                content=error_text,
+                message_type=MessageType.SYSTEM,
+                name=agent_name,
+                right_info="prompt list",
+                truncate_content=False,
+            )
+            display.display_message(
+                content=Text(traceback.format_exc(), style="dim"),
+                message_type=MessageType.SYSTEM,
+                name=agent_name,
+                right_info="prompt list",
+                truncate_content=False,
+            )
 
     async def _select_prompt(
         self,
@@ -1423,8 +1497,14 @@ class InteractivePrompt:
             requested_name: Optional name of the prompt to apply
         """
         try:
-            # Get all available prompts directly from the prompt provider
-            rich_print(f"\n[bold]Fetching prompts for agent [cyan]{agent_name}[/cyan]...[/bold]")
+            display = self._resolve_display(prompt_provider, agent_name)
+            display.display_message(
+                content="Fetching prompts...",
+                message_type=MessageType.SYSTEM,
+                name=agent_name,
+                right_info="prompts",
+                truncate_content=False,
+            )
 
             # Call list_prompts on the provider
             prompt_servers = await prompt_provider.list_prompts(
@@ -1432,11 +1512,17 @@ class InteractivePrompt:
             )
 
             if not prompt_servers:
-                rich_print("[yellow]No prompts available for this agent[/yellow]")
+                display.display_message(
+                    content="No prompts available for this agent.",
+                    message_type=MessageType.SYSTEM,
+                    name=agent_name,
+                    right_info="prompts",
+                    truncate_content=False,
+                )
                 return
 
             # Process fetched prompts
-            all_prompts = []
+            all_prompts: list[dict[str, Any]] = []
             for server_name, prompts_info in prompt_servers.items():
                 if not prompts_info:
                     continue
@@ -1496,7 +1582,13 @@ class InteractivePrompt:
                     )
 
             if not all_prompts:
-                rich_print("[yellow]No prompts available for this agent[/yellow]")
+                display.display_message(
+                    content="No prompts available for this agent.",
+                    message_type=MessageType.SYSTEM,
+                    name=agent_name,
+                    right_info="prompts",
+                    truncate_content=False,
+                )
                 return
 
             # Sort prompts by server then name
@@ -1511,20 +1603,42 @@ class InteractivePrompt:
                 ]
 
                 if not matching_prompts:
-                    rich_print(f"[red]Prompt '{requested_name}' not found[/red]")
-                    rich_print("[yellow]Available prompts:[/yellow]")
-                    for p in all_prompts:
-                        rich_print(f"  {p['namespaced_name']}")
+                    missing = Text()
+                    missing.append(f"Prompt '{requested_name}' not found.\n", style="red")
+                    missing.append("Available prompts:\n", style="yellow")
+                    for prompt in all_prompts:
+                        missing.append(f"  {prompt['namespaced_name']}\n", style="dim")
+                    display.display_message(
+                        content=missing,
+                        message_type=MessageType.SYSTEM,
+                        name=agent_name,
+                        right_info="prompt selection",
+                        truncate_content=False,
+                    )
                     return
 
                 # If exactly one match, use it
                 if len(matching_prompts) == 1:
                     selected_prompt = matching_prompts[0]
                 else:
-                    # Handle multiple matches
-                    rich_print(f"[yellow]Multiple prompts match '{requested_name}':[/yellow]")
-                    for i, p in enumerate(matching_prompts):
-                        rich_print(f"  {i + 1}. {p['namespaced_name']} - {p['description']}")
+                    multi = Text()
+                    multi.append(
+                        f"Multiple prompts match '{requested_name}':\n",
+                        style="yellow",
+                    )
+                    for i, prompt in enumerate(matching_prompts, 1):
+                        description = prompt.get("description") or "No description"
+                        multi.append(
+                            f"  {i}. {prompt['namespaced_name']} - {description}\n",
+                            style="dim",
+                        )
+                    display.display_message(
+                        content=multi,
+                        message_type=MessageType.SYSTEM,
+                        name=agent_name,
+                        right_info="prompt selection",
+                        truncate_content=False,
+                    )
 
                     # Get user selection
                     selection = (
@@ -1537,90 +1651,33 @@ class InteractivePrompt:
                         if 0 <= idx < len(matching_prompts):
                             selected_prompt = matching_prompts[idx]
                         else:
-                            rich_print("[red]Invalid selection[/red]")
+                            display.display_message(
+                                content=Text("Invalid selection.", style="red"),
+                                message_type=MessageType.SYSTEM,
+                                name=agent_name,
+                                right_info="prompt selection",
+                                truncate_content=False,
+                            )
                             return
                     except ValueError:
-                        rich_print("[red]Invalid input, please enter a number[/red]")
+                        display.display_message(
+                            content=Text("Invalid input, please enter a number.", style="red"),
+                            message_type=MessageType.SYSTEM,
+                            name=agent_name,
+                            right_info="prompt selection",
+                            truncate_content=False,
+                        )
                         return
             else:
                 # Show prompt selection UI using clean compact format
-                rich_print(f"\n[bold]Select a prompt for agent [cyan]{agent_name}[/cyan]:[/bold]")
-                rich_print()
-
-                # Display prompts using the same format as _list_prompts
-                for i, prompt in enumerate(all_prompts, 1):
-                    # Main line: [ 1] server•prompt_name Title
-                    from rich.text import Text
-
-                    prompt_line = Text()
-                    prompt_line.append(f"[{i:2}] ", style="dim cyan")
-                    prompt_line.append(f"{prompt['server']}•", style="dim green")
-                    prompt_line.append(prompt["name"], style="bright_blue bold")
-
-                    # Add title if available
-                    if prompt["title"] and prompt["title"].strip():
-                        prompt_line.append(f" {prompt['title']}", style="default")
-
-                    rich_print(prompt_line)
-
-                    # Description lines - show 2-3 rows if needed
-                    if prompt["description"] and prompt["description"].strip():
-                        description = prompt["description"].strip()
-                        # Calculate rough character limit for 2-3 lines (assuming ~80 chars per line with indent)
-                        char_limit = 240  # About 3 lines worth
-
-                        if len(description) > char_limit:
-                            # Find a good break point near the limit (prefer sentence/word boundaries)
-                            truncate_pos = char_limit
-                            # Look back for sentence end
-                            sentence_break = description.rfind(". ", 0, char_limit + 20)
-                            if (
-                                sentence_break > char_limit - 50
-                            ):  # If we found a nearby sentence break
-                                truncate_pos = sentence_break + 1
-                            else:
-                                # Look for word boundary
-                                word_break = description.rfind(" ", 0, char_limit + 10)
-                                if word_break > char_limit - 30:  # If we found a nearby word break
-                                    truncate_pos = word_break
-
-                            description = description[:truncate_pos].rstrip() + "..."
-
-                        # Split into lines and wrap
-                        import textwrap
-
-                        wrapped_lines = textwrap.wrap(
-                            description, width=72, subsequent_indent="     "
-                        )
-                        for line in wrapped_lines:
-                            if line.startswith("     "):  # Already indented continuation line
-                                rich_print(f"     [white]{line[5:]}[/white]")
-                            else:  # First line needs indent
-                                rich_print(f"     [white]{line}[/white]")
-
-                    # Arguments line - show argument names if available
-                    if prompt["arg_count"] > 0:
-                        arg_names = prompt.get("arg_names", [])
-                        required_args = prompt.get("required_args", [])
-
-                        if arg_names:
-                            arg_list = []
-                            for arg_name in arg_names:
-                                if arg_name in required_args:
-                                    arg_list.append(f"{arg_name}*")
-                                else:
-                                    arg_list.append(arg_name)
-
-                            args_text = ", ".join(arg_list)
-                            if len(args_text) > 80:
-                                args_text = args_text[:77] + "..."
-                            rich_print(f"     [dim magenta]args: {args_text}[/dim magenta]")
-                        else:
-                            rich_print(
-                                f"     [dim magenta]args: {prompt['arg_count']} parameter{'s' if prompt['arg_count'] != 1 else ''}[/dim magenta]"
-                            )
-
-                    rich_print()  # Space between prompts
+                content = self._build_prompt_list_text(all_prompts, include_usage=False)
+                display.display_message(
+                    content=content,
+                    message_type=MessageType.SYSTEM,
+                    name=agent_name,
+                    right_info="prompt selection",
+                    truncate_content=False,
+                )
 
                 prompt_names = [str(i) for i, _ in enumerate(all_prompts, 1)]
 
@@ -1633,7 +1690,13 @@ class InteractivePrompt:
 
                 # Handle cancellation
                 if not selection or selection.strip() == "":
-                    rich_print("[yellow]Prompt selection cancelled[/yellow]")
+                    display.display_message(
+                        content=Text("Prompt selection cancelled.", style="yellow"),
+                        message_type=MessageType.SYSTEM,
+                        name=agent_name,
+                        right_info="prompt selection",
+                        truncate_content=False,
+                    )
                     return
 
                 try:
@@ -1641,32 +1704,53 @@ class InteractivePrompt:
                     if 0 <= idx < len(all_prompts):
                         selected_prompt = all_prompts[idx]
                     else:
-                        rich_print("[red]Invalid selection[/red]")
+                        display.display_message(
+                            content=Text("Invalid selection.", style="red"),
+                            message_type=MessageType.SYSTEM,
+                            name=agent_name,
+                            right_info="prompt selection",
+                            truncate_content=False,
+                        )
                         return
                 except ValueError:
-                    rich_print("[red]Invalid input, please enter a number[/red]")
+                    display.display_message(
+                        content=Text("Invalid input, please enter a number.", style="red"),
+                        message_type=MessageType.SYSTEM,
+                        name=agent_name,
+                        right_info="prompt selection",
+                        truncate_content=False,
+                    )
                     return
 
             # Get prompt arguments
             required_args = selected_prompt["required_args"]
             optional_args = selected_prompt["optional_args"]
             arg_descriptions = selected_prompt.get("arg_descriptions", {})
-            arg_values = {}
+            arg_values: dict[str, str] = {}
 
             # Show argument info if any
             if required_args or optional_args:
                 if required_args and optional_args:
-                    rich_print(
-                        f"\n[bold]Prompt [cyan]{selected_prompt['name']}[/cyan] requires {len(required_args)} arguments and has {len(optional_args)} optional arguments:[/bold]"
+                    arg_header = (
+                        f"Prompt {selected_prompt['name']} requires {len(required_args)} "
+                        f"arguments and has {len(optional_args)} optional arguments:"
                     )
                 elif required_args:
-                    rich_print(
-                        f"\n[bold]Prompt [cyan]{selected_prompt['name']}[/cyan] requires {len(required_args)} arguments:[/bold]"
+                    arg_header = (
+                        f"Prompt {selected_prompt['name']} requires {len(required_args)} arguments:"
                     )
-                elif optional_args:
-                    rich_print(
-                        f"\n[bold]Prompt [cyan]{selected_prompt['name']}[/cyan] has {len(optional_args)} optional arguments:[/bold]"
+                else:
+                    arg_header = (
+                        f"Prompt {selected_prompt['name']} has {len(optional_args)} optional arguments:"
                     )
+
+                display.display_message(
+                    content=Text(arg_header, style="cyan"),
+                    message_type=MessageType.SYSTEM,
+                    name=agent_name,
+                    right_info="prompt selection",
+                    truncate_content=False,
+                )
 
                 # Collect required arguments
                 for arg_name in required_args:
@@ -1693,7 +1777,13 @@ class InteractivePrompt:
 
             # Apply the prompt using generate() for proper progress display
             namespaced_name = selected_prompt["namespaced_name"]
-            rich_print(f"\n[bold]Applying prompt [cyan]{namespaced_name}[/cyan]...[/bold]")
+            display.display_message(
+                content=f"Applying prompt {namespaced_name}...",
+                message_type=MessageType.SYSTEM,
+                name=agent_name,
+                right_info="prompt selection",
+                truncate_content=False,
+            )
 
             # Get the agent directly for generate() call
             assert hasattr(prompt_provider, "_agent"), (
@@ -1702,19 +1792,19 @@ class InteractivePrompt:
             agent = prompt_provider._agent(agent_name)
 
             try:
-                # Use agent.apply_prompt() which handles everything properly:
-                # - get_prompt() to fetch template
-                # - convert to multipart
-                # - call generate() for progress display
-                # - return response text
-                # Response display is handled by the agent's show_ methods, don't print it here
-
                 # Fetch the prompt first (without progress display)
                 prompt_result = await agent.get_prompt(namespaced_name, arg_values)
 
                 if not prompt_result or not prompt_result.messages:
-                    rich_print(
-                        f"[red]Prompt '{namespaced_name}' could not be found or contains no messages[/red]"
+                    display.display_message(
+                        content=Text(
+                            f"Prompt '{namespaced_name}' could not be found or contains no messages.",
+                            style="red",
+                        ),
+                        message_type=MessageType.SYSTEM,
+                        name=agent_name,
+                        right_info="prompt selection",
+                        truncate_content=False,
                     )
                     return
 
@@ -1735,13 +1825,32 @@ class InteractivePrompt:
                 prompt_provider._show_turn_usage(agent_name)
 
             except Exception as e:
-                rich_print(f"[red]Error applying prompt: {e}[/red]")
+                display.display_message(
+                    content=Text(f"Error applying prompt: {e}", style="red"),
+                    message_type=MessageType.SYSTEM,
+                    name=agent_name,
+                    right_info="prompt selection",
+                    truncate_content=False,
+                )
 
         except Exception as e:
             import traceback
 
-            rich_print(f"[red]Error selecting or applying prompt: {e}[/red]")
-            rich_print(f"[dim]{traceback.format_exc()}[/dim]")
+            display = self._resolve_display(prompt_provider, agent_name)
+            display.display_message(
+                content=Text(f"Error selecting or applying prompt: {e}", style="red"),
+                message_type=MessageType.SYSTEM,
+                name=agent_name,
+                right_info="prompt selection",
+                truncate_content=False,
+            )
+            display.display_message(
+                content=Text(traceback.format_exc(), style="dim"),
+                message_type=MessageType.SYSTEM,
+                name=agent_name,
+                right_info="prompt selection",
+                truncate_content=False,
+            )
 
     async def _list_tools(self, prompt_provider: "AgentApp", agent_name: str) -> None:
         """

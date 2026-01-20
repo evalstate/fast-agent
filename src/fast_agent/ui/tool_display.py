@@ -228,9 +228,9 @@ class ToolDisplay:
                     MessageType.TOOL_RESULT,
                     check_markdown_markers=False,
                 )
-
                 console.console.print()
                 total_width = console.console.size.width
+                use_a3_style = self._display._use_a3_style()
 
                 if is_skybridge_tool:
                     resource_label = (
@@ -238,21 +238,30 @@ class ToolDisplay:
                         if skybridge_resource_uri
                         else "skybridge resource"
                     )
-                    prefix = Text("─| ")
-                    prefix.stylize("dim")
-                    resource_text = Text(resource_label, style="magenta")
-                    suffix = Text(" |")
-                    suffix.stylize("dim")
+                    if use_a3_style:
+                        prefix = Text("▎• ", style="dim")
+                        resource_text = Text(resource_label, style="magenta")
+                        line = Text()
+                        line.append_text(prefix)
+                        line.append_text(resource_text)
+                        console.console.print(line, markup=self._markup)
+                        console.console.print()
+                    else:
+                        prefix = Text("─| ")
+                        prefix.stylize("dim")
+                        resource_text = Text(resource_label, style="magenta")
+                        suffix = Text(" |")
+                        suffix.stylize("dim")
 
-                    separator_line = Text()
-                    separator_line.append_text(prefix)
-                    separator_line.append_text(resource_text)
-                    separator_line.append_text(suffix)
-                    remaining = total_width - separator_line.cell_len
-                    if remaining > 0:
-                        separator_line.append("─" * remaining, style="dim")
-                    console.console.print(separator_line, markup=self._markup)
-                    console.console.print()
+                        separator_line = Text()
+                        separator_line.append_text(prefix)
+                        separator_line.append_text(resource_text)
+                        separator_line.append_text(suffix)
+                        remaining = total_width - separator_line.cell_len
+                        if remaining > 0:
+                            separator_line.append("─" * remaining, style="dim")
+                        console.console.print(separator_line, markup=self._markup)
+                        console.console.print()
 
                     json_str = json.dumps(structured_content, indent=2)
                     syntax_obj = Syntax(
@@ -263,28 +272,45 @@ class ToolDisplay:
                     )
                     console.console.print(syntax_obj, markup=self._markup)
                 else:
-                    prefix = Text("─| ")
-                    prefix.stylize("dim")
-                    suffix = Text(" |")
-                    suffix.stylize("dim")
-                    available = max(0, total_width - prefix.cell_len - suffix.cell_len)
+                    if use_a3_style:
+                        prefix = Text("▎• ", style="dim")
+                        available = max(0, total_width - prefix.cell_len)
 
-                    metadata_text = self._display._format_bottom_metadata(
-                        bottom_metadata_items,
-                        None,
-                        config_map["highlight_color"],
-                        max_width=available,
-                    )
+                        metadata_text = self._display._format_bottom_metadata_compact(
+                            bottom_metadata_items,
+                            None,
+                            config_map["highlight_color"],
+                            max_width=available,
+                        )
 
-                    line = Text()
-                    line.append_text(prefix)
-                    line.append_text(metadata_text)
-                    line.append_text(suffix)
-                    remaining = total_width - line.cell_len
-                    if remaining > 0:
-                        line.append("─" * remaining, style="dim")
-                    console.console.print(line, markup=self._markup)
-                    console.console.print()
+                        line = Text()
+                        line.append_text(prefix)
+                        line.append_text(metadata_text)
+                        console.console.print(line, markup=self._markup)
+                        console.console.print()
+                    else:
+                        prefix = Text("─| ")
+                        prefix.stylize("dim")
+                        suffix = Text(" |")
+                        suffix.stylize("dim")
+                        available = max(0, total_width - prefix.cell_len - suffix.cell_len)
+
+                        metadata_text = self._display._format_bottom_metadata(
+                            bottom_metadata_items,
+                            None,
+                            config_map["highlight_color"],
+                            max_width=available,
+                        )
+
+                        line = Text()
+                        line.append_text(prefix)
+                        line.append_text(metadata_text)
+                        line.append_text(suffix)
+                        remaining = total_width - line.cell_len
+                        if remaining > 0:
+                            line.append("─" * remaining, style="dim")
+                        console.console.print(line, markup=self._markup)
+                        console.console.print()
             else:
                 self._display.display_message(
                     content=display_content,
@@ -418,9 +444,19 @@ class ToolDisplay:
             message = f"Updating tools for server {updated_server}"
             console.console.print(message, style="dim", markup=self._markup)
 
-            console.console.print()
-            console.console.print("─" * console.console.size.width, style="dim")
-            console.console.print()
+            if self._display._use_a3_style():
+                console.console.print()
+                prefix = Text("▎• ", style="dim")
+                note = Text("tool update", style="dim")
+                line = Text()
+                line.append_text(prefix)
+                line.append_text(note)
+                console.console.print(line, markup=self._markup)
+                console.console.print()
+            else:
+                console.console.print()
+                console.console.print("─" * console.console.size.width, style="dim")
+                console.console.print()
 
     @staticmethod
     def summarize_skybridge_configs(
