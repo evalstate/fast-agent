@@ -373,6 +373,11 @@ class FastAgent:
 
             # Stop progress display immediately if quiet mode is requested
             if self._programmatic_quiet:
+                if (
+                    getattr(self.args, "server", False)
+                    and getattr(self.args, "transport", None) in ["stdio", "acp"]
+                ):
+                    configure_console_stream("stderr")
                 from fast_agent.ui.progress_display import progress_display
 
                 progress_display.stop()
@@ -1246,6 +1251,7 @@ class FastAgent:
             self.args, "server", False
         ):
             quiet_mode = True
+            configure_console_stream("stderr")
         cli_model_override = getattr(self.args, "model", None)
 
         # Store the model source for UI display
