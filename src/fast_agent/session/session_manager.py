@@ -769,6 +769,12 @@ class SessionManager:
 _session_manager: SessionManager | None = None
 
 
+def reset_session_manager() -> None:
+    """Reset the global session manager (forces reinitialization)."""
+    global _session_manager
+    _session_manager = None
+
+
 def get_session_manager() -> SessionManager:
     """Get or create the global session manager."""
     global _session_manager

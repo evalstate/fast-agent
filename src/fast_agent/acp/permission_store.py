@@ -79,7 +79,8 @@ class PermissionStore:
             cwd: Working directory for the session. If None, uses current directory.
         """
         self._cwd = Path(cwd) if cwd else Path.cwd()
-        env_paths = resolve_environment_paths(cwd=self._cwd)
+        override = DEFAULT_ENVIRONMENT_DIR if cwd is not None else None
+        env_paths = resolve_environment_paths(cwd=self._cwd, override=override)
         self._file_path = env_paths.permissions_file
         self._cache: dict[str, PermissionDecision] = {}
         self._loaded = False

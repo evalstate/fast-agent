@@ -8,6 +8,7 @@ from .session_manager import (
     display_session_name,
     get_session_history_window,
     get_session_manager,
+    reset_session_manager,
     summarize_session_histories,
 )
 
@@ -21,5 +22,6 @@ __all__ = [
     "format_session_entries",
     "get_session_history_window",
     "get_session_manager",
+    "reset_session_manager",
     "summarize_session_histories",
 ]

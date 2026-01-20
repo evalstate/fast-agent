@@ -316,6 +316,10 @@ class InteractivePrompt:
         # Ensure we track available agents in a set for fast lookup
         available_agents_set = set(available_agents)
 
+        from fast_agent.ui.console_display import ConsoleDisplay
+
+        display = ConsoleDisplay(config=get_settings())
+
         result = ""
         buffer_prefill = ""  # One-off buffer content for # command results
         while True:
@@ -1152,8 +1156,7 @@ class InteractivePrompt:
                     set_last_copyable_output(result.output.rstrip())
 
                 if result.return_code != 0:
-                    rich_print(f"[yellow]Exit code: {result.return_code}[/yellow]")
-                print()
+                    display.show_shell_exit_code(result.return_code)
 
                 shell_execute_cmd = None
                 continue

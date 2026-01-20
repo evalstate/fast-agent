@@ -29,11 +29,6 @@ CURATED_MODELS: list[CuratedModel] = [
         description="Kimi K2-Instruct-0905 is the latest, most capable version of Kimi K2. (default)",
     ),
     CuratedModel(
-        id="kimithink",
-        display_name="Kimi K2 Thinking",
-        description="Advanced reasoning model with extended thinking",
-    ),
-    CuratedModel(
         id="glm",
         display_name="ZAI GLM 4.7",
         description="ZAI GLM-4.7: Superior Agentic, Reasoning and Coding Capabilities",
@@ -42,6 +37,16 @@ CURATED_MODELS: list[CuratedModel] = [
         id="minimax",
         display_name="MiniMax M2.1",
         description="MiniMax-M2.1, Optimized specifically for robustness in coding, tool use, instruction following, and long-horizon planning.",
+    ),
+    CuratedModel(
+        id="deepseek32",
+        display_name="DeepSeek 3.2",
+        description=" DeepSeek-V3.2, a model that harmonizes high computational efficiency with superior reasoning and agent performance.",
+    ),
+    CuratedModel(
+        id="kimithink",
+        display_name="Kimi K2 Thinking",
+        description="Advanced reasoning model with extended thinking",
     ),
     CuratedModel(
         id="gpt-oss",

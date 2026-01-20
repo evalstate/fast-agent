@@ -32,6 +32,7 @@ from fast_agent.constants import (
     CONTROL_MESSAGE_SAVE_HISTORY,
     DEFAULT_MAX_ITERATIONS,
     FAST_AGENT_TIMING,
+    FAST_AGENT_USAGE,
 )
 from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.exceptions import AgentConfigError, ProviderKeyError, ServerConfigError
@@ -368,8 +369,50 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             assistant_response.channels = channels
 
         self.usage_accumulator.count_tools(len(assistant_response.tool_calls or {}))
+        self._append_usage_channel(assistant_response)
 
         return assistant_response
+
+    def _append_usage_channel(self, response: PromptMessageExtended) -> None:
+        usage_payload = self._build_usage_payload()
+        if not usage_payload:
+            return
+
+        channels = dict(response.channels or {})
+        if FAST_AGENT_USAGE in channels:
+            return
+
+        channels[FAST_AGENT_USAGE] = [
+            TextContent(type="text", text=json.dumps(usage_payload))
+        ]
+        response.channels = channels
+
+    def _build_usage_payload(self) -> dict[str, Any] | None:
+        if not self.usage_accumulator or not self.usage_accumulator.turns:
+            return None
+
+        turn_usage = self.usage_accumulator.turns[-1]
+        return {
+            "turn": turn_usage.model_dump(mode="json", exclude={"raw_usage"}),
+            "raw_usage": self._serialize_raw_usage(turn_usage.raw_usage),
+            "summary": self.usage_accumulator.get_summary(),
+        }
+
+    def _serialize_raw_usage(self, raw_usage: object) -> object:
+        for attr in ("model_dump", "dict"):
+            method = getattr(raw_usage, attr, None)
+            if callable(method):
+                try:
+                    return method()
+                except Exception:
+                    continue
+        raw_dict = getattr(raw_usage, "__dict__", None)
+        if isinstance(raw_dict, dict):
+            try:
+                return dict(raw_dict)
+            except Exception:
+                pass
+        return str(raw_usage)
 
     @abstractmethod
     async def _apply_prompt_provider_specific(
@@ -453,6 +496,9 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             }
             channels[FAST_AGENT_TIMING] = [TextContent(type="text", text=json.dumps(timing_data))]
             assistant_response.channels = channels
+
+        self.usage_accumulator.count_tools(len(assistant_response.tool_calls or {}))
+        self._append_usage_channel(assistant_response)
 
         return result, assistant_response
 

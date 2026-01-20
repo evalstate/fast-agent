@@ -1292,6 +1292,10 @@ class FastAgent:
                             cfg_logger.progress_display = False
                             cfg_logger.show_chat = False
                             cfg_logger.show_tools = False
+                        if cfg is not None:
+                            shell_cfg = getattr(cfg, "shell_execution", None)
+                            if shell_cfg is not None:
+                                shell_cfg.show_bash = False
 
                         # Directly disable the progress display singleton
                         from fast_agent.ui.progress_display import progress_display
