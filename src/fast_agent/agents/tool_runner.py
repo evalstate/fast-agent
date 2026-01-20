@@ -10,10 +10,12 @@ from typing import (
     Union,
 )
 
-from mcp.types import ListToolsResult, TextContent
+from mcp.types import CallToolResult, ListToolsResult, TextContent
 
 from fast_agent.constants import DEFAULT_MAX_ITERATIONS, FAST_AGENT_ERROR_CHANNEL
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import MessageHistoryAgentProtocol
+from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
@@ -42,6 +44,9 @@ class _ToolLoopAgent(MessageHistoryAgentProtocol, Protocol):
     ) -> PromptMessageExtended: ...
 
     async def list_tools(self) -> ListToolsResult: ...
+
+
+_logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -141,7 +146,16 @@ class ToolRunner:
         try:
             async for message in self:
                 last = message
-        except (asyncio.CancelledError, KeyboardInterrupt):
+        except (asyncio.CancelledError, KeyboardInterrupt) as exc:
+            try:
+                setattr(self._agent, "_last_turn_cancelled", True)
+                setattr(
+                    self._agent,
+                    "_last_turn_cancel_reason",
+                    "cancelled" if isinstance(exc, asyncio.CancelledError) else "interrupted",
+                )
+            except Exception:
+                pass
             self._reset_history_after_cancelled_turn()
             raise
         if last is None:
@@ -182,22 +196,53 @@ class ToolRunner:
         if last_success_idx < len(history) - 1:
             self._agent.load_message_history(history[: last_success_idx + 1])
 
+    def _build_tool_error_response(
+        self, request: PromptMessageExtended, error_message: str
+    ) -> PromptMessageExtended:
+        tool_results: dict[str, CallToolResult] = {}
+        for tool_id in (request.tool_calls or {}).keys():
+            tool_results[tool_id] = CallToolResult(
+                content=[text_content(error_message)],
+                isError=True,
+            )
+
+        channels = {FAST_AGENT_ERROR_CHANNEL: [text_content(error_message)]}
+
+        return PromptMessageExtended(
+            role="user",
+            content=[text_content(error_message)],
+            tool_results=tool_results,
+            channels=channels,
+        )
+
     async def generate_tool_call_response(self) -> PromptMessageExtended | None:
         if self._pending_tool_request is None:
             return None
         if self._pending_tool_response is not None:
             return self._pending_tool_response
 
-        if self._hooks.before_tool_call is not None:
-            await self._hooks.before_tool_call(self, self._pending_tool_request)
+        try:
+            if self._hooks.before_tool_call is not None:
+                await self._hooks.before_tool_call(self, self._pending_tool_request)
+            tool_message = await self._agent.run_tools(
+                self._pending_tool_request, request_params=self._request_params
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            tool_message = self._build_tool_error_response(
+                self._pending_tool_request,
+                f"Tool hook or execution failed: {exc}",
+            )
+            _logger.error("Tool hook or execution failed", exc_info=exc)
 
-        tool_message = await self._agent.run_tools(
-            self._pending_tool_request, request_params=self._request_params
-        )
         self._pending_tool_response = tool_message
 
         if self._hooks.after_tool_call is not None:
-            await self._hooks.after_tool_call(self, tool_message)
+            try:
+                await self._hooks.after_tool_call(self, tool_message)
+            except Exception as exc:
+                _logger.error("Tool hook failed after tool call", exc_info=exc)
 
         self._stage_tool_response(tool_message)
         self._pending_tool_request = None

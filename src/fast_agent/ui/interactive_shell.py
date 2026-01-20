@@ -16,6 +16,7 @@ def run_interactive_shell_command(
     command: str,
     *,
     max_output_chars: int = 50000,
+    show_output: bool = True,
 ) -> ShellExecutionResult:
     import errno
     import os
@@ -160,11 +161,12 @@ def run_interactive_shell_command(
                         alt_screen_modes.discard("47")
                         needs_scroll_reset = True
                     scan_tail = scan_data[-16:]
-                    if tty_out_fd is not None and os.isatty(tty_out_fd):
-                        os.write(tty_out_fd, data)
-                    else:
-                        sys.stdout.buffer.write(data)
-                        sys.stdout.flush()
+                    if show_output:
+                        if tty_out_fd is not None and os.isatty(tty_out_fd):
+                            os.write(tty_out_fd, data)
+                        else:
+                            sys.stdout.buffer.write(data)
+                            sys.stdout.flush()
                     _append_output(data.decode(errors="replace"))
 
                 if tty_in_fd is not None and os.isatty(tty_in_fd) and tty_in_fd in ready:
@@ -193,8 +195,9 @@ def run_interactive_shell_command(
             )
             if proc.stdout is not None:
                 for line in iter(proc.stdout.readline, ""):
-                    sys.stdout.write(line)
-                    sys.stdout.flush()
+                    if show_output:
+                        sys.stdout.write(line)
+                        sys.stdout.flush()
                     _append_output(line)
                     if proc.poll() is not None:
                         break

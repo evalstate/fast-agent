@@ -73,7 +73,7 @@ class ResponsesStreamingMixin:
         ) -> None: ...
 
         def _update_streaming_progress(
-            self, chunk: str, model: str, current_total: int
+            self, content: str, model: str, estimated_tokens: int
         ) -> int: ...
 
         def chat_turn(self) -> int: ...
@@ -213,6 +213,23 @@ class ResponsesStreamingMixin:
                 if index >= 0:
                     notified_tool_indices.add(index)
                 continue
+
+        if tool_streams:
+            incomplete_tools = [
+                f"{info.get('tool_name', 'unknown')}:{info.get('tool_use_id', 'unknown')}"
+                for info in tool_streams.values()
+            ]
+            self.logger.error(
+                "Tool call streaming incomplete - started but never finished",
+                data={
+                    "incomplete_tools": incomplete_tools,
+                    "tool_count": len(tool_streams),
+                },
+            )
+            raise RuntimeError(
+                "Streaming completed but tool call(s) never finished: "
+                f"{', '.join(incomplete_tools)}"
+            )
 
         if final_response is None:
             try:

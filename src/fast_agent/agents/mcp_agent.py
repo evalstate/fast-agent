@@ -189,6 +189,7 @@ class McpAgent(ABC, ToolAgent):
             skills_directory=skills_directory,
             working_directory=self.config.cwd,
             output_byte_limit=output_byte_limit,
+            config=context.config if context else None,
         )
         self._shell_runtime_enabled = self._shell_runtime.enabled
         self._shell_access_modes: tuple[str, ...] = ()
@@ -318,6 +319,7 @@ class McpAgent(ABC, ToolAgent):
             warning_interval_seconds=warning_interval_seconds,
             working_directory=working_directory,
             output_byte_limit=output_byte_limit,
+            config=self.context.config if self.context else None,
         )
         self._shell_runtime_enabled = self._shell_runtime.enabled
         self._bash_tool = self._shell_runtime.tool

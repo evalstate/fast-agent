@@ -7,10 +7,10 @@ import typer
 
 from fast_agent.cli.commands.go import (
     collect_stdio_commands,
-    resolve_environment_dir_option,
     resolve_instruction_option,
     run_async_agent,
 )
+from fast_agent.cli.env_helpers import resolve_environment_dir_option
 
 
 class ServeTransport(str, Enum):

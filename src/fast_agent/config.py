@@ -151,6 +151,12 @@ class ShellSettings(BaseModel):
     interactive_use_pty: bool = True
     """Use a PTY for interactive prompt shell commands to preserve colors and interactivity."""
 
+    output_display_lines: int | None = 5
+    """Maximum number of output lines to display for shell commands (None = no limit)."""
+
+    show_bash: bool = True
+    """Show shell command output on the console (set False to suppress output)."""
+
     model_config = ConfigDict(extra="ignore")
 
     @field_validator("timeout_seconds", mode="before")
@@ -168,6 +174,24 @@ class ShellSettings(BaseModel):
         if isinstance(value, str):
             return MCPTimelineSettings._parse_duration(value)
         return int(value)
+
+    @field_validator("output_display_lines", mode="before")
+    @classmethod
+    def _coerce_output_display_lines(cls, value: Any) -> int | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped == "":
+                return None
+            if not stripped.isdigit():
+                raise ValueError("output_display_lines must be a non-negative integer.")
+            value = int(stripped)
+        else:
+            value = int(value)
+        if value < 0:
+            raise ValueError("output_display_lines must be a non-negative integer.")
+        return value
 
 
 class MCPRootSettings(BaseModel):
@@ -400,6 +424,22 @@ class OpenResponsesSettings(BaseModel):
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
+class CodexResponsesSettings(BaseModel):
+    """
+    Settings for using Codex Responses via ChatGPT OAuth tokens.
+    """
+
+    api_key: str | None = None
+    text_verbosity: Literal["low", "medium", "high"] = "medium"
+
+    base_url: str | None = None
+
+    default_headers: dict[str, str] | None = None
+    """Custom headers to include in all requests to the Codex Responses API."""
+
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+
 class DeepSeekSettings(BaseModel):
     """
     Settings for using DeepSeek models in the fast-agent application.
@@ -616,6 +656,9 @@ class LoggerSettings(BaseModel):
     streaming: Literal["markdown", "plain", "none"] = "markdown"
     """Streaming renderer for assistant responses"""
 
+    message_style: Literal["classic", "a3"] = "a3"
+    """Chat message layout style for console output."""
+
 
 def find_fastagent_config_files(start_path: Path) -> tuple[Path | None, Path | None]:
     """
@@ -668,6 +711,27 @@ def find_fastagent_config_files(start_path: Path) -> tuple[Path | None, Path | N
     return config_path, secrets_path
 
 
+def resolve_config_search_root(
+    start_path: Path,
+    *,
+    env_dir: str | Path | None = None,
+) -> Path:
+    """Resolve the base path for discovering config and secrets files.
+
+    If env_dir is provided (or ENVIRONMENT_DIR is set), search from there instead
+    of the current working directory.
+    """
+    base = start_path.resolve()
+    override = env_dir if env_dir is not None else os.getenv("ENVIRONMENT_DIR")
+    if not override:
+        return base
+
+    root = Path(override).expanduser()
+    if not root.is_absolute():
+        root = (base / root).resolve()
+    return root
+
+
 class Settings(BaseSettings):
     """
     Settings class for the fast-agent application.
@@ -717,6 +781,9 @@ class Settings(BaseSettings):
 
     openresponses: OpenResponsesSettings | None = None
     """Settings for using Open Responses models in the fast-agent application"""
+
+    codexresponses: CodexResponsesSettings | None = None
+    """Settings for using Codex Responses models in the fast-agent application"""
 
     deepseek: DeepSeekSettings | None = None
     """Settings for using DeepSeek models in the fast-agent application"""
@@ -875,7 +942,8 @@ def get_settings(config_path: str | os.PathLike[str] | None = None) -> Settings:
             _, secrets_file = find_fastagent_config_files(config_file.parent)
     else:
         # Use standardized discovery for both config and secrets
-        config_file, secrets_file = find_fastagent_config_files(Path.cwd())
+        search_root = resolve_config_search_root(Path.cwd())
+        config_file, secrets_file = find_fastagent_config_files(search_root)
 
     merged_settings = {}
 

@@ -8,15 +8,18 @@ import signal
 import subprocess
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from mcp.types import CallToolResult, TextContent, Tool
 
+if TYPE_CHECKING:
+    from fast_agent.config import Settings
 from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
     MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
 )
 from fast_agent.ui import console
+from fast_agent.ui.console_display import ConsoleDisplay
 from fast_agent.ui.progress_display import progress_display
 from fast_agent.utils.async_utils import gather_with_cancel
 
@@ -33,6 +36,7 @@ class ShellRuntime:
         skills_directory: Path | None = None,
         working_directory: Path | None = None,
         output_byte_limit: int | None = None,
+        config: Settings | None = None,
     ) -> None:
         self._activation_reason = activation_reason
         self._logger = logger
@@ -44,6 +48,14 @@ class ShellRuntime:
         self._output_byte_limit = min(resolved_limit, MAX_TERMINAL_OUTPUT_BYTE_LIMIT)
         self.enabled: bool = activation_reason is not None
         self._tool: Tool | None = None
+        self._display = ConsoleDisplay(config=config)
+        self._output_display_lines: int | None = None
+        self._show_bash_output = True
+        if config is not None:
+            shell_config = getattr(config, "shell_execution", None)
+            if shell_config is not None:
+                self._output_display_lines = getattr(shell_config, "output_display_lines", None)
+                self._show_bash_output = bool(getattr(shell_config, "show_bash", True))
 
         if self.enabled:
             # Detect the shell early so we can include it in the tool description
@@ -209,15 +221,17 @@ class ShellRuntime:
                 output_bytes = 0
                 output_truncated = False
                 truncation_notice_printed = False
+                display_line_limit = self._output_display_lines
+                displayed_line_count = 0
+                display_ellipsis_printed = False
                 # Track last output time in a mutable container for sharing across coroutines
                 last_output_time = [time.time()]
                 timeout_occurred = [False]
                 watchdog_task = None
 
-                async def stream_output(
-                    stream, style: str | None, is_stderr: bool = False
-                ) -> None:
+                async def stream_output(stream, style: str | None, is_stderr: bool = False) -> None:
                     nonlocal output_bytes, output_truncated, truncation_notice_printed
+                    nonlocal displayed_line_count, display_ellipsis_printed
                     if not stream:
                         return
                     while True:
@@ -245,16 +259,35 @@ class ShellRuntime:
                                 output_truncated = True
 
                         if output_truncated and not truncation_notice_printed:
-                            console.console.print(
-                                "▶ Agent output truncated - limit reached",
-                                style="black on red",
-                            )
+                            if self._show_bash_output and (
+                                display_line_limit is None or display_line_limit > 0
+                            ):
+                                console.console.print(
+                                    "▶ Agent output truncated - limit reached",
+                                    style="black on red",
+                                )
                             truncation_notice_printed = True
-                        console.console.print(
-                            text.rstrip("\n"),
-                            style=style,
-                            markup=False,
-                        )
+
+                        if self._show_bash_output:
+                            if display_line_limit is None:
+                                console.console.print(
+                                    text.rstrip("\n"),
+                                    style=style,
+                                    markup=False,
+                                )
+                            elif display_line_limit <= 0:
+                                pass
+                            elif displayed_line_count < display_line_limit:
+                                console.console.print(
+                                    text.rstrip("\n"),
+                                    style=style,
+                                    markup=False,
+                                )
+                                displayed_line_count += 1
+                            elif not display_ellipsis_printed:
+                                console.console.print("...", style="dim", markup=False)
+                                display_ellipsis_printed = True
+
                         # Update last output time whenever we receive a line
                         last_output_time[0] = time.time()
 
@@ -280,10 +313,11 @@ class ShellRuntime:
                         time_since_warning = elapsed - last_warning_time
                         if time_since_warning >= self._warning_interval_seconds and remaining > 0:
                             self._logger.debug(f"Watchdog: warning at {int(remaining)}s remaining")
-                            console.console.print(
-                                f"▶ No output detected - terminating in {int(remaining)}s",
-                                style="black on red",
-                            )
+                            if self._show_bash_output:
+                                console.console.print(
+                                    f"▶ No output detected - terminating in {int(remaining)}s",
+                                    style="black on red",
+                                )
                             last_warning_time = elapsed
 
                         # Timeout exceeded
@@ -292,9 +326,10 @@ class ShellRuntime:
                             self._logger.debug(
                                 "Watchdog: timeout exceeded, terminating process group"
                             )
-                            console.console.print(
-                                "▶ Timeout exceeded - terminating process", style="black on red"
-                            )
+                            if self._show_bash_output:
+                                console.console.print(
+                                    "▶ Timeout exceeded - terminating process", style="black on red"
+                                )
                             try:
                                 if is_windows:
                                     # Windows: try to signal the entire process group before terminating
@@ -418,30 +453,49 @@ class ShellRuntime:
                 except Exception:  # pragma: no cover
                     Text = None  # type: ignore[assignment]
 
-                if Text:
-                    # Build bottom separator matching the style: ─| exit code 0 |─────────
-                    width = console.console.size.width
-                    exit_code_style = "red" if return_code != 0 else "dim"
-                    exit_code_text = f"exit code {return_code}"
-
-                    prefix = Text("─| ")
-                    prefix.stylize("dim")
-                    exit_text = Text(exit_code_text, style=exit_code_style)
-                    suffix = Text(" |")
-                    suffix.stylize("dim")
-
-                    separator = Text()
-                    separator.append_text(prefix)
-                    separator.append_text(exit_text)
-                    separator.append_text(suffix)
-                    remaining = width - separator.cell_len
-                    if remaining > 0:
-                        separator.append("─" * remaining, style="dim")
-
-                    console.console.print()
-                    console.console.print(separator)
+                use_a3_style = self._display._use_a3_style()
+                if return_code == 0:
+                    exit_code_style = "white reverse dim"
+                elif return_code == 1:
+                    exit_code_style = "red reverse dim"
                 else:
-                    console.console.print(f"exit code {return_code}", style="dim")
+                    exit_code_style = "red reverse bold"
+                exit_code_text = f" exit code {return_code} "
+
+                if Text:
+                    if use_a3_style:
+                        line = Text()
+                        line.append("▎• ", style="dim")
+                        line.append(exit_code_text, style=exit_code_style)
+                        console.console.print()
+                        console.console.print(line)
+                        console.console.print()
+                    else:
+                        # Build bottom separator matching the style: ─| exit code 0 |─────────
+                        width = console.console.size.width
+                        prefix = Text("─| ")
+                        prefix.stylize("dim")
+                        exit_text = Text(exit_code_text, style=exit_code_style)
+                        suffix = Text(" |")
+                        suffix.stylize("dim")
+
+                        separator = Text()
+                        separator.append_text(prefix)
+                        separator.append_text(exit_text)
+                        separator.append_text(suffix)
+                        remaining = width - separator.cell_len
+                        if remaining > 0:
+                            separator.append("─" * remaining, style="dim")
+
+                        console.console.print()
+                        console.console.print(separator)
+                else:
+                    if use_a3_style:
+                        console.console.print()
+                        console.console.print(f"▎• {exit_code_text}", style=exit_code_style)
+                        console.console.print()
+                    else:
+                        console.console.print(exit_code_text, style=exit_code_style)
 
                 setattr(result, "_suppress_display", True)
                 setattr(result, "exit_code", return_code)

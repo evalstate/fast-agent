@@ -9,6 +9,7 @@ from typing import Awaitable, Callable, Mapping, Sequence, Union
 from deprecated import deprecated
 from mcp.types import GetPromptResult, PromptMessage
 from rich import print as rich_print
+from rich.markup import escape
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
@@ -39,17 +40,11 @@ class AgentApp:
         *,
         reload_callback: Callable[[], Awaitable[bool]] | None = None,
         refresh_callback: Callable[[], Awaitable[bool]] | None = None,
-        load_card_callback: Callable[
-            [str, str | None], Awaitable[tuple[list[str], list[str]]]
-        ]
+        load_card_callback: Callable[[str, str | None], Awaitable[tuple[list[str], list[str]]]]
         | None = None,
-        attach_agent_tools_callback: Callable[
-            [str, Sequence[str]], Awaitable[list[str]]
-        ]
+        attach_agent_tools_callback: Callable[[str, Sequence[str]], Awaitable[list[str]]]
         | None = None,
-        detach_agent_tools_callback: Callable[
-            [str, Sequence[str]], Awaitable[list[str]]
-        ]
+        detach_agent_tools_callback: Callable[[str, Sequence[str]], Awaitable[list[str]]]
         | None = None,
         dump_agent_callback: Callable[[str], Awaitable[str]] | None = None,
         tool_only_agents: set[str] | None = None,
@@ -328,17 +323,13 @@ class AgentApp:
             raise RuntimeError("Agent card loading is not available.")
         return await self._load_card_callback(source, parent_agent)
 
-    async def attach_agent_tools(
-        self, parent_agent: str, child_agents: Sequence[str]
-    ) -> list[str]:
+    async def attach_agent_tools(self, parent_agent: str, child_agents: Sequence[str]) -> list[str]:
         """Attach agents as tools to a parent agent."""
         if not self._attach_agent_tools_callback:
             raise RuntimeError("Agent tool attachment is not available.")
         return await self._attach_agent_tools_callback(parent_agent, child_agents)
 
-    async def detach_agent_tools(
-        self, parent_agent: str, child_agents: Sequence[str]
-    ) -> list[str]:
+    async def detach_agent_tools(self, parent_agent: str, child_agents: Sequence[str]) -> list[str]:
         """Detach agents-as-tools from a parent agent."""
         if not self._detach_agent_tools_callback:
             raise RuntimeError("Agent tool detachment is not available.")
@@ -380,8 +371,7 @@ class AgentApp:
 
     def set_load_card_callback(
         self,
-        callback: Callable[[str, str | None], Awaitable[tuple[list[str], list[str]]]]
-        | None,
+        callback: Callable[[str, str | None], Awaitable[tuple[list[str], list[str]]]] | None,
     ) -> None:
         """Update the callback for loading agent cards at runtime."""
         self._load_card_callback = callback
@@ -398,9 +388,7 @@ class AgentApp:
         """Update the callback for detaching agent tools."""
         self._detach_agent_tools_callback = callback
 
-    def set_dump_agent_callback(
-        self, callback: Callable[[str], Awaitable[str]] | None
-    ) -> None:
+    def set_dump_agent_callback(self, callback: Callable[[str], Awaitable[str]] | None) -> None:
         """Update the callback for dumping agent cards."""
         self._dump_agent_callback = callback
 
@@ -481,22 +469,36 @@ class AgentApp:
         # Create agent_types dictionary mapping agent names to their types (excluding tool_only)
         visible_names = set(self.agent_names())
         agent_types = {
-            name: agent.agent_type
-            for name, agent in self._agents.items()
-            if name in visible_names
+            name: agent.agent_type for name, agent in self._agents.items() if name in visible_names
         }
 
         # Create the interactive prompt
         prompt = InteractivePrompt(agent_types=agent_types)
-        
+
         # Helper for pretty formatting the FINAL error    
         def _format_final_error(error: Exception) -> str:
-            detail = getattr(error, "message", None) or str(error)
-            detail = detail.strip() if isinstance(detail, str) else ""
+            message_attr = getattr(error, "message", None)
+            detail_candidates = []
+            if isinstance(message_attr, str):
+                detail_candidates.append(message_attr)
+            elif message_attr is not None:
+                detail_candidates.append(str(message_attr))
+            detail_candidates.extend([str(error), repr(error), type(error).__name__])
+
+            detail = ""
+            for candidate in detail_candidates:
+                if isinstance(candidate, str) and candidate.strip():
+                    detail = candidate.strip()
+                    break
+
+            error_type = type(error).__name__
+            if detail and not detail.startswith(error_type):
+                detail = f"{error_type}: {detail}"
+
             clean_detail = detail.replace("\n", " ")
             if len(clean_detail) > 300:
                 clean_detail = clean_detail[:297] + "..."
-            
+            clean_detail = escape(clean_detail)
             return (
                 f"⚠️ **System Error:** The agent failed after repeated attempts.\n"
                 f"Error details: {clean_detail}\n"
@@ -540,9 +542,7 @@ class AgentApp:
         if agent.agent_type == AgentType.PARALLEL:
             self._show_parallel_agent_usage(agent, turn_start_indices or {})
         else:
-            self._show_regular_agent_usage(
-                agent, (turn_start_indices or {}).get(agent.name)
-            )
+            self._show_regular_agent_usage(agent, (turn_start_indices or {}).get(agent.name))
 
     def _capture_turn_start_indices(self, agent_name: str) -> dict[str, int]:
         """Capture usage accumulator turn indices for a user-initiated turn."""
@@ -672,8 +672,8 @@ class AgentApp:
                 if context and context.config and context.config.anthropic:
                     cache_ttl = context.config.anthropic.cache_ttl
                 ttl_minutes = 60 if cache_ttl == "1h" else 5
-                expiry_timestamp = (
-                    agent.usage_accumulator.last_cache_activity_time + (ttl_minutes * 60)
+                expiry_timestamp = agent.usage_accumulator.last_cache_activity_time + (
+                    ttl_minutes * 60
                 )
                 if expiry_timestamp > time.time():
                     expiry_time = datetime.fromtimestamp(expiry_timestamp).strftime("%H:%M")
