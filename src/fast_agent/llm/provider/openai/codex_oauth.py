@@ -14,6 +14,7 @@ import secrets
 import time
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -41,6 +42,7 @@ CODEX_AUTH_CLAIM = "https://api.openai.com/auth"
 CODEX_KEYRING_SERVICE = "fast-agent-codex"
 CODEX_KEYRING_IDENTITY = "openai-codex"
 CODEX_TOKEN_KEY = f"oauth:tokens:{CODEX_KEYRING_IDENTITY}"
+CODEX_CLI_AUTH_PATH = Path("/root/.codex/auth.json")
 
 
 class CodexOAuthTokens(BaseModel):
@@ -209,8 +211,17 @@ def _get_keyring_password() -> str | None:
 def _set_keyring_password(payload: str) -> None:
     import keyring
 
-    keyring.set_password(CODEX_KEYRING_SERVICE, CODEX_TOKEN_KEY, payload)
-    add_identity_to_index(CODEX_KEYRING_SERVICE, CODEX_KEYRING_IDENTITY)
+    try:
+        keyring.set_password(CODEX_KEYRING_SERVICE, CODEX_TOKEN_KEY, payload)
+        add_identity_to_index(CODEX_KEYRING_SERVICE, CODEX_KEYRING_IDENTITY)
+    except Exception as exc:
+        raise ProviderKeyError(
+            "Keyring unavailable",
+            "Codex OAuth tokens could not be saved to the keyring. "
+            "Install/enable a keyring backend (e.g., SecretService/gnome-keyring), "
+            "or set PYTHON_KEYRING_BACKEND to a file-based backend "
+            "(e.g., keyrings.alt.file.PlaintextKeyring).",
+        ) from exc
 
 
 def _delete_keyring_password() -> None:
@@ -235,14 +246,69 @@ def keyring_available() -> bool:
         return False
 
 
-def load_codex_tokens() -> CodexOAuthTokens | None:
-    payload = _get_keyring_password()
-    if not payload:
+def _normalize_codex_cli_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
+    if "access_token" in payload:
+        return {
+            "access_token": payload.get("access_token"),
+            "refresh_token": payload.get("refresh_token"),
+            "expires_at": payload.get("expires_at"),
+            "scope": payload.get("scope"),
+            "token_type": payload.get("token_type") or "Bearer",
+        }
+    if "accessToken" in payload:
+        expires_at = payload.get("expiresAt") or payload.get("expires_at")
+        if isinstance(expires_at, (int, float)) and expires_at > 1_000_000_000_000:
+            expires_at = expires_at / 1000.0
+        return {
+            "access_token": payload.get("accessToken"),
+            "refresh_token": payload.get("refreshToken"),
+            "expires_at": expires_at,
+            "scope": payload.get("scope"),
+            "token_type": payload.get("tokenType") or "Bearer",
+        }
+    return None
+
+
+def _load_codex_cli_tokens() -> CodexOAuthTokens | None:
+    if not CODEX_CLI_AUTH_PATH.exists():
         return None
     try:
-        return CodexOAuthTokens.model_validate_json(payload)
+        payload = json.loads(CODEX_CLI_AUTH_PATH.read_text())
     except Exception:
         return None
+    if not isinstance(payload, dict):
+        return None
+    candidates: list[dict[str, Any]] = [payload]
+    for key in ("auth", "token", "tokens", "session", "credential", "credentials", "data"):
+        value = payload.get(key)
+        if isinstance(value, dict):
+            candidates.append(value)
+    for candidate in candidates:
+        normalized = _normalize_codex_cli_payload(candidate)
+        if not normalized or not normalized.get("access_token"):
+            continue
+        try:
+            return CodexOAuthTokens.model_validate(normalized)
+        except Exception:
+            continue
+    return None
+
+
+def load_codex_tokens() -> CodexOAuthTokens | None:
+    payload = _get_keyring_password()
+    if payload:
+        try:
+            return CodexOAuthTokens.model_validate_json(payload)
+        except Exception:
+            return None
+    tokens = _load_codex_cli_tokens()
+    if tokens:
+        logger.info(
+            "codex_cli_tokens",
+            "Loaded Codex OAuth tokens from auth.json",
+            data={"path": str(CODEX_CLI_AUTH_PATH)},
+        )
+    return tokens
 
 
 def save_codex_tokens(tokens: CodexOAuthTokens) -> None:
