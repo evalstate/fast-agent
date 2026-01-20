@@ -32,7 +32,7 @@ anthropic:
   thinking_budget_tokens: 10000
 #  cache_mode: "auto" # Options: off, prompt, auto (default: auto)
 #  cache_ttl: "5m" # Options: 5m, 1h (default: 5m)
-shell_execution:
+#shell_execution:
 # length of time before terminating subprocess
 #  timeout_seconds: 20
 # warning interval if no output seen
