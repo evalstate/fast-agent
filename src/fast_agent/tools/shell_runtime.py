@@ -448,54 +448,8 @@ class ShellRuntime:
                     )
 
                 # Display bottom separator with exit code
-                try:
-                    from rich.text import Text
-                except Exception:  # pragma: no cover
-                    Text = None  # type: ignore[assignment]
-
-                use_a3_style = self._display._use_a3_style()
-                if return_code == 0:
-                    exit_code_style = "white reverse dim"
-                elif return_code == 1:
-                    exit_code_style = "red reverse dim"
-                else:
-                    exit_code_style = "red reverse bold"
-                exit_code_text = f" exit code {return_code} "
-
-                if Text:
-                    if use_a3_style:
-                        line = Text()
-                        line.append("▎• ", style="dim")
-                        line.append(exit_code_text, style=exit_code_style)
-                        console.console.print()
-                        console.console.print(line)
-                        console.console.print()
-                    else:
-                        # Build bottom separator matching the style: ─| exit code 0 |─────────
-                        width = console.console.size.width
-                        prefix = Text("─| ")
-                        prefix.stylize("dim")
-                        exit_text = Text(exit_code_text, style=exit_code_style)
-                        suffix = Text(" |")
-                        suffix.stylize("dim")
-
-                        separator = Text()
-                        separator.append_text(prefix)
-                        separator.append_text(exit_text)
-                        separator.append_text(suffix)
-                        remaining = width - separator.cell_len
-                        if remaining > 0:
-                            separator.append("─" * remaining, style="dim")
-
-                        console.console.print()
-                        console.console.print(separator)
-                else:
-                    if use_a3_style:
-                        console.console.print()
-                        console.console.print(f"▎• {exit_code_text}", style=exit_code_style)
-                        console.console.print()
-                    else:
-                        console.console.print(exit_code_text, style=exit_code_style)
+                if self._show_bash_output:
+                    self._display.show_shell_exit_code(return_code)
 
                 setattr(result, "_suppress_display", True)
                 setattr(result, "exit_code", return_code)

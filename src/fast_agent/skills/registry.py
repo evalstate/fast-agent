@@ -6,6 +6,7 @@ from typing import Sequence
 
 import frontmatter
 
+from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.paths import default_skill_paths
 
@@ -37,6 +38,7 @@ class SkillRegistry:
         directories: Sequence[Path | str] | None = None,
     ) -> None:
         self._base_dir = base_dir or Path.cwd()
+        self._base_dir_explicit = base_dir is not None
         self._directories: list[Path] = []
         self._errors: list[dict[str, str]] = []
         self._warnings: list[str] = []
@@ -96,7 +98,12 @@ class SkillRegistry:
         self._warnings = []
         self._missing_directories = []
         self._directories = []
-        entries = default_skill_paths(cwd=self._base_dir) if directories is None else list(directories)
+        override = DEFAULT_ENVIRONMENT_DIR if self._base_dir_explicit else None
+        entries = (
+            default_skill_paths(cwd=self._base_dir, override=override)
+            if directories is None
+            else list(directories)
+        )
 
         for entry in entries:
             raw_path = Path(entry) if isinstance(entry, str) else entry

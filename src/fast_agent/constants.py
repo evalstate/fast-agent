@@ -14,6 +14,7 @@ FAST_AGENT_ERROR_CHANNEL = "fast-agent-error"
 FAST_AGENT_REMOVED_METADATA_CHANNEL = "fast-agent-removed-meta"
 FAST_AGENT_TIMING = "fast-agent-timing"
 FAST_AGENT_TOOL_TIMING = "fast-agent-tool-timing"
+FAST_AGENT_USAGE = "fast-agent-usage"
 
 FORCE_SEQUENTIAL_TOOL_CALLS = False
 """Force tool execution to run sequentially even when multiple tool calls are present."""

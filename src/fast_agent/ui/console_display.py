@@ -162,6 +162,44 @@ class ConsoleDisplay:
     def _use_a3_style(self) -> bool:
         return self._message_style == "a3"
 
+    def show_shell_exit_code(self, exit_code: int) -> None:
+        """Display a shell-style exit code banner."""
+        use_a3_style = self._use_a3_style()
+        if exit_code == 0:
+            exit_code_style = "white reverse dim"
+        elif exit_code == 1:
+            exit_code_style = "red reverse dim"
+        else:
+            exit_code_style = "red reverse bold"
+        exit_code_text = f" exit code {exit_code} "
+
+        if use_a3_style:
+            line = Text()
+            line.append("▎• ", style="dim")
+            line.append(exit_code_text, style=exit_code_style)
+            console.console.print()
+            console.console.print(line)
+            console.console.print()
+            return
+
+        width = console.console.size.width
+        prefix = Text("─| ")
+        prefix.stylize("dim")
+        exit_text = Text(exit_code_text, style=exit_code_style)
+        suffix = Text(" |")
+        suffix.stylize("dim")
+
+        separator = Text()
+        separator.append_text(prefix)
+        separator.append_text(exit_text)
+        separator.append_text(suffix)
+        remaining = width - separator.cell_len
+        if remaining > 0:
+            separator.append("─" * remaining, style="dim")
+
+        console.console.print()
+        console.console.print(separator)
+
     def _format_header_line(self, left_content: str, right_info: str = "") -> Text:
         width = console.console.size.width
         left_text = Text.from_markup(left_content)

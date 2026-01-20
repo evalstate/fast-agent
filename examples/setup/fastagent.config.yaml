@@ -32,13 +32,17 @@ anthropic:
   thinking_budget_tokens: 10000
 #  cache_mode: "auto" # Options: off, prompt, auto (default: auto)
 #  cache_ttl: "5m" # Options: 5m, 1h (default: 5m)
-#shell_execution:
+shell_execution:
 # length of time before terminating subprocess
 #  timeout_seconds: 20
 # warning interval if no output seen
 #  warning_interval_seconds: 5
 # use a PTY for interactive prompt shell commands (colors, full-screen tools)
 #  interactive_use_pty: true
+# max number of output lines to display for shell tool results (0 = exit code only)
+#  output_display_lines: 5  # default
+# show shell command output in console (false to suppress bash output)
+#  show_bash: true
 
 # Logging and Console Configuration:
 logger:
