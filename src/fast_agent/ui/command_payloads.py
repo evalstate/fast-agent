@@ -96,6 +96,13 @@ class LoadHistoryCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class LoadPromptCommand(CommandBase):
+    filename: str | None
+    error: str | None
+    kind: Literal["load_prompt"] = "load_prompt"
+
+
+@dataclass(frozen=True, slots=True)
 class HistoryRewindCommand(CommandBase):
     turn_index: int | None
     error: str | None
@@ -210,6 +217,7 @@ CommandPayload = (
     | HashAgentCommand
     | SaveHistoryCommand
     | LoadHistoryCommand
+    | LoadPromptCommand
     | HistoryRewindCommand
     | HistoryReviewCommand
     | HistoryFixCommand

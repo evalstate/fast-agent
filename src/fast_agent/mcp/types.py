@@ -9,8 +9,8 @@ if TYPE_CHECKING:
     from fast_agent.mcp.mcp_aggregator import MCPAggregator
     from fast_agent.skills import SkillManifest
     from fast_agent.skills.registry import SkillRegistry
-    from fast_agent.ui.console_display import ConsoleDisplay
     from fast_agent.tools.shell_runtime import ShellRuntime
+    from fast_agent.ui.console_display import ConsoleDisplay
 
 
 @runtime_checkable

@@ -32,6 +32,7 @@ from fast_agent.constants import CONTROL_MESSAGE_SAVE_HISTORY
 from fast_agent.core.exceptions import AgentConfigError, format_fast_agent_error
 from fast_agent.core.instruction_refresh import rebuild_agent_instruction
 from fast_agent.history.history_exporter import HistoryExporter
+from fast_agent.mcp.common import is_namespaced_name
 from fast_agent.mcp.mcp_aggregator import SEP
 from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.skills.manager import (
@@ -69,6 +70,7 @@ from fast_agent.ui.command_payloads import (
     ListToolsCommand,
     LoadAgentCardCommand,
     LoadHistoryCommand,
+    LoadPromptCommand,
     ReloadAgentsCommand,
     ResumeSessionCommand,
     SaveHistoryCommand,
@@ -85,9 +87,6 @@ from fast_agent.ui.command_payloads import (
     UnknownCommand,
     is_command_payload,
 )
-
-from fast_agent.mcp.types import McpAgentProtocol
-from fast_agent.ui.shell_notice import format_shell_notice
 from fast_agent.ui.enhanced_prompt import (
     _display_agent_info_helper,
     get_argument_input,
@@ -102,6 +101,7 @@ from fast_agent.ui.history_display import display_history_overview
 from fast_agent.ui.interactive_shell import run_interactive_shell_command
 from fast_agent.ui.message_primitives import MessageType
 from fast_agent.ui.progress_display import progress_display
+from fast_agent.ui.shell_notice import format_shell_notice
 from fast_agent.ui.usage_display import collect_agents_from_provider, display_usage_report
 
 # Type alias for the send function
@@ -288,6 +288,42 @@ class InteractivePrompt:
         """
         self.agent_types: dict[str, AgentType] = agent_types or {}
 
+    def _get_agent_or_warn(self, prompt_provider: "AgentApp", agent_name: str) -> Any | None:
+        try:
+            return prompt_provider._agent(agent_name)
+        except Exception:
+            rich_print(f"[red]Unable to load agent '{agent_name}'[/red]")
+            return None
+
+    def _load_prompt_messages_from_file(
+        self, filename: str, *, label: str
+    ) -> list[PromptMessageExtended] | None:
+        try:
+            from fast_agent.mcp.prompts.prompt_load import load_prompt
+
+            return load_prompt(Path(filename))
+        except FileNotFoundError:
+            rich_print(f"[red]File not found: {filename}[/red]")
+        except AgentConfigError as exc:
+            error_text = format_fast_agent_error(exc)
+            rich_print(f"[red]Error loading {label}: {error_text}[/red]")
+        except Exception as exc:
+            rich_print(f"[red]Error loading {label}: {exc}[/red]")
+        return None
+
+    def _replace_agent_history(
+        self, agent_obj: Any, messages: list[PromptMessageExtended]
+    ) -> None:
+        if hasattr(agent_obj, "clear"):
+            try:
+                agent_obj.clear(clear_prompts=True)
+            except TypeError:
+                agent_obj.clear()
+        history = getattr(agent_obj, "message_history", None)
+        if isinstance(history, list):
+            history.clear()
+            history.extend(messages)
+
     async def prompt_loop(
         self,
         send_func: SendFunc,
@@ -348,7 +384,7 @@ class InteractivePrompt:
                 setattr(agent_obj, "_last_turn_cancelled", False)
                 rich_print(
                     "[yellow]Previous turn was {reason}. If the session now shows a pending tool call, "
-                    "run /history fix or /clear history.[/yellow]".format(reason=reason)
+                    "run /history fix or /history clear all.[/yellow]".format(reason=reason)
                 )
 
             if refreshed:
@@ -513,10 +549,8 @@ class InteractivePrompt:
                         continue
                     case ShowHistoryCommand(agent=target_agent):
                         target_agent = target_agent or agent
-                        try:
-                            agent_obj = prompt_provider._agent(target_agent)
-                        except Exception:
-                            rich_print(f"[red]Unable to load agent '{target_agent}'[/red]")
+                        agent_obj = self._get_agent_or_warn(prompt_provider, target_agent)
+                        if agent_obj is None:
                             continue
 
                         history = getattr(agent_obj, "message_history", [])
@@ -534,10 +568,8 @@ class InteractivePrompt:
                                 "[dim]Tip: press Tab after '/history rewind ' to see turn options.[/dim]"
                             )
                             continue
-                        try:
-                            agent_obj = prompt_provider._agent(agent)
-                        except Exception:
-                            rich_print(f"[red]Unable to load agent '{agent}'[/red]")
+                        agent_obj = self._get_agent_or_warn(prompt_provider, agent)
+                        if agent_obj is None:
                             continue
                         history = getattr(agent_obj, "message_history", [])
                         user_turns = _collect_user_turns(list(history))
@@ -586,10 +618,8 @@ class InteractivePrompt:
                                 "[dim]Tip: press Tab after '/history review ' to see turn options.[/dim]"
                             )
                             continue
-                        try:
-                            agent_obj = prompt_provider._agent(agent)
-                        except Exception:
-                            rich_print(f"[red]Unable to load agent '{agent}'[/red]")
+                        agent_obj = self._get_agent_or_warn(prompt_provider, agent)
+                        if agent_obj is None:
                             continue
                         history = getattr(agent_obj, "message_history", [])
                         turns = [
@@ -616,10 +646,8 @@ class InteractivePrompt:
                         continue
                     case HistoryFixCommand(agent=target_agent):
                         target_agent = target_agent or agent
-                        try:
-                            agent_obj = prompt_provider._agent(target_agent)
-                        except Exception:
-                            rich_print(f"[red]Unable to load agent '{target_agent}'[/red]")
+                        agent_obj = self._get_agent_or_warn(prompt_provider, target_agent)
+                        if agent_obj is None:
                             continue
 
                         history = list(getattr(agent_obj, "message_history", []))
@@ -652,10 +680,8 @@ class InteractivePrompt:
                         continue
                     case ClearCommand(kind="clear_last", agent=target_agent):
                         target_agent = target_agent or agent
-                        try:
-                            agent_obj = prompt_provider._agent(target_agent)
-                        except Exception:
-                            rich_print(f"[red]Unable to load agent '{target_agent}'[/red]")
+                        agent_obj = self._get_agent_or_warn(prompt_provider, target_agent)
+                        if agent_obj is None:
                             continue
 
                         removed_message = None
@@ -683,10 +709,8 @@ class InteractivePrompt:
                         continue
                     case ClearCommand(kind="clear_history", agent=target_agent):
                         target_agent = target_agent or agent
-                        try:
-                            agent_obj = prompt_provider._agent(target_agent)
-                        except Exception:
-                            rich_print(f"[red]Unable to load agent '{target_agent}'[/red]")
+                        agent_obj = self._get_agent_or_warn(prompt_provider, target_agent)
+                        if agent_obj is None:
                             continue
 
                         if hasattr(agent_obj, "clear"):
@@ -929,28 +953,60 @@ class InteractivePrompt:
                             rich_print("[red]Filename required for /history load[/red]")
                             continue
 
-                        try:
-                            from fast_agent.mcp.prompts.prompt_load import (
-                                load_history_into_agent,
-                            )
+                        agent_obj = self._get_agent_or_warn(prompt_provider, agent)
+                        if agent_obj is None:
+                            continue
 
-                            # Get the agent object and its underlying LLM
-                            agent_obj = prompt_provider._agent(agent)
+                        messages = self._load_prompt_messages_from_file(filename, label="history")
+                        if messages is None:
+                            continue
 
-                            # Load history directly without triggering LLM call
-                            load_history_into_agent(agent_obj, Path(filename))
+                        self._replace_agent_history(agent_obj, messages)
+                        msg_count = len(messages)
+                        rich_print(f"[green]Loaded {msg_count} messages from {filename}[/green]")
+                        continue
+                    case LoadPromptCommand(filename=filename, error=error):
+                        if error:
+                            rich_print(f"[red]{error}[/red]")
+                            continue
 
-                            msg_count = len(agent_obj.message_history)
+                        if filename is None:
+                            rich_print("[red]Filename required for /prompt load[/red]")
+                            continue
+
+                        agent_obj = self._get_agent_or_warn(prompt_provider, agent)
+                        if agent_obj is None:
+                            continue
+
+                        messages = self._load_prompt_messages_from_file(filename, label="prompt")
+                        if messages is None:
+                            continue
+                        if not messages:
+                            rich_print(f"[yellow]No messages found in {filename}[/yellow]")
+                            continue
+
+                        buffered_text = None
+                        last_message = messages[-1]
+                        if last_message.role == "user" and not last_message.tool_results:
+                            content = getattr(last_message, "content", []) or []
+                            if content:
+                                from fast_agent.mcp.helpers.content_helpers import get_text
+
+                                buffered_text = get_text(content[0])
+                            if buffered_text and buffered_text != "<no text>":
+                                messages = messages[:-1]
+                                buffer_prefill = buffered_text
+
+                        self._replace_agent_history(agent_obj, messages)
+
+                        loaded_count = len(messages) + (1 if buffered_text else 0)
+                        if buffered_text:
                             rich_print(
-                                f"[green]Loaded {msg_count} messages from {filename}[/green]"
+                                f"[green]Loaded {loaded_count} messages from {filename}. "
+                                "Last user message placed in input buffer.[/green]"
                             )
-                        except FileNotFoundError:
-                            rich_print(f"[red]File not found: {filename}[/red]")
-                        except AgentConfigError as exc:
-                            error_text = format_fast_agent_error(exc)
-                            rich_print(f"[red]Error loading history: {error_text}[/red]")
-                        except Exception as e:
-                            rich_print(f"[red]Error loading history: {e}[/red]")
+                        else:
+                            rich_print(f"[green]Loaded {loaded_count} messages from {filename}[/green]")
                         continue
                     case LoadAgentCardCommand(
                         filename=filename,
@@ -1901,6 +1957,11 @@ class InteractivePrompt:
 
             rich_print()
 
+            card_tool_names = set(getattr(agent, "_card_tool_names", []) or [])
+            agent_tool_names = set(getattr(agent, "_agent_tools", {}).keys())
+            child_agent_tool_names = set(getattr(agent, "_child_agents", {}).keys())
+            agent_tool_names |= child_agent_tool_names
+
             # Display tools using clean compact format
             index = 1
             for tool in tools_result.tools:
@@ -1912,6 +1973,13 @@ class InteractivePrompt:
                 tool_line = Text()
                 tool_line.append(f"[{index:2}] ", style="dim cyan")
                 tool_line.append(tool.name, style="bright_blue bold")
+
+                if tool.name in card_tool_names:
+                    tool_line.append(" (Card Function)", style="dim cyan")
+                elif tool.name in child_agent_tool_names:
+                    tool_line.append(" (Subagent)", style="dim cyan")
+                elif tool.name not in agent_tool_names and is_namespaced_name(tool.name):
+                    tool_line.append(" (MCP)", style="dim cyan")
 
                 # Add title if available
                 if tool.title and tool.title.strip():

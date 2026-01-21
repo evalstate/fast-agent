@@ -102,9 +102,12 @@ Commands: +/- (level), q (quit)
     while True:
         try:
             text = session.prompt("> ").strip().lower()
-            if text == "q": break
-            elif text == "+": level = min(level + 1, max_level)
-            elif text == "-": level = max(level - 1, 0)
+            if text == "q":
+                break
+            elif text == "+":
+                level = min(level + 1, max_level)
+            elif text == "-":
+                level = max(level - 1, 0)
         except (KeyboardInterrupt, EOFError):
             break
     

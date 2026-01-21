@@ -72,12 +72,6 @@ class McpInstructionCapable(InstructionCapable, Protocol):
     @property
     def skill_registry(self) -> "SkillRegistry | None": ...
 
-    @property
-    def name(self) -> str: ...
-
-    @property
-    def display(self) -> ToolUpdateDisplay: ...
-
     @skill_registry.setter
     def skill_registry(self, value: "SkillRegistry | None") -> None: ...
 
@@ -312,10 +306,13 @@ async def rebuild_agent_instruction(
         rebuilt_instruction = True
 
         if needs_tool_update and not agent.has_filesystem_runtime:
-            try:
-                await agent.display.show_tool_update("skills", agent_name=agent.name)
-            except Exception as exc:  # pragma: no cover - UI notification best effort
-                logger.debug("Failed to emit tool update for skills", data={"error": str(exc)})
+            display = getattr(agent, "display", None)
+            agent_name = getattr(agent, "name", None)
+            if isinstance(display, ToolUpdateDisplay):
+                try:
+                    await display.show_tool_update("skills", agent_name=agent_name)
+                except Exception as exc:  # pragma: no cover - UI notification best effort
+                    logger.debug("Failed to emit tool update for skills", data={"error": str(exc)})
 
         return InstructionRefreshResult(
             updated_skill_manifests=updated_skill_manifests,

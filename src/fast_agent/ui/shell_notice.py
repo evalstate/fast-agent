@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fast_agent.constants import SHELL_NOTICE_PREFIX
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from fast_agent.tools.shell_runtime import ShellRuntime
 
 

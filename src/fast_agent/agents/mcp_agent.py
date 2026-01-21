@@ -282,8 +282,9 @@ class McpAgent(ABC, ToolAgent):
         """
         if self._shell_runtime_enabled:
             # Already enabled, but update working directory if specified
-            if working_directory is not None:
-                self._shell_runtime._working_directory = working_directory
+            shell_runtime = self._shell_runtime
+            if working_directory is not None and shell_runtime is not None:
+                shell_runtime._working_directory = working_directory
             return
 
         self._activate_shell_runtime(
@@ -685,7 +686,7 @@ class McpAgent(ABC, ToolAgent):
             return await self._skill_reader.execute(arguments)
 
         # Fall back to shell runtime
-        if self._shell_runtime.tool and name == self._shell_runtime.tool.name:
+        if self._shell_runtime and self._shell_runtime.tool and name == self._shell_runtime.tool.name:
             return await self._shell_runtime.execute(arguments)
 
         if name == HUMAN_INPUT_TOOL_NAME:
@@ -1033,7 +1034,7 @@ class McpAgent(ABC, ToolAgent):
 
             tool_available = (
                 tool_name == HUMAN_INPUT_TOOL_NAME
-                or (self._shell_runtime.tool and tool_name == self._shell_runtime.tool.name)
+                or (self._shell_runtime and self._shell_runtime.tool and tool_name == self._shell_runtime.tool.name)
                 or is_external_runtime_tool
                 or is_filesystem_runtime_tool
                 or is_skill_reader_tool
@@ -1055,6 +1056,7 @@ class McpAgent(ABC, ToolAgent):
             metadata: dict[str, Any] | None = None
             if (
                 self._shell_runtime_enabled
+                and self._shell_runtime
                 and self._shell_runtime.tool
                 and tool_name == self._shell_runtime.tool.name
             ):
@@ -1563,6 +1565,7 @@ class McpAgent(ABC, ToolAgent):
 
                 if (
                     self._shell_runtime_enabled
+                    and self._shell_runtime
                     and self._shell_runtime.tool
                     and tool_name == self._shell_runtime.tool.name
                 ):
@@ -1581,10 +1584,11 @@ class McpAgent(ABC, ToolAgent):
 
     def _shell_server_label(self) -> str | None:
         """Return the display label for the local shell runtime."""
-        if not self._shell_runtime_enabled or not self._shell_runtime.tool:
+        shell_runtime = self._shell_runtime
+        if not self._shell_runtime_enabled or not shell_runtime or not shell_runtime.tool:
             return None
 
-        runtime_info = self._shell_runtime.runtime_info()
+        runtime_info = shell_runtime.runtime_info()
         runtime_name = runtime_info.get("name")
         return runtime_name or "shell"
 

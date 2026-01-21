@@ -4,8 +4,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fast_agent.mcp.types import McpAgentProtocol
-from fast_agent.ui.shell_notice import format_shell_notice
-
 from fast_agent.session import (
     format_history_summary,
     format_session_entries,
@@ -21,6 +19,7 @@ from fast_agent.ui.command_payloads import (
     TitleSessionCommand,
 )
 from fast_agent.ui.enhanced_prompt import rich_print
+from fast_agent.ui.shell_notice import format_shell_notice
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
