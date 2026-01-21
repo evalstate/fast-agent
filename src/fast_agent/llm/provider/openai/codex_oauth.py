@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, cast
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
@@ -28,6 +28,12 @@ from fast_agent.mcp.oauth_client import add_identity_to_index, remove_identity_f
 from fast_agent.ui import console
 
 logger = get_logger(__name__)
+
+
+class _KeyringProtocol(Protocol):
+    def get_password(self, service: str, username: str) -> str | None: ...
+    def set_password(self, service: str, username: str, password: str) -> None: ...
+    def delete_password(self, service: str, username: str) -> None: ...
 
 CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 CODEX_AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize"
@@ -43,6 +49,9 @@ CODEX_AUTH_CLAIM = "https://api.openai.com/auth"
 CODEX_KEYRING_SERVICE = "fast-agent-codex"
 CODEX_KEYRING_IDENTITY = "openai-codex"
 CODEX_TOKEN_KEY = f"oauth:tokens:{CODEX_KEYRING_IDENTITY}"
+CODEX_TOKEN_META_KEY = f"{CODEX_TOKEN_KEY}:meta"
+CODEX_TOKEN_CHUNK_PREFIX = f"{CODEX_TOKEN_KEY}:chunk"
+CODEX_KEYRING_MAX_PAYLOAD_BYTES = 512
 CODEX_CLI_AUTH_PATH = Path("/root/.codex/auth.json")
 
 
@@ -200,11 +209,101 @@ def _token_request(payload: dict[str, Any]) -> CodexOAuthTokens:
     return _tokens_from_response(data)
 
 
+def _payload_byte_length(payload: str) -> int:
+    return len(payload.encode("utf-8"))
+
+
+def _chunk_payload(payload: str, chunk_size: int) -> list[str]:
+    return [payload[i : i + chunk_size] for i in range(0, len(payload), chunk_size)]
+
+
+def _chunk_key(index: int) -> str:
+    return f"{CODEX_TOKEN_CHUNK_PREFIX}:{index}"
+
+
+def _safe_delete(keyring_module: _KeyringProtocol, username: str) -> None:
+    try:
+        keyring_module.delete_password(CODEX_KEYRING_SERVICE, username)
+    except Exception:
+        return
+
+
+def _load_chunked_payload(keyring_module: _KeyringProtocol) -> str | None:
+    meta = keyring_module.get_password(CODEX_KEYRING_SERVICE, CODEX_TOKEN_META_KEY)
+    if not meta:
+        return None
+    try:
+        payload = json.loads(meta)
+    except Exception:
+        return None
+    parts = payload.get("parts") if isinstance(payload, dict) else None
+    if not isinstance(parts, int) or parts <= 0:
+        return None
+    chunks: list[str] = []
+    for index in range(parts):
+        chunk = keyring_module.get_password(CODEX_KEYRING_SERVICE, _chunk_key(index))
+        if chunk is None:
+            return None
+        chunks.append(chunk)
+    return "".join(chunks)
+
+
+def _store_chunked_payload(keyring_module: _KeyringProtocol, payload: str) -> None:
+    chunks = _chunk_payload(payload, CODEX_KEYRING_MAX_PAYLOAD_BYTES)
+    for index, chunk in enumerate(chunks):
+        keyring_module.set_password(CODEX_KEYRING_SERVICE, _chunk_key(index), chunk)
+    meta_payload = json.dumps(
+        {
+            "version": 1,
+            "parts": len(chunks),
+            "size": _payload_byte_length(payload),
+        }
+    )
+    keyring_module.set_password(CODEX_KEYRING_SERVICE, CODEX_TOKEN_META_KEY, meta_payload)
+
+
+def _delete_chunked_payload(keyring_module: _KeyringProtocol) -> None:
+    meta = keyring_module.get_password(CODEX_KEYRING_SERVICE, CODEX_TOKEN_META_KEY)
+    parts: int | None = None
+    if meta:
+        try:
+            payload = json.loads(meta)
+            if isinstance(payload, dict):
+                parts = payload.get("parts")
+        except Exception:
+            parts = None
+    if isinstance(parts, int) and parts > 0:
+        for index in range(parts):
+            _safe_delete(keyring_module, _chunk_key(index))
+    else:
+        for index in range(10):
+            _safe_delete(keyring_module, _chunk_key(index))
+    _safe_delete(keyring_module, CODEX_TOKEN_META_KEY)
+
+
+def _keyring_payload_present() -> bool:
+    try:
+        import keyring
+
+        keyring_module = cast("_KeyringProtocol", keyring)
+        if keyring_module.get_password(CODEX_KEYRING_SERVICE, CODEX_TOKEN_KEY) is not None:
+            return True
+        if keyring_module.get_password(CODEX_KEYRING_SERVICE, CODEX_TOKEN_META_KEY) is not None:
+            return True
+        return False
+    except Exception:
+        return False
+
+
 def _get_keyring_password() -> str | None:
     try:
         import keyring
 
-        return keyring.get_password(CODEX_KEYRING_SERVICE, CODEX_TOKEN_KEY)
+        keyring_module = cast("_KeyringProtocol", keyring)
+        payload = keyring_module.get_password(CODEX_KEYRING_SERVICE, CODEX_TOKEN_KEY)
+        if payload:
+            return payload
+        return _load_chunked_payload(keyring_module)
     except Exception:
         return None
 
@@ -212,8 +311,14 @@ def _get_keyring_password() -> str | None:
 def _set_keyring_password(payload: str) -> None:
     import keyring
 
+    keyring_module = cast("_KeyringProtocol", keyring)
     try:
-        keyring.set_password(CODEX_KEYRING_SERVICE, CODEX_TOKEN_KEY, payload)
+        _safe_delete(keyring_module, CODEX_TOKEN_KEY)
+        _delete_chunked_payload(keyring_module)
+        if _payload_byte_length(payload) <= CODEX_KEYRING_MAX_PAYLOAD_BYTES:
+            keyring_module.set_password(CODEX_KEYRING_SERVICE, CODEX_TOKEN_KEY, payload)
+        else:
+            _store_chunked_payload(keyring_module, payload)
         add_identity_to_index(CODEX_KEYRING_SERVICE, CODEX_KEYRING_IDENTITY)
     except Exception as exc:
         status = get_keyring_status()
@@ -238,7 +343,9 @@ def _set_keyring_password(payload: str) -> None:
 def _delete_keyring_password() -> None:
     import keyring
 
-    keyring.delete_password(CODEX_KEYRING_SERVICE, CODEX_TOKEN_KEY)
+    keyring_module = cast("_KeyringProtocol", keyring)
+    _safe_delete(keyring_module, CODEX_TOKEN_KEY)
+    _delete_chunked_payload(keyring_module)
     remove_identity_from_index(CODEX_KEYRING_SERVICE, CODEX_KEYRING_IDENTITY)
 
 
@@ -319,6 +426,8 @@ def save_codex_tokens(tokens: CodexOAuthTokens) -> None:
 
 
 def clear_codex_tokens() -> bool:
+    if not _keyring_payload_present():
+        return False
     try:
         _delete_keyring_password()
         return True
