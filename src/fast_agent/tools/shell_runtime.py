@@ -93,7 +93,7 @@ class ShellRuntime:
 
     def _render_display_line(self, text: str, style: str | None) -> Text:
         display_text = text.rstrip("\n").expandtabs()
-        renderable = Text(display_text, style=style)
+        renderable = Text(display_text, style=style or "")
         renderable.no_wrap = True
         width = max(1, console.console.size.width)
         if len(display_text) > width:
