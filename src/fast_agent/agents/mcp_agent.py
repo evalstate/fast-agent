@@ -1432,8 +1432,9 @@ class McpAgent(ABC, ToolAgent):
 
         if isinstance(self, AgentsAsToolsAgent):
             for agent_name in self._child_agents:
-                if agent_name not in server_names:
-                    server_names.append(agent_name)
+                agent_label = agent_name[7:] if agent_name.startswith("agent__") else agent_name
+                if agent_label not in server_names:
+                    server_names.append(agent_label)
 
         card_tools_label = self._card_tools_label()
         if card_tools_label and card_tools_label not in server_names:
@@ -1481,6 +1482,19 @@ class McpAgent(ABC, ToolAgent):
         if message.tool_calls:
             for tool_request in message.tool_calls.values():
                 tool_name = tool_request.params.name
+
+                if tool_name in self._agent_tools:
+                    agent_label = tool_name[7:] if tool_name.startswith("agent__") else tool_name
+                    if agent_label not in servers:
+                        servers.append(agent_label)
+                    continue
+
+                child_agents = getattr(self, "_child_agents", None)
+                if isinstance(child_agents, dict) and tool_name in child_agents:
+                    agent_label = tool_name[7:] if tool_name.startswith("agent__") else tool_name
+                    if agent_label not in servers:
+                        servers.append(agent_label)
+                    continue
 
                 if (
                     self._shell_runtime_enabled

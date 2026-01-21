@@ -37,7 +37,7 @@ class CodexResponsesLLM(ResponsesLLM):
     def _display_model(self, model: str | None) -> str | None:
         if not model:
             return model
-        return f"{model} (plan)"
+        return f"{model} ($)"
 
     def _log_chat_progress(self, chat_turn: int | None = None, model: str | None = None) -> None:
         super()._log_chat_progress(chat_turn=chat_turn, model=self._display_model(model))
@@ -45,9 +45,7 @@ class CodexResponsesLLM(ResponsesLLM):
     def _log_chat_finished(self, model: str | None = None) -> None:
         super()._log_chat_finished(model=self._display_model(model))
 
-    def _update_streaming_progress(
-        self, content: str, model: str, estimated_tokens: int
-    ) -> int:
+    def _update_streaming_progress(self, content: str, model: str, estimated_tokens: int) -> int:
         display_model = self._display_model(model) or model
         return super()._update_streaming_progress(content, display_model, estimated_tokens)
 

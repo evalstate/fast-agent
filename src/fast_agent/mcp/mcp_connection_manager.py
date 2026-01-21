@@ -315,6 +315,13 @@ async def _run_ping_loop(server_conn: ServerConnection) -> None:
         if not hasattr(session, "ping"):
             return
         try:
+            from fast_agent.human_input.elicitation_state import elicitation_state
+
+            if elicitation_state.is_active(server_conn.server_name):
+                continue
+        except Exception:
+            pass
+        try:
             await cast("MCPAgentClientSession", session).ping(read_timeout_seconds=read_timeout)
             missed = 0
             server_conn._ping_ok_count += 1

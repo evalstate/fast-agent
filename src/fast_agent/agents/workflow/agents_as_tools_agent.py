@@ -559,11 +559,8 @@ class AgentsAsToolsAgent(McpAgent):
             if status == "error":
                 continue  # Skip display for error tools, will show in results
 
-            # Always add individual instance number for clarity
-            suffix = f"[{i}]"
-            if corr_id:
-                suffix = f"[{i}|{corr_id}]"
-            display_tool_name = f"{tool_name}{suffix}"
+            base_tool_name = tool_name[7:] if tool_name.startswith("agent__") else tool_name
+            display_tool_name = base_tool_name
 
             # Build bottom item for THIS instance only (not all instances)
             status_label = status_labels.get(status, "pending")
@@ -608,14 +605,10 @@ class AgentsAsToolsAgent(McpAgent):
             descriptor = record.get("descriptor", {})
             result = record.get("result")
             tool_name = descriptor.get("tool", "(unknown)")
-            corr_id = descriptor.get("id")
 
             if result:
-                # Always add individual instance number for clarity
-                suffix = f"[{i}]"
-                if corr_id:
-                    suffix = f"[{i}|{corr_id}]"
-                display_tool_name = f"{tool_name}{suffix}"
+                base_tool_name = tool_name[7:] if tool_name.startswith("agent__") else tool_name
+                display_tool_name = base_tool_name
 
                 # Show individual tool result with full content
                 self.display.show_tool_result(
