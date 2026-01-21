@@ -85,6 +85,9 @@ from fast_agent.ui.command_payloads import (
     UnknownCommand,
     is_command_payload,
 )
+
+from fast_agent.mcp.types import McpAgentProtocol
+from fast_agent.ui.shell_notice import format_shell_notice
 from fast_agent.ui.enhanced_prompt import (
     _display_agent_info_helper,
     get_argument_input,
@@ -816,10 +819,30 @@ class InteractivePrompt:
                             rich_print(
                                 f"[green]Resumed session: {session.info.name} ({loaded_list})[/green]"
                             )
+                            if (
+                                isinstance(agent_obj, McpAgentProtocol)
+                                and agent_obj.shell_runtime_enabled
+                            ):
+                                rich_print(
+                                    format_shell_notice(
+                                        agent_obj.shell_access_modes,
+                                        agent_obj.shell_runtime,
+                                    )
+                                )
                         else:
                             rich_print(
                                 f"[yellow]Resumed session: {session.info.name} (no history yet)[/yellow]"
                             )
+                            if (
+                                isinstance(agent_obj, McpAgentProtocol)
+                                and agent_obj.shell_runtime_enabled
+                            ):
+                                rich_print(
+                                    format_shell_notice(
+                                        agent_obj.shell_access_modes,
+                                        agent_obj.shell_runtime,
+                                    )
+                                )
                         if missing_agents:
                             missing_list = ", ".join(sorted(missing_agents))
                             rich_print(

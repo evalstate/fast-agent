@@ -3,6 +3,9 @@
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from fast_agent.mcp.types import McpAgentProtocol
+from fast_agent.ui.shell_notice import format_shell_notice
+
 from fast_agent.session import (
     format_history_summary,
     format_session_entries,
@@ -134,8 +137,28 @@ async def handle_resume_session_cmd(
     if loaded:
         loaded_list = ", ".join(sorted(loaded.keys()))
         rich_print(f"[green]Resumed session: {session.info.name} ({loaded_list})[/green]")
+        if (
+            isinstance(default_agent, McpAgentProtocol)
+            and default_agent.shell_runtime_enabled
+        ):
+            rich_print(
+                format_shell_notice(
+                    default_agent.shell_access_modes,
+                    default_agent.shell_runtime,
+                )
+            )
     else:
         rich_print(f"[yellow]Resumed session: {session.info.name} (no history yet)[/yellow]")
+        if (
+            isinstance(default_agent, McpAgentProtocol)
+            and default_agent.shell_runtime_enabled
+        ):
+            rich_print(
+                format_shell_notice(
+                    default_agent.shell_access_modes,
+                    default_agent.shell_runtime,
+                )
+            )
     if missing_agents:
         missing_list = ", ".join(sorted(missing_agents))
         rich_print(f"[yellow]Missing agents from session: {missing_list}[/yellow]")

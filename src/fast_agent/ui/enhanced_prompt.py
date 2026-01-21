@@ -30,7 +30,11 @@ from rich import print as rich_print
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.agents.workflow.router_agent import RouterAgent
-from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, FAST_AGENT_REMOVED_METADATA_CHANNEL
+from fast_agent.constants import (
+    FAST_AGENT_ERROR_CHANNEL,
+    FAST_AGENT_REMOVED_METADATA_CHANNEL,
+)
+from fast_agent.ui.shell_notice import format_shell_notice
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.llm.provider_types import Provider
@@ -921,16 +925,28 @@ class AgentCompleter(Completer):
                     display_meta=display,
                 )
 
-    def _complete_executables(self, partial: str):
-        """Complete executable names from PATH."""
+    def _complete_executables(self, partial: str, max_results: int = 100):
+        """Complete executable names from PATH.
+
+        Args:
+            partial: The partial executable name to match.
+            max_results: Maximum number of completions to yield (default 100).
+                        Limits scan time on systems with large PATH.
+        """
         seen = set()
+        count = 0
         for path_dir in os.environ.get("PATH", "").split(os.pathsep):
+            if count >= max_results:
+                break
             try:
                 for entry in Path(path_dir).iterdir():
+                    if count >= max_results:
+                        break
                     if entry.is_file() and os.access(entry, os.X_OK):
                         name = entry.name
                         if name.startswith(partial) and name not in seen:
                             seen.add(name)
+                            count += 1
                             yield Completion(
                                 name,
                                 start_position=-len(partial),
@@ -940,8 +956,14 @@ class AgentCompleter(Completer):
             except (PermissionError, FileNotFoundError):
                 pass
 
-    def _complete_shell_paths(self, partial: str, delete_len: int):
-        """Complete file/directory paths for shell commands."""
+    def _complete_shell_paths(self, partial: str, delete_len: int, max_results: int = 100):
+        """Complete file/directory paths for shell commands.
+
+        Args:
+            partial: The partial path to complete.
+            delete_len: Number of characters to delete for the completion.
+            max_results: Maximum number of completions to yield (default 100).
+        """
         if partial:
             partial_path = Path(partial)
             if partial.endswith("/") or partial.endswith(os.sep):
@@ -960,7 +982,10 @@ class AgentCompleter(Completer):
             return
 
         try:
+            count = 0
             for entry in sorted(search_dir.iterdir()):
+                if count >= max_results:
+                    break
                 name = entry.name
                 if name.startswith(".") and not prefix.startswith("."):
                     continue
@@ -983,6 +1008,7 @@ class AgentCompleter(Completer):
                         display=name,
                         display_meta="file",
                     )
+                count += 1
         except PermissionError:
             pass
 
@@ -1982,18 +2008,14 @@ async def get_enhanced_input(
         except Exception:
             shell_agent = None
 
-    if shell_agent:
-        direct_shell_enabled = bool(getattr(shell_agent, "_shell_runtime_enabled", False))
-        modes_attr = getattr(shell_agent, "_shell_access_modes", ())
-        if isinstance(modes_attr, (list, tuple)):
-            shell_access_modes = tuple(str(mode) for mode in modes_attr)
-        elif modes_attr:
-            shell_access_modes = (str(modes_attr),)
+    if isinstance(shell_agent, McpAgentProtocol):
+        direct_shell_enabled = shell_agent.shell_runtime_enabled
+        shell_access_modes = shell_agent.shell_access_modes
 
         sub_agent_shells = [
             child
             for child in _collect_tool_children(shell_agent)
-            if getattr(child, "_shell_runtime_enabled", False)
+            if isinstance(child, McpAgentProtocol) and child.shell_runtime_enabled
         ]
         if sub_agent_shells:
             if direct_shell_enabled:
@@ -2002,11 +2024,11 @@ async def get_enhanced_input(
             else:
                 shell_access_modes = ("sub-agent",)
                 if len(sub_agent_shells) == 1:
-                    shell_runtime = getattr(sub_agent_shells[0], "_shell_runtime", None)
+                    shell_runtime = sub_agent_shells[0].shell_runtime
 
         shell_enabled = direct_shell_enabled or bool(sub_agent_shells)
         if direct_shell_enabled:
-            shell_runtime = getattr(shell_agent, "_shell_runtime", None)
+            shell_runtime = shell_agent.shell_runtime
 
         # Get the detected shell name from the runtime
         if shell_enabled and shell_runtime:
@@ -2073,9 +2095,7 @@ async def get_enhanced_input(
                     working_dir_display = str(working_dir)
                 shell_display = f"{shell_display} | cwd: {working_dir_display}"
 
-            rich_print(
-                f"[yellow][bold]Agents have shell[/bold][/yellow][dim] ({shell_display})[/dim]"
-            )
+            rich_print(format_shell_notice(shell_access_modes, shell_runtime))
 
             # Display agent info right after help text if agent_provider is available
             if agent_provider and not is_human_input:
