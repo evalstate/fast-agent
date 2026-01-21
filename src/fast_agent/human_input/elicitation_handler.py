@@ -30,6 +30,7 @@ async def elicitation_input_callback(
     effective_server_name = server_name or "Unknown Server"
 
     # Start tracking elicitation operation
+    elicitation_state.start_elicitation(effective_server_name)
     try:
         from fast_agent.ui import notification_tracker
         notification_tracker.start_elicitation(effective_server_name)
@@ -99,6 +100,7 @@ async def elicitation_input_callback(
         )
     finally:
         # End tracking elicitation operation
+        elicitation_state.end_elicitation(effective_server_name)
         try:
             from fast_agent.ui import notification_tracker
             notification_tracker.end_elicitation(effective_server_name)

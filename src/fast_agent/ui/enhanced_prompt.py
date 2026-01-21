@@ -728,7 +728,8 @@ class AgentCompleter(Completer):
         if not user_turns:
             return
         partial_clean = partial.strip()
-        for index, message in enumerate(user_turns, start=1):
+        for index in range(len(user_turns), 0, -1):
+            message = user_turns[index - 1]
             index_str = str(index)
             if partial_clean and not index_str.startswith(partial_clean):
                 continue
@@ -1801,10 +1802,11 @@ async def get_enhanced_input(
                 if context and context.config:
                     model_name = context.config.default_model
 
+            codex_suffix = ""
             if model_name:
                 display_name = format_model_display(model_name) or model_name
                 if llm and getattr(llm, "provider", None) == Provider.CODEX_RESPONSES:
-                    display_name = f"{display_name} (plan)"
+                    codex_suffix = " <style bg='ansiyellow'>$</style>"
                 max_len = 25
                 model_display = (
                     display_name[: max_len - 1] + "…"
@@ -1862,10 +1864,12 @@ async def get_enhanced_input(
             # Model chip + inline TDV flags
             if tdv_segment:
                 middle_segments.append(
-                    f"{tdv_segment} <style bg='ansigreen'>{model_display}</style>"
+                    f"{tdv_segment} <style bg='ansigreen'>{model_display}</style>{codex_suffix}"
                 )
             else:
-                middle_segments.append(f"<style bg='ansigreen'>{model_display}</style>")
+                middle_segments.append(
+                    f"<style bg='ansigreen'>{model_display}</style>{codex_suffix}"
+                )
 
         # Add turn counter (formatted as 3 digits)
         middle_segments.append(f"{turn_count:03d}")

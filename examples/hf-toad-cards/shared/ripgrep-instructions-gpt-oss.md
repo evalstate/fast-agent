@@ -4,35 +4,14 @@
 >
 > Ripgrep is recursive by default. Using `-R` will cause an error. Just run `rg pattern path/`.
 
-### Core Rules
+### Core Search Practices
 
-- **Always execute** rg commands—don't just suggest them.
-- **Don't infer** behavior beyond retrieved lines. If you need more detail, run another search.
-- **Exit code 1** = no matches (not an error).
 - **Narrow early**: use `-t` or `-g` to limit file types/paths.
-- **Count first** for broad terms: `rg -c 'pattern' path/` and summarize if >50 matches.
-- **Path hygiene**: if the repo root isn't explicit, check `pwd`/`ls` and stop if the expected repo isn't present.
-- **Attempt budget**: max 3 discovery attempts, then conclude "not found in workspace."
-
-### Standard Exclusions (always include)
-
-```bash
--g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*'
-```
-
-For doc/concept searches, also consider:
-```bash
--g '!ripgrep_search*.json' -g '!stream-debug/*' -g '!fastagent.jsonl'
-```
-
-### File Discovery
-
-- **Filename discovery**: `rg --files -g '*pattern*'` (no search pattern needed)
-- **Content discovery**: `rg -l 'pattern'` (requires search pattern)
-- **Never** use `rg -l` without a search pattern
-- **Never** use `ls -R`; prefer ripgrep for all discovery
-- **Never** use full paths as globs (`-g 'src/foo.py'`)
-- **Never** pipe `rg --files` to `grep`; use multiple `-g` patterns instead
+- **Count first for broad terms**: `rg -c 'pattern' path/` and summarize if large.
+- **Docs/spec queries**: list docs files first, then search within them.
+- **Avoid `ls -R`**: use `rg --files` or `rg -l` for discovery.
+- **Path hygiene**: if the repo root isn’t explicit, check `pwd`/`ls` and stop if the expected repo isn’t present.
+- **Attempt budget**: max 3 discovery attempts, then conclude “not found in workspace.”
 
 ### Useful Flags
 
@@ -42,7 +21,7 @@ For doc/concept searches, also consider:
 | `-S` | Smart case |
 | `-i` | Case-insensitive |
 | `-w` | Whole word match |
-| `-l` | List files with matches |
+| `-l` | List files only |
 | `-c` | Count matches per file |
 | `-t <type>` | Filter by type: `py`, `js`, `md`, `json`, etc. |
 | `-g '<glob>'` | Glob pattern, e.g., `-g '*.py'` or `-g '!node_modules/*'` |
@@ -54,33 +33,48 @@ For doc/concept searches, also consider:
 | `-U` | Multiline search |
 | `-P` | PCRE2 regex |
 | `-a` | Treat binary as text |
-| `--hidden` | Include hidden files |
-| `--no-ignore` | Don't respect ignore files |
-| `-uuu` | Shorthand for `--hidden --no-ignore --no-ignore-parent` |
+
+### File Discovery Rules
+
+- Find files by name with: `rg --files -g '*pattern*'`
+- **Never** use `rg -l` without a search pattern
+- **Never** use full paths as globs (`-g 'src/foo.py'`)
+- **Never** pipe `rg --files` to `grep`; use multiple `-g` patterns instead
 
 ### Literal Safety
 
-Use `-F` or escape regex metacharacters for literal searches:
+Use `-F` or escape regex metacharacters for literal searches, e.g.:
 ```bash
 rg -F '.fast-agent'
 rg '\.fast-agent'
 ```
 
-### Output Control
+### Standard Exclusions
 
-- Prefer `rg -l` for content discovery over `rg -c` (avoid log explosions).
+For broad or repo-wide searches, exclude noise directories and JSON/JSONL logs:
+```bash
+-g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' -g '!*.json' -g '!*.jsonl' -g '!stream-debug/*'
+```
+
+If you need to search JSON or JSONL content, remove the JSON exclusions.
+
+If you are targeting a specific file (explicit path or a single `rg --files -g 'name'` lookup), complex exclusions are optional.
+
+### Output Control (Avoid Log Explosions)
+
+- Prefer `rg -l` for discovery over `rg -c`.
 - Use `--max-count 1`, `--stats`, or `head -n 50` to limit output.
 - Never use `rg -c ''` for structure (it just counts lines).
 
 ### Handling Large Results
 
-When a search might return many matches, **count first**:
+When a search might return many matches (>50 lines), **count first**:
 
 ```bash
 rg -c 'pattern' path/
 ```
 
-If >50 matches, summarize for the user:
+Then drill into specific files if needed. Summarize for the user:
 - Total match count
 - Top files by match count
 - Suggestions to narrow the search
@@ -98,7 +92,7 @@ rg -n 'pattern' -g '*.md' -g '*.mdx' -g '*.rst'
 
 ### File Content Requests
 
-If the user asks to "show" a file:
+If the user asks to “show” a file:
 1) Confirm existence:
 ```bash
 rg --files -g 'name'

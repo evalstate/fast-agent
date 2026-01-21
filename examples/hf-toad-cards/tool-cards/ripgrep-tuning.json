@@ -18,7 +18,7 @@
           "params": {
             "name": "execute",
             "arguments": {
-              "command": "rg --files -g 'schema.py' -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*'"
+              "command": "rg --files -g 'schema.py'"
             }
           }
         }
@@ -77,7 +77,7 @@
           "params": {
             "name": "execute",
             "arguments": {
-              "command": "rg -c -F \"session concept\" -g '*.md' -g '*.mdx' -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' ."
+              "command": "rg -c -F \"session concept\" -g '*.md' -g '*.mdx' -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' -g '!*.json' -g '!*.jsonl' -g '!stream-debug/*' ."
             }
           }
         }
@@ -136,7 +136,7 @@
           "params": {
             "name": "execute",
             "arguments": {
-              "command": "rg -n --heading -i \"gradio\" -t py -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' ."
+              "command": "rg -n --heading -i \"gradio\" -t py -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' -g '!*.json' -g '!*.jsonl' -g '!stream-debug/*' ."
             }
           }
         }
@@ -195,7 +195,7 @@
           "params": {
             "name": "execute",
             "arguments": {
-              "command": "rg --files -g '*.md' -g '*.mdx' -g '*.rst' -g '!ripgrep_search*.json' -g '!stream-debug/*' -g '!fastagent.jsonl' -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*'"
+              "command": "rg --files -g '*.md' -g '*.mdx' -g '*.rst' -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' -g '!*.json' -g '!*.jsonl' -g '!stream-debug/*'"
             }
           }
         }
@@ -204,7 +204,7 @@
         "reasoning": [
           {
             "type": "text",
-            "text": "We need to search for CLI entry points, session/history, config loading, and the main chat loop in /home/user/source/fast-agent. We must use rg with explicit repo root and standard exclusions. Use targeted queries for each area (entrypoint, session/history, config, chat loop)."
+            "text": "We need to search for CLI entry points, session/history, config loading, and the main chat loop in /home/shaun/source/fast-agent. We must use rg with explicit repo root and standard exclusions. Use targeted queries for each area (entrypoint, session/history, config, chat loop)."
           }
         ]
       },
@@ -235,7 +235,7 @@
           "params": {
             "name": "execute",
             "arguments": {
-              "command": "rg -n --heading -i 'session' -g '*.md' -g '*.mdx' -g '*.rst' -g '!ripgrep_search*.json' -g '!stream-debug/*' -g '!fastagent.jsonl' -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' ."
+              "command": "rg -n --heading -i 'session' -g '*.md' -g '*.mdx' -g '*.rst' -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' -g '!*.json' -g '!*.jsonl' -g '!stream-debug/*' ."
             }
           }
         }
@@ -294,7 +294,7 @@
           "params": {
             "name": "execute",
             "arguments": {
-              "command": "rg --files -g 'schema.py' -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*'"
+              "command": "rg --files -g 'schema.py'"
             }
           }
         }
@@ -334,7 +334,7 @@
           "params": {
             "name": "execute",
             "arguments": {
-              "command": "rg --files -g '*.py' -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*'"
+              "command": "rg --files -g '*.py' -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' -g '!*.json' -g '!*.jsonl' -g '!stream-debug/*'"
             }
           }
         }
@@ -374,7 +374,7 @@
           "params": {
             "name": "execute",
             "arguments": {
-              "command": "rg -n -F 'class Session' -t py -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' ."
+              "command": "rg -n -F 'class Session' -t py -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' -g '!*.json' -g '!*.jsonl' -g '!stream-debug/*' ."
             }
           }
         }

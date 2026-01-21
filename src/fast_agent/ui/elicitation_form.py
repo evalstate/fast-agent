@@ -178,19 +178,16 @@ class ElicitationForm:
     def _build_form(self):
         """Build the form layout."""
 
-        # Fast-agent provided data (Agent and MCP Server) - aligned labels
+        # Fast-agent provided data (Agent and MCP Server) - compact A3-style line
         fastagent_info = FormattedText(
             [
-                ("class:label", "Agent:      "),
                 ("class:agent-name", self.agent_name),
-                ("class:label", "\nMCP Server: "),
+                ("class:label", " ("),
                 ("class:server-name", self.server_name),
+                ("class:label", ")"),
             ]
         )
-        fastagent_header = Window(
-            FormattedTextControl(fastagent_info),
-            height=2,  # Just agent and server lines
-        )
+        fastagent_header = Window(FormattedTextControl(fastagent_info), height=1)
 
         # MCP Server provided message
         mcp_message = FormattedText([("class:message", self.message)])
@@ -202,34 +199,32 @@ class ElicitationForm:
         # Create sticky headers (outside scrollable area)
         sticky_headers = HSplit(
             [
-                Window(height=1),  # Top padding
                 VSplit(
                     [
-                        Window(width=2),  # Left padding
+                        Window(width=1),  # Left padding
                         fastagent_header,  # Fast-agent info
-                        Window(width=2),  # Right padding
+                        Window(width=1),  # Right padding
                     ]
                 ),
-                Window(height=1),  # Spacing
                 VSplit(
                     [
-                        Window(width=2),  # Left padding
+                        Window(width=1),  # Left padding
                         mcp_header,  # MCP server message
-                        Window(width=2),  # Right padding
+                        Window(width=1),  # Right padding
                     ]
                 ),
-                Window(height=1),  # Spacing
             ]
         )
 
         # Create scrollable form fields (without headers)
         form_fields = []
 
-        for field_name, field_def in self.properties.items():
+        for field_index, (field_name, field_def) in enumerate(self.properties.items()):
             field_widget = self._create_field(field_name, field_def)
             if field_widget:
                 form_fields.append(field_widget)
-                form_fields.append(Window(height=1))  # Spacing
+                if field_index < len(self.properties) - 1:
+                    form_fields.append(Window(height=1))  # Spacing between fields
 
         # Status line for error display (disabled ValidationToolbar to avoid confusion)
         self.status_control = FormattedTextControl(text="")
@@ -267,12 +262,11 @@ class ElicitationForm:
             [
                 VSplit(
                     [
-                        Window(width=2),  # Left padding
+                        Window(width=1),  # Left padding
                         scrollable_form_content,
-                        Window(width=2),  # Right padding
+                        Window(width=1),  # Right padding
                     ]
-                ),
-                Window(height=1),  # Bottom padding
+                )
             ]
         )
 
@@ -288,8 +282,8 @@ class ElicitationForm:
         # Combine sticky headers and scrollable content (no separate title bar needed)
         full_content = HSplit(
             [
-                Window(height=1),  # Top spacing
                 sticky_headers,  # Headers stay fixed at top
+                Window(height=1),  # Space before form fields
                 scrollable_content,  # Form fields can scroll
             ]
         )
@@ -310,9 +304,9 @@ class ElicitationForm:
         # This prevents console display interference and constrains the Frame border
         constrained_dialog = VSplit(
             [
-                Window(width=10),  # Smaller left spacer
+                Window(width=4),  # Smaller left spacer
                 dialog,
-                Window(width=10),  # Smaller right spacer
+                Window(width=4),  # Smaller right spacer
             ]
         )
 
@@ -586,7 +580,7 @@ class ElicitationForm:
 
             if constraints.get("pattern"):
                 # TODO: Wrap or truncate line if too long
-                format_hint = f"Pattern: {constraints['pattern']}"
+                format_hint = f"Pattern ({constraints['pattern']})"
 
             # Handle format hints separately (these go on next line)
             format_type = field_def.get("format")
@@ -599,7 +593,7 @@ class ElicitationForm:
                 }
                 if format_type in format_info:
                     friendly_name, example = format_info[format_type]
-                    format_hint = f"{friendly_name}: {example}"
+                    format_hint = f"{friendly_name} ({example})"
                 else:
                     format_hint = format_type
 
@@ -618,10 +612,17 @@ class ElicitationForm:
 
         # Create multiline label if we have format hints
         if format_hint:
-            label_lines = [label_text, f"  → {format_hint}"]
-            label = Label(text="\n".join(label_lines))
+            label = Label(
+                text=FormattedText(
+                    [
+                        ("class:field-label", label_text),
+                        ("", "\n"),
+                        ("class:field-hint", f"  {format_hint}"),
+                    ]
+                )
+            )
         else:
-            label = Label(text=label_text)
+            label = Label(text=FormattedText([("class:field-label", label_text)]))
 
         # Create input widget based on type
         if field_type == "boolean":
@@ -772,9 +773,17 @@ class ElicitationForm:
                 height=get_dynamic_height,  # Use dynamic height function
                 style=get_field_style,  # Use dynamic style function
                 wrap_lines=True if multiline else False,  # Enable word wrap for multiline
+                char=" ",  # Fill background so the style spans the field width
+            )
+            input_with_prefix = VSplit(
+                [
+                    Window(width=1, char="▎", style="class:prefix"),
+                    Window(width=1),
+                    text_input,
+                ]
             )
 
-            return HSplit([label, Frame(text_input)])
+            return HSplit([label, input_with_prefix])
 
     def _validate_form(self) -> tuple[bool, str | None]:
         """Validate the entire form."""

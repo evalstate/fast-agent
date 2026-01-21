@@ -19,7 +19,7 @@ from fast_agent.agents.llm_decorator import LlmDecorator, ModelT
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.context import Context
 from fast_agent.mcp.helpers.content_helpers import get_text
-from fast_agent.types import ConversationSummary, PromptMessageExtended, RequestParams
+from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.console_display import ConsoleDisplay
 from fast_agent.ui.message_display_helpers import build_user_message_display
@@ -245,28 +245,14 @@ class LlmAgent(LlmDecorator):
         if not display_messages:
             return
 
-        use_history = True if request_params is None else request_params.use_history
-        if use_history:
-            full_history = [*self.message_history, *messages]
-        else:
-            full_history = list(messages)
-
-        total_turns = ConversationSummary(messages=full_history).turn_count if full_history else 0
+        _ = request_params
         part_count = len(display_messages)
-
-        turn_range: tuple[int, int] | None = None
-        if total_turns > 0:
-            turn_end = total_turns
-            turn_start = max(1, turn_end - part_count + 1)
-            turn_range = (turn_start, turn_end)
 
         message_text, attachments = build_user_message_display(display_messages)
 
         self.display.show_user_message(
             message_text,
             chat_turn=0,
-            total_turns=total_turns if total_turns > 0 else None,
-            turn_range=turn_range,
             name=self.name,
             attachments=attachments if attachments else None,
             part_count=part_count if part_count > 1 else None,

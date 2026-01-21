@@ -28,7 +28,7 @@ ELICITATION_STYLE = Style.from_dict(
         "radio-selected": "bg:ansidefault fg:ansibrightyellow bold",  # Yellow when focused
         "radio-checked": "fg:ansibrightgreen bold",  # Green when selected (matches buttons)
         # Text input areas - use ansidefault for non-focused (dimmer effect)
-        "input-field": "fg:ansidefault bold",  # Default color (inactive) - should be dimmer than white
+        "input-field": "fg:ansidefault bold",  # Default color (inactive)
         "input-field.focused": "fg:ansibrightyellow bold",  # Bright yellow (active)
         "input-field.error": "fg:ansired bold",  # Red text (validation error)
         # Frame styling with ANSI colors - make borders visible
@@ -36,6 +36,9 @@ ELICITATION_STYLE = Style.from_dict(
         "frame.label": "fg:ansigray",  # Gray frame labels (less prominent)
         # Labels and text - use default color for terminal compatibility
         "label": "fg:ansidefault",  # Default color labels for terminal compatibility
+        "field-label": "fg:ansigray",  # Dimmer field labels
+        "field-hint": "fg:ansibrightblack",  # Darker hint/examples
+        "prefix": "fg:ansibrightblue",  # Darker A3 prefixes
         "message": "fg:ansibrightcyan",  # Bright cyan messages (no bold)
         # Agent and server names - make them match
         "agent-name": "fg:ansibrightblue bold",

@@ -35,6 +35,12 @@ class ToolDisplay:
                 normalized = normalized.rsplit(sep, 1)[-1]
         return normalized
 
+    @staticmethod
+    def _display_tool_name(tool_name: str) -> str:
+        if tool_name.startswith("agent__"):
+            return tool_name[7:]
+        return tool_name
+
     def _shell_output_line_limit(self, tool_name: str | None) -> int | None:
         if not tool_name:
             return None
@@ -351,7 +357,8 @@ class ToolDisplay:
             tool_args = tool_args or {}
             metadata = metadata or {}
 
-            right_info = f"[dim]{type_label} - {tool_name}[/dim]"
+            display_tool_name = self._display_tool_name(tool_name)
+            right_info = f"[dim]{type_label} - {display_tool_name}[/dim]"
             content: Any = tool_args
             pre_content: Text | None = None
             truncate_content = True

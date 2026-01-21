@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from mcp.types import CallToolResult, TextContent, Tool
+from rich.text import Text
 
 if TYPE_CHECKING:
     from fast_agent.config import Settings
@@ -89,6 +90,15 @@ class ShellRuntime:
 
         message = f"Local shell execute tool enabled {self._activation_reason}."
         self._logger.info(message)
+
+    def _render_display_line(self, text: str, style: str | None) -> Text:
+        display_text = text.rstrip("\n").expandtabs()
+        renderable = Text(display_text, style=style)
+        renderable.no_wrap = True
+        width = max(1, console.console.size.width)
+        if len(display_text) > width:
+            renderable.truncate(width, overflow="ellipsis")
+        return renderable
 
     def working_directory(self) -> Path:
         """Return the working directory used for shell execution."""
@@ -271,16 +281,14 @@ class ShellRuntime:
                         if self._show_bash_output:
                             if display_line_limit is None:
                                 console.console.print(
-                                    text.rstrip("\n"),
-                                    style=style,
+                                    self._render_display_line(text, style),
                                     markup=False,
                                 )
                             elif display_line_limit <= 0:
                                 pass
                             elif displayed_line_count < display_line_limit:
                                 console.console.print(
-                                    text.rstrip("\n"),
-                                    style=style,
+                                    self._render_display_line(text, style),
                                     markup=False,
                                 )
                                 displayed_line_count += 1
