@@ -1961,6 +1961,7 @@ class InteractivePrompt:
             agent_tool_names = set(getattr(agent, "_agent_tools", {}).keys())
             child_agent_tool_names = set(getattr(agent, "_child_agents", {}).keys())
             agent_tool_names |= child_agent_tool_names
+            internal_tool_names = {"execute", "read_skill"}
 
             # Display tools using clean compact format
             index = 1
@@ -1974,7 +1975,9 @@ class InteractivePrompt:
                 tool_line.append(f"[{index:2}] ", style="dim cyan")
                 tool_line.append(tool.name, style="bright_blue bold")
 
-                if tool.name in card_tool_names:
+                if tool.name in internal_tool_names:
+                    tool_line.append(" (Internal)", style="dim cyan")
+                elif tool.name in card_tool_names:
                     tool_line.append(" (Card Function)", style="dim cyan")
                 elif tool.name in child_agent_tool_names:
                     tool_line.append(" (Subagent)", style="dim cyan")
