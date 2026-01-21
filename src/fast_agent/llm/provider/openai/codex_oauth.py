@@ -22,6 +22,7 @@ import httpx
 from pydantic import BaseModel
 
 from fast_agent.core.exceptions import ProviderKeyError
+from fast_agent.core.keyring_utils import get_keyring_status
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.oauth_client import add_identity_to_index, remove_identity_from_index
 from fast_agent.ui import console
@@ -215,11 +216,21 @@ def _set_keyring_password(payload: str) -> None:
         keyring.set_password(CODEX_KEYRING_SERVICE, CODEX_TOKEN_KEY, payload)
         add_identity_to_index(CODEX_KEYRING_SERVICE, CODEX_KEYRING_IDENTITY)
     except Exception as exc:
+        status = get_keyring_status()
+        if not status.available:
+            backend_note = "No usable keyring backend was detected."
+        elif not status.writable:
+            backend_note = (
+                f"Keyring backend '{status.name}' is present but not writable."
+            )
+        else:
+            backend_note = f"Keyring backend '{status.name}' failed to store tokens."
         raise ProviderKeyError(
             "Keyring unavailable",
             "Codex OAuth tokens could not be saved to the keyring. "
-            "Install/enable a keyring backend (e.g., SecretService/gnome-keyring), "
-            "or set PYTHON_KEYRING_BACKEND to a file-based backend "
+            f"{backend_note} "
+            "On Windows, ensure Credential Manager is available in the current session. "
+            "You can also set PYTHON_KEYRING_BACKEND to a file-based backend "
             "(e.g., keyrings.alt.file.PlaintextKeyring).",
         ) from exc
 
@@ -232,18 +243,7 @@ def _delete_keyring_password() -> None:
 
 
 def keyring_available() -> bool:
-    try:
-        import keyring
-
-        backend = keyring.get_keyring()
-        try:
-            from keyring.backends.fail import Keyring as FailKeyring  # type: ignore
-
-            return not isinstance(backend, FailKeyring)
-        except Exception:
-            return True
-    except Exception:
-        return False
+    return get_keyring_status().writable
 
 
 def _normalize_codex_cli_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
@@ -405,11 +405,19 @@ def parse_chatgpt_account_id(access_token: str) -> str | None:
 
 
 def login_codex_oauth(timeout_seconds: int = 300) -> CodexOAuthTokens:
-    if not keyring_available():
+    status = get_keyring_status()
+    if not status.writable:
+        if not status.available:
+            backend_note = "No usable keyring backend was detected."
+        else:
+            backend_note = f"Keyring backend '{status.name}' is not writable."
         raise ProviderKeyError(
             "Keyring unavailable",
-            "Codex OAuth requires a working keyring backend. "
-            "Install or enable a keyring backend before logging in.",
+            "Codex OAuth requires a writable keyring backend. "
+            f"{backend_note} "
+            "On Windows, ensure Credential Manager is available in the current session. "
+            "You can also set PYTHON_KEYRING_BACKEND to a file-based backend "
+            "(e.g., keyrings.alt.file.PlaintextKeyring).",
         )
 
     verifier = _pkce_verifier()
