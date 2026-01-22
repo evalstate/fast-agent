@@ -106,6 +106,7 @@ class FastAgentLLMProtocol(Protocol):
     ) -> RequestParams: ...
 
     default_request_params: RequestParams
+    instruction: str | None
 
     def add_stream_listener(self, listener: Callable[[StreamChunk], None]) -> Callable[[], None]: ...
 

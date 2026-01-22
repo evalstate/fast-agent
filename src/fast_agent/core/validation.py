@@ -2,9 +2,10 @@
 Validation utilities for FastAgent configuration and dependencies.
 """
 
-from typing import Any
+from typing import Any, Mapping
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.core.agent_card_types import AgentCardData
 from fast_agent.core.exceptions import (
     AgentConfigError,
     CircularDependencyError,
@@ -14,7 +15,7 @@ from fast_agent.interfaces import LlmAgentProtocol
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 
 
-def validate_server_references(context, agents: dict[str, dict[str, Any]]) -> None:
+def validate_server_references(context, agents: Mapping[str, AgentCardData | dict[str, Any]]) -> None:
     """
     Validate that all server references in agent configurations exist in config.
     Raises ServerConfigError if any referenced servers are not defined.
@@ -40,7 +41,7 @@ def validate_server_references(context, agents: dict[str, dict[str, Any]]) -> No
                 )
 
 
-def validate_workflow_references(agents: dict[str, dict[str, Any]]) -> None:
+def validate_workflow_references(agents: Mapping[str, AgentCardData | dict[str, Any]]) -> None:
     """
     Validate that all workflow references point to valid agents/workflows.
     Also validates that referenced agents have required configuration.
@@ -141,7 +142,7 @@ def validate_workflow_references(agents: dict[str, dict[str, Any]]) -> None:
 
 def get_dependencies(
     name: str,
-    agents: dict[str, dict[str, Any]],
+    agents: Mapping[str, AgentCardData | dict[str, Any]],
     visited: set,
     path: set,
     agent_type: AgentType | None = None,
@@ -201,7 +202,7 @@ def get_dependencies(
     return deps
 
 
-def get_agent_dependencies(agent_data: dict[str, Any]) -> set[str]:
+def get_agent_dependencies(agent_data: AgentCardData | dict[str, Any]) -> set[str]:
     deps: set[str] = set()
     agent_dependency_attribute_names = {
         AgentType.CHAIN: ("sequence",),
@@ -231,7 +232,7 @@ def get_agent_dependencies(agent_data: dict[str, Any]) -> set[str]:
 
 
 def get_dependencies_groups(
-    agents_dict: dict[str, dict[str, Any]], allow_cycles: bool = False
+    agents_dict: Mapping[str, AgentCardData | dict[str, Any]], allow_cycles: bool = False
 ) -> list[list[str]]:
     """
     Get dependencies between agents and group them into dependency layers.

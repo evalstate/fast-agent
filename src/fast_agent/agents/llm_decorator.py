@@ -227,6 +227,9 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         self._instruction = instruction
         if self._default_request_params:
             self._default_request_params.systemPrompt = instruction
+        if self._llm is not None:
+            self._llm.instruction = instruction
+            self._llm.default_request_params.systemPrompt = instruction
 
     @property
     def agent_type(self) -> AgentType:

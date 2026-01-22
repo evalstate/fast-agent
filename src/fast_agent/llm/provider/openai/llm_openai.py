@@ -934,8 +934,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                             },
                         )
                         raise TimeoutError(
-                            "Streaming did not complete within "
-                            f"{timeout} seconds."
+                            f"Streaming did not complete within {timeout} seconds."
                         ) from exc
         except asyncio.CancelledError as e:
             reason = str(e) if e.args else "cancelled"
