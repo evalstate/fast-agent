@@ -33,7 +33,7 @@ from mcp.types import (
     SamplingToolsCapability,
     ToolListChangedNotification,
 )
-from pydantic import AnyUrl, FileUrl
+from pydantic import AnyUrl, FileUrl, ValidationError
 
 from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.logging.logger import get_logger
@@ -45,6 +45,15 @@ if TYPE_CHECKING:
     from fast_agent.mcp.transport_tracking import TransportChannelMetrics
 
 logger = get_logger(__name__)
+
+_session_warning_keys: set[str] = set()
+
+
+def _warn_session_once(key: str, message: str) -> None:
+    if key in _session_warning_keys:
+        return
+    _session_warning_keys.add(key)
+    logger.warning(message)
 
 
 async def list_roots(context: RequestContext[ClientSession, None]) -> ListRootsResult:
@@ -266,6 +275,13 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
 
             # Check for session terminated error (404 from server)
             if self._is_session_terminated_error(e):
+                _warn_session_once(
+                    f"mcp_session_terminated:{self.session_server_name}",
+                    (
+                        f"MCP server '{self.session_server_name}' restarted or expired the session; "
+                        "please reconnect."
+                    ),
+                )
                 raise ServerSessionTerminatedError(
                     server_name=self.session_server_name or "unknown",
                     details="Server returned 404 - session may have expired due to server restart",
@@ -351,6 +367,51 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                     )
 
         return None
+
+    async def _handle_notification(self, message: Any, *args: Any, **kwargs: Any) -> None:
+        """
+        Override SDK notification handling to emit a concise validation message.
+        """
+        payload = message.root if hasattr(message, "root") else message
+        try:
+            notification = ServerNotification.model_validate(payload)
+        except ValidationError as exc:
+            self._log_invalid_notification(payload, exc)
+            return
+        except Exception as exc:
+            logger.warning(
+                "Failed to parse MCP notification; ignoring.",
+                error=str(exc),
+            )
+            return
+
+        await self._received_notification(notification)
+
+    def _log_invalid_notification(self, payload: Any, exc: ValidationError) -> None:
+        server_name = self.session_server_name or "unknown"
+        method = None
+        if hasattr(payload, "method"):
+            method = getattr(payload, "method", None)
+        elif isinstance(payload, dict):
+            method = payload.get("method")
+
+        if method:
+            logger.warning(
+                (
+                    f"MCP server '{server_name}' sent invalid notification method '{method}'; "
+                    "ignoring. This often means the server is emitting JSON-RPC pings instead of "
+                    "MCP keepalives."
+                ),
+            )
+        else:
+            logger.warning(
+                f"MCP server '{server_name}' sent an invalid notification; ignoring.",
+            )
+        logger.debug(
+            "MCP notification validation error",
+            errors=exc.errors(),
+            payload=repr(payload),
+        )
 
     async def _handle_tool_list_change_callback(self, server_name: str) -> None:
         """
