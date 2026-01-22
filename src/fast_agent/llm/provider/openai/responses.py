@@ -161,7 +161,7 @@ class ResponsesLLM(
         request_params: RequestParams,
         tools: list[Tool] | None,
     ) -> dict[str, Any]:
-        model = self.default_request_params.model or DEFAULT_RESPONSES_MODEL
+        model = request_params.model or self.default_request_params.model or DEFAULT_RESPONSES_MODEL
         base_args: dict[str, Any] = {
             "model": model,
             "input": input_items,
@@ -220,7 +220,7 @@ class ResponsesLLM(
         tools: list[Tool] | None = None,
     ) -> PromptMessageExtended:
         response_content_blocks: list[ContentBlock] = []
-        model_name = self.default_request_params.model or DEFAULT_RESPONSES_MODEL
+        model_name = request_params.model or self.default_request_params.model or DEFAULT_RESPONSES_MODEL
 
         self._log_chat_progress(self.chat_turn(), model=model_name)
 

@@ -5,7 +5,7 @@ Implements type-safe factories with improved error handling.
 
 from functools import partial
 from pathlib import Path
-from typing import Any, Protocol, TypeVar, cast
+from typing import Any, Callable, Mapping, Protocol, TypeVar, cast
 
 from fast_agent.agents import McpAgent
 from fast_agent.agents.agent_types import AgentConfig, AgentType
@@ -18,6 +18,7 @@ from fast_agent.agents.workflow.iterative_planner import IterativePlanner
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.agents.workflow.router_agent import RouterAgent
 from fast_agent.core import Core
+from fast_agent.core.agent_card_types import AgentCardData
 from fast_agent.core.exceptions import AgentConfigError, ModelConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.model_resolution import HARDCODED_DEFAULT_MODEL, resolve_model_spec
@@ -36,7 +37,7 @@ from fast_agent.types import RequestParams
 
 # Type aliases for improved readability and IDE support
 AgentDict = dict[str, AgentProtocol]
-AgentConfigDict = dict[str, dict[str, Any]]
+AgentConfigDict = Mapping[str, AgentCardData | dict[str, Any]]
 T = TypeVar("T")  # For generic types
 
 
@@ -317,9 +318,14 @@ async def create_agents_by_type(
                 child_names = agent_data.get("child_agents", []) or []
                 if child_names:
                     function_tools = []
-                    tools_config = config.function_tools
-                    if tools_config is None:
-                        tools_config = agent_data.get("function_tools")
+                    tools_config_raw = config.function_tools
+                    if tools_config_raw is None:
+                        tools_config_raw = agent_data.get("function_tools")
+                    tools_config: list[Callable[..., Any] | str] | None = None
+                    if isinstance(tools_config_raw, str):
+                        tools_config = [tools_config_raw]
+                    elif isinstance(tools_config_raw, list):
+                        tools_config = cast("list[Callable[..., Any] | str]", tools_config_raw)
                     if tools_config:
                         source_path = agent_data.get("source_path")
                         base_path = Path(source_path).parent if source_path else None
@@ -418,9 +424,14 @@ async def create_agents_by_type(
                 else:
                     # Load function tools if configured
                     function_tools = []
-                    tools_config = config.function_tools
-                    if tools_config is None:
-                        tools_config = agent_data.get("function_tools")
+                    tools_config_raw = config.function_tools
+                    if tools_config_raw is None:
+                        tools_config_raw = agent_data.get("function_tools")
+                    tools_config: list[Callable[..., Any] | str] | None = None
+                    if isinstance(tools_config_raw, str):
+                        tools_config = [tools_config_raw]
+                    elif isinstance(tools_config_raw, list):
+                        tools_config = cast("list[Callable[..., Any] | str]", tools_config_raw)
                     if tools_config:
                         # Use source_path from agent card for relative path resolution
                         source_path = agent_data.get("source_path")

@@ -227,6 +227,45 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         self._instruction = instruction
         if self._default_request_params:
             self._default_request_params.systemPrompt = instruction
+        if self._llm is not None:
+            self._llm.instruction = instruction
+            self._llm.default_request_params.systemPrompt = instruction
+
+    async def set_model(self, model: str | None) -> None:
+        """Set the default model for this agent and reattach the LLM if needed."""
+        self.config.model = model
+
+        if model is None:
+            if self._default_request_params:
+                self._default_request_params.model = None
+            return
+
+        from fast_agent.llm.model_factory import ModelFactory
+
+        model_config = ModelFactory.parse_model_string(model)
+        resolved_model = model_config.model_name
+        if self._default_request_params:
+            self._default_request_params.model = resolved_model
+
+        if self._llm_attach_kwargs is None:
+            raise RuntimeError(
+                "LLM attachment parameters missing despite factory being available"
+            )
+
+        attach_kwargs = dict(self._llm_attach_kwargs)
+        request_params = attach_kwargs.pop("request_params", None)
+        if request_params is not None:
+            request_params = deepcopy(request_params)
+            request_params.model = resolved_model
+
+        llm_factory = ModelFactory.create_factory(model)
+
+        await self.attach_llm(
+            llm_factory,
+            model=resolved_model,
+            request_params=request_params,
+            **attach_kwargs,
+        )
 
     @property
     def agent_type(self) -> AgentType:

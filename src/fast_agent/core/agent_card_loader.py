@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import TYPE_CHECKING, Any, Iterable
 
 import frontmatter
 import yaml
@@ -15,6 +15,10 @@ from fast_agent.core.direct_decorators import _resolve_instruction
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.skills import SKILLS_DEFAULT
 from fast_agent.types import RequestParams
+
+if TYPE_CHECKING:
+    from fast_agent.core.agent_card_types import AgentCardData
+
 
 _TYPE_MAP: dict[str, AgentType] = {
     "agent": AgentType.BASIC,
@@ -161,7 +165,7 @@ _DEFAULT_USE_HISTORY_BY_TYPE: dict[str, bool] = {
 class LoadedAgentCard:
     name: str
     path: Path
-    agent_data: dict[str, Any]
+    agent_data: AgentCardData
     message_files: list[Path]
 
 
@@ -439,7 +443,7 @@ def _build_agent_data(
     description: str | None,
     raw: dict[str, Any],
     path: Path,
-) -> dict[str, Any]:
+) -> AgentCardData:
     servers = _ensure_str_list(raw.get("servers", []), "servers", path)
     tools = _ensure_filter_map(raw.get("tools", {}), "tools", path)
     resources = _ensure_filter_map(raw.get("resources", {}), "resources", path)
@@ -517,7 +521,7 @@ def _build_agent_data(
         config.default_request_params.systemPrompt = config.instruction
         config.default_request_params.use_history = config.use_history
 
-    agent_data: dict[str, Any] = {
+    agent_data: AgentCardData = {
         "config": config,
         "type": agent_type.value,
         "func": None,
@@ -711,7 +715,7 @@ def _ensure_float(value: Any, field: str, path: Path) -> float:
 
 
 def dump_agents_to_dir(
-    agents: dict[str, dict[str, Any]],
+    agents: dict[str, AgentCardData],
     output_dir: Path,
     *,
     as_yaml: bool = False,
@@ -734,7 +738,7 @@ def dump_agents_to_dir(
 
 def dump_agent_to_path(
     name: str,
-    agent_data: dict[str, Any],
+    agent_data: AgentCardData,
     output_path: Path,
     *,
     as_yaml: bool = False,
@@ -750,7 +754,7 @@ def dump_agent_to_path(
 
 def dump_agent_to_string(
     name: str,
-    agent_data: dict[str, Any],
+    agent_data: AgentCardData,
     *,
     as_yaml: bool = False,
     message_paths: list[Path] | None = None,
@@ -777,7 +781,7 @@ def dump_agent_to_string(
 
 def _build_card_dump(
     name: str,
-    agent_data: dict[str, Any],
+    agent_data: AgentCardData,
     message_paths: list[Path] | None,
 ) -> tuple[dict[str, Any], str]:
     agent_type_value = agent_data.get("type")

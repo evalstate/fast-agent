@@ -101,6 +101,7 @@ if TYPE_CHECKING:
     from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
     from fast_agent.context import Context
     from fast_agent.core.agent_card_loader import LoadedAgentCard
+    from fast_agent.core.agent_card_types import AgentCardData
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.types import PromptMessageExtended
 
@@ -314,11 +315,7 @@ class FastAgent:
             self.args.quiet = True
 
         # Apply CLI environment directory if not already set programmatically
-        if (
-            self._environment_dir_override is None
-            and hasattr(self.args, "env")
-            and self.args.env
-        ):
+        if self._environment_dir_override is None and hasattr(self.args, "env") and self.args.env:
             self._environment_dir_override = self._normalize_environment_dir(self.args.env)
 
         if self._environment_dir_override is not None:
@@ -373,10 +370,9 @@ class FastAgent:
 
             # Stop progress display immediately if quiet mode is requested
             if self._programmatic_quiet:
-                if (
-                    getattr(self.args, "server", False)
-                    and getattr(self.args, "transport", None) in ["stdio", "acp"]
-                ):
+                if getattr(self.args, "server", False) and getattr(
+                    self.args, "transport", None
+                ) in ["stdio", "acp"]:
                     configure_console_stream("stderr")
                 from fast_agent.ui.progress_display import progress_display
 
@@ -391,7 +387,7 @@ class FastAgent:
             raise SystemExit(1)
 
         # Dictionary to store agent configurations from decorators
-        self.agents: dict[str, dict[str, Any]] = {}
+        self.agents: dict[str, AgentCardData] = {}
         # Tracking for AgentCard-loaded agents
         self._agent_card_sources: dict[str, Path] = {}
         self._agent_card_roots: dict[Path, set[str]] = {}
