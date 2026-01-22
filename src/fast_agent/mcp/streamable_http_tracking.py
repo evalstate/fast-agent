@@ -21,10 +21,10 @@ from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCError, JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
 
+from fast_agent.mcp.ping_tracker import PingFailureTracker
 from fast_agent.mcp.transport_tracking import ChannelEvent, ChannelName
 
 if TYPE_CHECKING:
-
     from anyio.abc import ObjectReceiveStream, ObjectSendStream
 
 logger = logging.getLogger(__name__)
@@ -43,6 +43,7 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
     ) -> None:
         super().__init__(url)
         self._channel_hook = channel_hook
+        self._ping_tracker = PingFailureTracker(url)
 
     def _emit_channel_event(
         self,
@@ -69,6 +70,9 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
             )
         except Exception:  # pragma: no cover - hook errors must not break transport
             logger.exception("Channel hook raised an exception")
+
+    def _reset_ping_failures(self) -> None:
+        self._ping_tracker.reset()
 
     async def _handle_json_response(  # type: ignore[override]
         self,
@@ -101,6 +105,7 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
     ) -> bool:
         if sse.event != "message":
             # Treat non-message events (e.g. ping) as keepalive notifications
+            self._reset_ping_failures()
             self._emit_channel_event(channel, "keepalive", raw_event=sse.event or "keepalive")
             return False
 
@@ -121,6 +126,7 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
             ):
                 message.root.id = original_request_id
 
+            self._reset_ping_failures()
             self._emit_channel_event(channel, "message", message=message)
             await read_stream_writer.send(SessionMessage(message))
 
@@ -163,6 +169,7 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
                     event_source.response.raise_for_status()
                     self._emit_channel_event("get", "connect")
                     connected = True
+                    self._reset_ping_failures()
 
                     async for sse in event_source.aiter_sse():
                         if sse.id:
@@ -179,10 +186,22 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
                     attempt = 0
 
             except Exception as exc:  # pragma: no cover - non fatal stream errors
+                is_ping_timeout = isinstance(exc, (httpx.ReadTimeout, httpx.TimeoutException))
+                reset_connection = False
+                if is_ping_timeout:
+                    _, reset_connection = self._ping_tracker.record_failure()
+                    if reset_connection:
+                        last_event_id = None
+                        retry_interval_ms = None
+                else:
+                    self._ping_tracker.reset()
                 logger.debug("GET stream error: %s", exc)
                 attempt += 1
                 status_code = None
-                detail = str(exc)
+                if is_ping_timeout:
+                    detail = self._ping_tracker.format_detail()
+                else:
+                    detail = str(exc)
                 if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
                     status_code = exc.response.status_code
                     reason = exc.response.reason_phrase or ""
@@ -201,7 +220,9 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
                 return
 
             delay_ms = (
-                retry_interval_ms if retry_interval_ms is not None else DEFAULT_RECONNECTION_DELAY_MS
+                retry_interval_ms
+                if retry_interval_ms is not None
+                else DEFAULT_RECONNECTION_DELAY_MS
             )
             logger.info("GET stream disconnected, reconnecting in %sms...", delay_ms)
             await anyio.sleep(delay_ms / 1000.0)
@@ -290,7 +311,9 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
             )  # pragma: no cover
             return
 
-        delay_ms = retry_interval_ms if retry_interval_ms is not None else DEFAULT_RECONNECTION_DELAY_MS
+        delay_ms = (
+            retry_interval_ms if retry_interval_ms is not None else DEFAULT_RECONNECTION_DELAY_MS
+        )
         await anyio.sleep(delay_ms / 1000.0)
 
         headers = self._prepare_headers()
