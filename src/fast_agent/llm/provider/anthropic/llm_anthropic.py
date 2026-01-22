@@ -799,9 +799,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                 except Exception:
                     payload = {"type": getattr(block, "type", "thinking")}
                     if isinstance(block, ThinkingBlock):
-                        payload.update(
-                            {"thinking": block.thinking, "signature": block.signature}
-                        )
+                        payload.update({"thinking": block.thinking, "signature": block.signature})
                     elif isinstance(block, RedactedThinkingBlock):
                         payload.update({"data": block.data})
                 serialized_blocks.append(TextContent(type="text", text=json.dumps(payload)))

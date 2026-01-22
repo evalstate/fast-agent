@@ -860,7 +860,9 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         request_params = self.get_request_params(request_params=request_params)
 
         response_content_blocks: list[ContentBlock] = []
-        model_name = self.default_request_params.model or DEFAULT_OPENAI_MODEL
+        model_name = (
+            request_params.model or self.default_request_params.model or DEFAULT_OPENAI_MODEL
+        )
 
         # TODO -- move this in to agent context management / agent group handling
         messages: list[ChatCompletionMessageParam] = []
@@ -902,8 +904,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
         self.logger.debug(f"OpenAI completion requested for: {arguments}")
 
-        self._log_chat_progress(self.chat_turn(), model=self.default_request_params.model)
-        model_name = self.default_request_params.model or DEFAULT_OPENAI_MODEL
+        self._log_chat_progress(self.chat_turn(), model=model_name)
 
         # Generate stream capture filename once (before streaming starts)
         capture_filename = _stream_capture_filename(self.chat_turn())
@@ -1034,7 +1035,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         # This provides a snapshot of what was sent to the provider for debugging
         self.history.set(messages)
 
-        self._log_chat_finished(model=self.default_request_params.model)
+        self._log_chat_finished(model=model_name)
 
         reasoning_blocks: list[ContentBlock] | None = None
         if streamed_reasoning:
@@ -1140,9 +1141,10 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
     ) -> dict[str, Any]:
         # Create base arguments dictionary
 
-        # overriding model via request params not supported (intentional)
         base_args = {
-            "model": self.default_request_params.model,
+            "model": request_params.model
+            or self.default_request_params.model
+            or DEFAULT_OPENAI_MODEL,
             "messages": messages,
             "tools": tools,
             "stream": True,  # Enable basic streaming
