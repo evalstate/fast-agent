@@ -35,6 +35,7 @@ from fast_agent.history.history_exporter import HistoryExporter
 from fast_agent.mcp.common import is_namespaced_name
 from fast_agent.mcp.mcp_aggregator import SEP
 from fast_agent.mcp.types import McpAgentProtocol
+from fast_agent.skills import SKILLS_DEFAULT
 from fast_agent.skills.manager import (
     DEFAULT_SKILL_REGISTRIES,
     fetch_marketplace_skills,
@@ -2071,12 +2072,79 @@ class InteractivePrompt:
                     list_local_skills(directory) if directory.exists() else []
                 )
             self._render_local_skills_by_directory(all_manifests)
+            self._render_agent_skills_override(prompt_provider, agent_name)
 
         except Exception as exc:  # noqa: BLE001
             import traceback
 
             rich_print(f"[red]Error listing skills: {exc}[/red]")
             rich_print(f"[dim]{traceback.format_exc()}[/dim]")
+
+    def _render_agent_skills_override(
+        self, prompt_provider: "AgentApp", agent_name: str
+    ) -> None:
+        agent_obj = self._get_agent_or_warn(prompt_provider, agent_name)
+        if not agent_obj:
+            return
+        config = getattr(agent_obj, "config", None)
+        if not config:
+            return
+        if getattr(config, "skills", SKILLS_DEFAULT) is SKILLS_DEFAULT:
+            return
+        manifests = list(getattr(config, "skill_manifests", []) or [])
+        sources: list[str] = []
+        for manifest in manifests:
+            path = Path(getattr(manifest, "path", Path(".")))
+            source_path = path.parent if path.is_file() else path
+            try:
+                display_path = source_path.relative_to(Path.cwd())
+            except ValueError:
+                display_path = source_path
+            sources.append(str(display_path))
+        sources = sorted(set(sources))
+
+        rich_print("\n[bold]Active agent skills (override):[/bold]\n")
+        rich_print(
+            "[dim]Note: this agent has an explicit skills configuration. /skills lists global skills directories from settings, not per-agent overrides. Update settings.skills.directories or the --skills flag to change this list.[/dim]"
+        )
+        if sources:
+            sources_display = ", ".join(sources)
+            rich_print(f"[dim]Sources: {sources_display}[/dim]")
+        if not manifests:
+            rich_print("[yellow]No skills configured for this agent.[/yellow]")
+            return
+        from rich.text import Text
+
+        for index, manifest in enumerate(manifests, 1):
+            name = getattr(manifest, "name", "")
+            description = getattr(manifest, "description", "")
+            path = Path(getattr(manifest, "path", Path()))
+
+            tool_line = Text()
+            tool_line.append(f"[{index:2}] ", style="dim cyan")
+            tool_line.append(name, style="bright_blue bold")
+            rich_print(tool_line)
+
+            if description:
+                wrapped_lines = textwrap.wrap(
+                    description.strip(), width=72, subsequent_indent="     "
+                )
+                for line in wrapped_lines:
+                    if line.startswith("     "):
+                        rich_print(f"     [white]{line[5:]}[/white]")
+                    else:
+                        rich_print(f"     [white]{line}[/white]")
+
+            source_path = path if path else Path(".")
+            if source_path.is_file():
+                source_path = source_path.parent
+            try:
+                display_path = source_path.relative_to(Path.cwd())
+            except ValueError:
+                display_path = source_path
+
+            rich_print(f"     [dim green]source:[/dim green] {display_path}")
+            rich_print()
 
     async def _handle_skills_command(
         self, prompt_provider: "AgentApp", agent_name: str, payload: dict[str, Any]

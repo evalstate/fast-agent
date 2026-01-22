@@ -1024,6 +1024,8 @@ class AgentCompleter(Completer):
                 return
             # Text after "!" with leading/trailing whitespace stripped
             shell_text = text.lstrip()[1:].lstrip()
+            if not shell_text:
+                return
 
             if " " not in shell_text:
                 # First token: complete executables
@@ -1342,6 +1344,24 @@ def create_keybindings(
 ) -> AgentKeyBindings:
     """Create custom key bindings."""
     kb = AgentKeyBindings()
+
+    def _should_start_completion(text: str) -> bool:
+        stripped = text.lstrip()
+        if not stripped:
+            return False
+        if stripped.startswith("!"):
+            return bool(stripped[1:].lstrip())
+        if stripped.startswith(("/", "@", "#")):
+            return True
+        return False
+
+    @kb.add("c-space")
+    @kb.add("c-@")
+    def _(event) -> None:
+        text = event.current_buffer.document.text_before_cursor
+        if not _should_start_completion(text):
+            return
+        event.current_buffer.start_completion()
 
     @kb.add("c-m", filter=Condition(lambda: not in_multiline_mode))
     def _(event) -> None:

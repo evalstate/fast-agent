@@ -50,6 +50,7 @@ from fast_agent.llm.model_info import ModelInfo
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompts.prompt_load import load_history_into_agent
 from fast_agent.paths import resolve_environment_paths
+from fast_agent.skills import SKILLS_DEFAULT
 from fast_agent.skills.manager import (
     DEFAULT_SKILL_REGISTRIES,
     MarketplaceSkill,
@@ -882,8 +883,29 @@ class SlashCommandHandler:
         title = argument.strip() or None
         manager = get_session_manager()
         session = manager.create_session(title)
+        cleared = self._clear_agent_histories()
         label = session.info.metadata.get("title") or session.info.name
-        return f"# session new\n\nCreated session: {label}"
+        lines = ["# session new", "", f"Created session: {label}"]
+        if cleared:
+            cleared_list = ", ".join(sorted(cleared))
+            lines.append(f"Cleared agent history: {cleared_list}")
+        return "\n".join(lines)
+
+    def _clear_agent_histories(self) -> list[str]:
+        cleared: list[str] = []
+        for name, agent in self.instance.agents.items():
+            clear_fn = getattr(agent, "clear", None)
+            if not callable(clear_fn):
+                continue
+            try:
+                clear_fn()
+                cleared.append(name)
+            except Exception as exc:
+                self._logger.warning(
+                    "Failed to clear agent history for new session",
+                    data={"agent": name, "error": str(exc)},
+                )
+        return cleared
 
     def _handle_session_clear(self, argument: str) -> str:
         from fast_agent.session import (
@@ -1163,7 +1185,50 @@ class SlashCommandHandler:
         all_manifests: dict[Path, list[SkillManifest]] = {}
         for directory in directories:
             all_manifests[directory] = list_local_skills(directory) if directory.exists() else []
-        return self._format_local_skills_by_directory(all_manifests)
+        response = self._format_local_skills_by_directory(all_manifests)
+        override_section = self._skills_override_section()
+        if override_section:
+            return "\n".join([response, "", override_section])
+        return response
+
+    def _skills_override_section(self) -> str | None:
+        agent = self._get_current_agent()
+        if not agent:
+            return None
+        config = getattr(agent, "config", None)
+        if not config:
+            return None
+        if getattr(config, "skills", SKILLS_DEFAULT) is SKILLS_DEFAULT:
+            return None
+        manifests = list(getattr(config, "skill_manifests", []) or [])
+        sources: list[str] = []
+        for manifest in manifests:
+            path = getattr(manifest, "path", None)
+            if not path:
+                continue
+            source_path = path.parent if Path(path).is_file() else Path(path)
+            try:
+                display_path = source_path.relative_to(Path.cwd())
+            except ValueError:
+                display_path = source_path
+            sources.append(str(display_path))
+        sources = sorted(set(sources))
+        lines = [
+            "## Active agent skills (override)",
+            "",
+            "Note: this agent has an explicit skills configuration. `/skills` lists global skills directories from settings, not per-agent overrides.",
+            "Update settings.skills.directories or the --skills flag to change this list.",
+        ]
+        if sources:
+            sources_list = ", ".join(f"`{source}`" for source in sources)
+            lines.extend(["", f"Sources: {sources_list}"])
+        lines.append("")
+        if not manifests:
+            lines.append("No skills configured for this agent.")
+        else:
+            lines.append("Configured skills:")
+            lines.extend(self._format_local_list(manifests))
+        return "\n".join(lines)
 
     async def _handle_skills_add(self, argument: str) -> str:
         if argument.strip().lower() in {"q", "quit", "exit"}:

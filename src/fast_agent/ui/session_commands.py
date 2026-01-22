@@ -25,6 +25,25 @@ if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
 
 
+def _clear_agent_histories(agent_app: "AgentApp | None") -> list[str]:
+    if not agent_app:
+        return []
+
+    cleared: list[str] = []
+    for name, agent in agent_app._agents.items():
+        clear_fn = getattr(agent, "clear", None)
+        if not callable(clear_fn):
+            continue
+        try:
+            clear_fn()
+            cleared.append(name)
+        except Exception as exc:
+            rich_print(
+                f"[yellow]Failed to clear history for '{name}': {exc}[/yellow]"
+            )
+    return cleared
+
+
 async def handle_list_sessions_cmd(agent_app: "AgentApp | None" = None) -> bool:
     """Handle /list_sessions command."""
     manager = get_session_manager()
@@ -55,8 +74,12 @@ async def handle_create_session_cmd(
     """Handle /create_session command."""
     manager = get_session_manager()
     session = manager.create_session(command.session_name)
-    
+    cleared = _clear_agent_histories(agent_app)
+
     rich_print(f"[green]Created and switched to session: {session.info.name}[/green]")
+    if cleared:
+        cleared_list = ", ".join(sorted(cleared))
+        rich_print(f"[green]Cleared agent history: {cleared_list}[/green]")
     return True
 
 
