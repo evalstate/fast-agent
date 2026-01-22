@@ -98,12 +98,16 @@ class SkillRegistry:
         self._warnings = []
         self._missing_directories = []
         self._directories = []
-        override = DEFAULT_ENVIRONMENT_DIR if self._base_dir_explicit else None
-        entries = (
-            default_skill_paths(cwd=self._base_dir, override=override)
-            if directories is None
-            else list(directories)
-        )
+        if directories is None:
+            if self._base_dir_explicit:
+                entries = default_skill_paths(
+                    cwd=self._base_dir,
+                    override=DEFAULT_ENVIRONMENT_DIR,
+                )
+            else:
+                entries = default_skill_paths(cwd=self._base_dir)
+        else:
+            entries = list(directories)
 
         for entry in entries:
             raw_path = Path(entry) if isinstance(entry, str) else entry
@@ -164,7 +168,33 @@ class SkillRegistry:
     @classmethod
     def _parse_manifest(cls, manifest_path: Path) -> tuple[SkillManifest | None, str | None]:
         try:
-            post = frontmatter.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest_text = manifest_path.read_text(encoding="utf-8")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to read skill manifest",
+                data={"path": str(manifest_path), "error": str(exc)},
+            )
+            return None, str(exc)
+        return cls._parse_manifest_content(manifest_text, manifest_path)
+
+    @classmethod
+    def parse_manifest_text(
+        cls,
+        manifest_text: str,
+        *,
+        path: Path | None = None,
+    ) -> tuple[SkillManifest | None, str | None]:
+        manifest_path = path or Path("<in-memory>")
+        return cls._parse_manifest_content(manifest_text, manifest_path)
+
+    @classmethod
+    def _parse_manifest_content(
+        cls,
+        manifest_text: str,
+        manifest_path: Path,
+    ) -> tuple[SkillManifest | None, str | None]:
+        try:
+            post = frontmatter.loads(manifest_text)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "Failed to parse skill manifest",

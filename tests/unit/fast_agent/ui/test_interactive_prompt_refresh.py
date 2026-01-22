@@ -71,7 +71,7 @@ class _FakeAgentAppRemove:
 
 @pytest.mark.asyncio
 async def test_prompt_loop_refreshes_agent_list(monkeypatch, capsys: Any) -> None:
-    inputs = iter(["/agents", "STOP"])
+    inputs = iter(["STOP"])
 
     async def fake_get_enhanced_input(*_args: Any, **kwargs: Any) -> str:
         available_agent_names = kwargs.get("available_agent_names")
@@ -94,13 +94,13 @@ async def test_prompt_loop_refreshes_agent_list(monkeypatch, capsys: Any) -> Non
         prompt_provider=cast("AgentApp", agent_app),
     )
 
-    output = capsys.readouterr().out
-    assert "@sizer" in output
+    capsys.readouterr()
+    assert "sizer" in enhanced_prompt.available_agents
 
 
 @pytest.mark.asyncio
 async def test_prompt_loop_prunes_removed_agent(monkeypatch, capsys: Any) -> None:
-    inputs = iter(["/agents", "STOP"])
+    inputs = iter(["STOP"])
 
     async def fake_get_enhanced_input(*_args: Any, **kwargs: Any) -> str:
         available_agent_names = kwargs.get("available_agent_names")
@@ -123,6 +123,5 @@ async def test_prompt_loop_prunes_removed_agent(monkeypatch, capsys: Any) -> Non
         prompt_provider=cast("AgentApp", agent_app),
     )
 
-    output = capsys.readouterr().out
-    assert "@vertex-rag" in output
-    assert "@sizer" not in output
+    capsys.readouterr()
+    assert enhanced_prompt.available_agents == {"vertex-rag"}

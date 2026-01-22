@@ -353,25 +353,16 @@ def show_check_summary(env_dir: Path | None = None) -> None:
     env_table.add_column("Value")
 
     # Determine keyring backend early so it can appear in the top section
-    # Also detect whether the backend is actually usable (not the fail backend)
-    keyring_usable = False
+    # Also detect whether the backend is actually writable (not just present)
     try:
         import keyring  # type: ignore
-
-        keyring_backend = keyring.get_keyring()
-        keyring_name = getattr(keyring_backend, "name", keyring_backend.__class__.__name__)
-        try:
-            # Detect the "fail" backend explicitly; it's present but unusable
-            from keyring.backends.fail import Keyring as FailKeyring  # type: ignore
-
-            keyring_usable = not isinstance(keyring_backend, FailKeyring)
-        except Exception:
-            # If we can't import the fail backend marker, assume usable
-            keyring_usable = True
     except Exception:
         keyring = None  # type: ignore
-        keyring_name = "unavailable"
-        keyring_usable = False
+
+    from fast_agent.core.keyring_utils import get_keyring_status
+
+    keyring_status = get_keyring_status()
+    keyring_name = keyring_status.name
 
     # Python info (highlight version and path in green)
     env_table.add_row(
@@ -408,10 +399,14 @@ def show_check_summary(env_dir: Path | None = None) -> None:
         env_table.add_row("Default Model", f"[green]{default_model_value}[/green]")
 
     # Keyring backend (always shown in application-level settings)
-    if keyring_usable and keyring_name != "unavailable":
-        env_table.add_row("Keyring Backend", f"[green]{keyring_name}[/green]")
+    if keyring_status.available:
+        if keyring_status.writable:
+            keyring_display = f"[green]{keyring_name}[/green]"
+        else:
+            keyring_display = f"[yellow]{keyring_name} (not writable)[/yellow]"
     else:
-        env_table.add_row("Keyring Backend", "[red]not available[/red]")
+        keyring_display = "[red]not available[/red]"
+    env_table.add_row("Keyring Backend", keyring_display)
 
     console.print(env_table)
 
@@ -591,10 +586,7 @@ def show_check_summary(env_dir: Path | None = None) -> None:
     try:
         from datetime import datetime
 
-        from fast_agent.llm.provider.openai.codex_oauth import (
-            get_codex_token_status,
-            keyring_available,
-        )
+        from fast_agent.llm.provider.openai.codex_oauth import get_codex_token_status
 
         codex_status = get_codex_token_status()
         codex_table = Table(show_header=True, box=None)
@@ -602,10 +594,12 @@ def show_check_summary(env_dir: Path | None = None) -> None:
         codex_table.add_column("Expires", style="white", header_style="bold bright_white")
         codex_table.add_column("Keyring", style="white", header_style="bold bright_white")
 
-        if not keyring_available():
+        if not keyring_status.available:
             keyring_display = "[red]not available[/red]"
+        elif not keyring_status.writable:
+            keyring_display = f"[yellow]{keyring_status.name} (not writable)[/yellow]"
         else:
-            keyring_display = "[green]available[/green]"
+            keyring_display = f"[green]{keyring_status.name}[/green]"
 
         if not codex_status["present"]:
             token_display = "[dim]Not configured[/dim]"
@@ -684,7 +678,7 @@ def show_check_summary(env_dir: Path | None = None) -> None:
                     persist = "keyring"
                     if cfg.auth is not None and hasattr(cfg.auth, "persist"):
                         persist = getattr(cfg.auth, "persist") or "keyring"
-                    if keyring and keyring_usable and persist == "keyring" and oauth_enabled:
+                    if keyring and keyring_status.writable and persist == "keyring" and oauth_enabled:
                         identity = compute_server_identity(cfg)
                         tkey = f"oauth:tokens:{identity}"
                         try:
@@ -692,8 +686,10 @@ def show_check_summary(env_dir: Path | None = None) -> None:
                         except Exception:
                             has = False
                         token_status = "[bold green]✓[/bold green]" if has else "[dim]✗[/dim]"
-                    elif persist == "keyring" and not keyring_usable and oauth_enabled:
+                    elif persist == "keyring" and not keyring_status.available and oauth_enabled:
                         token_status = "[red]not available[/red]"
+                    elif persist == "keyring" and not keyring_status.writable and oauth_enabled:
+                        token_status = "[yellow]not writable[/yellow]"
                     elif persist == "memory" and oauth_enabled:
                         token_status = "[yellow]memory[/yellow]"
 

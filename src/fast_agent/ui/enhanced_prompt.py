@@ -30,7 +30,10 @@ from rich import print as rich_print
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.agents.workflow.router_agent import RouterAgent
-from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, FAST_AGENT_REMOVED_METADATA_CHANNEL
+from fast_agent.constants import (
+    FAST_AGENT_ERROR_CHANNEL,
+    FAST_AGENT_REMOVED_METADATA_CHANNEL,
+)
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.llm.provider_types import Provider
@@ -50,6 +53,7 @@ from fast_agent.ui.command_payloads import (
     ListToolsCommand,
     LoadAgentCardCommand,
     LoadHistoryCommand,
+    LoadPromptCommand,
     ReloadAgentsCommand,
     ResumeSessionCommand,
     SaveHistoryCommand,
@@ -68,6 +72,7 @@ from fast_agent.ui.command_payloads import (
 )
 from fast_agent.ui.mcp_display import render_mcp_status
 from fast_agent.ui.model_display import format_model_display
+from fast_agent.ui.shell_notice import format_shell_notice
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -171,6 +176,10 @@ def _save_history_cmd(filename: str | None) -> SaveHistoryCommand:
 
 def _load_history_cmd(filename: str | None, error: str | None) -> LoadHistoryCommand:
     return LoadHistoryCommand(filename=filename, error=error)
+
+
+def _load_prompt_cmd(filename: str | None, error: str | None) -> LoadPromptCommand:
+    return LoadPromptCommand(filename=filename, error=error)
 
 
 def _history_rewind_cmd(turn_index: int | None, error: str | None) -> HistoryRewindCommand:
@@ -583,13 +592,10 @@ class AgentCompleter(Completer):
         # Map commands to their descriptions for better completion hints
         self.commands = {
             "mcp": "Show MCP server status",
-            "history": "Show conversation history overview (or /history save|load|rewind|review|fix)",
-            "tools": "List available MCP Tools",
+            "history": "Show conversation history overview (or /history save|load|clear|rewind|review|fix)",
+            "tools": "List tools",
             "skills": "Manage skills (/skills, /skills add, /skills remove, /skills registry)",
-            "prompt": "List and choose MCP prompts, or apply specific prompt (/prompt <name>)",
-            "clear": "Clear history",
-            "clear last": "Remove the most recent message from history",
-            "agents": "List available agents",
+            "prompt": "Load a Prompt File or use MCP Prompt",
             "system": "Show the current system prompt",
             "usage": "Show current usage statistics",
             "markdown": "Show last assistant message without markdown formatting",
@@ -603,7 +609,6 @@ class AgentCompleter(Completer):
             "STOP": "Stop this prompting session and move to next workflow step",
         }
         if is_human_input:
-            self.commands.pop("agents")
             self.commands.pop("prompt", None)  # Remove prompt command in human input mode
             self.commands.pop("tools", None)  # Remove tools command in human input mode
             self.commands.pop("usage", None)  # Remove usage command in human input mode
@@ -921,16 +926,28 @@ class AgentCompleter(Completer):
                     display_meta=display,
                 )
 
-    def _complete_executables(self, partial: str):
-        """Complete executable names from PATH."""
+    def _complete_executables(self, partial: str, max_results: int = 100):
+        """Complete executable names from PATH.
+
+        Args:
+            partial: The partial executable name to match.
+            max_results: Maximum number of completions to yield (default 100).
+                        Limits scan time on systems with large PATH.
+        """
         seen = set()
+        count = 0
         for path_dir in os.environ.get("PATH", "").split(os.pathsep):
+            if count >= max_results:
+                break
             try:
                 for entry in Path(path_dir).iterdir():
+                    if count >= max_results:
+                        break
                     if entry.is_file() and os.access(entry, os.X_OK):
                         name = entry.name
                         if name.startswith(partial) and name not in seen:
                             seen.add(name)
+                            count += 1
                             yield Completion(
                                 name,
                                 start_position=-len(partial),
@@ -940,8 +957,14 @@ class AgentCompleter(Completer):
             except (PermissionError, FileNotFoundError):
                 pass
 
-    def _complete_shell_paths(self, partial: str, delete_len: int):
-        """Complete file/directory paths for shell commands."""
+    def _complete_shell_paths(self, partial: str, delete_len: int, max_results: int = 100):
+        """Complete file/directory paths for shell commands.
+
+        Args:
+            partial: The partial path to complete.
+            delete_len: Number of characters to delete for the completion.
+            max_results: Maximum number of completions to yield (default 100).
+        """
         if partial:
             partial_path = Path(partial)
             if partial.endswith("/") or partial.endswith(os.sep):
@@ -960,7 +983,10 @@ class AgentCompleter(Completer):
             return
 
         try:
+            count = 0
             for entry in sorted(search_dir.iterdir()):
+                if count >= max_results:
+                    break
                 name = entry.name
                 if name.startswith(".") and not prefix.startswith("."):
                     continue
@@ -983,6 +1009,7 @@ class AgentCompleter(Completer):
                         display=name,
                         display_meta="file",
                     )
+                count += 1
         except PermissionError:
             pass
 
@@ -997,6 +1024,8 @@ class AgentCompleter(Completer):
                 return
             # Text after "!" with leading/trailing whitespace stripped
             shell_text = text.lstrip()[1:].lstrip()
+            if not shell_text:
+                return
 
             if " " not in shell_text:
                 # First token: complete executables
@@ -1021,6 +1050,27 @@ class AgentCompleter(Completer):
         if text_lower.startswith("/history review "):
             partial = text[len("/history review ") :]
             yield from self._complete_history_rewind(partial)
+            return
+
+        if text_lower.startswith("/prompt load "):
+            partial = text[len("/prompt load ") :]
+            yield from self._complete_history_files(partial)
+            return
+
+        if text_lower.startswith("/history clear "):
+            partial = text[len("/history clear ") :]
+            subcommands = {
+                "all": "Clear the full history",
+                "last": "Remove the most recent message",
+            }
+            for subcmd, description in subcommands.items():
+                if subcmd.startswith(partial.lower()):
+                    yield Completion(
+                        subcmd,
+                        start_position=-len(partial),
+                        display=subcmd,
+                        display_meta=description,
+                    )
             return
 
         if text_lower.startswith("/resume "):
@@ -1084,6 +1134,7 @@ class AgentCompleter(Completer):
                 "show": "Show history overview",
                 "save": "Save history to a file",
                 "load": "Load history from a file",
+                "clear": "Clear history (all or last)",
                 "rewind": "Rewind to a previous user turn",
                 "review": "Review a previous user turn in full",
             }
@@ -1294,6 +1345,24 @@ def create_keybindings(
     """Create custom key bindings."""
     kb = AgentKeyBindings()
 
+    def _should_start_completion(text: str) -> bool:
+        stripped = text.lstrip()
+        if not stripped:
+            return False
+        if stripped.startswith("!"):
+            return bool(stripped[1:].lstrip())
+        if stripped.startswith(("/", "@", "#")):
+            return True
+        return False
+
+    @kb.add("c-space")
+    @kb.add("c-@")
+    def _(event) -> None:
+        text = event.current_buffer.document.text_before_cursor
+        if not _should_start_completion(text):
+            return
+        event.current_buffer.start_completion()
+
     @kb.add("c-m", filter=Condition(lambda: not in_multiline_mode))
     def _(event) -> None:
         """Enter: accept input when not in multiline mode."""
@@ -1434,8 +1503,6 @@ def parse_special_input(text: str) -> str | CommandPayload:
 
         if cmd == "help":
             return "HELP"
-        if cmd == "agents":
-            return "LIST_AGENTS"
         if cmd == "system":
             return _show_system_cmd()
         if cmd == "usage":
@@ -1479,21 +1546,16 @@ def parse_special_input(text: str) -> str | CommandPayload:
                 except ValueError:
                     return _history_rewind_cmd(None, "Turn number must be an integer")
                 return _history_rewind_cmd(turn_index, None)
+            if subcmd == "clear":
+                tokens = argument.split(maxsplit=1) if argument else []
+                action = tokens[0].lower() if tokens else "all"
+                target_agent = tokens[1].strip() if len(tokens) > 1 else None
+                if action == "last":
+                    return _clear_last_cmd(target_agent)
+                if action == "all":
+                    return _clear_history_cmd(target_agent)
+                return _clear_history_cmd(argument or None)
             return _show_history_cmd(remainder)
-        if cmd == "clear":
-            target_agent = None
-            if len(cmd_parts) > 1:
-                remainder = cmd_parts[1].strip()
-                if remainder:
-                    tokens = remainder.split(maxsplit=1)
-                    if tokens and tokens[0].lower() == "last":
-                        if len(tokens) > 1:
-                            candidate = tokens[1].strip()
-                            if candidate:
-                                target_agent = candidate
-                        return _clear_last_cmd(target_agent)
-                    target_agent = remainder
-            return _clear_history_cmd(target_agent)
         if cmd == "markdown":
             return _show_markdown_cmd()
         if cmd in ("save_history", "save"):
@@ -1636,12 +1698,25 @@ def parse_special_input(text: str) -> str | CommandPayload:
         if cmd in ("mcpstatus", "mcp"):
             return _show_mcp_status_cmd()
         if cmd == "prompt":
-            if len(cmd_parts) > 1:
-                prompt_arg = cmd_parts[1].strip()
-                if prompt_arg.isdigit():
-                    return _select_prompt_cmd(int(prompt_arg), None)
-                return _select_prompt_cmd(None, prompt_arg)
-            return _select_prompt_cmd(None, None)
+            remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
+            if not remainder:
+                return _select_prompt_cmd(None, None)
+            try:
+                tokens = shlex.split(remainder)
+            except ValueError:
+                tokens = []
+            if tokens:
+                subcmd = tokens[0].lower()
+                argument = remainder[len(tokens[0]) :].strip()
+                if subcmd == "load":
+                    if not argument:
+                        return _load_prompt_cmd(None, "Filename required for /prompt load")
+                    return _load_prompt_cmd(argument, None)
+            if remainder.lower().endswith((".json", ".md")):
+                return _load_prompt_cmd(remainder, None)
+            if remainder.isdigit():
+                return _select_prompt_cmd(int(remainder), None)
+            return _select_prompt_cmd(None, remainder)
         if cmd == "tools":
             return _list_tools_cmd()
         if cmd == "skills":
@@ -1982,18 +2057,14 @@ async def get_enhanced_input(
         except Exception:
             shell_agent = None
 
-    if shell_agent:
-        direct_shell_enabled = bool(getattr(shell_agent, "_shell_runtime_enabled", False))
-        modes_attr = getattr(shell_agent, "_shell_access_modes", ())
-        if isinstance(modes_attr, (list, tuple)):
-            shell_access_modes = tuple(str(mode) for mode in modes_attr)
-        elif modes_attr:
-            shell_access_modes = (str(modes_attr),)
+    if isinstance(shell_agent, McpAgentProtocol):
+        direct_shell_enabled = shell_agent.shell_runtime_enabled
+        shell_access_modes = shell_agent.shell_access_modes
 
         sub_agent_shells = [
             child
             for child in _collect_tool_children(shell_agent)
-            if getattr(child, "_shell_runtime_enabled", False)
+            if isinstance(child, McpAgentProtocol) and child.shell_runtime_enabled
         ]
         if sub_agent_shells:
             if direct_shell_enabled:
@@ -2002,11 +2073,11 @@ async def get_enhanced_input(
             else:
                 shell_access_modes = ("sub-agent",)
                 if len(sub_agent_shells) == 1:
-                    shell_runtime = getattr(sub_agent_shells[0], "_shell_runtime", None)
+                    shell_runtime = sub_agent_shells[0].shell_runtime
 
         shell_enabled = direct_shell_enabled or bool(sub_agent_shells)
         if direct_shell_enabled:
-            shell_runtime = getattr(shell_agent, "_shell_runtime", None)
+            shell_runtime = shell_agent.shell_runtime
 
         # Get the detected shell name from the runtime
         if shell_enabled and shell_runtime:
@@ -2073,9 +2144,7 @@ async def get_enhanced_input(
                     working_dir_display = str(working_dir)
                 shell_display = f"{shell_display} | cwd: {working_dir_display}"
 
-            rich_print(
-                f"[yellow][bold]Agents have shell[/bold][/yellow][dim] ({shell_display})[/dim]"
-            )
+            rich_print(format_shell_notice(shell_access_modes, shell_runtime))
 
             # Display agent info right after help text if agent_provider is available
             if agent_provider and not is_human_input:
@@ -2319,16 +2388,15 @@ async def handle_special_commands(
     if command == "HELP":
         rich_print("\n[bold]Available Commands:[/bold]")
         rich_print("  /help          - Show this help")
-        rich_print("  /agents        - List available agents")
         rich_print("  /system        - Show the current system prompt")
-        rich_print("  /prompt <name> - Apply a specific prompt by name")
+        rich_print("  /prompt <name> - Load a Prompt File or use MCP Prompt")
         rich_print("  /usage         - Show current usage statistics")
         rich_print("  /skills        - List local skills for the manager directory")
         rich_print("  /skills add    - Install a skill from the marketplace")
         rich_print("  /skills remove - Remove a skill from the manager directory")
         rich_print("  /history [agent_name] - Show chat history overview")
-        rich_print("  /clear [agent_name]   - Clear conversation history (keeps templates)")
-        rich_print("  /clear last [agent_name] - Remove the most recent message from history")
+        rich_print("  /history clear all [agent_name] - Clear conversation history (keeps templates)")
+        rich_print("  /history clear last [agent_name] - Remove the most recent message from history")
         rich_print("  /markdown      - Show last assistant message without markdown formatting")
         rich_print("  /mcpstatus     - Show MCP server status summary for the active agent")
         rich_print("  /history save [filename] - Save current chat history to a file")
@@ -2380,20 +2448,6 @@ async def handle_special_commands(
     elif isinstance(command, str) and command.upper() == "EXIT":
         raise PromptExitError("User requested to exit fast-agent session")
 
-    elif command == "LIST_AGENTS":
-        if agent_app and agent_app is not True:
-            try:
-                await agent_app.refresh_if_needed()
-                available_agents = set(agent_app.agent_names())
-            except Exception:
-                pass
-        if available_agents:
-            rich_print("\n[bold]Available Agents:[/bold]")
-            for agent in sorted(available_agents):
-                rich_print(f"  @{agent}")
-        else:
-            rich_print("[yellow]No agents available[/yellow]")
-        return True
 
     elif command == "SHOW_USAGE":
         return _show_usage_cmd()

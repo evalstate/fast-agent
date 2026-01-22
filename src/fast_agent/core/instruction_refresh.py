@@ -37,6 +37,13 @@ logger = get_logger(__name__)
 
 
 @runtime_checkable
+class ToolUpdateDisplay(Protocol):
+    """Protocol for displays that can emit tool update notifications."""
+
+    async def show_tool_update(self, updated_server: str, agent_name: str | None = None) -> None: ...
+
+
+@runtime_checkable
 class InstructionCapable(Protocol):
     """Protocol for agents that support instruction get/set."""
 
@@ -256,6 +263,7 @@ async def rebuild_agent_instruction(
         updated_skill_registry = False
         updated_context = False
         rebuilt_instruction = False
+        needs_tool_update = False
 
         if not isinstance(agent, McpInstructionCapable):
             return InstructionRefreshResult()
@@ -264,6 +272,7 @@ async def rebuild_agent_instruction(
         if skill_manifests is not None:
             agent.set_skill_manifests(skill_manifests)
             updated_skill_manifests = True
+            needs_tool_update = True
 
         if skill_registry is not None:
             agent.skill_registry = skill_registry
@@ -295,6 +304,15 @@ async def rebuild_agent_instruction(
 
         agent.set_instruction(new_instruction)
         rebuilt_instruction = True
+
+        if needs_tool_update and not agent.has_filesystem_runtime:
+            display = getattr(agent, "display", None)
+            agent_name = getattr(agent, "name", None)
+            if isinstance(display, ToolUpdateDisplay):
+                try:
+                    await display.show_tool_update("skills", agent_name=agent_name)
+                except Exception as exc:  # pragma: no cover - UI notification best effort
+                    logger.debug("Failed to emit tool update for skills", data={"error": str(exc)})
 
         return InstructionRefreshResult(
             updated_skill_manifests=updated_skill_manifests,

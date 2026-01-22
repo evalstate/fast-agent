@@ -345,14 +345,22 @@ def codex_login() -> None:
 def codexplan() -> None:
     """Ensure Codex OAuth tokens are present; optionally start login."""
     from fast_agent.core.exceptions import ProviderKeyError, format_fast_agent_error
+    from fast_agent.core.keyring_utils import get_keyring_status
     from fast_agent.llm.provider.openai.codex_oauth import (
         get_codex_token_status,
-        keyring_available,
         login_codex_oauth,
     )
 
-    if not keyring_available():
-        typer.echo("Keyring backend not available; cannot store Codex OAuth tokens.")
+    keyring_status = get_keyring_status()
+    if not keyring_status.writable:
+        if not keyring_status.available:
+            detail = "No usable keyring backend was detected."
+        else:
+            detail = f"Keyring backend '{keyring_status.name}' is not writable."
+        typer.echo(
+            "Keyring backend not writable; cannot store Codex OAuth tokens. "
+            f"{detail}"
+        )
         raise typer.Exit(1)
 
     status = get_codex_token_status()
@@ -374,11 +382,18 @@ def codexplan() -> None:
 @app.command("codex-clear")
 def codex_clear() -> None:
     """Remove Codex OAuth tokens from the keyring."""
-    from fast_agent.llm.provider.openai.codex_oauth import clear_codex_tokens, keyring_available
+    from fast_agent.core.keyring_utils import get_keyring_status
+    from fast_agent.llm.provider.openai.codex_oauth import clear_codex_tokens
 
-    if not keyring_available():
+    status = get_keyring_status()
+    if not status.available:
         typer.echo("Keyring backend not available; nothing to clear.")
         raise typer.Exit(1)
+    if not status.writable:
+        typer.echo(
+            "Keyring backend not writable; deletion may fail. "
+            f"Detected backend '{status.name}'."
+        )
 
     if not typer.confirm("Remove Codex OAuth tokens from keyring?", default=False):
         raise typer.Exit()

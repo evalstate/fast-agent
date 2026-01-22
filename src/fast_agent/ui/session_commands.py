@@ -3,6 +3,7 @@
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.session import (
     format_history_summary,
     format_session_entries,
@@ -18,9 +19,29 @@ from fast_agent.ui.command_payloads import (
     TitleSessionCommand,
 )
 from fast_agent.ui.enhanced_prompt import rich_print
+from fast_agent.ui.shell_notice import format_shell_notice
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
+
+
+def _clear_agent_histories(agent_app: "AgentApp | None") -> list[str]:
+    if not agent_app:
+        return []
+
+    cleared: list[str] = []
+    for name, agent in agent_app._agents.items():
+        clear_fn = getattr(agent, "clear", None)
+        if not callable(clear_fn):
+            continue
+        try:
+            clear_fn()
+            cleared.append(name)
+        except Exception as exc:
+            rich_print(
+                f"[yellow]Failed to clear history for '{name}': {exc}[/yellow]"
+            )
+    return cleared
 
 
 async def handle_list_sessions_cmd(agent_app: "AgentApp | None" = None) -> bool:
@@ -53,8 +74,12 @@ async def handle_create_session_cmd(
     """Handle /create_session command."""
     manager = get_session_manager()
     session = manager.create_session(command.session_name)
-    
+    cleared = _clear_agent_histories(agent_app)
+
     rich_print(f"[green]Created and switched to session: {session.info.name}[/green]")
+    if cleared:
+        cleared_list = ", ".join(sorted(cleared))
+        rich_print(f"[green]Cleared agent history: {cleared_list}[/green]")
     return True
 
 
@@ -134,8 +159,28 @@ async def handle_resume_session_cmd(
     if loaded:
         loaded_list = ", ".join(sorted(loaded.keys()))
         rich_print(f"[green]Resumed session: {session.info.name} ({loaded_list})[/green]")
+        if (
+            isinstance(default_agent, McpAgentProtocol)
+            and default_agent.shell_runtime_enabled
+        ):
+            rich_print(
+                format_shell_notice(
+                    default_agent.shell_access_modes,
+                    default_agent.shell_runtime,
+                )
+            )
     else:
         rich_print(f"[yellow]Resumed session: {session.info.name} (no history yet)[/yellow]")
+        if (
+            isinstance(default_agent, McpAgentProtocol)
+            and default_agent.shell_runtime_enabled
+        ):
+            rich_print(
+                format_shell_notice(
+                    default_agent.shell_access_modes,
+                    default_agent.shell_runtime,
+                )
+            )
     if missing_agents:
         missing_list = ", ".join(sorted(missing_agents))
         rich_print(f"[yellow]Missing agents from session: {missing_list}[/yellow]")

@@ -18,7 +18,6 @@
 # otel:
 #   enabled: true
 
-
 anthropic:
   thinking_enabled: true
   thinking_budget_tokens: 10000
@@ -29,7 +28,7 @@ logger:
   # type: "none" | "console" | "file" | "http"
   # path: "/path/to/logfile.jsonl"
 
-  level: debug
+  level: warning
   type: file
 
   # Switch the progress display on or off

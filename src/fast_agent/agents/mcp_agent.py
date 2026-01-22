@@ -38,7 +38,11 @@ from pydantic import BaseModel
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_agent import DEFAULT_CAPABILITIES
 from fast_agent.agents.tool_agent import ToolAgent
-from fast_agent.constants import FORCE_SEQUENTIAL_TOOL_CALLS, HUMAN_INPUT_TOOL_NAME
+from fast_agent.constants import (
+    FORCE_SEQUENTIAL_TOOL_CALLS,
+    HUMAN_INPUT_TOOL_NAME,
+    SHELL_NOTICE_PREFIX,
+)
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import FastAgentLLMProtocol
@@ -127,6 +131,18 @@ class McpAgent(ABC, ToolAgent):
             except Exception:
                 manifests = []
 
+        self._shell_runtime: ShellRuntime | None = None
+        self._shell_notice_emitted = False
+        self._allow_shell_notice = False
+        self._shell_runtime_enabled = False
+        self._shell_access_modes: tuple[str, ...] = ()
+        self._bash_tool: Tool | None = None
+        # Allow external runtime injection (e.g., for ACP terminal support)
+        self._external_runtime = None
+
+        # Allow filesystem runtime injection (e.g., for ACP filesystem support)
+        self._filesystem_runtime = None
+
         self._skill_manifests: list[SkillManifest] = []
         self._skill_map: dict[str, SkillManifest] = {}
         self._skill_reader: SkillReader | None = None
@@ -157,15 +173,6 @@ class McpAgent(ABC, ToolAgent):
             else:
                 self._shell_runtime_activation_reason = "via " + " and ".join(reasons)
 
-        # Get timeout configuration from context
-        timeout_seconds = 90  # default
-        warning_interval_seconds = 30  # default
-        if context and context.config:
-            shell_config = getattr(context.config, "shell_execution", None)
-            if shell_config:
-                timeout_seconds = getattr(shell_config, "timeout_seconds", 90)
-                warning_interval_seconds = getattr(shell_config, "warning_interval_seconds", 30)
-
         # Derive skills directory from this agent's manifests (respects per-agent config)
         skills_directory = None
         if self._skill_manifests:
@@ -176,42 +183,26 @@ class McpAgent(ABC, ToolAgent):
             if first_manifest.path:
                 skills_directory = first_manifest.path.parent.parent
 
-        model_name = self.config.model
-        if not model_name and context and context.config:
-            model_name = getattr(context.config, "default_model", None)
-        output_byte_limit = calculate_terminal_output_limit_for_model(model_name)
-
-        self._shell_runtime = ShellRuntime(
-            self._shell_runtime_activation_reason,
-            self.logger,
-            timeout_seconds=timeout_seconds,
-            warning_interval_seconds=warning_interval_seconds,
-            skills_directory=skills_directory,
-            working_directory=self.config.cwd,
-            output_byte_limit=output_byte_limit,
-            config=context.config if context else None,
-        )
-        self._shell_runtime_enabled = self._shell_runtime.enabled
         self._shell_access_modes: tuple[str, ...] = ()
-        if self._shell_runtime_enabled:
+        if self._shell_runtime_activation_reason is not None:
             modes: list[str] = []
             if skills_configured:
                 modes.append("skills")
             if shell_flag_requested:
                 modes.append("switch")
             self._shell_access_modes = tuple(modes)
-        self._bash_tool = self._shell_runtime.tool
-        if self._shell_runtime_enabled:
-            self._shell_runtime.announce()
+
+        self._activate_shell_runtime(
+            self._shell_runtime_activation_reason,
+            working_directory=self.config.cwd,
+            skills_directory=skills_directory,
+            access_modes=self._shell_access_modes,
+        )
 
         # Store instruction context for template resolution
         self._instruction_context: dict[str, str] = {}
 
-        # Allow external runtime injection (e.g., for ACP terminal support)
-        self._external_runtime = None
-
-        # Allow filesystem runtime injection (e.g., for ACP filesystem support)
-        self._filesystem_runtime = None
+        self._allow_shell_notice = True
 
         # Store the default request params from config
         self._default_request_params = self.config.default_request_params
@@ -291,41 +282,16 @@ class McpAgent(ABC, ToolAgent):
         """
         if self._shell_runtime_enabled:
             # Already enabled, but update working directory if specified
-            if working_directory is not None:
-                self._shell_runtime._working_directory = working_directory
+            shell_runtime = self._shell_runtime
+            if working_directory is not None and shell_runtime is not None:
+                shell_runtime._working_directory = working_directory
             return
 
-        # Get timeout configuration from context
-        timeout_seconds = 90
-        warning_interval_seconds = 30
-        if self.context and self.context.config:
-            shell_config = getattr(self.context.config, "shell_execution", None)
-            if shell_config:
-                timeout_seconds = getattr(shell_config, "timeout_seconds", 90)
-                warning_interval_seconds = getattr(shell_config, "warning_interval_seconds", 30)
-
-        # Create a new shell runtime with the activation reason
-        self._shell_runtime_activation_reason = "via enable_shell() call"
-
-        model_name = self.config.model
-        if not model_name and self.context and self.context.config:
-            model_name = getattr(self.context.config, "default_model", None)
-        output_byte_limit = calculate_terminal_output_limit_for_model(model_name)
-
-        self._shell_runtime = ShellRuntime(
-            self._shell_runtime_activation_reason,
-            self.logger,
-            timeout_seconds=timeout_seconds,
-            warning_interval_seconds=warning_interval_seconds,
+        self._activate_shell_runtime(
+            "via enable_shell() call",
             working_directory=working_directory,
-            output_byte_limit=output_byte_limit,
-            config=self.context.config if self.context else None,
+            access_modes=("[red]direct[/red]",),
         )
-        self._shell_runtime_enabled = self._shell_runtime.enabled
-        self._bash_tool = self._shell_runtime.tool
-        self._shell_access_modes = ("[red]direct[/red]",)
-        if self._shell_runtime_enabled:
-            self._shell_runtime.announce()
 
     async def get_server_status(self) -> dict[str, ServerStatus]:
         """Expose server status details for UI and diagnostics consumers."""
@@ -401,8 +367,108 @@ class McpAgent(ABC, ToolAgent):
         self._skill_map = {manifest.name: manifest for manifest in self._skill_manifests}
         if self._skill_manifests:
             self._skill_reader = SkillReader(self._skill_manifests, self.logger)
+            self._ensure_shell_runtime_for_skills()
         else:
             self._skill_reader = None
+
+    def _ensure_shell_runtime_for_skills(self) -> None:
+        if self._shell_runtime_enabled:
+            return
+        if self._external_runtime is not None:
+            return
+
+        # Derive skills directory from manifests (respects per-agent config)
+        skills_directory = None
+        if self._skill_manifests:
+            first_manifest = self._skill_manifests[0]
+            if first_manifest.path:
+                skills_directory = first_manifest.path.parent.parent
+
+        self._activate_shell_runtime(
+            "because agent skills are configured",
+            skills_directory=skills_directory,
+            working_directory=self.config.cwd,
+            access_modes=("skills",),
+            show_shell_notice=True,
+        )
+
+    def _resolve_shell_runtime_settings(self) -> tuple[int, int, int]:
+        timeout_seconds = 90
+        warning_interval_seconds = 30
+        shell_config = None
+        if self._context and self._context.config:
+            shell_config = getattr(self._context.config, "shell_execution", None)
+        if shell_config:
+            timeout_seconds = getattr(shell_config, "timeout_seconds", 90)
+            warning_interval_seconds = getattr(shell_config, "warning_interval_seconds", 30)
+
+        model_name = self.config.model
+        if not model_name and self._context and self._context.config:
+            model_name = getattr(self._context.config, "default_model", None)
+        output_byte_limit = calculate_terminal_output_limit_for_model(model_name)
+        return timeout_seconds, warning_interval_seconds, output_byte_limit
+
+    def _activate_shell_runtime(
+        self,
+        activation_reason: str | None,
+        *,
+        working_directory: Path | None = None,
+        skills_directory: Path | None = None,
+        access_modes: tuple[str, ...] = (),
+        show_shell_notice: bool = False,
+    ) -> None:
+        if activation_reason is not None and self._external_runtime is not None:
+            return
+
+        timeout_seconds, warning_interval_seconds, output_byte_limit = (
+            self._resolve_shell_runtime_settings()
+        )
+
+        self._shell_runtime_activation_reason = activation_reason
+        self._shell_runtime = ShellRuntime(
+            activation_reason,
+            self.logger,
+            timeout_seconds=timeout_seconds,
+            warning_interval_seconds=warning_interval_seconds,
+            skills_directory=skills_directory,
+            working_directory=working_directory,
+            output_byte_limit=output_byte_limit,
+            config=self._context.config if self._context else None,
+        )
+        self._shell_runtime_enabled = self._shell_runtime.enabled
+        self._bash_tool = self._shell_runtime.tool
+        self._shell_access_modes = access_modes if self._shell_runtime_enabled else ()
+        if self._shell_runtime_enabled:
+            self._shell_runtime.announce()
+            if (
+                show_shell_notice
+                and self._allow_shell_notice
+                and not self._shell_notice_emitted
+            ):
+                self._shell_notice_emitted = True
+                try:
+                    console.console.print(SHELL_NOTICE_PREFIX)
+                except Exception:  # pragma: no cover - console fallback
+                    pass
+
+    @property
+    def shell_runtime_enabled(self) -> bool:
+        return self._shell_runtime_enabled
+
+    @property
+    def shell_access_modes(self) -> tuple[str, ...]:
+        return self._shell_access_modes
+
+    @property
+    def shell_runtime(self) -> ShellRuntime | None:
+        return self._shell_runtime
+
+    def shell_notice_line(self) -> str | None:
+        if not self._shell_runtime_enabled or self._shell_runtime is None:
+            return None
+        from fast_agent.ui.shell_notice import format_shell_notice
+
+        return format_shell_notice(self._shell_access_modes, self._shell_runtime)
 
     def _record_warning(self, message: str) -> None:
         if message in self._warning_messages_seen:
@@ -620,7 +686,7 @@ class McpAgent(ABC, ToolAgent):
             return await self._skill_reader.execute(arguments)
 
         # Fall back to shell runtime
-        if self._shell_runtime.tool and name == self._shell_runtime.tool.name:
+        if self._shell_runtime and self._shell_runtime.tool and name == self._shell_runtime.tool.name:
             return await self._shell_runtime.execute(arguments)
 
         if name == HUMAN_INPUT_TOOL_NAME:
@@ -968,7 +1034,7 @@ class McpAgent(ABC, ToolAgent):
 
             tool_available = (
                 tool_name == HUMAN_INPUT_TOOL_NAME
-                or (self._shell_runtime.tool and tool_name == self._shell_runtime.tool.name)
+                or (self._shell_runtime and self._shell_runtime.tool and tool_name == self._shell_runtime.tool.name)
                 or is_external_runtime_tool
                 or is_filesystem_runtime_tool
                 or is_skill_reader_tool
@@ -990,6 +1056,7 @@ class McpAgent(ABC, ToolAgent):
             metadata: dict[str, Any] | None = None
             if (
                 self._shell_runtime_enabled
+                and self._shell_runtime
                 and self._shell_runtime.tool
                 and tool_name == self._shell_runtime.tool.name
             ):
@@ -1498,6 +1565,7 @@ class McpAgent(ABC, ToolAgent):
 
                 if (
                     self._shell_runtime_enabled
+                    and self._shell_runtime
                     and self._shell_runtime.tool
                     and tool_name == self._shell_runtime.tool.name
                 ):
@@ -1516,10 +1584,11 @@ class McpAgent(ABC, ToolAgent):
 
     def _shell_server_label(self) -> str | None:
         """Return the display label for the local shell runtime."""
-        if not self._shell_runtime_enabled or not self._shell_runtime.tool:
+        shell_runtime = self._shell_runtime
+        if not self._shell_runtime_enabled or not shell_runtime or not shell_runtime.tool:
             return None
 
-        runtime_info = self._shell_runtime.runtime_info()
+        runtime_info = shell_runtime.runtime_info()
         runtime_name = runtime_info.get("name")
         return runtime_name or "shell"
 
