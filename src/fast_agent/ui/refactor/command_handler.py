@@ -6,18 +6,17 @@ migration step; more commands will be moved here in later commits.
 
 from typing import Any
 
-from fast_agent.ui.interactive_prompt import InteractivePrompt
 from fast_agent.ui.command_payloads import (
-    ListPromptsCommand,
-    ListToolsCommand,
-    ListSkillsCommand,
     CommandPayload,
+    ListPromptsCommand,
+    ListSkillsCommand,
+    ListToolsCommand,
 )
+from fast_agent.ui.interactive_prompt import InteractivePrompt
 
 
 class CommandHandler:
-    """Minimal CommandHandler that delegates a few read-only commands.
-    """
+    """Minimal CommandHandler that delegates a few read-only commands."""
 
     def __init__(self, agent_types: dict[str, Any] | None = None) -> None:
         self._impl = InteractivePrompt(agent_types=agent_types)
