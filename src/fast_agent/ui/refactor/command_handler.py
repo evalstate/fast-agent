@@ -2,8 +2,11 @@
 Command handler skeleton: delegates to existing InteractivePrompt for now.
 This allows ACP and TUI to import a CommandHandler while we incrementally move logic.
 """
+
 from typing import Any
+
 from fast_agent.ui.interactive_prompt import InteractivePrompt
+
 
 class CommandHandler:
     """Thin wrapper around InteractivePrompt to centralize command entry point.
@@ -18,5 +21,6 @@ class CommandHandler:
         # For now call into InteractivePrompt methods as appropriate.
         # TODO: move command implementations here.
         raise NotImplementedError("CommandHandler.handle should be implemented during refactor")
+
 
 __all__ = ["CommandHandler"]
