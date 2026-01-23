@@ -1,0 +1,293 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "Find class LlmAgent and spawn_detached_instance implementation in src/fast_agent. Include file paths."
+        }
+      ],
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [],
+      "tool_calls": {
+        "5a590ca22": {
+          "method": "tools/call",
+          "params": {
+            "name": "execute",
+            "arguments": {
+              "command": "rg --files -g 'src/fast_agent/*' -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' -g '!*.json' -g '!*.jsonl' -g '!stream-debug/*'"
+            }
+          }
+        }
+      },
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "We need to locate class LlmAgent and function spawn_detached_instance implementation in src/fast_agent. Use rg. First, find files under src/fast_agent. Let's list files."
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 90935.69436695, \"end_time\": 90936.680101827, \"duration_ms\": 985.73}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 2363, \"output_tokens\": 140, \"total_tokens\": 2503, \"timestamp\": 1769091378.5866435, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 2303, \"total_cache_tokens\": 2303, \"has_cache_activity\": true}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 2503, \"effective_input_tokens\": 60, \"display_input_tokens\": 2363}, \"raw_usage\": {\"completion_tokens\": 140, \"prompt_tokens\": 2363, \"total_tokens\": 2503, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 2303}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 1, \"cumulative_input_tokens\": 2363, \"cumulative_output_tokens\": 140, \"cumulative_billing_tokens\": 2503, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 1, \"current_context_tokens\": 2503, \"context_window_size\": 131072, \"context_usage_percentage\": 1.909637451171875, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 2303, \"cache_hit_rate_percent\": 49.357051007286756, \"cumulative_effective_input_tokens\": 60}}"
+          }
+        ]
+      },
+      "stop_reason": "toolUse",
+      "is_template": false
+    },
+    {
+      "role": "user",
+      "content": [],
+      "tool_results": {
+        "5a590ca22": {
+          "content": [
+            {
+              "type": "text",
+              "text": "src/fast_agent/interfaces.py\nsrc/fast_agent/__init__.py\nsrc/fast_agent/context_dependent.py\nsrc/fast_agent/config.py\nsrc/fast_agent/constants.py\nsrc/fast_agent/workflow_telemetry.py\nsrc/fast_agent/mcp_server_registry.py\nsrc/fast_agent/event_progress.py\nsrc/fast_agent/paths.py\nsrc/fast_agent/py.typed\nsrc/fast_agent/context.py\nprocess exit code was 0"
+            }
+          ],
+          "isError": false,
+          "exit_code": 0
+        }
+      },
+      "channels": {
+        "fast-agent-tool-timing": [
+          {
+            "type": "text",
+            "text": "{\"5a590ca22\": {\"timing_ms\": 19.81, \"transport_channel\": null}}"
+          }
+        ]
+      },
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [],
+      "tool_calls": {
+        "1e7310bab": {
+          "method": "tools/call",
+          "params": {
+            "name": "execute",
+            "arguments": {
+              "command": "rg -n -S -g 'src/fast_agent/**/*.py' -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' -g '!*.json' -g '!*.jsonl' -g '!stream-debug/*' 'LlmAgent' src/fast_agent"
+            }
+          }
+        }
+      },
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "We need LlmAgent class. Search.Search for LlmAgent."
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 90936.702662018, \"end_time\": 90939.290590486, \"duration_ms\": 2587.93}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 2612, \"output_tokens\": 133, \"total_tokens\": 2745, \"timestamp\": 1769091381.9761205, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 0, \"total_cache_tokens\": 0, \"has_cache_activity\": false}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 2745, \"effective_input_tokens\": 2612, \"display_input_tokens\": 2612}, \"raw_usage\": {\"completion_tokens\": 133, \"prompt_tokens\": 2612, \"total_tokens\": 2745, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 0}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 2, \"cumulative_input_tokens\": 4975, \"cumulative_output_tokens\": 273, \"cumulative_billing_tokens\": 5248, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 2, \"current_context_tokens\": 2745, \"context_window_size\": 131072, \"context_usage_percentage\": 2.094268798828125, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 2303, \"cache_hit_rate_percent\": 31.643308601264085, \"cumulative_effective_input_tokens\": 2672}}"
+          }
+        ]
+      },
+      "stop_reason": "toolUse",
+      "is_template": false
+    },
+    {
+      "role": "user",
+      "content": [],
+      "tool_results": {
+        "1e7310bab": {
+          "content": [
+            {
+              "type": "text",
+              "text": "src/fast_agent/core/direct_factory.py:12:from fast_agent.agents.llm_agent import LlmAgent\nsrc/fast_agent/core/direct_factory.py:77:    agent: LlmAgent,\nsrc/fast_agent/core/direct_factory.py:382:                        agents=cast(\"list[LlmAgent]\", child_agents),  # expose children as tools\nsrc/fast_agent/core/direct_factory.py:820:    fan_in_agent = LlmAgent(\nsrc/fast_agent/core/validation.py:13:from fast_agent.interfaces import LlmAgentProtocol\nsrc/fast_agent/core/validation.py:102:                    or (isinstance(func, LlmAgentProtocol) and func.llm is not None)\nsrc/fast_agent/core/validation.py:106:                        \"All agents used by orchestrators must be LLM-capable (either an AugmentedLLM or implement LlmAgentProtocol)\",\nsrc/fast_agent/__init__.py:80:    elif name == \"LlmAgent\":\nsrc/fast_agent/__init__.py:81:        from fast_agent.agents.llm_agent import LlmAgent\nsrc/fast_agent/__init__.py:83:        return LlmAgent\nsrc/fast_agent/__init__.py:178:    \"LlmAgent\",\nsrc/fast_agent/cli/commands/go.py:173:    from fast_agent.agents.llm_agent import LlmAgent\nsrc/fast_agent/cli/commands/go.py:375:        class SilentFanInAgent(LlmAgent):\nsrc/fast_agent/agents/tool_agent.py:10:from fast_agent.agents.llm_agent import LlmAgent\nsrc/fast_agent/agents/tool_agent.py:85:class ToolAgent(LlmAgent, _ToolLoopAgent):\nsrc/fast_agent/agents/tool_agent.py:104:        self._agent_tools: dict[str, LlmAgent] = {}\nsrc/fast_agent/agents/tool_agent.py:181:        child: LlmAgent,\nsrc/fast_agent/mcp/sampling.py:18:from fast_agent.agents.llm_agent import LlmAgent\nsrc/fast_agent/mcp/sampling.py:56:    agent = LlmAgent(\nsrc/fast_agent/agents/workflow/evaluator_optimizer.py:18:from fast_agent.agents.llm_agent import LlmAgent\nsrc/fast_agent/agents/workflow/evaluator_optimizer.py:57:class EvaluatorOptimizerAgent(LlmAgent):\nsrc/fast_agent/agents/workflow/evaluator_optimizer.py:87:            generator_agent: LlmAgent that generates the initial and refined responses\nsrc/fast_agent/agents/workflow/evaluator_optimizer.py:88:            evaluator_agent: LlmAgent that evaluates responses and provides feedback\nsrc/fast_agent/agents/workflow/maker_agent.py:29:from fast_agent.agents.llm_agent import LlmAgent\nsrc/fast_agent/agents/workflow/maker_agent.py:75:class MakerAgent(LlmAgent):\nsrc/fast_agent/agents/workflow/agents_as_tools_agent.py:211:    from fast_agent.agents.llm_agent import LlmAgent\nsrc/fast_agent/agents/workflow/agents_as_tools_agent.py:303:        agents: list[LlmAgent],\nsrc/fast_agent/agents/workflow/agents_as_tools_agent.py:319:        self._child_agents: dict[str, LlmAgent] = {}\nsrc/fast_agent/agents/workflow/agents_as_tools_agent.py:406:    def _child_display_suppressed(self, child: LlmAgent):\nsrc/fast_agent/agents/workflow/agents_as_tools_agent.py:436:        self, target: LlmAgent, clone: LlmAgent, start_index: int\nsrc/fast_agent/agents/workflow/agents_as_tools_agent.py:460:        child: LlmAgent,\nsrc/fast_agent/agents/workflow/agents_as_tools_agent.py:507:    def _resolve_child_agent(self, name: str) -> LlmAgent | None:\nsrc/fast_agent/agents/workflow/iterative_planner.py:12:from fast_agent.agents.llm_agent import LlmAgent\nsrc/fast_agent/agents/workflow/iterative_planner.py:158:class IterativePlanner(LlmAgent):\nsrc/fast_agent/agents/__init__.py:7:    from fast_agent.agents import McpAgent, ToolAgent, LlmAgent\nsrc/fast_agent/agents/__init__.py:17:    if name == \"LlmAgent\":\nsrc/fast_agent/agents/__init__.py:18:        from .llm_agent import LlmAgent\nsrc/fast_agent/agents/__init__.py:20:        return LlmAgent\nsrc/fast_agent/agents/__init__.py:58:    from .llm_agent import LlmAgent as LlmAgent  # noqa: F401\nsrc/fast_agent/agents/__init__.py:73:    \"LlmAgent\",\nsrc/fast_agent/mcp/interfaces.py:20:    LlmAgentProtocol,\nsrc/fast_agent/mcp/interfaces.py:32:    \"LlmAgentProtocol\",\nsrc/fast_agent/agents/workflow/chain_agent.py:15:from fast_agent.agents.llm_agent import LlmAgent\nsrc/fast_agent/agents/workflow/chain_agent.py:24:class ChainAgent(LlmAgent):\nsrc/fast_agent/agents/workflow/chain_agent.py:39:        agents: List[LlmAgent],\nsrc/fast_agent/agents/llm_agent.py:40:class LlmAgent(LlmDecorator):\nsrc/fast_agent/agents/workflow/parallel_agent.py:9:from fast_agent.agents.llm_agent import LlmAgent\nsrc/fast_agent/agents/workflow/parallel_agent.py:17:class ParallelAgent(LlmAgent):\nsrc/fast_agent/agents/workflow/router_agent.py:15:from fast_agent.agents.llm_agent import LlmAgent\nsrc/fast_agent/agents/workflow/router_agent.py:62:class RouterAgent(LlmAgent):\nsrc/fast_agent/agents/workflow/router_agent.py:76:        agents: List[LlmAgent],\nsrc/fast_agent/agents/workflow/router_agent.py:151:        agents: List[LlmAgent], routing_instruction: Optional[str] = None\nsrc/fast_agent/agents/workflow/router_agent.py:218:            agent: LlmAgent = self.agent_map[route.agent]\nsrc/fast_agent/agents/workflow/router_agent.py:269:            agent: LlmAgent = self.agent_map[route.agent]\nsrc/fast_agent/agents/llm_decorator.py:2:Decorator for LlmAgent, normalizes PromptMessageExtended, allows easy extension of Agents\nsrc/fast_agent/agents/llm_decorator.py:24:    from fast_agent.agents.llm_agent import LlmAgent\nsrc/fast_agent/agents/llm_decorator.py:166:    A pure delegation wrapper around LlmAgent instances.\nsrc/fast_agent/agents/llm_decorator.py:328:    def merge_usage_from(self, other: \"LlmAgent\") -> None:\nsrc/fast_agent/interfaces.py:43:    \"LlmAgentProtocol\",\nsrc/fast_agent/interfaces.py:139:class LlmAgentProtocol(Protocol):\nsrc/fast_agent/interfaces.py:161:class AgentProtocol(LlmAgentProtocol, Protocol):\nprocess exit code was 0"
+            }
+          ],
+          "isError": false,
+          "exit_code": 0
+        }
+      },
+      "channels": {
+        "fast-agent-tool-timing": [
+          {
+            "type": "text",
+            "text": "{\"1e7310bab\": {\"timing_ms\": 21.43, \"transport_channel\": null}}"
+          }
+        ]
+      },
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [],
+      "tool_calls": {
+        "147d12539": {
+          "method": "tools/call",
+          "params": {
+            "name": "execute",
+            "arguments": {
+              "command": "rg -n -S -g 'src/fast_agent/**/*.py' -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' -g '!*.json' -g '!*.jsonl' -g '!stream-debug/*' 'spawn_detached_instance' src/fast_agent"
+            }
+          }
+        }
+      },
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "We have LlmAgent defined in src/fast_agent/agents/llm_agent.py. Let's open file.Search for spawn_detached_instance.Search in repo."
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 90939.315122432, \"end_time\": 90943.103667947, \"duration_ms\": 3788.55}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 4301, \"output_tokens\": 165, \"total_tokens\": 4466, \"timestamp\": 1769091385.7892156, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 2303, \"total_cache_tokens\": 2303, \"has_cache_activity\": true}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 4466, \"effective_input_tokens\": 1998, \"display_input_tokens\": 4301}, \"raw_usage\": {\"completion_tokens\": 165, \"prompt_tokens\": 4301, \"total_tokens\": 4466, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 2303}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 3, \"cumulative_input_tokens\": 9276, \"cumulative_output_tokens\": 438, \"cumulative_billing_tokens\": 9714, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 3, \"current_context_tokens\": 4466, \"context_window_size\": 131072, \"context_usage_percentage\": 3.40728759765625, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 4606, \"cache_hit_rate_percent\": 33.179657109926524, \"cumulative_effective_input_tokens\": 4670}}"
+          }
+        ]
+      },
+      "stop_reason": "toolUse",
+      "is_template": false
+    },
+    {
+      "role": "user",
+      "content": [],
+      "tool_results": {
+        "147d12539": {
+          "content": [
+            {
+              "type": "text",
+              "text": "src/fast_agent/agents/tool_agent.py:199:            clone = await child.spawn_detached_instance(name=f\"{child.name}[tool]\")\nsrc/fast_agent/agents/workflow/agents_as_tools_agent.py:130:  per-call wrapper and passes it into `spawn_detached_instance`, so the template child object\nsrc/fast_agent/agents/workflow/agents_as_tools_agent.py:145:    `spawn_detached_instance`, so runtime work happens inside short-lived replicas.\nsrc/fast_agent/agents/workflow/agents_as_tools_agent.py:760:                clone = await child.spawn_detached_instance(name=instance_name)\nsrc/fast_agent/tools/hook_loader.py:130:    hooks work correctly when copied to cloned agents (e.g., via spawn_detached_instance).\nsrc/fast_agent/agents/llm_decorator.py:291:    async def spawn_detached_instance(self, *, name: str | None = None) -> Self:\nprocess exit code was 0"
+            }
+          ],
+          "isError": false,
+          "exit_code": 0
+        }
+      },
+      "channels": {
+        "fast-agent-tool-timing": [
+          {
+            "type": "text",
+            "text": "{\"147d12539\": {\"timing_ms\": 20.26, \"transport_channel\": null}}"
+          }
+        ]
+      },
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [],
+      "tool_calls": {
+        "f8b226648": {
+          "method": "tools/call",
+          "params": {
+            "name": "execute",
+            "arguments": {
+              "command": "rg -n -C 4 -g 'src/fast_agent/agents/llm_decorator.py' -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' -g '!*.json' -g '!*.jsonl' -g '!stream-debug/*' '' src/fast_agent/agents/llm_decorator.py"
+            }
+          }
+        }
+      },
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "We need implementation of spawn_detached_instance. Likely in llm_decorator base class. Open src/fast_agent/agents/llm_decorator.py near line 291."
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 90943.12706672, \"end_time\": 90945.625815767, \"duration_ms\": 2498.75}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 4662, \"output_tokens\": 161, \"total_tokens\": 4823, \"timestamp\": 1769091388.3113678, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 2303, \"total_cache_tokens\": 2303, \"has_cache_activity\": true}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 4823, \"effective_input_tokens\": 2359, \"display_input_tokens\": 4662}, \"raw_usage\": {\"completion_tokens\": 161, \"prompt_tokens\": 4662, \"total_tokens\": 4823, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 2303}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 4, \"cumulative_input_tokens\": 13938, \"cumulative_output_tokens\": 599, \"cumulative_billing_tokens\": 14537, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 4, \"current_context_tokens\": 4823, \"context_window_size\": 131072, \"context_usage_percentage\": 3.679656982421875, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 6909, \"cache_hit_rate_percent\": 33.14145920276299, \"cumulative_effective_input_tokens\": 7029}}"
+          }
+        ]
+      },
+      "stop_reason": "toolUse",
+      "is_template": false
+    },
+    {
+      "role": "user",
+      "content": [],
+      "tool_results": {
+        "f8b226648": {
+          "content": [
+            {
+              "type": "text",
+              "text": "1:\"\"\"\n2:Decorator for LlmAgent, normalizes PromptMessageExtended, allows easy extension of Agents\n3:\"\"\"\n4:\n5:import json\n6:from collections import Counter, defaultdict\n7:from copy import deepcopy\n8:from dataclasses import dataclass\n9:from typing import (\n10:    TYPE_CHECKING,\n11:    Any,\n12:    Callable,\n13:    Mapping,\n14:    Self,\n15:    Sequence,\n16:    Type,\n17:    TypeVar,\n18:    Union,\n19:)\n20:\n21:if TYPE_CHECKING:\n22:    from rich.text import Text\n23:\n24:    from fast_agent.agents.llm_agent import LlmAgent\n25:    from fast_agent.agents.tool_runner import ToolRunnerHooks\n26:\n27:from a2a.types import AgentCard\n28:from mcp import ListToolsResult, Tool\n29:from mcp.types import (\n30:    CallToolResult,\n31:    ContentBlock,\n32:    EmbeddedResource,\n33:    GetPromptResult,\n34:    ImageContent,\n35:    Prompt,\n36:    PromptMessage,\n37:    ReadResourceResult,\n38:    ResourceLink,\n39:    TextContent,\n40:    TextResourceContents,\n41:)\n42:from opentelemetry import trace\n43:from pydantic import BaseModel\n44:\n45:from fast_agent.agents.agent_types import AgentConfig, AgentType\n46:from fast_agent.constants import (\n47:    CONTROL_MESSAGE_SAVE_HISTORY,\n48:    FAST_AGENT_ERROR_CHANNEL,\n49:    FAST_AGENT_REMOVED_METADATA_CHANNEL,\n50:)\n51:from fast_agent.context import Context\n52:from fast_agent.core.logging.logger import get_logger\n53:from fast_agent.interfaces import (\n54:    AgentProtocol,\n55:    FastAgentLLMProtocol,\n56:    LLMFactoryProtocol,\n57:    StreamingAgentProtocol,\n58:    ToolRunnerHookCapable,\n59:)\n60:from fast_agent.llm.model_database import ModelDatabase\n61:from fast_agent.llm.provider_types import Provider\n62:from fast_agent.llm.stream_types import StreamChunk\n63:from fast_agent.llm.usage_tracking import UsageAccumulator\n64:from fast_agent.mcp.helpers.content_helpers import normalize_to_extended_list, text_content\n65:from fast_agent.mcp.mime_utils import is_text_mime_type\n66:from fast_agent.types import PromptMessageExtended, RequestParams\n67:\n68:# Define a TypeVar for models\n69:ModelT = TypeVar(\"ModelT\", bound=BaseModel)\n70:\n71:LLM = TypeVar(\"LLM\", bound=FastAgentLLMProtocol)\n72:\n73:\n74:class StreamingNotAvailableError(RuntimeError):\n75:    \"\"\"Raised when streaming APIs are accessed before an LLM is attached.\"\"\"\n76:\n77:\n78:logger = get_logger(__name__)\n79:\n80:\n81:class StreamingAgentMixin(StreamingAgentProtocol):\n82:    \"\"\"Mixin that forwards streaming listener registration to the attached LLM.\"\"\"\n83:\n84:    def add_stream_listener(self, listener: Callable[[StreamChunk], None]) -> Callable[[], None]:\n85:        llm = getattr(self, \"_llm\", None)\n86:        if not llm:\n87:            logger.debug(\n88:                \"Skipping stream listener registration because no LLM is attached\",\n89:                name=getattr(self, \"_name\", \"unknown\"),\n90:            )\n91:\n92:            def remove_listener() -> None:\n93:                return None\n94:\n95:            return remove_listener\n96:        return llm.add_stream_listener(listener)\n97:\n98:    def add_structured_stream_listener(\n99:        self, listener: Callable[[str, bool], None]\n100:    ) -> Callable[[], None]:\n101:        llm = getattr(self, \"_llm\", None)\n102:        if not llm:\n103:            logger.debug(\n104:                \"Skipping structured stream listener registration because no LLM is attached\",\n105:                name=getattr(self, \"_name\", \"unknown\"),\n106:            )\n107:\n108:            def remove_listener() -> None:\n109:                return None\n110:\n111:            return remove_listener\n112:        return llm.add_structured_stream_listener(listener)\n113:\n114:    def add_tool_stream_listener(\n115:        self, listener: Callable[[str, dict[str, Any] | None], None]\n116:    ) -> Callable[[], None]:\n117:        llm = getattr(self, \"_llm\", None)\n118:        if not llm:\n119:            logger.debug(\n120:                \"Skipping tool stream listener registration because no LLM is attached\",\n121:                name=getattr(self, \"_name\", \"unknown\"),\n122:            )\n123:\n124:            def remove_listener() -> None:\n125:                return None\n126:\n127:            return remove_listener\n128:        return llm.add_tool_stream_listener(listener)\n129:\n130:\n131:@dataclass\n132:class _RemovedBlock:\n133:    \"\"\"Internal representation of a removed content block.\"\"\"\n134:\n135:    category: str\n136:    mime_type: str | None\n137:    source: str\n138:    tool_id: str | None\n139:    block: ContentBlock\n140:\n141:\n142:@dataclass(frozen=True)\n143:class RemovedContentSummary:\n144:    \"\"\"Summary information about removed content for the last turn.\"\"\"\n145:\n146:    model_name: str | None\n147:    counts: dict[str, int]\n148:    category_mimes: dict[str, tuple[str, ...]]\n149:    alert_flags: frozenset[str]\n150:    message: str\n151:\n152:\n153:@dataclass\n154:class _CallContext:\n155:    \"\"\"Internal helper for assembling an LLM call.\"\"\"\n156:\n157:    full_history: list[PromptMessageExtended]\n158:    call_params: RequestParams | None\n159:    persist_history: bool\n160:    sanitized_messages: list[PromptMessageExtended]\n161:    summary: RemovedContentSummary | None\n162:\n163:\n164:class LlmDecorator(StreamingAgentMixin, AgentProtocol):\n165:    \"\"\"\n166:    A pure delegation wrapper around LlmAgent instances.\n167:\n168:    This class provides simple delegation to an attached LLM without adding\n169:    any LLM interaction behaviors. Subclasses can add specialized logic\n170:    for stop reason handling, UI display, tool execution, etc.\n171:\n172:    Stub implementations of advanced convenience methods are supplied.\n173:    \"\"\"\n174:\n175:    def __init__(\n176:        self,\n177:        config: AgentConfig,\n178:        context: Context | None = None,\n179:    ) -> None:\n180:        self.config = config\n181:\n182:        self._context = context\n183:        self._name = self.config.name\n184:        self._tracer = trace.get_tracer(__name__)\n185:        self._instruction = self.config.instruction\n186:\n187:        # Agent-owned conversation state (PromptMessageExtended only)\n188:        self._message_history: list[PromptMessageExtended] = []\n189:\n190:        # Store the default request params from config\n191:        self._default_request_params = self.config.default_request_params\n192:\n193:        # Initialize the LLM to None (will be set by attach_llm)\n194:        self._llm: FastAgentLLMProtocol | None = None\n195:        self._initialized = False\n196:        self._llm_factory_ref: LLMFactoryProtocol | None = None\n197:        self._llm_attach_kwargs: dict[str, Any] | None = None\n198:\n199:    @property\n200:    def context(self) -> Context | None:\n201:        \"\"\"Optional execution context supplied at construction time.\"\"\"\n202:        return self._context\n203:\n204:    @property\n205:    def initialized(self) -> bool:\n206:        \"\"\"Check if the agent is initialized.\"\"\"\n207:        return self._initialized\n208:\n209:    @initialized.setter\n210:    def initialized(self, value: bool) -> None:\n211:        \"\"\"Set the initialized state.\"\"\"\n212:        self._initialized = value\n213:\n214:    async def initialize(self) -> None:\n215:        self.initialized = True\n216:\n217:    async def shutdown(self) -> None:\n218:        self.initialized = False\n219:\n220:    @property\n221:    def instruction(self) -> str:\n222:        \"\"\"Return the agent's instruction/system prompt.\"\"\"\n223:        return self._instruction\n224:\n225:    def set_instruction(self, instruction: str) -> None:\n226:        \"\"\"Set the agent's instruction/system prompt.\"\"\"\n227:        self._instruction = instruction\n228:        if self._default_request_params:\n229:            self._default_request_params.systemPrompt = instruction\n230:\n231:    @property\n232:    def agent_type(self) -> AgentType:\n233:        \"\"\"\n234:        Return the type of this agent.\n235:        \"\"\"\n236:        return AgentType.LLM\n237:\n238:    @property\n239:    def name(self) -> str:\n240:        \"\"\"\n241:        Return the name of this agent.\n242:        \"\"\"\n243:        return self._name\n244:\n245:    async def attach_llm(\n246:        self,\n247:        llm_factory: LLMFactoryProtocol,\n248:        model: str | None = None,\n249:        request_params: RequestParams | None = None,\n250:        **additional_kwargs,\n251:    ) -> FastAgentLLMProtocol:\n252:        \"\"\"\n253:        Create and attach an LLM instance to this agent.\n254:\n255:        Parameters have the following precedence (highest to lowest):\n256:        1. Explicitly passed parameters to this method\n257:        2. Agent's default_request_params\n258:        3. LLM's default values\n259:\n260:        Args:\n261:            llm_factory: A factory function that constructs an AugmentedLLM\n262:            model: Optional model name override\n263:            request_params: Optional request parameters override\n264:            **additional_kwargs: Additional parameters passed to the LLM constructor\n265:\n266:        Returns:\n267:            The created LLM instance\n268:        \"\"\"\n269:        # Merge parameters with proper precedence\n270:        effective_params = self._merge_request_params(\n271:            self._default_request_params, request_params, model\n272:        )\n273:\n274:        # Create the LLM instance\n275:        self._llm = llm_factory(\n276:            agent=self, request_params=effective_params, context=self._context, **additional_kwargs\n277:        )\n278:\n279:        # Store attachment details for future cloning\n280:        self._llm_factory_ref = llm_factory\n281:        attach_kwargs: dict[str, Any] = dict(additional_kwargs)\n282:        attach_kwargs[\"request_params\"] = deepcopy(effective_params)\n283:        self._llm_attach_kwargs = attach_kwargs\n284:\n285:        return self._llm\n286:\n287:    def _clone_constructor_kwargs(self) -> dict[str, Any]:\n288:        \"\"\"Hook for subclasses/mixins to supply constructor kwargs when cloning.\"\"\"\n289:        return {}\n290:\n291:    async def spawn_detached_instance(self, *, name: str | None = None) -> Self:\n292:        \"\"\"Create a fresh agent instance with its own MCP/LLM stack.\"\"\"\n293:\n294:        new_config = deepcopy(self.config)\n295:        if name:\n296:            new_config.name = name\n297:\n298:        constructor_kwargs = self._clone_constructor_kwargs()\n299:        clone = type(self)(config=new_config, context=self.context, **constructor_kwargs)\n300:        await clone.initialize()\n301:\n302:        # Copy tool_runner_hooks if present\n303:        hooks: ToolRunnerHooks | None = None\n304:        if isinstance(self, ToolRunnerHookCapable):\n305:            hooks = self.tool_runner_hooks\n306:        if hooks is not None and isinstance(clone, ToolRunnerHookCapable):\n307:            clone.tool_runner_hooks = hooks\n308:\n309:        if self._llm_factory_ref is not None:\n310:            if self._llm_attach_kwargs is None:\n311:                raise RuntimeError(\n312:                    \"LLM attachment parameters missing despite factory being available\"\n313:                )\n314:\n315:            attach_kwargs = dict(self._llm_attach_kwargs)\n316:            request_params = attach_kwargs.pop(\"request_params\", None)\n317:            if request_params is not None:\n318:                request_params = deepcopy(request_params)\n319:\n320:            await clone.attach_llm(\n321:                self._llm_factory_ref,\n322:                request_params=request_params,\n323:                **attach_kwargs,\n324:            )\n325:\n326:        return clone\n327:\n328:    def merge_usage_from(self, other: \"LlmAgent\") -> None:\n329:        \"\"\"Merge LLM usage metrics from another agent instance into this one.\"\"\"\n330:\n331:        if not hasattr(self, \"_llm\") or not hasattr(other, \"_llm\"):\n332:            return\n333:\n334:        source_llm = getattr(other, \"_llm\", None)\n335:        target_llm = getattr(self, \"_llm\", None)\n336:        if not source_llm or not target_llm:\n337:            return\n338:\n339:        source_usage = getattr(source_llm, \"usage_accumulator\", None)\n340:        target_usage = getattr(target_llm, \"usage_accumulator\", None)\n341:        if not source_usage or not target_usage:\n342:            return\n343:\n344:        for turn in source_usage.turns:\n345:            try:\n346:                target_usage.add_turn(turn.model_copy(deep=True))\n347:            except AttributeError:\n348:                # Fallback if turn doesn't provide model_copy\n349:                target_usage.add_turn(turn)\n350:\n351:    async def __call__(\n352:        self,\n353:        message: Union[\n354:            str,\n355:            PromptMessage,\n356:            PromptMessageExtended,\n357:            Sequence[Union[str, PromptMessage, PromptMessageExtended]],\n358:        ],\n359:    ) -> str:\n360:        \"\"\"\n361:        Make the agent callable to send messages.\n362:\n363:        Args:\n364:            message: Optional message to send to the agent\n365:\n366:        Returns:\n367:            The agent's response as a string\n368:        \"\"\"\n369:        return await self.send(message)\n370:\n371:    async def send(\n372:        self,\n373:        message: Union[\n374:            str,\n375:            PromptMessage,\n376:            PromptMessageExtended,\n377:            Sequence[Union[str, PromptMessage, PromptMessageExtended]],\n378:        ],\n379:        request_params: RequestParams | None = None,\n380:    ) -> str:\n381:        \"\"\"\n382:        Convenience method to generate and return a string directly\n383:        \"\"\"\n384:        response = await self.generate(message, request_params)\n385:        return response.last_text() or \"\"\n386:\n387:    async def generate(\n388:        self,\n389:        messages: Union[\n390:            str,\n391:            PromptMessage,\n392:            PromptMessageExtended,\n393:            Sequence[Union[str, PromptMessage, PromptMessageExtended]],\n394:        ],\n395:        request_params: RequestParams | None = None,\n396:        tools: list[Tool] | None = None,\n397:    ) -> PromptMessageExtended:\n398:        \"\"\"\n399:        Create a completion with the LLM using the provided messages.\n400:\n401:        This method provides the friendly agent interface by normalizing inputs\n402:        and delegating to generate_impl.\n403:\n404:        Args:\n405:            messages: Message(s) in various formats:\n406:                - String: Converted to a user PromptMessageExtended\n407:                - PromptMessage: Converted to PromptMessageExtended\n408:                - PromptMessageExtended: Used directly\n409:                - List of any combination of the above\n410:            request_params: Optional parameters to configure the request\n411:            tools: Optional list of tools available to the LLM\n412:\n413:        Returns:\n414:            The LLM's response as a PromptMessageExtended\n415:        \"\"\"\n416:        # Normalize all input types to a list of PromptMessageExtended\n417:        multipart_messages = normalize_to_extended_list(messages)\n418:        final_request_params = (\n419:            self.llm.get_request_params(request_params) if self.llm else request_params\n420:        )\n421:\n422:        with self._tracer.start_as_current_span(f\"Agent: '{self._name}' generate\"):\n423:            return await self.generate_impl(\n424:                multipart_messages, final_request_params, tools\n425:            )\n426:\n427:    async def generate_impl(\n428:        self,\n429:        messages: list[PromptMessageExtended],\n430:        request_params: RequestParams | None = None,\n431:        tools: list[Tool] | None = None,\n432:    ) -> PromptMessageExtended:\n433:        \"\"\"\n434:        Implementation method for generate.\n435:\n436:        Default implementation delegates to the attached LLM.\n437:        Subclasses can override this to customize behavior while still\n438:        benefiting from the message normalization in generate().\n439:\n440:        Args:\n441:            messages: Normalized list of PromptMessageExtended objects\n442:            request_params: Optional parameters to configure the request\n443:            tools: Optional list of tools available to the LLM\n444:\n445:        Returns:\n446:            The LLM's response as a PromptMessageExtended\n447:        \"\"\"\n448:        response, _ = await self._generate_with_summary(\n449:            messages, request_params, tools\n450:        )\n451:        return response\n452:\n453:    async def apply_prompt_template(self, prompt_result: GetPromptResult, prompt_name: str) -> str:\n454:        \"\"\"\n455:        Apply a prompt template as persistent context that will be included in all future conversations.\n456:        Delegates to the attached LLM.\n457:\n458:        Args:\n459:            prompt_result: The GetPromptResult containing prompt messages\n460:            prompt_name: The name of the prompt being applied\n461:\n462:        Returns:\n463:            String representation of the assistant's response if generated\n464:        \"\"\"\n465:        from fast_agent.types import PromptMessageExtended\n466:\n467:        assert self._llm\n468:\n469:        multipart_messages = PromptMessageExtended.parse_get_prompt_result(prompt_result)\n470:        for msg in multipart_messages:\n471:            msg.is_template = True\n472:\n473:        self._message_history = [msg.model_copy(deep=True) for msg in multipart_messages]\n474:\n475:        return await self._llm.apply_prompt_template(prompt_result, prompt_name)\n476:\n477:    async def apply_prompt(\n478:        self,\n479:        prompt: Union[str, GetPromptResult],\n480:        arguments: dict[str, str] | None = None,\n481:        as_template: bool = False,\n482:        namespace: str | None = None,\n483:    ) -> str:\n484:        \"\"\"\n485:        Default, provider-agnostic apply_prompt implementation.\n486:\n487:        - If given a GetPromptResult, optionally store as template or generate once.\n488:        - If given a string, treat it as plain user text and generate.\n489:\n490:        Subclasses that integrate MCP servers should override this.\n491:        \"\"\"\n492:        # If a prompt template object is provided\n493:        if isinstance(prompt, GetPromptResult):\n494:            namespaced_name = getattr(prompt, \"namespaced_name\", \"template\")\n495:            if as_template:\n496:                return await self.apply_prompt_template(prompt, namespaced_name)\n497:\n498:            messages = PromptMessageExtended.from_get_prompt_result(prompt)\n499:            response = await self.generate_impl(messages, None)\n500:            return response.first_text()\n501:\n502:        # Otherwise treat the string as plain content (ignore arguments here)\n503:        return await self.send(prompt)\n504:\n505:    def clear(self, *, clear_prompts: bool = False) -> None:\n506:        \"\"\"Reset conversation state while optionally retaining applied prompt templates.\"\"\"\n507:\n508:        if not self._llm:\n509:            return\n510:        self._llm.clear(clear_prompts=clear_prompts)\n511:        if clear_prompts:\n512:            self._message_history = []\n513:        else:\n514:            template_prefix = self._template_prefix_messages()\n515:            self._message_history = [msg.model_copy(deep=True) for msg in template_prefix]\n516:\n517:    async def structured(\n518:        self,\n519:        messages: Union[\n520:            str,\n521:            PromptMessage,\n522:            PromptMessageExtended,\n523:            Sequence[Union[str, PromptMessage, PromptMessageExtended]],\n524:        ],\n525:        model: Type[ModelT],\n526:        request_params: RequestParams | None = None,\n527:    ) -> tuple[ModelT | None, PromptMessageExtended]:\n528:        \"\"\"\n529:        Apply the prompt and return the result as a Pydantic model.\n530:\n531:        This method provides the friendly agent interface by normalizing inputs\n532:        and delegating to structured_impl.\n533:\n534:        Args:\n535:            messages: Message(s) in various formats:\n536:                - String: Converted to a user PromptMessageExtended\n537:                - PromptMessage: Converted to PromptMessageExtended\n538:                - PromptMessageExtended: Used directly\n539:                - List of any combination of the above\n540:            model: The Pydantic model class to parse the result into\n541:            request_params: Optional parameters to configure the LLM request\n542:\n543:        Returns:\n544:            A tuple of (parsed model instance or None, assistant response message)\n545:        \"\"\"\n546:        # Normalize all input types to a list of PromptMessageExtended\n547:        multipart_messages = normalize_to_extended_list(messages)\n548:        final_request_params = (\n549:            self.llm.get_request_params(request_params) if self.llm else request_params\n550:        )\n551:\n552:        with self._tracer.start_as_current_span(f\"Agent: '{self._name}' structured\"):\n553:            return await self.structured_impl(multipart_messages, model, final_request_params)\n554:\n555:    async def structured_impl(\n556:        self,\n557:        messages: list[PromptMessageExtended],\n558:        model: Type[ModelT],\n559:        request_params: RequestParams | None = None,\n560:    ) -> tuple[ModelT | None, PromptMessageExtended]:\n561:        \"\"\"\n562:        Implementation method for structured.\n563:\n564:        Default implementation delegates to the attached LLM.\n565:        Subclasses can override this to customize behavior while still\n566:        benefiting from the message normalization in structured().\n567:\n568:        Args:\n569:            messages: Normalized list of PromptMessageExtended objects\n570:            model: The Pydantic model class to parse the result into\n571:            request_params: Optional parameters to configure the LLM request\n572:\n573:        Returns:\n574:            A tuple of (parsed model instance or None, assistant response message)\n575:        \"\"\"\n576:        result, _ = await self._structured_with_summary(messages, model, request_params)\n577:        return result\n578:\n579:    async def _generate_with_summary(\n580:        self,\n581:        messages: list[PromptMessageExtended],\n582:        request_params: RequestParams | None = None,\n583:        tools: list[Tool] | None = None,\n584:    ) -> tuple[PromptMessageExtended, RemovedContentSummary | None]:\n585:        assert self._llm, \"LLM is not attached\"\n586:        call_ctx = self._prepare_llm_call(messages, request_params)\n587:\n588:        response = await self._llm.generate(\n589:            call_ctx.full_history, call_ctx.call_params, tools\n590:        )\n591:\n592:        if call_ctx.persist_history:\n593:            self._persist_history(call_ctx.sanitized_messages, response)\n594:\n595:        return response, call_ctx.summary\n596:\n597:    async def _structured_with_summary(\n598:        self,\n599:        messages: list[PromptMessageExtended],\n600:        model: Type[ModelT],\n601:        request_params: RequestParams | None = None,\n602:    ) -> tuple[tuple[ModelT | None, PromptMessageExtended], RemovedContentSummary | None]:\n603:        assert self._llm, \"LLM is not attached\"\n604:        call_ctx = self._prepare_llm_call(messages, request_params)\n605:\n606:        structured_result = await self._llm.structured(\n607:            call_ctx.full_history, model, call_ctx.call_params\n608:        )\n609:\n610:        if call_ctx.persist_history:\n611:            try:\n612:                _, assistant_message = structured_result\n613:                self._persist_history(call_ctx.sanitized_messages, assistant_message)\n614:            except Exception:\n615:                pass\n616:        return structured_result, call_ctx.summary\n617:\n618:    def _prepare_llm_call(\n619:        self, messages: list[PromptMessageExtended], request_params: RequestParams | None = None\n620:    ) -> _CallContext:\n621:        \"\"\"Normalize template/history handling for both generate and structured.\"\"\"\n622:        sanitized_messages, summary = self._sanitize_messages_for_llm(messages)\n623:        final_request_params = self._require_llm().get_request_params(request_params)\n624:\n625:        use_history = final_request_params.use_history if final_request_params else True\n626:        call_params = final_request_params.model_copy() if final_request_params else None\n627:        if call_params and not call_params.use_history:\n628:            call_params.use_history = True\n629:\n630:        base_history = self._message_history if use_history else self._template_prefix_messages()\n631:        full_history = [msg.model_copy(deep=True) for msg in base_history]\n632:        full_history.extend(sanitized_messages)\n633:\n634:        return _CallContext(\n635:            full_history=full_history,\n636:            call_params=call_params,\n637:            persist_history=use_history,\n638:            sanitized_messages=sanitized_messages,\n639:            summary=summary,\n640:        )\n641:\n642:    def _persist_history(\n643:        self,\n644:        sanitized_messages: list[PromptMessageExtended],\n645:        assistant_message: PromptMessageExtended,\n646:    ) -> None:\n647:        \"\"\"Persist the last turn unless explicitly disabled by control text.\"\"\"\n648:        if not sanitized_messages:\n649:            return\n650:        if sanitized_messages[-1].first_text().startswith(CONTROL_MESSAGE_SAVE_HISTORY):\n651:            return\n652:\n653:        history_messages = [self._strip_removed_metadata(msg) for msg in sanitized_messages]\n654:        self._message_history.extend(history_messages)\n655:        self._message_history.append(assistant_message)\n656:\n657:    @staticmethod\n658:    def _strip_removed_metadata(message: PromptMessageExtended) -> PromptMessageExtended:\n659:        \"\"\"Remove per-turn removed-content metadata before persisting to history.\"\"\"\n660:        msg_copy = message.model_copy(deep=True)\n661:        if msg_copy.channels and FAST_AGENT_REMOVED_METADATA_CHANNEL in msg_copy.channels:\n662:            channels = dict(msg_copy.channels)\n663:            channels.pop(FAST_AGENT_REMOVED_METADATA_CHANNEL, None)\n664:            msg_copy.channels = channels if channels else None\n665:        return msg_copy\n666:\n667:    def _sanitize_messages_for_llm(\n668:        self, messages: list[PromptMessageExtended]\n669:    ) -> tuple[list[PromptMessageExtended], RemovedContentSummary | None]:\n670:        \"\"\"Filter out content blocks that the current model cannot tokenize.\"\"\"\n671:        if not messages:\n672:       \n[Output truncated after 26208 bytes]\nprocess exit code was 0"
+            }
+          ],
+          "isError": false,
+          "exit_code": 0
+        }
+      },
+      "channels": {
+        "fast-agent-tool-timing": [
+          {
+            "type": "text",
+            "text": "{\"f8b226648\": {\"timing_ms\": 15.31, \"transport_channel\": null}}"
+          }
+        ]
+      },
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "I hit an internal error while calling the model: hf request failed for model 'openai/gpt-oss-120b' (code: queue_exceeded) (status=429): Error code: 429 - {'message': \"We're experiencing high traffic right now! Please try again soon.\", 'type': 'too_many_requests_error', 'param': 'queue', 'code': 'queue_exceeded'}. See fast-agent-error for additional details."
+        }
+      ],
+      "channels": {
+        "fast-agent-error": [
+          {
+            "type": "text",
+            "text": "hf request failed for model 'openai/gpt-oss-120b' (code: queue_exceeded) (status=429): Error code: 429 - {'message': \"We're experiencing high traffic right now! Please try again soon.\", 'type': 'too_many_requests_error', 'param': 'queue', 'code': 'queue_exceeded'}"
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 90945.644325757, \"end_time\": 90946.065989611, \"duration_ms\": 421.66}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 4662, \"output_tokens\": 161, \"total_tokens\": 4823, \"timestamp\": 1769091388.3113678, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 2303, \"total_cache_tokens\": 2303, \"has_cache_activity\": true}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 0, \"current_context_tokens\": 4823, \"effective_input_tokens\": 2359, \"display_input_tokens\": 4662}, \"raw_usage\": {\"completion_tokens\": 161, \"prompt_tokens\": 4662, \"total_tokens\": 4823, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 2303}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 4, \"cumulative_input_tokens\": 13938, \"cumulative_output_tokens\": 599, \"cumulative_billing_tokens\": 14537, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 3, \"current_context_tokens\": 4823, \"context_window_size\": 131072, \"context_usage_percentage\": 3.679656982421875, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 6909, \"cache_hit_rate_percent\": 33.14145920276299, \"cumulative_effective_input_tokens\": 7029}}"
+          }
+        ]
+      },
+      "stop_reason": "error",
+      "is_template": false
+    }
+  ]
+}

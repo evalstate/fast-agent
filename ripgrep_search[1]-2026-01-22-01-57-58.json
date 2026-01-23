@@ -1,0 +1,163 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "Search for structured() usage in repo."
+        }
+      ],
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [],
+      "tool_calls": {
+        "a662905e9": {
+          "method": "tools/call",
+          "params": {
+            "name": "execute",
+            "arguments": {
+              "command": "pwd"
+            }
+          }
+        }
+      },
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "We need to search repo for \"structured()\" usage. Need repo root. We don't know path. First, check pwd."
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 47419.642796328, \"end_time\": 47420.030072723, \"duration_ms\": 387.28}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 2350, \"output_tokens\": 48, \"total_tokens\": 2398, \"timestamp\": 1769047076.8904886, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 2303, \"total_cache_tokens\": 2303, \"has_cache_activity\": true}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 2398, \"effective_input_tokens\": 47, \"display_input_tokens\": 2350}, \"raw_usage\": {\"completion_tokens\": 48, \"prompt_tokens\": 2350, \"total_tokens\": 2398, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 2303}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 1, \"cumulative_input_tokens\": 2350, \"cumulative_output_tokens\": 48, \"cumulative_billing_tokens\": 2398, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 1, \"current_context_tokens\": 2398, \"context_window_size\": 131072, \"context_usage_percentage\": 1.82952880859375, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 2303, \"cache_hit_rate_percent\": 49.494949494949495, \"cumulative_effective_input_tokens\": 47}}"
+          }
+        ]
+      },
+      "stop_reason": "toolUse",
+      "is_template": false
+    },
+    {
+      "role": "user",
+      "content": [],
+      "tool_results": {
+        "a662905e9": {
+          "content": [
+            {
+              "type": "text",
+              "text": "/home/ssmith/source/fast-agent\nprocess exit code was 0"
+            }
+          ],
+          "isError": false,
+          "exit_code": 0
+        }
+      },
+      "channels": {
+        "fast-agent-tool-timing": [
+          {
+            "type": "text",
+            "text": "{\"a662905e9\": {\"timing_ms\": 10.29, \"transport_channel\": null}}"
+          }
+        ]
+      },
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [],
+      "tool_calls": {
+        "16819a4d6": {
+          "method": "tools/call",
+          "params": {
+            "name": "execute",
+            "arguments": {
+              "command": "rg -n -F 'structured(' -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' -g '!*.json' -g '!*.jsonl' -g '!stream-debug/*' ."
+            }
+          }
+        }
+      },
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "Repo root is /home/ssmith/source/fast-agent. Let's search for \"structured()\" across code. Use rg with exclusions. Should find literal \"structured(\" maybe. Use -F for literal. We'll do rg -n -F 'structured(' . Exclude as per standard."
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 47420.042813397, \"end_time\": 47420.440467363, \"duration_ms\": 397.65}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 2427, \"output_tokens\": 155, \"total_tokens\": 2582, \"timestamp\": 1769047077.3008628, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 2303, \"total_cache_tokens\": 2303, \"has_cache_activity\": true}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 2582, \"effective_input_tokens\": 124, \"display_input_tokens\": 2427}, \"raw_usage\": {\"completion_tokens\": 155, \"prompt_tokens\": 2427, \"total_tokens\": 2582, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 2303}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 2, \"cumulative_input_tokens\": 4777, \"cumulative_output_tokens\": 203, \"cumulative_billing_tokens\": 4980, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 2, \"current_context_tokens\": 2582, \"context_window_size\": 131072, \"context_usage_percentage\": 1.96990966796875, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 4606, \"cache_hit_rate_percent\": 49.088777576468075, \"cumulative_effective_input_tokens\": 171}}"
+          }
+        ]
+      },
+      "stop_reason": "toolUse",
+      "is_template": false
+    },
+    {
+      "role": "user",
+      "content": [],
+      "tool_results": {
+        "16819a4d6": {
+          "content": [
+            {
+              "type": "text",
+              "text": "./tests/e2e/llm/test_llm_e2e.py:171:    structured_output, result = await agent.structured(\n./tests/e2e/structured/test_structured_outputs.py:51:    async def create_structured():\n./tests/e2e/structured/test_structured_outputs.py:53:            thinking, response = await agent.chat.structured(\n./tests/e2e/structured/test_structured_outputs.py:63:    await create_structured()\n./tests/e2e/structured/test_structured_outputs.py:85:    async def create_structured():\n./tests/e2e/structured/test_structured_outputs.py:87:            thinking, response = await agent.chat.structured(\n./tests/e2e/structured/test_structured_outputs.py:100:    await create_structured()\n./tests/e2e/structured/test_structured_outputs.py:152:    async def create_structured():\n./tests/e2e/structured/test_structured_outputs.py:154:            thinking, response = await agent.chat.structured(\n./tests/e2e/structured/test_structured_outputs.py:162:    await create_structured()\n./tests/e2e/structured/test_structured_outputs.py:179:async def test_history_management_with_structured(fast_agent, model_name):\n./tests/e2e/structured/test_structured_outputs.py:188:    async def create_structured():\n./tests/e2e/structured/test_structured_outputs.py:191:            thinking, response = await agent.chat.structured(\n./tests/e2e/structured/test_structured_outputs.py:199:            thinking, response = await agent.chat.structured(\n./tests/e2e/structured/test_structured_outputs.py:215:    await create_structured()\n./tests/e2e/bedrock/test_dynamic_capabilities.py:205:            # Use the correct structured() API\n./tests/e2e/bedrock/test_dynamic_capabilities.py:206:            response, _ = await agent.structured_test.structured(\n./tests/e2e/bedrock/test_dynamic_capabilities.py:227:async def test_bedrock_force_non_streaming_structured(fast_agent, model_name):\n./tests/e2e/bedrock/test_dynamic_capabilities.py:252:            response, _ = await agent.force_non_streaming_test.structured(\n./tests/e2e/bedrock/test_e2e_smoke_bedrock.py:207:def _bedrock_models_for_structured() -> list[str]:\n./tests/e2e/bedrock/test_e2e_smoke_bedrock.py:239:    async def create_structured():\n./tests/e2e/bedrock/test_e2e_smoke_bedrock.py:241:            thinking, response = await agent.chat.structured(\n./tests/e2e/bedrock/test_e2e_smoke_bedrock.py:250:    await create_structured()\n./tests/e2e/bedrock/test_e2e_smoke_bedrock.py:269:    async def create_structured():\n./tests/e2e/bedrock/test_e2e_smoke_bedrock.py:271:            thinking, response = await agent.chat.structured(\n./tests/e2e/bedrock/test_e2e_smoke_bedrock.py:284:    await create_structured()\n./tests/e2e/bedrock/test_e2e_smoke_bedrock.py:331:    async def create_structured():\n./tests/e2e/bedrock/test_e2e_smoke_bedrock.py:333:            thinking, response = await agent.chat.structured(\n./tests/e2e/bedrock/test_e2e_smoke_bedrock.py:341:    await create_structured()\n./tests/e2e/bedrock/test_e2e_smoke_bedrock.py:352:async def test_bedrock_history_management_with_structured(fast_agent, model_name):\n./tests/e2e/bedrock/test_e2e_smoke_bedrock.py:373:    async def create_structured():\n./tests/e2e/bedrock/test_e2e_smoke_bedrock.py:376:            thinking, response = await agent.chat.structured(\n./tests/e2e/bedrock/test_e2e_smoke_bedrock.py:382:            thinking, response = await agent.chat.structured(\n./tests/e2e/bedrock/test_e2e_smoke_bedrock.py:396:    await create_structured()\n./src/fast_agent/agents/llm_decorator.py:517:    async def structured(\n./src/fast_agent/agents/llm_decorator.py:566:        benefiting from the message normalization in structured().\n./src/fast_agent/agents/llm_decorator.py:606:        structured_result = await self._llm.structured(\n./src/fast_agent/agents/workflow/iterative_planner.py:308:            return await self._llm.structured([prompt_message], model, request_params)\n./src/fast_agent/agents/workflow/iterative_planner.py:538:            next_step, raw_response = await self._llm.structured(\n./src/fast_agent/agents/workflow/evaluator_optimizer.py:166:                    evaluation_result, _ = await self.evaluator_agent.structured(\n./src/fast_agent/agents/workflow/evaluator_optimizer.py:265:        return await self.generator_agent.structured([structured_prompt], model, request_params)\n./src/fast_agent/llm/fastagent_llm.py:442:    async def structured(\n./src/fast_agent/llm/fastagent_llm.py:544:    async def _apply_prompt_provider_specific_structured(\n./src/fast_agent/agents/workflow/parallel_agent.py:162:            return await self._fan_in_structured(formatted_prompt, model, request_params)\n./src/fast_agent/agents/workflow/parallel_agent.py:234:    async def _fan_in_structured(\n./src/fast_agent/agents/workflow/parallel_agent.py:248:            result = await self.fan_in_agent.structured([prompt], model, request_params)\n./src/fast_agent/agents/workflow/chain_agent.py:185:            return await last_agent.structured([response], model, forward_params)\n./src/fast_agent/agents/workflow/router_agent.py:318:        response, _ = await self._llm.structured(\n./src/fast_agent/agents/workflow/maker_agent.py:362:        return await self.worker_agent.structured(\n./src/fast_agent/llm/provider/google/llm_google_native.py:630:    async def _apply_prompt_provider_specific_structured(\n./src/fast_agent/llm/provider/anthropic/llm_anthropic.py:850:    async def _apply_prompt_provider_specific_structured(\n./src/fast_agent/llm/internal/playback.py:113:    async def structured(\n./src/fast_agent/llm/provider/bedrock/llm_bedrock.py:1972:    async def _apply_prompt_provider_specific_structured(\n./src/fast_agent/llm/provider/openai/llm_openai_compatible.py:23:    async def _apply_prompt_provider_specific_structured(\n./src/fast_agent/llm/provider/openai/llm_openai_compatible.py:30:            return await super()._apply_prompt_provider_specific_structured(\n./src/fast_agent/llm/provider/openai/llm_openai_compatible.py:44:        return await super()._apply_prompt_provider_specific_structured(\n./src/fast_agent/interfaces.py:85:    async def structured(\n./src/fast_agent/interfaces.py:196:    async def structured(\n./tests/integration/workflow/evaluator_optimizer/test_evaluator_optimizer.py:281:                result, _ = await agent.optimizer_struct.structured(\n./tests/integration/workflow/router/test_router_agent.py:77:            result, _ = await agent.router.structured(\n./tests/integration/workflow/maker/test_maker_agent.py:159:async def test_match_strategy_structured(fast_agent):\n./tests/e2e/smoke/base/test_e2e_smoke.py:226:            forecast, result = await agent.weatherforecast.structured(\n./examples/otel/agent.py:31:        thinking, response = await agent.chat.structured(\n./tests/unit/fast_agent/llm/test_passthrough.py:81:async def test_generates_structured():\n./tests/unit/fast_agent/llm/test_passthrough.py:84:    model, response = await llm.structured([Prompt.user(sample_json)], FormattedResponse)\n./tests/unit/fast_agent/llm/test_playback.py:90:async def test_cannot_load_history_with_structured(llm):\n./tests/unit/fast_agent/llm/test_playback.py:92:        await llm.structured(\n./tests/unit/fast_agent/llm/test_playback.py:98:async def test_generates_structured(llm):\n./tests/unit/fast_agent/llm/test_playback.py:100:    model, response = await llm.structured(\n./tests/unit/fast_agent/llm/test_playback.py:113:    await llm.structured([Prompt.user(\"pop the stack\")], FormattedResponse)\n./tests/unit/fast_agent/llm/test_playback.py:115:    model, response = await llm.structured([Prompt.user(\"exhausted stack\")], FormattedResponse)\n./tests/unit/fast_agent/llm/test_structured.py:43:    result, _ = await llm.structured([Prompt.user(json_str)], model=StructuredResponse)\n./tests/unit/fast_agent/llm/test_structured.py:75:    result, _ = await llm.structured([Prompt.user(json_str)], model=StructuredResponse)\n./tests/unit/fast_agent/agents/test_agent_history_binding.py:28:    async def _apply_prompt_provider_specific_structured(\n./tests/unit/fast_agent/agents/test_tool_agent_unanswered_tool_call_logging.py:26:    async def _apply_prompt_provider_specific_structured(\n./tests/unit/fast_agent/agents/test_llm_content_filter.py:51:    async def structured(self, messages, model, request_params=None):\nprocess exit code was 0"
+            }
+          ],
+          "isError": false,
+          "exit_code": 0
+        }
+      },
+      "channels": {
+        "fast-agent-tool-timing": [
+          {
+            "type": "text",
+            "text": "{\"16819a4d6\": {\"timing_ms\": 19.98, \"transport_channel\": null}}"
+          }
+        ]
+      },
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "**Search: `structured(` usage**\n\n**Found 57 matches in 33 files**\n\n### src/fast_agent/agents/llm_decorator.py\n- 517: `async def structured(`\n- 566: comment about \u201cbenefiting from the message normalization in structured().\u201d\n- 606: `structured_result = await self._llm.structured(`\n\n### src/fast_agent/agents/workflow/iterative_planner.py\n- 308: `return await self._llm.structured([prompt_message], model, request_params)`\n- 538: `next_step, raw_response = await self._llm.structured(`\n\n### src/fast_agent/agents/workflow/evaluator_optimizer.py\n- 166: `evaluation_result, _ = await self.evaluator_agent.structured(`\n- 265: `return await self.generator_agent.structured([structured_prompt], model, request_params)`\n\n### src/fast_agent/agents/workflow/parallel_agent.py\n- 162: `return await self._fan_in_structured(formatted_prompt, model, request_params)`\n- 234: `async def _fan_in_structured(`\n- 248: `result = await self.fan_in_agent.structured([prompt], model, request_params)`\n\n### src/fast_agent/agents/workflow/chain_agent.py\n- 185: `return await last_agent.structured([response], model, forward_params)`\n\n### src/fast_agent/agents/workflow/router_agent.py\n- 318: `response, _ = await self._llm.structured(`\n\n### src/fast_agent/agents/workflow/maker_agent.py\n- 362: `return await self.worker_agent.structured(`\n\n### src/fast_agent/llm/fastagent_llm.py\n- 442: `async def structured(`\n- 544: `async def _apply_prompt_provider_specific_structured(`\n\n### src/fast_agent/llm/provider/google/llm_google_native.py\n- 630: `async def _apply_prompt_provider_specific_structured(`\n\n### src/fast_agent/llm/provider/anthropic/llm_anthropic.py\n- 850: `async def _apply_prompt_provider_specific_structured(`\n\n### src/fast_agent/llm/internal/playback.py\n- 113: `async def structured(`\n\n### src/fast_agent/llm/provider/bedrock/llm_bedrock.py\n- 1972: `async def _apply_prompt_provider_specific_structured(`\n\n### src/fast_agent/llm/provider/openai/llm_openai_compatible.py\n- 23, 30, 44: definitions of `_apply_prompt_provider_specific_structured`\n\n### src/fast_agent/interfaces.py\n- 85, 196: `async def structured(`\n\n### tests/e2e/llm/test_llm_e2e.py\n- 171: `structured_output, result = await agent.structured(`\n\n### tests/e2e/structured/test_structured_outputs.py\n- Multiple lines (51, 53, 63, 85, 87, 100, 152, 154, 162, 179, 188, 191, 199, 215) invoking `agent.chat.structured(` and related calls.\n\n### tests/e2e/bedrock/test_dynamic_capabilities.py\n- 205: comment \u201cUse the correct structured() API\u201d\n- 206: `response, _ = await agent.structured_test.structured(`\n- 227, 252: similar structured calls.\n\n### tests/e2e/bedrock/test_e2e_smoke_bedrock.py\n- Multiple structured calls (e.g., lines 239, 241, 271, 333, 376, 382).\n\n### tests/integration/workflow/evaluator_optimizer/test_evaluator_optimizer.py\n- 281: `result, _ = await agent.optimizer_struct.structured(`\n\n### tests/integration/workflow/router/test_router_agent.py\n- 77: `result, _ = await agent.router.structured(`\n\n### tests/integration/workflow/maker/test_maker_agent.py\n- 159: `async def test_match_strategy_structured`\n\n### tests/e2e/smoke/base/test_e2e_smoke.py\n- 226: `forecast, result = await agent.weatherforecast.structured(`\n\n### examples/otel/agent.py\n- 31: `thinking, response = await agent.chat.structured(`\n\n### tests/unit/fast_agent/llm/test_passthrough.py\n- 81, 84: structured usage in unit tests.\n\n### tests/unit/fast_agent/llm/test_playback.py\n- 90, 92, 98, 100, 113, 115: various structured calls.\n\n### tests/unit/fast_agent/llm/test_structured.py\n- 43, 75: structured calls with model `StructuredResponse`.\n\n### tests/unit/fast_agent/agents/test_agent_history_binding.py\n- 28: `async def _apply_prompt_provider_specific_structured(`\n\n### tests/unit/fast_agent/agents/test_tool_agent_unanswered_tool_call_logging.py\n- 26: `async def _apply_prompt_provider_specific_structured(`\n\n### tests/unit/fast_agent/agents/test_llm_content_filter.py\n- 51: `async def structured(self, messages, model, request_params=None):`"
+        }
+      ],
+      "channels": {
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 47420.463079679, \"end_time\": 47421.887327494, \"duration_ms\": 1424.25}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 4756, \"output_tokens\": 1126, \"total_tokens\": 5882, \"timestamp\": 1769047078.7477531, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 2303, \"total_cache_tokens\": 2303, \"has_cache_activity\": true}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 0, \"current_context_tokens\": 5882, \"effective_input_tokens\": 2453, \"display_input_tokens\": 4756}, \"raw_usage\": {\"completion_tokens\": 1126, \"prompt_tokens\": 4756, \"total_tokens\": 5882, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 2303}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 3, \"cumulative_input_tokens\": 9533, \"cumulative_output_tokens\": 1329, \"cumulative_billing_tokens\": 10862, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 2, \"current_context_tokens\": 5882, \"context_window_size\": 131072, \"context_usage_percentage\": 4.48760986328125, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 6909, \"cache_hit_rate_percent\": 42.02043547013745, \"cumulative_effective_input_tokens\": 2624}}"
+          }
+        ]
+      },
+      "stop_reason": "endTurn",
+      "is_template": false
+    }
+  ]
+}

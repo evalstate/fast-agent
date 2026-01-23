@@ -1,3 +1,0 @@
-[submodule ".fast-agent/skills"]
-	path = .fast-agent/skills
-	url = https://github.com/fast-agent-ai/skills

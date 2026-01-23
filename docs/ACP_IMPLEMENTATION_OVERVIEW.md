@@ -98,11 +98,11 @@ AgentCapabilities(
 
 **Streaming implementation:**
 ```python
-# Register callback that accumulates and streams chunks
-def on_stream_chunk(chunk: str):
-    accumulated_chunks.append(chunk)
+# Register callback that accumulates and streams typed chunks
+def on_stream_chunk(chunk: StreamChunk):
+    accumulated_chunks.append(chunk.text)
     current_text = "".join(accumulated_chunks)
-    asyncio.create_task(send_stream_update(current_text))
+    asyncio.create_task(send_stream_update(current_text, is_thought=chunk.is_reasoning))
 
 agent.add_stream_listener(on_stream_chunk)
 response = await agent.send(prompt_text)  # Triggers callbacks

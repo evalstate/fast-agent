@@ -7,6 +7,7 @@ The Agent Client Protocol (ACP) support in fast-agent allows it to act as an ACP
 ### Prerequisites
 
 1. **API Key**: You need an LLM provider configured (Anthropic, OpenAI, etc.)
+
    ```bash
    export ANTHROPIC_API_KEY="your-key-here"
    # OR
@@ -37,6 +38,7 @@ fast-agent serve --transport acp --card ./agents --model haiku --watch
 ```
 
 The server will:
+
 - Listen on stdin/stdout for JSON-RPC messages
 - Process ACP protocol messages
 - Stay running until Ctrl+C
@@ -131,6 +133,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 ### 1. Initialize
 
 **Request:**
+
 ```json
 {
   "jsonrpc": "2.0",
@@ -139,15 +142,16 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
   "params": {
     "protocolVersion": 1,
     "clientCapabilities": {
-      "fs": {"readTextFile": false, "writeTextFile": false},
+      "fs": { "readTextFile": false, "writeTextFile": false },
       "terminal": false
     },
-    "clientInfo": {"name": "client-name", "version": "1.0"}
+    "clientInfo": { "name": "client-name", "version": "1.0" }
   }
 }
 ```
 
 **Response:**
+
 ```json
 {
   "jsonrpc": "2.0",
@@ -155,10 +159,10 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
   "result": {
     "protocolVersion": 1,
     "agentCapabilities": {
-      "prompts": {"supportedTypes": ["text"]},
+      "prompts": { "supportedTypes": ["text"] },
       "loadSession": false
     },
-    "agentInfo": {"name": "fast-agent", "version": "0.1.0"},
+    "agentInfo": { "name": "fast-agent", "version": "0.1.0" },
     "authMethods": []
   }
 }
@@ -167,6 +171,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 ### 2. Create Session
 
 **Request:**
+
 ```json
 {
   "jsonrpc": "2.0",
@@ -179,6 +184,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 ```
 
 **Response:**
+
 ```json
 {
   "jsonrpc": "2.0",
@@ -192,6 +198,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 ### 3. Send Prompt
 
 **Request:**
+
 ```json
 {
   "jsonrpc": "2.0",
@@ -199,14 +206,13 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
   "method": "session/prompt",
   "params": {
     "sessionId": "uuid-from-session-new",
-    "prompt": [
-      {"type": "text", "text": "What is 2+2?"}
-    ]
+    "prompt": [{ "type": "text", "text": "What is 2+2?" }]
   }
 }
 ```
 
 **Response:**
+
 ```json
 {
   "jsonrpc": "2.0",
@@ -220,6 +226,7 @@ echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":
 ## Current Limitations
 
 This first-pass implementation supports:
+
 - ✅ Connection establishment
 - ✅ Protocol initialization
 - ✅ Session creation
@@ -227,6 +234,7 @@ This first-pass implementation supports:
 - ✅ Basic response handling
 
 Not yet implemented:
+
 - ❌ Streaming responses (no sessionUpdate notifications)
 - ❌ Tool call permissions
 - ❌ Multimodal content (images, audio)
@@ -240,11 +248,13 @@ Not yet implemented:
 **Problem:** Server returns to command prompt immediately
 
 **Solution:** Check that you have an API key configured:
+
 ```bash
 echo $ANTHROPIC_API_KEY  # or OPENAI_API_KEY
 ```
 
 If not set:
+
 ```bash
 export ANTHROPIC_API_KEY="your-key-here"
 ```
@@ -254,6 +264,7 @@ export ANTHROPIC_API_KEY="your-key-here"
 **Problem:** Server starts but doesn't respond to messages
 
 **Check:**
+
 1. Verify server is still running: `ps aux | grep fast-agent`
 2. Check logs in stderr
 3. Ensure messages are properly formatted JSON-RPC
@@ -263,7 +274,8 @@ export ANTHROPIC_API_KEY="your-key-here"
 **Problem:** Error about missing API key
 
 **Solution:**
-- Set environment variable: `export ANTHROPIC_API_KEY=...`
+
+- Set environment variable: `export ANTHROPIC_API_KEY=...` an
 - Or create config file: `~/.config/fast-agent/fastagent.secrets.yaml`
 
 ## Integration with Editors
@@ -283,7 +295,15 @@ Any editor that supports spawning ACP agents via subprocess can use fast-agent:
 ```json
 {
   "command": "fast-agent",
-  "args": ["serve", "--transport", "acp", "--instruction", "/path/to/instruction.md", "--model", "haiku"],
+  "args": [
+    "serve",
+    "--transport",
+    "acp",
+    "--instruction",
+    "/path/to/instruction.md",
+    "--model",
+    "haiku"
+  ],
   "protocol": "acp"
 }
 ```

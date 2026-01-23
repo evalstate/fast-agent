@@ -1,0 +1,225 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "Find shutdown method in src/fast_agent/agents/llm_decorator.py and show relevant block."
+        }
+      ],
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [],
+      "tool_calls": {
+        "f212ce52d": {
+          "method": "tools/call",
+          "params": {
+            "name": "execute",
+            "arguments": {
+              "command": "rg --files -g 'src/fast_agent/agents/llm_decorator.py' -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' -g '!*.json' -g '!*.jsonl' -g '!stream-debug/*'"
+            }
+          }
+        }
+      },
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "We need to search workspace for src/fast_agent/agents/llm_decorator.py. First locate file. Use rg --files -g pattern."
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 68733.095876472, \"end_time\": 68733.537628424, \"duration_ms\": 441.75}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 2363, \"output_tokens\": 140, \"total_tokens\": 2503, \"timestamp\": 1769068966.1244104, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 2303, \"total_cache_tokens\": 2303, \"has_cache_activity\": true}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 2503, \"effective_input_tokens\": 60, \"display_input_tokens\": 2363}, \"raw_usage\": {\"completion_tokens\": 140, \"prompt_tokens\": 2363, \"total_tokens\": 2503, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 2303}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 1, \"cumulative_input_tokens\": 2363, \"cumulative_output_tokens\": 140, \"cumulative_billing_tokens\": 2503, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 1, \"current_context_tokens\": 2503, \"context_window_size\": 131072, \"context_usage_percentage\": 1.909637451171875, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 2303, \"cache_hit_rate_percent\": 49.357051007286756, \"cumulative_effective_input_tokens\": 60}}"
+          }
+        ]
+      },
+      "stop_reason": "toolUse",
+      "is_template": false
+    },
+    {
+      "role": "user",
+      "content": [],
+      "tool_results": {
+        "f212ce52d": {
+          "content": [
+            {
+              "type": "text",
+              "text": "src/fast_agent/agents/llm_decorator.py\nprocess exit code was 0"
+            }
+          ],
+          "isError": false,
+          "exit_code": 0
+        }
+      },
+      "channels": {
+        "fast-agent-tool-timing": [
+          {
+            "type": "text",
+            "text": "{\"f212ce52d\": {\"timing_ms\": 23.31, \"transport_channel\": null}}"
+          }
+        ]
+      },
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [],
+      "tool_calls": {
+        "15083ea35": {
+          "method": "tools/call",
+          "params": {
+            "name": "execute",
+            "arguments": {
+              "command": "rg -n -C 2 -F 'def shutdown' -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' -g '!*.json' -g '!*.jsonl' -g '!stream-debug/*' 'src/fast_agent/agents/llm_decorator.py'"
+            }
+          }
+        }
+      },
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "File exists. Now search for shutdown method. Use rg for 'def shutdown' maybe.Search within file."
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 68733.563779776, \"end_time\": 68734.048604703, \"duration_ms\": 484.82}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 2533, \"output_tokens\": 143, \"total_tokens\": 2676, \"timestamp\": 1769068966.6353867, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 2303, \"total_cache_tokens\": 2303, \"has_cache_activity\": true}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 2676, \"effective_input_tokens\": 230, \"display_input_tokens\": 2533}, \"raw_usage\": {\"completion_tokens\": 143, \"prompt_tokens\": 2533, \"total_tokens\": 2676, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 2303}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 2, \"cumulative_input_tokens\": 4896, \"cumulative_output_tokens\": 283, \"cumulative_billing_tokens\": 5179, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 2, \"current_context_tokens\": 2676, \"context_window_size\": 131072, \"context_usage_percentage\": 2.0416259765625, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 4606, \"cache_hit_rate_percent\": 48.4740054725321, \"cumulative_effective_input_tokens\": 290}}"
+          }
+        ]
+      },
+      "stop_reason": "toolUse",
+      "is_template": false
+    },
+    {
+      "role": "user",
+      "content": [],
+      "tool_results": {
+        "15083ea35": {
+          "content": [
+            {
+              "type": "text",
+              "text": "215-        self.initialized = True\n216-\n217:    async def shutdown(self) -> None:\n218-        self.initialized = False\n219-\nprocess exit code was 0"
+            }
+          ],
+          "isError": false,
+          "exit_code": 0
+        }
+      },
+      "channels": {
+        "fast-agent-tool-timing": [
+          {
+            "type": "text",
+            "text": "{\"15083ea35\": {\"timing_ms\": 15.51, \"transport_channel\": null}}"
+          }
+        ]
+      },
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [],
+      "tool_calls": {
+        "7ded2c1c3": {
+          "method": "tools/call",
+          "params": {
+            "name": "execute",
+            "arguments": {
+              "command": "rg -n -C 3 -F 'def shutdown' -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' -g '!*.json' -g '!*.jsonl' -g '!stream-debug/*' 'src/fast_agent/agents/llm_decorator.py'"
+            }
+          }
+        }
+      },
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "We got lines 215-219 with method. Show relevant block with maybe few lines before and after. Use larger context lines maybe -C 3."
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 68734.067370994, \"end_time\": 68734.66532148, \"duration_ms\": 597.95}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 2721, \"output_tokens\": 146, \"total_tokens\": 2867, \"timestamp\": 1769068967.2520666, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 2303, \"total_cache_tokens\": 2303, \"has_cache_activity\": true}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 2867, \"effective_input_tokens\": 418, \"display_input_tokens\": 2721}, \"raw_usage\": {\"completion_tokens\": 146, \"prompt_tokens\": 2721, \"total_tokens\": 2867, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 2303}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 3, \"cumulative_input_tokens\": 7617, \"cumulative_output_tokens\": 429, \"cumulative_billing_tokens\": 8046, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 3, \"current_context_tokens\": 2867, \"context_window_size\": 131072, \"context_usage_percentage\": 2.187347412109375, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 6909, \"cache_hit_rate_percent\": 47.56299049979347, \"cumulative_effective_input_tokens\": 708}}"
+          }
+        ]
+      },
+      "stop_reason": "toolUse",
+      "is_template": false
+    },
+    {
+      "role": "user",
+      "content": [],
+      "tool_results": {
+        "7ded2c1c3": {
+          "content": [
+            {
+              "type": "text",
+              "text": "214-    async def initialize(self) -> None:\n215-        self.initialized = True\n216-\n217:    async def shutdown(self) -> None:\n218-        self.initialized = False\n219-\n220-    @property\nprocess exit code was 0"
+            }
+          ],
+          "isError": false,
+          "exit_code": 0
+        }
+      },
+      "channels": {
+        "fast-agent-tool-timing": [
+          {
+            "type": "text",
+            "text": "{\"7ded2c1c3\": {\"timing_ms\": 18.12, \"transport_channel\": null}}"
+          }
+        ]
+      },
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "**File:** `src/fast_agent/agents/llm_decorator.py`\n\n```\n214-    async def initialize(self) -> None:\n215-        self.initialized = True\n216-\n217-    async def shutdown(self) -> None:\n218-        self.initialized = False\n219-\n220-    @property\n```\n\nThe `shutdown` method (line\u202f217) simply resets the `initialized` flag to `False`."
+        }
+      ],
+      "channels": {
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 68734.686805914, \"end_time\": 68735.170582761, \"duration_ms\": 483.78}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 2936, \"output_tokens\": 96, \"total_tokens\": 3032, \"timestamp\": 1769068967.7573516, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 2303, \"total_cache_tokens\": 2303, \"has_cache_activity\": true}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 0, \"current_context_tokens\": 3032, \"effective_input_tokens\": 633, \"display_input_tokens\": 2936}, \"raw_usage\": {\"completion_tokens\": 96, \"prompt_tokens\": 2936, \"total_tokens\": 3032, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 2303}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 4, \"cumulative_input_tokens\": 10553, \"cumulative_output_tokens\": 525, \"cumulative_billing_tokens\": 11078, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 3, \"current_context_tokens\": 3032, \"context_window_size\": 131072, \"context_usage_percentage\": 2.313232421875, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 9212, \"cache_hit_rate_percent\": 46.60763976726537, \"cumulative_effective_input_tokens\": 1341}}"
+          }
+        ]
+      },
+      "stop_reason": "endTurn",
+      "is_template": false
+    }
+  ]
+}
