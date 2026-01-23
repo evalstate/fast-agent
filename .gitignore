@@ -201,6 +201,3 @@ fastagent.jsonl
 tests/e2e/smoke/base/weather_location.txt
 tests/integration/roots/fastagent.jsonl
 
-# Development artifacts (except skills submodule)
-.fast-agent/*
-!.fast-agent/skills
