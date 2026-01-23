@@ -1,0 +1,169 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "Search in /home/ssmith/source/fast-agent for 'def lsp_' in .dev/agent-cards/multilspy_tools_ts.py and multilspy_tools.py to confirm function names."
+        }
+      ],
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [],
+      "tool_calls": {
+        "3b77a20f7": {
+          "method": "tools/call",
+          "params": {
+            "name": "execute",
+            "arguments": {
+              "command": "rg --files -g '.dev/agent-cards/multilspy_tools_ts.py' -g 'multilspy_tools.py' /home/ssmith/source/fast-agent"
+            }
+          }
+        }
+      },
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "We need to search in repository /home/ssmith/source/fast-agent for specific files .dev/agent-cards/multilspy_tools_ts.py and multilspy_tools.py for pattern 'def lsp_'. Must include repo root explicitly.\n\nFirst, verify those files exist. Use rg --files -g pattern.\n\nSearch for multilspy_tools_ts.py."
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 196555.258920678, \"end_time\": 196559.653279775, \"duration_ms\": 4394.36}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 2162, \"output_tokens\": 136, \"total_tokens\": 2298, \"timestamp\": 1769202145.9668376, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 0, \"total_cache_tokens\": 0, \"has_cache_activity\": false}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 2298, \"effective_input_tokens\": 2162, \"display_input_tokens\": 2162}, \"raw_usage\": {\"completion_tokens\": 136, \"prompt_tokens\": 2162, \"total_tokens\": 2298, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 0}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 1, \"cumulative_input_tokens\": 2162, \"cumulative_output_tokens\": 136, \"cumulative_billing_tokens\": 2298, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 1, \"current_context_tokens\": 2298, \"context_window_size\": 131072, \"context_usage_percentage\": 1.75323486328125, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 0, \"cache_hit_rate_percent\": 0.0, \"cumulative_effective_input_tokens\": 2162}}"
+          }
+        ]
+      },
+      "stop_reason": "toolUse",
+      "is_template": false
+    },
+    {
+      "role": "user",
+      "content": [],
+      "tool_results": {
+        "3b77a20f7": {
+          "content": [
+            {
+              "type": "text",
+              "text": "process exit code was 1"
+            }
+          ],
+          "isError": true,
+          "exit_code": 1
+        }
+      },
+      "channels": {
+        "fast-agent-tool-timing": [
+          {
+            "type": "text",
+            "text": "{\"3b77a20f7\": {\"timing_ms\": 33.3, \"transport_channel\": null}}"
+          }
+        ]
+      },
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [],
+      "tool_calls": {
+        "3b8dd328a": {
+          "method": "tools/call",
+          "params": {
+            "name": "execute",
+            "arguments": {
+              "command": "rg --files /home/ssmith/source/fast-agent | grep -i multilspy"
+            }
+          }
+        }
+      },
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "Exit code 1: no matches? maybe path different. Let's list files."
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 196559.690025732, \"end_time\": 196560.156626863, \"duration_ms\": 466.6}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 2314, \"output_tokens\": 57, \"total_tokens\": 2371, \"timestamp\": 1769202146.4702525, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 0, \"total_cache_tokens\": 0, \"has_cache_activity\": false}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 2371, \"effective_input_tokens\": 2314, \"display_input_tokens\": 2314}, \"raw_usage\": {\"completion_tokens\": 57, \"prompt_tokens\": 2314, \"total_tokens\": 2371, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 0}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 2, \"cumulative_input_tokens\": 4476, \"cumulative_output_tokens\": 193, \"cumulative_billing_tokens\": 4669, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 2, \"current_context_tokens\": 2371, \"context_window_size\": 131072, \"context_usage_percentage\": 1.808929443359375, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 0, \"cache_hit_rate_percent\": 0.0, \"cumulative_effective_input_tokens\": 4476}}"
+          }
+        ]
+      },
+      "stop_reason": "toolUse",
+      "is_template": false
+    },
+    {
+      "role": "user",
+      "content": [],
+      "tool_results": {
+        "3b8dd328a": {
+          "content": [
+            {
+              "type": "text",
+              "text": "process exit code was 1"
+            }
+          ],
+          "isError": true,
+          "exit_code": 1
+        }
+      },
+      "channels": {
+        "fast-agent-tool-timing": [
+          {
+            "type": "text",
+            "text": "{\"3b8dd328a\": {\"timing_ms\": 24.26, \"transport_channel\": null}}"
+          }
+        ]
+      },
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "I hit an internal error while calling the model: hf request failed for model 'openai/gpt-oss-120b' (code: queue_exceeded) (status=429): Error code: 429 - {'message': \"We're experiencing high traffic right now! Please try again soon.\", 'type': 'too_many_requests_error', 'param': 'queue', 'code': 'queue_exceeded'}. See fast-agent-error for additional details."
+        }
+      ],
+      "channels": {
+        "fast-agent-error": [
+          {
+            "type": "text",
+            "text": "hf request failed for model 'openai/gpt-oss-120b' (code: queue_exceeded) (status=429): Error code: 429 - {'message': \"We're experiencing high traffic right now! Please try again soon.\", 'type': 'too_many_requests_error', 'param': 'queue', 'code': 'queue_exceeded'}"
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 196560.184073677, \"end_time\": 196560.589506783, \"duration_ms\": 405.43}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 2314, \"output_tokens\": 57, \"total_tokens\": 2371, \"timestamp\": 1769202146.4702525, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 0, \"total_cache_tokens\": 0, \"has_cache_activity\": false}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 0, \"current_context_tokens\": 2371, \"effective_input_tokens\": 2314, \"display_input_tokens\": 2314}, \"raw_usage\": {\"completion_tokens\": 57, \"prompt_tokens\": 2314, \"total_tokens\": 2371, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 0}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 2, \"cumulative_input_tokens\": 4476, \"cumulative_output_tokens\": 193, \"cumulative_billing_tokens\": 4669, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 1, \"current_context_tokens\": 2371, \"context_window_size\": 131072, \"context_usage_percentage\": 1.808929443359375, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 0, \"cache_hit_rate_percent\": 0.0, \"cumulative_effective_input_tokens\": 4476}}"
+          }
+        ]
+      },
+      "stop_reason": "error",
+      "is_template": false
+    }
+  ]
+}
