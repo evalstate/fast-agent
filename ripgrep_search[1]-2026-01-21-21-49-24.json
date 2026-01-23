@@ -1,0 +1,107 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "Find example AgentCard YAML/markdown in repo; list locations and show typical fields."
+        }
+      ],
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [],
+      "tool_calls": {
+        "0d3814a1a": {
+          "method": "tools/call",
+          "params": {
+            "name": "execute",
+            "arguments": {
+              "command": "rg --files -g '*AgentCard*' -g '*.yaml' -g '*.yml' -g '*.md' -g '*.markdown' -g '*.mdx' -g '*.txt' -g '!*.json' -g '!*.jsonl' -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' -g '!stream-debug/*' '.'"
+            }
+          }
+        }
+      },
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "We need to find example AgentCard YAML or markdown in repo. Need to search repository. First, we need to know repo root. The workspace is current directory. Let's list files? Use rg --files to discover any .yml or .md containing \"AgentCard\"."
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 33801.229743503, \"end_time\": 33801.762235184, \"duration_ms\": 532.49}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 2359, \"output_tokens\": 189, \"total_tokens\": 2548, \"timestamp\": 1769032163.6408372, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 0, \"total_cache_tokens\": 0, \"has_cache_activity\": false}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 2548, \"effective_input_tokens\": 2359, \"display_input_tokens\": 2359}, \"raw_usage\": {\"completion_tokens\": 189, \"prompt_tokens\": 2359, \"total_tokens\": 2548, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 0}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 1, \"cumulative_input_tokens\": 2359, \"cumulative_output_tokens\": 189, \"cumulative_billing_tokens\": 2548, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 1, \"current_context_tokens\": 2548, \"context_window_size\": 131072, \"context_usage_percentage\": 1.9439697265625, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 0, \"cache_hit_rate_percent\": 0.0, \"cumulative_effective_input_tokens\": 2359}}"
+          }
+        ]
+      },
+      "stop_reason": "toolUse",
+      "is_template": false
+    },
+    {
+      "role": "user",
+      "content": [],
+      "tool_results": {
+        "0d3814a1a": {
+          "content": [
+            {
+              "type": "text",
+              "text": "./fastagent.secrets.yaml\n./typesafe.md\n./README.md\n./moon_landing_essay.md\n./plan/arc/fastagent-multi-instance-risks.md\n./plan/agent-card-rfc-sample.md\n./plan/arc/fastagent-agent-per-chat-session.md\n./tests/e2e/workflow/fastagent.config.yaml\n./plan/arc/fastagent-acp-sessions-without-acp.md\n./plan/agent-card-rfc.md\n./plan/agent-card-origin-review.md\n./plan/fix-async-event-bus.md\n./tests/e2e/llm/fastagent.config.yaml\n./plan/done/acp-mcp-watch.md\n./tests/e2e/structured/fastagent.config.yaml\n./src/fast_agent/cli/commands/README.md\n./upskill/README.md\n./upskill/fastagent.config.yaml\n./src/fast_agent/llm/provider/anthropic/README_anth_multipart.md\n./tests/e2e/prompts-resources/simple.txt\n./tests/e2e/prompts-resources/multiturn.md\n./tests/e2e/prompts-resources/fastagent.config.yaml\n./tests/e2e/prompts-resources/with_attachment_css.md\n./tests/e2e/prompts-resources/with_attachment.md\n./plan/agentcard-standards-mini-article.md\n./tests/e2e/multimodal/fastagent.config.yaml\n./tests/e2e/bedrock/fastagent.config.yaml\n./tests/e2e/sampling/fastagent.config.yaml\n./tests/e2e/smoke/base/fastagent.config.yaml\n./tests/e2e/smoke/base/weather_location.txt\n./plan/hook-tool-declarative.md\n./.pre-commit-config.yaml\n./styling.md\n./tests/unit/fast_agent/mcp_agent/fixture/expected_output.txt\n./fastagent.config.yaml\n./tests/unit/fast_agent/mcp_agent/fixture/README.md\n./AGENTS.md\n./RIPGREP_IMPROVEMENTS_SUMMARY.md\n./tests/integration/agents_as_tools/fastagent.config.yaml\n./examples/workflows/graded_report.md\n./tests/integration/prompt-server/fastagent.config.yaml\n./tests/integration/prompt-server/multi.txt\n./tests/integration/prompt-server/simple.txt\n./tests/integration/prompt-server/multi_sub.txt\n./tests/integration/prompt-server/simple_sub.txt\n./tests/integration/elicitation/fastagent.config.yaml\n./examples/rag/fastagent.secrets.yaml\n./publish/hf-inference-acp/README.md\n./examples/tool-use-agent/fastagent.config.yaml\n./tests/integration/prompt-state/conv2_text.txt\n./examples/hf-toad-cards/shared/shell-instructions.md\n./examples/tensorzero/README.md\n./examples/workflows-md/short_story.txt\n./examples/hf-toad-cards/shared/response-style.md\n./examples/workflows-md/parallel/style_enforcer.md\n./examples/workflows-md/parallel/grader.md\n./examples/workflows-md/parallel/fact_checker.md\n./examples/workflows-md/chaining/url_fetcher.md\n./examples/workflows-md/parallel/parallel.md\n./examples/workflows-md/parallel/proofreader.md\n./examples/workflows-md/evaluator/evaluator.md\n./examples/workflows-md/evaluator/generator.md\n./examples/workflows-md/agents_as_tools_simple/London-Project-Manager.md\n./examples/workflows-md/chaining/social_media.md\n./examples/workflows-md/evaluator/cover_letter_writer.md\n./examples/workflows-md/router/code_expert.md\n./examples/workflows-md/chaining/post_writer.md\n./examples/workflows-md/agents_as_tools_simple/NY-Project-Manager.md\n./examples/workflows-md/agents_as_tools_simple/PMO-orchestrator.md\n./examples/workflows-md/maker/reliable_classifier.md\n./examples/workflows-md/maker/classifier.md\n./examples/workflows-md/human_input/default.md\n./examples/hf-toad-cards/shared/ripgrep-instructions-gpt-oss.md\n./examples/tensorzero/docker-compose.yml\n./examples/workflows-md/fastagent.config.yaml\n./examples/workflows-md/short_story.md\n./tests/integration/instruction_templates/fastagent.config.yaml\n./tests/integration/instruction_templates/FOO.md\n./examples/workflows-md/orchestrator/finder.md\n./examples/workflows-md/orchestrator/author.md\n./examples/workflows-md/orchestrator/writer.md\n./examples/workflows-md/orchestrator/orchestrate.md\n./examples/tensorzero/fastagent.config.yaml\n./tests/integration/prompt-state/conv2_attach.md\n./tests/integration/prompt-state/simple.txt\n./tests/integration/prompt-state/fastagent.config.yaml\n./examples/workflows-md/orchestrator/proofreader.md\n./tests/integration/prompt-state/conv1_simple.md\n./examples/workflows-md/agents_as_tools_extended/London-Project-Manager.md\n./examples/workflows-md/router/route.md\n./examples/workflows-md/agents_as_tools_extended/NY-Project-Manager.md\n./examples/workflows-md/router/general_assistant.md\n./examples/workflows-md/agents_as_tools_extended/PMO-orchestrator.md\n./examples/workflows-md/router/fetcher.md\n./examples/workflows-md/hf-api-agent/agent2.md\n./examples/workflows-md/hf-api-agent/hf-api-agent-small.md\n./examples/hf-toad-cards/tool-cards/hf-search.md\n./examples/workflows-md/hf-api-agent/fastagent.config.yaml\n./examples/hf-toad-cards/tool-cards/ripgrep-search.md\n./publish/hf-inference-acp/src/hf_inference_acp/resources/hf.config.yaml\n./examples/researcher/fastagent.config.yaml\n./publish/hf-inference-acp/src/hf_inference_acp/resources/hf.system_prompt.md\n./examples/workflows-md/hf-api-agent/hf_hub_community.md\n./examples/hf-toad-cards/agent-cards/acp-expert.md\n./tests/integration/skybridge/fastagent.config.yaml\n./examples/tool-runner-hooks/fastagent.config.yaml\n./examples/hf-toad-cards/agent-cards/mcp-expert.md\n./tests/integration/tool_loop/fastagent.config.yaml\n./tests/integration/server_instructions/fastagent.config.yaml\n./sky/fastagent.secrets.yaml\n./examples/hf-toad-cards/skills/pr-writing-review/SKILL.md\n./examples/workflows/short_story.txt\n./tests/integration/mcp_filtering/fastagent.config.yaml\n./tests/integration/roots/fastagent.config.yaml\n./tests/integration/acp/fastagent.config.yaml\n./examples/workflows/fastagent.config.yaml\n./examples/data-analysis/fastagent.config.yaml\n./examples/workflows/short_story.md\n./tests/integration/resources/prompt2.txt\n./tests/integration/workflow/router/fastagent.config.yaml\n./tests/integration/resources/prompt1.txt\n./tests/integration/workflow/router/router_script.txt\n./tests/integration/resources/r1file2.txt\n./tests/integration/resources/fastagent.config.yaml\n./examples/hf-toad-cards/skills/session-investigator/SKILL.md\n./tests/integration/resources/r1file1.txt\n./tests/integration/resources/r2file2.txt\n./tests/integration/resources/r2file1.txt\n./publish/fast-agent-acp/README.md\n./tests/integration/function_tools/fastagent.config.yaml\n./tests/integration/api/playback.md\n./tests/integration/function_tools/agent.md\n./tests/integration/api/prompt.md\n./tests/integration/tool_hooks/agent_custom_hooks.md\n./tests/integration/api/fastagent.config.yaml\n./tests/integration/workflow/chain/fastagent.config.yaml\n./tests/integration/api/fastagent.config.markup.yaml\n./tests/integration/sampling_with_tools/fastagent.config.yaml\n./tests/integration/tool_hooks/fastagent.config.yaml\n./tests/integration/tool_hooks/agent_trim.md\n./tests/integration/api/weather_location.txt\n./docs/ACP_TESTING.md\n./docs/ACP_IMPLEMENTATION_OVERVIEW.md\n./tests/integration/api/fastagent.secrets.yaml\n./tests/integration/api/prompt.txt\n./docs/REPL_IMPLEMENTATION_OVERVIEW.md\n./tests/integration/workflow/mixed/fastagent.config.yaml\n./docs/ACP_TERMINAL_SUPPORT.md\n./tests/integration/workflow/maker/fastagent.config.yaml\n./tests/integration/sampling/fastagent.config.yaml\n./tests/integration/workflow/parallel/fastagent.config.yaml\n./tests/integration/sampling/fastagent.config.auto_sampling_off.yaml\n./tests/integration/workflow/evaluator_optimizer/fastagent.config.yaml\n./examples/custom-agents/fastagent.config.yaml\n./examples/fastapi/readme.md\n./examples/mcp/state-transfer/fastagent.config.yaml\n./docs/a3-styling.md\n./docs/ACP_TOOL_CALLS.md\n./examples/mcp/sampling-with-tools/fastagent.config.yaml\n./docs/AGENT_CARD_IMPLEMENTATION_OVERVIEW.md\n./docs/SESSION_INTEGRATION.md\n./examples/mcp/vision-examples/fastagent.config.yaml\n./examples/azure-openai/fastagent.config.yaml\n./examples/bedrock/fast-agent.config.yaml\n./examples/openapi/petstore.yaml\n./examples/a2a/fastagent.secrets.yaml\n./examples/openapi/fastagent.config.yaml\n./examples/otel/docker-compose.yaml\n./examples/otel/fastagent.config.yaml\n./examples/mcp/elicitations/fastagent.config.yaml\n./examples/new-api/fastagent.config.yaml\n./examples/mcp/mcp-filtering/fastagent.config.yaml\n./examples/setup/fastagent.config.yaml\n./investigate-openai-int/pi-mono/README.md\n./investigate-openai-int/pi-mono/CONTRIBUTING.md\n./investigate-openai-int/pi-mono/AGENTS.md\n./investigate-openai-int/pi-mono/packages/web-ui/README.md\n./investigate-openai-int/pi-mono/packages/web-ui/CHANGELOG.md\n./investigate-openai-int/pi-mono/packages/coding-agent/README.md\n./investigate-openai-int/pi-mono/packages/coding-agent/CHANGELOG.md\n./investigate-openai-int/pi-mono/packages/agent/README.md\n./investigate-openai-int/pi-mono/packages/mom/README.md\n./investigate-openai-int/pi-mono/packages/mom/CHANGELOG.md\n./investigate-openai-int/pi-mono/packages/agent/CHANGELOG.md\n./investigate-openai-int/pi-mono/packages/mom/docs/v86.md\n./investigate-openai-int/pi-mono/packages/mom/docs/artifacts-server.md\n./investigate-openai-int/pi-mono/packages/mom/docs/new.md\n./investigate-openai-int/pi-mono/packages/mom/docs/sandbox.md\n./investigate-openai-int/pi-mono/packages/mom/docs/slack-bot-minimal-guide.md\n./investigate-openai-int/pi-mono/packages/mom/docs/events.md\n./investigate-openai-int/pi-mono/packages/coding-agent/examples/README.md\n./investigate-openai-int/pi-mono/packages/coding-agent/examples/sdk/README.md\n./investigate-openai-int/pi-mono/packages/coding-agent/examples/extensions/README.md\n./investigate-openai-int/pi-mono/packages/coding-agent/examples/extensions/plan-mode/README.md\n./investigate-openai-int/pi-mono/packages/coding-agent/examples/extensions/subagent/README.md\n./investigate-openai-int/pi-mono/packages/coding-agent/examples/extensions/doom-overlay/README.md\n./investigate-openai-int/pi-mono/packages/coding-agent/examples/extensions/subagent/prompts/implement.md\n./investigate-openai-int/pi-mono/packages/coding-agent/examples/extensions/subagent/prompts/implement-and-review.md\n./investigate-openai-int/pi-mono/packages/coding-agent/examples/extensions/subagent/prompts/scout-and-plan.md\n./investigate-openai-int/pi-mono/packages/coding-agent/test/fixtures/skills/consecutive-hyphens/SKILL.md\n./investigate-openai-int/pi-mono/packages/coding-agent/test/fixtures/skills/long-name/SKILL.md\n./investigate-openai-int/pi-mono/packages/coding-agent/test/fixtures/skills/name-mismatch/SKILL.md\n./investigate-openai-int/pi-mono/packages/coding-agent/test/fixtures/skills/unknown-field/SKILL.md\n./investigate-openai-int/pi-mono/packages/coding-agent/test/fixtures/skills/missing-description/SKILL.md\n./investigate-openai-int/pi-mono/packages/coding-agent/test/fixtures/skills-collision/first/calendar/SKILL.md\n./investigate-openai-int/pi-mono/packages/coding-agent/test/fixtures/skills/invalid-yaml/SKILL.md\n./investigate-openai-int/pi-mono/packages/coding-agent/test/fixtures/skills-collision/second/calendar/SKILL.md\n./investigate-openai-int/pi-mono/packages/coding-agent/test/fixtures/skills/invalid-name-chars/SKILL.md\n./investigate-openai-int/pi-mono/packages/coding-agent/test/fixtures/skills/multiline-description/SKILL.md\n./investigate-openai-int/pi-mono/packages/coding-agent/test/fixtures/skills/no-frontmatter/SKILL.md\n./investigate-openai-int/pi-mono/packages/coding-agent/test/fixtures/skills/valid-skill/SKILL.md\n./investigate-openai-int/pi-mono/packages/coding-agent/examples/extensions/subagent/agents/reviewer.md\n./investigate-openai-int/pi-mono/packages/coding-agent/examples/extensions/subagent/agents/scout.md\n./investigate-openai-int/pi-mono/packages/coding-agent/examples/extensions/subagent/agents/worker.md\n./investigate-openai-int/pi-mono/packages/coding-agent/examples/extensions/subagent/agents/planner.md\n./investigate-openai-int/pi-mono/packages/coding-agent/docs/extensions.md\n./investigate-openai-int/pi-mono/packages/coding-agent/docs/compaction.md\n./investigate-openai-int/pi-mono/packages/coding-agent/docs/tui.md\n./investigate-openai-int/pi-mono/packages/coding-agent/docs/session.md\n./investigate-openai-int/pi-mono/packages/coding-agent/docs/rpc.md\n./investigate-openai-int/pi-mono/packages/coding-agent/docs/skills.md\n./investigate-openai-int/pi-mono/packages/coding-agent/docs/sdk.md\n./investigate-openai-int/pi-mono/packages/coding-agent/docs/tree.md\n./investigate-openai-int/pi-mono/packages/coding-agent/docs/theme.md\n./investigate-openai-int/pi-mono/packages/coding-agent/test/fixtures/skills/nested/child-skill/SKILL.md\n./investigate-openai-int/pi-mono/packages/pods/README.md\n./investigate-openai-int/pi-mono/packages/tui/CHANGELOG.md\n./investigate-openai-int/pi-mono/packages/tui/README.md\n./investigate-openai-int/pi-mono/packages/ai/README.md\n./investigate-openai-int/pi-mono/packages/ai/CHANGELOG.md\n./investigate-openai-int/pi-mono/packages/pods/docs/plan.md\n./investigate-openai-int/pi-mono/packages/pods/docs/gpt-oss.md\n./investigate-openai-int/pi-mono/packages/pods/docs/implementation-plan.md\n./investigate-openai-int/pi-mono/packages/pods/docs/qwen3-coder.md\n./investigate-openai-int/pi-mono/packages/pods/docs/gml-4.5.md\n./investigate-openai-int/pi-mono/packages/pods/docs/models.md\n./investigate-openai-int/pi-mono/packages/pods/docs/kimi-k2.md\n./investigate-openai-int/pi-mono/packages/web-ui/example/README.md\nprocess exit code was 0"
+            }
+          ],
+          "isError": false,
+          "exit_code": 0
+        }
+      },
+      "channels": {
+        "fast-agent-tool-timing": [
+          {
+            "type": "text",
+            "text": "{\"0d3814a1a\": {\"timing_ms\": 33.39, \"transport_channel\": null}}"
+          }
+        ]
+      },
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "I hit an internal error while calling the model: hf request failed for model 'openai/gpt-oss-120b' (code: queue_exceeded) (status=429): Error code: 429 - {'message': \"We're experiencing high traffic right now! Please try again soon.\", 'type': 'too_many_requests_error', 'param': 'queue', 'code': 'queue_exceeded'}. See fast-agent-error for additional details."
+        }
+      ],
+      "channels": {
+        "fast-agent-error": [
+          {
+            "type": "text",
+            "text": "hf request failed for model 'openai/gpt-oss-120b' (code: queue_exceeded) (status=429): Error code: 429 - {'message': \"We're experiencing high traffic right now! Please try again soon.\", 'type': 'too_many_requests_error', 'param': 'queue', 'code': 'queue_exceeded'}"
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 33801.799072601, \"end_time\": 33802.15280718, \"duration_ms\": 353.73}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 2359, \"output_tokens\": 189, \"total_tokens\": 2548, \"timestamp\": 1769032163.6408372, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 0, \"total_cache_tokens\": 0, \"has_cache_activity\": false}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 0, \"current_context_tokens\": 2548, \"effective_input_tokens\": 2359, \"display_input_tokens\": 2359}, \"raw_usage\": {\"completion_tokens\": 189, \"prompt_tokens\": 2359, \"total_tokens\": 2548, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 0}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 1, \"cumulative_input_tokens\": 2359, \"cumulative_output_tokens\": 189, \"cumulative_billing_tokens\": 2548, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 0, \"current_context_tokens\": 2548, \"context_window_size\": 131072, \"context_usage_percentage\": 1.9439697265625, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 0, \"cache_hit_rate_percent\": 0.0, \"cumulative_effective_input_tokens\": 2359}}"
+          }
+        ]
+      },
+      "stop_reason": "error",
+      "is_template": false
+    }
+  ]
+}

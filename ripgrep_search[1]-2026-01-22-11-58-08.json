@@ -1,0 +1,727 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "Search for SkillsManifest and _parse_manifest in src/fast_agent."
+        }
+      ],
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [],
+      "tool_calls": {
+        "d57ab8789": {
+          "method": "tools/call",
+          "params": {
+            "name": "execute",
+            "arguments": {
+              "command": "rg --files -g 'src/fast_agent/*'"
+            }
+          }
+        }
+      },
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "We need to search in src/fast_agent for \"SkillsManifest\" and \"_parse_manifest\". Need to include repo root. We don't know repo root path, but assume current directory includes src. First list files maybe. Let's run rg --files -g 'src/fast_agent/*' to see files."
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 82805.972565941, \"end_time\": 82806.540039973, \"duration_ms\": 567.47}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 2356, \"output_tokens\": 99, \"total_tokens\": 2455, \"timestamp\": 1769083075.8253033, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 2303, \"total_cache_tokens\": 2303, \"has_cache_activity\": true}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 2455, \"effective_input_tokens\": 53, \"display_input_tokens\": 2356}, \"raw_usage\": {\"completion_tokens\": 99, \"prompt_tokens\": 2356, \"total_tokens\": 2455, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 2303}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 1, \"cumulative_input_tokens\": 2356, \"cumulative_output_tokens\": 99, \"cumulative_billing_tokens\": 2455, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 1, \"current_context_tokens\": 2455, \"context_window_size\": 131072, \"context_usage_percentage\": 1.873016357421875, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 2303, \"cache_hit_rate_percent\": 49.43120841382271, \"cumulative_effective_input_tokens\": 53}}"
+          }
+        ]
+      },
+      "stop_reason": "toolUse",
+      "is_template": false
+    },
+    {
+      "role": "user",
+      "content": [],
+      "tool_results": {
+        "d57ab8789": {
+          "content": [
+            {
+              "type": "text",
+              "text": "src/fast_agent/config.py\nsrc/fast_agent/constants.py\nsrc/fast_agent/context_dependent.py\nsrc/fast_agent/workflow_telemetry.py\nsrc/fast_agent/__init__.py\nsrc/fast_agent/mcp_server_registry.py\nsrc/fast_agent/event_progress.py\nsrc/fast_agent/paths.py\nsrc/fast_agent/py.typed\nsrc/fast_agent/context.py\nsrc/fast_agent/interfaces.py\nprocess exit code was 0"
+            }
+          ],
+          "isError": false,
+          "exit_code": 0
+        }
+      },
+      "channels": {
+        "fast-agent-tool-timing": [
+          {
+            "type": "text",
+            "text": "{\"d57ab8789\": {\"timing_ms\": 33.26, \"transport_channel\": null}}"
+          }
+        ]
+      },
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [],
+      "tool_calls": {
+        "4c648d74a": {
+          "method": "tools/call",
+          "params": {
+            "name": "execute",
+            "arguments": {
+              "command": "rg -n 'SkillsManifest' -g 'src/fast_agent/*' -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' -g '!*.json' -g '!*.jsonl' -g '!stream-debug/*'"
+            }
+          }
+        }
+      },
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "Search for SkillsManifest."
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 82806.576184529, \"end_time\": 82807.069133671, \"duration_ms\": 492.95}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 2564, \"output_tokens\": 109, \"total_tokens\": 2673, \"timestamp\": 1769083076.354395, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 2303, \"total_cache_tokens\": 2303, \"has_cache_activity\": true}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 2673, \"effective_input_tokens\": 261, \"display_input_tokens\": 2564}, \"raw_usage\": {\"completion_tokens\": 109, \"prompt_tokens\": 2564, \"total_tokens\": 2673, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 2303}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 2, \"cumulative_input_tokens\": 4920, \"cumulative_output_tokens\": 208, \"cumulative_billing_tokens\": 5128, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 2, \"current_context_tokens\": 2673, \"context_window_size\": 131072, \"context_usage_percentage\": 2.039337158203125, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 4606, \"cache_hit_rate_percent\": 48.3518790678144, \"cumulative_effective_input_tokens\": 314}}"
+          }
+        ]
+      },
+      "stop_reason": "toolUse",
+      "is_template": false
+    },
+    {
+      "role": "user",
+      "content": [],
+      "tool_results": {
+        "4c648d74a": {
+          "content": [
+            {
+              "type": "text",
+              "text": "process exit code was 1"
+            }
+          ],
+          "isError": true,
+          "exit_code": 1
+        }
+      },
+      "channels": {
+        "fast-agent-tool-timing": [
+          {
+            "type": "text",
+            "text": "{\"4c648d74a\": {\"timing_ms\": 23.07, \"transport_channel\": null}}"
+          }
+        ]
+      },
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [],
+      "tool_calls": {
+        "0e75f9a5f": {
+          "method": "tools/call",
+          "params": {
+            "name": "execute",
+            "arguments": {
+              "command": "rg -n '_parse_manifest' -g 'src/fast_agent/*' -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' -g '!*.json' -g '!*.jsonl' -g '!stream-debug/*'"
+            }
+          }
+        }
+      },
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "No matches. Now search for _parse_manifest."
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 82807.095297563, \"end_time\": 82807.619496087, \"duration_ms\": 524.2}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 2692, \"output_tokens\": 114, \"total_tokens\": 2806, \"timestamp\": 1769083076.9047565, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 0, \"total_cache_tokens\": 0, \"has_cache_activity\": false}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 2806, \"effective_input_tokens\": 2692, \"display_input_tokens\": 2692}, \"raw_usage\": {\"completion_tokens\": 114, \"prompt_tokens\": 2692, \"total_tokens\": 2806, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 0}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 3, \"cumulative_input_tokens\": 7612, \"cumulative_output_tokens\": 322, \"cumulative_billing_tokens\": 7934, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 3, \"current_context_tokens\": 2806, \"context_window_size\": 131072, \"context_usage_percentage\": 2.14080810546875, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 4606, \"cache_hit_rate_percent\": 37.6984776559175, \"cumulative_effective_input_tokens\": 3006}}"
+          }
+        ]
+      },
+      "stop_reason": "toolUse",
+      "is_template": false
+    },
+    {
+      "role": "user",
+      "content": [],
+      "tool_results": {
+        "0e75f9a5f": {
+          "content": [
+            {
+              "type": "text",
+              "text": "process exit code was 1"
+            }
+          ],
+          "isError": true,
+          "exit_code": 1
+        }
+      },
+      "channels": {
+        "fast-agent-tool-timing": [
+          {
+            "type": "text",
+            "text": "{\"0e75f9a5f\": {\"timing_ms\": 21.82, \"transport_channel\": null}}"
+          }
+        ]
+      },
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [],
+      "tool_calls": {
+        "6c8f2e515": {
+          "method": "tools/call",
+          "params": {
+            "name": "execute",
+            "arguments": {
+              "command": "rg -n 'SkillsManifest' -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' -g '!*.json' -g '!*.jsonl' -g '!stream-debug/*'"
+            }
+          }
+        }
+      },
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "Maybe the code is in a different directory, like in fast_agent module root? Already listed. Could be in a file not under src, maybe under tests? Let's search entire repo.Search for SkillsManifest globally."
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 82807.644494235, \"end_time\": 82808.137072842, \"duration_ms\": 492.58}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 2825, \"output_tokens\": 144, \"total_tokens\": 2969, \"timestamp\": 1769083077.4223347, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 2687, \"total_cache_tokens\": 2687, \"has_cache_activity\": true}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 2969, \"effective_input_tokens\": 138, \"display_input_tokens\": 2825}, \"raw_usage\": {\"completion_tokens\": 144, \"prompt_tokens\": 2825, \"total_tokens\": 2969, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 2687}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 4, \"cumulative_input_tokens\": 10437, \"cumulative_output_tokens\": 466, \"cumulative_billing_tokens\": 10903, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 4, \"current_context_tokens\": 2969, \"context_window_size\": 131072, \"context_usage_percentage\": 2.265167236328125, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 7293, \"cache_hit_rate_percent\": 41.1336717428088, \"cumulative_effective_input_tokens\": 3144}}"
+          }
+        ]
+      },
+      "stop_reason": "toolUse",
+      "is_template": false
+    },
+    {
+      "role": "user",
+      "content": [],
+      "tool_results": {
+        "6c8f2e515": {
+          "content": [
+            {
+              "type": "text",
+              "text": "process exit code was 1"
+            }
+          ],
+          "isError": true,
+          "exit_code": 1
+        }
+      },
+      "channels": {
+        "fast-agent-tool-timing": [
+          {
+            "type": "text",
+            "text": "{\"6c8f2e515\": {\"timing_ms\": 40.24, \"transport_channel\": null}}"
+          }
+        ]
+      },
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [],
+      "tool_calls": {
+        "df2a1d3dd": {
+          "method": "tools/call",
+          "params": {
+            "name": "execute",
+            "arguments": {
+              "command": "rg -n 'parse_manifest' -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' -g '!*.json' -g '!*.jsonl' -g '!stream-debug/*'"
+            }
+          }
+        }
+      },
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "Search for parse_manifest."
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 82808.181065146, \"end_time\": 82808.675855447, \"duration_ms\": 494.79}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 2981, \"output_tokens\": 100, \"total_tokens\": 3081, \"timestamp\": 1769083077.9611204, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 2687, \"total_cache_tokens\": 2687, \"has_cache_activity\": true}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 3081, \"effective_input_tokens\": 294, \"display_input_tokens\": 2981}, \"raw_usage\": {\"completion_tokens\": 100, \"prompt_tokens\": 2981, \"total_tokens\": 3081, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 2687}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 5, \"cumulative_input_tokens\": 13418, \"cumulative_output_tokens\": 566, \"cumulative_billing_tokens\": 13984, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 5, \"current_context_tokens\": 3081, \"context_window_size\": 131072, \"context_usage_percentage\": 2.350616455078125, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 9980, \"cache_hit_rate_percent\": 42.65321822377981, \"cumulative_effective_input_tokens\": 3438}}"
+          }
+        ]
+      },
+      "stop_reason": "toolUse",
+      "is_template": false
+    },
+    {
+      "role": "user",
+      "content": [],
+      "tool_results": {
+        "df2a1d3dd": {
+          "content": [
+            {
+              "type": "text",
+              "text": "src/fast_agent/skills/registry.py:150:            manifest, error = cls._parse_manifest(manifest_path)\nsrc/fast_agent/skills/registry.py:163:    def _parse_manifest(cls, manifest_path: Path) -> tuple[SkillManifest | None, str | None]:\nprocess exit code was 0"
+            }
+          ],
+          "isError": false,
+          "exit_code": 0
+        }
+      },
+      "channels": {
+        "fast-agent-tool-timing": [
+          {
+            "type": "text",
+            "text": "{\"df2a1d3dd\": {\"timing_ms\": 24.55, \"transport_channel\": null}}"
+          }
+        ]
+      },
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [],
+      "tool_calls": {
+        "4b0fe12de": {
+          "method": "tools/call",
+          "params": {
+            "name": "execute",
+            "arguments": {
+              "command": "rg -n -C 2 'SkillsManifest' -g 'src/fast_agent/skills/registry.py' -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' -g '!*.json' -g '!*.jsonl' -g '!stream-debug/*'"
+            }
+          }
+        }
+      },
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "We have matches in src/fast_agent/skills/registry.py. Need also SkillsManifest maybe defined elsewhere. Let's open the file.We can view content around relevant lines."
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 82808.703784363, \"end_time\": 82809.208411958, \"duration_ms\": 504.63}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 3161, \"output_tokens\": 153, \"total_tokens\": 3314, \"timestamp\": 1769083078.4936721, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 2687, \"total_cache_tokens\": 2687, \"has_cache_activity\": true}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 3314, \"effective_input_tokens\": 474, \"display_input_tokens\": 3161}, \"raw_usage\": {\"completion_tokens\": 153, \"prompt_tokens\": 3161, \"total_tokens\": 3314, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 2687}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 6, \"cumulative_input_tokens\": 16579, \"cumulative_output_tokens\": 719, \"cumulative_billing_tokens\": 17298, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 6, \"current_context_tokens\": 3314, \"context_window_size\": 131072, \"context_usage_percentage\": 2.52838134765625, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 12667, \"cache_hit_rate_percent\": 43.31190590166177, \"cumulative_effective_input_tokens\": 3912}}"
+          }
+        ]
+      },
+      "stop_reason": "toolUse",
+      "is_template": false
+    },
+    {
+      "role": "user",
+      "content": [],
+      "tool_results": {
+        "4b0fe12de": {
+          "content": [
+            {
+              "type": "text",
+              "text": "process exit code was 1"
+            }
+          ],
+          "isError": true,
+          "exit_code": 1
+        }
+      },
+      "channels": {
+        "fast-agent-tool-timing": [
+          {
+            "type": "text",
+            "text": "{\"4b0fe12de\": {\"timing_ms\": 21.81, \"transport_channel\": null}}"
+          }
+        ]
+      },
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [],
+      "tool_calls": {
+        "e0b8aeb38": {
+          "method": "tools/call",
+          "params": {
+            "name": "execute",
+            "arguments": {
+              "command": "rg -n 'SkillManifest' -g 'src/fast_agent/skills/registry.py' -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' -g '!*.json' -g '!*.jsonl' -g '!stream-debug/*'"
+            }
+          }
+        }
+      },
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "Maybe the name is different case? Search for SkillManifest.Search for SkillManifest."
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 82809.234901869, \"end_time\": 82809.87382474, \"duration_ms\": 638.92}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 3326, \"output_tokens\": 131, \"total_tokens\": 3457, \"timestamp\": 1769083079.1590874, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 3071, \"total_cache_tokens\": 3071, \"has_cache_activity\": true}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 3457, \"effective_input_tokens\": 255, \"display_input_tokens\": 3326}, \"raw_usage\": {\"completion_tokens\": 131, \"prompt_tokens\": 3326, \"total_tokens\": 3457, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 3071}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 7, \"cumulative_input_tokens\": 19905, \"cumulative_output_tokens\": 850, \"cumulative_billing_tokens\": 20755, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 7, \"current_context_tokens\": 3457, \"context_window_size\": 131072, \"context_usage_percentage\": 2.637481689453125, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 15738, \"cache_hit_rate_percent\": 44.15453244676374, \"cumulative_effective_input_tokens\": 4167}}"
+          }
+        ]
+      },
+      "stop_reason": "toolUse",
+      "is_template": false
+    },
+    {
+      "role": "user",
+      "content": [],
+      "tool_results": {
+        "e0b8aeb38": {
+          "content": [
+            {
+              "type": "text",
+              "text": "src/fast_agent/skills/registry.py:16:class SkillManifest:\nsrc/fast_agent/skills/registry.py:56:    def load_manifests(self) -> list[SkillManifest]:\nsrc/fast_agent/skills/registry.py:67:        manifests_by_name: dict[str, SkillManifest] = {}\nsrc/fast_agent/skills/registry.py:83:    def load_manifests_with_errors(self) -> tuple[list[SkillManifest], list[dict[str, str]]]:\nsrc/fast_agent/skills/registry.py:119:    def load_directory(cls, directory: Path) -> list[SkillManifest]:\nsrc/fast_agent/skills/registry.py:131:    ) -> tuple[list[SkillManifest], list[dict[str, str]]]:\nsrc/fast_agent/skills/registry.py:141:    ) -> list[SkillManifest]:\nsrc/fast_agent/skills/registry.py:143:        manifests: list[SkillManifest] = []\nsrc/fast_agent/skills/registry.py:163:    def _parse_manifest(cls, manifest_path: Path) -> tuple[SkillManifest | None, str | None]:\nsrc/fast_agent/skills/registry.py:202:        return SkillManifest(\nsrc/fast_agent/skills/registry.py:215:    manifests: Sequence[SkillManifest],\nprocess exit code was 0"
+            }
+          ],
+          "isError": false,
+          "exit_code": 0
+        }
+      },
+      "channels": {
+        "fast-agent-tool-timing": [
+          {
+            "type": "text",
+            "text": "{\"e0b8aeb38\": {\"timing_ms\": 20.83, \"transport_channel\": null}}"
+          }
+        ]
+      },
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [],
+      "tool_calls": {
+        "d9273b19e": {
+          "method": "tools/call",
+          "params": {
+            "name": "execute",
+            "arguments": {
+              "command": "rg -n -C 2 'class SkillManifest' -g 'src/fast_agent/skills/registry.py' -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' -g '!*.json' -g '!*.jsonl' -g '!stream-debug/*'"
+            }
+          }
+        }
+      },
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "We need to present results: location of SkillsManifest (probably SkillManifest class) and _parse_manifest definition.\n\nLet's extract lines for class SkillManifest."
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 82809.897931985, \"end_time\": 82810.475782494, \"duration_ms\": 577.85}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 3745, \"output_tokens\": 149, \"total_tokens\": 3894, \"timestamp\": 1769083079.7610526, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 0, \"total_cache_tokens\": 0, \"has_cache_activity\": false}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 3894, \"effective_input_tokens\": 3745, \"display_input_tokens\": 3745}, \"raw_usage\": {\"completion_tokens\": 149, \"prompt_tokens\": 3745, \"total_tokens\": 3894, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 0}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 8, \"cumulative_input_tokens\": 23650, \"cumulative_output_tokens\": 999, \"cumulative_billing_tokens\": 24649, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 8, \"current_context_tokens\": 3894, \"context_window_size\": 131072, \"context_usage_percentage\": 2.97088623046875, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 15738, \"cache_hit_rate_percent\": 39.956331877729255, \"cumulative_effective_input_tokens\": 7912}}"
+          }
+        ]
+      },
+      "stop_reason": "toolUse",
+      "is_template": false
+    },
+    {
+      "role": "user",
+      "content": [],
+      "tool_results": {
+        "d9273b19e": {
+          "content": [
+            {
+              "type": "text",
+              "text": "src/fast_agent/skills/registry.py-14-\nsrc/fast_agent/skills/registry.py-15-@dataclass(frozen=True)\nsrc/fast_agent/skills/registry.py:16:class SkillManifest:\nsrc/fast_agent/skills/registry.py-17-    \"\"\"Represents a single skill description loaded from SKILL.md.\"\"\"\nsrc/fast_agent/skills/registry.py-18-\nprocess exit code was 0"
+            }
+          ],
+          "isError": false,
+          "exit_code": 0
+        }
+      },
+      "channels": {
+        "fast-agent-tool-timing": [
+          {
+            "type": "text",
+            "text": "{\"d9273b19e\": {\"timing_ms\": 24.26, \"transport_channel\": null}}"
+          }
+        ]
+      },
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [],
+      "tool_calls": {
+        "080e96542": {
+          "method": "tools/call",
+          "params": {
+            "name": "execute",
+            "arguments": {
+              "command": "rg -n -C 4 '_parse_manifest' -g 'src/fast_agent/skills/registry.py' -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' -g '!*.json' -g '!*.jsonl' -g '!stream-debug/*'"
+            }
+          }
+        }
+      },
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "Now get _parse_manifest definition lines."
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 82810.503898527, \"end_time\": 82811.012422318, \"duration_ms\": 508.52}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 3992, \"output_tokens\": 120, \"total_tokens\": 4112, \"timestamp\": 1769083080.2976787, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 3071, \"total_cache_tokens\": 3071, \"has_cache_activity\": true}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 4112, \"effective_input_tokens\": 921, \"display_input_tokens\": 3992}, \"raw_usage\": {\"completion_tokens\": 120, \"prompt_tokens\": 3992, \"total_tokens\": 4112, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 3071}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 9, \"cumulative_input_tokens\": 27642, \"cumulative_output_tokens\": 1119, \"cumulative_billing_tokens\": 28761, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 9, \"current_context_tokens\": 4112, \"context_window_size\": 131072, \"context_usage_percentage\": 3.13720703125, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 18809, \"cache_hit_rate_percent\": 40.49213149340165, \"cumulative_effective_input_tokens\": 8833}}"
+          }
+        ]
+      },
+      "stop_reason": "toolUse",
+      "is_template": false
+    },
+    {
+      "role": "user",
+      "content": [],
+      "tool_results": {
+        "080e96542": {
+          "content": [
+            {
+              "type": "text",
+              "text": "src/fast_agent/skills/registry.py-146-                continue\nsrc/fast_agent/skills/registry.py-147-            manifest_path = entry / \"SKILL.md\"\nsrc/fast_agent/skills/registry.py-148-            if not manifest_path.exists():\nsrc/fast_agent/skills/registry.py-149-                continue\nsrc/fast_agent/skills/registry.py:150:            manifest, error = cls._parse_manifest(manifest_path)\nsrc/fast_agent/skills/registry.py-151-            if manifest:\nsrc/fast_agent/skills/registry.py-152-                manifests.append(manifest)\nsrc/fast_agent/skills/registry.py-153-            elif errors is not None:\nsrc/fast_agent/skills/registry.py-154-                errors.append(\n--\nsrc/fast_agent/skills/registry.py-159-                )\nsrc/fast_agent/skills/registry.py-160-        return manifests\nsrc/fast_agent/skills/registry.py-161-\nsrc/fast_agent/skills/registry.py-162-    @classmethod\nsrc/fast_agent/skills/registry.py:163:    def _parse_manifest(cls, manifest_path: Path) -> tuple[SkillManifest | None, str | None]:\nsrc/fast_agent/skills/registry.py-164-        try:\nsrc/fast_agent/skills/registry.py-165-            post = frontmatter.loads(manifest_path.read_text(encoding=\"utf-8\"))\nsrc/fast_agent/skills/registry.py-166-        except Exception as exc:  # noqa: BLE001\nsrc/fast_agent/skills/registry.py-167-            logger.warning(\nprocess exit code was 0"
+            }
+          ],
+          "isError": false,
+          "exit_code": 0
+        }
+      },
+      "channels": {
+        "fast-agent-tool-timing": [
+          {
+            "type": "text",
+            "text": "{\"080e96542\": {\"timing_ms\": 22.05, \"transport_channel\": null}}"
+          }
+        ]
+      },
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [],
+      "tool_calls": {
+        "64777d3d3": {
+          "method": "tools/call",
+          "params": {
+            "name": "execute",
+            "arguments": {
+              "command": "rg -n -A 20 -B 0 'def _parse_manifest' -g 'src/fast_agent/skills/registry.py' -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' -g '!*.json' -g '!*.jsonl' -g '!stream-debug/*'"
+            }
+          }
+        }
+      },
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "Let's also capture lines after error handling and return.Continue lines after 167."
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 82811.038667688, \"end_time\": 82815.623740936, \"duration_ms\": 4585.07}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 4478, \"output_tokens\": 140, \"total_tokens\": 4618, \"timestamp\": 1769083085.4882936, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 2303, \"total_cache_tokens\": 2303, \"has_cache_activity\": true}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 4618, \"effective_input_tokens\": 2175, \"display_input_tokens\": 4478}, \"raw_usage\": {\"completion_tokens\": 140, \"prompt_tokens\": 4478, \"total_tokens\": 4618, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 2303}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 10, \"cumulative_input_tokens\": 32120, \"cumulative_output_tokens\": 1259, \"cumulative_billing_tokens\": 33379, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 10, \"current_context_tokens\": 4618, \"context_window_size\": 131072, \"context_usage_percentage\": 3.52325439453125, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 21112, \"cache_hit_rate_percent\": 39.66035467388037, \"cumulative_effective_input_tokens\": 11008}}"
+          }
+        ]
+      },
+      "stop_reason": "toolUse",
+      "is_template": false
+    },
+    {
+      "role": "user",
+      "content": [],
+      "tool_results": {
+        "64777d3d3": {
+          "content": [
+            {
+              "type": "text",
+              "text": "src/fast_agent/skills/registry.py:163:    def _parse_manifest(cls, manifest_path: Path) -> tuple[SkillManifest | None, str | None]:\nsrc/fast_agent/skills/registry.py-164-        try:\nsrc/fast_agent/skills/registry.py-165-            post = frontmatter.loads(manifest_path.read_text(encoding=\"utf-8\"))\nsrc/fast_agent/skills/registry.py-166-        except Exception as exc:  # noqa: BLE001\nsrc/fast_agent/skills/registry.py-167-            logger.warning(\nsrc/fast_agent/skills/registry.py-168-                \"Failed to parse skill manifest\",\nsrc/fast_agent/skills/registry.py-169-                data={\"path\": str(manifest_path), \"error\": str(exc)},\nsrc/fast_agent/skills/registry.py-170-            )\nsrc/fast_agent/skills/registry.py-171-            return None, str(exc)\nsrc/fast_agent/skills/registry.py-172-\nsrc/fast_agent/skills/registry.py-173-        metadata = post.metadata or {}\nsrc/fast_agent/skills/registry.py-174-        name = metadata.get(\"name\")\nsrc/fast_agent/skills/registry.py-175-        description = metadata.get(\"description\")\nsrc/fast_agent/skills/registry.py-176-\nsrc/fast_agent/skills/registry.py-177-        if not isinstance(name, str) or not name.strip():\nsrc/fast_agent/skills/registry.py-178-            logger.warning(\"Skill manifest missing name\", data={\"path\": str(manifest_path)})\nsrc/fast_agent/skills/registry.py-179-            return None, \"Missing 'name' field\"\nsrc/fast_agent/skills/registry.py-180-        if not isinstance(description, str) or not description.strip():\nsrc/fast_agent/skills/registry.py-181-            logger.warning(\"Skill manifest missing description\", data={\"path\": str(manifest_path)})\nsrc/fast_agent/skills/registry.py-182-            return None, \"Missing 'description' field\"\nsrc/fast_agent/skills/registry.py-183-\nprocess exit code was 0"
+            }
+          ],
+          "isError": false,
+          "exit_code": 0
+        }
+      },
+      "channels": {
+        "fast-agent-tool-timing": [
+          {
+            "type": "text",
+            "text": "{\"64777d3d3\": {\"timing_ms\": 22.97, \"transport_channel\": null}}"
+          }
+        ]
+      },
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [],
+      "tool_calls": {
+        "39e9dcd4a": {
+          "method": "tools/call",
+          "params": {
+            "name": "execute",
+            "arguments": {
+              "command": "rg -n -A 20 -B 0 'return SkillManifest' -g 'src/fast_agent/skills/registry.py' -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' -g '!*.json' -g '!*.jsonl' -g '!stream-debug/*'"
+            }
+          }
+        }
+      },
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "Continue to get return of SkillManifest."
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 82815.651036531, \"end_time\": 82818.293883732, \"duration_ms\": 2642.85}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 5085, \"output_tokens\": 125, \"total_tokens\": 5210, \"timestamp\": 1769083088.1582243, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 4223, \"total_cache_tokens\": 4223, \"has_cache_activity\": true}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 5210, \"effective_input_tokens\": 862, \"display_input_tokens\": 5085}, \"raw_usage\": {\"completion_tokens\": 125, \"prompt_tokens\": 5085, \"total_tokens\": 5210, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 4223}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 11, \"cumulative_input_tokens\": 37205, \"cumulative_output_tokens\": 1384, \"cumulative_billing_tokens\": 38589, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 11, \"current_context_tokens\": 5210, \"context_window_size\": 131072, \"context_usage_percentage\": 3.97491455078125, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 25335, \"cache_hit_rate_percent\": 40.51007355292613, \"cumulative_effective_input_tokens\": 11870}}"
+          }
+        ]
+      },
+      "stop_reason": "toolUse",
+      "is_template": false
+    },
+    {
+      "role": "user",
+      "content": [],
+      "tool_results": {
+        "39e9dcd4a": {
+          "content": [
+            {
+              "type": "text",
+              "text": "src/fast_agent/skills/registry.py:202:        return SkillManifest(\nsrc/fast_agent/skills/registry.py-203-            name=name.strip(),\nsrc/fast_agent/skills/registry.py-204-            description=description.strip(),\nsrc/fast_agent/skills/registry.py-205-            body=body_text,\nsrc/fast_agent/skills/registry.py-206-            path=manifest_path,\nsrc/fast_agent/skills/registry.py-207-            license=license_field.strip() if isinstance(license_field, str) else None,\nsrc/fast_agent/skills/registry.py-208-            compatibility=compatibility.strip() if isinstance(compatibility, str) else None,\nsrc/fast_agent/skills/registry.py-209-            metadata=typed_metadata,\nsrc/fast_agent/skills/registry.py-210-            allowed_tools=allowed_tools,\nsrc/fast_agent/skills/registry.py-211-        ), None\nsrc/fast_agent/skills/registry.py-212-\nsrc/fast_agent/skills/registry.py-213-\nsrc/fast_agent/skills/registry.py-214-def format_skills_for_prompt(\nsrc/fast_agent/skills/registry.py-215-    manifests: Sequence[SkillManifest],\nsrc/fast_agent/skills/registry.py-216-    *,\nsrc/fast_agent/skills/registry.py-217-    read_tool_name: str = \"read_skill\",\nsrc/fast_agent/skills/registry.py-218-    include_preamble: bool = True,\nsrc/fast_agent/skills/registry.py-219-) -> str:\nsrc/fast_agent/skills/registry.py-220-    \"\"\"\nsrc/fast_agent/skills/registry.py-221-    Format skill manifests into XML block per the Agent Skills specification.\nsrc/fast_agent/skills/registry.py-222-\nprocess exit code was 0"
+            }
+          ],
+          "isError": false,
+          "exit_code": 0
+        }
+      },
+      "channels": {
+        "fast-agent-tool-timing": [
+          {
+            "type": "text",
+            "text": "{\"39e9dcd4a\": {\"timing_ms\": 22.74, \"transport_channel\": null}}"
+          }
+        ]
+      },
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "**Search: `SkillsManifest` / `_parse_manifest` in `src/fast_agent`**\n\n**Found matches in:** `src/fast_agent/skills/registry.py`\n\n---\n\n### `SkillManifest` definition  \n*Line 16*\n\n```text\nsrc/fast_agent/skills/registry.py:16:class SkillManifest:\n```\n\n(Definition begins after the `@dataclass(frozen=True)` decorator on line\u202f15.)\n\n---\n\n### `_parse_manifest` method  \n*Line\u202f163*\n\n```text\nsrc/fast_agent/skills/registry.py:163:    def _parse_manifest(cls, manifest_path: Path) -> tuple[SkillManifest | None, str | None]:\nsrc/fast_agent/skills/registry.py-164-        try:\nsrc/fast_agent/skills/registry.py-165-            post = frontmatter.loads(manifest_path.read_text(encoding=\"utf-8\"))\nsrc/fast_agent/skills/registry.py-166-        except Exception as exc:  # noqa: BLE001\nsrc/fast_agent/skills/registry.py-167-            logger.warning(\nsrc/fast_agent/skills/registry.py-168-                \"Failed to parse skill manifest\",\nsrc/fast_agent/skills/registry.py-169-                data={\"path\": str(manifest_path), \"error\": str(exc)},\nsrc/fast_agent/skills/registry.py-170-            )\nsrc/fast_agent/skills/registry.py-171-            return None, str(exc)\nsrc/fast_agent/skills/registry.py-173-        metadata = post.metadata or {}\nsrc/fast_agent/skills/registry.py-174-        name = metadata.get(\"name\")\nsrc/fast_agent/skills/registry.py-175-        description = metadata.get(\"description\")\nsrc/fast_agent/skills/registry.py-177-        if not isinstance(name, str) or not name.strip():\nsrc/fast_agent/skills/registry.py-178-            logger.warning(\"Skill manifest missing name\", data={\"path\": str(manifest_path)})\nsrc/fast_agent/skills/registry.py-179-            return None, \"Missing 'name' field\"\nsrc/fast_agent/skills/registry.py-180-        if not isinstance(description, str) or not description.strip():\nsrc/fast_agent/skills/registry.py-181-            logger.warning(\"Skill manifest missing description\", data={\"path\": str(manifest_path)})\nsrc/fast_agent/skills/registry.py-182-            return None, \"Missing 'description' field\"\nsrc/fast_agent/skills/registry.py-202-        return SkillManifest(\nsrc/fast_agent/skills/registry.py-203-            name=name.strip(),\nsrc/fast_agent/skills/registry.py-204-            description=description.strip(),\nsrc/fast_agent/skills/registry.py-205-            body=body_text,\nsrc/fast_agent/skills/registry.py-206-            path=manifest_path,\nsrc/fast_agent/skills/registry.py-207-            license=license_field.strip() if isinstance(license_field, str) else None,\nsrc/fast_agent/skills/registry.py-208-            compatibility=compatibility.strip() if isinstance(compatibility, str) else None,\nsrc/fast_agent/skills/registry.py-209-            metadata=typed_metadata,\nsrc/fast_agent/skills/registry.py-210-            allowed_tools=allowed_tools,\nsrc/fast_agent/skills/registry.py-211-        ), None\n```\n\nThe `_parse_manifest` method reads a `SKILL.md` file, parses its front\u2011matter, validates required fields (`name`, `description`), logs warnings on failures, and returns a `SkillManifest` instance (or an error string)."
+        }
+      ],
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "Thus answer: file src/fast_agent/skills/registry.py contains SkillManifest class at line 16, and _parse_manifest method at line 163.\n\nProvide concise results."
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 82818.321195893, \"end_time\": 82819.074524147, \"duration_ms\": 753.33}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 5616, \"output_tokens\": 822, \"total_tokens\": 6438, \"timestamp\": 1769083088.9389458, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 0, \"total_cache_tokens\": 0, \"has_cache_activity\": false}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 0, \"current_context_tokens\": 6438, \"effective_input_tokens\": 5616, \"display_input_tokens\": 5616}, \"raw_usage\": {\"completion_tokens\": 822, \"prompt_tokens\": 5616, \"total_tokens\": 6438, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 0}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 12, \"cumulative_input_tokens\": 42821, \"cumulative_output_tokens\": 2206, \"cumulative_billing_tokens\": 45027, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 11, \"current_context_tokens\": 6438, \"context_window_size\": 131072, \"context_usage_percentage\": 4.91180419921875, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 25335, \"cache_hit_rate_percent\": 37.17207582604613, \"cumulative_effective_input_tokens\": 17486}}"
+          }
+        ]
+      },
+      "stop_reason": "endTurn",
+      "is_template": false
+    }
+  ]
+}

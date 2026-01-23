@@ -1,0 +1,293 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "Search for structuredContent in mcp server examples or FastMCP usage."
+        }
+      ],
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [],
+      "tool_calls": {
+        "682d61044": {
+          "method": "tools/call",
+          "params": {
+            "name": "execute",
+            "arguments": {
+              "command": "pwd"
+            }
+          }
+        }
+      },
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "We need to search in the workspace for \"structuredContent\" within mcp server examples or FastMCP usage. First need to know repo root. Let's list current directory."
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 49035.460973915, \"end_time\": 49036.083776087, \"duration_ms\": 622.8}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 2295, \"output_tokens\": 62, \"total_tokens\": 2357, \"timestamp\": 1768942753.288703, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 0, \"total_cache_tokens\": 0, \"has_cache_activity\": false}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 2357, \"effective_input_tokens\": 2295, \"display_input_tokens\": 2295}, \"raw_usage\": {\"completion_tokens\": 62, \"prompt_tokens\": 2295, \"total_tokens\": 2357, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 0}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 1, \"cumulative_input_tokens\": 2295, \"cumulative_output_tokens\": 62, \"cumulative_billing_tokens\": 2357, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 1, \"current_context_tokens\": 2357, \"context_window_size\": 131072, \"context_usage_percentage\": 1.798248291015625, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 0, \"cache_hit_rate_percent\": 0.0, \"cumulative_effective_input_tokens\": 2295}}"
+          }
+        ]
+      },
+      "stop_reason": "toolUse",
+      "is_template": false
+    },
+    {
+      "role": "user",
+      "content": [],
+      "tool_results": {
+        "682d61044": {
+          "content": [
+            {
+              "type": "text",
+              "text": "/home/ssmith/source/fast-agent\nprocess exit code was 0"
+            }
+          ],
+          "isError": false,
+          "exit_code": 0
+        }
+      },
+      "channels": {
+        "fast-agent-tool-timing": [
+          {
+            "type": "text",
+            "text": "{\"682d61044\": {\"timing_ms\": 17.71, \"transport_channel\": null}}"
+          }
+        ]
+      },
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [],
+      "tool_calls": {
+        "7c301ceb8": {
+          "method": "tools/call",
+          "params": {
+            "name": "execute",
+            "arguments": {
+              "command": "ls -R | head -n 20"
+            }
+          }
+        }
+      },
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "Now let's list files to see repository name."
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 49036.104819771, \"end_time\": 49036.629486403, \"duration_ms\": 524.67}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 2382, \"output_tokens\": 40, \"total_tokens\": 2422, \"timestamp\": 1768942753.8345203, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 1919, \"total_cache_tokens\": 1919, \"has_cache_activity\": true}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 2422, \"effective_input_tokens\": 463, \"display_input_tokens\": 2382}, \"raw_usage\": {\"completion_tokens\": 40, \"prompt_tokens\": 2382, \"total_tokens\": 2422, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 1919}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 2, \"cumulative_input_tokens\": 4677, \"cumulative_output_tokens\": 102, \"cumulative_billing_tokens\": 4779, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 2, \"current_context_tokens\": 2422, \"context_window_size\": 131072, \"context_usage_percentage\": 1.84783935546875, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 1919, \"cache_hit_rate_percent\": 29.093389933292908, \"cumulative_effective_input_tokens\": 2758}}"
+          }
+        ]
+      },
+      "stop_reason": "toolUse",
+      "is_template": false
+    },
+    {
+      "role": "user",
+      "content": [],
+      "tool_results": {
+        "7c301ceb8": {
+          "content": [
+            {
+              "type": "text",
+              "text": ".:\nAGENTS.md\nLICENSE\nREADME.md\nRIPGREP_IMPROVEMENTS_SUMMARY.md\n__pycache__\ndecorator.json\ndist\ndocker-setup.json\ndocs\nexamples\nfastagent.config.yaml\nfastagent.jsonl\nfastagent.secrets.yaml\nfoo.py\nhatch_build.py\ninvestigate-openai-int\nmoon_landing_essay.md\nmy_directory\nplan\nprocess exit code was 0"
+            }
+          ],
+          "isError": false,
+          "exit_code": 0
+        }
+      },
+      "channels": {
+        "fast-agent-tool-timing": [
+          {
+            "type": "text",
+            "text": "{\"7c301ceb8\": {\"timing_ms\": 24.5, \"transport_channel\": null}}"
+          }
+        ]
+      },
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [],
+      "tool_calls": {
+        "ef66a90e8": {
+          "method": "tools/call",
+          "params": {
+            "name": "execute",
+            "arguments": {
+              "command": "rg -n -S -F 'structuredContent' -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' ."
+            }
+          }
+        }
+      },
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "There is an examples directory. Let's inspect.Search pattern \"structuredContent\". Use rg across repo. Use -S (smart case default) maybe. Must include standard exclusions.\n\nWe need to target within mcp server examples or FastMCP usage. So maybe files under examples? We'll search repository."
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 49036.657689365, \"end_time\": 49037.137140417, \"duration_ms\": 479.45}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 2526, \"output_tokens\": 146, \"total_tokens\": 2672, \"timestamp\": 1768942754.3421881, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 2303, \"total_cache_tokens\": 2303, \"has_cache_activity\": true}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 2672, \"effective_input_tokens\": 223, \"display_input_tokens\": 2526}, \"raw_usage\": {\"completion_tokens\": 146, \"prompt_tokens\": 2526, \"total_tokens\": 2672, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 2303}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 3, \"cumulative_input_tokens\": 7203, \"cumulative_output_tokens\": 248, \"cumulative_billing_tokens\": 7451, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 3, \"current_context_tokens\": 2672, \"context_window_size\": 131072, \"context_usage_percentage\": 2.03857421875, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 4222, \"cache_hit_rate_percent\": 36.95404814004377, \"cumulative_effective_input_tokens\": 2981}}"
+          }
+        ]
+      },
+      "stop_reason": "toolUse",
+      "is_template": false
+    },
+    {
+      "role": "user",
+      "content": [],
+      "tool_results": {
+        "ef66a90e8": {
+          "content": [
+            {
+              "type": "text",
+              "text": "./src/fast_agent/ui/tool_display.py:135:            structured_content = getattr(result, \"structuredContent\", None)\n./examples/new-api/textual_markdown_demo.py:763:        structured = getattr(result, \"structuredContent\", None)\nprocess exit code was 0"
+            }
+          ],
+          "isError": false,
+          "exit_code": 0
+        }
+      },
+      "channels": {
+        "fast-agent-tool-timing": [
+          {
+            "type": "text",
+            "text": "{\"ef66a90e8\": {\"timing_ms\": 59.87, \"transport_channel\": null}}"
+          }
+        ]
+      },
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [],
+      "tool_calls": {
+        "530160f8d": {
+          "method": "tools/call",
+          "params": {
+            "name": "execute",
+            "arguments": {
+              "command": "rg -n -S -F 'FastMCP' -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' ."
+            }
+          }
+        }
+      },
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "We found two hits: in src/fast_agent/ui/tool_display.py line 135, and examples/new-api/textual_markdown_demo.py line 763. The user asked \"Search for structuredContent in mcp server examples or FastMCP usage.\"\n\nMaybe there are other examples. Let's search more maybe other files.We have already two matches. That's likely the answer. Provide file paths with line numbers.\n\nLet's maybe also search inside examples for \"FastMCP\".Search for FastMCP usage."
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 49037.20024549, \"end_time\": 49038.10580904, \"duration_ms\": 905.56}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 2734, \"output_tokens\": 194, \"total_tokens\": 2928, \"timestamp\": 1768942755.3108492, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 2303, \"total_cache_tokens\": 2303, \"has_cache_activity\": true}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 2928, \"effective_input_tokens\": 431, \"display_input_tokens\": 2734}, \"raw_usage\": {\"completion_tokens\": 194, \"prompt_tokens\": 2734, \"total_tokens\": 2928, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 2303}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 4, \"cumulative_input_tokens\": 9937, \"cumulative_output_tokens\": 442, \"cumulative_billing_tokens\": 10379, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 4, \"current_context_tokens\": 2928, \"context_window_size\": 131072, \"context_usage_percentage\": 2.23388671875, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 6525, \"cache_hit_rate_percent\": 39.63673915684607, \"cumulative_effective_input_tokens\": 3412}}"
+          }
+        ]
+      },
+      "stop_reason": "toolUse",
+      "is_template": false
+    },
+    {
+      "role": "user",
+      "content": [],
+      "tool_results": {
+        "530160f8d": {
+          "content": [
+            {
+              "type": "text",
+              "text": "./plan/agent-card-origin-review.md:9:- [ ] `src/fast_agent/agents/tool_agent.py:90` \u2014 `_clone_constructor_kwargs` passes `FastMCPTool` instances directly into clones. If any tool closures capture parent state (for example, `add_agent_tool`), clones will still dispatch to the original child template, not a per-clone graph. This may be fine, but it weakens the \u201cdetached per-call clones\u201d story for nested agent-tools.\n./tests/e2e/smoke/base/test_server.py:8:from mcp.server.fastmcp import FastMCP\n./tests/e2e/smoke/base/test_server.py:13:# Create the FastMCP server\n./tests/e2e/smoke/base/test_server.py:14:app = FastMCP(name=\"Integration Server\")\n./tests/integration/api/mcp_tools_server.py:8:from mcp.server.fastmcp import Context, FastMCP\n./tests/integration/api/mcp_tools_server.py:13:# Create the FastMCP server\n./tests/integration/api/mcp_tools_server.py:14:app = FastMCP(name=\"An MCP Server\", instructions=\"Here is how to use this server\")\n./tests/integration/api/mcp_dynamic_tools.py:4:from mcp.server.fastmcp import FastMCP\n./tests/integration/api/mcp_dynamic_tools.py:6:# Create the FastMCP server\n./tests/integration/api/mcp_dynamic_tools.py:7:app = FastMCP(name=\"An MCP Server\", instructions=\"Here is how to use this server\")\n./tests/integration/skybridge/skybridge_test_server.py:9:from mcp.server.fastmcp import FastMCP\n./tests/integration/skybridge/skybridge_test_server.py:17:class SkybridgeTestServer(FastMCP):\n./tests/integration/skybridge/skybridge_test_server.py:18:    \"\"\"FastMCP server that decorates tool listings with Skybridge meta tags.\"\"\"\n./tests/integration/api/mcp_progress_server.py:3:from mcp.server.fastmcp import FastMCP\n./tests/integration/api/mcp_progress_server.py:5:# Create the FastMCP server\n./tests/integration/api/mcp_progress_server.py:6:app = FastMCP(\n./tests/e2e/workflow/puzzle_server.py:3:from mcp.server.fastmcp import FastMCP\n./tests/e2e/workflow/puzzle_server.py:5:# Create the FastMCP server\n./tests/e2e/workflow/puzzle_server.py:6:app = FastMCP(name=\"Puzzle Server\")\n./tests/e2e/workflow/test_routing_server.py:8:from mcp.server.fastmcp import FastMCP\n./tests/e2e/workflow/test_routing_server.py:13:# Create the FastMCP server\n./tests/e2e/workflow/test_routing_server.py:14:app = FastMCP(name=\"Integration Server\")\n./tests/e2e/workflow/puzzle_validator.py:3:from mcp.server.fastmcp import FastMCP\n./tests/e2e/workflow/puzzle_validator.py:5:# Create the FastMCP server\n./tests/e2e/workflow/puzzle_validator.py:6:app = FastMCP(name=\"Puzzle Validator\")\n./tests/e2e/multimodal/mixed_content_server.py:16:from mcp.server.fastmcp import FastMCP\n./tests/e2e/multimodal/mixed_content_server.py:23:# Create the FastMCP server\n./tests/e2e/multimodal/mixed_content_server.py:24:app = FastMCP(name=\"MixedContentServer\", debug=True)\n./tests/integration/server_instructions/server_without_instructions.py:8:from mcp.server.fastmcp import FastMCP\n./tests/integration/server_instructions/server_without_instructions.py:13:# Create the FastMCP server WITHOUT instructions\n./tests/integration/server_instructions/server_without_instructions.py:14:app = FastMCP(\n./tests/e2e/multimodal/image_server.py:12:from mcp.server.fastmcp import Context, FastMCP, Image\n./tests/e2e/multimodal/image_server.py:19:# Create the FastMCP server\n./tests/e2e/multimodal/image_server.py:20:app = FastMCP(name=\"ImageToolServer\", debug=True)\n./tests/integration/server_instructions/server_with_instructions.py:8:from mcp.server.fastmcp import FastMCP\n./tests/integration/server_instructions/server_with_instructions.py:13:# Create the FastMCP server with instructions\n./tests/integration/server_instructions/server_with_instructions.py:14:app = FastMCP(\n./tests/e2e/multimodal/video_server.py:9:from mcp.server.fastmcp import FastMCP\n./tests/e2e/multimodal/video_server.py:18:# Create the FastMCP server\n./tests/e2e/multimodal/video_server.py:19:app = FastMCP(name=\"VideoLinkServer\", debug=True)\n./tests/integration/mcp_filtering/filtering_test_server.py:8:from mcp.server.fastmcp import FastMCP\n./tests/integration/mcp_filtering/filtering_test_server.py:13:# Create the FastMCP server\n./tests/integration/mcp_filtering/filtering_test_server.py:14:app = FastMCP(name=\"Filtering Test Server\")\n./tests/integration/roots/root_test_server.py:3:from mcp.server.fastmcp import Context, FastMCP\n./tests/integration/roots/root_test_server.py:8:mcp = FastMCP(\"MCP Root Tester\", log_level=\"DEBUG\")\n./tests/integration/elicitation/elicitation_test_server_advanced.py:16:from mcp.server.fastmcp import FastMCP\n./tests/integration/elicitation/elicitation_test_server_advanced.py:29:mcp = FastMCP(\"MCP Advanced Elicitation Server\", log_level=\"DEBUG\")\n./tests/integration/elicitation/elicitation_test_server.py:16:from mcp.server.fastmcp import FastMCP\n./tests/integration/elicitation/elicitation_test_server.py:29:mcp = FastMCP(\"MCP Elicitation Server\", log_level=\"DEBUG\")\n./tests/integration/resources/mcp_linked_resouce_server.py:8:from mcp.server.fastmcp import FastMCP\n./tests/integration/resources/mcp_linked_resouce_server.py:15:# Create the FastMCP server\n./tests/integration/resources/mcp_linked_resouce_server.py:16:app = FastMCP(name=\"Linked Resources\", instructions=\"For integration tests with linked resources.\")\n./tests/e2e/bedrock/bedrock_test_server.py:8:from mcp.server.fastmcp import FastMCP\n./tests/e2e/bedrock/bedrock_test_server.py:13:# Create the FastMCP server\n./tests/e2e/bedrock/bedrock_test_server.py:14:app = FastMCP(name=\"Bedrock Test Server\")\n./tests/integration/sampling_with_tools/sampling_tools_test_server.py:10:from mcp.server.fastmcp import Context, FastMCP\n./tests/integration/sampling_with_tools/sampling_tools_test_server.py:28:mcp = FastMCP(\"Sampling Tools Test Server\", log_level=\"DEBUG\")\n./tests/e2e/sampling/sampling_resource_server.py:1:from mcp.server.fastmcp import Context, FastMCP, Image\n./tests/e2e/sampling/sampling_resource_server.py:4:# Create a FastMCP server\n./tests/e2e/sampling/sampling_resource_server.py:5:mcp = FastMCP(name=\"FastStoryAgent\")\n./tests/integration/sampling/sampling_test_server.py:8:from mcp.server.fastmcp import Context, FastMCP\n./tests/integration/sampling/sampling_test_server.py:20:mcp = FastMCP(\"MCP Root Tester\", log_level=\"DEBUG\")\n./plan/hook-tool-declarative.md:71:- `callable` entries are wrapped via `FastMCPTool.from_function`.\n./ripgrep_search[1]-2026-01-20-11-50-19.json:368:              \"text\": \"/home/ssmith/source/fast-agent/README.md:235:For SSE and HTTP MCP servers, OAuth is enabled by default with minimal configuration. A local callback server is used to capture the authorization code, with a paste-URL fallback if the port is unavailable.\\n/home/ssmith/source/fast-agent/docker-setup.json:563:              \\\"text\\\": \\\"from __future__ import annotations\\\\n\\\\nimport json\\\\nimport os\\\\nfrom pathlib import Path\\\\nfrom typing import Any\\\\nfrom urllib.error import HTTPError, URLError\\\\nfrom urllib.parse import urlencode\\\\nfrom urllib.request import Request, urlopen\\\\n\\\\nDEFAULT_MAX_RESULTS = 20\\\\nDEFAULT_TIMEOUT_SEC = 30\\\\n\\\\n\\\\ndef _load_token() -> str | None:\\\\n    token = os.getenv(\\\\\\\"HF_TOKEN\\\\\\\")\\\\n    if token:\\\\n        return token\\\\n\\\\n    token_path = Path.home() / \\\\\\\".cache\\\\\\\" / \\\\\\\"huggingface\\\\\\\" / \\\\\\\"token\\\\\\\"\\\\n    if token_path.exists():\\\\n        token_value = token_path.read_text(encoding=\\\\\\\"utf-8\\\\\\\").strip()\\\\n        return token_value or None\\\\n\\\\n    return None\\\\n\\\\n\\\\ndef _max_results_from_env() -> int:\\\\n    raw = os.getenv(\\\\\\\"HF_MAX_RESULTS\\\\\\\")\\\\n    if not raw:\\\\n        return DEFAULT_MAX_RESULTS\\\\n    try:\\\\n        value = int(raw)\\\\n    except ValueError:\\\\n        return DEFAULT_MAX_RESULTS\\\\n    return value if value > 0 else DEFAULT_MAX_RESULTS\\\\n\\\\n\\\\ndef _normalize_endpoint(endpoint: str) -> str:\\\\n    if endpoint.startswith(\\\\\\\"http://\\\\\\\") or endpoint.startswith(\\\\\\\"https://\\\\\\\"):\\\\n        raise ValueError(\\\\\\\"Endpoint must be a path relative to /api, not a full URL.\\\\\\\")\\\\n    endpoint = endpoint.strip()\\\\n    if not endpoint:\\\\n        raise ValueError(\\\\\\\"Endpoint must be a non-empty string.\\\\\\\")\\\\n    if not endpoint.startswith(\\\\\\\"/\\\\\\\"):\\\\n        endpoint = f\\\\\\\"/{endpoint}\\\\\\\"\\\\n    return endpoint\\\\n\\\\n\\\\ndef _normalize_params(params: dict[str, Any] | None) -> dict[str, Any]:\\\\n    if not params:\\\\n        return {}\\\\n    normalized: dict[str, Any] = {}\\\\n    for key, value in params.items():\\\\n        if value is None:\\\\n            continue\\\\n        if isinstance(value, (list, tuple)):\\\\n            normalized[key] = [str(item) for item in value]\\\\n        else:\\\\n            normalized[key] = str(value)\\\\n    return normalized\\\\n\\\\n\\\\ndef _build_url(endpoint: str, params: dict[str, Any] | None) -> str:\\\\n    base = os.getenv(\\\\\\\"HF_ENDPOINT\\\\\\\", \\\\\\\"https://huggingface.co\\\\\\\").rstrip(\\\\\\\"/\\\\\\\")\\\\n    url = f\\\\\\\"{base}/api{_normalize_endpoint(endpoint)}\\\\\\\"\\\\n    normalized_params = _normalize_params(params)\\\\n    if normalized_params:\\\\n        url = f\\\\\\\"{url}?{urlencode(normalized_params, doseq=True)}\\\\\\\"\\\\n    return url\\\\n\\\\n\\\\ndef hf_api_request(\\\\n    endpoint: str,\\\\n    method: str = \\\\\\\"GET\\\\\\\",\\\\n    params: dict[str, Any] | None = None,\\\\n    json_body: dict[str, Any] | None = None,\\\\n    max_results: int | None = None,\\\\n) -> dict[str, Any]:\\\\n    \\\\\\\"\\\\\\\"\\\\\\\"\\\\n    Call the Hugging Face Hub API (GET/POST only).\\\\n\\\\n    Args:\\\\n        endpoint: API endpoint relative to /api (e.g. \\\\\\\"/whoami-v2\\\\\\\").\\\\n        method: HTTP method (GET or POST).\\\\n        params: Optional query parameters.\\\\n        json_body: Optional JSON payload for POST requests.\\\\n        max_results: Max results when response is a list (defaults to HF_MAX_RESULTS).\\\\n\\\\n    Returns:\\\\n        A dict with the response data and request metadata.\\\\n    \\\\\\\"\\\\\\\"\\\\\\\"\\\\n    method_upper = method.upper()\\\\n    if method_upper not in {\\\\\\\"GET\\\\\\\", \\\\\\\"POST\\\\\\\"}:\\\\n        raise ValueError(\\\\\\\"Only GET and POST are allowed for hf_api_request.\\\\\\\")\\\\n\\\\n    if method_upper == \\\\\\\"GET\\\\\\\" and json_body is not None:\\\\n        raise ValueError(\\\\\\\"GET requests do not accept json_body.\\\\\\\")\\\\n\\\\n    url = _build_url(endpoint, params)\\\\n\\\\n    headers = {\\\\n        \\\\\\\"Accept\\\\\\\": \\\\\\\"application/json\\\\\\\",\\\\n    }\\\\n    token = _load_token()\\\\n    if token:\\\\n        headers[\\\\\\\"Authorization\\\\\\\"] = f\\\\\\\"Bearer {token}\\\\\\\"\\\\n\\\\n    data = None\\\\n    if method_upper == \\\\\\\"POST\\\\\\\":\\\\n        headers[\\\\\\\"Content-Type\\\\\\\"] = \\\\\\\"application/json\\\\\\\"\\\\n        data = json.dumps(json_body or {}).encode(\\\\\\\"utf-8\\\\\\\")\\\\n\\\\n    request = Request(url, headers=headers, data=data, method=method_upper)\\\\n\\\\n    try:\\\\n        with urlopen(request, timeout=DEFAULT_TIMEOUT_SEC) as response:\\\\n            raw = response.read()\\\\n            status_code = response.status\\\\n    except HTTPError as exc:\\\\n        error_body = exc.read().decode(\\\\\\\"utf-8\\\\\\\", errors=\\\\\\\"replace\\\\\\\")\\\\n        raise RuntimeError(\\\\n            f\\\\\\\"HF API error {exc.code} for {url}: {error_body}\\\\\\\"\\\\n        ) from exc\\\\n    except URLError as exc:\\\\n        raise RuntimeError(f\\\\\\\"HF API request failed for {url}: {exc}\\\\\\\") from exc\\\\n\\\\n    try:\\\\n        payload = json.loads(raw)\\\\n    except json.JSONDecodeError:\\\\n        payload = raw.decode(\\\\\\\"utf-8\\\\\\\", errors=\\\\\\\"replace\\\\\\\")\\\\n\\\\n    if isinstance(payload, list):\\\\n        limit = max_results if max_results is not None else _max_results_from_env()\\\\n        payload = payload[: max(limit, 0)]\\\\n\\\\n    return {\\\\n        \\\\\\\"url\\\\\\\": url,\\\\n        \\\\\\\"status\\\\\\\": status_code,\\\\n        \\\\\\\"data\\\\\\\": payload,\\\\n    }\\\\nprocess exit code was 0\\\"\\n/home/ssmith/source/fast-agent/docker-setup.json:652:              \\\"text\\\": \\\"                                                                                                                                                                                                     \\\\n Usage: fast-agent serve [OPTIONS] COMMAND [ARGS]...                                                                                                                                                 \\\\n                                                                                                                                                                                                     \\\\n Run FastAgent as an MCP server without writing an agent.py file                                                                                                                                     \\\\n                                                                                                                                                                                                     \\\\n\\\\u256d\\\\u2500 Options \\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u256e\\\\n\\\\u2502 --name                         TEXT                         Name for the MCP server [default: fast-agent]                                                                                         \\\\u2502\\\\n\\\\u2502 --instruction          -i      TEXT                         Path to file or URL containing instruction for the agent                                                                              \\\\u2502\\\\n\\\\u2502 --config-path          -c      TEXT                         Path to config file                                                                                                                   \\\\u2502\\\\n\\\\u2502 --servers                      TEXT                         Comma-separated list of server names to enable from config                                                                            \\\\u2502\\\\n\\\\u2502 --agent-cards,--card           TEXT                         Path or URL to an AgentCard file or directory (repeatable)                                                                            \\\\u2502\\\\n\\\\u2502 --url                          TEXT                         Comma-separated list of HTTP/SSE URLs to connect to                                                                                   \\\\u2502\\\\n\\\\u2502 --auth                         TEXT                         Bearer token for authorization with URL-based servers                                                                                 \\\\u2502\\\\n\\\\u2502 --model,--models               TEXT                         Override the default model (e.g., haiku, sonnet, gpt-4)                                                                               \\\\u2502\\\\n\\\\u2502 --skills-dir,--skills          PATH                         Override the default skills directory                                                                                                 \\\\u2502\\\\n\\\\u2502 --npx                          TEXT                         NPX package and args to run as MCP server (quoted)                                                                                    \\\\u2502\\\\n\\\\u2502 --uvx                          TEXT                         UVX package and args to run as MCP server (quoted)                                                                                    \\\\u2502\\\\n\\\\u2502 --stdio                        TEXT                         Command to run as STDIO MCP server (quoted)                                                                                           \\\\u2502\\\\n\\\\u2502 --description          -d      TEXT                         Description used for the exposed send tool (use {agent} to reference the agent name)                                                  \\\\u2502\\\\n\\\\u2502 --transport                    [http|sse|stdio|acp]         Transport protocol to expose (http, sse, stdio, acp) [default: http]                                                                  \\\\u2502\\\\n\\\\u2502 --host                         TEXT                         Host address to bind when using HTTP or SSE transport [default: 0.0.0.0]                                                              \\\\u2502\\\\n\\\\u2502 --port                         INTEGER                      Port to use when running as a server with HTTP or SSE transport [default: 8000]                                                       \\\\u2502\\\\n\\\\u2502 --shell                -x                                   Enable a local shell runtime and expose the execute tool (bash or pwsh).                                                              \\\\u2502\\\\n\\\\u2502 --instance-scope               [shared|connection|request]  Control how MCP clients receive isolated agent instances (shared, connection, request) [default: shared]                              \\\\u2502\\\\n\\\\u2502 --no-permissions                                            Disable tool permission requests (allow all tool executions without asking) - ACP only                                                \\\\u2502\\\\n\\\\u2502 --install-completion                                        Install completion for the current shell.                                                                                             \\\\u2502\\\\n\\\\u2502 --show-completion                                           Show completion for the current shell, to copy it or customize the installation.                                                      \\\\u2502\\\\n\\\\u2502 --help                                                      Show this message and exit.                                                                                                           \\\\u2502\\\\n\\\\u2570\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u2500\\\\u256f\\\\n\\\\nprocess exit code was 0\\\"\\n/home/ssmith/source/fast-agent/docker-setup.json:661:              \\\"text\\\": \\\"\\\\\\\"\\\\\\\"\\\\\\\"Run FastAgent as an MCP server from the command line.\\\\\\\"\\\\\\\"\\\\\\\"\\\\n\\\\nfrom enum import Enum\\\\nfrom pathlib import Path\\\\n\\\\nimport typer\\\\n\\\\nfrom fast_agent.cli.commands.go import (\\\\n    collect_stdio_commands,\\\\n    resolve_instruction_option,\\\\n    run_async_agent,\\\\n)\\\\n\\\\n\\\\nclass ServeTransport(str, Enum):\\\\n    HTTP = \\\\\\\"http\\\\\\\"\\\\n    SSE = \\\\\\\"sse\\\\\\\"\\\\n    STDIO = \\\\\\\"stdio\\\\\\\"\\\\n    ACP = \\\\\\\"acp\\\\\\\"\\\\n\\\\n\\\\nclass InstanceScope(str, Enum):\\\\n    SHARED = \\\\\\\"shared\\\\\\\"\\\\n    CONNECTION = \\\\\\\"connection\\\\\\\"\\\\n    REQUEST = \\\\\\\"request\\\\\\\"\\\\n\\\\n\\\\napp = typer.Typer(\\\\n    help=\\\\\\\"Run FastAgent as an MCP server without writing an agent.py file\\\\\\\",\\\\n    context_settings={\\\\\\\"allow_extra_args\\\\\\\": True, \\\\\\\"ignore_unknown_options\\\\\\\": True},\\\\n)\\\\n\\\\n\\\\n@app.callback(invoke_without_command=True, no_args_is_help=False)\\\\ndef serve(\\\\n    ctx: typer.Context,\\\\n    name: str = typer.Option(\\\\\\\"fast-agent\\\\\\\", \\\\\\\"--name\\\\\\\", help=\\\\\\\"Name for the MCP server\\\\\\\"),\\\\n    instruction: str | None = typer.Option(\\\\n        None, \\\\\\\"--instruction\\\\\\\", \\\\\\\"-i\\\\\\\", help=\\\\\\\"Path to file or URL containing instruction for the agent\\\\\\\"\\\\n    ),\\\\n    config_path: str | None = typer.Option(None, \\\\\\\"--config-path\\\\\\\", \\\\\\\"-c\\\\\\\", help=\\\\\\\"Path to config file\\\\\\\"),\\\\n    servers: str | None = typer.Option(\\\\n        None, \\\\\\\"--servers\\\\\\\", help=\\\\\\\"Comma-separated list of server names to enable from config\\\\\\\"\\\\n    ),\\\\n    agent_cards: list[str] | None = typer.Option(\\\\n        None,\\\\n        \\\\\\\"--agent-cards\\\\\\\",\\\\n        \\\\\\\"--card\\\\\\\",\\\\n        help=\\\\\\\"Path or URL to an AgentCard file or directory (repeatable)\\\\\\\",\\\\n    ),\\\\n    urls: str | None = typer.Option(\\\\n        None, \\\\\\\"--url\\\\\\\", help=\\\\\\\"Comma-separated list of HTTP/SSE URLs to connect to\\\\\\\"\\\\n    ),\\\\n    auth: str | None = typer.Option(\\\\n        None, \\\\\\\"--auth\\\\\\\", help=\\\\\\\"Bearer token for authorization with URL-based servers\\\\\\\"\\\\n    ),\\\\n    model: str | None = typer.Option(\\\\n        None, \\\\\\\"--model\\\\\\\", \\\\\\\"--models\\\\\\\", help=\\\\\\\"Override the default model (e.g., haiku, sonnet, gpt-4)\\\\\\\"\\\\n    ),\\\\n    skills_dir: Path | None = typer.Option(\\\\n        None,\\\\n        \\\\\\\"--skills-dir\\\\\\\",\\\\n        \\\\\\\"--skills\\\\\\\",\\\\n        help=\\\\\\\"Override the default skills directory\\\\\\\",\\\\n    ),\\\\n    npx: str | None = typer.Option(\\\\n        None, \\\\\\\"--npx\\\\\\\", help=\\\\\\\"NPX package and args to run as MCP server (quoted)\\\\\\\"\\\\n    ),\\\\n    uvx: str | None = typer.Option(\\\\n        None, \\\\\\\"--uvx\\\\\\\", help=\\\\\\\"UVX package and args to run as MCP server (quoted)\\\\\\\"\\\\n    ),\\\\n    stdio: str | None = typer.Option(\\\\n        None, \\\\\\\"--stdio\\\\\\\", help=\\\\\\\"Command to run as STDIO MCP server (quoted)\\\\\\\"\\\\n    ),\\\\n    description: str | None = typer.Option(\\\\n        None,\\\\n        \\\\\\\"--description\\\\\\\",\\\\n        \\\\\\\"-d\\\\\\\",\\\\n        help=\\\\\\\"Description used for the exposed send tool (use {agent} to reference the agent name)\\\\\\\",\\\\n    ),\\\\n    transport: ServeTransport = typer.Option(\\\\n        ServeTransport.HTTP,\\\\n        \\\\\\\"--transport\\\\\\\",\\\\n        help=\\\\\\\"Transport protocol to expose (http, sse, stdio, acp)\\\\\\\",\\\\n    ),\\\\n    host: str = typer.Option(\\\\n        \\\\\\\"0.0.0.0\\\\\\\",\\\\n        \\\\\\\"--host\\\\\\\",\\\\n        help=\\\\\\\"Host address to bind when using HTTP or SSE transport\\\\\\\",\\\\n    ),\\\\n    port: int = typer.Option(\\\\n        8000,\\\\n        \\\\\\\"--port\\\\\\\",\\\\n        help=\\\\\\\"Port to use when running as a server with HTTP or SSE transport\\\\\\\",\\\\n    ),\\\\n    shell: bool = typer.Option(\\\\n        False,\\\\n        \\\\\\\"--shell\\\\\\\",\\\\n        \\\\\\\"-x\\\\\\\",\\\\n        help=\\\\\\\"Enable a local shell runtime and expose the execute tool (bash or pwsh).\\\\\\\",\\\\nprocess exit code was 0\\\"\\n/home/ssmith/source/fast-agent/docker-setup.json:732:              \\\"text\\\": \\\"\\\\\\\"\\\\\\\"\\\\\\\"Run FastAgent as an MCP server from the command line.\\\\\\\"\\\\\\\"\\\\\\\"\\\\n\\\\nfrom enum import Enum\\\\nfrom pathlib import Path\\\\n\\\\nimport typer\\\\n\\\\nfrom fast_agent.cli.commands.go import (\\\\n    collect_stdio_commands,\\\\n    resolve_instruction_option,\\\\n    run_async_agent,\\\\n)\\\\n\\\\n\\\\nclass ServeTransport(str, Enum):\\\\n    HTTP = \\\\\\\"http\\\\\\\"\\\\n    SSE = \\\\\\\"sse\\\\\\\"\\\\n    STDIO = \\\\\\\"stdio\\\\\\\"\\\\n    ACP = \\\\\\\"acp\\\\\\\"\\\\n\\\\n\\\\nclass InstanceScope(str, Enum):\\\\n    SHARED = \\\\\\\"shared\\\\\\\"\\\\n    CONNECTION = \\\\\\\"connection\\\\\\\"\\\\n    REQUEST = \\\\\\\"request\\\\\\\"\\\\n\\\\n\\\\napp = typer.Typer(\\\\n    help=\\\\\\\"Run FastAgent as an MCP server without writing an agent.py file\\\\\\\",\\\\n    context_settings={\\\\\\\"allow_extra_args\\\\\\\": True, \\\\\\\"ignore_unknown_options\\\\\\\": True},\\\\n)\\\\n\\\\n\\\\n@app.callback(invoke_without_command=True, no_args_is_help=False)\\\\ndef serve(\\\\n    ctx: typer.Context,\\\\n    name: str = typer.Option(\\\\\\\"fast-agent\\\\\\\", \\\\\\\"--name\\\\\\\", help=\\\\\\\"Name for the MCP server\\\\\\\"),\\\\n    instruction: str | None = typer.Option(\\\\n        None, \\\\\\\"--instruction\\\\\\\", \\\\\\\"-i\\\\\\\", help=\\\\\\\"Path to file or URL containing instruction for the agent\\\\\\\"\\\\n    ),\\\\n    config_path: str | None = typer.Option(None, \\\\\\\"--config-path\\\\\\\", \\\\\\\"-c\\\\\\\", help=\\\\\\\"Path to config file\\\\\\\"),\\\\n    servers: str | None = typer.Option(\\\\n        None, \\\\\\\"--servers\\\\\\\", help=\\\\\\\"Comma-separated list of server names to enable from config\\\\\\\"\\\\n    ),\\\\n    agent_cards: list[str] | None = typer.Option(\\\\n        None,\\\\n        \\\\\\\"--agent-cards\\\\\\\",\\\\n        \\\\\\\"--card\\\\\\\",\\\\n        help=\\\\\\\"Path or URL to an AgentCard file or directory (repeatable)\\\\\\\",\\\\n    ),\\\\n    urls: str | None = typer.Option(\\\\n        None, \\\\\\\"--url\\\\\\\", help=\\\\\\\"Comma-separated list of HTTP/SSE URLs to connect to\\\\\\\"\\\\n    ),\\\\n    auth: str | None = typer.Option(\\\\n        None, \\\\\\\"--auth\\\\\\\", help=\\\\\\\"Bearer token for authorization with URL-based servers\\\\\\\"\\\\n    ),\\\\n    model: str | None = typer.Option(\\\\n        None, \\\\\\\"--model\\\\\\\", \\\\\\\"--models\\\\\\\", help=\\\\\\\"Override the default model (e.g., haiku, sonnet, gpt-4)\\\\\\\"\\\\n    ),\\\\n    skills_dir: Path | None = typer.Option(\\\\n        None,\\\\n        \\\\\\\"--skills-dir\\\\\\\",\\\n[Output truncated after 26208 bytes]\nprocess exit code was 0"
+            }
+          ],
+          "isError": false,
+          "exit_code": 0
+        }
+      },
+      "channels": {
+        "fast-agent-tool-timing": [
+          {
+            "type": "text",
+            "text": "{\"530160f8d\": {\"timing_ms\": 31.31, \"transport_channel\": null}}"
+          }
+        ]
+      },
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "**Search for `structuredContent`**\n\n**Found 2 matches**\n\n### src/fast_agent/ui/tool_display.py\n- **Line 135**  \n  ```python\n  structured_content = getattr(result, \"structuredContent\", None)\n  ```\n\n### examples/new-api/textual_markdown_demo.py\n- **Line 763**  \n  ```python\n  structured = getattr(result, \"structuredContent\", None)\n  ```\n\nThese are the only occurrences of `structuredContent` in the repository, covering both the core UI code and an example of FastMCP usage."
+        }
+      ],
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "The relevant matches for structuredContent are already captured. Probably that's sufficient. Provide answer with paths and lines.\n\nThus final answer."
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 49038.140228596, \"end_time\": 49039.141529941, \"duration_ms\": 1001.3}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 10343, \"output_tokens\": 152, \"total_tokens\": 10495, \"timestamp\": 1768942756.346587, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 2687, \"total_cache_tokens\": 2687, \"has_cache_activity\": true}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 0, \"current_context_tokens\": 10495, \"effective_input_tokens\": 7656, \"display_input_tokens\": 10343}, \"raw_usage\": {\"completion_tokens\": 152, \"prompt_tokens\": 10343, \"total_tokens\": 10495, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 2687}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 5, \"cumulative_input_tokens\": 20280, \"cumulative_output_tokens\": 594, \"cumulative_billing_tokens\": 20874, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 4, \"current_context_tokens\": 10495, \"context_window_size\": 131072, \"context_usage_percentage\": 8.007049560546875, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 9212, \"cache_hit_rate_percent\": 31.235589312355895, \"cumulative_effective_input_tokens\": 11068}}"
+          }
+        ]
+      },
+      "stop_reason": "endTurn",
+      "is_template": false
+    }
+  ]
+}

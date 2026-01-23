@@ -1,0 +1,231 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "Search for 'default_model' usage in src/fast_agent."
+        }
+      ],
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [],
+      "tool_calls": {
+        "942b6c6e9": {
+          "method": "tools/call",
+          "params": {
+            "name": "execute",
+            "arguments": {
+              "command": "pwd"
+            }
+          }
+        }
+      },
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "We need to search workspace for default_model usage in src/fast_agent. Must include repo root path; but we need to know repo root. We have no repository path given. Let's check pwd."
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 90567.700689553, \"end_time\": 90568.494591856, \"duration_ms\": 793.9}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 2355, \"output_tokens\": 67, \"total_tokens\": 2422, \"timestamp\": 1768985606.49379, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 2303, \"total_cache_tokens\": 2303, \"has_cache_activity\": true}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 2422, \"effective_input_tokens\": 52, \"display_input_tokens\": 2355}, \"raw_usage\": {\"completion_tokens\": 67, \"prompt_tokens\": 2355, \"total_tokens\": 2422, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 2303}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 1, \"cumulative_input_tokens\": 2355, \"cumulative_output_tokens\": 67, \"cumulative_billing_tokens\": 2422, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 1, \"current_context_tokens\": 2422, \"context_window_size\": 131072, \"context_usage_percentage\": 1.84783935546875, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 2303, \"cache_hit_rate_percent\": 49.441820523829975, \"cumulative_effective_input_tokens\": 52}}"
+          }
+        ]
+      },
+      "stop_reason": "toolUse",
+      "is_template": false
+    },
+    {
+      "role": "user",
+      "content": [],
+      "tool_results": {
+        "942b6c6e9": {
+          "content": [
+            {
+              "type": "text",
+              "text": "/home/ssmith/source/fast-agent\nprocess exit code was 0"
+            }
+          ],
+          "isError": false,
+          "exit_code": 0
+        }
+      },
+      "channels": {
+        "fast-agent-tool-timing": [
+          {
+            "type": "text",
+            "text": "{\"942b6c6e9\": {\"timing_ms\": 12.32, \"transport_channel\": null}}"
+          }
+        ]
+      },
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [],
+      "tool_calls": {
+        "dfef1c9e3": {
+          "method": "tools/call",
+          "params": {
+            "name": "execute",
+            "arguments": {
+              "command": "ls -R src/fast_agent | head -n 20"
+            }
+          }
+        }
+      },
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "Current dir appears to be repo root. Path src/fast_agent exists? Let's list."
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 90568.509493278, \"end_time\": 90568.958868682, \"duration_ms\": 449.38}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 2447, \"output_tokens\": 54, \"total_tokens\": 2501, \"timestamp\": 1768985606.957997, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 2303, \"total_cache_tokens\": 2303, \"has_cache_activity\": true}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 2501, \"effective_input_tokens\": 144, \"display_input_tokens\": 2447}, \"raw_usage\": {\"completion_tokens\": 54, \"prompt_tokens\": 2447, \"total_tokens\": 2501, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 2303}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 2, \"cumulative_input_tokens\": 4802, \"cumulative_output_tokens\": 121, \"cumulative_billing_tokens\": 4923, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 2, \"current_context_tokens\": 2501, \"context_window_size\": 131072, \"context_usage_percentage\": 1.908111572265625, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 4606, \"cache_hit_rate_percent\": 48.95833333333333, \"cumulative_effective_input_tokens\": 196}}"
+          }
+        ]
+      },
+      "stop_reason": "toolUse",
+      "is_template": false
+    },
+    {
+      "role": "user",
+      "content": [],
+      "tool_results": {
+        "dfef1c9e3": {
+          "content": [
+            {
+              "type": "text",
+              "text": "src/fast_agent:\n__init__.py\n__pycache__\nacp\nagents\ncli\nconfig.py\nconstants.py\ncontext.py\ncontext_dependent.py\ncore\nevent_progress.py\nhistory\nhooks\nhuman_input\ninterfaces.py\nllm\nmcp\nmcp_server_registry.py\npaths.py\nprocess exit code was 0"
+            }
+          ],
+          "isError": false,
+          "exit_code": 0
+        }
+      },
+      "channels": {
+        "fast-agent-tool-timing": [
+          {
+            "type": "text",
+            "text": "{\"dfef1c9e3\": {\"timing_ms\": 17.13, \"transport_channel\": null}}"
+          }
+        ]
+      },
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [],
+      "tool_calls": {
+        "9b0b6ca7d": {
+          "method": "tools/call",
+          "params": {
+            "name": "execute",
+            "arguments": {
+              "command": "rg -n 'default_model' -g '!.git/*' -g '!node_modules/*' -g '!__pycache__/*' -g '!*.pyc' -g '!.venv/*' -g '!venv/*' -g '!*.json' -g '!*.jsonl' -g '!stream-debug/*' src/fast_agent"
+            }
+          }
+        }
+      },
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "Search for default_model. Use rg -n. Narrow path src/fast_agent. Use standard exclusions."
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 90568.979207857, \"end_time\": 90569.401734205, \"duration_ms\": 422.53}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 2586, \"output_tokens\": 120, \"total_tokens\": 2706, \"timestamp\": 1768985607.4009073, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 2303, \"total_cache_tokens\": 2303, \"has_cache_activity\": true}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 2706, \"effective_input_tokens\": 283, \"display_input_tokens\": 2586}, \"raw_usage\": {\"completion_tokens\": 120, \"prompt_tokens\": 2586, \"total_tokens\": 2706, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 2303}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 3, \"cumulative_input_tokens\": 7388, \"cumulative_output_tokens\": 241, \"cumulative_billing_tokens\": 7629, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 3, \"current_context_tokens\": 2706, \"context_window_size\": 131072, \"context_usage_percentage\": 2.06451416015625, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 6909, \"cache_hit_rate_percent\": 48.32482338952227, \"cumulative_effective_input_tokens\": 479}}"
+          }
+        ]
+      },
+      "stop_reason": "toolUse",
+      "is_template": false
+    },
+    {
+      "role": "user",
+      "content": [],
+      "tool_results": {
+        "9b0b6ca7d": {
+          "content": [
+            {
+              "type": "text",
+              "text": "src/fast_agent/config.py:757:    default_model: str | None = None\nsrc/fast_agent/core/fastagent.py:69:    get_default_model_source,\nsrc/fast_agent/core/fastagent.py:1259:        model_source = get_default_model_source(\nsrc/fast_agent/core/fastagent.py:1260:            config_default_model=config.default_model if config else None,\nsrc/fast_agent/core/model_resolution.py:14:    default_model: str | None = None,\nsrc/fast_agent/core/model_resolution.py:27:        3. Config file default_model\nsrc/fast_agent/core/model_resolution.py:39:    config_default = default_model\nsrc/fast_agent/core/model_resolution.py:41:        config_default = context.config.default_model\nsrc/fast_agent/core/direct_factory.py:193:    default_model: str | None = None,\nsrc/fast_agent/core/direct_factory.py:203:        3. Config file default_model\nsrc/fast_agent/core/direct_factory.py:211:        default_model: Default model from configuration\nsrc/fast_agent/core/direct_factory.py:220:        default_model=default_model,\nsrc/fast_agent/core/direct_factory.py:227:            \"Set --model, FAST_AGENT_MODEL, or default_model in config.\",\nsrc/fast_agent/core/direct_factory.py:245:def get_default_model_source(\nsrc/fast_agent/core/direct_factory.py:246:    config_default_model: str | None = None,\nsrc/fast_agent/core/direct_factory.py:263:        default_model=config_default_model,\nsrc/fast_agent/cli/commands/check_config.py:168:        \"default_model\": default_settings.default_model,\nsrc/fast_agent/cli/commands/check_config.py:208:        if \"default_model\" in config:\nsrc/fast_agent/cli/commands/check_config.py:209:            result[\"default_model\"] = config[\"default_model\"]\nsrc/fast_agent/cli/commands/check_config.py:407:        default_model_value = config_summary.get(\"default_model\", \"gpt-5-mini.low (system default)\")\nsrc/fast_agent/cli/commands/check_config.py:408:        env_table.add_row(\"Default Model\", f\"[green]{default_model_value}[/green]\")\nsrc/fast_agent/agents/mcp_agent.py:181:            model_name = getattr(context.config, \"default_model\", None)\nsrc/fast_agent/agents/mcp_agent.py:312:            model_name = getattr(self.context.config, \"default_model\", None)\nsrc/fast_agent/ui/enhanced_prompt.py:1803:                    model_name = context.config.default_model\nsrc/fast_agent/resources/examples/tensorzero/fastagent.config.yaml:1:default_model: haiku\nsrc/fast_agent/resources/setup/fastagent.config.yaml:13:default_model: gpt-5-mini.low\nsrc/fast_agent/resources/examples/mcp/state-transfer/fastagent.config.yaml:8:default_model: gpt-4.1\nsrc/fast_agent/resources/examples/mcp/elicitations/fastagent.config.yaml:6:default_model: \"passthrough\"\nsrc/fast_agent/resources/examples/data-analysis/fastagent.config.yaml:1:default_model: sonnet\nprocess exit code was 0"
+            }
+          ],
+          "isError": false,
+          "exit_code": 0
+        }
+      },
+      "channels": {
+        "fast-agent-tool-timing": [
+          {
+            "type": "text",
+            "text": "{\"9b0b6ca7d\": {\"timing_ms\": 22.92, \"transport_channel\": null}}"
+          }
+        ]
+      },
+      "is_template": false
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "text",
+          "text": "**Search for `default_model` in `src/fast_agent`**\n\n| File | Line(s) | Context |\n|------|--------|---------|\n| `src/fast_agent/config.py` | 757 | `default_model: str \\| None = None` |\n| `src/fast_agent/core/fastagent.py` | 69 | `get_default_model_source,` (import) |\n| `src/fast_agent/core/fastagent.py` | 1259\u20111260 | `model_source = get_default_model_source(... config_default_model=config.default_model if config else None, ...)` |\n| `src/fast_agent/core/model_resolution.py` | 14 | `default_model: str \\| None = None` |\n| `src/fast_agent/core/model_resolution.py` | 27, 39\u201141 | Documentation & `config_default = context.config.default_model` |\n| `src/fast_agent/core/direct_factory.py` | 193\u2011227 | Definition, docs, and usage of `default_model` (e.g., `default_model: str \\| None = None`, error message referencing it, and passing it to `get_default_model_source`) |\n| `src/fast_agent/core/direct_factory.py` | 245\u2011263 | `def get_default_model_source(... config_default_model: str \\| None = None, ...)` and call `default_model=config_default_model` |\n| `src/fast_agent/cli/commands/check_config.py` | 168, 208\u2011209, 407\u2011408 | Inclusion in config summary output (`\"default_model\": default_settings.default_model`) and display in CLI table |\n| `src/fast_agent/agents/mcp_agent.py` | 181, 312 | Retrieval via `model_name = getattr(context.config, \"default_model\", None)` |\n| `src/fast_agent/ui/enhanced_prompt.py` | 1803 | `model_name = context.config.default_model` |\n| `src/fast_agent/resources/examples/tensorzero/fastagent.config.yaml` | 1 | `default_model: haiku` |\n| `src/fast_agent/resources/setup/fastagent.config.yaml` | 13 | `default_model: gpt-5-mini.low` |\n| `src/fast_agent/resources/examples/mcp/state-transfer/fastagent.config.yaml` | 8 | `default_model: gpt-4.1` |\n| `src/fast_agent/resources/examples/mcp/elicitations/fastagent.config.yaml` | 6 | `default_model: \"passthrough\"` |\n| `src/fast_agent/resources/examples/data-analysis/fastagent.config.yaml` | 1 | `default_model: sonnet` |\n\n**Summary**\n\n- The `default_model` setting is defined in `config.py` and referenced throughout the core modules (`fastagent.py`, `model_resolution.py`, `direct_factory.py`), the CLI config checker, agents, and UI components.\n- Example configuration files in `resources/` set default values such as `gpt-5-mini.low`, `haiku`, `gpt-4.1`, etc."
+        }
+      ],
+      "channels": {
+        "reasoning": [
+          {
+            "type": "text",
+            "text": "Now we have matches across files. The user wanted usage in src/fast_agent. Provide concise results: list relevant lines with file paths and line numbers. Provide summary maybe. Provide answer.\n\nWe may want to show just usage lines maybe. It's fine. Provide summary: matches in config.py (definition), core/fastagent.py (function usage), core/model_resolution.py, core/direct_factory.py, cli/commands/check_config.py, agents/mcp_agent.py, ui/enhanced_prompt.py, resources yaml with defaults. Provide result.\n\n"
+          }
+        ],
+        "fast-agent-timing": [
+          {
+            "type": "text",
+            "text": "{\"start_time\": 90569.427741267, \"end_time\": 90570.181203179, \"duration_ms\": 753.46}"
+          }
+        ],
+        "fast-agent-usage": [
+          {
+            "type": "text",
+            "text": "{\"turn\": {\"provider\": \"openai\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 3396, \"output_tokens\": 763, \"total_tokens\": 4159, \"timestamp\": 1768985608.1804001, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 2303, \"total_cache_tokens\": 2303, \"has_cache_activity\": true}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 0, \"current_context_tokens\": 4159, \"effective_input_tokens\": 1093, \"display_input_tokens\": 3396}, \"raw_usage\": {\"completion_tokens\": 763, \"prompt_tokens\": 3396, \"total_tokens\": 4159, \"completion_tokens_details\": {\"accepted_prediction_tokens\": 0, \"audio_tokens\": null, \"reasoning_tokens\": null, \"rejected_prediction_tokens\": 0}, \"prompt_tokens_details\": {\"audio_tokens\": null, \"cached_tokens\": 2303}}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 4, \"cumulative_input_tokens\": 10784, \"cumulative_output_tokens\": 1004, \"cumulative_billing_tokens\": 11788, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 3, \"current_context_tokens\": 4159, \"context_window_size\": 131072, \"context_usage_percentage\": 3.173065185546875, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 9212, \"cache_hit_rate_percent\": 46.069213842768555, \"cumulative_effective_input_tokens\": 1572}}"
+          }
+        ]
+      },
+      "stop_reason": "endTurn",
+      "is_template": false
+    }
+  ]
+}
