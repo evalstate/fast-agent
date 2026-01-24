@@ -196,9 +196,12 @@ from mcp import ListToolsResult, Tool
 from mcp.types import CallToolResult
 
 from fast_agent.agents.mcp_agent import McpAgent
+from fast_agent.agents.tool_runner import ToolRunnerHooks
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, FORCE_SEQUENTIAL_TOOL_CALLS
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
+from fast_agent.interfaces import ToolRunnerHookCapable
+from fast_agent.mcp.common import get_resource_name, get_server_name, is_namespaced_name
 from fast_agent.mcp.helpers.content_helpers import get_text, text_content
 from fast_agent.mcp.prompts.prompt_load import load_prompt
 from fast_agent.types import PromptMessageExtended, RequestParams
@@ -461,6 +464,9 @@ class AgentsAsToolsAgent(McpAgent):
         arguments: dict[str, Any] | None = None,
         *,
         suppress_display: bool = True,
+        tool_name: str | None = None,
+        tool_use_id: str | None = None,
+        request_params: RequestParams | None = None,
     ) -> CallToolResult:
         """Shared helper to execute a child agent with standard serialization and display rules."""
 
@@ -475,8 +481,82 @@ class AgentsAsToolsAgent(McpAgent):
 
         child_request = Prompt.user(input_text)
 
+        tool_handler = self._get_tool_handler(request_params)
+        tool_call_id: str | None = None
+        progress_step = 0
+
+        resolved_tool_name = tool_name or child.name
+        if resolved_tool_name and is_namespaced_name(resolved_tool_name):
+            server_name = get_server_name(resolved_tool_name)
+            base_tool_name = get_resource_name(resolved_tool_name)
+        else:
+            server_name = "agent"
+            base_tool_name = resolved_tool_name
+
+        if tool_handler and base_tool_name:
+            try:
+                tool_call_id = await tool_handler.on_tool_start(
+                    base_tool_name,
+                    server_name,
+                    args,
+                    tool_use_id,
+                )
+            except Exception:
+                tool_call_id = None
+
+        async def emit_progress(label: str | None = None) -> None:
+            nonlocal progress_step
+            if not tool_handler or not tool_call_id:
+                return
+            progress_step += 1
+            message = f"{base_tool_name} step {progress_step}" if base_tool_name else "step"
+            if label:
+                message = f"{message} ({label})"
+            try:
+                await tool_handler.on_tool_progress(
+                    tool_call_id,
+                    float(progress_step),
+                    None,
+                    message,
+                )
+            except Exception:
+                pass
+
+        hooks_set = False
+        previous_hooks: ToolRunnerHooks | None = None
+        if tool_handler and tool_call_id and isinstance(child, ToolRunnerHookCapable):
+            previous_hooks = child.tool_runner_hooks
+            before_llm_call = previous_hooks.before_llm_call if previous_hooks else None
+            before_tool_call = previous_hooks.before_tool_call if previous_hooks else None
+            after_llm_call = previous_hooks.after_llm_call if previous_hooks else None
+            after_tool_call = previous_hooks.after_tool_call if previous_hooks else None
+            after_turn_complete = (
+                previous_hooks.after_turn_complete if previous_hooks else None
+            )
+
+            async def handle_before_llm_call(runner, messages):
+                if before_llm_call:
+                    await before_llm_call(runner, messages)
+                await emit_progress("llm")
+
+            async def handle_before_tool_call(runner, message):
+                if before_tool_call:
+                    await before_tool_call(runner, message)
+                await emit_progress("tool")
+
+            child.tool_runner_hooks = ToolRunnerHooks(
+                before_llm_call=handle_before_llm_call,
+                after_llm_call=after_llm_call,
+                before_tool_call=handle_before_tool_call,
+                after_tool_call=after_tool_call,
+                after_turn_complete=after_turn_complete,
+            )
+            hooks_set = True
+
         try:
             with self._child_display_suppressed(child) if suppress_display else nullcontext():
+                if tool_handler and tool_call_id and not hooks_set:
+                    await emit_progress("run")
                 response: PromptMessageExtended = await child.generate([child_request], None)
             content_blocks = list(response.content or [])
 
@@ -486,10 +566,32 @@ class AgentsAsToolsAgent(McpAgent):
                 if error_blocks:
                     content_blocks.extend(error_blocks)
 
-            return CallToolResult(
+            tool_result = CallToolResult(
                 content=content_blocks,
                 isError=bool(error_blocks),
             )
+            if tool_handler and tool_call_id:
+                try:
+                    if tool_result.isError:
+                        error_text = None
+                        if error_blocks:
+                            error_text = get_text(error_blocks[0])
+                        await tool_handler.on_tool_complete(
+                            tool_call_id,
+                            False,
+                            None,
+                            error_text,
+                        )
+                    else:
+                        await tool_handler.on_tool_complete(
+                            tool_call_id,
+                            True,
+                            tool_result.content,
+                            None,
+                        )
+                except Exception:
+                    pass
+            return tool_result
         except Exception as exc:
             import traceback
 
@@ -502,7 +604,15 @@ class AgentsAsToolsAgent(McpAgent):
                     "traceback": traceback.format_exc(),
                 },
             )
+            if tool_handler and tool_call_id:
+                try:
+                    await tool_handler.on_tool_complete(tool_call_id, False, None, str(exc))
+                except Exception:
+                    pass
             return CallToolResult(content=[text_content(f"Error: {exc}")], isError=True)
+        finally:
+            if hooks_set and isinstance(child, ToolRunnerHookCapable):
+                child.tool_runner_hooks = previous_hooks
 
     def _resolve_child_agent(self, name: str) -> LlmAgent | None:
         return self._child_agents.get(name) or self._child_agents.get(self._make_tool_name(name))
@@ -525,7 +635,13 @@ class AgentsAsToolsAgent(McpAgent):
         if child is not None:
             # Child agents don't currently use tool_use_id, they operate via
             # a plain PromptMessageExtended tool call.
-            return await self._invoke_child_agent(child, arguments)
+            return await self._invoke_child_agent(
+                child,
+                arguments,
+                tool_name=name,
+                tool_use_id=tool_use_id,
+                request_params=request_params,
+            )
 
         return await super().call_tool(
             name, arguments, tool_use_id, request_params=request_params
@@ -649,7 +765,11 @@ class AgentsAsToolsAgent(McpAgent):
         if not child_ids:
             return await super().run_tools(request, request_params=request_params)
 
-        child_results, child_error = await self._run_child_tools(request, set(child_ids))
+        child_results, child_error = await self._run_child_tools(
+            request,
+            set(child_ids),
+            request_params=request_params,
+        )
 
         if len(child_ids) == len(request.tool_calls):
             return self._finalize_tool_results(child_results, tool_loop_error=child_error)
@@ -676,6 +796,7 @@ class AgentsAsToolsAgent(McpAgent):
         self,
         request: PromptMessageExtended,
         target_ids: set[str],
+        request_params: RequestParams | None = None,
     ) -> tuple[dict[str, CallToolResult], str | None]:
         """Run only the child-agent tool calls from the request."""
 
@@ -746,7 +867,10 @@ class AgentsAsToolsAgent(McpAgent):
         )
 
         async def call_with_instance_name(
-            tool_name: str, tool_args: dict[str, Any], instance: int, correlation_id: str
+            tool_name: str,
+            tool_args: dict[str, Any],
+            instance: int,
+            correlation_id: str,
         ) -> CallToolResult:
             child = self._resolve_child_agent(tool_name)
             if not child:
@@ -802,7 +926,13 @@ class AgentsAsToolsAgent(McpAgent):
                     )
                 )
                 progress_started = True
-                call_coro = self._invoke_child_agent(clone, tool_args)
+                call_coro = self._invoke_child_agent(
+                    clone,
+                    tool_args,
+                    tool_name=tool_name,
+                    tool_use_id=correlation_id,
+                    request_params=request_params,
+                )
                 timeout = self._options.child_timeout_sec
                 if timeout:
                     return await asyncio.wait_for(call_coro, timeout=timeout)

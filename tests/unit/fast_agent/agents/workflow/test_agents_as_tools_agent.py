@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Sequence
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -9,6 +10,7 @@ from mcp.types import CallToolRequestParams, PromptMessage, TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
+from fast_agent.agents.tool_runner import ToolRunnerHooks
 from fast_agent.agents.workflow.agents_as_tools_agent import (
     AgentsAsToolsAgent,
     AgentsAsToolsOptions,
@@ -18,6 +20,7 @@ from fast_agent.agents.workflow.agents_as_tools_agent import (
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.mcp.prompt_serialization import load_messages, save_messages
+from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
 from fast_agent.types import PromptMessageExtended, RequestParams
 
 
@@ -148,6 +151,105 @@ class StubNestedAgentsAsTools(AgentsAsToolsAgent):
         return self
 
 
+class RecordingToolHandler(ToolExecutionHandler):
+    def __init__(self) -> None:
+        self.starts: list[tuple[str, str, dict[str, Any] | None, str | None]] = []
+        self.progress: list[tuple[str, float, float | None, str | None]] = []
+        self.completes: list[
+            tuple[str, bool, list[Any] | None, str | None]
+        ] = []
+
+    async def on_tool_start(
+        self,
+        tool_name: str,
+        server_name: str,
+        arguments: dict | None,
+        tool_use_id: str | None = None,
+    ) -> str:
+        self.starts.append((tool_name, server_name, arguments, tool_use_id))
+        return "tool-call-1"
+
+    async def on_tool_progress(
+        self,
+        tool_call_id: str,
+        progress: float,
+        total: float | None,
+        message: str | None,
+    ) -> None:
+        self.progress.append((tool_call_id, progress, total, message))
+
+    async def on_tool_complete(
+        self,
+        tool_call_id: str,
+        success: bool,
+        content: list[Any] | None,
+        error: str | None,
+    ) -> None:
+        self.completes.append((tool_call_id, success, content, error))
+
+    async def on_tool_permission_denied(
+        self,
+        tool_name: str,
+        server_name: str,
+        tool_use_id: str | None,
+        error: str | None = None,
+    ) -> None:
+        return None
+
+    async def get_tool_call_id_for_tool_use(self, tool_use_id: str) -> str | None:
+        return None
+
+    async def ensure_tool_call_exists(
+        self,
+        tool_use_id: str,
+        tool_name: str,
+        server_name: str,
+        arguments: dict | None = None,
+    ) -> str:
+        return "tool-call-1"
+
+
+class HookedChildAgent(LlmAgent):
+    def __init__(self, name: str, response_text: str = "ok") -> None:
+        super().__init__(AgentConfig(name))
+        self._response_text = response_text
+        self._tool_runner_hooks: ToolRunnerHooks | None = None
+
+    @property
+    def tool_runner_hooks(self) -> ToolRunnerHooks | None:
+        return self._tool_runner_hooks
+
+    @tool_runner_hooks.setter
+    def tool_runner_hooks(self, value: ToolRunnerHooks | None) -> None:
+        self._tool_runner_hooks = value
+
+    async def generate(
+        self,
+        messages: str
+        | PromptMessage
+        | PromptMessageExtended
+        | Sequence[str | PromptMessage | PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+    ) -> PromptMessageExtended:
+        if self._tool_runner_hooks and self._tool_runner_hooks.before_llm_call:
+            await self._tool_runner_hooks.before_llm_call(self, [])
+        if self._tool_runner_hooks and self._tool_runner_hooks.before_tool_call:
+            await self._tool_runner_hooks.before_tool_call(
+                self,
+                PromptMessageExtended(role="assistant", content=[]),
+            )
+        return PromptMessageExtended(
+            role="assistant",
+            content=[text_content(self._response_text)],
+        )
+
+    async def spawn_detached_instance(self, name: str | None = None):
+        clone = HookedChildAgent(name or self.name, response_text=self._response_text)
+        clone.tool_runner_hooks = self.tool_runner_hooks
+        return clone
+
+
 @pytest.mark.asyncio
 async def test_list_tools_merges_base_and_child():
     child = FakeChildAgent("child")
@@ -209,6 +311,39 @@ async def test_run_tools_respects_max_parallel_and_timeout():
         isinstance(block, TextContent) and "Tool execution failed" in (block.text or "")
         for block in err_res.content
     )
+
+
+@pytest.mark.asyncio
+async def test_run_tools_emits_progress_for_child_agent():
+    child = HookedChildAgent("child")
+    agent = AgentsAsToolsAgent(AgentConfig("parent"), [child])
+    await agent.initialize()
+
+    handler = RecordingToolHandler()
+    request_params = RequestParams(tool_execution_handler=handler)
+
+    tool_calls = {
+        "tool-use-1": CallToolRequest(
+            params=CallToolRequestParams(name="agent__child", arguments={"message": "hi"})
+        )
+    }
+    request = PromptMessageExtended(role="assistant", content=[], tool_calls=tool_calls)
+
+    result_message = await agent.run_tools(request, request_params=request_params)
+    assert result_message.tool_results is not None
+
+    assert handler.starts == [("child", "agent", {"message": "hi"}, "tool-use-1")]
+    assert handler.progress
+    assert any(
+        update[0] == "tool-call-1" and update[3] and "llm" in update[3]
+        for update in handler.progress
+    )
+    assert handler.completes
+    tool_call_id, success, content, error = handler.completes[0]
+    assert tool_call_id == "tool-call-1"
+    assert success is True
+    assert error is None
+    assert content is not None
 
 
 @pytest.mark.asyncio

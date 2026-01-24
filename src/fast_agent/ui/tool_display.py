@@ -173,7 +173,7 @@ class ToolDisplay:
                 elif len(content) == 1 and is_text_content(content[0]):
                     text_content = get_text(content[0])
                     char_count = len(text_content) if text_content else 0
-                    status = f"Text Only {char_count} chars"
+                    status = f"text only {char_count} chars"
                 else:
                     text_count = sum(1 for item in content if is_text_content(item))
                     if text_count == len(content):

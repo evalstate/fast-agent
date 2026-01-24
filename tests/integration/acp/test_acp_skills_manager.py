@@ -198,8 +198,7 @@ skills:
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_skills_remove_lists_local_skills(tmp_path: Path) -> None:
-    repo_root = tmp_path / "repo"
-    manager_dir = repo_root / "skills"
+    manager_dir = tmp_path / "managed-skills"
     skill_dir = manager_dir / "test-skill"
     skill_dir.mkdir(parents=True)
 
@@ -266,7 +265,7 @@ async def test_skills_add_remove_refreshes_system_prompt(tmp_path: Path) -> None
         encoding="utf-8",
     )
 
-    manager_dir = repo_root / "skills"
+    manager_dir = tmp_path / "managed-skills"
     config_path = tmp_path / "fastagent.config.yaml"
     config_path.write_text(
         "default_model: passthrough\n"
