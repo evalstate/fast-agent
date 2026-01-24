@@ -207,3 +207,5 @@ Third-Party Notices
 This repository includes a Python port of the openai/codex apply_patch tool.
 The original apply_patch implementation is licensed under the Apache 2.0
 license and is available at https://github.com/openai/codex.
+
+See NOTICE for additional third-party attributions from openai/codex.

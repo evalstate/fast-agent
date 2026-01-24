@@ -1,3 +1,7 @@
+"""
+Python port of openai/codex apply_patch (Apache 2.0).
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

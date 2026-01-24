@@ -1,3 +1,7 @@
+"""
+Parser for the openai/codex apply_patch port (Apache 2.0).
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

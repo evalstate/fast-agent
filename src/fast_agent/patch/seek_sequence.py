@@ -1,3 +1,7 @@
+"""
+Fuzzy match helpers adapted from openai/codex apply_patch (Apache 2.0).
+"""
+
 from __future__ import annotations
 
 
