@@ -449,11 +449,7 @@ class McpAgent(ABC, ToolAgent):
         self._shell_access_modes = access_modes if self._shell_runtime_enabled else ()
         if self._shell_runtime_enabled:
             self._shell_runtime.announce()
-            if (
-                show_shell_notice
-                and self._allow_shell_notice
-                and not self._shell_notice_emitted
-            ):
+            if show_shell_notice and self._allow_shell_notice and not self._shell_notice_emitted:
                 self._shell_notice_emitted = True
                 try:
                     console.console.print(SHELL_NOTICE_PREFIX)
@@ -695,7 +691,11 @@ class McpAgent(ABC, ToolAgent):
             return await self._skill_reader.execute(arguments)
 
         # Fall back to shell runtime
-        if self._shell_runtime and self._shell_runtime.tool and name == self._shell_runtime.tool.name:
+        if (
+            self._shell_runtime
+            and self._shell_runtime.tool
+            and name == self._shell_runtime.tool.name
+        ):
             return await self._shell_runtime.execute(arguments)
 
         if name == HUMAN_INPUT_TOOL_NAME:
@@ -1043,7 +1043,11 @@ class McpAgent(ABC, ToolAgent):
 
             tool_available = (
                 tool_name == HUMAN_INPUT_TOOL_NAME
-                or (self._shell_runtime and self._shell_runtime.tool and tool_name == self._shell_runtime.tool.name)
+                or (
+                    self._shell_runtime
+                    and self._shell_runtime.tool
+                    and tool_name == self._shell_runtime.tool.name
+                )
                 or is_external_runtime_tool
                 or is_filesystem_runtime_tool
                 or is_skill_reader_tool
@@ -1597,6 +1601,14 @@ class McpAgent(ABC, ToolAgent):
                     if shell_label and shell_label not in servers:
                         servers.append(shell_label)
                     continue
+
+                # Check if this is a skills reader tool call
+                if self._skill_reader and self._skill_reader.enabled:
+                    if tool_name == self._skill_reader.tool.name:
+                        skills_label = self._skills_tool_label()
+                        if skills_label and skills_label not in servers:
+                            servers.append(skills_label)
+                        continue
 
                 # Check if this is a skills reader tool call
                 if self._skill_reader and self._skill_reader.enabled:
