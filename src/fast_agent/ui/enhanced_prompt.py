@@ -1004,10 +1004,11 @@ class AgentCompleter(Completer):
         """Synchronous completions method - this is what prompt_toolkit expects by default"""
         text = document.text_before_cursor
         text_lower = text.lower()
+        completion_requested = bool(complete_event and complete_event.completion_requested)
 
         # Shell completion mode - detect ! prefix
         if text.lstrip().startswith("!"):
-            if not complete_event.completion_requested:
+            if not completion_requested:
                 return
             # Text after "!" with leading/trailing whitespace stripped
             shell_text = text.lstrip()[1:].lstrip()
@@ -1207,7 +1208,7 @@ class AgentCompleter(Completer):
                         display_meta=agent_type,
                     )
 
-        if complete_event.completion_requested:
+        if completion_requested:
             if text and not text[-1].isspace():
                 partial = text.split()[-1]
             else:

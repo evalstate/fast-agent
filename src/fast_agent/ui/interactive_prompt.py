@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.commands.context import CommandContext
+from fast_agent.commands.handlers import agent_cards as agent_card_handlers
 from fast_agent.commands.handlers import display as display_handlers
 from fast_agent.commands.handlers import history as history_handlers
 from fast_agent.commands.handlers import prompts as prompt_handlers
@@ -512,7 +513,6 @@ class InteractivePrompt:
                         await self._emit_command_outcome(context, outcome)
                         continue
 
-
                     case LoadAgentCardCommand(
                         filename=filename,
                         add_tool=add_tool,
@@ -523,73 +523,28 @@ class InteractivePrompt:
                             rich_print(f"[red]{error}[/red]")
                             continue
 
-                        if filename is None:
-                            rich_print("[red]Filename required for /card[/red]")
-                            continue
+                        context = self._build_command_context(prompt_provider, agent)
+                        outcome = await agent_card_handlers.handle_card_load(
+                            context,
+                            manager=prompt_provider,
+                            filename=filename,
+                            add_tool=add_tool,
+                            remove_tool=remove_tool,
+                            current_agent=agent,
+                        )
+                        await self._emit_command_outcome(context, outcome)
 
-                        if not prompt_provider.can_load_agent_cards():
-                            rich_print(
-                                "[yellow]AgentCard loading is not available in this session.[/yellow]"
-                            )
-                            continue
+                        if outcome.requires_refresh:
+                            available_agents = list(prompt_provider.agent_names())
+                            available_agents_set = set(available_agents)
+                            self.agent_types = prompt_provider.agent_types()
 
-                        try:
-                            if add_tool and not remove_tool:
-                                (
-                                    loaded_names,
-                                    attached_names,
-                                ) = await prompt_provider.load_agent_card(filename, agent)
-                            else:
-                                (
-                                    loaded_names,
-                                    attached_names,
-                                ) = await prompt_provider.load_agent_card(filename)
-                        except Exception as exc:
-                            rich_print(f"[red]AgentCard load failed: {exc}[/red]")
-                            continue
-
-                        available_agents = list(prompt_provider.agent_names())
-                        available_agents_set = set(available_agents)
-                        self.agent_types = prompt_provider.agent_types()
-
-                        if agent not in available_agents_set:
-                            if available_agents:
-                                agent = available_agents[0]
-                            else:
-                                rich_print("[red]No agents available after load.[/red]")
-                                return result
-
-                        if not loaded_names:
-                            rich_print("[green]AgentCard loaded.[/green]")
-                        else:
-                            name_list = ", ".join(loaded_names)
-                            rich_print(f"[green]Loaded AgentCard(s): {name_list}[/green]")
-
-                        if add_tool and remove_tool:
-                            if not prompt_provider.can_detach_agent_tools():
-                                rich_print(
-                                    "[yellow]Agent tool detachment is not available in this session.[/yellow]"
-                                )
-                                continue
-                            try:
-                                removed = await prompt_provider.detach_agent_tools(
-                                    agent, loaded_names
-                                )
-                            except Exception as exc:
-                                rich_print(f"[red]Agent tool detach failed: {exc}[/red]")
-                                continue
-                            if removed:
-                                removed_list = ", ".join(removed)
-                                rich_print(f"[green]Detached agent tool(s): {removed_list}[/green]")
-                            else:
-                                rich_print("[yellow]No agent tools detached.[/yellow]")
-                            continue
-                        if add_tool:
-                            if attached_names:
-                                attached_list = ", ".join(attached_names)
-                                rich_print(
-                                    f"[green]Attached agent tool(s): {attached_list}[/green]"
-                                )
+                            if agent not in available_agents_set:
+                                if available_agents:
+                                    agent = available_agents[0]
+                                else:
+                                    rich_print("[red]No agents available after load.[/red]")
+                                    return result
                         continue
                     case AgentCommand(
                         agent_name=agent_name,
@@ -602,100 +557,37 @@ class InteractivePrompt:
                             rich_print(f"[red]{error}[/red]")
                             continue
 
-                        target_agent = agent_name or agent
-
-                        if dump:
-                            if not prompt_provider.can_dump_agent_cards():
-                                rich_print(
-                                    "[yellow]AgentCard dumping is not available in this session.[/yellow]"
-                                )
-                                continue
-                            try:
-                                card_text = await prompt_provider.dump_agent_card(target_agent)
-                            except Exception as exc:
-                                rich_print(f"[red]AgentCard dump failed: {exc}[/red]")
-                                continue
-                            print(card_text)
-                            continue
-
-                        if add_tool and remove_tool:
-                            if not prompt_provider.can_detach_agent_tools():
-                                rich_print(
-                                    "[yellow]Agent tool detachment is not available in this session.[/yellow]"
-                                )
-                                continue
-                            try:
-                                removed = await prompt_provider.detach_agent_tools(
-                                    agent, [target_agent]
-                                )
-                            except Exception as exc:
-                                rich_print(f"[red]Agent tool detach failed: {exc}[/red]")
-                                continue
-                            if removed:
-                                removed_list = ", ".join(removed)
-                                rich_print(f"[green]Detached agent tool(s): {removed_list}[/green]")
-                            else:
-                                rich_print("[yellow]No agent tools detached.[/yellow]")
-                            continue
-                        if add_tool:
-                            if target_agent == agent:
-                                rich_print("[yellow]Can't attach agent to itself.[/yellow]")
-                                continue
-                            if target_agent not in available_agents_set:
-                                rich_print(f"[red]Agent '{target_agent}' not found[/red]")
-                                continue
-                            if not prompt_provider.can_attach_agent_tools():
-                                rich_print(
-                                    "[yellow]Agent tool attachment is not available in this session.[/yellow]"
-                                )
-                                continue
-                            try:
-                                attached = await prompt_provider.attach_agent_tools(
-                                    agent, [target_agent]
-                                )
-                            except Exception as exc:
-                                rich_print(f"[red]Agent tool attach failed: {exc}[/red]")
-                                continue
-
-                            if attached:
-                                attached_list = ", ".join(attached)
-                                rich_print(
-                                    f"[green]Attached agent tool(s): {attached_list}[/green]"
-                                )
-                            else:
-                                rich_print("[yellow]No agent tools attached.[/yellow]")
-                            continue
-
-                        rich_print("[red]Invalid /agent command.[/red]")
+                        context = self._build_command_context(prompt_provider, agent)
+                        outcome = await agent_card_handlers.handle_agent_command(
+                            context,
+                            manager=prompt_provider,
+                            current_agent=agent,
+                            target_agent=agent_name,
+                            add_tool=add_tool,
+                            remove_tool=remove_tool,
+                            dump=dump,
+                        )
+                        await self._emit_command_outcome(context, outcome)
                         continue
                     case ReloadAgentsCommand():
-                        if not prompt_provider.can_reload_agents():
-                            rich_print("[yellow]Reload is not available in this session.[/yellow]")
-                            continue
+                        context = self._build_command_context(prompt_provider, agent)
+                        outcome = await agent_card_handlers.handle_reload_agents(
+                            context,
+                            manager=prompt_provider,
+                        )
+                        await self._emit_command_outcome(context, outcome)
 
-                        reloadable = prompt_provider.reload_agents
-                        try:
-                            changed = await reloadable()
-                        except Exception as exc:
-                            rich_print(f"[red]Reload failed: {exc}[/red]")
-                            continue
+                        if outcome.requires_refresh:
+                            available_agents = list(prompt_provider.agent_names())
+                            available_agents_set = set(available_agents)
+                            self.agent_types = prompt_provider.agent_types()
 
-                        if not changed:
-                            rich_print("[dim]No AgentCard changes detected.[/dim]")
-                            continue
-
-                        available_agents = list(prompt_provider.agent_names())
-                        available_agents_set = set(available_agents)
-                        self.agent_types = prompt_provider.agent_types()
-
-                        if agent not in available_agents_set:
-                            if available_agents:
-                                agent = available_agents[0]
-                            else:
-                                rich_print("[red]No agents available after reload.[/red]")
-                                return result
-
-                        rich_print("[green]AgentCards reloaded.[/green]")
+                            if agent not in available_agents_set:
+                                if available_agents:
+                                    agent = available_agents[0]
+                                else:
+                                    rich_print("[red]No agents available after reload.[/red]")
+                                    return result
                         continue
                     case UnknownCommand(command=command):
                         rich_print(f"[red]Command not found: {command}[/red]")

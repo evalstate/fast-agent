@@ -11,7 +11,6 @@ from fast_agent.commands.context import CommandIO
 from fast_agent.config import Settings, get_settings
 from fast_agent.ui.enhanced_prompt import get_argument_input, get_selection_input
 from fast_agent.ui.history_actions import display_history_turn
-from fast_agent.ui.message_primitives import MessageType
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -59,7 +58,10 @@ class TuiCommandIO(CommandIO):
         content = message.text
 
         if not isinstance(content, Text):
-            content = Text(str(content))
+            if getattr(display, "_markup", True):
+                content = Text.from_markup(str(content))
+            else:
+                content = Text(str(content))
 
         if message.title:
             header = Text(message.title, style="bold")
@@ -75,13 +77,7 @@ class TuiCommandIO(CommandIO):
         elif message.channel == "info":
             content.stylize("cyan")
 
-        display.display_message(
-            content=content,
-            message_type=MessageType.SYSTEM,
-            name=message.agent_name or self.agent_name,
-            right_info=message.right_info or "",
-            truncate_content=False,
-        )
+        display.show_status_message(content)
 
     async def prompt_text(
         self,

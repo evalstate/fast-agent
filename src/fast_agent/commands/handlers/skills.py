@@ -317,6 +317,7 @@ async def handle_add_skill(
     *,
     agent_name: str,
     argument: str | None,
+    interactive: bool = True,
 ) -> CommandOutcome:
     outcome = CommandOutcome()
 
@@ -351,6 +352,23 @@ async def handle_add_skill(
             )
             content.append("\n\n")
         content.append_text(_format_marketplace_skills(marketplace))
+
+        if not interactive:
+            outcome.add_message(content, right_info="skills", agent_name=agent_name)
+            outcome.add_message(
+                "Install with `/skills add <number|name>`.",
+                channel="info",
+                right_info="skills",
+                agent_name=agent_name,
+            )
+            outcome.add_message(
+                "Change registry with `/skills registry`.",
+                channel="info",
+                right_info="skills",
+                agent_name=agent_name,
+            )
+            return outcome
+
         await ctx.io.emit(
             CommandMessage(text=content, right_info="skills", agent_name=agent_name)
         )
@@ -388,6 +406,7 @@ async def handle_remove_skill(
     *,
     agent_name: str,
     argument: str | None,
+    interactive: bool = True,
 ) -> CommandOutcome:
     outcome = CommandOutcome()
 
@@ -403,6 +422,17 @@ async def handle_remove_skill(
         _append_heading(content, f"Skills in {manager_dir}:")
         for index, manifest in enumerate(manifests, 1):
             _append_manifest_entry(content, manifest, index)
+
+        if not interactive:
+            outcome.add_message(content, right_info="skills", agent_name=agent_name)
+            outcome.add_message(
+                "Remove with `/skills remove <number|name>`.",
+                channel="info",
+                right_info="skills",
+                agent_name=agent_name,
+            )
+            return outcome
+
         await ctx.io.emit(
             CommandMessage(text=content, right_info="skills", agent_name=agent_name)
         )

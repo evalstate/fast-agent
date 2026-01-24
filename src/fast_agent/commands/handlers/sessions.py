@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from rich.text import Text
 
 from fast_agent.commands.results import CommandOutcome
+from fast_agent.commands.session_summaries import build_session_list_summary
 from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.ui.shell_notice import format_shell_notice
 
@@ -42,28 +43,12 @@ async def handle_create_session(
 
 async def handle_list_sessions(ctx: CommandContext) -> CommandOutcome:
     outcome = CommandOutcome()
-    from fast_agent.session import (
-        format_session_entries,
-        get_session_history_window,
-        get_session_manager,
-    )
-
-    manager = get_session_manager()
-    sessions = manager.list_sessions()
-    limit = get_session_history_window()
-    if limit > 0:
-        sessions = sessions[:limit]
-    if not sessions:
+    summary = build_session_list_summary()
+    if not summary.entries:
         outcome.add_message("No sessions found.", channel="warning", right_info="session")
         return outcome
 
-    current = manager.current_session
-    entries = format_session_entries(
-        sessions,
-        current.info.name if current else None,
-        mode="compact",
-    )
-    outcome.add_message(_build_session_entries(entries), right_info="session")
+    outcome.add_message(_build_session_entries(summary.entries), right_info="session")
     return outcome
 
 

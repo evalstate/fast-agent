@@ -116,6 +116,11 @@ class ConsoleDisplay:
     def style(self) -> MessageStyle:
         return self._style
 
+    def show_status_message(self, content: Text) -> None:
+        """Display a status message without a header."""
+        console.ensure_blocking_console()
+        console.console.print(content, markup=self._markup)
+
     def resolve_streaming_preferences(self) -> tuple[bool, str]:
         """Return whether streaming is enabled plus the active mode."""
         if not self.config:

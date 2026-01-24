@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import textwrap
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from rich.text import Text
 
 from fast_agent.commands.results import CommandOutcome
-from fast_agent.mcp.common import is_namespaced_name
+from fast_agent.commands.tool_summaries import ToolSummary, build_tool_summaries
 
 if TYPE_CHECKING:
     from fast_agent.commands.context import CommandContext
@@ -47,25 +47,14 @@ def _format_tool_description(description: str) -> list[Text]:
     return [Text(line, style="white") for line in wrapped_lines]
 
 
-def _format_tool_args(schema: dict[str, Any]) -> str | None:
-    properties = schema.get("properties")
-    if not isinstance(properties, dict):
-        return None
+def _summaries_from_tools(agent: object, tools: list[object]) -> list[ToolSummary]:
+    return build_tool_summaries(agent, tools)
 
-    required = schema.get("required", [])
-    if not isinstance(required, list):
-        required = []
 
-    arg_list: list[str] = []
-    for prop_name in properties:
-        arg_list.append(f"{prop_name}*" if prop_name in required else prop_name)
-
-    if not arg_list:
-        return None
-
-    args_text = ", ".join(arg_list)
+def _format_args_text(args: list[str]) -> str:
+    args_text = ", ".join(args)
     if len(args_text) > 80:
-        args_text = args_text[:77] + "..."
+        return args_text[:77] + "..."
     return args_text
 
 
@@ -84,59 +73,39 @@ async def handle_list_tools(ctx: CommandContext, *, agent_name: str) -> CommandO
         )
         return outcome
 
-    card_tool_names = set(getattr(agent, "_card_tool_names", []) or [])
-    agent_tool_names = set(getattr(agent, "_agent_tools", {}).keys())
-    child_agent_tool_names = set(getattr(agent, "_child_agents", {}).keys())
-    agent_tool_names |= child_agent_tool_names
-    internal_tool_names = {"execute", "read_skill"}
+    summaries = _summaries_from_tools(agent, list(tools_result.tools))
 
     content = Text()
     header = Text(f"Tools for agent {agent_name}:", style="bold")
     content.append_text(header)
     content.append("\n\n")
 
-    for index, tool in enumerate(tools_result.tools, 1):
-        meta = getattr(tool, "meta", {}) or {}
-        suffix = None
-        if tool.name in internal_tool_names:
-            suffix = "(Internal)"
-        elif tool.name in card_tool_names:
-            suffix = "(Card Function)"
-        elif tool.name in child_agent_tool_names:
-            suffix = "(Subagent)"
-        elif tool.name not in agent_tool_names and is_namespaced_name(tool.name):
-            suffix = "(MCP)"
-
-        if meta.get("openai/skybridgeEnabled"):
-            suffix = f"{suffix} (skybridge)" if suffix else "(skybridge)"
-
+    for index, summary in enumerate(summaries, 1):
         line = Text()
         line.append(f"[{index:2}] ", style="dim cyan")
-        line.append_text(_format_tool_line(tool.name, tool.title, suffix))
+        line.append_text(_format_tool_line(summary.name, summary.title, summary.suffix))
         content.append_text(line)
         content.append("\n")
 
-        if tool.description and tool.description.strip():
-            for wrapped_line in _format_tool_description(tool.description.strip()):
+        description = summary.description
+        if description:
+            for wrapped_line in _format_tool_description(description):
                 content.append("     ", style="dim")
                 content.append_text(wrapped_line)
                 content.append("\n")
 
-        schema = getattr(tool, "inputSchema", None)
-        if isinstance(schema, dict):
-            args_text = _format_tool_args(schema)
+        if summary.args:
+            args_text = _format_args_text(summary.args)
             if args_text:
                 content.append("     ", style="dim")
                 content.append(f"args: {args_text}", style="dim magenta")
                 content.append("\n")
 
-        if meta.get("openai/skybridgeEnabled"):
-            template = meta.get("openai/skybridgeTemplate")
-            if template:
-                content.append("     ", style="dim")
-                content.append("template: ", style="dim magenta")
-                content.append(str(template))
-                content.append("\n")
+        if summary.template:
+            content.append("     ", style="dim")
+            content.append("template: ", style="dim magenta")
+            content.append(str(summary.template))
+            content.append("\n")
 
         content.append("\n")
 

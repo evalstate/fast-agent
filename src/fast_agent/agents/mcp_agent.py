@@ -463,7 +463,7 @@ class McpAgent(ABC, ToolAgent):
     def shell_runtime(self) -> ShellRuntime | None:
         return self._shell_runtime
 
-    def shell_notice_line(self) -> str | None:
+    def shell_notice_line(self) -> "Text | None":
         if not self._shell_runtime_enabled or self._shell_runtime is None:
             return None
         from fast_agent.ui.shell_notice import format_shell_notice

@@ -5,29 +5,24 @@ from fast_agent.cli.commands import go as go_command
 from fast_agent.cli.commands import serve as serve_command
 
 
-def test_run_async_agent_passes_serve_mode(monkeypatch):
-    captured: dict = {}
-
-    async def fake_run_agent(**kwargs):
-        captured.update(kwargs)
-
-    # Avoid altering whichever loop pytest might have prepared
-    monkeypatch.setattr(go_command, "_run_agent", fake_run_agent)
-    monkeypatch.setattr(go_command, "_set_asyncio_exception_handler", lambda loop: None)
-
-    go_command.run_async_agent(
+def test_run_async_agent_passes_serve_mode() -> None:
+    run_kwargs = go_command._build_run_agent_kwargs(
         name="test-agent",
         instruction="test instruction",
         config_path=None,
         servers=None,
         urls=None,
         auth=None,
+        agent_cards=None,
+        card_tools=None,
         model=None,
         message=None,
         prompt_file=None,
+        resume=None,
         stdio_commands=None,
         agent_name="agent",
         skills_directory=None,
+        environment_dir=None,
         shell_enabled=False,
         mode="serve",
         transport="sse",
@@ -35,26 +30,22 @@ def test_run_async_agent_passes_serve_mode(monkeypatch):
         port=9123,
         tool_description="Send requests to {agent}",
         instance_scope="shared",
+        permissions_enabled=True,
+        reload=False,
+        watch=False,
     )
 
-    assert captured["mode"] == "serve"
-    assert captured["transport"] == "sse"
-    assert captured["host"] == "127.0.0.1"
-    assert captured["port"] == 9123
-    assert captured["tool_description"] == "Send requests to {agent}"
-    assert captured["instance_scope"] == "shared"
+    assert run_kwargs["mode"] == "serve"
+    assert run_kwargs["transport"] == "sse"
+    assert run_kwargs["host"] == "127.0.0.1"
+    assert run_kwargs["port"] == 9123
+    assert run_kwargs["tool_description"] == "Send requests to {agent}"
+    assert run_kwargs["instance_scope"] == "shared"
 
 
-def test_serve_command_invokes_run_async_agent(monkeypatch):
-    captured: dict = {}
-
-    def fake_run_async_agent(**kwargs):
-        captured.update(kwargs)
-
-    monkeypatch.setattr(serve_command, "run_async_agent", fake_run_async_agent)
-
+def test_serve_command_invokes_run_async_agent() -> None:
     ctx = typer.Context(click.Command("serve"))
-    serve_command.serve(
+    captured = serve_command._build_run_async_agent_kwargs(
         ctx=ctx,
         name="fast-agent",
         instruction=None,
@@ -66,6 +57,7 @@ def test_serve_command_invokes_run_async_agent(monkeypatch):
         auth=None,
         model=None,
         skills_dir=None,
+        env_dir=None,
         npx=None,
         uvx=None,
         stdio="python tool_server.py",
@@ -75,6 +67,7 @@ def test_serve_command_invokes_run_async_agent(monkeypatch):
         port=7010,
         shell=False,
         instance_scope=serve_command.InstanceScope.CONNECTION,
+        no_permissions=False,
         reload=True,
         watch=True,
     )

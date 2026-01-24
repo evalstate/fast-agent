@@ -359,24 +359,34 @@ async def handle_history_save(
     *,
     agent_name: str,
     filename: str | None,
-    send_func: Any,
+    send_func: Any | None,
+    history_exporter: type[HistoryExporter] | HistoryExporter | None = None,
 ) -> CommandOutcome:
     outcome = CommandOutcome()
 
+    exporter = history_exporter or HistoryExporter
+
     try:
         agent_obj = ctx.agent_provider._agent(agent_name)
-        saved_path = await HistoryExporter.save(agent_obj, filename)
+        saved_path = await exporter.save(agent_obj, filename)
         outcome.add_message(
             f"History saved to {saved_path}",
             channel="info",
             agent_name=agent_name,
         )
         return outcome
-    except Exception:
-        control = CONTROL_MESSAGE_SAVE_HISTORY + (f" {filename}" if filename else "")
-        result = await send_func(control, agent_name)
-        if result:
-            outcome.add_message(result, channel="info", agent_name=agent_name)
+    except Exception as exc:  # noqa: BLE001
+        if send_func:
+            control = CONTROL_MESSAGE_SAVE_HISTORY + (f" {filename}" if filename else "")
+            result = await send_func(control, agent_name)
+            if result:
+                outcome.add_message(result, channel="info", agent_name=agent_name)
+            return outcome
+        outcome.add_message(
+            f"Failed to save history: {exc}",
+            channel="error",
+            agent_name=agent_name,
+        )
         return outcome
 
 
