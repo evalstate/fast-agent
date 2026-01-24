@@ -85,6 +85,8 @@ from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.terminal_output_limits import calculate_terminal_output_limit_for_model
 from fast_agent.llm.usage_tracking import last_turn_usage
 from fast_agent.mcp.helpers.content_helpers import is_text_content
+from fast_agent.mcp.tool_execution_handler import NoOpToolExecutionHandler
+from fast_agent.mcp.tool_permission_handler import NoOpToolPermissionHandler
 from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams
 from fast_agent.workflow_telemetry import ACPPlanTelemetryProvider, ToolHandlerWorkflowTelemetry
@@ -679,7 +681,7 @@ class AgentACPServer(ACPAgent):
                 if isinstance(agent, McpAgentProtocol):
                     aggregator = agent.aggregator
                     # Only set if not already set (avoid duplicate registration)
-                    if aggregator._tool_handler is None:
+                    if isinstance(aggregator._tool_handler, NoOpToolExecutionHandler):
                         aggregator._tool_handler = tool_handler
                         logger.debug(
                             "ACP tool handler registered (refresh)",
@@ -711,7 +713,7 @@ class AgentACPServer(ACPAgent):
             for agent_name, agent in instance.agents.items():
                 if isinstance(agent, McpAgentProtocol):
                     aggregator = agent.aggregator
-                    if aggregator._permission_handler is None:
+                    if isinstance(aggregator._permission_handler, NoOpToolPermissionHandler):
                         aggregator._permission_handler = permission_handler
                         logger.debug(
                             "ACP permission handler registered (refresh)",

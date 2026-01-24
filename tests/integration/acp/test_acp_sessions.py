@@ -105,6 +105,9 @@ async def test_acp_session_resume_emits_current_mode_update(
     )
 
     original_cwd = Path.cwd()
+    original_env_dir = os.environ.get("ENVIRONMENT_DIR")
+    environment_dir = tmp_path / ".fast-agent"
+    os.environ["ENVIRONMENT_DIR"] = str(environment_dir)
     os.chdir(tmp_path)
     session_manager_module._session_manager = None
     try:
@@ -124,6 +127,10 @@ async def test_acp_session_resume_emits_current_mode_update(
     finally:
         session_manager_module._session_manager = None
         os.chdir(original_cwd)
+        if original_env_dir is None:
+            os.environ.pop("ENVIRONMENT_DIR", None)
+        else:
+            os.environ["ENVIRONMENT_DIR"] = original_env_dir
 
     config_path = TEST_DIR / "fastagent.config.yaml"
     cmd = [
@@ -148,6 +155,7 @@ async def test_acp_session_resume_emits_current_mode_update(
         lambda _: client,
         *cmd,
         cwd=tmp_path,
+        env={"ENVIRONMENT_DIR": str(environment_dir)},
     ) as (connection, _process):
         await _initialize_connection(connection)
         session_response = await connection.new_session(mcp_servers=[], cwd=str(tmp_path))

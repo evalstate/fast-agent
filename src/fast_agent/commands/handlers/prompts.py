@@ -55,6 +55,54 @@ def _format_prompt_args(prompt: dict[str, Any]) -> str:
     return f"{arg_count} parameter{plural}"
 
 
+def _extract_prompt_arguments(
+    arguments: Any,
+) -> tuple[list[str], list[str], list[str], dict[str, str]]:
+    if not isinstance(arguments, list):
+        return [], [], [], {}
+
+    arg_names: list[str] = []
+    required_args: list[str] = []
+    optional_args: list[str] = []
+    arg_descriptions: dict[str, str] = {}
+
+    for arg in arguments:
+        name = None
+        required = None
+        description = None
+
+        if isinstance(arg, dict):
+            name = arg.get("name")
+            required = arg.get("required")
+            description = arg.get("description")
+        else:
+            name = getattr(arg, "name", None)
+            required = getattr(arg, "required", None)
+            description = getattr(arg, "description", None)
+
+        if not isinstance(name, str) or not name:
+            continue
+
+        arg_names.append(name)
+
+        if isinstance(description, str) and description:
+            arg_descriptions[name] = description
+
+        if isinstance(required, bool):
+            is_required = required
+        elif required is None:
+            is_required = True
+        else:
+            is_required = bool(required)
+
+        if is_required:
+            required_args.append(name)
+        else:
+            optional_args.append(name)
+
+    return arg_names, required_args, optional_args, arg_descriptions
+
+
 def _build_prompt_list_text(
     prompts: list[dict[str, Any]],
     *,
@@ -138,6 +186,10 @@ async def _get_all_prompts(
                 if not isinstance(prompt_name, str):
                     continue
                 arguments = prompt_dict.get("arguments", [])
+                arg_names, required_args, optional_args, arg_descriptions = _extract_prompt_arguments(
+                    arguments
+                )
+                arg_count = len(arg_names) if arg_names else len(arguments) if isinstance(arguments, list) else 0
                 all_prompts.append(
                     {
                         "server": server_name,
@@ -145,13 +197,21 @@ async def _get_all_prompts(
                         "namespaced_name": f"{server_name}{SEP}{prompt_name}",
                         "title": prompt_dict.get("title", None),
                         "description": prompt_dict.get("description", "No description"),
-                        "arg_count": len(arguments) if isinstance(arguments, list) else 0,
+                        "arg_count": arg_count,
                         "arguments": arguments if isinstance(arguments, list) else [],
+                        "arg_names": arg_names,
+                        "required_args": required_args,
+                        "optional_args": optional_args,
+                        "arg_descriptions": arg_descriptions,
                     }
                 )
                 continue
 
             prompt_obj = cast("Prompt", prompt)
+            arguments = prompt_obj.arguments or []
+            arg_names, required_args, optional_args, arg_descriptions = _extract_prompt_arguments(
+                arguments
+            )
             all_prompts.append(
                 {
                     "server": server_name,
@@ -159,8 +219,12 @@ async def _get_all_prompts(
                     "namespaced_name": f"{server_name}{SEP}{prompt_obj.name}",
                     "title": prompt_obj.title or None,
                     "description": prompt_obj.description or "No description",
-                    "arg_count": len(prompt_obj.arguments or []),
-                    "arguments": prompt_obj.arguments or [],
+                    "arg_count": len(arg_names) if arg_names else len(arguments),
+                    "arguments": arguments,
+                    "arg_names": arg_names,
+                    "required_args": required_args,
+                    "optional_args": optional_args,
+                    "arg_descriptions": arg_descriptions,
                 }
             )
 

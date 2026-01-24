@@ -206,6 +206,14 @@ class LlmAgent(LlmDecorator):
         display_name = name if name is not None else self.name
         display_model = model if model is not None else (self.llm.model_name if self.llm else None)
 
+        if message.tool_calls and display_model is not None:
+            usage_accumulator = self.usage_accumulator
+            context_percentage = (
+                usage_accumulator.context_usage_percentage if usage_accumulator else None
+            )
+            if context_percentage is not None:
+                display_model = f"{display_model} ({context_percentage:.1f}%)"
+
         # Convert highlight_items to highlight_index
         highlight_index = None
         if highlight_items and bottom_items:

@@ -1885,8 +1885,56 @@ async def get_enhanced_input(
                     else display_name
                 )
             else:
-                print(f"[toolbar debug] no model resolved for agent '{agent_name}'")
-                model_display = "unknown"
+                if isinstance(agent, ParallelAgent):
+                    parallel_models: list[str] = []
+                    for fan_out_agent in agent.fan_out_agents:
+                        child_llm = None
+                        try:
+                            child_llm = fan_out_agent.llm
+                        except AssertionError:
+                            child_llm = getattr(fan_out_agent, "_llm", None)
+                        except Exception:
+                            child_llm = None
+
+                        child_model_name = None
+                        if child_llm:
+                            child_model_name = getattr(child_llm, "model_name", None)
+                            if not child_model_name:
+                                child_model_name = getattr(
+                                    getattr(child_llm, "default_request_params", None),
+                                    "model",
+                                    None,
+                                )
+                        if not child_model_name:
+                            child_model_name = fan_out_agent.config.model
+                        if (
+                            not child_model_name
+                            and fan_out_agent.config.default_request_params
+                        ):
+                            child_model_name = (
+                                fan_out_agent.config.default_request_params.model
+                            )
+                        if child_model_name:
+                            display_name = (
+                                format_model_display(child_model_name) or child_model_name
+                            )
+                            parallel_models.append(display_name)
+
+                    if parallel_models:
+                        deduped_models = list(dict.fromkeys(parallel_models))
+                        display_name = ",".join(deduped_models)
+                        max_len = 25
+                        model_display = (
+                            display_name[: max_len - 1] + "…"
+                            if len(display_name) > max_len
+                            else display_name
+                        )
+                    else:
+                        model_display = "parallel"
+
+                if not model_display:
+                    print(f"[toolbar debug] no model resolved for agent '{agent_name}'")
+                    model_display = "unknown"
 
             # Build TDV capability segment based on model database
             info = None
