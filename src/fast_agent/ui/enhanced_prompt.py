@@ -37,6 +37,7 @@ from fast_agent.constants import (
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.reasoning_effort import available_reasoning_values
 from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.ui.command_payloads import (
     AgentCommand,
@@ -54,6 +55,7 @@ from fast_agent.ui.command_payloads import (
     LoadAgentCardCommand,
     LoadHistoryCommand,
     LoadPromptCommand,
+    ModelReasoningCommand,
     ReloadAgentsCommand,
     ResumeSessionCommand,
     SaveHistoryCommand,
@@ -72,6 +74,7 @@ from fast_agent.ui.command_payloads import (
 )
 from fast_agent.ui.mcp_display import render_mcp_status
 from fast_agent.ui.model_display import format_model_display
+from fast_agent.ui.reasoning_effort_display import render_reasoning_effort_gauge
 from fast_agent.ui.shell_notice import format_shell_notice
 
 if TYPE_CHECKING:
@@ -594,6 +597,7 @@ class AgentCompleter(Completer):
             "mcp": "Show MCP server status",
             "history": "Show conversation history overview (or /history save|load|clear|rewind|review|fix)",
             "tools": "List tools",
+            "model": "Update model settings (/model reasoning <value>)",
             "skills": "Manage skills (/skills, /skills add, /skills remove, /skills registry)",
             "prompt": "Load a Prompt File or use MCP Prompt",
             "system": "Show the current system prompt",
@@ -749,6 +753,18 @@ class AgentCompleter(Completer):
                 continue
             user_turns.append(first)
         return user_turns
+
+    def _resolve_reasoning_values(self) -> list[str]:
+        if not self.agent_provider or not self.current_agent:
+            return []
+        try:
+            agent_obj = self.agent_provider._agent(self.current_agent)
+        except Exception:
+            return []
+        llm = getattr(agent_obj, "llm", None) or getattr(agent_obj, "_llm", None)
+        if not llm:
+            return []
+        return available_reasoning_values(getattr(llm, "reasoning_effort_spec", None))
 
     def _complete_history_rewind(self, partial: str):
         user_turns = self._iter_user_turns()
@@ -1114,6 +1130,44 @@ class AgentCompleter(Completer):
             if subcmd in {"registry", "marketplace", "source"}:
                 yield from self._complete_skill_registries(argument)
                 return
+            return
+
+        if text_lower.startswith("/model "):
+            remainder = text[len("/model ") :]
+            if not remainder:
+                remainder = ""
+            parts = remainder.split(maxsplit=1)
+            subcommands = {
+                "reasoning": (
+                    "Set reasoning effort (off/low/medium/high/xhigh or budgets like "
+                    "0/1024/16000/32000)"
+                ),
+            }
+            if not parts or (len(parts) == 1 and not remainder.endswith(" ")):
+                partial = parts[0] if parts else ""
+                for subcmd, description in subcommands.items():
+                    if subcmd.startswith(partial.lower()):
+                        yield Completion(
+                            subcmd,
+                            start_position=-len(partial),
+                            display=subcmd,
+                            display_meta=description,
+                        )
+                return
+
+            subcmd = parts[0].lower()
+            argument = parts[1] if len(parts) > 1 else ""
+            if subcmd == "reasoning":
+                for value in self._resolve_reasoning_values():
+                    if value.startswith(argument.lower()):
+                        yield Completion(
+                            value,
+                            start_position=-len(argument),
+                            display=value,
+                            display_meta="reasoning",
+                        )
+                return
+
             return
 
         if text_lower.startswith("/history "):
@@ -1718,6 +1772,21 @@ def parse_special_input(text: str) -> str | CommandPayload:
             return _select_prompt_cmd(None, remainder)
         if cmd == "tools":
             return _list_tools_cmd()
+        if cmd == "model":
+            remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
+            if not remainder:
+                return ModelReasoningCommand(value=None)
+            try:
+                tokens = shlex.split(remainder)
+            except ValueError:
+                tokens = remainder.split(maxsplit=1)
+            if not tokens:
+                return ModelReasoningCommand(value=None)
+            subcmd = tokens[0].lower()
+            argument = remainder[len(tokens[0]) :].strip()
+            if subcmd == "reasoning":
+                return ModelReasoningCommand(value=argument or None)
+            return UnknownCommand(command=cmd_line)
         if cmd == "skills":
             remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
             if not remainder:
@@ -1877,10 +1946,19 @@ async def get_enhanced_input(
                     model_name = context.config.default_model
 
             codex_suffix = ""
+            reasoning_gauge = None
             if model_name:
                 display_name = format_model_display(model_name) or model_name
                 if llm and getattr(llm, "provider", None) == Provider.CODEX_RESPONSES:
                     codex_suffix = " <style bg='ansiyellow'>$</style>"
+                if llm:
+                    try:
+                        reasoning_gauge = render_reasoning_effort_gauge(
+                            llm.reasoning_effort,
+                            llm.reasoning_effort_spec,
+                        )
+                    except Exception:
+                        reasoning_gauge = None
                 max_len = 25
                 model_display = (
                     display_name[: max_len - 1] + "…"
@@ -1910,13 +1988,8 @@ async def get_enhanced_input(
                                 )
                         if not child_model_name:
                             child_model_name = fan_out_agent.config.model
-                        if (
-                            not child_model_name
-                            and fan_out_agent.config.default_request_params
-                        ):
-                            child_model_name = (
-                                fan_out_agent.config.default_request_params.model
-                            )
+                        if not child_model_name and fan_out_agent.config.default_request_params:
+                            child_model_name = fan_out_agent.config.default_request_params.model
                         if child_model_name:
                             display_name = (
                                 format_model_display(child_model_name) or child_model_name
@@ -1985,12 +2058,14 @@ async def get_enhanced_input(
         if model_display:
             # Model chip + inline TDV flags
             if tdv_segment:
+                gauge_segment = f"{reasoning_gauge}" if reasoning_gauge else ""
                 middle_segments.append(
-                    f"{tdv_segment} <style bg='ansigreen'>{model_display}</style>{codex_suffix}"
+                    f"{tdv_segment}{gauge_segment} <style bg='ansigreen'>{model_display}</style>{codex_suffix}"
                 )
             else:
+                gauge_segment = f"{reasoning_gauge}" if reasoning_gauge else ""
                 middle_segments.append(
-                    f"<style bg='ansigreen'>{model_display}</style>{codex_suffix}"
+                    f"{gauge_segment} <style bg='ansigreen'>{model_display}</style>{codex_suffix}"
                 )
 
         # Add turn counter (formatted as 3 digits)
@@ -2442,9 +2517,16 @@ async def handle_special_commands(
         rich_print("  /skills        - List local skills for the manager directory")
         rich_print("  /skills add    - Install a skill from the marketplace")
         rich_print("  /skills remove - Remove a skill from the manager directory")
+        rich_print(
+            "  /model reasoning <value> - Set reasoning effort (off/low/medium/high/xhigh or budgets like 0/1024/16000/32000)"
+        )
         rich_print("  /history [agent_name] - Show chat history overview")
-        rich_print("  /history clear all [agent_name] - Clear conversation history (keeps templates)")
-        rich_print("  /history clear last [agent_name] - Remove the most recent message from history")
+        rich_print(
+            "  /history clear all [agent_name] - Clear conversation history (keeps templates)"
+        )
+        rich_print(
+            "  /history clear last [agent_name] - Remove the most recent message from history"
+        )
         rich_print("  /markdown      - Show last assistant message without markdown formatting")
         rich_print("  /mcpstatus     - Show MCP server status summary for the active agent")
         rich_print("  /history save [filename] - Save current chat history to a file")
@@ -2495,7 +2577,6 @@ async def handle_special_commands(
 
     elif isinstance(command, str) and command.upper() == "EXIT":
         raise PromptExitError("User requested to exit fast-agent session")
-
 
     elif command == "SHOW_USAGE":
         return _show_usage_cmd()

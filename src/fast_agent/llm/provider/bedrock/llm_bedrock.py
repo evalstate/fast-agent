@@ -21,6 +21,12 @@ from fast_agent.interfaces import ModelT
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.provider.bedrock.multipart_converter_bedrock import BedrockConverter
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.reasoning_effort import (
+    ReasoningEffortSetting,
+    ReasoningEffortSpec,
+    parse_reasoning_setting,
+    validate_reasoning_setting,
+)
 from fast_agent.llm.usage_tracking import TurnUsage
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
@@ -52,24 +58,21 @@ except ImportError:
 DEFAULT_BEDROCK_MODEL = "amazon.nova-lite-v1:0"
 
 
-# Local ReasoningEffort enum to avoid circular imports
-class ReasoningEffort(Enum):
-    """Reasoning effort levels for Bedrock models"""
-
-    MINIMAL = "minimal"
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-
-
 # Reasoning effort to token budget mapping
 # Based on AWS recommendations: start with 1024 minimum, increment reasonably
 REASONING_EFFORT_BUDGETS = {
-    ReasoningEffort.MINIMAL: 0,  # Disabled
-    ReasoningEffort.LOW: 512,  # Light reasoning
-    ReasoningEffort.MEDIUM: 1024,  # AWS minimum recommendation
-    ReasoningEffort.HIGH: 2048,  # Higher reasoning
+    "minimal": 0,  # Disabled
+    "low": 512,  # Light reasoning
+    "medium": 1024,  # AWS minimum recommendation
+    "high": 2048,  # Higher reasoning
 }
+
+BEDROCK_REASONING_SPEC = ReasoningEffortSpec(
+    kind="budget",
+    min_budget_tokens=0,
+    max_budget_tokens=None,
+    default=ReasoningEffortSetting(kind="budget", value=REASONING_EFFORT_BUDGETS["medium"]),
+)
 
 # Bedrock message format types
 BedrockMessage = dict[str, Any]  # Bedrock message format
@@ -233,15 +236,27 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         self._force_non_streaming_once: bool = False
 
         # Set up reasoning-related attributes
-        self._reasoning_effort = kwargs.get("reasoning_effort", None)
-        if (
-            self._reasoning_effort is None
-            and self.context
-            and self.context.config
-            and self.context.config.bedrock
-        ):
-            if hasattr(self.context.config.bedrock, "reasoning_effort"):
-                self._reasoning_effort = self.context.config.bedrock.reasoning_effort
+        raw_setting = kwargs.get("reasoning_effort", None)
+        if self.context and self.context.config and self.context.config.bedrock:
+            config = self.context.config.bedrock
+            if raw_setting is None:
+                raw_setting = config.reasoning
+                if raw_setting is None and hasattr(config, "reasoning_effort"):
+                    raw_setting = config.reasoning_effort
+                    if raw_setting is not None:
+                        self.logger.warning(
+                            "Bedrock config 'reasoning_effort' is deprecated; use 'reasoning'."
+                        )
+
+        setting = parse_reasoning_setting(raw_setting)
+        if setting is not None:
+            try:
+                self.set_reasoning_effort(setting)
+            except ValueError as exc:
+                self.logger.warning(f"Invalid reasoning setting: {exc}")
+
+        if self._reasoning_effort_spec is None:
+            self._reasoning_effort_spec = BEDROCK_REASONING_SPEC
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize Bedrock-specific default parameters"""
@@ -258,6 +273,30 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
     def model(self) -> str:
         """Get the model name, guaranteed to be set."""
         return self.default_request_params.model or DEFAULT_BEDROCK_MODEL
+
+    def _resolve_reasoning_budget(self) -> int:
+        setting = self.reasoning_effort
+        if setting is None:
+            return 0
+        if setting.kind == "toggle":
+            return 0 if not setting.value else REASONING_EFFORT_BUDGETS["medium"]
+        if setting.kind == "effort":
+            return REASONING_EFFORT_BUDGETS.get(str(setting.value), 0)
+        if setting.kind == "budget":
+            return max(0, int(setting.value))
+        return 0
+
+    def set_reasoning_effort(self, setting: ReasoningEffortSetting | None) -> None:
+        if setting is None:
+            self._reasoning_effort = None
+            return
+
+        spec = self._reasoning_effort_spec or BEDROCK_REASONING_SPEC
+        if setting.kind == "effort":
+            budget = REASONING_EFFORT_BUDGETS.get(str(setting.value), 0)
+            setting = ReasoningEffortSetting(kind="budget", value=budget)
+
+        self._reasoning_effort = validate_reasoning_setting(setting, spec)
 
     def _get_bedrock_client(self):
         """Get or create Bedrock client."""
@@ -1463,19 +1502,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                 inference_config["stopSequences"] = params.stopSequences
 
             # Check if reasoning should be enabled
-            reasoning_budget = 0
-            if self._reasoning_effort and self._reasoning_effort != ReasoningEffort.MINIMAL:
-                # Convert string to enum if needed
-                if isinstance(self._reasoning_effort, str):
-                    try:
-                        effort_enum = ReasoningEffort(self._reasoning_effort)
-                    except ValueError:
-                        effort_enum = ReasoningEffort.MINIMAL
-                else:
-                    effort_enum = self._reasoning_effort
-
-                if effort_enum != ReasoningEffort.MINIMAL:
-                    reasoning_budget = REASONING_EFFORT_BUDGETS.get(effort_enum, 0)
+            reasoning_budget = self._resolve_reasoning_budget()
 
             # Handle temperature and reasoning configuration
             # AWS docs: "Thinking isn't compatible with temperature, top_p, or top_k modifications"
@@ -1994,8 +2021,8 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
 
         # For structured outputs: disable reasoning entirely and set temperature=0 for deterministic JSON
         # This avoids conflicts between reasoning (requires temperature=1) and structured output (wants temperature=0)
-        original_reasoning_effort = self._reasoning_effort
-        self._reasoning_effort = ReasoningEffort.MINIMAL  # Temporarily disable reasoning
+        original_reasoning_effort = self.reasoning_effort
+        self.set_reasoning_effort(ReasoningEffortSetting(kind="toggle", value=False))
 
         # Override temperature for structured outputs
         if request_params:
@@ -2086,7 +2113,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                 return self._structured_from_multipart(retry_result, model)
         finally:
             # Restore original reasoning effort
-            self._reasoning_effort = original_reasoning_effort
+            self.set_reasoning_effort(original_reasoning_effort)
 
     def _clean_json_response(self, text: str) -> str:
         """Clean up JSON response by removing text before first { and after last }.

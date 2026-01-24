@@ -6,10 +6,12 @@ import json
 from collections import Counter, defaultdict
 from copy import deepcopy
 from dataclasses import dataclass
+from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
+    Literal,
     Mapping,
     Self,
     Sequence,
@@ -23,6 +25,7 @@ if TYPE_CHECKING:
 
     from fast_agent.agents.llm_agent import LlmAgent
     from fast_agent.agents.tool_runner import ToolRunnerHooks
+    from fast_agent.hooks.lifecycle_hook_loader import AgentLifecycleHooks
 
 from a2a.types import AgentCard
 from mcp import ListToolsResult, Tool
@@ -49,6 +52,7 @@ from fast_agent.constants import (
     FAST_AGENT_REMOVED_METADATA_CHANNEL,
 )
 from fast_agent.context import Context
+from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import (
     AgentProtocol,
@@ -195,6 +199,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         self._initialized = False
         self._llm_factory_ref: LLMFactoryProtocol | None = None
         self._llm_attach_kwargs: dict[str, Any] | None = None
+        self._lifecycle_hooks: "AgentLifecycleHooks | None" = None
 
     @property
     def context(self) -> Context | None:
@@ -212,10 +217,61 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         self._initialized = value
 
     async def initialize(self) -> None:
+        await self._run_lifecycle_hook("on_start")
         self.initialized = True
 
     async def shutdown(self) -> None:
+        await self._finalize_shutdown()
+
+    async def _finalize_shutdown(self, *, run_hook: bool = True) -> None:
+        if run_hook:
+            await self._run_lifecycle_hook("on_shutdown")
         self.initialized = False
+
+    def _load_lifecycle_hooks(self) -> "AgentLifecycleHooks":
+        if self._lifecycle_hooks is not None:
+            return self._lifecycle_hooks
+
+        from fast_agent.hooks.lifecycle_hook_loader import load_lifecycle_hooks
+
+        base_path = None
+        source_path = getattr(self.config, "source_path", None)
+        if source_path:
+            source_path = (
+                Path(source_path).expanduser()
+                if not isinstance(source_path, Path)
+                else source_path
+            )
+            base_path = source_path.parent
+
+        self._lifecycle_hooks = load_lifecycle_hooks(self.config.lifecycle_hooks, base_path)
+        return self._lifecycle_hooks
+
+    async def _run_lifecycle_hook(
+        self, hook_type: Literal["on_start", "on_shutdown"]
+    ) -> None:
+        hooks = self._load_lifecycle_hooks()
+        hook = hooks.on_start if hook_type == "on_start" else hooks.on_shutdown
+        if hook is None:
+            return
+
+        from fast_agent.hooks.lifecycle_hook_context import AgentLifecycleContext
+
+        context = AgentLifecycleContext(
+            agent=self,
+            context=self.context,
+            config=self.config,
+            hook_type=hook_type,
+        )
+
+        try:
+            await hook(context)
+        except Exception as exc:  # noqa: BLE001
+            if hook_type == "on_start":
+                raise AgentConfigError(
+                    f"Lifecycle hook '{hook_type}' failed", str(exc)
+                ) from exc
+            logger.exception("Lifecycle hook failed during shutdown", hook_type=hook_type)
 
     @property
     def instruction(self) -> str:

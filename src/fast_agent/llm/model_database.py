@@ -9,6 +9,8 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, ReasoningEffortSpec
+
 
 class ModelParameters(BaseModel):
     """Configuration parameters for a specific model"""
@@ -27,6 +29,9 @@ class ModelParameters(BaseModel):
 
     reasoning: None | str = None
     """Reasoning output style. 'tags' if enclosed in <thinking> tags, 'none' if not used"""
+
+    reasoning_effort_spec: ReasoningEffortSpec | None = None
+    """Reasoning effort input configuration supported by the model, if any."""
 
     stream_mode: Literal["openai", "manual"] = "openai"
     """Determines how streaming deltas should be processed."""
@@ -78,6 +83,44 @@ class ModelDatabase:
     XAI_VISION = ["text/plain", "image/jpeg", "image/png", "image/webp"]
     TEXT_ONLY = ["text/plain"]
 
+    OPENAI_O_CLASS_REASONING = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "medium", "high"],
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
+    )
+
+    OPENAI_GPT_5_CLASS_REASONING = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["minimal", "low", "medium", "high"],
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
+    )
+
+    OPENAI_GPT_51_CLASS_REASONING = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["none", "low", "medium", "high", "xhigh"],
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
+    )
+
+    OPENAI_GPT_5_CODEX_CLASS_REASONING = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "medium", "high", "xhigh"],
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
+    )
+
+    OPENAI_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["minimal", "low", "medium", "high", "xhigh"],
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
+    )
+
+    ANTHROPIC_THINKING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="budget",
+        min_budget_tokens=1024,
+        max_budget_tokens=128000,
+        budget_presets=[0, 1024, 16000, 32000],
+        default=ReasoningEffortSetting(kind="budget", value=10000),
+    )
+
     # Common parameter configurations
     OPENAI_STANDARD = ModelParameters(
         context_window=128000, max_output_tokens=16384, tokenizes=OPENAI_MULTIMODAL
@@ -92,6 +135,7 @@ class ModelDatabase:
         max_output_tokens=100000,
         tokenizes=OPENAI_VISION,
         reasoning="openai",
+        reasoning_effort_spec=OPENAI_REASONING_EFFORT_SPEC,
     )
 
     ANTHROPIC_LEGACY = ModelParameters(
@@ -147,6 +191,7 @@ class ModelDatabase:
         max_output_tokens=100000,
         tokenizes=OPENAI_MULTIMODAL,
         reasoning="openai",
+        reasoning_effort_spec=OPENAI_O_CLASS_REASONING,
     )
 
     OPENAI_O3_MINI_SERIES = ModelParameters(
@@ -154,6 +199,7 @@ class ModelDatabase:
         max_output_tokens=100000,
         tokenizes=TEXT_ONLY,
         reasoning="openai",
+        reasoning_effort_spec=OPENAI_O_CLASS_REASONING,
     )
     OPENAI_GPT_OSS_SERIES = ModelParameters(
         context_window=131072,
@@ -167,6 +213,23 @@ class ModelDatabase:
         max_output_tokens=128000,
         tokenizes=OPENAI_MULTIMODAL,
         reasoning="openai",
+        reasoning_effort_spec=OPENAI_GPT_5_CLASS_REASONING,
+    )
+
+    OPENAI_GPT_5_2 = ModelParameters(
+        context_window=400000,
+        max_output_tokens=128000,
+        tokenizes=OPENAI_MULTIMODAL,
+        reasoning="openai",
+        reasoning_effort_spec=OPENAI_GPT_51_CLASS_REASONING,
+    )
+
+    OPENAI_GPT_CODEX = ModelParameters(
+        context_window=400000,
+        max_output_tokens=128000,
+        tokenizes=OPENAI_MULTIMODAL,
+        reasoning="openai",
+        reasoning_effort_spec=OPENAI_GPT_5_CODEX_CLASS_REASONING,
     )
 
     ANTHROPIC_OPUS_4_VERSIONED = ModelParameters(
@@ -174,6 +237,7 @@ class ModelDatabase:
         max_output_tokens=32000,
         tokenizes=ANTHROPIC_MULTIMODAL,
         reasoning="anthropic_thinking",
+        reasoning_effort_spec=ANTHROPIC_THINKING_EFFORT_SPEC,
         cache_ttl="5m",
     )
     ANTHROPIC_SONNET_4_VERSIONED = ModelParameters(
@@ -181,6 +245,7 @@ class ModelDatabase:
         max_output_tokens=64000,
         tokenizes=ANTHROPIC_MULTIMODAL,
         reasoning="anthropic_thinking",
+        reasoning_effort_spec=ANTHROPIC_THINKING_EFFORT_SPEC,
         cache_ttl="5m",
     )
     # Claude 3.7 Sonnet supports extended thinking (deprecated but still available)
@@ -189,6 +254,7 @@ class ModelDatabase:
         max_output_tokens=16384,
         tokenizes=ANTHROPIC_MULTIMODAL,
         reasoning="anthropic_thinking",
+        reasoning_effort_spec=ANTHROPIC_THINKING_EFFORT_SPEC,
         cache_ttl="5m",
     )
 
@@ -337,9 +403,9 @@ class ModelDatabase:
         "gpt-5": OPENAI_GPT_5,
         "gpt-5-mini": OPENAI_GPT_5,
         "gpt-5-nano": OPENAI_GPT_5,
-        "gpt-5.1": OPENAI_GPT_5,
-        "gpt-5.1-codex": OPENAI_GPT_5,
-        "gpt-5.2-codex": OPENAI_GPT_5,
+        "gpt-5.1": OPENAI_GPT_5_2,
+        "gpt-5.1-codex": OPENAI_GPT_CODEX,
+        "gpt-5.2-codex": OPENAI_GPT_CODEX,
         "gpt-5.2": OPENAI_GPT_5,
         # Anthropic Models
         "claude-3-haiku": ANTHROPIC_35_SERIES,
@@ -433,6 +499,9 @@ class ModelDatabase:
         model_spec = (model or "").strip()
         if not model_spec:
             return ""
+
+        if "?" in model_spec:
+            model_spec = model_spec.split("?", 1)[0].strip()
 
         # If it's already a known key, keep it as-is (after casing/whitespace normalization).
         direct_key = model_spec.lower()
@@ -531,6 +600,12 @@ class ModelDatabase:
         """Get supported reasoning output style for a model"""
         params = cls.get_model_params(model)
         return params.reasoning if params else None
+
+    @classmethod
+    def get_reasoning_effort_spec(cls, model: str) -> ReasoningEffortSpec | None:
+        """Get reasoning effort capabilities for a model, if defined."""
+        params = cls.get_model_params(model)
+        return params.reasoning_effort_spec if params else None
 
     @classmethod
     def get_stream_mode(cls, model: str | None) -> Literal["openai", "manual"]:

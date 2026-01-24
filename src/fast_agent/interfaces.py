@@ -25,6 +25,7 @@ from pydantic import BaseModel
 from rich.text import Text
 
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, ReasoningEffortSpec
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.usage_tracking import UsageAccumulator
 from fast_agent.types import PromptMessageExtended, RequestParams
@@ -134,6 +135,14 @@ class FastAgentLLMProtocol(Protocol):
     def model_info(self) -> "ModelInfo | None": ...
 
     def clear(self, *, clear_prompts: bool = False) -> None: ...
+
+    def set_reasoning_effort(self, setting: ReasoningEffortSetting | None) -> None: ...
+
+    @property
+    def reasoning_effort(self) -> ReasoningEffortSetting | None: ...
+
+    @property
+    def reasoning_effort_spec(self) -> ReasoningEffortSpec | None: ...
 
 
 @runtime_checkable

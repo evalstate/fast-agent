@@ -18,6 +18,8 @@ else:  # pragma: no cover - used only to satisfy type checkers
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
+
 
 class MCPServerAuthSettings(BaseModel):
     """Represents authentication configuration for a server.
@@ -387,6 +389,9 @@ class AnthropicSettings(BaseModel):
     Must be less than max_tokens.
     """
 
+    reasoning: ReasoningEffortSetting | str | int | bool | None = None
+    """Unified reasoning effort setting (budget tokens or on/off)."""
+
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
@@ -396,6 +401,7 @@ class OpenAISettings(BaseModel):
     """
 
     api_key: str | None = None
+    reasoning: ReasoningEffortSetting | str | int | bool | None = None
     reasoning_effort: Literal["minimal", "low", "medium", "high"] = "medium"
 
     base_url: str | None = None
@@ -414,6 +420,7 @@ class OpenResponsesSettings(BaseModel):
     """
 
     api_key: str | None = None
+    reasoning: ReasoningEffortSetting | str | int | bool | None = None
     reasoning_effort: Literal["minimal", "low", "medium", "high"] = "medium"
 
     base_url: str | None = None
@@ -588,6 +595,9 @@ class BedrockSettings(BaseModel):
     profile: str | None = None
     """AWS profile to use for authentication"""
 
+    reasoning: ReasoningEffortSetting | str | int | bool | None = None
+    """Unified reasoning effort setting (effort string or budget)."""
+
     reasoning_effort: Literal["minimal", "low", "medium", "high"] = "minimal"
     """Default reasoning effort for Bedrock models. Can be overridden in model string (e.g., bedrock.claude-sonnet-4-0.high)"""
 
@@ -756,7 +766,8 @@ class Settings(BaseSettings):
 
     default_model: str | None = None
     """
-    Default model for agents. Format is provider.model_name.<reasoning_effort>, for example openai.o3-mini.low
+    Default model for agents. Format is provider.model_name.<reasoning_effort> or provider.model?reasoning=<value>,
+    for example openai.o3-mini.low or openai.o3-mini?reasoning=high.
     Aliases are provided for common models e.g. sonnet, haiku, gpt-4.1, o3-mini etc.
     If not set, falls back to FAST_AGENT_MODEL env var, then to "gpt-5-mini.low".
     """

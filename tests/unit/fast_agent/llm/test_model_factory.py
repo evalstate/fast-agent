@@ -3,15 +3,12 @@ import pytest
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.core.exceptions import ModelConfigError
-from fast_agent.llm.model_factory import (
-    ModelFactory,
-    Provider,
-    ReasoningEffort,
-)
+from fast_agent.llm.model_factory import ModelFactory, Provider
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
 from fast_agent.llm.provider.openai.llm_generic import GenericLLM
 from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
+from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
 
 # Test aliases - decoupled from production MODEL_ALIASES
 # These provide stable test data that won't break when production aliases change
@@ -49,8 +46,18 @@ def test_full_model_strings():
         ),
         ("openai.gpt-4.1", Provider.OPENAI, "gpt-4.1", None),
         ("openai/gpt-4.1", Provider.OPENAI, "gpt-4.1", None),
-        ("openai.o1.high", Provider.OPENAI, "o1", ReasoningEffort.HIGH),
-        ("openai/o1.high", Provider.OPENAI, "o1", ReasoningEffort.HIGH),
+        (
+            "openai.o1.high",
+            Provider.OPENAI,
+            "o1",
+            ReasoningEffortSetting(kind="effort", value="high"),
+        ),
+        (
+            "openai/o1.high",
+            Provider.OPENAI,
+            "o1",
+            ReasoningEffortSetting(kind="effort", value="high"),
+        ),
     ]
 
     for model_str, exp_provider, exp_model, exp_effort in cases:
@@ -58,6 +65,19 @@ def test_full_model_strings():
         assert config.provider == exp_provider
         assert config.model_name == exp_model
         assert config.reasoning_effort == exp_effort
+
+
+def test_model_query_reasoning_effort():
+    config = ModelFactory.parse_model_string("openai.o1?reasoning=low")
+    assert config.provider == Provider.OPENAI
+    assert config.model_name == "o1"
+    assert config.reasoning_effort == ReasoningEffortSetting(kind="effort", value="low")
+
+
+def test_model_query_reasoning_budget():
+    config = ModelFactory.parse_model_string("openai.o1?reasoning=2048")
+    assert config.provider == Provider.OPENAI
+    assert config.reasoning_effort == ReasoningEffortSetting(kind="budget", value=2048)
 
 
 def test_invalid_inputs():

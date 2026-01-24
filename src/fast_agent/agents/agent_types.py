@@ -53,6 +53,7 @@ FunctionToolsConfig: TypeAlias = list[FunctionToolConfig] | None
 # Tool hooks config maps hook type to function spec string
 # e.g., {"after_turn_complete": "hooks.py:my_hook"}
 ToolHooksConfig: TypeAlias = dict[str, str] | None
+LifecycleHooksConfig: TypeAlias = dict[str, str] | None
 
 
 @dataclass
@@ -81,7 +82,9 @@ class AgentConfig:
     shell: bool = False
     cwd: Path | None = None
     tool_hooks: ToolHooksConfig = None
+    lifecycle_hooks: LifecycleHooksConfig = None
     trim_tool_history: bool = False
+    source_path: Path | None = field(default=None, repr=False)
 
     def __post_init__(self):
         """Ensure default_request_params exists with proper history setting"""

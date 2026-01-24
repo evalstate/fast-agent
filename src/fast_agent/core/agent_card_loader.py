@@ -54,6 +54,7 @@ _ALLOWED_FIELDS_BY_TYPE: dict[str, set[str]] = {
         "max_display_instances",
         "function_tools",
         "tool_hooks",
+        "lifecycle_hooks",
         "trim_tool_history",
         "messages",
         "shell",
@@ -491,6 +492,22 @@ def _build_agent_data(
             raise AgentConfigError(f"'tool_hooks' must be a dict in {path}")
         tool_hooks = {str(k): str(v) for k, v in tool_hooks_raw.items()}
 
+    # Parse lifecycle_hooks - dict mapping hook type to function spec
+    lifecycle_hooks_raw = raw.get("lifecycle_hooks")
+    lifecycle_hooks: dict[str, str] | None = None
+    if lifecycle_hooks_raw is not None:
+        if not isinstance(lifecycle_hooks_raw, dict):
+            raise AgentConfigError(f"'lifecycle_hooks' must be a dict in {path}")
+        lifecycle_hooks = {str(k): str(v) for k, v in lifecycle_hooks_raw.items()}
+        from fast_agent.hooks.lifecycle_hook_loader import VALID_LIFECYCLE_HOOK_TYPES
+
+        invalid_types = set(lifecycle_hooks.keys()) - VALID_LIFECYCLE_HOOK_TYPES
+        if invalid_types:
+            raise AgentConfigError(
+                f"Invalid lifecycle hook types: {invalid_types}",
+                f"Valid types are: {sorted(VALID_LIFECYCLE_HOOK_TYPES)}",
+            )
+
     # Parse trim_tool_history shortcut
     trim_tool_history = _ensure_bool(raw.get("trim_tool_history"), "trim_tool_history", path)
 
@@ -513,7 +530,9 @@ def _build_agent_data(
         shell=shell,
         cwd=cwd,
         tool_hooks=tool_hooks,
+        lifecycle_hooks=lifecycle_hooks,
         trim_tool_history=trim_tool_history,
+        source_path=path,
     )
 
     if request_params is not None:
@@ -884,6 +903,8 @@ def _build_card_dump(
         config = agent_data.get("config")
         if isinstance(config, AgentConfig) and config.tool_hooks:
             card["tool_hooks"] = config.tool_hooks
+        if isinstance(config, AgentConfig) and config.lifecycle_hooks:
+            card["lifecycle_hooks"] = config.lifecycle_hooks
         if config and config.trim_tool_history:
             card["trim_tool_history"] = True
     elif card_type == "chain":

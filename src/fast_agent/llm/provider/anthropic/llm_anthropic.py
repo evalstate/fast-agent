@@ -52,6 +52,7 @@ from fast_agent.llm.provider.anthropic.multipart_converter_anthropic import (
 )
 from fast_agent.llm.provider.error_utils import build_stream_failure_response
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.reasoning_effort import parse_reasoning_setting
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.usage_tracking import TurnUsage
 from fast_agent.types import PromptMessageExtended
@@ -119,6 +120,28 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         kwargs.pop("provider", None)
         super().__init__(provider=Provider.ANTHROPIC, **kwargs)
 
+        raw_setting = kwargs.get("reasoning_effort", None)
+        config = self.context.config.anthropic if self.context and self.context.config else None
+        if raw_setting is None and config:
+            raw_setting = config.reasoning
+            if raw_setting is None:
+                if config.thinking_enabled:
+                    raw_setting = config.thinking_budget_tokens
+                else:
+                    raw_setting = False
+                if config.thinking_enabled or config.thinking_budget_tokens != 10000:
+                    self.logger.warning(
+                        "Anthropic config 'thinking_enabled'/'thinking_budget_tokens' is deprecated; "
+                        "use 'reasoning'."
+                    )
+
+        setting = parse_reasoning_setting(raw_setting)
+        if setting is not None:
+            try:
+                self.set_reasoning_effort(setting)
+            except ValueError as exc:
+                self.logger.warning(f"Invalid reasoning setting: {exc}")
+
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize Anthropic-specific default parameters"""
         # Get base defaults from parent (includes ModelDatabase lookup)
@@ -154,15 +177,23 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
         if ModelDatabase.get_reasoning(model) != "anthropic_thinking":
             return False
-        if self.context.config and self.context.config.anthropic:
-            return self.context.config.anthropic.thinking_enabled
+        setting = self.reasoning_effort
+        if setting is None:
+            return False
+        if setting.kind == "toggle":
+            return bool(setting.value)
+        if setting.kind == "budget":
+            return bool(setting.value)
+        if setting.kind == "effort":
+            self.logger.warning("Anthropic reasoning expects budget tokens; using default budget.")
+            return True
         return False
 
     def _get_thinking_budget(self) -> int:
         """Get the thinking budget tokens (minimum 1024)."""
-        if self.context.config and self.context.config.anthropic:
-            budget = getattr(self.context.config.anthropic, "thinking_budget_tokens", 10000)
-            return max(1024, budget)
+        setting = self.reasoning_effort
+        if setting and setting.kind == "budget" and isinstance(setting.value, int):
+            return max(1024, setting.value)
         return 10000
 
     async def _prepare_tools(
