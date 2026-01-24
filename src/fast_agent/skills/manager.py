@@ -21,12 +21,13 @@ from fast_agent.skills.registry import SkillManifest, SkillRegistry
 logger = get_logger(__name__)
 
 DEFAULT_SKILL_REGISTRIES = [
+    "https://github.com/fast-agent-ai/skills",
     "https://github.com/huggingface/skills",
     "https://github.com/anthropics/skills",
 ]
 
 DEFAULT_MARKETPLACE_URL = (
-    "https://github.com/huggingface/skills/blob/main/.claude-plugin/marketplace.json"
+    "https://github.com/fast-agent-ai/skills/blob/main/marketplace.json"
 )
 
 
