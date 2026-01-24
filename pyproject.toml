@@ -126,6 +126,8 @@ dev = [
 
 [project.scripts]
 fast-agent = "fast_agent.cli.__main__:main"
+apply_patch = "fast_agent.patch.cli:main"
+apply-patch = "fast_agent.patch.cli:main"
 fast-agent-mcp = "fast_agent.cli.__main__:main"
 fastagent = "fast_agent.cli.__main__:app"
 fast-agent-acp = "fast_agent.cli.commands.acp:main"
