@@ -43,6 +43,9 @@ logger = get_logger(__name__)
 
 CODE_STYLE = "native"
 
+# Glyph to indicate tool hooks are active
+HOOK_INDICATOR_GLYPH = "◆"
+
 
 class ConsoleDisplay:
     """
@@ -211,6 +214,37 @@ class ConsoleDisplay:
         width = console.console.size.width
         return self._style.header_line(left_content, right_info, width)
 
+    @staticmethod
+    def build_header_left(
+        block_color: str,
+        arrow: str,
+        arrow_style: str,
+        name: str | None = None,
+        is_error: bool = False,
+        show_hook_indicator: bool = False,
+    ) -> str:
+        """
+        Build the left side of a message header.
+
+        Args:
+            block_color: Color for the block indicator and name
+            arrow: Arrow character for the message type
+            arrow_style: Style for the arrow
+            name: Optional name to display (agent name, user name, etc.)
+            is_error: Whether this is an error message (uses red for name)
+            show_hook_indicator: Whether to show the hook indicator glyph
+
+        Returns:
+            Rich markup string for the left side of the header
+        """
+        left = f"[{block_color}]▎[/{block_color}][{arrow_style}]{arrow}[/{arrow_style}]"
+        if show_hook_indicator:
+            left += f" [{block_color}]{HOOK_INDICATOR_GLYPH}[/{block_color}]"
+        if name:
+            name_color = block_color if not is_error else "red"
+            left += f" [{name_color}]{name}[/{name_color}]"
+        return left
+
     def display_message(
         self,
         content: Any,
@@ -225,6 +259,7 @@ class ConsoleDisplay:
         additional_message: Text | None = None,
         pre_content: Text | Group | None = None,
         render_markdown: bool | None = None,
+        show_hook_indicator: bool = False,
     ) -> None:
         """
         Unified method to display formatted messages to the console.
@@ -242,6 +277,7 @@ class ConsoleDisplay:
             additional_message: Optional Rich Text appended after the main content
             pre_content: Optional Rich Text shown before the main content
             render_markdown: Force markdown rendering (True) or plain rendering (False)
+            show_hook_indicator: Whether to show the hook indicator glyph (◆)
         """
         # Ensure Rich writes to a blocking TTY when stdout/stderr was
         # flipped to non-blocking by the event loop (e.g. uvloop).
@@ -259,9 +295,14 @@ class ConsoleDisplay:
         # Build the left side of the header
         arrow = config["arrow"]
         arrow_style = config["arrow_style"]
-        left = f"[{block_color}]▎[/{block_color}][{arrow_style}]{arrow}[/{arrow_style}]"
-        if name:
-            left += f" [{block_color if not is_error else 'red'}]{name}[/{block_color if not is_error else 'red'}]"
+        left = self.build_header_left(
+            block_color=block_color,
+            arrow=arrow,
+            arrow_style=arrow_style,
+            name=name,
+            is_error=is_error,
+            show_hook_indicator=show_hook_indicator,
+        )
 
         # Create combined separator and status line
         self._create_combined_separator_status(left, right_info)
@@ -515,6 +556,7 @@ class ConsoleDisplay:
         timing_ms: float | None = None,
         type_label: str | None = None,
         truncate_content: bool = True,
+        show_hook_indicator: bool = False,
     ) -> None:
         kwargs: dict[str, Any] = {
             "name": name,
@@ -522,6 +564,7 @@ class ConsoleDisplay:
             "skybridge_config": skybridge_config,
             "timing_ms": timing_ms,
             "truncate_content": truncate_content,
+            "show_hook_indicator": show_hook_indicator,
         }
         if type_label is not None:
             kwargs["type_label"] = type_label
@@ -538,6 +581,7 @@ class ConsoleDisplay:
         name: str | None = None,
         metadata: dict[str, Any] | None = None,
         type_label: str | None = None,
+        show_hook_indicator: bool = False,
     ) -> None:
         kwargs: dict[str, Any] = {
             "bottom_items": bottom_items,
@@ -545,6 +589,7 @@ class ConsoleDisplay:
             "max_item_length": max_item_length,
             "name": name,
             "metadata": metadata,
+            "show_hook_indicator": show_hook_indicator,
         }
         if type_label is not None:
             kwargs["type_label"] = type_label
@@ -635,6 +680,7 @@ class ConsoleDisplay:
         model: str | None = None,
         additional_message: Text | None = None,
         render_markdown: bool | None = None,
+        show_hook_indicator: bool = False,
     ) -> None:
         """Display an assistant message in a formatted panel.
 
@@ -648,6 +694,7 @@ class ConsoleDisplay:
             model: Optional model name for right info
             additional_message: Optional additional styled message to append
             render_markdown: Force markdown rendering (True) or plain rendering (False)
+            show_hook_indicator: Whether to show the hook indicator glyph (◆)
         """
         if self.config and not self.config.logger.show_chat:
             return
@@ -680,6 +727,7 @@ class ConsoleDisplay:
             additional_message=additional_message,
             pre_content=pre_content,
             render_markdown=render_markdown,
+            show_hook_indicator=show_hook_indicator,
         )
 
         # Handle mermaid diagrams separately (after the main message)
@@ -702,6 +750,7 @@ class ConsoleDisplay:
         max_item_length: int | None = None,
         name: str | None = None,
         model: str | None = None,
+        show_hook_indicator: bool = False,
     ) -> Iterator[StreamingHandle]:
         """Create a streaming context for assistant messages."""
         streaming_enabled, streaming_mode = self.resolve_streaming_preferences()
@@ -717,9 +766,14 @@ class ConsoleDisplay:
         arrow = config["arrow"]
         arrow_style = config["arrow_style"]
 
-        left = f"[{block_color}]▎[/{block_color}][{arrow_style}]{arrow}[/{arrow_style}] "
-        if name:
-            left += f"[{block_color}]{name}[/{block_color}]"
+        left = self.build_header_left(
+            block_color=block_color,
+            arrow=arrow,
+            arrow_style=arrow_style,
+            name=name,
+            is_error=False,
+            show_hook_indicator=show_hook_indicator,
+        )
 
         display_model = format_model_display(model)
         right_info = f"[dim]{display_model}[/dim]" if display_model else ""
@@ -846,6 +900,7 @@ class ConsoleDisplay:
         name: str | None = None,
         attachments: list[str] | None = None,
         part_count: int | None = None,
+        show_hook_indicator: bool = False,
     ) -> None:
         """Display a user message in the new visual style."""
         if self.config and not self.config.logger.show_chat:
@@ -904,6 +959,7 @@ class ConsoleDisplay:
             right_info=right_info,
             truncate_content=False,  # User messages typically shouldn't be truncated
             pre_content=pre_content,
+            show_hook_indicator=show_hook_indicator,
         )
 
     def show_system_message(

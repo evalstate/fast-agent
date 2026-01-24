@@ -119,7 +119,7 @@ class ToolDisplay:
 
     def show_tool_result(
         self,
-        result: CallToolResult,
+        result: "CallToolResult",
         *,
         name: str | None = None,
         tool_name: str | None = None,
@@ -127,6 +127,7 @@ class ToolDisplay:
         timing_ms: float | None = None,
         type_label: str = "tool result",
         truncate_content: bool = True,
+        show_hook_indicator: bool = False,
     ) -> None:
         """Display a tool result in the console."""
         logger = get_logger(__name__)
@@ -222,10 +223,16 @@ class ToolDisplay:
                 block_color = "red" if result.isError else config_map["block_color"]
                 arrow = config_map["arrow"]
                 arrow_style = config_map["arrow_style"]
-                left = f"[{block_color}]▎[/{block_color}][{arrow_style}]{arrow}[/{arrow_style}]"
-                if name:
-                    name_color = block_color if not result.isError else "red"
-                    left += f" [{name_color}]{name}[/{name_color}]"
+
+                # Use build_header_left for consistency with hook indicator
+                left = self._display.build_header_left(
+                    block_color=block_color,
+                    arrow=arrow,
+                    arrow_style=arrow_style,
+                    name=name,
+                    is_error=result.isError,
+                    show_hook_indicator=show_hook_indicator,
+                )
 
                 self._display._create_combined_separator_status(left, right_info)
 
@@ -278,6 +285,7 @@ class ToolDisplay:
                     bottom_metadata=bottom_metadata,
                     is_error=result.isError,
                     truncate_content=truncate_content,
+                    show_hook_indicator=show_hook_indicator,
                 )
         except Exception:
             logger.exception(
@@ -298,6 +306,7 @@ class ToolDisplay:
         name: str | None = None,
         metadata: dict[str, Any] | None = None,
         type_label: str = "tool call",
+        show_hook_indicator: bool = False,
     ) -> None:
         """Display a tool call header and body."""
         logger = get_logger(__name__)
@@ -369,6 +378,7 @@ class ToolDisplay:
                 highlight_index=highlight_index,
                 max_item_length=max_item_length,
                 truncate_content=truncate_content,
+                show_hook_indicator=show_hook_indicator,
             )
         except Exception:
             logger.exception(

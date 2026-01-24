@@ -1315,13 +1315,16 @@ def get_text_from_editor(initial_text: str = "") -> str:
 
 
 class ShellPrefixLexer(Lexer):
-    """Lexer that highlights shell commands (starting with !) in red."""
+    """Lexer that highlights shell (!) and comment (#) commands."""
 
     def lex_document(self, document):
         def get_line_tokens(line_number):
             line = document.lines[line_number]
-            if line.lstrip().startswith("!"):
+            stripped = line.lstrip()
+            if stripped.startswith("!"):
                 return [("class:shell-command", line)]
+            if stripped.startswith("#"):
+                return [("class:comment-command", line)]
             return [("", line)]
 
         return get_line_tokens
@@ -2057,6 +2060,7 @@ async def get_enhanced_input(
             "completion-menu.meta.completion.current": "bg:#ansibrightblack #ansiblue",
             "bottom-toolbar": "#ansiblack bg:#ansigray",
             "shell-command": "#ansired",
+            "comment-command": "#ansiblue",
         }
     )
     erase_when_done = True

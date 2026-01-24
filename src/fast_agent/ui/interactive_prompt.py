@@ -636,7 +636,7 @@ class InteractivePrompt:
                 if response_text:
                     buffer_prefill = response_text
                     rich_print(
-                        f"[green]Response from {hash_send_target} loaded into input buffer[/green]"
+                        f"[blue]Response from {hash_send_target} loaded into input buffer[/blue]"
                     )
                 else:
                     rich_print(f"[yellow]No response received from {hash_send_target}[/yellow]")
