@@ -136,6 +136,6 @@ async def test_acp_reload_agent_cards(tmp_path: Path) -> None:
         await _wait_for_message_text(
             client,
             session_id,
-            "Reloaded AgentCards.",
+            "AgentCards reloaded.",
             start_index=start_index,
         )

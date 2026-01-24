@@ -2,6 +2,7 @@
 
 from enum import Enum
 from pathlib import Path
+from typing import Any
 
 import typer
 
@@ -24,6 +25,68 @@ class InstanceScope(str, Enum):
     SHARED = "shared"
     CONNECTION = "connection"
     REQUEST = "request"
+
+
+
+
+def _build_run_async_agent_kwargs(
+    *,
+    ctx: typer.Context,
+    name: str,
+    instruction: str | None,
+    config_path: str | None,
+    servers: str | None,
+    agent_cards: list[str] | None,
+    card_tools: list[str] | None,
+    urls: str | None,
+    auth: str | None,
+    model: str | None,
+    skills_dir: Path | None,
+    env_dir: Path | None,
+    npx: str | None,
+    uvx: str | None,
+    stdio: str | None,
+    description: str | None,
+    transport: ServeTransport,
+    host: str,
+    port: int,
+    shell: bool,
+    instance_scope: InstanceScope,
+    no_permissions: bool,
+    reload: bool,
+    watch: bool,
+) -> dict[str, Any]:
+    env_dir = resolve_environment_dir_option(ctx, env_dir)
+    stdio_commands = collect_stdio_commands(npx, uvx, stdio)
+    resolved_instruction, agent_name = resolve_instruction_option(instruction)
+
+    return {
+        "name": name,
+        "instruction": resolved_instruction,
+        "config_path": config_path,
+        "servers": servers,
+        "agent_cards": agent_cards,
+        "card_tools": card_tools,
+        "urls": urls,
+        "auth": auth,
+        "model": model,
+        "message": None,
+        "prompt_file": None,
+        "stdio_commands": stdio_commands,
+        "agent_name": agent_name,
+        "skills_directory": skills_dir,
+        "environment_dir": env_dir,
+        "shell_enabled": shell,
+        "mode": "serve",
+        "transport": transport.value,
+        "host": host,
+        "port": port,
+        "tool_description": description,
+        "instance_scope": instance_scope.value,
+        "permissions_enabled": not no_permissions,
+        "reload": reload,
+        "watch": watch,
+    }
 
 
 app = typer.Typer(
@@ -134,37 +197,31 @@ def serve(
         fast-agent serve --description "Interact with the {agent} assistant"
         fast-agent serve --agent-cards ./agents --transport=http --port=8000
     """
-    env_dir = resolve_environment_dir_option(ctx, env_dir)
-
-    stdio_commands = collect_stdio_commands(npx, uvx, stdio)
-    shell_enabled = shell
-
-    resolved_instruction, agent_name = resolve_instruction_option(instruction)
-
     run_async_agent(
-        name=name,
-        instruction=resolved_instruction,
-        config_path=config_path,
-        servers=servers,
-        agent_cards=agent_cards,
-        card_tools=card_tools,
-        urls=urls,
-        auth=auth,
-        model=model,
-        message=None,
-        prompt_file=None,
-        stdio_commands=stdio_commands,
-        agent_name=agent_name,
-        skills_directory=skills_dir,
-        environment_dir=env_dir,
-        shell_enabled=shell_enabled,
-        mode="serve",
-        transport=transport.value,
-        host=host,
-        port=port,
-        tool_description=description,
-        instance_scope=instance_scope.value,
-        permissions_enabled=not no_permissions,
-        reload=reload,
-        watch=watch,
+        **_build_run_async_agent_kwargs(
+            ctx=ctx,
+            name=name,
+            instruction=instruction,
+            config_path=config_path,
+            servers=servers,
+            agent_cards=agent_cards,
+            card_tools=card_tools,
+            urls=urls,
+            auth=auth,
+            model=model,
+            skills_dir=skills_dir,
+            env_dir=env_dir,
+            npx=npx,
+            uvx=uvx,
+            stdio=stdio,
+            description=description,
+            transport=transport,
+            host=host,
+            port=port,
+            shell=shell,
+            instance_scope=instance_scope,
+            no_permissions=no_permissions,
+            reload=reload,
+            watch=watch,
+        )
     )

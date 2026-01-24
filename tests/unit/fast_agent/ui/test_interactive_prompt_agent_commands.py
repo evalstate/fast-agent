@@ -71,6 +71,19 @@ class _FakeAgentApp:
         return False
 
 
+class _ReloadAgentApp(_FakeAgentApp):
+    def __init__(self, agent_names: list[str], changed: bool) -> None:
+        super().__init__(agent_names)
+        self._changed = changed
+
+    def can_reload_agents(self) -> bool:
+        return True
+
+    async def reload_agents(self) -> bool:
+        return self._changed
+
+
+
 def _patch_input(monkeypatch, inputs: list[str]) -> None:
     iterator = iter(inputs)
 
@@ -255,3 +268,45 @@ async def test_history_fix_notice_on_cancelled_turn(monkeypatch, capsys: Any) ->
 
     output = capsys.readouterr().out
     assert "Previous turn was cancelled" in output
+
+
+@pytest.mark.asyncio
+async def test_reload_agents_no_changes(monkeypatch, capsys: Any) -> None:
+    _patch_input(monkeypatch, ["/reload", "STOP"])
+
+    async def fake_send(*_args: Any, **_kwargs: Any) -> str:
+        return ""
+
+    prompt_ui = InteractivePrompt()
+    agent_app = _ReloadAgentApp(["vertex-rag"], changed=False)
+
+    await prompt_ui.prompt_loop(
+        send_func=fake_send,
+        default_agent="vertex-rag",
+        available_agents=["vertex-rag"],
+        prompt_provider=cast("AgentApp", agent_app),
+    )
+
+    output = capsys.readouterr().out
+    assert "No AgentCard changes detected" in output
+
+
+@pytest.mark.asyncio
+async def test_reload_agents_with_changes(monkeypatch, capsys: Any) -> None:
+    _patch_input(monkeypatch, ["/reload", "STOP"])
+
+    async def fake_send(*_args: Any, **_kwargs: Any) -> str:
+        return ""
+
+    prompt_ui = InteractivePrompt()
+    agent_app = _ReloadAgentApp(["vertex-rag"], changed=True)
+
+    await prompt_ui.prompt_loop(
+        send_func=fake_send,
+        default_agent="vertex-rag",
+        available_agents=["vertex-rag"],
+        prompt_provider=cast("AgentApp", agent_app),
+    )
+
+    output = capsys.readouterr().out
+    assert "AgentCards reloaded" in output

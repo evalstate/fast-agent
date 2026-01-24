@@ -22,8 +22,6 @@ from typing import (
     AsyncIterator,
     Awaitable,
     Callable,
-    Literal,
-    ParamSpec,
     Sequence,
     TypeAlias,
     TypeVar,
@@ -37,33 +35,7 @@ from fast_agent import config
 from fast_agent.core import Core
 from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.agent_tools import add_tools_for_agents
-from fast_agent.core.direct_decorators import (
-    agent as agent_decorator,
-)
-from fast_agent.core.direct_decorators import (
-    chain as chain_decorator,
-)
-from fast_agent.core.direct_decorators import (
-    custom as custom_decorator,
-)
-from fast_agent.core.direct_decorators import (
-    evaluator_optimizer as evaluator_optimizer_decorator,
-)
-from fast_agent.core.direct_decorators import (
-    iterative_planner as orchestrator2_decorator,
-)
-from fast_agent.core.direct_decorators import (
-    maker as maker_decorator,
-)
-from fast_agent.core.direct_decorators import (
-    orchestrator as orchestrator_decorator,
-)
-from fast_agent.core.direct_decorators import (
-    parallel as parallel_decorator,
-)
-from fast_agent.core.direct_decorators import (
-    router as router_decorator,
-)
+from fast_agent.core.direct_decorators import DecoratorMixin
 from fast_agent.core.direct_factory import (
     create_agents_in_dependency_order,
     get_default_model_source,
@@ -95,10 +67,7 @@ from fast_agent.ui.console import configure_console_stream
 from fast_agent.ui.usage_display import display_usage_report
 
 if TYPE_CHECKING:
-    from mcp.client.session import ElicitationFnT
-    from pydantic import AnyUrl
 
-    from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
     from fast_agent.context import Context
     from fast_agent.core.agent_card_loader import LoadedAgentCard
     from fast_agent.core.agent_card_types import AgentCardData
@@ -111,7 +80,7 @@ SkillEntry: TypeAlias = SkillManifest | SkillRegistry | Path | str
 SkillConfig: TypeAlias = SkillEntry | list[SkillEntry | None] | None | SkillsDefault
 
 
-class FastAgent:
+class FastAgent(DecoratorMixin):
     """
     A simplified FastAgent implementation that directly creates Agent instances
     without using proxies.
@@ -1027,192 +996,6 @@ class FastAgent:
         return await reload_callback()
 
     # Decorator methods with precise signatures for IDE completion
-    # Provide annotations so IDEs can discover these attributes on instances
-    if TYPE_CHECKING:  # pragma: no cover - typing aid only
-        from collections.abc import Coroutine
-        from pathlib import Path
-
-        from fast_agent.agents.agent_types import FunctionToolsConfig
-        from fast_agent.skills import SkillManifest, SkillRegistry
-        from fast_agent.types import RequestParams
-
-        P = ParamSpec("P")
-        R = TypeVar("R")
-
-        def agent(
-            self,
-            name: str = "default",
-            instruction_or_kwarg: str | Path | AnyUrl | None = None,
-            *,
-            instruction: str | Path | AnyUrl = DEFAULT_AGENT_INSTRUCTION,
-            agents: list[str] | None = None,
-            servers: list[str] = [],
-            tools: dict[str, list[str]] | None = None,
-            resources: dict[str, list[str]] | None = None,
-            prompts: dict[str, list[str]] | None = None,
-            skills: SkillConfig = SKILLS_DEFAULT,
-            function_tools: FunctionToolsConfig = None,
-            model: str | None = None,
-            use_history: bool = True,
-            request_params: RequestParams | None = None,
-            human_input: bool = False,
-            default: bool = False,
-            elicitation_handler: ElicitationFnT | None = None,
-            api_key: str | None = None,
-            history_source: Any | None = None,
-            history_merge_target: Any | None = None,
-            max_parallel: int | None = None,
-            child_timeout_sec: int | None = None,
-            max_display_instances: int | None = None,
-        ) -> Callable[
-            [Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]
-        ]: ...
-
-        def custom(
-            self,
-            cls,
-            name: str = "default",
-            instruction_or_kwarg: str | Path | AnyUrl | None = None,
-            *,
-            instruction: str | Path | AnyUrl = "You are a helpful agent.",
-            servers: list[str] = [],
-            tools: dict[str, list[str]] | None = None,
-            resources: dict[str, list[str]] | None = None,
-            prompts: dict[str, list[str]] | None = None,
-            skills: SkillConfig = SKILLS_DEFAULT,
-            model: str | None = None,
-            use_history: bool = True,
-            request_params: RequestParams | None = None,
-            human_input: bool = False,
-            default: bool = False,
-            elicitation_handler: ElicitationFnT | None = None,
-            api_key: str | None = None,
-        ) -> Callable[
-            [Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]
-        ]: ...
-
-        def orchestrator(
-            self,
-            name: str,
-            *,
-            agents: list[str],
-            instruction: str
-            | Path
-            | AnyUrl = "You are an expert planner. Given an objective task and a list of Agents\n(which are collections of capabilities), your job is to break down the objective\ninto a series of steps, which can be performed by these agents.\n",
-            model: str | None = None,
-            request_params: RequestParams | None = None,
-            use_history: bool = False,
-            human_input: bool = False,
-            plan_type: Literal["full", "iterative"] = "full",
-            plan_iterations: int = 5,
-            default: bool = False,
-            api_key: str | None = None,
-        ) -> Callable[
-            [Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]
-        ]: ...
-
-        def iterative_planner(
-            self,
-            name: str,
-            *,
-            agents: list[str],
-            instruction: str | Path | AnyUrl = "You are an expert planner. Plan iteratively.",
-            model: str | None = None,
-            request_params: RequestParams | None = None,
-            plan_iterations: int = -1,
-            default: bool = False,
-            api_key: str | None = None,
-        ) -> Callable[
-            [Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]
-        ]: ...
-
-        def router(
-            self,
-            name: str,
-            *,
-            agents: list[str],
-            instruction: str | Path | AnyUrl | None = None,
-            servers: list[str] = [],
-            tools: dict[str, list[str]] | None = None,
-            resources: dict[str, list[str]] | None = None,
-            prompts: dict[str, list[str]] | None = None,
-            model: str | None = None,
-            use_history: bool = False,
-            request_params: RequestParams | None = None,
-            human_input: bool = False,
-            default: bool = False,
-            elicitation_handler: ElicitationFnT | None = None,
-            api_key: str | None = None,
-        ) -> Callable[
-            [Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]
-        ]: ...
-
-        def chain(
-            self,
-            name: str,
-            *,
-            sequence: list[str],
-            instruction: str | Path | AnyUrl | None = None,
-            cumulative: bool = False,
-            default: bool = False,
-        ) -> Callable[
-            [Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]
-        ]: ...
-
-        def parallel(
-            self,
-            name: str,
-            *,
-            fan_out: list[str],
-            fan_in: str | None = None,
-            instruction: str | Path | AnyUrl | None = None,
-            include_request: bool = True,
-            default: bool = False,
-        ) -> Callable[
-            [Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]
-        ]: ...
-
-        def evaluator_optimizer(
-            self,
-            name: str,
-            *,
-            generator: str,
-            evaluator: str,
-            instruction: str | Path | AnyUrl | None = None,
-            min_rating: str = "GOOD",
-            max_refinements: int = 3,
-            refinement_instruction: str | None = None,
-            default: bool = False,
-        ) -> Callable[
-            [Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]
-        ]: ...
-
-        def maker(
-            self,
-            name: str,
-            *,
-            worker: str,
-            k: int = 3,
-            max_samples: int = 50,
-            match_strategy: str = "exact",
-            red_flag_max_length: int | None = None,
-            instruction: str | Path | AnyUrl | None = None,
-            default: bool = False,
-        ) -> Callable[
-            [Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]
-        ]: ...
-
-    # Runtime bindings (actual implementations)
-    if not TYPE_CHECKING:
-        agent = agent_decorator
-        custom = custom_decorator
-        orchestrator = orchestrator_decorator
-        iterative_planner = orchestrator2_decorator
-        router = router_decorator
-        chain = chain_decorator
-        parallel = parallel_decorator
-        evaluator_optimizer = evaluator_optimizer_decorator
-        maker = maker_decorator
 
     def _get_acp_server_class(self):
         """Import and return the ACP server class with helpful error handling."""

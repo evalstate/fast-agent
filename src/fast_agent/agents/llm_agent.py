@@ -90,6 +90,7 @@ class LlmAgent(LlmDecorator):
         model: str | None = None,
         additional_message: Optional[Text] = None,
         render_markdown: bool | None = None,
+        show_hook_indicator: bool | None = None,
     ) -> None:
         """Display an assistant message with appropriate styling based on stop reason.
 
@@ -206,6 +207,14 @@ class LlmAgent(LlmDecorator):
         display_name = name if name is not None else self.name
         display_model = model if model is not None else (self.llm.model_name if self.llm else None)
 
+        if message.tool_calls and display_model is not None:
+            usage_accumulator = self.usage_accumulator
+            context_percentage = (
+                usage_accumulator.context_usage_percentage if usage_accumulator else None
+            )
+            if context_percentage is not None:
+                display_model = f"{display_model} ({context_percentage:.1f}%)"
+
         # Convert highlight_items to highlight_index
         highlight_index = None
         if highlight_items and bottom_items:
@@ -220,6 +229,12 @@ class LlmAgent(LlmDecorator):
                 except ValueError:
                     pass
 
+        # Use explicit show_hook_indicator if provided, otherwise check for after_llm_call hook
+        hook_indicator = (
+            show_hook_indicator
+            if show_hook_indicator is not None
+            else getattr(self, "has_after_llm_call_hook", False)
+        )
         await self.display.show_assistant_message(
             message_text,
             bottom_items=bottom_items,
@@ -229,6 +244,7 @@ class LlmAgent(LlmDecorator):
             model=display_model,
             additional_message=additional_message_text,
             render_markdown=render_markdown,
+            show_hook_indicator=hook_indicator,
         )
 
     def _display_user_messages(
@@ -256,6 +272,7 @@ class LlmAgent(LlmDecorator):
             name=self.name,
             attachments=attachments if attachments else None,
             part_count=part_count if part_count > 1 else None,
+            show_hook_indicator=getattr(self, "has_before_llm_call_hook", False),
         )
 
     def show_user_message(self, message: PromptMessageExtended) -> None:

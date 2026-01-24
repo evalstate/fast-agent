@@ -1,6 +1,6 @@
 [project]
 name = "fast-agent-mcp"
-version = "0.4.39"
+version = "0.4.40"
 description = "Define, Prompt and Test MCP enabled Agents and Workflows"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -21,7 +21,7 @@ dependencies = [
     "pydantic-settings>=2.7.0",
     "pydantic>=2.10.4",
     "pyyaml>=6.0.2",
-    "rich>=14.2.0",
+    "rich>=14.3.0",
     "typer>=0.20.0",
     "anthropic>=0.75",
     "openai[aiohttp]>=2.15.0",

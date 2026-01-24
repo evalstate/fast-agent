@@ -239,6 +239,14 @@ class ACPTerminalRuntime:
             terminal_id = create_result.get("terminalId")
 
             if not terminal_id:
+                self.logger.error(
+                    "terminal/create did not return terminalId",
+                    data={
+                        "session_id": self.session_id,
+                        "command": command,
+                        "create_result": create_result,
+                    },
+                )
                 return CallToolResult(
                     content=[text_content("Error: Client did not return terminal ID")],
                     isError=True,

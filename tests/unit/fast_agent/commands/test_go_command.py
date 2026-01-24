@@ -3,19 +3,8 @@ from pathlib import Path
 from fast_agent.cli.commands import go as go_command
 
 
-def _patch_run_async(monkeypatch, captured: dict) -> None:
-    async def fake_run_agent(**kwargs):
-        captured.update(kwargs)
-
-    monkeypatch.setattr(go_command, "_run_agent", fake_run_agent)
-    monkeypatch.setattr(go_command, "_set_asyncio_exception_handler", lambda loop: None)
-
-
-def test_run_async_agent_passes_card_tools(monkeypatch) -> None:
-    captured: dict = {}
-    _patch_run_async(monkeypatch, captured)
-
-    go_command.run_async_agent(
+def test_run_async_agent_passes_card_tools() -> None:
+    run_kwargs = go_command._build_run_agent_kwargs(
         name="test-agent",
         instruction="test instruction",
         config_path=None,
@@ -27,9 +16,11 @@ def test_run_async_agent_passes_card_tools(monkeypatch) -> None:
         model=None,
         message=None,
         prompt_file=None,
+        resume=None,
         stdio_commands=None,
         agent_name="agent",
         skills_directory=None,
+        environment_dir=None,
         shell_enabled=False,
         mode="interactive",
         transport="http",
@@ -42,21 +33,15 @@ def test_run_async_agent_passes_card_tools(monkeypatch) -> None:
         watch=False,
     )
 
-    assert captured["card_tools"] == ["./tool-cards"]
+    assert run_kwargs["card_tools"] == ["./tool-cards"]
 
 
-def test_run_async_agent_merges_default_tool_cards(monkeypatch, tmp_path: Path) -> None:
-    captured: dict = {}
-    _patch_run_async(monkeypatch, captured)
-
+def test_run_async_agent_merges_default_tool_cards(tmp_path: Path) -> None:
     tool_dir = tmp_path / "tool-cards"
     tool_dir.mkdir()
     (tool_dir / "sizer.md").write_text("---\nname: sizer\n---\n")
 
-    monkeypatch.setattr(go_command, "DEFAULT_AGENT_CARDS_DIR", tmp_path / "agent-cards")
-    monkeypatch.setattr(go_command, "DEFAULT_TOOL_CARDS_DIR", tool_dir)
-
-    go_command.run_async_agent(
+    run_kwargs = go_command._build_run_agent_kwargs(
         name="test-agent",
         instruction="test instruction",
         config_path=None,
@@ -68,9 +53,11 @@ def test_run_async_agent_merges_default_tool_cards(monkeypatch, tmp_path: Path) 
         model=None,
         message=None,
         prompt_file=None,
+        resume=None,
         stdio_commands=None,
         agent_name="agent",
         skills_directory=None,
+        environment_dir=tmp_path,
         shell_enabled=False,
         mode="interactive",
         transport="http",
@@ -83,4 +70,4 @@ def test_run_async_agent_merges_default_tool_cards(monkeypatch, tmp_path: Path) 
         watch=False,
     )
 
-    assert captured["card_tools"] == [str(tool_dir)]
+    assert run_kwargs["card_tools"] == [str(tool_dir)]

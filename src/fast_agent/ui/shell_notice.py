@@ -5,6 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from rich.text import Text
+
 from fast_agent.constants import SHELL_NOTICE_PREFIX
 
 if TYPE_CHECKING:
@@ -16,7 +18,7 @@ if TYPE_CHECKING:
 def format_shell_notice(
     shell_access_modes: Sequence[str],
     shell_runtime: "ShellRuntime | None",
-) -> str:
+) -> Text:
     modes_display = ", ".join(shell_access_modes or ("direct",))
     shell_name = None
     if shell_runtime is not None:
@@ -40,4 +42,6 @@ def format_shell_notice(
             working_dir_display = str(working_dir)
         shell_display = f"{shell_display} | cwd: {working_dir_display}"
 
-    return f"{SHELL_NOTICE_PREFIX}[dim] ({shell_display})[/dim]"
+    notice = Text.from_markup(SHELL_NOTICE_PREFIX)
+    notice.append(Text(f" ({shell_display})", style="dim"))
+    return notice

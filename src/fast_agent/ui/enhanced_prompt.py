@@ -614,11 +614,7 @@ class AgentCompleter(Completer):
             self.commands.pop("usage", None)  # Remove usage command in human input mode
         self.agent_types = agent_types or {}
 
-    def _complete_history_files(self, partial: str):
-        """Generate completions for history files (.json and .md)."""
-        from pathlib import Path
-
-        # Determine directory and prefix to search
+    def _resolve_completion_search(self, partial: str) -> tuple[Path, str] | None:
         if partial:
             partial_path = Path(partial)
             if partial.endswith("/") or partial.endswith(os.sep):
@@ -633,48 +629,74 @@ class AgentCompleter(Completer):
             search_dir = Path(".")
             prefix = ""
 
-        # Ensure search_dir exists
         if not search_dir.exists():
-            return
+            return None
 
+        return search_dir, prefix
+
+    def _iter_file_completions(
+        self,
+        partial: str,
+        *,
+        file_filter: Callable[[Path], bool],
+        file_meta: Callable[[Path], str],
+        include_hidden_dirs: bool = False,
+    ) -> Iterable[Completion]:
+        resolved = self._resolve_completion_search(partial)
+        if not resolved:
+            return []
+
+        search_dir, prefix = resolved
+        completions: list[Completion] = []
         try:
-            # List directory contents
             for entry in sorted(search_dir.iterdir()):
                 name = entry.name
-
-                # Skip hidden files
-                if name.startswith("."):
+                is_hidden = name.startswith(".")
+                if is_hidden and not (include_hidden_dirs and entry.is_dir()):
                     continue
-
-                # Check if name matches prefix
                 if not name.lower().startswith(prefix.lower()):
                     continue
 
-                # Build the completion text
-                if search_dir == Path("."):
-                    completion_text = name
-                else:
-                    completion_text = str(search_dir / name)
+                completion_text = name if search_dir == Path(".") else str(search_dir / name)
 
-                # Handle directories - add trailing slash
                 if entry.is_dir():
-                    yield Completion(
-                        completion_text + "/",
-                        start_position=-len(partial),
-                        display=name + "/",
-                        display_meta="directory",
+                    completions.append(
+                        Completion(
+                            completion_text + "/",
+                            start_position=-len(partial),
+                            display=name + "/",
+                            display_meta="directory",
+                        )
                     )
-                # Handle .json and .md files
-                elif entry.is_file() and (name.endswith(".json") or name.endswith(".md")):
-                    file_type = "JSON history" if name.endswith(".json") else "Markdown"
-                    yield Completion(
-                        completion_text,
-                        start_position=-len(partial),
-                        display=name,
-                        display_meta=file_type,
+                elif entry.is_file() and file_filter(entry):
+                    completions.append(
+                        Completion(
+                            completion_text,
+                            start_position=-len(partial),
+                            display=name,
+                            display_meta=file_meta(entry),
+                        )
                     )
         except PermissionError:
-            pass  # Skip directories we can't read
+            return []
+
+        return completions
+
+    def _complete_history_files(self, partial: str):
+        """Generate completions for history files (.json and .md)."""
+
+        def _history_filter(entry: Path) -> bool:
+            return entry.name.endswith(".json") or entry.name.endswith(".md")
+
+        def _history_meta(entry: Path) -> str:
+            return "JSON history" if entry.name.endswith(".json") else "Markdown"
+
+        yield from self._iter_file_completions(
+            partial,
+            file_filter=_history_filter,
+            file_meta=_history_meta,
+            include_hidden_dirs=True,
+        )
 
     def _normalize_turn_preview(self, text: str, *, limit: int = 60) -> str:
         normalized = " ".join(text.split())
@@ -799,55 +821,20 @@ class AgentCompleter(Completer):
 
     def _complete_agent_card_files(self, partial: str):
         """Generate completions for AgentCard files (.md/.markdown/.yaml/.yml)."""
-        from pathlib import Path
-
-        if partial:
-            partial_path = Path(partial)
-            if partial.endswith("/") or partial.endswith(os.sep):
-                search_dir = partial_path
-                prefix = ""
-            else:
-                search_dir = (
-                    partial_path.parent if partial_path.parent != partial_path else Path(".")
-                )
-                prefix = partial_path.name
-        else:
-            search_dir = Path(".")
-            prefix = ""
-
-        if not search_dir.exists():
-            return
-
         card_extensions = {".md", ".markdown", ".yaml", ".yml"}
-        try:
-            for entry in sorted(search_dir.iterdir()):
-                name = entry.name
-                if name.startswith("."):
-                    continue
-                if not name.lower().startswith(prefix.lower()):
-                    continue
 
-                if search_dir == Path("."):
-                    completion_text = name
-                else:
-                    completion_text = str(search_dir / name)
+        def _card_filter(entry: Path) -> bool:
+            return entry.suffix.lower() in card_extensions
 
-                if entry.is_dir():
-                    yield Completion(
-                        completion_text + "/",
-                        start_position=-len(partial),
-                        display=name + "/",
-                        display_meta="directory",
-                    )
-                elif entry.is_file() and entry.suffix.lower() in card_extensions:
-                    yield Completion(
-                        completion_text,
-                        start_position=-len(partial),
-                        display=name,
-                        display_meta="AgentCard",
-                    )
-        except PermissionError:
-            pass  # Skip directories we can't read
+        def _card_meta(_: Path) -> str:
+            return "AgentCard"
+
+        yield from self._iter_file_completions(
+            partial,
+            file_filter=_card_filter,
+            file_meta=_card_meta,
+            include_hidden_dirs=True,
+        )
 
     def _complete_local_skill_names(self, partial: str):
         """Generate completions for local skill names and indices."""
@@ -1017,10 +1004,11 @@ class AgentCompleter(Completer):
         """Synchronous completions method - this is what prompt_toolkit expects by default"""
         text = document.text_before_cursor
         text_lower = text.lower()
+        completion_requested = bool(complete_event and complete_event.completion_requested)
 
         # Shell completion mode - detect ! prefix
         if text.lstrip().startswith("!"):
-            if not complete_event.completion_requested:
+            if not completion_requested:
                 return
             # Text after "!" with leading/trailing whitespace stripped
             shell_text = text.lstrip()[1:].lstrip()
@@ -1220,6 +1208,14 @@ class AgentCompleter(Completer):
                         display_meta=agent_type,
                     )
 
+        if completion_requested:
+            if text and not text[-1].isspace():
+                partial = text.split()[-1]
+            else:
+                partial = ""
+            yield from self._complete_shell_paths(partial, len(partial))
+            return
+
         # Complete agent names for hash commands (#agent_name message)
         elif text.startswith("#"):
             # Only complete if we haven't finished the agent name yet (no space after #agent)
@@ -1319,13 +1315,16 @@ def get_text_from_editor(initial_text: str = "") -> str:
 
 
 class ShellPrefixLexer(Lexer):
-    """Lexer that highlights shell commands (starting with !) in red."""
+    """Lexer that highlights shell (!) and comment (#) commands."""
 
     def lex_document(self, document):
         def get_line_tokens(line_number):
             line = document.lines[line_number]
-            if line.lstrip().startswith("!"):
+            stripped = line.lstrip()
+            if stripped.startswith("!"):
                 return [("class:shell-command", line)]
+            if stripped.startswith("#"):
+                return [("class:comment-command", line)]
             return [("", line)]
 
         return get_line_tokens
@@ -1348,12 +1347,12 @@ def create_keybindings(
     def _should_start_completion(text: str) -> bool:
         stripped = text.lstrip()
         if not stripped:
-            return False
+            return True
         if stripped.startswith("!"):
             return bool(stripped[1:].lstrip())
         if stripped.startswith(("/", "@", "#")):
             return True
-        return False
+        return True
 
     @kb.add("c-space")
     @kb.add("c-@")
@@ -1889,8 +1888,56 @@ async def get_enhanced_input(
                     else display_name
                 )
             else:
-                print(f"[toolbar debug] no model resolved for agent '{agent_name}'")
-                model_display = "unknown"
+                if isinstance(agent, ParallelAgent):
+                    parallel_models: list[str] = []
+                    for fan_out_agent in agent.fan_out_agents:
+                        child_llm = None
+                        try:
+                            child_llm = fan_out_agent.llm
+                        except AssertionError:
+                            child_llm = getattr(fan_out_agent, "_llm", None)
+                        except Exception:
+                            child_llm = None
+
+                        child_model_name = None
+                        if child_llm:
+                            child_model_name = getattr(child_llm, "model_name", None)
+                            if not child_model_name:
+                                child_model_name = getattr(
+                                    getattr(child_llm, "default_request_params", None),
+                                    "model",
+                                    None,
+                                )
+                        if not child_model_name:
+                            child_model_name = fan_out_agent.config.model
+                        if (
+                            not child_model_name
+                            and fan_out_agent.config.default_request_params
+                        ):
+                            child_model_name = (
+                                fan_out_agent.config.default_request_params.model
+                            )
+                        if child_model_name:
+                            display_name = (
+                                format_model_display(child_model_name) or child_model_name
+                            )
+                            parallel_models.append(display_name)
+
+                    if parallel_models:
+                        deduped_models = list(dict.fromkeys(parallel_models))
+                        display_name = ",".join(deduped_models)
+                        max_len = 25
+                        model_display = (
+                            display_name[: max_len - 1] + "…"
+                            if len(display_name) > max_len
+                            else display_name
+                        )
+                    else:
+                        model_display = "parallel"
+
+                if not model_display:
+                    print(f"[toolbar debug] no model resolved for agent '{agent_name}'")
+                    model_display = "unknown"
 
             # Build TDV capability segment based on model database
             info = None
@@ -2013,6 +2060,7 @@ async def get_enhanced_input(
             "completion-menu.meta.completion.current": "bg:#ansibrightblack #ansiblue",
             "bottom-toolbar": "#ansiblack bg:#ansigray",
             "shell-command": "#ansired",
+            "comment-command": "#ansiblue",
         }
     )
     erase_when_done = True

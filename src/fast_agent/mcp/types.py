@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, Protocol, Sequence, runtime_checkable
 from fast_agent.interfaces import AgentProtocol
 
 if TYPE_CHECKING:
+    from rich.text import Text
+
     from fast_agent.context import Context
     from fast_agent.mcp.mcp_aggregator import MCPAggregator
     from fast_agent.skills import SkillManifest
@@ -57,4 +59,4 @@ class McpAgentProtocol(AgentProtocol, Protocol):
     @property
     def shell_runtime(self) -> "ShellRuntime | None": ...
 
-    def shell_notice_line(self) -> str | None: ...
+    def shell_notice_line(self) -> "Text | None": ...

@@ -1,7 +1,6 @@
 """Run an interactive agent directly from the command line."""
 
 import asyncio
-import logging
 import os
 import shlex
 import sys
@@ -10,6 +9,7 @@ from typing import Any, Literal, cast
 
 import typer
 
+from fast_agent.cli.asyncio_utils import set_asyncio_exception_handler
 from fast_agent.cli.commands.server_helpers import add_servers_to_config, generate_server_name
 from fast_agent.cli.commands.url_parser import generate_server_configs, parse_server_urls
 from fast_agent.cli.constants import RESUME_LATEST_SENTINEL
@@ -32,6 +32,130 @@ CARD_EXTENSIONS = {".md", ".markdown", ".yaml", ".yml"}
 DEFAULT_ENV_PATHS = resolve_environment_paths()
 DEFAULT_AGENT_CARDS_DIR = DEFAULT_ENV_PATHS.agent_cards
 DEFAULT_TOOL_CARDS_DIR = DEFAULT_ENV_PATHS.tool_cards
+
+
+
+def _build_run_agent_kwargs(
+    *,
+    name: str,
+    instruction: str,
+    config_path: str | None,
+    servers: str | None,
+    urls: str | None,
+    auth: str | None,
+    agent_cards: list[str] | None,
+    card_tools: list[str] | None,
+    model: str | None,
+    message: str | None,
+    prompt_file: str | None,
+    resume: str | None,
+    stdio_commands: list[str] | None,
+    agent_name: str | None,
+    skills_directory: Path | None,
+    environment_dir: Path | None,
+    shell_enabled: bool,
+    mode: Literal["interactive", "serve"],
+    transport: str,
+    host: str,
+    port: int,
+    tool_description: str | None,
+    instance_scope: str,
+    permissions_enabled: bool,
+    reload: bool,
+    watch: bool,
+) -> dict[str, Any]:
+    """Build keyword arguments for the async agent runner."""
+    server_list = servers.split(",") if servers else None
+
+    url_servers = None
+    if urls:
+        parsed_urls = parse_server_urls(urls, auth)
+        url_servers = generate_server_configs(parsed_urls)
+        if url_servers and not server_list:
+            server_list = list(url_servers.keys())
+        elif url_servers and server_list:
+            server_list.extend(list(url_servers.keys()))
+
+    stdio_servers = None
+    if stdio_commands:
+        stdio_servers = {}
+        for i, stdio_cmd in enumerate(stdio_commands):
+            try:
+                parsed_command = shlex.split(stdio_cmd)
+            except ValueError as e:
+                print("Error parsing stdio command '"
+                      f"{stdio_cmd}': {e}", file=sys.stderr)
+                continue
+            if not parsed_command:
+                print(f"Error: Empty stdio command: {stdio_cmd}", file=sys.stderr)
+                continue
+
+            command = parsed_command[0]
+            initial_args = parsed_command[1:] if len(parsed_command) > 1 else []
+
+            if initial_args:
+                for arg in initial_args:
+                    if arg.endswith((".py", ".js", ".ts")):
+                        base_name = generate_server_name(arg)
+                        break
+                else:
+                    base_name = generate_server_name(command)
+            else:
+                base_name = generate_server_name(command)
+
+            server_name = base_name
+            if len(stdio_commands) > 1:
+                server_name = f"{base_name}_{i + 1}"
+
+            stdio_servers[server_name] = {
+                "transport": "stdio",
+                "command": command,
+                "args": initial_args.copy(),
+            }
+
+            if not server_list:
+                server_list = [server_name]
+            else:
+                server_list.append(server_name)
+
+    if environment_dir:
+        env_paths = resolve_environment_paths(override=environment_dir)
+        default_agent_cards_dir = env_paths.agent_cards
+        default_tool_cards_dir = env_paths.tool_cards
+    else:
+        default_agent_cards_dir = DEFAULT_AGENT_CARDS_DIR
+        default_tool_cards_dir = DEFAULT_TOOL_CARDS_DIR
+
+    agent_cards = _merge_card_sources(agent_cards, default_agent_cards_dir)
+    card_tools = _merge_card_sources(card_tools, default_tool_cards_dir)
+
+    return {
+        "name": name,
+        "instruction": instruction,
+        "config_path": config_path,
+        "server_list": server_list,
+        "agent_cards": agent_cards,
+        "card_tools": card_tools,
+        "model": model,
+        "message": message,
+        "prompt_file": prompt_file,
+        "resume": resume,
+        "url_servers": url_servers,
+        "stdio_servers": stdio_servers,
+        "agent_name": agent_name,
+        "skills_directory": skills_directory,
+        "environment_dir": environment_dir,
+        "shell_runtime": shell_enabled,
+        "mode": mode,
+        "transport": transport,
+        "host": host,
+        "port": port,
+        "tool_description": tool_description,
+        "instance_scope": instance_scope,
+        "permissions_enabled": permissions_enabled,
+        "reload": reload,
+        "watch": watch,
+    }
 
 
 def _merge_card_sources(
@@ -98,42 +222,6 @@ def collect_stdio_commands(npx: str | None, uvx: str | None, stdio: str | None) 
         stdio_commands.append(stdio)
 
     return stdio_commands
-
-
-def _set_asyncio_exception_handler(loop: asyncio.AbstractEventLoop) -> None:
-    """Attach a detailed exception handler to the provided event loop."""
-
-    logger = logging.getLogger("fast_agent.asyncio")
-
-    def _handler(_loop: asyncio.AbstractEventLoop, context: dict) -> None:
-        message = context.get("message", "(no message)")
-        task = context.get("task")
-        future = context.get("future")
-        handle = context.get("handle")
-        source_traceback = context.get("source_traceback")
-        exception = context.get("exception")
-
-        details = {
-            "message": message,
-            "task": repr(task) if task else None,
-            "future": repr(future) if future else None,
-            "handle": repr(handle) if handle else None,
-            "source_traceback": [str(frame) for frame in source_traceback]
-            if source_traceback
-            else None,
-        }
-
-        logger.error("Unhandled asyncio error: %s", message)
-        logger.error("Asyncio context: %s", details)
-
-        if exception:
-            logger.exception("Asyncio exception", exc_info=exception)
-
-    try:
-        loop.set_exception_handler(_handler)
-    except Exception:
-        logger = logging.getLogger("fast_agent.asyncio")
-        logger.exception("Failed to set asyncio exception handler")
 
 
 async def _run_agent(
@@ -479,88 +567,38 @@ def run_async_agent(
 ):
     """Run the async agent function with proper loop handling."""
     configure_uvloop()
-    server_list = servers.split(",") if servers else None
-
-    # Parse URLs and generate server configurations if provided
-    url_servers = None
-    if urls:
-        try:
-            parsed_urls = parse_server_urls(urls, auth)
-            url_servers = generate_server_configs(parsed_urls)
-            # If we have servers from URLs, add their names to the server_list
-            if url_servers and not server_list:
-                server_list = list(url_servers.keys())
-            elif url_servers and server_list:
-                # Merge both lists
-                server_list.extend(list(url_servers.keys()))
-        except ValueError as e:
-            print(f"Error parsing URLs: {e}", file=sys.stderr)
-            sys.exit(1)
-
-    # Generate STDIO server configurations if provided
-    stdio_servers = None
-
-    if stdio_commands:
-        stdio_servers = {}
-        for i, stdio_cmd in enumerate(stdio_commands):
-            # Parse the stdio command string
-            try:
-                parsed_command = shlex.split(stdio_cmd)
-                if not parsed_command:
-                    print(f"Error: Empty stdio command: {stdio_cmd}", file=sys.stderr)
-                    continue
-
-                command = parsed_command[0]
-                initial_args = parsed_command[1:] if len(parsed_command) > 1 else []
-
-                # Generate a server name from the command
-                if initial_args:
-                    # Try to extract a meaningful name from the args
-                    for arg in initial_args:
-                        if arg.endswith(".py") or arg.endswith(".js") or arg.endswith(".ts"):
-                            base_name = generate_server_name(arg)
-                            break
-                    else:
-                        # Fallback to command name
-                        base_name = generate_server_name(command)
-                else:
-                    base_name = generate_server_name(command)
-
-                # Ensure unique server names when multiple servers
-                server_name = base_name
-                if len(stdio_commands) > 1:
-                    server_name = f"{base_name}_{i + 1}"
-
-                # Build the complete args list
-                stdio_command_args = initial_args.copy()
-
-                # Add this server to the configuration
-                stdio_servers[server_name] = {
-                    "transport": "stdio",
-                    "command": command,
-                    "args": stdio_command_args,
-                }
-
-                # Add STDIO server to the server list
-                if not server_list:
-                    server_list = [server_name]
-                else:
-                    server_list.append(server_name)
-
-            except ValueError as e:
-                print(f"Error parsing stdio command '{stdio_cmd}': {e}", file=sys.stderr)
-                continue
-
-    if environment_dir:
-        env_paths = resolve_environment_paths(override=environment_dir)
-        default_agent_cards_dir = env_paths.agent_cards
-        default_tool_cards_dir = env_paths.tool_cards
-    else:
-        default_agent_cards_dir = DEFAULT_AGENT_CARDS_DIR
-        default_tool_cards_dir = DEFAULT_TOOL_CARDS_DIR
-
-    agent_cards = _merge_card_sources(agent_cards, default_agent_cards_dir)
-    card_tools = _merge_card_sources(card_tools, default_tool_cards_dir)
+    try:
+        run_kwargs = _build_run_agent_kwargs(
+            name=name,
+            instruction=instruction,
+            config_path=config_path,
+            servers=servers,
+            urls=urls,
+            auth=auth,
+            agent_cards=agent_cards,
+            card_tools=card_tools,
+            model=model,
+            message=message,
+            prompt_file=prompt_file,
+            resume=resume,
+            stdio_commands=stdio_commands,
+            agent_name=agent_name,
+            skills_directory=skills_directory,
+            environment_dir=environment_dir,
+            shell_enabled=shell_enabled,
+            mode=mode,
+            transport=transport,
+            host=host,
+            port=port,
+            tool_description=tool_description,
+            instance_scope=instance_scope,
+            permissions_enabled=permissions_enabled,
+            reload=reload,
+            watch=watch,
+        )
+    except ValueError as e:
+        print(f"Error parsing URLs: {e}", file=sys.stderr)
+        sys.exit(1)
 
     # Check if we're already in an event loop
     loop = ensure_event_loop()
@@ -568,38 +606,12 @@ def run_async_agent(
         # We're inside a running event loop, so we can't use asyncio.run
         # Instead, create a new loop
         loop = create_event_loop()
-    _set_asyncio_exception_handler(loop)
+    set_asyncio_exception_handler(loop)
 
     exit_code: int | None = None
     try:
         loop.run_until_complete(
-            _run_agent(
-                name=name,
-                instruction=instruction,
-                config_path=config_path,
-                server_list=server_list,
-                agent_cards=agent_cards,
-                card_tools=card_tools,
-                model=model,
-                message=message,
-                prompt_file=prompt_file,
-                resume=resume,
-                url_servers=url_servers,
-                stdio_servers=stdio_servers,
-                agent_name=agent_name,
-                skills_directory=skills_directory,
-                environment_dir=environment_dir,
-                shell_runtime=shell_enabled,
-                mode=mode,
-                transport=transport,
-                host=host,
-                port=port,
-                tool_description=tool_description,
-                instance_scope=instance_scope,
-                permissions_enabled=permissions_enabled,
-                reload=reload,
-                watch=watch,
-            )
+            _run_agent(**run_kwargs)
         )
     except SystemExit as exc:
         exit_code = exc.code if isinstance(exc.code, int) else None

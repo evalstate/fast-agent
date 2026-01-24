@@ -21,6 +21,7 @@ from fast_agent.ui.mermaid_utils import (
     extract_mermaid_diagrams,
 )
 from fast_agent.ui.message_primitives import MESSAGE_CONFIGS, MessageType
+from fast_agent.ui.message_styles import MessageStyle, resolve_message_style
 from fast_agent.ui.model_display import format_model_display
 from fast_agent.ui.streaming import (
     NullStreamingHandle as _NullStreamingHandle,
@@ -41,6 +42,9 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 CODE_STYLE = "native"
+
+# Glyph to indicate tool hooks are active
+HOOK_INDICATOR_GLYPH = "◆"
 
 
 class ConsoleDisplay:
@@ -68,9 +72,9 @@ class ConsoleDisplay:
                 pass
         self._markup = getattr(self._logger_settings, "enable_markup", True)
         self._escape_xml = True
-        self._message_style = getattr(self._logger_settings, "message_style", "a3")
-        if self._message_style not in {"classic", "a3"}:
-            self._message_style = "a3"
+        self._style = resolve_message_style(
+            getattr(self._logger_settings, "message_style", "a3")
+        )
         self._tool_display = ToolDisplay(self)
 
     @staticmethod
@@ -79,9 +83,46 @@ class ConsoleDisplay:
         logger_settings = getattr(config, "logger", None) if config else None
         return logger_settings if logger_settings is not None else LoggerSettings()
 
+    def _truncate_text(self, text: str, *, truncate: bool) -> str:
+        if (
+            truncate
+            and self.config
+            and self.config.logger.truncate_tools
+            and len(text) > 360
+        ):
+            return text[:360] + "..."
+        return text
+
+    def _print_with_style(self, content: object, *, style: str | None) -> None:
+        if style:
+            console.console.print(content, style=style, markup=self._markup)
+        else:
+            console.console.print(content, markup=self._markup)
+
+    def _print_plain_text(self, text: str, *, truncate: bool, style: str | None) -> None:
+        self._print_with_style(self._truncate_text(text, truncate=truncate), style=style)
+
+    def _print_pretty(self, content: object, *, truncate: bool, style: str | None) -> None:
+        from rich.pretty import Pretty
+
+        if truncate and self.config and self.config.logger.truncate_tools:
+            pretty_obj = Pretty(content, max_length=10, max_string=50)
+        else:
+            pretty_obj = Pretty(content)
+        self._print_with_style(pretty_obj, style=style)
+
     @property
     def code_style(self) -> str:
         return CODE_STYLE
+
+    @property
+    def style(self) -> MessageStyle:
+        return self._style
+
+    def show_status_message(self, content: Text) -> None:
+        """Display a status message without a header."""
+        console.ensure_blocking_console()
+        console.console.print(content, markup=self._markup)
 
     def resolve_streaming_preferences(self) -> tuple[bool, str]:
         """Return whether streaming is enabled plus the active mode."""
@@ -97,7 +138,9 @@ class ConsoleDisplay:
             streaming_mode = "markdown"
 
         # Legacy compatibility: allow streaming_plain_text override
-        if streaming_mode == "markdown" and getattr(logger_settings, "streaming_plain_text", False):
+        if streaming_mode == "markdown" and getattr(
+            logger_settings, "streaming_plain_text", False
+        ):
             streaming_mode = "plain"
 
         show_chat = bool(getattr(logger_settings, "show_chat", True))
@@ -159,80 +202,48 @@ class ConsoleDisplay:
             return f"{elapsed:.1f}s"
         return format_duration(elapsed)
 
-    def _use_a3_style(self) -> bool:
-        return self._message_style == "a3"
-
     def show_shell_exit_code(self, exit_code: int) -> None:
         """Display a shell-style exit code banner."""
-        use_a3_style = self._use_a3_style()
-        if exit_code == 0:
-            exit_code_style = "white reverse dim"
-        elif exit_code == 1:
-            exit_code_style = "red reverse dim"
-        else:
-            exit_code_style = "red reverse bold"
-        exit_code_text = f" exit code {exit_code} "
-
-        if use_a3_style:
-            line = Text()
-            line.append("▎• ", style="dim")
-            line.append(exit_code_text, style=exit_code_style)
-            console.console.print()
-            console.console.print(line)
-            console.console.print()
-            return
-
-        width = console.console.size.width
-        prefix = Text("─| ")
-        prefix.stylize("dim")
-        exit_text = Text(exit_code_text, style=exit_code_style)
-        suffix = Text(" |")
-        suffix.stylize("dim")
-
-        separator = Text()
-        separator.append_text(prefix)
-        separator.append_text(exit_text)
-        separator.append_text(suffix)
-        remaining = width - separator.cell_len
-        if remaining > 0:
-            separator.append("─" * remaining, style="dim")
-
+        line = self._style.shell_exit_line(exit_code, console.console.size.width)
         console.console.print()
-        console.console.print(separator)
+        console.console.print(line)
+        for _ in range(self._style.shell_exit_spacing_after):
+            console.console.print()
 
     def _format_header_line(self, left_content: str, right_info: str = "") -> Text:
         width = console.console.size.width
-        left_text = Text.from_markup(left_content)
-        right_content = right_info.strip()
+        return self._style.header_line(left_content, right_info, width)
 
-        if self._use_a3_style():
-            combined = Text()
-            combined.append_text(left_text)
-            if right_content:
-                right_text = Text.from_markup(right_content)
-                right_text.stylize("dim")
-                combined.append(" ", style="default")
-                combined.append_text(right_text)
-            return combined
+    @staticmethod
+    def build_header_left(
+        block_color: str,
+        arrow: str,
+        arrow_style: str,
+        name: str | None = None,
+        is_error: bool = False,
+        show_hook_indicator: bool = False,
+    ) -> str:
+        """
+        Build the left side of a message header.
 
-        if right_content:
-            right_text = Text()
-            right_text.append("[", style="dim")
-            right_text.append_text(Text.from_markup(right_content))
-            right_text.append("]", style="dim")
-            separator_count = width - left_text.cell_len - right_text.cell_len
-            if separator_count < 1:
-                separator_count = 1
-        else:
-            right_text = Text("")
-            separator_count = width - left_text.cell_len
+        Args:
+            block_color: Color for the block indicator and name
+            arrow: Arrow character for the message type
+            arrow_style: Style for the arrow
+            name: Optional name to display (agent name, user name, etc.)
+            is_error: Whether this is an error message (uses red for name)
+            show_hook_indicator: Whether to show the hook indicator glyph
 
-        combined = Text()
-        combined.append_text(left_text)
-        combined.append(" ", style="default")
-        combined.append("─" * (separator_count - 1), style="dim")
-        combined.append_text(right_text)
-        return combined
+        Returns:
+            Rich markup string for the left side of the header
+        """
+        left = f"[{block_color}]▎[/{block_color}][{arrow_style}]{arrow}[/{arrow_style}]"
+        if show_hook_indicator:
+            left += f" [{block_color}]{HOOK_INDICATOR_GLYPH}[/{block_color}]"
+        if name:
+            name_color = block_color if not is_error else "red"
+            left += f" [{name_color}]{name}[/{name_color}]"
+        return left
 
     def display_message(
         self,
@@ -248,6 +259,7 @@ class ConsoleDisplay:
         additional_message: Text | None = None,
         pre_content: Text | Group | None = None,
         render_markdown: bool | None = None,
+        show_hook_indicator: bool = False,
     ) -> None:
         """
         Unified method to display formatted messages to the console.
@@ -265,6 +277,7 @@ class ConsoleDisplay:
             additional_message: Optional Rich Text appended after the main content
             pre_content: Optional Rich Text shown before the main content
             render_markdown: Force markdown rendering (True) or plain rendering (False)
+            show_hook_indicator: Whether to show the hook indicator glyph (◆)
         """
         # Ensure Rich writes to a blocking TTY when stdout/stderr was
         # flipped to non-blocking by the event loop (e.g. uvloop).
@@ -282,9 +295,14 @@ class ConsoleDisplay:
         # Build the left side of the header
         arrow = config["arrow"]
         arrow_style = config["arrow_style"]
-        left = f"[{block_color}]▎[/{block_color}][{arrow_style}]{arrow}[/{arrow_style}]"
-        if name:
-            left += f" [{block_color if not is_error else 'red'}]{name}[/{block_color if not is_error else 'red'}]"
+        left = self.build_header_left(
+            block_color=block_color,
+            arrow=arrow,
+            arrow_style=arrow_style,
+            name=name,
+            is_error=is_error,
+            show_hook_indicator=show_hook_indicator,
+        )
 
         # Create combined separator and status line
         self._create_combined_separator_status(left, right_info)
@@ -338,7 +356,6 @@ class ConsoleDisplay:
         import json
         import re
 
-        from rich.pretty import Pretty
         from rich.syntax import Syntax
 
         from fast_agent.mcp.helpers.content_helpers import get_text, is_text_content
@@ -358,14 +375,7 @@ class ConsoleDisplay:
             if render_markdown is not None:
                 try:
                     json_obj = json.loads(content)
-                    if truncate and self.config and self.config.logger.truncate_tools:
-                        pretty_obj = Pretty(json_obj, max_length=10, max_string=50)
-                    else:
-                        pretty_obj = Pretty(json_obj)
-                    if style:
-                        console.console.print(pretty_obj, style=style, markup=self._markup)
-                    else:
-                        console.console.print(pretty_obj, markup=self._markup)
+                    self._print_pretty(json_obj, truncate=truncate, style=style)
                     return
                 except (JSONDecodeError, TypeError, ValueError):
                     if render_markdown:
@@ -373,31 +383,13 @@ class ConsoleDisplay:
                         md = Markdown(prepared_content, code_theme=CODE_STYLE)
                         console.console.print(md, markup=self._markup)
                     else:
-                        if (
-                            truncate
-                            and self.config
-                            and self.config.logger.truncate_tools
-                            and len(content) > 360
-                        ):
-                            content = content[:360] + "..."
-                        if style:
-                            console.console.print(content, style=style, markup=self._markup)
-                        else:
-                            console.console.print(content, markup=self._markup)
+                        self._print_plain_text(content, truncate=truncate, style=style)
                     return
             # Try to detect and handle different string formats
             try:
                 # Try as JSON first
                 json_obj = json.loads(content)
-                if truncate and self.config and self.config.logger.truncate_tools:
-                    pretty_obj = Pretty(json_obj, max_length=10, max_string=50)
-                else:
-                    pretty_obj = Pretty(json_obj)
-                # Apply style only if specified
-                if style:
-                    console.console.print(pretty_obj, style=style, markup=self._markup)
-                else:
-                    console.console.print(pretty_obj, markup=self._markup)
+                self._print_pretty(json_obj, truncate=truncate, style=style)
             except (JSONDecodeError, TypeError, ValueError):
                 # Check if content appears to be primarily XML
                 xml_pattern = r"^<[a-zA-Z_][a-zA-Z0-9_-]*[^>]*>"
@@ -418,17 +410,7 @@ class ConsoleDisplay:
                         console.console.print(md, markup=self._markup)
                     else:
                         # Plain text - display as-is
-                        if (
-                            truncate
-                            and self.config
-                            and self.config.logger.truncate_tools
-                            and len(content) > 360
-                        ):
-                            content = content[:360] + "..."
-                        if style:
-                            console.console.print(content, style=style, markup=self._markup)
-                        else:
-                            console.console.print(content, markup=self._markup)
+                        self._print_plain_text(content, truncate=truncate, style=style)
                 else:
                     # Check if content has substantial XML (mixed content)
                     # If so, skip markdown rendering as it turns XML into an unreadable blob.
@@ -445,31 +427,13 @@ class ConsoleDisplay:
                         console.console.print(md, markup=self._markup)
                     else:
                         # Plain text (or mixed markdown+XML content)
-                        if (
-                            truncate
-                            and self.config
-                            and self.config.logger.truncate_tools
-                            and len(content) > 360
-                        ):
-                            content = content[:360] + "..."
-                        # Apply style only if specified (None means default white)
-                        if style:
-                            console.console.print(content, style=style, markup=self._markup)
-                        else:
-                            console.console.print(content, markup=self._markup)
+                        self._print_plain_text(content, truncate=truncate, style=style)
         elif isinstance(content, Text):
             if render_markdown is not None:
                 plain_text = content.plain
                 try:
                     json_obj = json.loads(plain_text)
-                    if truncate and self.config and self.config.logger.truncate_tools:
-                        pretty_obj = Pretty(json_obj, max_length=10, max_string=50)
-                    else:
-                        pretty_obj = Pretty(json_obj)
-                    if style:
-                        console.console.print(pretty_obj, style=style, markup=self._markup)
-                    else:
-                        console.console.print(pretty_obj, markup=self._markup)
+                    self._print_pretty(json_obj, truncate=truncate, style=style)
                     return
                 except (JSONDecodeError, TypeError, ValueError):
                     if render_markdown:
@@ -532,18 +496,7 @@ class ConsoleDisplay:
                 # Single text block - display directly
                 text_content = get_text(content[0])
                 if text_content:
-                    if (
-                        truncate
-                        and self.config
-                        and self.config.logger.truncate_tools
-                        and len(text_content) > 360
-                    ):
-                        text_content = text_content[:360] + "..."
-                    # Apply style only if specified
-                    if style:
-                        console.console.print(text_content, style=style, markup=self._markup)
-                    else:
-                        console.console.print(text_content, markup=self._markup)
+                    self._print_plain_text(text_content, truncate=truncate, style=style)
                 else:
                     # Apply style only if specified
                     if style:
@@ -552,74 +505,10 @@ class ConsoleDisplay:
                         console.console.print("(empty text)", markup=self._markup)
             else:
                 # Multiple blocks or non-text content
-                if truncate and self.config and self.config.logger.truncate_tools:
-                    pretty_obj = Pretty(content, max_length=10, max_string=50)
-                else:
-                    pretty_obj = Pretty(content)
-                # Apply style only if specified
-                if style:
-                    console.console.print(pretty_obj, style=style, markup=self._markup)
-                else:
-                    console.console.print(pretty_obj, markup=self._markup)
+                self._print_pretty(content, truncate=truncate, style=style)
         else:
             # Any other type - use Pretty
-            if truncate and self.config and self.config.logger.truncate_tools:
-                pretty_obj = Pretty(content, max_length=10, max_string=50)
-            else:
-                pretty_obj = Pretty(content)
-            # Apply style only if specified
-            if style:
-                console.console.print(pretty_obj, style=style, markup=self._markup)
-            else:
-                console.console.print(pretty_obj, markup=self._markup)
-
-    def _shorten_items(self, items: list[str], max_length: int) -> list[str]:
-        """
-        Shorten items to max_length with ellipsis if needed.
-
-        Args:
-            items: List of strings to potentially shorten
-            max_length: Maximum length for each item
-
-        Returns:
-            List of shortened strings
-        """
-        return [item[: max_length - 1] + "…" if len(item) > max_length else item for item in items]
-
-    def _format_bottom_metadata_compact(
-        self,
-        items: list[str],
-        highlight_index: int | None,
-        highlight_color: str,
-        max_width: int | None = None,
-    ) -> Text:
-        """Format items with bullet separators for compact bottom bars."""
-        formatted = Text()
-
-        def will_fit(next_segment: Text) -> bool:
-            if max_width is None:
-                return True
-            return formatted.cell_len + next_segment.cell_len <= max_width
-
-        for i, item in enumerate(items):
-            sep = Text(" • ", style="dim") if i > 0 else Text("")
-            should_highlight = highlight_index is not None and i == highlight_index
-            item_style = highlight_color if should_highlight else "white dim"
-            item_text = Text(item, style=item_style)
-
-            if not will_fit(sep + item_text):
-                if formatted.cell_len == 0 and max_width is not None and max_width > 1:
-                    formatted.append("…", style="dim")
-                else:
-                    if max_width is None or formatted.cell_len < max_width:
-                        formatted.append(" …", style="dim")
-                break
-
-            if sep.plain:
-                formatted.append_text(sep)
-            formatted.append_text(item_text)
-
-        return formatted
+            self._print_pretty(content, truncate=truncate, style=style)
 
     def _render_bottom_metadata(
         self,
@@ -638,127 +527,25 @@ class ConsoleDisplay:
             highlight_index: Optional index of the item to highlight
             max_item_length: Optional maximum length for individual items
         """
-        if self._use_a3_style():
+        if self._style.bottom_metadata_requires_highlight:
             if not bottom_metadata or highlight_index is None:
                 return
-
-            display_items = bottom_metadata
-            if max_item_length:
-                display_items = self._shorten_items(bottom_metadata, max_item_length)
-
-            if highlight_index < 0 or highlight_index >= len(display_items):
+            if highlight_index < 0 or highlight_index >= len(bottom_metadata):
                 return
 
-            console.console.print()
-
-            total_width = console.console.size.width
-            prefix = Text("▎• ", style="dim")
-            available = max(0, total_width - prefix.cell_len)
-
-            highlight_color = MESSAGE_CONFIGS[message_type]["highlight_color"]
-            metadata_text = self._format_bottom_metadata_compact(
-                display_items,
-                highlight_index,
-                highlight_color,
-                max_width=available,
-            )
-
-            line = Text()
-            line.append_text(prefix)
-            line.append_text(metadata_text)
-            console.console.print(line, markup=self._markup)
-            console.console.print()
+        line = self._style.bottom_metadata_line(
+            bottom_metadata,
+            highlight_index,
+            MESSAGE_CONFIGS[message_type]["highlight_color"],
+            max_item_length,
+            console.console.size.width,
+        )
+        if line is None:
             return
 
         console.console.print()
-
-        if bottom_metadata:
-            display_items = bottom_metadata
-            if max_item_length:
-                display_items = self._shorten_items(bottom_metadata, max_item_length)
-
-            total_width = console.console.size.width
-            prefix = Text("─| ")
-            prefix.stylize("dim")
-            suffix = Text(" |")
-            suffix.stylize("dim")
-            available = max(0, total_width - prefix.cell_len - suffix.cell_len)
-
-            highlight_color = MESSAGE_CONFIGS[message_type]["highlight_color"]
-            metadata_text = self._format_bottom_metadata(
-                display_items,
-                highlight_index,
-                highlight_color,
-                max_width=available,
-            )
-
-            line = Text()
-            line.append_text(prefix)
-            line.append_text(metadata_text)
-            line.append_text(suffix)
-            remaining = total_width - line.cell_len
-            if remaining > 0:
-                line.append("─" * remaining, style="dim")
-            console.console.print(line, markup=self._markup)
-        else:
-            console.console.print("─" * console.console.size.width, style="dim")
-
+        console.console.print(line, markup=self._markup)
         console.console.print()
-
-    def _format_bottom_metadata(
-        self,
-        items: list[str],
-        highlight_index: int | None,
-        highlight_color: str,
-        max_width: int | None = None,
-    ) -> Text:
-        """
-        Format a list of items with pipe separators and highlighting.
-
-        Args:
-            items: List of items to display
-            highlight_index: Index of item to highlight (0-based), or None for no highlighting
-            highlight_color: Color to use for highlighting
-            max_width: Maximum width for the formatted text
-
-        Returns:
-            Formatted Text object with proper separators and highlighting
-        """
-        formatted = Text()
-
-        def will_fit(next_segment: Text) -> bool:
-            if max_width is None:
-                return True
-            # projected length if we append next_segment
-            return formatted.cell_len + next_segment.cell_len <= max_width
-
-        for i, item in enumerate(items):
-            sep = Text(" | ", style="dim") if i > 0 else Text("")
-
-            # Prepare item text with potential highlighting
-            should_highlight = highlight_index is not None and i == highlight_index
-
-            item_text = Text(item, style=(highlight_color if should_highlight else "dim"))
-
-            # Check if separator + item fits in available width
-            if not will_fit(sep + item_text):
-                # If nothing has been added yet and the item itself is too long,
-                # leave space for an ellipsis and stop.
-                if formatted.cell_len == 0 and max_width is not None and max_width > 1:
-                    # show truncated indicator only
-                    formatted.append("…", style="dim")
-                else:
-                    # Indicate there are more items but avoid wrapping
-                    if max_width is None or formatted.cell_len < max_width:
-                        formatted.append(" …", style="dim")
-                break
-
-            # Append separator and item
-            if sep.plain:
-                formatted.append_text(sep)
-            formatted.append_text(item_text)
-
-        return formatted
 
     def show_tool_result(
         self,
@@ -769,6 +556,7 @@ class ConsoleDisplay:
         timing_ms: float | None = None,
         type_label: str | None = None,
         truncate_content: bool = True,
+        show_hook_indicator: bool = False,
     ) -> None:
         kwargs: dict[str, Any] = {
             "name": name,
@@ -776,6 +564,7 @@ class ConsoleDisplay:
             "skybridge_config": skybridge_config,
             "timing_ms": timing_ms,
             "truncate_content": truncate_content,
+            "show_hook_indicator": show_hook_indicator,
         }
         if type_label is not None:
             kwargs["type_label"] = type_label
@@ -792,6 +581,7 @@ class ConsoleDisplay:
         name: str | None = None,
         metadata: dict[str, Any] | None = None,
         type_label: str | None = None,
+        show_hook_indicator: bool = False,
     ) -> None:
         kwargs: dict[str, Any] = {
             "bottom_items": bottom_items,
@@ -799,6 +589,7 @@ class ConsoleDisplay:
             "max_item_length": max_item_length,
             "name": name,
             "metadata": metadata,
+            "show_hook_indicator": show_hook_indicator,
         }
         if type_label is not None:
             kwargs["type_label"] = type_label
@@ -820,7 +611,7 @@ class ConsoleDisplay:
 
         console.console.print()
         console.console.print(combined, markup=self._markup)
-        if not self._use_a3_style():
+        for _ in range(self._style.header_spacing_after):
             console.console.print()
 
     @staticmethod
@@ -889,6 +680,7 @@ class ConsoleDisplay:
         model: str | None = None,
         additional_message: Text | None = None,
         render_markdown: bool | None = None,
+        show_hook_indicator: bool = False,
     ) -> None:
         """Display an assistant message in a formatted panel.
 
@@ -902,6 +694,7 @@ class ConsoleDisplay:
             model: Optional model name for right info
             additional_message: Optional additional styled message to append
             render_markdown: Force markdown rendering (True) or plain rendering (False)
+            show_hook_indicator: Whether to show the hook indicator glyph (◆)
         """
         if self.config and not self.config.logger.show_chat:
             return
@@ -934,6 +727,7 @@ class ConsoleDisplay:
             additional_message=additional_message,
             pre_content=pre_content,
             render_markdown=render_markdown,
+            show_hook_indicator=show_hook_indicator,
         )
 
         # Handle mermaid diagrams separately (after the main message)
@@ -956,6 +750,7 @@ class ConsoleDisplay:
         max_item_length: int | None = None,
         name: str | None = None,
         model: str | None = None,
+        show_hook_indicator: bool = False,
     ) -> Iterator[StreamingHandle]:
         """Create a streaming context for assistant messages."""
         streaming_enabled, streaming_mode = self.resolve_streaming_preferences()
@@ -971,9 +766,14 @@ class ConsoleDisplay:
         arrow = config["arrow"]
         arrow_style = config["arrow_style"]
 
-        left = f"[{block_color}]▎[/{block_color}][{arrow_style}]{arrow}[/{arrow_style}] "
-        if name:
-            left += f"[{block_color}]{name}[/{block_color}]"
+        left = self.build_header_left(
+            block_color=block_color,
+            arrow=arrow,
+            arrow_style=arrow_style,
+            name=name,
+            is_error=False,
+            show_hook_indicator=show_hook_indicator,
+        )
 
         display_model = format_model_display(model)
         right_info = f"[dim]{display_model}[/dim]" if display_model else ""
@@ -1100,6 +900,7 @@ class ConsoleDisplay:
         name: str | None = None,
         attachments: list[str] | None = None,
         part_count: int | None = None,
+        show_hook_indicator: bool = False,
     ) -> None:
         """Display a user message in the new visual style."""
         if self.config and not self.config.logger.show_chat:
@@ -1158,6 +959,7 @@ class ConsoleDisplay:
             right_info=right_info,
             truncate_content=False,  # User messages typically shouldn't be truncated
             pre_content=pre_content,
+            show_hook_indicator=show_hook_indicator,
         )
 
     def show_system_message(

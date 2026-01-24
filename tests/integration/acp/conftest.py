@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -63,7 +64,9 @@ async def _spawn_initialized_agent(
 ) -> AsyncIterator[tuple[ClientSideConnection, TestClient, InitializeResponse]]:
     client = TestClient()
     async with spawn_agent_process(lambda _: client, *cmd) as (connection, _process):
-        init_response = await connection.initialize(
+        init_response = await _initialize_agent(
+            connection,
+            _process,
             protocol_version=1,
             client_capabilities=ClientCapabilities(
                 fs=FileSystemCapability(read_text_file=fs_read, write_text_file=fs_write),
@@ -72,6 +75,57 @@ async def _spawn_initialized_agent(
             client_info=Implementation(name=client_name, version=client_version),
         )
         yield connection, client, init_response
+
+
+async def _read_stream(stream: asyncio.StreamReader | None, *, limit: int = 2000) -> str:
+    if stream is None:
+        return ""
+    try:
+        data = await asyncio.wait_for(stream.read(), timeout=0.2)
+    except Exception:
+        return ""
+    return data.decode("utf-8", errors="replace")[:limit]
+
+
+async def _initialize_agent(
+    connection: ClientSideConnection,
+    process: asyncio.subprocess.Process,
+    *,
+    protocol_version: int,
+    client_capabilities: ClientCapabilities,
+    client_info: Implementation,
+    timeout: float = 5.0,
+) -> InitializeResponse:
+    try:
+        return await asyncio.wait_for(
+            connection.initialize(
+                protocol_version=protocol_version,
+                client_capabilities=client_capabilities,
+                client_info=client_info,
+            ),
+            timeout=timeout,
+        )
+    except Exception as exc:
+        process_exited = process.returncode is not None
+        if not process_exited:
+            try:
+                await asyncio.wait_for(process.wait(), timeout=0.1)
+            except asyncio.TimeoutError:
+                process_exited = False
+            else:
+                process_exited = True
+
+        stdout = await _read_stream(process.stdout)
+        stderr = await _read_stream(process.stderr)
+        if process_exited:
+            raise AssertionError(
+                "ACP agent process exited before initialization completed. "
+                f"returncode={process.returncode} stdout={stdout!r} stderr={stderr!r}"
+            ) from exc
+        raise AssertionError(
+            "Timed out waiting for ACP agent initialization. "
+            f"stdout={stdout!r} stderr={stderr!r}"
+        ) from exc
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")

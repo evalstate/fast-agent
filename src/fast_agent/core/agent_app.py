@@ -475,7 +475,7 @@ class AgentApp:
         # Create the interactive prompt
         prompt = InteractivePrompt(agent_types=agent_types)
 
-        # Helper for pretty formatting the FINAL error    
+        # Helper for pretty formatting the FINAL error
         def _format_final_error(error: Exception) -> str:
             message_attr = getattr(error, "message", None)
             detail_candidates = []
@@ -571,6 +571,7 @@ class AgentApp:
         usage_info = self._format_agent_usage(agent, turn_start_index)
         if usage_info:
             with progress_display.paused():
+                rich_print()
                 rich_print(
                     f"[dim]Last turn: {usage_info['display_text']}[/dim]{usage_info['cache_suffix']}"
                 )

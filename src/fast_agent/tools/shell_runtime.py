@@ -15,6 +15,8 @@ from rich.text import Text
 
 if TYPE_CHECKING:
     from fast_agent.config import Settings
+# Import tool progress context for reporting shell execution progress
+from fast_agent.agents.tool_agent import _tool_progress_context
 from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
     MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
@@ -326,6 +328,19 @@ class ShellRuntime:
                                     f"▶ No output detected - terminating in {int(remaining)}s",
                                     style="black on red",
                                 )
+                            # Report progress to parent agent if in tool context
+                            ctx = _tool_progress_context.get()
+                            if ctx:
+                                handler, tool_call_id = ctx
+                                try:
+                                    await handler.on_tool_progress(
+                                        tool_call_id,
+                                        0.5,
+                                        None,
+                                        f"Waiting for output ({int(elapsed)}) seconds ...",
+                                    )
+                                except Exception:
+                                    pass
                             last_warning_time = elapsed
 
                         # Timeout exceeded
