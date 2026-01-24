@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Any
 from openai.types.responses import ResponseReasoningSummaryTextDeltaEvent, ResponseTextDeltaEvent
 
 from fast_agent.event_progress import ProgressAction
+from fast_agent.llm.provider.openai.streaming_utils import finalize_stream_response
+from fast_agent.llm.provider.openai.tool_notifications import OpenAIToolNotificationMixin
 from fast_agent.llm.stream_types import StreamChunk
 
 if TYPE_CHECKING:
@@ -56,7 +58,7 @@ def _save_stream_chunk(filename_base: Any, chunk: Any) -> None:
         return
 
 
-class OpenResponsesStreamingMixin:
+class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
     if TYPE_CHECKING:
         from fast_agent.core.logging.logger import Logger
 
@@ -381,28 +383,14 @@ class OpenResponsesStreamingMixin:
                 )
                 raise
 
-        usage = getattr(final_response, "usage", None)
-        if usage:
-            input_tokens = getattr(usage, "input_tokens", 0) or 0
-            output_tokens = getattr(usage, "output_tokens", 0) or 0
-            token_str = str(output_tokens).rjust(5)
-            data = {
-                "progress_action": ProgressAction.STREAMING,
-                "model": model,
-                "agent_name": self.name,
-                "chat_turn": self.chat_turn(),
-                "details": token_str.strip(),
-            }
-            self.logger.info("Streaming progress", data=data)
-            self.logger.info(
-                f"Streaming complete - Model: {model}, Input tokens: {input_tokens}, Output tokens: {output_tokens}"
-            )
-
-        output_items = list(getattr(final_response, "output", []) or [])
-        self._emit_tool_notification_fallback(
-            output_items,
-            notified_tool_indices,
+        finalize_stream_response(
+            final_response=final_response,
             model=model,
+            agent_name=self.name,
+            chat_turn=self.chat_turn,
+            logger=self.logger,
+            notified_tool_indices=notified_tool_indices,
+            emit_tool_fallback=self._emit_tool_notification_fallback,
         )
 
         return final_response, reasoning_segments
@@ -426,35 +414,9 @@ class OpenResponsesStreamingMixin:
             tool_name = self._tool_name_from_item(item)
             tool_use_id = self._tool_use_id_from_item(item) or f"tool-{index}"
 
-            payload = {
-                "tool_name": tool_name,
-                "tool_use_id": tool_use_id,
-                "index": index,
-            }
-
-            self._notify_tool_stream_listeners("start", payload)
-            self.logger.info(
-                "Model emitted fallback tool notification",
-                data={
-                    "progress_action": ProgressAction.CALLING_TOOL,
-                    "agent_name": self.name,
-                    "model": model,
-                    "tool_name": tool_name,
-                    "tool_use_id": tool_use_id,
-                    "tool_event": "start",
-                    "fallback": True,
-                },
-            )
-            self._notify_tool_stream_listeners("stop", payload)
-            self.logger.info(
-                "Model emitted fallback tool notification",
-                data={
-                    "progress_action": ProgressAction.CALLING_TOOL,
-                    "agent_name": self.name,
-                    "model": model,
-                    "tool_name": tool_name,
-                    "tool_use_id": tool_use_id,
-                    "tool_event": "stop",
-                    "fallback": True,
-                },
+            self._emit_fallback_tool_notification_event(
+                tool_name=tool_name,
+                tool_use_id=tool_use_id,
+                index=index,
+                model=model,
             )

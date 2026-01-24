@@ -1,7 +1,6 @@
 """Run an interactive agent directly from the command line."""
 
 import asyncio
-import logging
 import os
 import shlex
 import sys
@@ -10,6 +9,7 @@ from typing import Any, Literal, cast
 
 import typer
 
+from fast_agent.cli.asyncio_utils import set_asyncio_exception_handler
 from fast_agent.cli.commands.server_helpers import add_servers_to_config, generate_server_name
 from fast_agent.cli.commands.url_parser import generate_server_configs, parse_server_urls
 from fast_agent.cli.constants import RESUME_LATEST_SENTINEL
@@ -98,42 +98,6 @@ def collect_stdio_commands(npx: str | None, uvx: str | None, stdio: str | None) 
         stdio_commands.append(stdio)
 
     return stdio_commands
-
-
-def _set_asyncio_exception_handler(loop: asyncio.AbstractEventLoop) -> None:
-    """Attach a detailed exception handler to the provided event loop."""
-
-    logger = logging.getLogger("fast_agent.asyncio")
-
-    def _handler(_loop: asyncio.AbstractEventLoop, context: dict) -> None:
-        message = context.get("message", "(no message)")
-        task = context.get("task")
-        future = context.get("future")
-        handle = context.get("handle")
-        source_traceback = context.get("source_traceback")
-        exception = context.get("exception")
-
-        details = {
-            "message": message,
-            "task": repr(task) if task else None,
-            "future": repr(future) if future else None,
-            "handle": repr(handle) if handle else None,
-            "source_traceback": [str(frame) for frame in source_traceback]
-            if source_traceback
-            else None,
-        }
-
-        logger.error("Unhandled asyncio error: %s", message)
-        logger.error("Asyncio context: %s", details)
-
-        if exception:
-            logger.exception("Asyncio exception", exc_info=exception)
-
-    try:
-        loop.set_exception_handler(_handler)
-    except Exception:
-        logger = logging.getLogger("fast_agent.asyncio")
-        logger.exception("Failed to set asyncio exception handler")
 
 
 async def _run_agent(
@@ -568,7 +532,7 @@ def run_async_agent(
         # We're inside a running event loop, so we can't use asyncio.run
         # Instead, create a new loop
         loop = create_event_loop()
-    _set_asyncio_exception_handler(loop)
+    set_asyncio_exception_handler(loop)
 
     exit_code: int | None = None
     try:

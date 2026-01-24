@@ -1,8 +1,7 @@
-import asyncio
-import json
 import os
 import sys
 
+from fast_agent.cli.asyncio_utils import set_asyncio_exception_handler
 from fast_agent.cli.constants import (
     GO_SPECIFIC_OPTIONS,
     KNOWN_SUBCOMMANDS,
@@ -33,33 +32,7 @@ def main():
     try:
         loop = ensure_event_loop()
 
-        def _log_asyncio_exception(loop: asyncio.AbstractEventLoop, context: dict) -> None:
-            import logging
-
-            logger = logging.getLogger("fast_agent.asyncio")
-
-            message = context.get("message", "(no message)")
-            task = context.get("task")
-            future = context.get("future")
-            handle = context.get("handle")
-            source_traceback = context.get("source_traceback")
-            exception = context.get("exception")
-
-            details = {
-                "message": message,
-                "task": repr(task) if task else None,
-                "future": repr(future) if future else None,
-                "handle": repr(handle) if handle else None,
-                "source_traceback": [str(frame) for frame in source_traceback] if source_traceback else None,
-            }
-
-            logger.error("Unhandled asyncio error: %s", message)
-            logger.error("Asyncio context: %s", json.dumps(details, indent=2))
-
-            if exception:
-                logger.exception("Asyncio exception", exc_info=exception)
-
-        loop.set_exception_handler(_log_asyncio_exception)
+        set_asyncio_exception_handler(loop)
     except RuntimeError:
         # No running loop yet (rare for sync entry), safe to ignore
         pass

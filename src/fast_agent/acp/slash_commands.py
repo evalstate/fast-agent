@@ -39,6 +39,7 @@ from acp.schema import (
 )
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.commands.handlers.shared import clear_agent_histories
 from fast_agent.config import get_settings
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.core.exceptions import AgentConfigError, format_fast_agent_error
@@ -883,29 +884,13 @@ class SlashCommandHandler:
         title = argument.strip() or None
         manager = get_session_manager()
         session = manager.create_session(title)
-        cleared = self._clear_agent_histories()
+        cleared = clear_agent_histories(self.instance.agents, self._logger)
         label = session.info.metadata.get("title") or session.info.name
         lines = ["# session new", "", f"Created session: {label}"]
         if cleared:
             cleared_list = ", ".join(sorted(cleared))
             lines.append(f"Cleared agent history: {cleared_list}")
         return "\n".join(lines)
-
-    def _clear_agent_histories(self) -> list[str]:
-        cleared: list[str] = []
-        for name, agent in self.instance.agents.items():
-            clear_fn = getattr(agent, "clear", None)
-            if not callable(clear_fn):
-                continue
-            try:
-                clear_fn()
-                cleared.append(name)
-            except Exception as exc:
-                self._logger.warning(
-                    "Failed to clear agent history for new session",
-                    data={"agent": name, "error": str(exc)},
-                )
-        return cleared
 
     def _handle_session_clear(self, argument: str) -> str:
         from fast_agent.session import (

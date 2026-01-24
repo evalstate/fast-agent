@@ -588,6 +588,50 @@ class AgentACPServer(ACPAgent):
             self.primary_agent_name = self._select_primary_agent(new_instance)
             await self._refresh_sessions_for_instance(new_instance)
 
+    async def _replace_instance_for_session(
+        self,
+        session_state: ACPSessionState,
+        *,
+        dispose_error_name: str,
+        await_refresh_session_state: bool,
+    ) -> AgentInstance:
+        if self._instance_scope == "shared":
+            async with self._shared_reload_lock:
+                new_instance = await self._create_instance_task()
+                old_instance = self.primary_instance
+                self.primary_instance = new_instance
+                latest_version = (
+                    self._get_registry_version() if self._get_registry_version else None
+                )
+                self._primary_registry_version = getattr(
+                    new_instance, "registry_version", latest_version
+                )
+                self._stale_instances.append(old_instance)
+                self.primary_agent_name = self._select_primary_agent(new_instance)
+                await self._refresh_sessions_for_instance(new_instance)
+            return session_state.instance
+
+        instance = await self._create_instance_task()
+        old_instance = session_state.instance
+        session_state.instance = instance
+        async with self._session_lock:
+            self.sessions[session_state.session_id] = instance
+        if await_refresh_session_state:
+            await self._refresh_session_state(session_state, instance)
+        else:
+            self._refresh_session_state(session_state, instance)
+        if old_instance != self.primary_instance:
+            try:
+                await self._dispose_instance_task(old_instance)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to dispose old session instance",
+                    name=dispose_error_name,
+                    session_id=session_state.session_id,
+                    error=str(exc),
+                )
+        return instance
+
     async def _refresh_sessions_for_instance(self, instance: AgentInstance) -> None:
         async with self._session_lock:
             for session_id, session_state in self._session_state.items():
@@ -779,38 +823,11 @@ class AgentACPServer(ACPAgent):
             raise RuntimeError("AgentCard loading is not available.")
         loaded_names, attached_names = await self._load_card_callback(source, attach_to)
 
-        if self._instance_scope == "shared":
-            async with self._shared_reload_lock:
-                new_instance = await self._create_instance_task()
-                old_instance = self.primary_instance
-                self.primary_instance = new_instance
-                latest_version = (
-                    self._get_registry_version() if self._get_registry_version else None
-                )
-                self._primary_registry_version = getattr(
-                    new_instance, "registry_version", latest_version
-                )
-                self._stale_instances.append(old_instance)
-                self.primary_agent_name = self._select_primary_agent(new_instance)
-                await self._refresh_sessions_for_instance(new_instance)
-            instance = session_state.instance
-        else:
-            instance = await self._create_instance_task()
-            old_instance = session_state.instance
-            session_state.instance = instance
-            async with self._session_lock:
-                self.sessions[session_state.session_id] = instance
-            await self._refresh_session_state(session_state, instance)
-            if old_instance != self.primary_instance:
-                try:
-                    await self._dispose_instance_task(old_instance)
-                except Exception as exc:
-                    logger.warning(
-                        "Failed to dispose old session instance",
-                        name="acp_card_dispose_error",
-                        session_id=session_state.session_id,
-                        error=str(exc),
-                    )
+        instance = await self._replace_instance_for_session(
+            session_state,
+            dispose_error_name="acp_card_dispose_error",
+            await_refresh_session_state=True,
+        )
 
         if session_state.acp_context:
             await session_state.acp_context.send_available_commands_update()
@@ -830,38 +847,11 @@ class AgentACPServer(ACPAgent):
         if not attached_names:
             return session_state.instance, []
 
-        if self._instance_scope == "shared":
-            async with self._shared_reload_lock:
-                new_instance = await self._create_instance_task()
-                old_instance = self.primary_instance
-                self.primary_instance = new_instance
-                latest_version = (
-                    self._get_registry_version() if self._get_registry_version else None
-                )
-                self._primary_registry_version = getattr(
-                    new_instance, "registry_version", latest_version
-                )
-                self._stale_instances.append(old_instance)
-                self.primary_agent_name = self._select_primary_agent(new_instance)
-                await self._refresh_sessions_for_instance(new_instance)
-            instance = session_state.instance
-        else:
-            instance = await self._create_instance_task()
-            old_instance = session_state.instance
-            session_state.instance = instance
-            async with self._session_lock:
-                self.sessions[session_state.session_id] = instance
-            self._refresh_session_state(session_state, instance)
-            if old_instance != self.primary_instance:
-                try:
-                    await self._dispose_instance_task(old_instance)
-                except Exception as exc:
-                    logger.warning(
-                        "Failed to dispose old session instance",
-                        name="acp_attach_dispose_error",
-                        session_id=session_state.session_id,
-                        error=str(exc),
-                    )
+        instance = await self._replace_instance_for_session(
+            session_state,
+            dispose_error_name="acp_attach_dispose_error",
+            await_refresh_session_state=False,
+        )
 
         if session_state.acp_context:
             await session_state.acp_context.send_available_commands_update()
@@ -881,38 +871,11 @@ class AgentACPServer(ACPAgent):
         if not detached_names:
             return session_state.instance, []
 
-        if self._instance_scope == "shared":
-            async with self._shared_reload_lock:
-                new_instance = await self._create_instance_task()
-                old_instance = self.primary_instance
-                self.primary_instance = new_instance
-                latest_version = (
-                    self._get_registry_version() if self._get_registry_version else None
-                )
-                self._primary_registry_version = getattr(
-                    new_instance, "registry_version", latest_version
-                )
-                self._stale_instances.append(old_instance)
-                self.primary_agent_name = self._select_primary_agent(new_instance)
-                await self._refresh_sessions_for_instance(new_instance)
-            instance = session_state.instance
-        else:
-            instance = await self._create_instance_task()
-            old_instance = session_state.instance
-            session_state.instance = instance
-            async with self._session_lock:
-                self.sessions[session_state.session_id] = instance
-            self._refresh_session_state(session_state, instance)
-            if old_instance != self.primary_instance:
-                try:
-                    await self._dispose_instance_task(old_instance)
-                except Exception as exc:
-                    logger.warning(
-                        "Failed to dispose old session instance",
-                        name="acp_detach_dispose_error",
-                        session_id=session_state.session_id,
-                        error=str(exc),
-                    )
+        instance = await self._replace_instance_for_session(
+            session_state,
+            dispose_error_name="acp_detach_dispose_error",
+            await_refresh_session_state=False,
+        )
 
         if session_state.acp_context:
             await session_state.acp_context.send_available_commands_update()
