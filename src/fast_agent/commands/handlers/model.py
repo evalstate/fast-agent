@@ -85,6 +85,25 @@ async def handle_model_reasoning(
     if parsed.kind == "toggle":
         parsed = _resolve_toggle_to_default(spec, bool(parsed.value))
 
+    if parsed.kind == "effort" and spec.kind == "budget":
+        try:
+            llm.set_reasoning_effort(parsed)
+        except ValueError as exc:
+            allowed = ", ".join(available_reasoning_values(spec))
+            outcome.add_message(
+                f"{exc} Allowed values: {allowed}.",
+                channel="error",
+                right_info="model",
+            )
+            return outcome
+
+        outcome.add_message(
+            f"Reasoning effort set to {format_reasoning_setting(llm.reasoning_effort)}.",
+            channel="info",
+            right_info="model",
+        )
+        return outcome
+
     try:
         parsed = validate_reasoning_setting(parsed, spec)
     except ValueError as exc:

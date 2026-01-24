@@ -196,6 +196,12 @@ class ShellCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class ModelReasoningCommand(CommandBase):
+    value: str | None
+    kind: Literal["model_reasoning"] = "model_reasoning"
+
+
+@dataclass(frozen=True, slots=True)
 class UnknownCommand(CommandBase):
     command: str
     kind: Literal["unknown_command"] = "unknown_command"
@@ -232,6 +238,7 @@ CommandPayload = (
     | ForkSessionCommand
     | ClearSessionsCommand
     | ShellCommand
+    | ModelReasoningCommand
     | UnknownCommand
 )
 

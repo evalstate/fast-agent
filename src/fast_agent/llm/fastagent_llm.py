@@ -46,6 +46,11 @@ from fast_agent.interfaces import (
 from fast_agent.llm.memory import Memory, SimpleMemory
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.reasoning_effort import (
+    ReasoningEffortSetting,
+    ReasoningEffortSpec,
+    validate_reasoning_setting,
+)
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.usage_tracking import TurnUsage, UsageAccumulator
 from fast_agent.mcp.helpers.content_helpers import get_text
@@ -170,6 +175,14 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         # Cache effective model name for type-safe access
         self._model_name: str | None = self.default_request_params.model
 
+        # Reasoning effort configuration (provider-neutral)
+        self._reasoning_effort: ReasoningEffortSetting | None = None
+        self._reasoning_effort_spec: ReasoningEffortSpec | None = (
+            ModelDatabase.get_reasoning_effort_spec(self._model_name or "")
+            if self._model_name
+            else None
+        )
+
         self.verb = kwargs.get("verb")
 
         self._init_api_key = api_key
@@ -180,6 +193,26 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         self._tool_stream_listeners: set[Callable[[str, dict[str, Any] | None], None]] = set()
         self.retry_count = self._resolve_retry_count()
         self.retry_backoff_seconds: float = 10.0
+
+    def set_reasoning_effort(self, setting: ReasoningEffortSetting | None) -> None:
+        if setting is None:
+            self._reasoning_effort = None
+            return
+
+        if self._reasoning_effort_spec:
+            self._reasoning_effort = validate_reasoning_setting(
+                setting, self._reasoning_effort_spec
+            )
+        else:
+            self._reasoning_effort = setting
+
+    @property
+    def reasoning_effort(self) -> ReasoningEffortSetting | None:
+        return self._reasoning_effort
+
+    @property
+    def reasoning_effort_spec(self) -> ReasoningEffortSpec | None:
+        return self._reasoning_effort_spec
 
     def _initialize_default_params(self, kwargs: dict[str, Any]) -> RequestParams:
         """Initialize default parameters for the LLM.

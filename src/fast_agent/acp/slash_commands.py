@@ -39,6 +39,7 @@ from fast_agent.acp.command_io import ACPCommandIO
 from fast_agent.commands.context import CommandContext
 from fast_agent.commands.handlers import agent_cards as agent_card_handlers
 from fast_agent.commands.handlers import history as history_handlers
+from fast_agent.commands.handlers import model as model_handlers
 from fast_agent.commands.handlers import sessions as sessions_handlers
 from fast_agent.commands.handlers import skills as skills_handlers
 from fast_agent.commands.handlers.shared import clear_agent_histories
@@ -261,6 +262,13 @@ class SlashCommandHandler:
                 description="List or manage local skills (add/remove/registry)",
                 input=AvailableCommandInput(
                     root=UnstructuredCommandInput(hint="[add|remove|registry] [name|number|url]")
+                ),
+            ),
+            "model": AvailableCommand(
+                name="model",
+                description="Update model settings",
+                input=AvailableCommandInput(
+                    root=UnstructuredCommandInput(hint="reasoning <value>")
                 ),
             ),
             "history": AvailableCommand(
@@ -492,6 +500,8 @@ class SlashCommandHandler:
                 return await self._handle_history(arguments)
             if command_name == "clear":
                 return await self._handle_clear(arguments)
+            if command_name == "model":
+                return await self._handle_model(arguments)
             if command_name == "session":
                 return await self._handle_session(arguments)
             if command_name == "card":
@@ -546,6 +556,38 @@ class SlashCommandHandler:
                 "Usage: /history [show|save|load] [args]",
             ]
         )
+
+    async def _handle_model(self, arguments: str | None = None) -> str:
+        remainder = (arguments or "").strip()
+        if not remainder:
+            value = None
+        else:
+            try:
+                tokens = shlex.split(remainder)
+            except ValueError:
+                tokens = remainder.split(maxsplit=1)
+
+            if not tokens:
+                value = None
+            else:
+                subcmd = tokens[0].lower()
+                argument = remainder[len(tokens[0]) :].strip()
+                if subcmd != "reasoning":
+                    return "Usage: /model reasoning <value>"
+                value = argument or None
+
+        io = ACPCommandIO()
+        ctx = CommandContext(
+            agent_provider=_SimpleAgentProvider(self.instance.agents),
+            current_agent_name=self.current_agent_name,
+            io=io,
+        )
+        outcome = await model_handlers.handle_model_reasoning(
+            ctx,
+            agent_name=self.current_agent_name,
+            value=value,
+        )
+        return render_command_outcome_markdown(outcome, heading="model")
 
     async def _handle_session(self, arguments: str | None = None) -> str:
         """Handle the /session command."""
@@ -1344,4 +1386,3 @@ class SlashCommandHandler:
             agent_name=self.current_agent_name,
         )
         return self._format_outcome_as_markdown(outcome, "clear last conversation turn", io=io)
-

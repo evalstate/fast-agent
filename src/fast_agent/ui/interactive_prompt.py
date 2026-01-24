@@ -29,6 +29,7 @@ from fast_agent.commands.context import CommandContext
 from fast_agent.commands.handlers import agent_cards as agent_card_handlers
 from fast_agent.commands.handlers import display as display_handlers
 from fast_agent.commands.handlers import history as history_handlers
+from fast_agent.commands.handlers import model as model_handlers
 from fast_agent.commands.handlers import prompts as prompt_handlers
 from fast_agent.commands.handlers import sessions as sessions_handlers
 from fast_agent.commands.handlers import skills as skills_handlers
@@ -56,6 +57,7 @@ from fast_agent.ui.command_payloads import (
     ListToolsCommand,
     LoadAgentCardCommand,
     LoadPromptCommand,
+    ModelReasoningCommand,
     ReloadAgentsCommand,
     ResumeSessionCommand,
     SelectPromptCommand,
@@ -456,6 +458,15 @@ class InteractivePrompt:
                         )
                         await self._emit_command_outcome(context, outcome)
                         continue
+                    case ModelReasoningCommand(value=value):
+                        context = self._build_command_context(prompt_provider, agent)
+                        outcome = await model_handlers.handle_model_reasoning(
+                            context,
+                            agent_name=agent,
+                            value=value,
+                        )
+                        await self._emit_command_outcome(context, outcome)
+                        continue
                     case CreateSessionCommand(session_name=session_name):
                         context = self._build_command_context(prompt_provider, agent)
                         outcome = await sessions_handlers.handle_create_session(
@@ -697,4 +708,3 @@ class InteractivePrompt:
             config = get_settings()
 
         return ConsoleDisplay(config=config)
-

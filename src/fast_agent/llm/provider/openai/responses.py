@@ -21,6 +21,7 @@ from fast_agent.llm.provider.openai.responses_streaming import (
     _stream_capture_filename,
 )
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.reasoning_effort import format_reasoning_setting, parse_reasoning_setting
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
@@ -64,12 +65,23 @@ class ResponsesLLM(
         self._tool_call_id_map: dict[str, str] = {}
         self._file_id_cache: dict[str, str] = {}
 
-        self._reasoning_effort = kwargs.get("reasoning_effort", None)
-        if self.context and self.context.config and self.context.config.openai:
-            if self._reasoning_effort is None and hasattr(
-                self.context.config.openai, "reasoning_effort"
-            ):
-                self._reasoning_effort = self.context.config.openai.reasoning_effort
+        raw_setting = kwargs.get("reasoning_effort", None)
+        settings = self._get_provider_config()
+        if settings and raw_setting is None:
+            raw_setting = getattr(settings, "reasoning", None)
+            if raw_setting is None and hasattr(settings, "reasoning_effort"):
+                raw_setting = settings.reasoning_effort
+                if raw_setting is not None:
+                    self.logger.warning(
+                        "Responses config 'reasoning_effort' is deprecated; use 'reasoning'."
+                    )
+
+        setting = parse_reasoning_setting(raw_setting)
+        if setting is not None:
+            try:
+                self.set_reasoning_effort(setting)
+            except ValueError as exc:
+                self.logger.warning(f"Invalid reasoning setting: {exc}")
 
         chosen_model = self.default_request_params.model if self.default_request_params else None
         self._reasoning_mode = ModelDatabase.get_reasoning(chosen_model) if chosen_model else None
@@ -77,8 +89,21 @@ class ResponsesLLM(
         if self._reasoning_mode:
             self.logger.info(
                 f"Using Responses model '{chosen_model}' (mode='{self._reasoning_mode}') with "
-                f"'{self._reasoning_effort}' reasoning effort"
+                f"'{format_reasoning_setting(self.reasoning_effort)}' reasoning effort"
             )
+
+    def _resolve_reasoning_effort(self) -> str | None:
+        setting = self.reasoning_effort
+        if setting is None:
+            return DEFAULT_REASONING_EFFORT
+        if setting.kind == "effort":
+            return str(setting.value)
+        if setting.kind == "toggle":
+            return None if setting.value is False else DEFAULT_REASONING_EFFORT
+        if setting.kind == "budget":
+            self.logger.warning("Ignoring budget reasoning setting for Responses models.")
+            return DEFAULT_REASONING_EFFORT
+        return DEFAULT_REASONING_EFFORT
 
     def _initialize_default_params(self, kwargs: dict[str, Any]) -> RequestParams:
         base_params = super()._initialize_default_params(kwargs)
@@ -186,10 +211,12 @@ class ResponsesLLM(
             ]
 
         if self._reasoning:
-            base_args["reasoning"] = {
-                "summary": "auto",
-                "effort": self._reasoning_effort or DEFAULT_REASONING_EFFORT,
-            }
+            effort = self._resolve_reasoning_effort()
+            if effort:
+                base_args["reasoning"] = {
+                    "summary": "auto",
+                    "effort": effort,
+                }
 
         if request_params.maxTokens is not None:
             max_tokens = request_params.maxTokens

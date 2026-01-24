@@ -37,6 +37,7 @@ from fast_agent.llm.provider.error_utils import build_stream_failure_response
 from fast_agent.llm.provider.openai.multipart_converter_openai import OpenAIConverter
 from fast_agent.llm.provider.openai.tool_notifications import OpenAIToolNotificationMixin
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.reasoning_effort import format_reasoning_setting, parse_reasoning_setting
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.usage_tracking import TurnUsage
 from fast_agent.mcp.helpers.content_helpers import get_text
@@ -118,12 +119,24 @@ class OpenAILLM(
         self.logger = get_logger(f"{__name__}.{self.name}" if self.name else __name__)
 
         # Set up reasoning-related attributes
-        self._reasoning_effort = kwargs.get("reasoning_effort", None)
+        raw_setting = kwargs.get("reasoning_effort", None)
         if self.context and self.context.config and self.context.config.openai:
-            if self._reasoning_effort is None and hasattr(
-                self.context.config.openai, "reasoning_effort"
-            ):
-                self._reasoning_effort = self.context.config.openai.reasoning_effort
+            config = self.context.config.openai
+            if raw_setting is None:
+                raw_setting = config.reasoning
+                if raw_setting is None and hasattr(config, "reasoning_effort"):
+                    raw_setting = config.reasoning_effort
+                    if raw_setting is not None:
+                        self.logger.warning(
+                            "OpenAI config 'reasoning_effort' is deprecated; use 'reasoning'."
+                        )
+
+        setting = parse_reasoning_setting(raw_setting)
+        if setting is not None:
+            try:
+                self.set_reasoning_effort(setting)
+            except ValueError as exc:
+                self.logger.warning(f"Invalid reasoning setting: {exc}")
 
         # Determine reasoning mode for the selected model
         chosen_model = self.default_request_params.model if self.default_request_params else None
@@ -132,8 +145,21 @@ class OpenAILLM(
         if self._reasoning_mode:
             self.logger.info(
                 f"Using reasoning model '{chosen_model}' (mode='{self._reasoning_mode}') with "
-                f"'{self._reasoning_effort}' reasoning effort"
+                f"'{format_reasoning_setting(self.reasoning_effort)}' reasoning effort"
             )
+
+    def _resolve_reasoning_effort(self) -> str | None:
+        setting = self.reasoning_effort
+        if setting is None:
+            return DEFAULT_REASONING_EFFORT
+        if setting.kind == "effort":
+            return str(setting.value)
+        if setting.kind == "toggle":
+            return None if setting.value is False else DEFAULT_REASONING_EFFORT
+        if setting.kind == "budget":
+            self.logger.warning("Ignoring budget reasoning setting for OpenAI models.")
+            return DEFAULT_REASONING_EFFORT
+        return DEFAULT_REASONING_EFFORT
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize OpenAI-specific default parameters"""
@@ -1083,10 +1109,11 @@ class OpenAILLM(
         }
 
         if self._reasoning:
+            effort = self._resolve_reasoning_effort()
             base_args.update(
                 {
                     "max_completion_tokens": request_params.maxTokens,
-                    "reasoning_effort": self._reasoning_effort,
+                    **({"reasoning_effort": effort} if effort else {}),
                 }
             )
         else:

@@ -1,5 +1,5 @@
-from enum import Enum
 from typing import Type, Union
+from urllib.parse import parse_qs
 
 from pydantic import BaseModel
 
@@ -10,19 +10,11 @@ from fast_agent.llm.internal.playback import PlaybackLLM
 from fast_agent.llm.internal.silent import SilentLLM
 from fast_agent.llm.internal.slow import SlowLLM
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, parse_reasoning_setting
 from fast_agent.types import RequestParams
 
 # Type alias for LLM classes
 LLMClass = Union[Type[PassthroughLLM], Type[PlaybackLLM], Type[SilentLLM], Type[SlowLLM], type]
-
-
-class ReasoningEffort(Enum):
-    """Optional reasoning effort levels"""
-
-    MINIMAL = "minimal"
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
 
 
 class ModelConfig(BaseModel):
@@ -30,20 +22,11 @@ class ModelConfig(BaseModel):
 
     provider: Provider
     model_name: str
-    reasoning_effort: ReasoningEffort | None = None
+    reasoning_effort: ReasoningEffortSetting | None = None
 
 
 class ModelFactory:
     """Factory for creating LLM instances based on model specifications"""
-
-    # Mapping of effort strings to enum values
-    # TODO -- move this to the model database
-    EFFORT_MAP = {
-        "minimal": ReasoningEffort.MINIMAL,  # Alias for low effort
-        "low": ReasoningEffort.LOW,
-        "medium": ReasoningEffort.MEDIUM,
-        "high": ReasoningEffort.HIGH,
-    }
 
     """
     TODO -- add audio supporting got-4o-audio-preview
@@ -191,6 +174,19 @@ class ModelFactory:
         if aliases is None:
             aliases = cls.MODEL_ALIASES
 
+        query_setting: ReasoningEffortSetting | None = None
+        if "?" in model_string:
+            model_string, _, query = model_string.partition("?")
+            query_params = parse_qs(query)
+            if "reasoning" in query_params:
+                values = query_params.get("reasoning") or []
+                raw_value = values[-1] if values else ""
+                query_setting = parse_reasoning_setting(raw_value)
+                if query_setting is None:
+                    raise ModelConfigError(
+                        f"Invalid reasoning query value: '{raw_value}' in '{model_string}'"
+                    )
+
         suffix: str | None = None
         if ":" in model_string:
             base, suffix = model_string.rsplit(":", 1)
@@ -214,14 +210,21 @@ class ModelFactory:
 
         model_name_str = model_string  # Default full string as model name initially
         provider: Provider | None = provider_override
-        reasoning_effort = None
+        reasoning_effort = query_setting
         parts_for_provider_model = []
 
         # Check for reasoning effort first (last part)
-        if len(parts) > 1 and parts[-1].lower() in cls.EFFORT_MAP:
-            reasoning_effort = cls.EFFORT_MAP[parts[-1].lower()]
-            # Remove effort from parts list for provider/model name determination
-            parts_for_provider_model = parts[:-1]
+        if len(parts) > 1 and parse_reasoning_setting(parts[-1].lower()):
+            suffix_setting = parse_reasoning_setting(parts[-1].lower())
+            if suffix_setting and suffix_setting.kind == "effort":
+                if query_setting is not None:
+                    raise ModelConfigError(
+                        f"Multiple reasoning settings provided for '{model_string}'."
+                    )
+                reasoning_effort = suffix_setting
+                parts_for_provider_model = parts[:-1]
+            else:
+                parts_for_provider_model = parts[:]
         else:
             parts_for_provider_model = parts[:]
 
@@ -307,7 +310,7 @@ class ModelFactory:
             base_params = RequestParams()
             base_params.model = config.model_name
             if config.reasoning_effort:
-                kwargs["reasoning_effort"] = config.reasoning_effort.value
+                kwargs["reasoning_effort"] = config.reasoning_effort
             llm_args = {
                 "model": config.model_name,
                 "request_params": request_params,
