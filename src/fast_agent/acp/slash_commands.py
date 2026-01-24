@@ -88,6 +88,8 @@ from fast_agent.skills.manager import (
 from fast_agent.skills.registry import SkillManifest, format_skills_for_prompt
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from mcp.types import ListToolsResult
 
     from fast_agent.commands.context import AgentProvider
@@ -96,7 +98,7 @@ if TYPE_CHECKING:
 
 
 class _SimpleAgentProvider:
-    def __init__(self, agents: dict[str, object]) -> None:
+    def __init__(self, agents: "Mapping[str, object]") -> None:
         self._agents = agents
 
     def _agent(self, name: str):
@@ -606,7 +608,7 @@ class SlashCommandHandler:
             agent=agent,
             client_info=self.client_info,
             client_capabilities=self.client_capabilities,
-            protocol_version=self.protocol_version,
+            protocol_version=str(self.protocol_version) if self.protocol_version is not None else None,
             uptime_seconds=uptime_seconds,
             instance=self.instance,
         )

@@ -369,7 +369,20 @@ def build_warning_summary(
     warnings: list[str] = []
 
     if instance and hasattr(instance, "app") and hasattr(instance.app, "card_collision_warnings"):
-        warnings.extend(instance.app.card_collision_warnings)
+        warnings_attr = instance.app.card_collision_warnings
+        if isinstance(warnings_attr, list):
+            warnings.extend(str(item) for item in warnings_attr)
+        elif isinstance(warnings_attr, tuple):
+            warnings.extend(str(item) for item in warnings_attr)
+        elif warnings_attr:
+            from collections.abc import Iterable
+
+            if isinstance(warnings_attr, Iterable) and not isinstance(
+                warnings_attr, (str, bytes)
+            ):
+                warnings.extend(str(item) for item in warnings_attr)
+            else:
+                warnings.append(str(warnings_attr))
 
     if isinstance(agent, WarningAwareAgent):
         warnings.extend(agent.warnings)
