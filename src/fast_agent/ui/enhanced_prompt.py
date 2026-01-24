@@ -1138,7 +1138,10 @@ class AgentCompleter(Completer):
                 remainder = ""
             parts = remainder.split(maxsplit=1)
             subcommands = {
-                "reasoning": "Set reasoning effort (low/medium/high/budget/off)",
+                "reasoning": (
+                    "Set reasoning effort (off/low/medium/high/xhigh or budgets like "
+                    "0/1024/16000/32000)"
+                ),
             }
             if not parts or (len(parts) == 1 and not remainder.endswith(" ")):
                 partial = parts[0] if parts else ""
@@ -1985,13 +1988,8 @@ async def get_enhanced_input(
                                 )
                         if not child_model_name:
                             child_model_name = fan_out_agent.config.model
-                        if (
-                            not child_model_name
-                            and fan_out_agent.config.default_request_params
-                        ):
-                            child_model_name = (
-                                fan_out_agent.config.default_request_params.model
-                            )
+                        if not child_model_name and fan_out_agent.config.default_request_params:
+                            child_model_name = fan_out_agent.config.default_request_params.model
                         if child_model_name:
                             display_name = (
                                 format_model_display(child_model_name) or child_model_name
@@ -2060,14 +2058,14 @@ async def get_enhanced_input(
         if model_display:
             # Model chip + inline TDV flags
             if tdv_segment:
-                gauge_segment = f" {reasoning_gauge}" if reasoning_gauge else ""
+                gauge_segment = f"{reasoning_gauge}" if reasoning_gauge else ""
                 middle_segments.append(
-                    f"{tdv_segment} <style bg='ansigreen'>{model_display}</style>{gauge_segment}{codex_suffix}"
+                    f"{tdv_segment}{gauge_segment} <style bg='ansigreen'>{model_display}</style>{codex_suffix}"
                 )
             else:
-                gauge_segment = f" {reasoning_gauge}" if reasoning_gauge else ""
+                gauge_segment = f"{reasoning_gauge}" if reasoning_gauge else ""
                 middle_segments.append(
-                    f"<style bg='ansigreen'>{model_display}</style>{gauge_segment}{codex_suffix}"
+                    f"{gauge_segment} <style bg='ansigreen'>{model_display}</style>{codex_suffix}"
                 )
 
         # Add turn counter (formatted as 3 digits)
@@ -2519,10 +2517,16 @@ async def handle_special_commands(
         rich_print("  /skills        - List local skills for the manager directory")
         rich_print("  /skills add    - Install a skill from the marketplace")
         rich_print("  /skills remove - Remove a skill from the manager directory")
-        rich_print("  /model reasoning <value> - Set reasoning effort for the current model")
+        rich_print(
+            "  /model reasoning <value> - Set reasoning effort (off/low/medium/high/xhigh or budgets like 0/1024/16000/32000)"
+        )
         rich_print("  /history [agent_name] - Show chat history overview")
-        rich_print("  /history clear all [agent_name] - Clear conversation history (keeps templates)")
-        rich_print("  /history clear last [agent_name] - Remove the most recent message from history")
+        rich_print(
+            "  /history clear all [agent_name] - Clear conversation history (keeps templates)"
+        )
+        rich_print(
+            "  /history clear last [agent_name] - Remove the most recent message from history"
+        )
         rich_print("  /markdown      - Show last assistant message without markdown formatting")
         rich_print("  /mcpstatus     - Show MCP server status summary for the active agent")
         rich_print("  /history save [filename] - Save current chat history to a file")
@@ -2573,7 +2577,6 @@ async def handle_special_commands(
 
     elif isinstance(command, str) and command.upper() == "EXIT":
         raise PromptExitError("User requested to exit fast-agent session")
-
 
     elif command == "SHOW_USAGE":
         return _show_usage_cmd()

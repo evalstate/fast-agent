@@ -6,10 +6,11 @@ from dataclasses import dataclass
 from typing import Final, Literal, TypeAlias, cast
 
 ReasoningEffortKind = Literal["effort", "toggle", "budget"]
-ReasoningEffortLevel = Literal["minimal", "low", "medium", "high", "xhigh"]
+ReasoningEffortLevel = Literal["none", "minimal", "low", "medium", "high", "xhigh"]
 ReasoningEffortValue = ReasoningEffortLevel | bool | int
 
 EFFORT_LEVELS: Final[tuple[ReasoningEffortLevel, ...]] = (
+    "none",
     "minimal",
     "low",
     "medium",
@@ -37,6 +38,7 @@ class ReasoningEffortSpec:
     allowed_efforts: list[ReasoningEffortLevel] | None = None
     min_budget_tokens: int | None = None
     max_budget_tokens: int | None = None
+    budget_presets: list[int] | None = None
     default: ReasoningEffortSetting | None = None
 
 
@@ -147,13 +149,18 @@ def available_reasoning_values(spec: ReasoningEffortSpec | None) -> list[str]:
         values = list(spec.allowed_efforts or EFFORT_LEVELS)
     elif spec.kind == "budget":
         values = []
-        if spec.min_budget_tokens is not None:
-            values.append(str(spec.min_budget_tokens))
-        if spec.max_budget_tokens is not None:
-            values.append(str(spec.max_budget_tokens))
+        presets = spec.budget_presets
+        if presets:
+            values.extend(str(value) for value in presets)
+        else:
+            if spec.min_budget_tokens is not None:
+                values.append(str(spec.min_budget_tokens))
+            if spec.max_budget_tokens is not None:
+                values.append(str(spec.max_budget_tokens))
     else:
         values = ["on", "off"]
 
-    if "off" not in values:
-        values.append("off")
+    if spec.kind != "effort" or "none" in values:
+        if "off" not in values:
+            values.append("off")
     return values

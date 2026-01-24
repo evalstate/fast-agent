@@ -62,9 +62,19 @@ async def handle_model_reasoning(
         )
         return outcome
 
+    model_name = getattr(llm, "_model_name", None)
+    if model_name:
+        outcome.add_message(
+            f"Resolved model: {model_name}.",
+            channel="info",
+            right_info="model",
+        )
+
     if value is None:
         current = format_reasoning_setting(llm.reasoning_effort or spec.default)
         allowed = ", ".join(available_reasoning_values(spec))
+        if spec.kind == "budget" and spec.budget_presets:
+            allowed = f"{allowed} (presets; any value between {spec.min_budget_tokens} and {spec.max_budget_tokens} is allowed)"
         outcome.add_message(
             f"Reasoning effort: {current}. Allowed values: {allowed}.",
             channel="info",
@@ -83,6 +93,18 @@ async def handle_model_reasoning(
         return outcome
 
     if parsed.kind == "toggle":
+        if (
+            spec.kind == "effort"
+            and parsed.value is False
+            and "none" not in (spec.allowed_efforts or [])
+        ):
+            allowed = ", ".join(available_reasoning_values(spec))
+            outcome.add_message(
+                f"Reasoning disable is not supported for this model. Allowed values: {allowed}.",
+                channel="error",
+                right_info="model",
+            )
+            return outcome
         parsed = _resolve_toggle_to_default(spec, bool(parsed.value))
 
     if parsed.kind == "effort" and spec.kind == "budget":

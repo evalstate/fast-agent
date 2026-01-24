@@ -83,6 +83,30 @@ class ModelDatabase:
     XAI_VISION = ["text/plain", "image/jpeg", "image/png", "image/webp"]
     TEXT_ONLY = ["text/plain"]
 
+    OPENAI_O_CLASS_REASONING = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "medium", "high"],
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
+    )
+
+    OPENAI_GPT_5_CLASS_REASONING = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["minimal", "low", "medium", "high"],
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
+    )
+
+    OPENAI_GPT_51_CLASS_REASONING = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["none", "low", "medium", "high", "xhigh"],
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
+    )
+
+    OPENAI_GPT_5_CODEX_CLASS_REASONING = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "medium", "high", "xhigh"],
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
+    )
+
     OPENAI_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
         kind="effort",
         allowed_efforts=["minimal", "low", "medium", "high", "xhigh"],
@@ -93,6 +117,7 @@ class ModelDatabase:
         kind="budget",
         min_budget_tokens=1024,
         max_budget_tokens=128000,
+        budget_presets=[0, 1024, 16000, 32000],
         default=ReasoningEffortSetting(kind="budget", value=10000),
     )
 
@@ -166,7 +191,7 @@ class ModelDatabase:
         max_output_tokens=100000,
         tokenizes=OPENAI_MULTIMODAL,
         reasoning="openai",
-        reasoning_effort_spec=OPENAI_REASONING_EFFORT_SPEC,
+        reasoning_effort_spec=OPENAI_O_CLASS_REASONING,
     )
 
     OPENAI_O3_MINI_SERIES = ModelParameters(
@@ -174,7 +199,7 @@ class ModelDatabase:
         max_output_tokens=100000,
         tokenizes=TEXT_ONLY,
         reasoning="openai",
-        reasoning_effort_spec=OPENAI_REASONING_EFFORT_SPEC,
+        reasoning_effort_spec=OPENAI_O_CLASS_REASONING,
     )
     OPENAI_GPT_OSS_SERIES = ModelParameters(
         context_window=131072,
@@ -188,7 +213,23 @@ class ModelDatabase:
         max_output_tokens=128000,
         tokenizes=OPENAI_MULTIMODAL,
         reasoning="openai",
-        reasoning_effort_spec=OPENAI_REASONING_EFFORT_SPEC,
+        reasoning_effort_spec=OPENAI_GPT_5_CLASS_REASONING,
+    )
+
+    OPENAI_GPT_5_2 = ModelParameters(
+        context_window=400000,
+        max_output_tokens=128000,
+        tokenizes=OPENAI_MULTIMODAL,
+        reasoning="openai",
+        reasoning_effort_spec=OPENAI_GPT_51_CLASS_REASONING,
+    )
+
+    OPENAI_GPT_CODEX = ModelParameters(
+        context_window=400000,
+        max_output_tokens=128000,
+        tokenizes=OPENAI_MULTIMODAL,
+        reasoning="openai",
+        reasoning_effort_spec=OPENAI_GPT_5_CODEX_CLASS_REASONING,
     )
 
     ANTHROPIC_OPUS_4_VERSIONED = ModelParameters(
@@ -362,9 +403,9 @@ class ModelDatabase:
         "gpt-5": OPENAI_GPT_5,
         "gpt-5-mini": OPENAI_GPT_5,
         "gpt-5-nano": OPENAI_GPT_5,
-        "gpt-5.1": OPENAI_GPT_5,
-        "gpt-5.1-codex": OPENAI_GPT_5,
-        "gpt-5.2-codex": OPENAI_GPT_5,
+        "gpt-5.1": OPENAI_GPT_5_2,
+        "gpt-5.1-codex": OPENAI_GPT_CODEX,
+        "gpt-5.2-codex": OPENAI_GPT_CODEX,
         "gpt-5.2": OPENAI_GPT_5,
         # Anthropic Models
         "claude-3-haiku": ANTHROPIC_35_SERIES,
