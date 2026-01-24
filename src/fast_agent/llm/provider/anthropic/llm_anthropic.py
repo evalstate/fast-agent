@@ -36,7 +36,7 @@ from mcp.types import (
     TextContent,
 )
 
-from fast_agent.constants import ANTHROPIC_THINKING_BLOCKS, FAST_AGENT_ERROR_CHANNEL, REASONING
+from fast_agent.constants import ANTHROPIC_THINKING_BLOCKS, REASONING
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
@@ -50,10 +50,10 @@ from fast_agent.llm.provider.anthropic.cache_planner import AnthropicCachePlanne
 from fast_agent.llm.provider.anthropic.multipart_converter_anthropic import (
     AnthropicConverter,
 )
+from fast_agent.llm.provider.error_utils import build_stream_failure_response
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.usage_tracking import TurnUsage
-from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
@@ -486,58 +486,11 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             # Re-raise for consistent handling - caller handles the error
             raise
 
-    def _stream_failure_response(self, error: Exception, model_name: str) -> PromptMessageExtended:
-        """Convert streaming API errors into a graceful assistant reply."""
-
-        provider_label = (
-            self.provider.value if isinstance(self.provider, Provider) else str(self.provider)
-        )
-        detail = getattr(error, "message", None) or str(error)
-        detail = detail.strip() if isinstance(detail, str) else ""
-
-        parts: list[str] = [f"{provider_label} request failed"]
-        if model_name:
-            parts.append(f"for model '{model_name}'")
-        code = getattr(error, "code", None)
-        if code:
-            parts.append(f"(code: {code})")
-        status = getattr(error, "status_code", None)
-        if status:
-            parts.append(f"(status={status})")
-
-        message = " ".join(parts)
-        if detail:
-            message = f"{message}: {detail}"
-
-        user_summary = " ".join(message.split()) if message else ""
-        if user_summary and len(user_summary) > 280:
-            user_summary = user_summary[:277].rstrip() + "..."
-
-        if user_summary:
-            assistant_text = f"I hit an internal error while calling the model: {user_summary}"
-            if not assistant_text.endswith((".", "!", "?")):
-                assistant_text += "."
-            assistant_text += " See fast-agent-error for additional details."
-        else:
-            assistant_text = (
-                "I hit an internal error while calling the model; see fast-agent-error for details."
-            )
-
-        assistant_block = text_content(assistant_text)
-        error_block = text_content(message)
-
-        return PromptMessageExtended(
-            role="assistant",
-            content=[assistant_block],
-            channels={FAST_AGENT_ERROR_CHANNEL: [error_block]},
-            stop_reason=LlmStopReason.ERROR,
-        )
-
     def _handle_retry_failure(self, error: Exception) -> PromptMessageExtended | None:
         """Return the legacy error-channel response when retries are exhausted."""
         if isinstance(error, APIError):
             model_name = self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
-            return self._stream_failure_response(error, model_name)
+            return build_stream_failure_response(self.provider, error, model_name)
         return None
 
     def _build_request_messages(
@@ -724,7 +677,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             # This path shouldn't be reached anymore since we handle APIError above,
             # but keeping for backward compatibility
             logger.error(f"Unexpected error type: {type(response).__name__}", exc_info=response)
-            return self._stream_failure_response(response, model)
+            return build_stream_failure_response(self.provider, response, model)
 
         logger.debug(
             f"{model} response:",

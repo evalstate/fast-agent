@@ -43,12 +43,13 @@ class StubAgent:
         self,
         message,
         bottom_items: list[str] | None = None,
-        highlight_items: str | list[str] | None = None,
+        highlight_index: int | None = None,
         max_item_length: int | None = None,
         name: str | None = None,
         model: str | None = None,
         additional_message: Text | None = None,
         render_markdown: bool | None = None,
+        show_hook_indicator: bool = False,
     ) -> None:
         """Stub implementation with correct signature."""
         pass

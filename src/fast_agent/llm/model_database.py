@@ -294,6 +294,10 @@ class ModelDatabase:
         context_window=262_000, max_output_tokens=8192, tokenizes=TEXT_ONLY
     )
 
+    ALIYUN_QWEN3_MODERN = ModelParameters(
+        context_window=256_000, max_output_tokens=64_000, tokenizes=TEXT_ONLY
+    )
+
     # Model configuration database
     # KEEP ALL LOWER CASE KEYS
     MODELS: dict[str, ModelParameters] = {
@@ -402,6 +406,8 @@ class ModelDatabase:
         "qwen/qwen3-next-80b-a3b-instruct": HF_PROVIDER_QWEN3_NEXT,
         "deepseek-ai/deepseek-v3.1": HF_PROVIDER_DEEPSEEK31,
         "deepseek-ai/deepseek-v3.2": HF_PROVIDER_DEEPSEEK32,
+        # aliyun modern
+        "qwen3-max": ALIYUN_QWEN3_MODERN,
     }
 
     @classmethod

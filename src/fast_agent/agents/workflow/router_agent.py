@@ -312,7 +312,11 @@ class RouterAgent(LlmAgent):
 
         assert self._llm
         # Display the user's routing request
-        self.display.show_user_message(message.first_text(), name=self.name)
+        self.display.show_user_message(
+            message.first_text(),
+            name=self.name,
+            show_hook_indicator=getattr(self, "has_external_hooks", False),
+        )
 
         # No need to add routing instruction here - it's already in the system prompt
         response, _ = await self._llm.structured(
@@ -353,6 +357,7 @@ class RouterAgent(LlmAgent):
                 bottom_items=agent_keys,
                 highlight_index=highlight_index,
                 name=self.name,
+                show_hook_indicator=getattr(self, "has_external_hooks", False),
             )
 
             return response, None

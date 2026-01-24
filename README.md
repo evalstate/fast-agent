@@ -14,6 +14,8 @@
 
 **`fast-agent`** enables you to create and interact with sophisticated multimodal Agents and Workflows in minutes. It is the first framework with complete, end-to-end tested MCP Feature support including Sampling and Elicitations.
 
+`fast-agent` is CLI-first, with an optional prompt_toolkit-powered interactive terminal prompt (TUI-style input, completions, and in-terminal menus); responses can stream live to the terminal via rich without relying on full-screen curses UIs or external GUI overlays.
+
 <!-- ![multi_model_trim](https://github.com/user-attachments/assets/c8bf7474-2c41-4ef3-8924-06e29907d7c6) -->
 
 The simple declarative syntax lets you concentrate on composing your Prompts and MCP Servers to [build effective agents](https://www.anthropic.com/research/building-effective-agents).

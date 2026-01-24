@@ -243,7 +243,7 @@ async def test_slash_command_session_resume_switches_current_mode(tmp_path: Path
             f"resume {session.info.name}",
         )
 
-        assert "Switched current mode to: alpha" in response
+        assert "Switched to agent: alpha" in response
         assert handler.current_agent_name == "alpha"
         assert switched == ["alpha"]
     finally:
@@ -314,10 +314,12 @@ async def test_slash_command_history_save_conversation() -> None:
     response = await handler.execute_command("history", "save")
 
     assert "save conversation" in response.lower()
+    assert "History saved to" in response
     assert "24_01_01_12_00-conversation.json" in response
     assert exporter.calls == [(stub_agent, None)]
 
     response_with_filename = await handler.execute_command("history", "save custom.md")
+    assert "History saved to" in response_with_filename
     assert "custom.md" in response_with_filename
     assert exporter.calls[-1] == (stub_agent, "custom.md")
 
@@ -430,9 +432,8 @@ async def test_slash_command_history_load() -> None:
         response = await handler.execute_command("history", f"load {temp_path}")
 
         assert "load conversation" in response.lower()
-        assert "loaded successfully" in response.lower()
+        assert "loaded 2 messages" in response.lower()
         assert temp_path in response
-        assert "Messages: 2" in response
         assert len(stub_agent.message_history) == 2
         assert stub_agent.cleared is True  # History should be cleared before loading
     finally:
@@ -511,3 +512,88 @@ async def test_slash_command_session_list_no_sessions(tmp_path, monkeypatch) -> 
     response = await handler.execute_command("session", "list")
 
     assert "no sessions" in response.lower()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_card_loads_and_attaches() -> None:
+    """Test /card loads AgentCards and attaches tools when requested."""
+    stub_agent = StubAgent(message_history=[])
+    instance = StubAgentInstance(agents={"test-agent": stub_agent})
+
+    async def _card_loader(filename: str, parent_agent: str | None = None):
+        new_instance = StubAgentInstance(
+            agents={"test-agent": stub_agent, "alpha": StubAgent(name="alpha")}
+        )
+        return new_instance, ["alpha"], ["alpha"]
+
+    handler = _handler(instance, card_loader=_card_loader)
+    response = await handler.execute_command("card", "card.yml --tool")
+
+    assert "Loaded AgentCard(s): alpha" in response
+    assert "Attached agent tool(s): alpha" in response
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_agent_attach_and_detach() -> None:
+    """Test /agent --tool attach and remove flows."""
+    stub_agent = StubAgent(message_history=[])
+    alpha_agent = StubAgent(message_history=[], name="alpha")
+    instance = StubAgentInstance(agents={"test-agent": stub_agent, "alpha": alpha_agent})
+
+    async def _attach_agent(parent_agent: str, child_agents: list[str]):
+        return instance, child_agents
+
+    async def _detach_agent(parent_agent: str, child_agents: list[str]):
+        return instance, child_agents
+
+    handler = _handler(
+        instance,
+        attach_agent_callback=_attach_agent,
+        detach_agent_callback=_detach_agent,
+    )
+
+    response = await handler.execute_command("agent", "alpha --tool")
+    assert "Attached agent tool(s): alpha" in response
+
+    response = await handler.execute_command("agent", "alpha --tool remove")
+    assert "Detached agent tool(s): alpha" in response
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_agent_dump() -> None:
+    """Test /agent --dump returns agent card output."""
+    stub_agent = StubAgent(message_history=[])
+    instance = StubAgentInstance(agents={"test-agent": stub_agent})
+
+    async def _dump_agent(agent_name: str) -> str:
+        return "agent-card: test-agent"
+
+    handler = _handler(instance, dump_agent_callback=_dump_agent)
+    response = await handler.execute_command("agent", "--dump")
+
+    assert "agent-card: test-agent" in response
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_reload_agent_cards() -> None:
+    """Test /reload reports changes and no-changes states."""
+    stub_agent = StubAgent(message_history=[])
+    instance = StubAgentInstance(agents={"test-agent": stub_agent})
+
+    async def _reload_changed() -> bool:
+        return True
+
+    handler = _handler(instance, reload_callback=_reload_changed)
+    response = await handler.execute_command("reload", "")
+    assert "AgentCards reloaded" in response
+
+    async def _reload_no_change() -> bool:
+        return False
+
+    handler = _handler(instance, reload_callback=_reload_no_change)
+    response = await handler.execute_command("reload", "")
+    assert "No AgentCard changes detected" in response

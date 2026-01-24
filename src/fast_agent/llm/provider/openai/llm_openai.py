@@ -26,18 +26,20 @@ from openai.types.chat import (
 from openai.types.chat.chat_completion_message_tool_call import Function
 from pydantic_core import from_json
 
-from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, REASONING
+from fast_agent.constants import REASONING
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
 from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.fastagent_llm import FastAgentLLM, RequestParams
 from fast_agent.llm.model_database import ModelDatabase
+from fast_agent.llm.provider.error_utils import build_stream_failure_response
 from fast_agent.llm.provider.openai.multipart_converter_openai import OpenAIConverter
+from fast_agent.llm.provider.openai.tool_notifications import OpenAIToolNotificationMixin
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.usage_tracking import TurnUsage
-from fast_agent.mcp.helpers.content_helpers import get_text, text_content
+from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types import LlmStopReason, PromptMessageExtended
 
 _logger = get_logger(__name__)
@@ -89,7 +91,9 @@ def _save_stream_chunk(filename_base: Path | None, chunk: Any) -> None:
         _logger.debug(f"Failed to save stream chunk: {e}")
 
 
-class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage]):
+class OpenAILLM(
+    OpenAIToolNotificationMixin, FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage]
+):
     # Config section name override (falls back to provider value)
     config_section: str | None = None
     # OpenAI-specific parameter exclusions
@@ -225,37 +229,11 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             if not tool_use_id:
                 tool_use_id = f"tool-{index}"
 
-            payload = {
-                "tool_name": tool_name,
-                "tool_use_id": tool_use_id,
-                "index": index,
-            }
-
-            self._notify_tool_stream_listeners("start", payload)
-            self.logger.info(
-                "Model emitted fallback tool notification",
-                data={
-                    "progress_action": ProgressAction.CALLING_TOOL,
-                    "agent_name": self.name,
-                    "model": model,
-                    "tool_name": tool_name,
-                    "tool_use_id": tool_use_id,
-                    "tool_event": "start",
-                    "fallback": True,
-                },
-            )
-            self._notify_tool_stream_listeners("stop", payload)
-            self.logger.info(
-                "Model emitted fallback tool notification",
-                data={
-                    "progress_action": ProgressAction.CALLING_TOOL,
-                    "agent_name": self.name,
-                    "model": model,
-                    "tool_name": tool_name,
-                    "tool_use_id": tool_use_id,
-                    "tool_event": "stop",
-                    "fallback": True,
-                },
+            self._emit_fallback_tool_notification_event(
+                tool_name=tool_name,
+                tool_use_id=tool_use_id,
+                index=index,
+                model=model,
             )
 
     def _handle_reasoning_delta(
@@ -1049,58 +1027,11 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             stop_reason=stop_reason,
         )
 
-    def _stream_failure_response(self, error: APIError, model_name: str) -> PromptMessageExtended:
-        """Convert streaming API errors into a graceful assistant reply."""
-
-        provider_label = (
-            self.provider.value if isinstance(self.provider, Provider) else str(self.provider)
-        )
-        detail = getattr(error, "message", None) or str(error)
-        detail = detail.strip() if isinstance(detail, str) else ""
-
-        parts: list[str] = [f"{provider_label} request failed"]
-        if model_name:
-            parts.append(f"for model '{model_name}'")
-        code = getattr(error, "code", None)
-        if code:
-            parts.append(f"(code: {code})")
-        status = getattr(error, "status_code", None)
-        if status:
-            parts.append(f"(status={status})")
-
-        message = " ".join(parts)
-        if detail:
-            message = f"{message}: {detail}"
-
-        user_summary = " ".join(message.split()) if message else ""
-        if user_summary and len(user_summary) > 280:
-            user_summary = user_summary[:277].rstrip() + "..."
-
-        if user_summary:
-            assistant_text = f"I hit an internal error while calling the model: {user_summary}"
-            if not assistant_text.endswith((".", "!", "?")):
-                assistant_text += "."
-            assistant_text += " See fast-agent-error for additional details."
-        else:
-            assistant_text = (
-                "I hit an internal error while calling the model; see fast-agent-error for details."
-            )
-
-        assistant_block = text_content(assistant_text)
-        error_block = text_content(message)
-
-        return PromptMessageExtended(
-            role="assistant",
-            content=[assistant_block],
-            channels={FAST_AGENT_ERROR_CHANNEL: [error_block]},
-            stop_reason=LlmStopReason.ERROR,
-        )
-
     def _handle_retry_failure(self, error: Exception) -> PromptMessageExtended | None:
         """Return the legacy error-channel response when retries are exhausted."""
         if isinstance(error, APIError):
             model_name = self.default_request_params.model or DEFAULT_OPENAI_MODEL
-            return self._stream_failure_response(error, model_name)
+            return build_stream_failure_response(self.provider, error, model_name)
         return None
 
     async def _is_tool_stop_reason(self, finish_reason: str) -> bool:

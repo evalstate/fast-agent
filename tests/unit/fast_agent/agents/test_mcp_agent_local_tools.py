@@ -29,6 +29,7 @@ class CaptureDisplay(ConsoleDisplay):
         model: str | None = None,
         additional_message: Text | None = None,
         render_markdown: bool | None = None,
+        show_hook_indicator: bool = False,
     ) -> None:
         self.calls.append(
             {
@@ -122,4 +123,3 @@ async def test_card_tools_label_highlighted_on_use() -> None:
     assert call["highlight_index"] == 0
 
     await agent._aggregator.close()
-

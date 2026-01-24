@@ -200,4 +200,10 @@ fastagent.jsonl
 
 tests/e2e/smoke/base/weather_location.txt
 tests/integration/roots/fastagent.jsonl
-.fast-agent/
+
+
+# Runtime session data
+sessions/
+
+# Auth configuration (local/secrets)
+auths.md

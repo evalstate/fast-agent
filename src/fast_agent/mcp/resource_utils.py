@@ -169,6 +169,39 @@ def create_text_resource(
     )
 
 
+RESOURCE_MARKER_PREFIXES = ("[Resource:", "[Binary Resource:")
+
+
+def parse_resource_marker(text: str) -> EmbeddedResource | None:
+    if (
+        not text
+        or not text.startswith(RESOURCE_MARKER_PREFIXES)
+        or "\n" not in text
+    ):
+        return None
+
+    header, content_text = text.split("\n", 1)
+    if "MIME:" not in header:
+        return None
+
+    mime_match = header.split("MIME:", 1)[1].split("]")[0].strip()
+    if mime_match == "text/plain":
+        return None
+
+    if "Resource:" in header and "Binary Resource:" not in header:
+        uri = header.split("Resource:", 1)[1].split(",")[0].strip()
+        return EmbeddedResource(
+            type="resource",
+            resource=TextResourceContents(
+                uri=to_any_url(uri),
+                mimeType=mime_match,
+                text=content_text,
+            ),
+        )
+
+    return None
+
+
 def normalize_uri(uri_or_filename: str) -> str:
     """
     Normalize a URI or filename to ensure it's a valid URI.

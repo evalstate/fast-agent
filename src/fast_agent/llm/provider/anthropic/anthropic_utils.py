@@ -9,12 +9,11 @@ from anthropic.types import (
     MessageParam,
 )
 from mcp.types import (
-    EmbeddedResource,
     ImageContent,
     TextContent,
-    TextResourceContents,
 )
 
+from fast_agent.mcp.resource_utils import parse_resource_marker
 from fast_agent.types import PromptMessageExtended
 
 
@@ -46,29 +45,10 @@ def anthropic_message_param_to_prompt_message_multipart(
             if block.get("type") == "text":
                 text = block.get("text", "")
 
-                # Check if this is a resource marker
-                if (
-                    text
-                    and (text.startswith("[Resource:") or text.startswith("[Binary Resource:"))
-                    and "\n" in text
-                ):
-                    header, content_text = text.split("\n", 1)
-                    if "MIME:" in header:
-                        mime_match = header.split("MIME:", 1)[1].split("]")[0].strip()
-                        if mime_match != "text/plain":  # Only process non-plain text resources
-                            if "Resource:" in header and "Binary Resource:" not in header:
-                                uri = header.split("Resource:", 1)[1].split(",")[0].strip()
-                                mcp_contents.append(
-                                    EmbeddedResource(
-                                        type="resource",
-                                        resource=TextResourceContents(
-                                            uri=uri,
-                                            mimeType=mime_match,
-                                            text=content_text,
-                                        ),
-                                    )
-                                )
-                                continue
+                resource_marker = parse_resource_marker(text)
+                if resource_marker:
+                    mcp_contents.append(resource_marker)
+                    continue
 
                 # Regular text content
                 mcp_contents.append(TextContent(type="text", text=text))

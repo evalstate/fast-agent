@@ -1,0 +1,5 @@
+OpenAI Codex
+Copyright 2025 OpenAI
+
+This repository includes a Python port of the openai/codex apply_patch tool,
+licensed under the Apache 2.0 license.

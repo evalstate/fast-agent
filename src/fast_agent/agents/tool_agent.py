@@ -163,6 +163,51 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             )
         )
 
+    @property
+    def has_external_hooks(self) -> bool:
+        """Return True if external (user-configured) hooks are present."""
+        return self.tool_runner_hooks is not None
+
+    @property
+    def has_before_llm_call_hook(self) -> bool:
+        """Return True if a before_llm_call hook is configured."""
+        return (
+            self.tool_runner_hooks is not None
+            and self.tool_runner_hooks.before_llm_call is not None
+        )
+
+    @property
+    def has_after_llm_call_hook(self) -> bool:
+        """Return True if an after_llm_call hook is configured."""
+        return (
+            self.tool_runner_hooks is not None
+            and self.tool_runner_hooks.after_llm_call is not None
+        )
+
+    @property
+    def has_before_tool_call_hook(self) -> bool:
+        """Return True if a before_tool_call hook is configured."""
+        return (
+            self.tool_runner_hooks is not None
+            and self.tool_runner_hooks.before_tool_call is not None
+        )
+
+    @property
+    def has_after_tool_call_hook(self) -> bool:
+        """Return True if an after_tool_call hook is configured."""
+        return (
+            self.tool_runner_hooks is not None
+            and self.tool_runner_hooks.after_tool_call is not None
+        )
+
+    @property
+    def has_after_turn_complete_hook(self) -> bool:
+        """Return True if an after_turn_complete hook is configured."""
+        return (
+            self.tool_runner_hooks is not None
+            and self.tool_runner_hooks.after_turn_complete is not None
+        )
+
     def _card_tools_label(self) -> str | None:
         if not self._card_tool_names:
             return None
@@ -489,6 +534,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                     tool_name=tool_name,
                     highlight_index=highlight_index,
                     max_item_length=12,
+                    show_hook_indicator=self.has_before_tool_call_hook,
                 )
 
             async def run_one(
@@ -520,7 +566,11 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                     transport_channel=None,
                 )
                 self.display.show_tool_result(
-                    name=self.name, result=result, tool_name=tool_name, timing_ms=duration_ms
+                    name=self.name,
+                    result=result,
+                    tool_name=tool_name,
+                    timing_ms=duration_ms,
+                    show_hook_indicator=self.has_after_tool_call_hook,
                 )
 
             return self._finalize_tool_results(
@@ -543,6 +593,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 tool_name=tool_name,
                 highlight_index=highlight_index,
                 max_item_length=12,
+                show_hook_indicator=self.has_before_tool_call_hook,
             )
 
             # Track timing for tool execution
@@ -560,7 +611,11 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 transport_channel=None,
             )
             self.display.show_tool_result(
-                name=self.name, result=result, tool_name=tool_name, timing_ms=duration_ms
+                name=self.name,
+                result=result,
+                tool_name=tool_name,
+                timing_ms=duration_ms,
+                show_hook_indicator=self.has_after_tool_call_hook,
             )
 
         return self._finalize_tool_results(
@@ -579,7 +634,11 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             isError=True,
         )
         tool_results[correlation_id] = error_result
-        self.display.show_tool_result(name=self.name, result=error_result)
+        self.display.show_tool_result(
+            name=self.name,
+            result=error_result,
+            show_hook_indicator=self.has_after_tool_call_hook,
+        )
         return error_message
 
     def _finalize_tool_results(

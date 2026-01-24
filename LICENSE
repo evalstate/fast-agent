@@ -199,3 +199,13 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+----------------------------------------------------------------------
+Third-Party Notices
+----------------------------------------------------------------------
+
+This repository includes a Python port of the openai/codex apply_patch tool.
+The original apply_patch implementation is licensed under the Apache 2.0
+license and is available at https://github.com/openai/codex.
+
+See NOTICE for additional third-party attributions from openai/codex.

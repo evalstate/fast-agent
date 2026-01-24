@@ -110,6 +110,7 @@ class ModelFactory:
         "qwen-plus": Provider.ALIYUN,
         "qwen-max": Provider.ALIYUN,
         "qwen-long": Provider.ALIYUN,
+        "qwen3-max": Provider.ALIYUN,
     }
 
     MODEL_ALIASES = {
