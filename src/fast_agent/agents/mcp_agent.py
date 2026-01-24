@@ -1082,6 +1082,7 @@ class McpAgent(ABC, ToolAgent):
                 highlight_index=highlight_index,
                 max_item_length=12,
                 metadata=metadata,
+                show_hook_indicator=self.has_before_tool_call_hook,
             )
 
             planned_calls.append(
@@ -1150,6 +1151,7 @@ class McpAgent(ABC, ToolAgent):
                         tool_name=display_tool_name,
                         skybridge_config=skybridge_config,
                         timing_ms=duration_ms,
+                        show_hook_indicator=self.has_after_tool_call_hook,
                     )
 
             return self._finalize_tool_results(
@@ -1192,6 +1194,7 @@ class McpAgent(ABC, ToolAgent):
                         tool_name=display_tool_name,
                         skybridge_config=skybridge_config,
                         timing_ms=duration_ms,
+                        show_hook_indicator=self.has_after_tool_call_hook,
                     )
 
                 self.logger.debug(f"MCP tool {display_tool_name} executed successfully")
@@ -1202,7 +1205,11 @@ class McpAgent(ABC, ToolAgent):
                     isError=True,
                 )
                 tool_results[correlation_id] = error_result
-                self.display.show_tool_result(name=self._name, result=error_result)
+                self.display.show_tool_result(
+                    name=self._name,
+                    result=error_result,
+                    show_hook_indicator=self.has_after_tool_call_hook,
+                )
 
         return self._finalize_tool_results(
             tool_results, tool_timings=tool_timings, tool_loop_error=tool_loop_error
@@ -1464,6 +1471,7 @@ class McpAgent(ABC, ToolAgent):
         model: str | None = None,
         additional_message: Union["Text", None] = None,
         render_markdown: bool | None = None,
+        show_hook_indicator: bool | None = None,
     ) -> None:
         """
         Display an assistant message with MCP servers in the bottom bar.
@@ -1531,6 +1539,7 @@ class McpAgent(ABC, ToolAgent):
             model=model,
             additional_message=additional_message,
             render_markdown=render_markdown,
+            show_hook_indicator=show_hook_indicator,
         )
 
     def _extract_servers_from_message(self, message: PromptMessageExtended) -> list[str]:

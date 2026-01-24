@@ -90,6 +90,7 @@ class LlmAgent(LlmDecorator):
         model: str | None = None,
         additional_message: Optional[Text] = None,
         render_markdown: bool | None = None,
+        show_hook_indicator: bool | None = None,
     ) -> None:
         """Display an assistant message with appropriate styling based on stop reason.
 
@@ -228,6 +229,12 @@ class LlmAgent(LlmDecorator):
                 except ValueError:
                     pass
 
+        # Use explicit show_hook_indicator if provided, otherwise check for after_llm_call hook
+        hook_indicator = (
+            show_hook_indicator
+            if show_hook_indicator is not None
+            else getattr(self, "has_after_llm_call_hook", False)
+        )
         await self.display.show_assistant_message(
             message_text,
             bottom_items=bottom_items,
@@ -237,6 +244,7 @@ class LlmAgent(LlmDecorator):
             model=display_model,
             additional_message=additional_message_text,
             render_markdown=render_markdown,
+            show_hook_indicator=hook_indicator,
         )
 
     def _display_user_messages(
@@ -264,6 +272,7 @@ class LlmAgent(LlmDecorator):
             name=self.name,
             attachments=attachments if attachments else None,
             part_count=part_count if part_count > 1 else None,
+            show_hook_indicator=getattr(self, "has_before_llm_call_hook", False),
         )
 
     def show_user_message(self, message: PromptMessageExtended) -> None:

@@ -691,6 +691,7 @@ class AgentsAsToolsAgent(McpAgent):
                 max_item_length=28,
                 metadata={"correlation_id": corr_id, "instance_name": display_tool_name},
                 type_label="subagent",
+                show_hook_indicator=self.has_external_hooks,
             )
         if total > limit:
             collapsed = total - limit
@@ -702,6 +703,7 @@ class AgentsAsToolsAgent(McpAgent):
                 bottom_items=[f"{label} · {collapsed} more"],
                 max_item_length=28,
                 type_label="subagent",
+                show_hook_indicator=self.has_external_hooks,
             )
 
     def _show_parallel_tool_results(self, records: list[dict[str, Any]]) -> None:
@@ -732,6 +734,7 @@ class AgentsAsToolsAgent(McpAgent):
                     tool_name=display_tool_name,
                     type_label="subagent response",
                     result=result,
+                    show_hook_indicator=self.has_external_hooks,
                 )
         if total > limit:
             collapsed = total - limit
@@ -740,6 +743,7 @@ class AgentsAsToolsAgent(McpAgent):
                 name=self.name,
                 tool_name=label,
                 type_label="subagent response",
+                show_hook_indicator=self.has_external_hooks,
                 result=CallToolResult(
                     content=[text_content(f"{collapsed} more results (collapsed)")],
                     isError=False,
