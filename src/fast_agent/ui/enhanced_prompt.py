@@ -37,6 +37,11 @@ from fast_agent.constants import (
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.reasoning_effort import (
+    ReasoningEffortSetting,
+    ReasoningEffortSpec,
+    parse_reasoning_setting,
+)
 from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.ui.command_payloads import (
     AgentCommand,
@@ -72,6 +77,7 @@ from fast_agent.ui.command_payloads import (
 )
 from fast_agent.ui.mcp_display import render_mcp_status
 from fast_agent.ui.model_display import format_model_display
+from fast_agent.ui.reasoning_effort_display import render_reasoning_effort_gauge
 from fast_agent.ui.shell_notice import format_shell_notice
 
 if TYPE_CHECKING:
@@ -1877,10 +1883,24 @@ async def get_enhanced_input(
                     model_name = context.config.default_model
 
             codex_suffix = ""
+            reasoning_gauge = ""
             if model_name:
                 display_name = format_model_display(model_name) or model_name
                 if llm and getattr(llm, "provider", None) == Provider.CODEX_RESPONSES:
                     codex_suffix = " <style bg='ansiyellow'>$</style>"
+                
+                # Build reasoning effort gauge if model supports it
+                raw_effort = getattr(llm, "_reasoning_effort", None) if llm else None
+                if raw_effort:
+                    effort_setting = parse_reasoning_setting(raw_effort)
+                    effort_spec = ReasoningEffortSpec(
+                        kind="effort",
+                        allowed_efforts=["minimal", "low", "medium", "high"],
+                        default=ReasoningEffortSetting(kind="effort", value="medium"),
+                    )
+                    gauge_markup = render_reasoning_effort_gauge(effort_setting, effort_spec)
+                    if gauge_markup:
+                        reasoning_gauge = f" {gauge_markup}"
                 max_len = 25
                 model_display = (
                     display_name[: max_len - 1] + "…"
@@ -1986,11 +2006,11 @@ async def get_enhanced_input(
             # Model chip + inline TDV flags
             if tdv_segment:
                 middle_segments.append(
-                    f"{tdv_segment} <style bg='ansigreen'>{model_display}</style>{codex_suffix}"
+                    f"{tdv_segment} <style bg='ansigreen'>{model_display}</style>{reasoning_gauge}{codex_suffix}"
                 )
             else:
                 middle_segments.append(
-                    f"<style bg='ansigreen'>{model_display}</style>{codex_suffix}"
+                    f"<style bg='ansigreen'>{model_display}</style>{reasoning_gauge}{codex_suffix}"
                 )
 
         # Add turn counter (formatted as 3 digits)

@@ -7,6 +7,7 @@ from rich.text import Text
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.context import Context
+from fast_agent.skills.registry import SkillRegistry
 from fast_agent.types import PromptMessageExtended
 from fast_agent.ui.console_display import ConsoleDisplay
 
@@ -41,6 +42,16 @@ class CaptureDisplay(ConsoleDisplay):
 
 def _make_agent_config() -> AgentConfig:
     return AgentConfig(name="test-agent", instruction="do things", servers=[])
+
+
+def _create_skill(directory, name: str, description: str = "desc") -> None:
+    skill_dir = directory / name
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    manifest = skill_dir / "SKILL.md"
+    manifest.write_text(
+        f"---\nname: {name}\ndescription: {description}\n---\n",
+        encoding="utf-8",
+    )
 
 
 @pytest.mark.asyncio
@@ -121,5 +132,49 @@ async def test_card_tools_label_highlighted_on_use() -> None:
     call = capture_display.calls[-1]
     assert call["bottom_items"] == ["card_tools"]
     assert call["highlight_index"] == 0
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_skills_tool_listed_and_highlighted(tmp_path) -> None:
+    skills_root = tmp_path / "skills"
+    _create_skill(skills_root, "alpha")
+
+    manifests = SkillRegistry.load_directory(skills_root)
+    context = Context()
+    config = AgentConfig(
+        name="test",
+        instruction="Instruction",
+        servers=[],
+        skills=skills_root,
+    )
+    config.skill_manifests = manifests
+
+    agent = McpAgent(config=config, context=context)
+    capture_display = CaptureDisplay()
+    agent.display = capture_display
+
+    tool_calls = {
+        "1": CallToolRequest(
+            params=CallToolRequestParams(
+                name="read_skill",
+                arguments={"path": str(manifests[0].path)},
+            )
+        )
+    }
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="response")],
+        tool_calls=tool_calls,
+    )
+
+    await agent.show_assistant_message(message)
+
+    assert capture_display.calls
+    call = capture_display.calls[-1]
+    assert call["bottom_items"] is not None
+    assert "skill" in call["bottom_items"]
+    assert call["highlight_index"] == call["bottom_items"].index("skill")
 
     await agent._aggregator.close()

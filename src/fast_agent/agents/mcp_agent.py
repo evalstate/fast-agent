@@ -76,6 +76,11 @@ ItemT = TypeVar("ItemT")
 
 LLM = TypeVar("LLM", bound=FastAgentLLMProtocol)
 
+# Display name overrides for tools shown in the bottom bar
+TOOL_DISPLAY_NAMES: dict[str, str] = {
+    "read_skill": "skill",
+}
+
 if TYPE_CHECKING:
     from rich.text import Text
 
@@ -263,12 +268,16 @@ class McpAgent(ABC, ToolAgent):
         # Apply template substitution to the instruction with server instructions
         await self._apply_instruction_templates()
 
+        await super().initialize()
+
     async def shutdown(self) -> None:
         """
         Shutdown the agent and close all MCP server connections.
         NOTE: This method is called automatically when the agent is used as an async context manager.
         """
+        await self._run_lifecycle_hook("on_shutdown")
         await self._aggregator.close()
+        await self._finalize_shutdown(run_hook=False)
 
     def enable_shell(self, working_directory: Path | None = None) -> None:
         """
@@ -1268,6 +1277,8 @@ class McpAgent(ABC, ToolAgent):
             except ValueError:
                 highlight_index = None
 
+        if bottom_items is not None:
+            bottom_items = [TOOL_DISPLAY_NAMES.get(name, name) for name in bottom_items]
         return display_tool_name, bottom_items, highlight_index
 
     @staticmethod
@@ -1494,6 +1505,10 @@ class McpAgent(ABC, ToolAgent):
         if shell_label:
             server_names = [shell_label, *(name for name in server_names if name != shell_label)]
 
+        skills_label = self._skills_tool_label()
+        if skills_label and skills_label not in server_names:
+            server_names.append(skills_label)
+
         # Add agent-as-tool names to the bottom bar (they aren't MCP servers but should be shown)
         for tool_name in self._agent_tools:
             # Extract the agent name from tool_name (e.g., "agent__foo" -> "foo")
@@ -1583,6 +1598,14 @@ class McpAgent(ABC, ToolAgent):
                         servers.append(shell_label)
                     continue
 
+                # Check if this is a skills reader tool call
+                if self._skill_reader and self._skill_reader.enabled:
+                    if tool_name == self._skill_reader.tool.name:
+                        skills_label = self._skills_tool_label()
+                        if skills_label and skills_label not in servers:
+                            servers.append(skills_label)
+                        continue
+
                 # Use aggregator's mapping to find the server for this tool
                 if tool_name in self._aggregator._namespaced_tool_map:
                     namespaced_tool = self._aggregator._namespaced_tool_map[tool_name]
@@ -1600,6 +1623,12 @@ class McpAgent(ABC, ToolAgent):
         runtime_info = shell_runtime.runtime_info()
         runtime_name = runtime_info.get("name")
         return runtime_name or "shell"
+
+    def _skills_tool_label(self) -> str | None:
+        if self._skill_reader and self._skill_reader.enabled:
+            name = self._skill_reader.tool.name
+            return TOOL_DISPLAY_NAMES.get(name, name)
+        return None
 
     async def _parse_resource_name(self, name: str, resource_type: str) -> tuple[str | None, str]:
         """Delegate resource name parsing to the aggregator."""

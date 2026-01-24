@@ -221,3 +221,25 @@ description: Skill 1
 
     assert len(manifests) == 1
     assert manifests[0].name == "skill1"
+
+
+def test_load_skills_for_context_uses_environment_dir_setting(tmp_path):
+    """load_skills_for_context should honor settings.environment_dir when using defaults."""
+    from fast_agent.config import Settings, get_settings, update_global_settings
+    from fast_agent.core.prompt_templates import load_skills_for_context
+
+    skills_dir = tmp_path / ".dev" / "skills" / "env-skill"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "SKILL.md").write_text(
+        "---\nname: env-skill\ndescription: Skill from env directory\n---\n",
+        encoding="utf-8",
+    )
+
+    previous_settings = get_settings()
+    update_global_settings(Settings(environment_dir=".dev"))
+    try:
+        manifests = load_skills_for_context(str(tmp_path), None)
+    finally:
+        update_global_settings(previous_settings)
+
+    assert [manifest.name for manifest in manifests] == ["env-skill"]
