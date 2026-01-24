@@ -1,3 +1,10 @@
+"""
+Python port of the openai/codex apply_patch tool.
+
+This port is derived from https://github.com/openai/codex and is licensed
+under the Apache 2.0 license.
+"""
+
 from __future__ import annotations
 
 from fast_agent.patch.engine import (
