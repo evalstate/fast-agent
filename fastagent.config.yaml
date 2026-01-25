@@ -20,7 +20,7 @@
 
 anthropic:
   thinking_enabled: true
-  thinking_budget_tokens: 10000
+  thinking_budget_tokens: 1024
 
 # Logging and Console Configuration:
 logger:

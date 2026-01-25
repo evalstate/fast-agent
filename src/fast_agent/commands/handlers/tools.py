@@ -7,28 +7,12 @@ from typing import TYPE_CHECKING
 
 from rich.text import Text
 
+from fast_agent.commands.handlers._text_utils import truncate_description
 from fast_agent.commands.results import CommandOutcome
 from fast_agent.commands.tool_summaries import ToolSummary, build_tool_summaries
 
 if TYPE_CHECKING:
     from fast_agent.commands.context import CommandContext
-
-
-def _truncate_tool_description(description: str, char_limit: int = 240) -> str:
-    description = description.strip()
-    if len(description) <= char_limit:
-        return description
-
-    truncate_pos = char_limit
-    sentence_break = description.rfind(". ", 0, char_limit + 20)
-    if sentence_break > char_limit - 50:
-        truncate_pos = sentence_break + 1
-    else:
-        word_break = description.rfind(" ", 0, char_limit + 10)
-        if word_break > char_limit - 30:
-            truncate_pos = word_break
-
-    return description[:truncate_pos].rstrip() + "..."
 
 
 def _format_tool_line(tool_name: str, title: str | None, suffix: str | None) -> Text:
@@ -42,7 +26,7 @@ def _format_tool_line(tool_name: str, title: str | None, suffix: str | None) -> 
 
 
 def _format_tool_description(description: str) -> list[Text]:
-    truncated = _truncate_tool_description(description)
+    truncated = truncate_description(description)
     wrapped_lines = textwrap.wrap(truncated, width=72)
     return [Text(line, style="white") for line in wrapped_lines]
 
