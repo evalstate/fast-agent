@@ -80,6 +80,20 @@ def test_model_query_reasoning_budget():
     assert config.reasoning_effort == ReasoningEffortSetting(kind="budget", value=2048)
 
 
+def test_model_query_structured_json():
+    config = ModelFactory.parse_model_string("claude-sonnet-4-5?structured=json")
+    assert config.provider == Provider.ANTHROPIC
+    assert config.model_name == "claude-sonnet-4-5"
+    assert config.structured_output_mode == "json"
+
+
+def test_model_query_structured_tool_use():
+    config = ModelFactory.parse_model_string("claude-sonnet-4-5?structured=tool_use")
+    assert config.provider == Provider.ANTHROPIC
+    assert config.model_name == "claude-sonnet-4-5"
+    assert config.structured_output_mode == "tool_use"
+
+
 def test_invalid_inputs():
     """Test handling of invalid inputs"""
     invalid_cases = [
@@ -90,6 +104,11 @@ def test_invalid_inputs():
     for invalid_str in invalid_cases:
         with pytest.raises(ModelConfigError):
             ModelFactory.parse_model_string(invalid_str)
+
+
+def test_invalid_structured_query():
+    with pytest.raises(ModelConfigError):
+        ModelFactory.parse_model_string("claude-sonnet-4-5?structured=maybe")
 
 
 def test_llm_class_creation():

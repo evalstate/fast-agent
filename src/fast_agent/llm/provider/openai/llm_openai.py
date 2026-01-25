@@ -1,7 +1,4 @@
 import asyncio
-import json
-import os
-from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -34,6 +31,15 @@ from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.fastagent_llm import FastAgentLLM, RequestParams
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.error_utils import build_stream_failure_response
+from fast_agent.llm.provider.openai._stream_capture import (
+    save_stream_chunk as _save_stream_chunk,
+)
+from fast_agent.llm.provider.openai._stream_capture import (
+    save_stream_request as _save_stream_request,
+)
+from fast_agent.llm.provider.openai._stream_capture import (
+    stream_capture_filename as _stream_capture_filename,
+)
 from fast_agent.llm.provider.openai.multipart_converter_openai import OpenAIConverter
 from fast_agent.llm.provider.openai.tool_notifications import OpenAIToolNotificationMixin
 from fast_agent.llm.provider_types import Provider
@@ -47,50 +53,6 @@ _logger = get_logger(__name__)
 
 DEFAULT_OPENAI_MODEL = "gpt-5-mini"
 DEFAULT_REASONING_EFFORT = "low"
-
-# Stream capture mode - when enabled, saves all streaming chunks to files for debugging
-# Set FAST_AGENT_LLM_TRACE=1 (or any non-empty value) to enable
-STREAM_CAPTURE_ENABLED = bool(os.environ.get("FAST_AGENT_LLM_TRACE"))
-STREAM_CAPTURE_DIR = Path("stream-debug")
-
-
-def _stream_capture_filename(turn: int) -> Path | None:
-    """Generate filename for stream capture. Returns None if capture is disabled."""
-    if not STREAM_CAPTURE_ENABLED:
-        return None
-    STREAM_CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return STREAM_CAPTURE_DIR / f"{timestamp}_turn{turn}"
-
-
-def _save_stream_request(filename_base: Path | None, arguments: dict[str, Any]) -> None:
-    """Save the request arguments to a _request.json file."""
-    if not filename_base:
-        return
-    try:
-        request_file = filename_base.with_name(f"{filename_base.name}_request.json")
-        with open(request_file, "w") as f:
-            json.dump(arguments, f, indent=2, default=str)
-    except Exception as e:
-        _logger.debug(f"Failed to save stream request: {e}")
-
-
-def _save_stream_chunk(filename_base: Path | None, chunk: Any) -> None:
-    """Save a streaming chunk to file when capture mode is enabled."""
-    if not filename_base:
-        return
-    try:
-        chunk_file = filename_base.with_name(f"{filename_base.name}.jsonl")
-        try:
-            payload: Any = chunk.model_dump()
-        except Exception:
-            payload = str(chunk)
-
-        with open(chunk_file, "a") as f:
-            f.write(json.dumps(payload) + "\n")
-    except Exception as e:
-        _logger.debug(f"Failed to save stream chunk: {e}")
-
 
 class OpenAILLM(
     OpenAIToolNotificationMixin, FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage]
@@ -377,6 +339,70 @@ class OpenAILLM(
                     },
                 )
 
+
+    def _process_stream_chunk_common(
+        self,
+        chunk: Any,
+        *,
+        reasoning_mode: Any,
+        reasoning_active: bool,
+        reasoning_segments: list[str],
+        tool_call_started: dict[int, dict[str, Any]],
+        model: str,
+        notified_tool_indices: set[int],
+        cumulative_content: str,
+        estimated_tokens: int,
+    ) -> tuple[str, int, bool, str | None]:
+        """Process common streaming chunk logic shared by multiple stream processing methods.
+        
+        Returns:
+            Tuple of (cumulative_content, estimated_tokens, reasoning_active, incremental_content)
+        """
+        incremental: str | None = None
+        if chunk.choices:
+            choice = chunk.choices[0]
+            delta = choice.delta
+            reasoning_text = self._extract_reasoning_text(
+                reasoning=getattr(delta, "reasoning", None),
+                reasoning_content=getattr(delta, "reasoning_content", None),
+            )
+            reasoning_active = self._handle_reasoning_delta(
+                reasoning_mode=reasoning_mode,
+                reasoning_text=reasoning_text,
+                reasoning_active=reasoning_active,
+                reasoning_segments=reasoning_segments,
+            )
+
+            # Handle tool call streaming
+            if delta.tool_calls:
+                self._handle_tool_delta(
+                    delta_tool_calls=delta.tool_calls,
+                    tool_call_started=tool_call_started,
+                    model=model,
+                    notified_tool_indices=notified_tool_indices,
+                )
+
+            # Handle text content streaming
+            cumulative_content, estimated_tokens, reasoning_active, incremental = (
+                self._apply_content_delta(
+                    delta_content=delta.content,
+                    cumulative_content=cumulative_content,
+                    model=model,
+                    estimated_tokens=estimated_tokens,
+                    reasoning_active=reasoning_active,
+                )
+            )
+
+            # Fire "stop" event when tool calls complete
+            if choice.finish_reason == "tool_calls":
+                self._finalize_tool_calls_on_stop(
+                    tool_call_started=tool_call_started,
+                    model=model,
+                    notified_tool_indices=notified_tool_indices,
+                )
+        
+        return cumulative_content, estimated_tokens, reasoning_active, incremental
+
     def _finalize_tool_calls_on_stop(
         self,
         *,
@@ -509,47 +535,19 @@ class OpenAILLM(
             # Handle chunk accumulation
             state.handle_chunk(chunk)
             # Process streaming events for tool calls
-            if chunk.choices:
-                choice = chunk.choices[0]
-                delta = choice.delta
-                reasoning_text = self._extract_reasoning_text(
-                    reasoning=getattr(delta, "reasoning", None),
-                    reasoning_content=getattr(delta, "reasoning_content", None),
-                )
-                reasoning_active = self._handle_reasoning_delta(
+            cumulative_content, estimated_tokens, reasoning_active, _ = (
+                self._process_stream_chunk_common(
+                    chunk,
                     reasoning_mode=reasoning_mode,
-                    reasoning_text=reasoning_text,
                     reasoning_active=reasoning_active,
                     reasoning_segments=reasoning_segments,
+                    tool_call_started=tool_call_started,
+                    model=model,
+                    notified_tool_indices=notified_tool_indices,
+                    cumulative_content=cumulative_content,
+                    estimated_tokens=estimated_tokens,
                 )
-
-                # Handle tool call streaming
-                if delta.tool_calls:
-                    self._handle_tool_delta(
-                        delta_tool_calls=delta.tool_calls,
-                        tool_call_started=tool_call_started,
-                        model=model,
-                        notified_tool_indices=notified_tool_indices,
-                    )
-
-                # Handle text content streaming
-                cumulative_content, estimated_tokens, reasoning_active, _ = (
-                    self._apply_content_delta(
-                        delta_content=delta.content,
-                        cumulative_content=cumulative_content,
-                        model=model,
-                        estimated_tokens=estimated_tokens,
-                        reasoning_active=reasoning_active,
-                    )
-                )
-
-                # Fire "stop" event when tool calls complete
-                if choice.finish_reason == "tool_calls":
-                    self._finalize_tool_calls_on_stop(
-                        tool_call_started=tool_call_started,
-                        model=model,
-                        notified_tool_indices=notified_tool_indices,
-                    )
+            )
 
         if tool_call_started:
             incomplete_tools = [
@@ -676,50 +674,21 @@ class OpenAILLM(
             # Save chunk if stream capture is enabled
             _save_stream_chunk(capture_filename, chunk)
             # Process streaming events for tool calls
-            if chunk.choices:
-                choice = chunk.choices[0]
-                delta = choice.delta
-
-                reasoning_text = self._extract_reasoning_text(
-                    reasoning=getattr(delta, "reasoning", None),
-                    reasoning_content=getattr(delta, "reasoning_content", None),
-                )
-                reasoning_active = self._handle_reasoning_delta(
+            cumulative_content, estimated_tokens, reasoning_active, incremental = (
+                self._process_stream_chunk_common(
+                    chunk,
                     reasoning_mode=reasoning_mode,
-                    reasoning_text=reasoning_text,
                     reasoning_active=reasoning_active,
                     reasoning_segments=reasoning_segments,
+                    tool_call_started=tool_call_started,
+                    model=model,
+                    notified_tool_indices=notified_tool_indices,
+                    cumulative_content=cumulative_content,
+                    estimated_tokens=estimated_tokens,
                 )
-
-                # Handle tool call streaming
-                if delta.tool_calls:
-                    self._handle_tool_delta(
-                        delta_tool_calls=delta.tool_calls,
-                        tool_call_started=tool_call_started,
-                        model=model,
-                        notified_tool_indices=notified_tool_indices,
-                    )
-
-                # Handle text content streaming
-                cumulative_content, estimated_tokens, reasoning_active, incremental = (
-                    self._apply_content_delta(
-                        delta_content=delta.content,
-                        cumulative_content=cumulative_content,
-                        model=model,
-                        estimated_tokens=estimated_tokens,
-                        reasoning_active=reasoning_active,
-                    )
-                )
-                if incremental:
-                    accumulated_content += incremental
-
-                # Fire "stop" event when tool calls complete
-                if choice.finish_reason == "tool_calls":
-                    self._finalize_tool_calls_on_stop(
-                        tool_call_started=tool_call_started,
-                        model=model,
-                        notified_tool_indices=notified_tool_indices,
-                    )
+            )
+            if incremental:
+                accumulated_content += incremental
 
             # Extract other fields from the chunk
             if chunk.choices:

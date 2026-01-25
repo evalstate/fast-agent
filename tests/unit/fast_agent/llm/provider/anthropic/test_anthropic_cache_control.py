@@ -1,5 +1,5 @@
 
-from anthropic.types import MessageParam
+from anthropic.types.beta import BetaMessageParam
 from mcp.types import TextContent
 
 from fast_agent.llm.provider.anthropic.cache_planner import AnthropicCachePlanner
@@ -14,7 +14,7 @@ def make_message(text: str, *, is_template: bool = False) -> PromptMessageExtend
     )
 
 
-def count_cache_controls(messages: list[MessageParam]) -> int:
+def count_cache_controls(messages: list[BetaMessageParam]) -> int:
     total = 0
     for msg in messages:
         content = msg.get("content", [])

@@ -411,8 +411,6 @@ class OpenAISettings(BaseModel):
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
-
-
 class OpenResponsesSettings(BaseModel):
     """Settings for using Open Responses models in the fast-agent application."""
 

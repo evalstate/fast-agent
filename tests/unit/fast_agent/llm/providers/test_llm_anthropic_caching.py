@@ -8,7 +8,7 @@ to verify cache_control markers are applied correctly based on cache_mode settin
 from typing import Literal
 
 import pytest
-from anthropic.types import MessageParam
+from anthropic.types.beta import BetaMessageParam
 from mcp.types import CallToolResult, TextContent
 
 from fast_agent.config import AnthropicSettings, Settings
@@ -52,7 +52,7 @@ class TestAnthropicCaching:
         cache_mode: Literal["off", "prompt", "auto"],
         system_blocks: int = 0,
         cache_ttl: Literal["5m", "1h"] = "5m",
-    ) -> list[MessageParam]:
+    ) -> list[BetaMessageParam]:
         planner = AnthropicCachePlanner()
         plan = planner.plan_indices(messages, cache_mode=cache_mode, system_cache_blocks=system_blocks)
         converted = [AnthropicConverter.convert_to_anthropic(m) for m in messages]
