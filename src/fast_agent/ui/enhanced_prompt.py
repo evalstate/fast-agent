@@ -78,7 +78,7 @@ from fast_agent.ui.reasoning_effort_display import render_reasoning_effort_gauge
 from fast_agent.ui.shell_notice import format_shell_notice
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable
+    from collections.abc import Callable, Iterable, Iterator, Sequence
 
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.types import PromptMessageExtended
@@ -1016,6 +1016,30 @@ class AgentCompleter(Completer):
         except PermissionError:
             pass
 
+    def _complete_subcommands(
+        self,
+        parts: Sequence[str],
+        remainder: str,
+        subcommands: dict[str, str],
+    ) -> Iterator[Completion]:
+        """Yield completions for subcommand names from a dict.
+
+        Args:
+            parts: Split parts of the remainder text
+            remainder: Full remainder text after the command prefix
+            subcommands: Dict mapping subcommand names to descriptions
+        """
+        if not parts or (len(parts) == 1 and not remainder.endswith(" ")):
+            partial = parts[0] if parts else ""
+            for subcmd, description in subcommands.items():
+                if subcmd.startswith(partial.lower()):
+                    yield Completion(
+                        subcmd,
+                        start_position=-len(partial),
+                        display=subcmd,
+                        display_meta=description,
+                    )
+
     def get_completions(self, document, complete_event):
         """Synchronous completions method - this is what prompt_toolkit expects by default"""
         text = document.text_before_cursor
@@ -1110,16 +1134,8 @@ class AgentCompleter(Completer):
                 "remove": "Remove a local skill",
                 "registry": "Set skills registry",
             }
+            yield from self._complete_subcommands(parts, remainder, subcommands)
             if not parts or (len(parts) == 1 and not remainder.endswith(" ")):
-                partial = parts[0] if parts else ""
-                for subcmd, description in subcommands.items():
-                    if subcmd.startswith(partial.lower()):
-                        yield Completion(
-                            subcmd,
-                            start_position=-len(partial),
-                            display=subcmd,
-                            display_meta=description,
-                        )
                 return
 
             subcmd = parts[0].lower()
@@ -1143,16 +1159,8 @@ class AgentCompleter(Completer):
                     "0/1024/16000/32000)"
                 ),
             }
+            yield from self._complete_subcommands(parts, remainder, subcommands)
             if not parts or (len(parts) == 1 and not remainder.endswith(" ")):
-                partial = parts[0] if parts else ""
-                for subcmd, description in subcommands.items():
-                    if subcmd.startswith(partial.lower()):
-                        yield Completion(
-                            subcmd,
-                            start_position=-len(partial),
-                            display=subcmd,
-                            display_meta=description,
-                        )
                 return
 
             subcmd = parts[0].lower()
