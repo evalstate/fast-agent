@@ -20,6 +20,7 @@ from fast_agent.agents.tool_agent import _tool_progress_context
 from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
     MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
+    TERMINAL_BYTES_PER_TOKEN,
 )
 from fast_agent.ui import console
 from fast_agent.ui.console_display import ConsoleDisplay
@@ -274,8 +275,9 @@ class ShellRuntime:
                             if self._show_bash_output and (
                                 display_line_limit is None or display_line_limit > 0
                             ):
+                                estimated_tokens = int(self._output_byte_limit / TERMINAL_BYTES_PER_TOKEN)
                                 console.console.print(
-                                    "▶ Agent output truncated - limit reached",
+                                    f"▶ Agent output truncated (> ~{estimated_tokens} tokens)",
                                     style="black on red",
                                 )
                             truncation_notice_printed = True

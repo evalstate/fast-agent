@@ -3,7 +3,7 @@ from __future__ import annotations
 from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
     MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
-    TERMINAL_AVG_BYTES_PER_TOKEN,
+    TERMINAL_BYTES_PER_TOKEN,
     TERMINAL_OUTPUT_TOKEN_HEADROOM_RATIO,
     TERMINAL_OUTPUT_TOKEN_RATIO,
 )
@@ -22,7 +22,7 @@ def calculate_terminal_output_limit_for_model(model_name: str | None) -> int:
     terminal_token_budget = max(
         int(terminal_token_budget * (1 - TERMINAL_OUTPUT_TOKEN_HEADROOM_RATIO)), 1
     )
-    terminal_byte_budget = int(terminal_token_budget * TERMINAL_AVG_BYTES_PER_TOKEN)
+    terminal_byte_budget = int(terminal_token_budget * TERMINAL_BYTES_PER_TOKEN)
 
     terminal_byte_budget = min(terminal_byte_budget, MAX_TERMINAL_OUTPUT_BYTE_LIMIT)
     return max(DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT, terminal_byte_budget)
