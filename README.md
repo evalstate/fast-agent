@@ -41,7 +41,15 @@ Recent features include:
 
 > [!IMPORTANT]
 >
-> `fast-agent` The fast-agent documentation repo is here: https://github.com/evalstate/fast-agent-docs. Please feel free to submit PRs for documentation, experience reports or other content you think others may find helpful. All help and feedback warmly received.
+> Documentation is included as a submodule. When cloning, use `--recurse-submodules` to get everything:
+> ```bash
+> git clone --recurse-submodules https://github.com/evalstate/fast-agent.git
+> ```
+> Or if you've already cloned:
+> ```bash
+> git submodule update --init --recursive
+> ```
+> The documentation source is also available at: https://github.com/evalstate/fast-agent-docs
 
 ### Agent Application Development
 

@@ -275,11 +275,15 @@ class ShellRuntime:
                             if self._show_bash_output and (
                                 display_line_limit is None or display_line_limit > 0
                             ):
-                                estimated_tokens = int(self._output_byte_limit / TERMINAL_BYTES_PER_TOKEN)
-                                console.console.print(
-                                    f"▶ Agent output truncated (> ~{estimated_tokens} tokens)",
-                                    style="black on red",
+                                estimated_tokens = int(
+                                    self._output_byte_limit / TERMINAL_BYTES_PER_TOKEN
                                 )
+                                message = Text(
+                                    "▶ Agent output truncated (> ~", style="black on red"
+                                )
+                                message.append(str(estimated_tokens))
+                                message.append(" tokens)", style="black on red")
+                                console.console.print(message)
                             truncation_notice_printed = True
 
                         if self._show_bash_output:
