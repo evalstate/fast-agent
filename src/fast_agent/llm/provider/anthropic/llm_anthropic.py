@@ -204,6 +204,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             if raw_setting is None:
                 if config.thinking_enabled:
                     raw_setting = config.thinking_budget_tokens
+                else:
+                    raw_setting = False
                 if config.thinking_enabled or config.thinking_budget_tokens != 1024:
                     self.logger.warning(
                         "Anthropic config 'thinking_enabled'/'thinking_budget_tokens' is deprecated; "
@@ -285,6 +287,9 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             return None
         if self._structured_output_mode_override is not None:
             return self._structured_output_mode_override
+        config = self.context.config.anthropic if self.context and self.context.config else None
+        if config and config.structured_output_mode != "auto":
+            return config.structured_output_mode
         from fast_agent.llm.model_database import ModelDatabase
 
         json_mode = ModelDatabase.get_json_mode(model)

@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
+from fast_agent.llm.structured_output_mode import StructuredOutputMode
 
 
 class MCPServerAuthSettings(BaseModel):
@@ -376,15 +377,19 @@ class AnthropicSettings(BaseModel):
     )
     thinking_enabled: bool = Field(
         default=False,
-        description="Enable extended thinking for Claude Sonnet 4+/Opus 4+",
+        description="DEPRECATED: Use 'reasoning' instead. Legacy toggle for extended thinking.",
     )
     thinking_budget_tokens: int = Field(
         default=10000,
-        description="Max tokens for reasoning (minimum 1024, must be < max_tokens)",
+        description="DEPRECATED: Use 'reasoning' instead. Legacy budget setting.",
     )
     reasoning: ReasoningEffortSetting | str | int | bool | None = Field(
         default=None,
-        description="Unified reasoning setting (budget tokens or on/off)",
+        description="Reasoning budget (int tokens) or toggle (bool). Use 0 or false to disable.",
+    )
+    structured_output_mode: StructuredOutputMode | Literal["auto"] = Field(
+        default="auto",
+        description="Structured output mode: auto, json, or tool_use",
     )
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
@@ -675,6 +680,9 @@ class LoggerSettings(BaseModel):
     """Truncate display of long tool calls"""
     enable_markup: bool = True
     """Enable markup in console output. Disable for outputs that may conflict with rich console formatting"""
+
+    enable_prompt_marks: bool = True
+    """Emit OSC 133 prompt marks for terminals that support scrollbar markers."""
     streaming: Literal["markdown", "plain", "none"] = "markdown"
     """Streaming renderer for assistant responses"""
 
