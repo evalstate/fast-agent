@@ -5,9 +5,7 @@ Provides conversion between Anthropic message formats and PromptMessageExtended,
 leveraging existing code for resource handling and delimited formats.
 """
 
-from anthropic.types import (
-    MessageParam,
-)
+from anthropic.types.beta import BetaMessageParam
 from mcp.types import (
     ImageContent,
     TextContent,
@@ -19,7 +17,7 @@ from fast_agent.types import PromptMessageExtended
 
 # TODO -- only used for saving, but this will be driven directly from PromptMessages
 def anthropic_message_param_to_prompt_message_multipart(
-    message_param: MessageParam,
+    message_param: BetaMessageParam,
 ) -> PromptMessageExtended:
     """
     Convert an Anthropic MessageParam to a PromptMessageExtended.

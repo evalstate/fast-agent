@@ -29,7 +29,7 @@ mcp_timeline:
 
 anthropic:
   thinking_enabled: true
-  thinking_budget_tokens: 10000
+  thinking_budget_tokens: 1024
 #  cache_mode: "auto" # Options: off, prompt, auto (default: auto)
 #  cache_ttl: "5m" # Options: 5m, 1h (default: 5m)
 #shell_execution:

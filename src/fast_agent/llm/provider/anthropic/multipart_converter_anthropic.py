@@ -3,23 +3,53 @@ import re
 from typing import Literal, Sequence, Union, cast
 from urllib.parse import urlparse
 
-from anthropic.types import (
-    Base64ImageSourceParam,
-    Base64PDFSourceParam,
-    ContentBlockParam,
-    DocumentBlockParam,
-    ImageBlockParam,
-    MessageParam,
-    PlainTextSourceParam,
-    RedactedThinkingBlock,
-    RedactedThinkingBlockParam,
-    TextBlockParam,
-    ThinkingBlock,
-    ThinkingBlockParam,
-    ToolResultBlockParam,
-    ToolUseBlockParam,
-    URLImageSourceParam,
-    URLPDFSourceParam,
+from anthropic.types.beta import (
+    BetaBase64ImageSourceParam as Base64ImageSourceParam,
+)
+from anthropic.types.beta import (
+    BetaBase64PDFSourceParam as Base64PDFSourceParam,
+)
+from anthropic.types.beta import (
+    BetaContentBlockParam as ContentBlockParam,
+)
+from anthropic.types.beta import (
+    BetaImageBlockParam as ImageBlockParam,
+)
+from anthropic.types.beta import (
+    BetaMessageParam as MessageParam,
+)
+from anthropic.types.beta import (
+    BetaPlainTextSourceParam as PlainTextSourceParam,
+)
+from anthropic.types.beta import (
+    BetaRedactedThinkingBlock as RedactedThinkingBlock,
+)
+from anthropic.types.beta import (
+    BetaRedactedThinkingBlockParam as RedactedThinkingBlockParam,
+)
+from anthropic.types.beta import (
+    BetaRequestDocumentBlockParam as DocumentBlockParam,
+)
+from anthropic.types.beta import (
+    BetaTextBlockParam as TextBlockParam,
+)
+from anthropic.types.beta import (
+    BetaThinkingBlock as ThinkingBlock,
+)
+from anthropic.types.beta import (
+    BetaThinkingBlockParam as ThinkingBlockParam,
+)
+from anthropic.types.beta import (
+    BetaToolResultBlockParam as ToolResultBlockParam,
+)
+from anthropic.types.beta import (
+    BetaToolUseBlockParam as ToolUseBlockParam,
+)
+from anthropic.types.beta import (
+    BetaURLImageSourceParam as URLImageSourceParam,
+)
+from anthropic.types.beta import (
+    BetaURLPDFSourceParam as URLPDFSourceParam,
 )
 from mcp.types import (
     BlobResourceContents,
@@ -168,11 +198,12 @@ class AnthropicConverter:
             if role == "assistant":
                 text_blocks = []
                 for block in anthropic_blocks:
-                    if block.get("type") == "text":
+                    block_type = block.get("type") if isinstance(block, dict) else None
+                    if block_type == "text":
                         text_blocks.append(block)
                     else:
                         _logger.warning(
-                            f"Removing non-text block from assistant message: {block.get('type')}"
+                            f"Removing non-text block from assistant message: {block_type}"
                         )
                 anthropic_blocks = text_blocks
 

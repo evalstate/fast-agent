@@ -382,7 +382,7 @@ class AnthropicSettings(BaseModel):
     Note: Extended thinking is incompatible with structured output (forced tool choice).
     """
 
-    thinking_budget_tokens: int = 10000
+    thinking_budget_tokens: int = 1024
     """
     Maximum tokens for Claude's internal reasoning process (minimum 1024).
     Larger budgets enable more thorough analysis for complex problems.

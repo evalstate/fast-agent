@@ -11,6 +11,10 @@ from fast_agent.llm.internal.silent import SilentLLM
 from fast_agent.llm.internal.slow import SlowLLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, parse_reasoning_setting
+from fast_agent.llm.structured_output_mode import (
+    StructuredOutputMode,
+    parse_structured_output_mode,
+)
 from fast_agent.types import RequestParams
 
 # Type alias for LLM classes
@@ -23,6 +27,7 @@ class ModelConfig(BaseModel):
     provider: Provider
     model_name: str
     reasoning_effort: ReasoningEffortSetting | None = None
+    structured_output_mode: StructuredOutputMode | None = None
 
 
 class ModelFactory:
@@ -175,6 +180,7 @@ class ModelFactory:
             aliases = cls.MODEL_ALIASES
 
         query_setting: ReasoningEffortSetting | None = None
+        query_structured: StructuredOutputMode | None = None
         if "?" in model_string:
             model_string, _, query = model_string.partition("?")
             query_params = parse_qs(query)
@@ -185,6 +191,14 @@ class ModelFactory:
                 if query_setting is None:
                     raise ModelConfigError(
                         f"Invalid reasoning query value: '{raw_value}' in '{model_string}'"
+                    )
+            if "structured" in query_params:
+                values = query_params.get("structured") or []
+                raw_value = values[-1] if values else ""
+                query_structured = parse_structured_output_mode(raw_value)
+                if query_structured is None:
+                    raise ModelConfigError(
+                        f"Invalid structured query value: '{raw_value}' in '{model_string}'"
                     )
 
         suffix: str | None = None
@@ -273,7 +287,10 @@ class ModelFactory:
             model_name_str = f"{model_name_str}:{suffix}"
 
         return ModelConfig(
-            provider=provider, model_name=model_name_str, reasoning_effort=reasoning_effort
+            provider=provider,
+            model_name=model_name_str,
+            reasoning_effort=reasoning_effort,
+            structured_output_mode=query_structured,
         )
 
     @classmethod
@@ -311,6 +328,8 @@ class ModelFactory:
             base_params.model = config.model_name
             if config.reasoning_effort:
                 kwargs["reasoning_effort"] = config.reasoning_effort
+            if config.structured_output_mode:
+                kwargs["structured_output_mode"] = config.structured_output_mode
             llm_args = {
                 "model": config.model_name,
                 "request_params": request_params,

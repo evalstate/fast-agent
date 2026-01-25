@@ -2058,12 +2058,12 @@ async def get_enhanced_input(
         if model_display:
             # Model chip + inline TDV flags
             if tdv_segment:
-                gauge_segment = f"{reasoning_gauge}" if reasoning_gauge else ""
+                gauge_segment = f" {reasoning_gauge}" if reasoning_gauge else ""
                 middle_segments.append(
                     f"{tdv_segment}{gauge_segment} <style bg='ansigreen'>{model_display}</style>{codex_suffix}"
                 )
             else:
-                gauge_segment = f"{reasoning_gauge}" if reasoning_gauge else ""
+                gauge_segment = f" {reasoning_gauge}" if reasoning_gauge else ""
                 middle_segments.append(
                     f"{gauge_segment} <style bg='ansigreen'>{model_display}</style>{codex_suffix}"
                 )
