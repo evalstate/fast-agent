@@ -538,6 +538,35 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         )
         return bedrock_tools
 
+    def _parse_tool_arguments(self, func_name: str, args_str: str) -> dict[str, Any]:
+        """Parse tool call arguments from key=value or single-value format.
+
+        Args:
+            func_name: The function name (used for special case handling)
+            args_str: The raw argument string to parse
+
+        Returns:
+            Dictionary of parsed arguments
+        """
+        arguments: dict[str, Any] = {}
+        if not args_str:
+            return arguments
+        try:
+            if "=" in args_str:
+                # Split by comma, then by = for each part
+                for arg_part in args_str.split(","):
+                    if "=" in arg_part:
+                        key, value = arg_part.split("=", 1)
+                        arguments[key.strip()] = value.strip().strip("\"'")
+            else:
+                # Single value argument - try to map to appropriate parameter name
+                value = args_str.strip("\"'")
+                # Handle common single-parameter functions
+                arguments = {"location": value} if func_name == "check_weather" else {"value": value}
+        except Exception as e:
+            self.logger.warning(f"Failed to parse tool arguments: {args_str} - {e}")
+        return arguments
+
     def _parse_system_prompt_tool_response(
         self, processed_response: dict[str, Any], model: str
     ) -> list[dict[str, Any]]:
@@ -595,32 +624,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             for i, (func_name, args_str) in enumerate(action_matches):
                 func_name = func_name.strip()
                 args_str = args_str.strip()
-
-                # Parse arguments - handle quoted strings and key=value pairs
-                arguments = {}
-                if args_str:
-                    try:
-                        # Handle key=value format like location="London"
-                        if "=" in args_str:
-                            # Split by comma, then by = for each part
-                            for arg_part in args_str.split(","):
-                                if "=" in arg_part:
-                                    key, value = arg_part.split("=", 1)
-                                    key = key.strip()
-                                    value = value.strip().strip("\"'")  # Remove quotes
-                                    arguments[key] = value
-                        else:
-                            # Single value argument - try to map to appropriate parameter name
-                            value = args_str.strip("\"'") if args_str else ""
-                            # Handle common single-parameter functions
-                            if func_name == "check_weather":
-                                arguments = {"location": value}
-                            else:
-                                # Generic fallback
-                                arguments = {"value": value}
-                    except Exception as e:
-                        self.logger.warning(f"Failed to parse Action arguments: {args_str} - {e}")
-                        arguments = {"value": args_str}
+                arguments = self._parse_tool_arguments(func_name, args_str)
 
                 tool_calls.append(
                     {
@@ -729,32 +733,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             func_name, args_str = direct_call_match.groups()
             func_name = func_name.strip()
             args_str = args_str.strip()
-
-            # Parse arguments
-            arguments = {}
-            if args_str:
-                try:
-                    # Handle key=value format like location="London"
-                    if "=" in args_str:
-                        # Split by comma, then by = for each part
-                        for arg_part in args_str.split(","):
-                            if "=" in arg_part:
-                                key, value = arg_part.split("=", 1)
-                                key = key.strip()
-                                value = value.strip().strip("\"'")  # Remove quotes
-                                arguments[key] = value
-                    else:
-                        # Single value argument - try to map to appropriate parameter name
-                        value = args_str.strip("\"'") if args_str else ""
-                        # Handle common single-parameter functions
-                        if func_name == "check_weather":
-                            arguments = {"location": value}
-                        else:
-                            # Generic fallback
-                            arguments = {"value": value}
-                except Exception as e:
-                    self.logger.warning(f"Failed to parse direct call arguments: {args_str} - {e}")
-                    arguments = {"value": args_str}
+            arguments = self._parse_tool_arguments(func_name, args_str)
 
             return [
                 {

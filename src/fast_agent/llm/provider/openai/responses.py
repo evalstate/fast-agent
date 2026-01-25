@@ -12,14 +12,16 @@ from fast_agent.core.prompt import Prompt
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.error_utils import build_stream_failure_response
+from fast_agent.llm.provider.openai._stream_capture import (
+    save_stream_request as _save_stream_request,
+)
+from fast_agent.llm.provider.openai._stream_capture import (
+    stream_capture_filename as _stream_capture_filename,
+)
 from fast_agent.llm.provider.openai.responses_content import ResponsesContentMixin
 from fast_agent.llm.provider.openai.responses_files import ResponsesFileMixin
 from fast_agent.llm.provider.openai.responses_output import ResponsesOutputMixin
-from fast_agent.llm.provider.openai.responses_streaming import (
-    ResponsesStreamingMixin,
-    _save_stream_request,
-    _stream_capture_filename,
-)
+from fast_agent.llm.provider.openai.responses_streaming import ResponsesStreamingMixin
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import format_reasoning_setting, parse_reasoning_setting
 from fast_agent.llm.request_params import RequestParams
