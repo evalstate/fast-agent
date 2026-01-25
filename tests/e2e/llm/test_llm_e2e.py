@@ -167,6 +167,11 @@ async def test_stop_sequence(llm_agent_setup, model_name):
 @pytest.mark.parametrize("model_name", TEST_MODELS)
 async def test_structured_output(llm_agent_setup, model_name):
     """Test structured output generation with FormattedResponse model."""
+    # Anthropic scenarios (set TEST_MODEL/TEST_MODELS when running e2e):
+    #   TEST_MODEL="claude-sonnet-4-5" pytest tests/e2e/llm/test_llm_e2e.py -k structured
+    #   TEST_MODEL="claude-sonnet-4-5?structured=tool_use" pytest tests/e2e/llm/test_llm_e2e.py -k structured
+    #   TEST_MODEL="claude-sonnet-4-5?structured=json&reasoning=1024" pytest tests/e2e/llm/test_llm_e2e.py -k structured
+    #   TEST_MODEL="claude-sonnet-4-5?structured=json&reasoning=0" pytest tests/e2e/llm/test_llm_e2e.py -k structured
     agent = llm_agent_setup
     structured_output, result = await agent.structured(
         "lets discuss the weather", FormattedResponse

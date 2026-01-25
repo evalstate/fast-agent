@@ -10,7 +10,7 @@ from typing import Union
 
 # Proper type imports for each provider
 try:
-    from anthropic.types import Usage as AnthropicUsage
+    from anthropic.types.beta import BetaUsage as AnthropicUsage
 except Exception:  # pragma: no cover - optional dependency
     AnthropicUsage = object  # type: ignore
 
