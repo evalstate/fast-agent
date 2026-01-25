@@ -118,7 +118,7 @@ class ModelDatabase:
         min_budget_tokens=1024,
         max_budget_tokens=128000,
         budget_presets=[0, 1024, 16000, 32000],
-        default=ReasoningEffortSetting(kind="budget", value=10000),
+        default=ReasoningEffortSetting(kind="budget", value=1024),
     )
 
     # Common parameter configurations
@@ -142,6 +142,7 @@ class ModelDatabase:
         context_window=200000,
         max_output_tokens=4096,
         tokenizes=ANTHROPIC_MULTIMODAL,
+        json_mode=None,
         cache_ttl="5m",
     )
 
@@ -149,6 +150,7 @@ class ModelDatabase:
         context_window=200000,
         max_output_tokens=8192,
         tokenizes=ANTHROPIC_MULTIMODAL,
+        json_mode=None,
         cache_ttl="5m",
     )
 
@@ -157,6 +159,7 @@ class ModelDatabase:
         context_window=200000,
         max_output_tokens=16384,
         tokenizes=ANTHROPIC_MULTIMODAL,
+        json_mode=None,
         cache_ttl="5m",
     )
 
@@ -240,12 +243,30 @@ class ModelDatabase:
         reasoning_effort_spec=ANTHROPIC_THINKING_EFFORT_SPEC,
         cache_ttl="5m",
     )
+    ANTHROPIC_OPUS_4_LEGACY = ModelParameters(
+        context_window=200000,
+        max_output_tokens=32000,
+        tokenizes=ANTHROPIC_MULTIMODAL,
+        reasoning="anthropic_thinking",
+        reasoning_effort_spec=ANTHROPIC_THINKING_EFFORT_SPEC,
+        json_mode=None,
+        cache_ttl="5m",
+    )
     ANTHROPIC_SONNET_4_VERSIONED = ModelParameters(
         context_window=200000,
         max_output_tokens=64000,
         tokenizes=ANTHROPIC_MULTIMODAL,
         reasoning="anthropic_thinking",
         reasoning_effort_spec=ANTHROPIC_THINKING_EFFORT_SPEC,
+        cache_ttl="5m",
+    )
+    ANTHROPIC_SONNET_4_LEGACY = ModelParameters(
+        context_window=200000,
+        max_output_tokens=64000,
+        tokenizes=ANTHROPIC_MULTIMODAL,
+        reasoning="anthropic_thinking",
+        reasoning_effort_spec=ANTHROPIC_THINKING_EFFORT_SPEC,
+        json_mode=None,
         cache_ttl="5m",
     )
     # Claude 3.7 Sonnet supports extended thinking (deprecated but still available)
@@ -255,6 +276,7 @@ class ModelDatabase:
         tokenizes=ANTHROPIC_MULTIMODAL,
         reasoning="anthropic_thinking",
         reasoning_effort_spec=ANTHROPIC_THINKING_EFFORT_SPEC,
+        json_mode=None,
         cache_ttl="5m",
     )
 
@@ -425,14 +447,14 @@ class ModelDatabase:
         "claude-3-7-sonnet": ANTHROPIC_37_SERIES_THINKING,
         "claude-3-7-sonnet-20250219": ANTHROPIC_37_SERIES_THINKING,
         "claude-3-7-sonnet-latest": ANTHROPIC_37_SERIES_THINKING,
-        "claude-sonnet-4-0": ANTHROPIC_SONNET_4_VERSIONED,
-        "claude-sonnet-4-20250514": ANTHROPIC_SONNET_4_VERSIONED,
+        "claude-sonnet-4-0": ANTHROPIC_SONNET_4_LEGACY,
+        "claude-sonnet-4-20250514": ANTHROPIC_SONNET_4_LEGACY,
         "claude-sonnet-4-5": ANTHROPIC_SONNET_4_VERSIONED,
         "claude-sonnet-4-5-20250929": ANTHROPIC_SONNET_4_VERSIONED,
-        "claude-opus-4-0": ANTHROPIC_OPUS_4_VERSIONED,
+        "claude-opus-4-0": ANTHROPIC_OPUS_4_LEGACY,
         "claude-opus-4-1": ANTHROPIC_OPUS_4_VERSIONED,
         "claude-opus-4-5": ANTHROPIC_OPUS_4_VERSIONED,
-        "claude-opus-4-20250514": ANTHROPIC_OPUS_4_VERSIONED,
+        "claude-opus-4-20250514": ANTHROPIC_OPUS_4_LEGACY,
         "claude-haiku-4-5-20251001": ANTHROPIC_SONNET_4_VERSIONED,
         "claude-haiku-4-5": ANTHROPIC_SONNET_4_VERSIONED,
         # DeepSeek Models

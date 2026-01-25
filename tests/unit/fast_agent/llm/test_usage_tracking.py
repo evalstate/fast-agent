@@ -1,4 +1,4 @@
-from anthropic.types import Usage as AnthropicUsage
+from anthropic.types.beta import BetaUsage as AnthropicUsage
 from google.genai.types import GenerateContentResponseUsageMetadata as GoogleUsage
 from openai.types.completion_usage import (
     CompletionTokensDetails,

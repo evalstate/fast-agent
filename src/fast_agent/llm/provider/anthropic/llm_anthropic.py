@@ -1,32 +1,13 @@
 import asyncio
 import json
 import os
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Type, Union, cast
 
-from anthropic import APIError, AsyncAnthropic, AuthenticationError
-from anthropic.lib.streaming import AsyncMessageStream
-from anthropic.types import (
-    InputJSONDelta,
-    Message,
-    MessageParam,
-    RawContentBlockDeltaEvent,
-    RawContentBlockStartEvent,
-    RawContentBlockStopEvent,
-    RawMessageDeltaEvent,
-    RedactedThinkingBlock,
-    SignatureDelta,
-    TextBlock,
-    TextBlockParam,
-    TextDelta,
-    ThinkingBlock,
-    ThinkingDelta,
-    ToolParam,
-    ToolUseBlock,
-    ToolUseBlockParam,
-    Usage,
-)
+from anthropic import APIError, AsyncAnthropic, AuthenticationError, transform_schema
+from anthropic.lib.streaming import BetaAsyncMessageStream
 from mcp import Tool
 from mcp.types import (
     CallToolRequest,
@@ -46,6 +27,26 @@ from fast_agent.llm.fastagent_llm import (
     FastAgentLLM,
     RequestParams,
 )
+from fast_agent.llm.provider.anthropic.beta_types import (
+    InputJSONDelta,
+    Message,
+    MessageParam,
+    RawContentBlockDeltaEvent,
+    RawContentBlockStartEvent,
+    RawContentBlockStopEvent,
+    RawMessageDeltaEvent,
+    RedactedThinkingBlock,
+    SignatureDelta,
+    TextBlock,
+    TextBlockParam,
+    TextDelta,
+    ThinkingBlock,
+    ThinkingDelta,
+    ToolParam,
+    ToolUseBlock,
+    ToolUseBlockParam,
+    Usage,
+)
 from fast_agent.llm.provider.anthropic.cache_planner import AnthropicCachePlanner
 from fast_agent.llm.provider.anthropic.multipart_converter_anthropic import (
     AnthropicConverter,
@@ -54,12 +55,15 @@ from fast_agent.llm.provider.error_utils import build_stream_failure_response
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import parse_reasoning_setting
 from fast_agent.llm.stream_types import StreamChunk
+from fast_agent.llm.structured_output_mode import StructuredOutputMode
 from fast_agent.llm.usage_tracking import TurnUsage
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-0"
 STRUCTURED_OUTPUT_TOOL_NAME = "return_structured_output"
+STRUCTURED_OUTPUT_BETA = "structured-outputs-2025-11-13"
+INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14"
 
 # Stream capture mode - when enabled, saves all streaming chunks to files for debugging
 # Set FAST_AGENT_LLM_TRACE=1 (or any non-empty value) to enable
@@ -81,6 +85,41 @@ def _stream_capture_filename(turn: int) -> Path | None:
     return STREAM_CAPTURE_DIR / f"anthropic_{timestamp}_turn{turn}"
 
 
+def _serialize_for_trace(value: Any) -> Any:
+    """Serialize request payloads safely for stream tracing."""
+    if hasattr(value, "model_dump"):
+        try:
+            return value.model_dump(warnings="none")
+        except TypeError:
+            return value.model_dump()
+        except Exception:
+            return str(value)
+    if isinstance(value, dict):
+        return {key: _serialize_for_trace(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_serialize_for_trace(item) for item in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
+def _save_stream_request(filename_base: Path | None, arguments: dict[str, Any]) -> None:
+    """Save the outgoing request payload for debugging."""
+    if not filename_base:
+        return
+    try:
+        request_file = filename_base.with_name(f"{filename_base.name}.request.json")
+        payload = _serialize_for_trace(arguments)
+        payload = {
+            "captured_at": datetime.now().isoformat(),
+            "arguments": payload,
+        }
+        with open(request_file, "w") as f:
+            json.dump(payload, f, indent=2, sort_keys=True)
+    except Exception as e:
+        logger.debug(f"Failed to save stream request: {e}")
+
+
 def _save_stream_chunk(filename_base: Path | None, chunk: Any) -> None:
     """Save a streaming chunk to file when capture mode is enabled."""
     if not filename_base:
@@ -88,13 +127,46 @@ def _save_stream_chunk(filename_base: Path | None, chunk: Any) -> None:
     try:
         chunk_file = filename_base.with_name(f"{filename_base.name}.jsonl")
         try:
-            payload: Any = chunk.model_dump()
+            payload: Any = chunk.model_dump(warnings="none")
+        except TypeError:
+            payload = chunk.model_dump()
         except Exception:
             payload = {"type": type(chunk).__name__, "str": str(chunk)}
         with open(chunk_file, "a") as f:
             f.write(json.dumps(payload) + "\n")
     except Exception as e:
         logger.debug(f"Failed to save stream chunk: {e}")
+
+
+def _ensure_additional_properties_false(schema: dict[str, Any]) -> dict[str, Any]:
+    """Ensure object schemas explicitly set additionalProperties=false."""
+    result = deepcopy(schema)
+
+    def visit(node: Any) -> None:
+        if isinstance(node, dict):
+            if node.get("type") == "object" and "additionalProperties" not in node:
+                node["additionalProperties"] = False
+
+            for key, value in node.items():
+                if key in {"properties", "$defs", "definitions", "patternProperties"}:
+                    if isinstance(value, dict):
+                        for child in value.values():
+                            visit(child)
+                    continue
+                if key in {"items", "anyOf", "oneOf", "allOf"}:
+                    if isinstance(value, list):
+                        for child in value:
+                            visit(child)
+                    else:
+                        visit(value)
+                    continue
+                visit(value)
+        elif isinstance(node, list):
+            for item in node:
+                visit(item)
+
+    visit(result)
+    return result
 
 
 class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
@@ -113,12 +185,17 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         FastAgentLLM.PARAM_PARALLEL_TOOL_CALLS,
         FastAgentLLM.PARAM_TEMPLATE_VARS,
         FastAgentLLM.PARAM_MCP_METADATA,
+        "response_format",
     }
 
     def __init__(self, **kwargs) -> None:
         # Initialize logger - keep it simple without name reference
         kwargs.pop("provider", None)
+        structured_override = kwargs.pop("structured_output_mode", None)
         super().__init__(provider=Provider.ANTHROPIC, **kwargs)
+        self._structured_output_mode_override: StructuredOutputMode | None = (
+            structured_override
+        )
 
         raw_setting = kwargs.get("reasoning_effort", None)
         config = self.context.config.anthropic if self.context and self.context.config else None
@@ -127,13 +204,18 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             if raw_setting is None:
                 if config.thinking_enabled:
                     raw_setting = config.thinking_budget_tokens
-                else:
-                    raw_setting = False
-                if config.thinking_enabled or config.thinking_budget_tokens != 10000:
+                if config.thinking_enabled or config.thinking_budget_tokens != 1024:
                     self.logger.warning(
                         "Anthropic config 'thinking_enabled'/'thinking_budget_tokens' is deprecated; "
                         "use 'reasoning'."
                     )
+
+        if raw_setting is None:
+            from fast_agent.llm.model_database import ModelDatabase
+
+            model_name = self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
+            if ModelDatabase.get_reasoning(model_name) == "anthropic_thinking":
+                raw_setting = 1024
 
         setting = parse_reasoning_setting(raw_setting)
         if setting is not None:
@@ -194,30 +276,59 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         setting = self.reasoning_effort
         if setting and setting.kind == "budget" and isinstance(setting.value, int):
             return max(1024, setting.value)
-        return 10000
+        return 1024
+
+    def _resolve_structured_output_mode(
+        self, model: str, structured_model: Type[ModelT] | None
+    ) -> StructuredOutputMode | None:
+        if structured_model is None:
+            return None
+        if self._structured_output_mode_override is not None:
+            return self._structured_output_mode_override
+        from fast_agent.llm.model_database import ModelDatabase
+
+        json_mode = ModelDatabase.get_json_mode(model)
+        if json_mode == "schema":
+            return "json"
+        return "tool_use"
+
+    def _build_output_format(self, structured_model: Type[ModelT]) -> dict[str, Any]:
+        try:
+            schema = transform_schema(structured_model)
+        except Exception:
+            schema = structured_model.model_json_schema()
+        return {"type": "json_schema", "schema": schema}
 
     async def _prepare_tools(
-        self, structured_model: Type[ModelT] | None = None, tools: list[Tool] | None = None
+        self,
+        structured_model: Type[ModelT] | None = None,
+        tools: list[Tool] | None = None,
+        structured_mode: StructuredOutputMode | None = None,
     ) -> list[ToolParam]:
         """Prepare tools based on whether we're in structured output mode."""
-        if structured_model:
+        if structured_model and structured_mode == "tool_use":
+            schema = _ensure_additional_properties_false(
+                structured_model.model_json_schema()
+            )
             return [
                 ToolParam(
                     name=STRUCTURED_OUTPUT_TOOL_NAME,
                     description="Return the response in the required JSON format",
-                    input_schema=structured_model.model_json_schema(),
+                    input_schema=schema,
+                    strict=True,
                 )
             ]
-        else:
-            # Regular mode - use tools from aggregator
-            return [
-                ToolParam(
-                    name=tool.name,
-                    description=tool.description or "",
-                    input_schema=tool.inputSchema,
-                )
-                for tool in tools or []
-            ]
+        if structured_model:
+            return []
+        # Regular mode - use tools from aggregator
+        return [
+            ToolParam(
+                name=tool.name,
+                description=tool.description or "",
+                input_schema=tool.inputSchema,
+            )
+            for tool in tools or []
+        ]
 
     def _apply_system_cache(self, base_args: dict, cache_mode: str) -> int:
         """Apply cache control to system prompt if cache mode allows it."""
@@ -339,7 +450,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     async def _process_stream(
         self,
-        stream: AsyncMessageStream,
+        stream: BetaAsyncMessageStream,
         model: str,
         capture_filename: Path | None = None,
     ) -> tuple[Message, list[str]]:
@@ -586,33 +697,43 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         cache_mode = self._get_cache_mode()
         logger.debug(f"Anthropic cache_mode: {cache_mode}")
 
-        available_tools = await self._prepare_tools(structured_model, tools)
-
         response_content_blocks: list[ContentBlock] = []
         tool_calls: dict[str, CallToolRequest] | None = None
         model = self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
 
+        structured_mode = self._resolve_structured_output_mode(model, structured_model)
+        available_tools = await self._prepare_tools(
+            structured_model, tools, structured_mode=structured_mode
+        )
+
         # Create base arguments dictionary
-        base_args = {
+        base_args: dict[str, Any] = {
             "model": model,
             "messages": messages,
             "stop_sequences": params.stopSequences,
-            "tools": available_tools,
         }
+        if available_tools:
+            base_args["tools"] = available_tools
 
         if self.instruction or params.systemPrompt:
             base_args["system"] = self.instruction or params.systemPrompt
 
-        if structured_model:
-            if self._is_thinking_enabled(model):
-                logger.warning(
-                    "Extended thinking is incompatible with structured output. "
-                    "Disabling thinking for this request."
-                )
-            base_args["tool_choice"] = {"type": "tool", "name": STRUCTURED_OUTPUT_TOOL_NAME}
+        if structured_mode:
+            if structured_mode == "tool_use":
+                if self._is_thinking_enabled(model):
+                    logger.warning(
+                        "Extended thinking is incompatible with tool-forced structured output. "
+                        "Disabling thinking for this request."
+                    )
+                base_args["tool_choice"] = {
+                    "type": "tool",
+                    "name": STRUCTURED_OUTPUT_TOOL_NAME,
+                }
+            if structured_mode == "json" and structured_model:
+                base_args["output_format"] = self._build_output_format(structured_model)
 
         thinking_enabled = self._is_thinking_enabled(model)
-        if thinking_enabled and structured_model:
+        if thinking_enabled and structured_mode == "tool_use":
             thinking_enabled = False
 
         if thinking_enabled:
@@ -629,8 +750,13 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         elif params.maxTokens is not None:
             base_args["max_tokens"] = params.maxTokens
 
+        beta_flags: list[str] = []
+        if structured_mode:
+            beta_flags.append(STRUCTURED_OUTPUT_BETA)
         if thinking_enabled and available_tools:
-            base_args["extra_headers"] = {"anthropic-beta": "interleaved-thinking-2025-05-14"}
+            beta_flags.append(INTERLEAVED_THINKING_BETA)
+        if beta_flags:
+            base_args["betas"] = beta_flags
 
         self._log_chat_progress(self.chat_turn(), model=model)
         # Use the base class method to prepare all arguments with Anthropic-specific exclusions
@@ -665,10 +791,11 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
         # Generate stream capture filename once (before streaming starts)
         capture_filename = _stream_capture_filename(self.chat_turn())
+        _save_stream_request(capture_filename, arguments)
 
         # Use streaming API with helper
         try:
-            async with anthropic.messages.stream(**arguments) as stream:
+            async with anthropic.beta.messages.stream(**arguments) as stream:
                 # Process the stream
                 response, thinking_segments = await self._process_stream(
                     stream, model, capture_filename
@@ -733,14 +860,18 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                 stop_reason = LlmStopReason.MAX_TOKENS
             case "refusal":
                 stop_reason = LlmStopReason.SAFETY
-            case "pause":
+            case "pause" | "pause_turn":
                 stop_reason = LlmStopReason.PAUSE
             case "tool_use":
                 stop_reason = LlmStopReason.TOOL_USE
                 tool_uses: list[ToolUseBlock] = [
                     c for c in response.content if isinstance(c, ToolUseBlock)
                 ]
-                if structured_model and self._is_structured_output_request(tool_uses):
+                if (
+                    structured_mode == "tool_use"
+                    and structured_model
+                    and self._is_structured_output_request(tool_uses)
+                ):
                     stop_reason, structured_blocks = await self._handle_structured_output_response(
                         tool_uses[0], structured_model, messages
                     )
@@ -857,19 +988,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                 history=multipart_messages,
                 current_extended=last_message,
             )
-
-            for content in result.content:
-                if isinstance(content, TextContent):
-                    try:
-                        data = json.loads(content.text)
-                        parsed_model = model(**data)
-                        return parsed_model, result
-                    except (json.JSONDecodeError, ValueError) as e:
-                        logger.error(f"Failed to parse structured output: {e}")
-                        return None, result
-
-            # If no valid response found
-            return None, Prompt.assistant()
+            return self._structured_from_multipart(result, model)
         else:
             # For assistant messages: Return the last message content
             logger.debug("Last message in prompt is from assistant, returning it directly")

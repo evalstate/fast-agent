@@ -1,6 +1,6 @@
 import unittest
 
-from anthropic.types import Usage
+from anthropic.types.beta import BetaUsage
 
 from fast_agent.llm.usage_tracking import TurnUsage, UsageAccumulator
 
@@ -12,7 +12,7 @@ class TestUsageTrackingCacheBilling(unittest.TestCase):
         """Test that cached tokens are included in cumulative billing totals."""
 
         # Recreate the exact scenario from the debug output
-        usage = Usage(
+        usage = BetaUsage(
             cache_creation_input_tokens=0,
             cache_read_input_tokens=2020,  # Cache read
             input_tokens=142,  # New tokens
@@ -53,7 +53,7 @@ class TestUsageTrackingCacheBilling(unittest.TestCase):
         """Test cache write tokens are included in billing."""
 
         # First turn: cache write
-        usage1 = Usage(
+        usage1 = BetaUsage(
             cache_creation_input_tokens=2020,  # Cache write
             cache_read_input_tokens=0,
             input_tokens=142,
@@ -87,7 +87,7 @@ class TestUsageTrackingCacheBilling(unittest.TestCase):
         """Test cumulative billing across multiple turns with cache operations."""
 
         # Turn 1: Cache write
-        usage1 = Usage(
+        usage1 = BetaUsage(
             cache_creation_input_tokens=2020,
             cache_read_input_tokens=0,
             input_tokens=142,
@@ -95,7 +95,7 @@ class TestUsageTrackingCacheBilling(unittest.TestCase):
         )
 
         # Turn 2: Cache read
-        usage2 = Usage(
+        usage2 = BetaUsage(
             cache_creation_input_tokens=0,
             cache_read_input_tokens=2020,
             input_tokens=289,
