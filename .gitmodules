@@ -1,6 +1,7 @@
 [submodule "skills-repo"]
 	path = skills-repo
 	url = https://github.com/fast-agent-ai/skills
+	branch = main
 [submodule "docs"]
 	path = docs
 	url = https://github.com/evalstate/fast-agent-docs
