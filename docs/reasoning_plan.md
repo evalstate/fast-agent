@@ -129,7 +129,7 @@ This is SEPARATE from the existing `reasoning` field (output format). Example:
             kind="budget",
             min_budget_tokens=1024,
             max_budget_tokens=128000,
-            default=ReasoningEffortSetting(kind="budget", value=10000),
+default=ReasoningEffortSetting(kind="budget", value=1024),
         ),
     )
 
