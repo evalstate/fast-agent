@@ -29,7 +29,7 @@ EFFORT_COLOR_MAPPING = {
     "none": INACTIVE_COLOR,
     "minimal": "ansigreen",
     "low": "ansigreen",
-    "medium": "ansigreen",
+    "medium": "ansiyellow",
     "high": "ansiyellow",
     "xhigh": "ansired",
 }
@@ -90,7 +90,7 @@ def render_reasoning_effort_gauge(
     if effective is None:
         level = 0
     elif effective.kind == "toggle":
-        level = 0 if not effective.value else 1
+        level = 0 if not effective.value else MAX_LEVEL
     elif effective.kind == "effort":
         effort_value = str(effective.value)
         level = _effort_to_level(effort_value)

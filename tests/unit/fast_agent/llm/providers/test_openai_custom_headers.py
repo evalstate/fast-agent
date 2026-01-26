@@ -6,6 +6,7 @@ and are correctly passed to the OpenAI client.
 
 
 from fast_agent.config import (
+    AzureSettings,
     DeepSeekSettings,
     GenericSettings,
     GoogleSettings,
@@ -82,6 +83,12 @@ class TestSettingsDefaultHeaders:
         settings = HuggingFaceSettings(default_headers=headers)
         assert settings.default_headers == headers
 
+    def test_azure_settings_default_headers(self):
+        """Azure settings should support default_headers."""
+        headers = {"Ocp-Apim-Subscription-Key": "value"}
+        settings = AzureSettings(default_headers=headers)
+        assert settings.default_headers == headers
+
 
 class TestMainSettingsIntegration:
     """Test that the main Settings class correctly handles provider headers."""
@@ -122,6 +129,21 @@ class TestMainSettingsIntegration:
         assert settings.openai.default_headers == {"X-OpenAI": "openai-value"}
         assert settings.openrouter.default_headers == {"X-OpenRouter": "openrouter-value"}
         assert settings.generic.default_headers == {"X-Generic": "generic-value"}
+
+    def test_settings_azure_headers_from_dict(self):
+        """Settings should correctly parse Azure headers from dict."""
+        settings = Settings.model_validate(
+            {
+                "azure": {
+                    "api_key": "test-key",
+                    "base_url": "https://example.openai.azure.com/",
+                    "azure_deployment": "gpt-4o",
+                    "default_headers": {"Ocp-Apim-Subscription-Key": "value"},
+                }
+            }
+        )
+        assert settings.azure is not None
+        assert settings.azure.default_headers == {"Ocp-Apim-Subscription-Key": "value"}
 
 
 class TestLLMDefaultHeadersMethod:
@@ -201,6 +223,26 @@ class TestLLMDefaultHeadersMethod:
 
         assert llm._default_headers() == headers
 
+    def test_azure_llm_default_headers_returns_configured_headers(self):
+        """Azure LLM should return headers from azure config."""
+        from fast_agent.llm.provider.openai.llm_azure import AzureOpenAILLM
+
+        headers = {"Ocp-Apim-Subscription-Key": "value"}
+        settings = Settings.model_validate(
+            {
+                "azure": {
+                    "api_key": "test-key",
+                    "base_url": "https://example.openai.azure.com/",
+                    "azure_deployment": "gpt-4o",
+                    "default_headers": headers,
+                }
+            }
+        )
+        context = Context(config=settings)
+        llm = AzureOpenAILLM(context=context)
+
+        assert llm._default_headers() == headers
+
 
 class TestOpenAIClientCreation:
     """Test that the OpenAI client is created with custom headers."""
@@ -256,3 +298,26 @@ class TestOpenAIClientCreation:
         # Verify the client has the custom headers set
         assert client._custom_headers is not None
         assert client._custom_headers.get("X-Gateway-Auth") == "token123"
+
+    def test_azure_client_includes_custom_headers(self):
+        """Azure LLM client should include custom headers when configured."""
+        from fast_agent.llm.provider.openai.llm_azure import AzureOpenAILLM
+
+        headers = {"Ocp-Apim-Subscription-Key": "value"}
+        settings = Settings.model_validate(
+            {
+                "azure": {
+                    "api_key": "test-key",
+                    "base_url": "https://example.openai.azure.com/",
+                    "azure_deployment": "gpt-4o",
+                    "default_headers": headers,
+                }
+            }
+        )
+        context = Context(config=settings)
+        llm = AzureOpenAILLM(context=context)
+
+        client = llm._openai_client()
+
+        assert client._custom_headers is not None
+        assert client._custom_headers.get("Ocp-Apim-Subscription-Key") == "value"

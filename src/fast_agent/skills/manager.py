@@ -373,18 +373,40 @@ def _candidate_marketplace_urls(url: str) -> list[str]:
             if len(parts) >= 4 and parts[2] in {"tree", "blob"}:
                 ref = parts[3]
                 base_path = "/".join(parts[4:])
-                suffix = ".claude-plugin/marketplace.json"
-                if base_path:
-                    suffix = f"{base_path.rstrip('/')}/{suffix}"
-                return [
-                    f"https://raw.githubusercontent.com/{org}/{repo}/{ref}/{suffix}"
-                ]
+                return _github_marketplace_candidates(org, repo, ref, base_path)
             if len(parts) == 2:
                 return [
-                    f"https://raw.githubusercontent.com/{org}/{repo}/main/.claude-plugin/marketplace.json",
-                    f"https://raw.githubusercontent.com/{org}/{repo}/master/.claude-plugin/marketplace.json",
+                    *_github_marketplace_candidates(org, repo, "main", ""),
+                    *_github_marketplace_candidates(org, repo, "master", ""),
                 ]
     return [normalized]
+
+
+def _github_marketplace_candidates(
+    org: str, repo: str, ref: str, base_path: str
+) -> list[str]:
+    suffixes = _marketplace_path_candidates(base_path)
+    return [
+        f"https://raw.githubusercontent.com/{org}/{repo}/{ref}/{suffix}"
+        for suffix in suffixes
+    ]
+
+
+def _marketplace_path_candidates(base_path: str) -> list[str]:
+    cleaned = base_path.strip().strip("/")
+    if not cleaned:
+        return [".claude-plugin/marketplace.json", "marketplace.json"]
+
+    path = PurePosixPath(cleaned)
+    if path.name.lower() == "marketplace.json":
+        return [str(path)]
+    if path.name == ".claude-plugin":
+        return [str(path / "marketplace.json")]
+
+    return [
+        str(path / ".claude-plugin" / "marketplace.json"),
+        str(path / "marketplace.json"),
+    ]
 
 
 def candidate_marketplace_urls(url: str) -> list[str]:

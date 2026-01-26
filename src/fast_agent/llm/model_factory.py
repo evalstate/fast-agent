@@ -15,6 +15,7 @@ from fast_agent.llm.structured_output_mode import (
     StructuredOutputMode,
     parse_structured_output_mode,
 )
+from fast_agent.llm.text_verbosity import TextVerbosityLevel, parse_text_verbosity
 from fast_agent.types import RequestParams
 
 # Type alias for LLM classes
@@ -27,6 +28,7 @@ class ModelConfig(BaseModel):
     provider: Provider
     model_name: str
     reasoning_effort: ReasoningEffortSetting | None = None
+    text_verbosity: TextVerbosityLevel | None = None
     structured_output_mode: StructuredOutputMode | None = None
 
 
@@ -181,6 +183,7 @@ class ModelFactory:
 
         query_setting: ReasoningEffortSetting | None = None
         query_structured: StructuredOutputMode | None = None
+        query_text_verbosity: TextVerbosityLevel | None = None
         if "?" in model_string:
             model_string, _, query = model_string.partition("?")
             query_params = parse_qs(query)
@@ -191,6 +194,14 @@ class ModelFactory:
                 if query_setting is None:
                     raise ModelConfigError(
                         f"Invalid reasoning query value: '{raw_value}' in '{model_string}'"
+                    )
+            if "verbosity" in query_params:
+                values = query_params.get("verbosity") or []
+                raw_value = values[-1] if values else ""
+                query_text_verbosity = parse_text_verbosity(raw_value)
+                if query_text_verbosity is None:
+                    raise ModelConfigError(
+                        f"Invalid verbosity query value: '{raw_value}' in '{model_string}'"
                     )
             if "structured" in query_params:
                 values = query_params.get("structured") or []
@@ -290,6 +301,7 @@ class ModelFactory:
             provider=provider,
             model_name=model_name_str,
             reasoning_effort=reasoning_effort,
+            text_verbosity=query_text_verbosity,
             structured_output_mode=query_structured,
         )
 
@@ -328,6 +340,8 @@ class ModelFactory:
             base_params.model = config.model_name
             if config.reasoning_effort:
                 kwargs["reasoning_effort"] = config.reasoning_effort
+            if config.text_verbosity:
+                kwargs["text_verbosity"] = config.text_verbosity
             if config.structured_output_mode:
                 kwargs["structured_output_mode"] = config.structured_output_mode
             llm_args = {

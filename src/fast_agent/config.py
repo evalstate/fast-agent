@@ -20,6 +20,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
 from fast_agent.llm.structured_output_mode import StructuredOutputMode
+from fast_agent.llm.text_verbosity import TextVerbosityLevel
 
 
 class MCPServerAuthSettings(BaseModel):
@@ -408,6 +409,10 @@ class OpenAISettings(BaseModel):
         default="medium",
         description="Default reasoning effort: minimal, low, medium, high",
     )
+    text_verbosity: TextVerbosityLevel = Field(
+        default="medium",
+        description="Text verbosity level: low, medium, high",
+    )
     default_headers: dict[str, str] | None = Field(
         default=None,
         description="Custom headers for all API requests",
@@ -544,6 +549,10 @@ class AzureSettings(BaseModel):
     base_url: str | None = Field(
         default=None,
         description="Full endpoint URL (do not use with resource_name)",
+    )
+    default_headers: dict[str, str] | None = Field(
+        default=None,
+        description="Custom headers for all API requests",
     )
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)

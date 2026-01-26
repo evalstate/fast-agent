@@ -331,6 +331,10 @@ class ACPToolPermissionManager:
                 f"Error requesting tool permission from client: {e}",
                 name="acp_tool_permission_request_error",
                 exc_info=True,
+                tool_name=tool_name,
+                server_name=server_name,
+                session_id=self._session_id,
+                tool_call_id=tool_call_id,
             )
             # FAIL-SAFE: Default to DENY on any error
             return PermissionResult(allowed=False, remember=False)

@@ -25,6 +25,7 @@ from fast_agent.llm.provider.openai.responses_streaming import ResponsesStreamin
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import format_reasoning_setting, parse_reasoning_setting
 from fast_agent.llm.request_params import RequestParams
+from fast_agent.llm.text_verbosity import parse_text_verbosity
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
@@ -73,7 +74,10 @@ class ResponsesLLM(
             raw_setting = getattr(settings, "reasoning", None)
             if raw_setting is None and hasattr(settings, "reasoning_effort"):
                 raw_setting = settings.reasoning_effort
-                if raw_setting is not None:
+                if (
+                    raw_setting is not None
+                    and "reasoning_effort" in settings.model_fields_set
+                ):
                     self.logger.warning(
                         "Responses config 'reasoning_effort' is deprecated; use 'reasoning'."
                     )
@@ -84,6 +88,21 @@ class ResponsesLLM(
                 self.set_reasoning_effort(setting)
             except ValueError as exc:
                 self.logger.warning(f"Invalid reasoning setting: {exc}")
+
+        raw_text_verbosity = kwargs.get("text_verbosity", None)
+        if settings and raw_text_verbosity is None:
+            raw_text_verbosity = getattr(settings, "text_verbosity", None)
+        if raw_text_verbosity is not None:
+            parsed_verbosity = parse_text_verbosity(str(raw_text_verbosity))
+            if parsed_verbosity is None:
+                self.logger.warning(
+                    f"Invalid text verbosity setting: {raw_text_verbosity}"
+                )
+            else:
+                try:
+                    self.set_text_verbosity(parsed_verbosity)
+                except ValueError as exc:
+                    self.logger.warning(f"Invalid text verbosity setting: {exc}")
 
         chosen_model = self.default_request_params.model if self.default_request_params else None
         self._reasoning_mode = ModelDatabase.get_reasoning(chosen_model) if chosen_model else None
@@ -237,6 +256,14 @@ class ResponsesLLM(
             base_args["text"] = {
                 "format": self._normalize_text_format(request_params.response_format)
             }
+
+        text_verbosity_spec = self.text_verbosity_spec
+        if text_verbosity_spec:
+            text_payload = base_args.get("text")
+            if not isinstance(text_payload, dict):
+                text_payload = {}
+            text_payload["verbosity"] = self.text_verbosity or text_verbosity_spec.default
+            base_args["text"] = text_payload
 
         return self.prepare_provider_arguments(
             base_args, request_params, self.RESPONSES_EXCLUDE_FIELDS

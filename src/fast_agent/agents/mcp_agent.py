@@ -361,6 +361,7 @@ class McpAgent(ABC, ToolAgent):
             skill_manifests=self._skill_manifests,
             has_filesystem_runtime=self.has_filesystem_runtime,
             context=self._instruction_context,
+            source=self._name,
         )
         self.set_instruction(new_instruction)
 

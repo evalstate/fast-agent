@@ -14,6 +14,11 @@ from fast_agent.llm.reasoning_effort import (
     parse_reasoning_setting,
     validate_reasoning_setting,
 )
+from fast_agent.llm.text_verbosity import (
+    available_text_verbosity_values,
+    format_text_verbosity,
+    parse_text_verbosity,
+)
 
 if TYPE_CHECKING:
     from fast_agent.commands.context import CommandContext
@@ -140,6 +145,75 @@ async def handle_model_reasoning(
     llm.set_reasoning_effort(parsed)
     outcome.add_message(
         f"Reasoning effort set to {format_reasoning_setting(llm.reasoning_effort)}.",
+        channel="info",
+        right_info="model",
+    )
+    return outcome
+
+
+async def handle_model_verbosity(
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+    value: str | None,
+) -> CommandOutcome:
+    outcome = CommandOutcome()
+    agent = ctx.agent_provider._agent(agent_name)
+    llm = getattr(agent, "llm", None) or getattr(agent, "_llm", None)
+    if llm is None:
+        outcome.add_message("No LLM attached to agent.", channel="warning", right_info="model")
+        return outcome
+
+    spec = llm.text_verbosity_spec
+    if spec is None:
+        outcome.add_message(
+            "Current model does not support text verbosity configuration.",
+            channel="warning",
+            right_info="model",
+        )
+        return outcome
+
+    model_name = getattr(llm, "_model_name", None)
+    if model_name:
+        outcome.add_message(
+            f"Resolved model: {model_name}.",
+            channel="info",
+            right_info="model",
+        )
+
+    if value is None:
+        current = format_text_verbosity(llm.text_verbosity or spec.default)
+        allowed = ", ".join(available_text_verbosity_values(spec))
+        outcome.add_message(
+            f"Text verbosity: {current}. Allowed values: {allowed}.",
+            channel="info",
+            right_info="model",
+        )
+        return outcome
+
+    parsed = parse_text_verbosity(value)
+    if parsed is None:
+        allowed = ", ".join(available_text_verbosity_values(spec))
+        outcome.add_message(
+            f"Invalid verbosity value '{value}'. Allowed values: {allowed}.",
+            channel="error",
+            right_info="model",
+        )
+        return outcome
+
+    try:
+        llm.set_text_verbosity(parsed)
+    except ValueError as exc:
+        allowed = ", ".join(available_text_verbosity_values(spec))
+        outcome.add_message(
+            f"{exc} Allowed values: {allowed}.",
+            channel="error",
+            right_info="model",
+        )
+        return outcome
+
+    outcome.add_message(
+        f"Text verbosity set to {format_text_verbosity(llm.text_verbosity)}.",
         channel="info",
         right_info="model",
     )

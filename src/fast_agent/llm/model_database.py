@@ -10,6 +10,7 @@ from typing import Literal
 from pydantic import BaseModel
 
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, ReasoningEffortSpec
+from fast_agent.llm.text_verbosity import TextVerbositySpec
 
 
 class ModelParameters(BaseModel):
@@ -32,6 +33,9 @@ class ModelParameters(BaseModel):
 
     reasoning_effort_spec: ReasoningEffortSpec | None = None
     """Reasoning effort input configuration supported by the model, if any."""
+
+    text_verbosity_spec: TextVerbositySpec | None = None
+    """Text verbosity configuration supported by the model, if any."""
 
     stream_mode: Literal["openai", "manual"] = "openai"
     """Determines how streaming deltas should be processed."""
@@ -111,6 +115,13 @@ class ModelDatabase:
         kind="effort",
         allowed_efforts=["minimal", "low", "medium", "high", "xhigh"],
         default=ReasoningEffortSetting(kind="effort", value="medium"),
+    )
+
+    OPENAI_TEXT_VERBOSITY_SPEC = TextVerbositySpec()
+
+    GLM_REASONING_TOGGLE_SPEC = ReasoningEffortSpec(
+        kind="toggle",
+        default=ReasoningEffortSetting(kind="toggle", value=True),
     )
 
     ANTHROPIC_THINKING_EFFORT_SPEC = ReasoningEffortSpec(
@@ -217,6 +228,7 @@ class ModelDatabase:
         tokenizes=OPENAI_MULTIMODAL,
         reasoning="openai",
         reasoning_effort_spec=OPENAI_GPT_5_CLASS_REASONING,
+        text_verbosity_spec=OPENAI_TEXT_VERBOSITY_SPEC,
     )
 
     OPENAI_GPT_5_2 = ModelParameters(
@@ -225,6 +237,7 @@ class ModelDatabase:
         tokenizes=OPENAI_MULTIMODAL,
         reasoning="openai",
         reasoning_effort_spec=OPENAI_GPT_51_CLASS_REASONING,
+        text_verbosity_spec=OPENAI_TEXT_VERBOSITY_SPEC,
     )
 
     OPENAI_GPT_CODEX = ModelParameters(
@@ -233,6 +246,7 @@ class ModelDatabase:
         tokenizes=OPENAI_MULTIMODAL,
         reasoning="openai",
         reasoning_effort_spec=OPENAI_GPT_5_CODEX_CLASS_REASONING,
+        text_verbosity_spec=OPENAI_TEXT_VERBOSITY_SPEC,
     )
 
     ANTHROPIC_OPUS_4_VERSIONED = ModelParameters(
@@ -355,6 +369,7 @@ class ModelDatabase:
         tokenizes=TEXT_ONLY,
         json_mode="object",
         reasoning="reasoning_content",
+        reasoning_effort_spec=GLM_REASONING_TOGGLE_SPEC,
         stream_mode="manual",
     )
 
@@ -628,6 +643,12 @@ class ModelDatabase:
         """Get reasoning effort capabilities for a model, if defined."""
         params = cls.get_model_params(model)
         return params.reasoning_effort_spec if params else None
+
+    @classmethod
+    def get_text_verbosity_spec(cls, model: str) -> TextVerbositySpec | None:
+        """Get text verbosity capabilities for a model, if defined."""
+        params = cls.get_model_params(model)
+        return params.text_verbosity_spec if params else None
 
     @classmethod
     def get_stream_mode(cls, model: str | None) -> Literal["openai", "manual"]:

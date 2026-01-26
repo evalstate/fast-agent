@@ -27,6 +27,7 @@ from rich.text import Text
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, ReasoningEffortSpec
 from fast_agent.llm.stream_types import StreamChunk
+from fast_agent.llm.text_verbosity import TextVerbosityLevel, TextVerbositySpec
 from fast_agent.llm.usage_tracking import UsageAccumulator
 from fast_agent.types import PromptMessageExtended, RequestParams
 
@@ -143,6 +144,14 @@ class FastAgentLLMProtocol(Protocol):
 
     @property
     def reasoning_effort_spec(self) -> ReasoningEffortSpec | None: ...
+
+    def set_text_verbosity(self, value: TextVerbosityLevel | None) -> None: ...
+
+    @property
+    def text_verbosity(self) -> TextVerbosityLevel | None: ...
+
+    @property
+    def text_verbosity_spec(self) -> TextVerbositySpec | None: ...
 
 
 @runtime_checkable

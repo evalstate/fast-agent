@@ -515,7 +515,7 @@ requires-dist = [{ name = "fast-agent-mcp", editable = "." }]
 
 [[package]]
 name = "fast-agent-mcp"
-version = "0.4.41"
+version = "0.4.42"
 source = { editable = "." }
 dependencies = [
     { name = "a2a-sdk" },
@@ -543,6 +543,7 @@ dependencies = [
     { name = "python-frontmatter" },
     { name = "pyyaml" },
     { name = "rich" },
+    { name = "ruamel-yaml" },
     { name = "tiktoken" },
     { name = "typer" },
     { name = "uvloop", marker = "sys_platform != 'win32'" },
@@ -615,6 +616,7 @@ requires-dist = [
     { name = "python-frontmatter", specifier = ">=1.1.0" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "rich", specifier = ">=14.3.1" },
+    { name = "ruamel-yaml", specifier = ">=0.18.16" },
     { name = "tensorzero", marker = "extra == 'all-providers'", specifier = ">=2025.7.5" },
     { name = "tensorzero", marker = "extra == 'tensorzero'", specifier = ">=2025.7.5" },
     { name = "textual", marker = "extra == 'textual'", specifier = ">=6.2.1" },
@@ -799,14 +801,12 @@ source = { editable = "publish/hf-inference-acp" }
 dependencies = [
     { name = "fast-agent-mcp" },
     { name = "huggingface-hub" },
-    { name = "ruamel-yaml" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "fast-agent-mcp", editable = "." },
     { name = "huggingface-hub", specifier = ">=1.3.2" },
-    { name = "ruamel-yaml", specifier = ">=0.18.16" },
 ]
 
 [[package]]

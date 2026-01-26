@@ -299,6 +299,7 @@ class LlmAgent(LlmDecorator):
         Enhanced generate implementation that resets tool call tracking.
         Messages are already normalized to List[PromptMessageExtended].
         """
+
         if "user" == messages[-1].role:
             trailing_users: list[PromptMessageExtended] = []
             for message in reversed(messages):
@@ -356,9 +357,7 @@ class LlmAgent(LlmDecorator):
                 render_markdown=render_markdown,
             )
         else:
-            result, summary = await self._generate_with_summary(
-                messages, request_params, tools
-            )
+            result, summary = await self._generate_with_summary(messages, request_params, tools)
 
             summary_text = (
                 Text(f"\n\n{summary.message}", style="dim red italic") if summary else None

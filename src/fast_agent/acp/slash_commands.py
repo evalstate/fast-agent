@@ -268,7 +268,7 @@ class SlashCommandHandler:
                 name="model",
                 description="Update model settings",
                 input=AvailableCommandInput(
-                    root=UnstructuredCommandInput(hint="reasoning <value>")
+                    root=UnstructuredCommandInput(hint="reasoning <value> | verbosity <value>")
                 ),
             ),
             "history": AvailableCommand(
@@ -559,22 +559,24 @@ class SlashCommandHandler:
 
     async def _handle_model(self, arguments: str | None = None) -> str:
         remainder = (arguments or "").strip()
-        if not remainder:
-            value = None
-        else:
+        value = None
+        return_value = "reasoning"
+        if remainder:
             try:
                 tokens = shlex.split(remainder)
             except ValueError:
                 tokens = remainder.split(maxsplit=1)
 
-            if not tokens:
-                value = None
-            else:
+            if tokens:
                 subcmd = tokens[0].lower()
                 argument = remainder[len(tokens[0]) :].strip()
-                if subcmd != "reasoning":
-                    return "Usage: /model reasoning <value>"
-                value = argument or None
+                if subcmd == "verbosity":
+                    return_value = "verbosity"
+                    value = argument or None
+                elif subcmd == "reasoning":
+                    value = argument or None
+                else:
+                    return "Usage: /model reasoning <value> | /model verbosity <value>"
 
         io = ACPCommandIO()
         ctx = CommandContext(
@@ -582,11 +584,18 @@ class SlashCommandHandler:
             current_agent_name=self.current_agent_name,
             io=io,
         )
-        outcome = await model_handlers.handle_model_reasoning(
-            ctx,
-            agent_name=self.current_agent_name,
-            value=value,
-        )
+        if return_value == "verbosity":
+            outcome = await model_handlers.handle_model_verbosity(
+                ctx,
+                agent_name=self.current_agent_name,
+                value=value,
+            )
+        else:
+            outcome = await model_handlers.handle_model_reasoning(
+                ctx,
+                agent_name=self.current_agent_name,
+                value=value,
+            )
         return render_command_outcome_markdown(outcome, heading="model")
 
     async def _handle_session(self, arguments: str | None = None) -> str:

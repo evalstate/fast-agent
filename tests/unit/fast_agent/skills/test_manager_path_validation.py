@@ -34,5 +34,16 @@ def test_candidate_marketplace_urls_for_github_repo() -> None:
     urls = manager._candidate_marketplace_urls("https://github.com/anthropics/skills")
     assert urls == [
         "https://raw.githubusercontent.com/anthropics/skills/main/.claude-plugin/marketplace.json",
+        "https://raw.githubusercontent.com/anthropics/skills/main/marketplace.json",
         "https://raw.githubusercontent.com/anthropics/skills/master/.claude-plugin/marketplace.json",
+        "https://raw.githubusercontent.com/anthropics/skills/master/marketplace.json",
+    ]
+
+
+def test_candidate_marketplace_urls_for_github_blob_marketplace() -> None:
+    urls = manager._candidate_marketplace_urls(
+        "https://github.com/fast-agent-ai/skills/blob/main/marketplace.json"
+    )
+    assert urls == [
+        "https://raw.githubusercontent.com/fast-agent-ai/skills/main/marketplace.json"
     ]

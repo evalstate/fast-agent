@@ -1133,10 +1133,12 @@ class AgentACPServer(ACPAgent):
                     session_state.permission_handler = permission_handler
 
                     # Register permission handler with all agents' aggregators
+                    permission_agents: list[str] = []
                     for agent_name, agent in instance.agents.items():
                         if isinstance(agent, McpAgentProtocol):
                             aggregator = agent.aggregator
                             aggregator._permission_handler = permission_handler
+                            permission_agents.append(agent_name)
 
                             logger.info(
                                 "ACP permission handler registered",
