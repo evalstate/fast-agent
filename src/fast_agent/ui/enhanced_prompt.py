@@ -38,6 +38,7 @@ from fast_agent.core.exceptions import PromptExitError
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import available_reasoning_values
+from fast_agent.llm.text_verbosity import available_text_verbosity_values
 from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.ui.command_payloads import (
     AgentCommand,
@@ -56,6 +57,7 @@ from fast_agent.ui.command_payloads import (
     LoadHistoryCommand,
     LoadPromptCommand,
     ModelReasoningCommand,
+    ModelVerbosityCommand,
     ReloadAgentsCommand,
     ResumeSessionCommand,
     SaveHistoryCommand,
@@ -77,6 +79,7 @@ from fast_agent.ui.model_display import format_model_display
 from fast_agent.ui.prompt_marks import emit_prompt_mark
 from fast_agent.ui.reasoning_effort_display import render_reasoning_effort_gauge
 from fast_agent.ui.shell_notice import format_shell_notice
+from fast_agent.ui.text_verbosity_display import render_text_verbosity_gauge
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Sequence
@@ -598,7 +601,7 @@ class AgentCompleter(Completer):
             "mcp": "Show MCP server status",
             "history": "Show conversation history overview (or /history save|load|clear|rewind|review|fix)",
             "tools": "List tools",
-            "model": "Update model settings (/model reasoning <value>)",
+            "model": "Update model settings (/model reasoning <value> | /model verbosity <value>)",
             "skills": "Manage skills (/skills, /skills add, /skills remove, /skills registry)",
             "prompt": "Load a Prompt File or use MCP Prompt",
             "system": "Show the current system prompt",
@@ -766,6 +769,18 @@ class AgentCompleter(Completer):
         if not llm:
             return []
         return available_reasoning_values(getattr(llm, "reasoning_effort_spec", None))
+
+    def _resolve_verbosity_values(self) -> list[str]:
+        if not self.agent_provider or not self.current_agent:
+            return []
+        try:
+            agent_obj = self.agent_provider._agent(self.current_agent)
+        except Exception:
+            return []
+        llm = getattr(agent_obj, "llm", None) or getattr(agent_obj, "_llm", None)
+        if not llm:
+            return []
+        return available_text_verbosity_values(getattr(llm, "text_verbosity_spec", None))
 
     def _complete_history_rewind(self, partial: str):
         user_turns = self._iter_user_turns()
@@ -1160,6 +1175,8 @@ class AgentCompleter(Completer):
                     "0/1024/16000/32000)"
                 ),
             }
+            if self._resolve_verbosity_values():
+                subcommands["verbosity"] = "Set text verbosity (low/medium/high)"
             yield from self._complete_subcommands(parts, remainder, subcommands)
             if not parts or (len(parts) == 1 and not remainder.endswith(" ")):
                 return
@@ -1174,6 +1191,16 @@ class AgentCompleter(Completer):
                             start_position=-len(argument),
                             display=value,
                             display_meta="reasoning",
+                        )
+                return
+            if subcmd == "verbosity":
+                for value in self._resolve_verbosity_values():
+                    if value.startswith(argument.lower()):
+                        yield Completion(
+                            value,
+                            start_position=-len(argument),
+                            display=value,
+                            display_meta="verbosity",
                         )
                 return
 
@@ -1795,6 +1822,8 @@ def parse_special_input(text: str) -> str | CommandPayload:
             argument = remainder[len(tokens[0]) :].strip()
             if subcmd == "reasoning":
                 return ModelReasoningCommand(value=argument or None)
+            if subcmd == "verbosity":
+                return ModelVerbosityCommand(value=argument or None)
             return UnknownCommand(command=cmd_line)
         if cmd == "skills":
             remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
@@ -1956,6 +1985,7 @@ async def get_enhanced_input(
 
             codex_suffix = ""
             reasoning_gauge = None
+            verbosity_gauge = None
             if model_name:
                 display_name = format_model_display(model_name) or model_name
                 if llm and getattr(llm, "provider", None) == Provider.CODEX_RESPONSES:
@@ -1966,8 +1996,13 @@ async def get_enhanced_input(
                             llm.reasoning_effort,
                             llm.reasoning_effort_spec,
                         )
+                        verbosity_gauge = render_text_verbosity_gauge(
+                            llm.text_verbosity,
+                            llm.text_verbosity_spec,
+                        )
                     except Exception:
                         reasoning_gauge = None
+                        verbosity_gauge = None
                 max_len = 25
                 model_display = (
                     display_name[: max_len - 1] + "…"
@@ -2067,12 +2102,18 @@ async def get_enhanced_input(
         if model_display:
             # Model chip + inline TDV flags
             if tdv_segment:
-                gauge_segment = f" {reasoning_gauge}" if reasoning_gauge else ""
+                gauge_segment = ""
+                if reasoning_gauge or verbosity_gauge:
+                    gauges = "".join(gauge for gauge in (reasoning_gauge, verbosity_gauge) if gauge)
+                    gauge_segment = f" {gauges}"
                 middle_segments.append(
                     f"{tdv_segment}{gauge_segment} <style bg='ansigreen'>{model_display}</style>{codex_suffix}"
                 )
             else:
-                gauge_segment = f" {reasoning_gauge}" if reasoning_gauge else ""
+                gauge_segment = ""
+                if reasoning_gauge or verbosity_gauge:
+                    gauges = "".join(gauge for gauge in (reasoning_gauge, verbosity_gauge) if gauge)
+                    gauge_segment = f" {gauges}"
                 middle_segments.append(
                     f"{gauge_segment} <style bg='ansigreen'>{model_display}</style>{codex_suffix}"
                 )
@@ -2539,6 +2580,7 @@ async def handle_special_commands(
         rich_print(
             "  /model reasoning <value> - Set reasoning effort (off/low/medium/high/xhigh or budgets like 0/1024/16000/32000)"
         )
+        rich_print("  /model verbosity <value> - Set text verbosity (low/medium/high)")
         rich_print("  /history [agent_name] - Show chat history overview")
         rich_print(
             "  /history clear all [agent_name] - Clear conversation history (keeps templates)"

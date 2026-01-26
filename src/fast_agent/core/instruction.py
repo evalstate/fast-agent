@@ -106,14 +106,16 @@ class InstructionBuilder:
         "pythonVer": _get_python_version,
     }
 
-    def __init__(self, template: str):
+    def __init__(self, template: str, *, source: str | None = None):
         """
         Initialize the builder with a template string.
 
         Args:
             template: The instruction template with {{placeholder}} patterns
+            source: Optional label for diagnostics (agent name, card, etc.)
         """
         self._template = template
+        self._source = source
         self._static: dict[str, str] = {}
         self._resolvers: dict[str, Resolver] = {}
 
@@ -121,6 +123,11 @@ class InstructionBuilder:
     def template(self) -> str:
         """The original template string."""
         return self._template
+
+    @property
+    def source(self) -> str | None:
+        """Optional source label for diagnostics (agent name, card, etc.)."""
+        return self._source
 
     # ─────────────────────────────────────────────────────────────────────────
     # Source Registration (Fluent API)
@@ -221,7 +228,11 @@ class InstructionBuilder:
                     value = await resolver()
                     result = result.replace(pattern, value)
                 except Exception as e:
-                    logger.warning(f"Failed to resolve {{{{placeholder}}}}: {e}")
+                    logger.warning(
+                        f"Failed to resolve {{{{{placeholder}}}}}: {e}",
+                        placeholder=placeholder,
+                        source=self._source,
+                    )
                     # Leave placeholder in place or replace with empty?
                     # For now, replace with empty to avoid confusing the LLM
                     result = result.replace(pattern, "")
@@ -237,7 +248,11 @@ class InstructionBuilder:
             try:
                 return _fetch_url_content(url)
             except Exception as e:
-                logger.warning(f"Failed to fetch URL {url}: {e}")
+                logger.warning(
+                    f"Failed to fetch URL {url}: {e}",
+                    url=url,
+                    source=self._source,
+                )
                 return ""
 
         return url_pattern.sub(replace_url, text)
@@ -321,7 +336,7 @@ class InstructionBuilder:
         Returns:
             A new InstructionBuilder with copied state
         """
-        new_builder = InstructionBuilder(self._template)
+        new_builder = InstructionBuilder(self._template, source=self._source)
         new_builder._static = self._static.copy()
         new_builder._resolvers = self._resolvers.copy()
         return new_builder
@@ -332,7 +347,8 @@ class InstructionBuilder:
         template_preview = (
             self._template[:50] + "..." if len(self._template) > 50 else self._template
         )
+        source_label = f", source={self._source!r}" if self._source else ""
         return (
             f"InstructionBuilder(template={template_preview!r}, "
-            f"static={static_count}, resolvers={resolver_count})"
+            f"static={static_count}, resolvers={resolver_count}{source_label})"
         )

@@ -80,6 +80,13 @@ def test_model_query_reasoning_budget():
     assert config.reasoning_effort == ReasoningEffortSetting(kind="budget", value=2048)
 
 
+def test_model_query_reasoning_toggle():
+    config = ModelFactory.parse_model_string("hf.zai-org/GLM-4.7?reasoning=off")
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == "zai-org/GLM-4.7"
+    assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=False)
+
+
 def test_model_query_structured_json():
     config = ModelFactory.parse_model_string("claude-sonnet-4-5?structured=json")
     assert config.provider == Provider.ANTHROPIC
@@ -92,6 +99,13 @@ def test_model_query_structured_tool_use():
     assert config.provider == Provider.ANTHROPIC
     assert config.model_name == "claude-sonnet-4-5"
     assert config.structured_output_mode == "tool_use"
+
+
+def test_model_query_text_verbosity():
+    config = ModelFactory.parse_model_string("gpt-5?verbosity=med&reasoning=high")
+    assert config.provider == Provider.RESPONSES
+    assert config.model_name == "gpt-5"
+    assert config.text_verbosity == "medium"
 
 
 def test_invalid_inputs():
@@ -109,6 +123,11 @@ def test_invalid_inputs():
 def test_invalid_structured_query():
     with pytest.raises(ModelConfigError):
         ModelFactory.parse_model_string("claude-sonnet-4-5?structured=maybe")
+
+
+def test_invalid_verbosity_query():
+    with pytest.raises(ModelConfigError):
+        ModelFactory.parse_model_string("gpt-5?verbosity=verbose")
 
 
 def test_llm_class_creation():

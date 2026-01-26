@@ -20,6 +20,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
 from fast_agent.llm.structured_output_mode import StructuredOutputMode
+from fast_agent.llm.text_verbosity import TextVerbosityLevel
 
 
 class MCPServerAuthSettings(BaseModel):
@@ -407,6 +408,10 @@ class OpenAISettings(BaseModel):
     reasoning_effort: Literal["minimal", "low", "medium", "high"] = Field(
         default="medium",
         description="Default reasoning effort: minimal, low, medium, high",
+    )
+    text_verbosity: TextVerbosityLevel = Field(
+        default="medium",
+        description="Text verbosity level: low, medium, high",
     )
     default_headers: dict[str, str] | None = Field(
         default=None,

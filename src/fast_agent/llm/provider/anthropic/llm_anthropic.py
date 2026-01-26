@@ -206,7 +206,10 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                     raw_setting = config.thinking_budget_tokens
                 else:
                     raw_setting = False
-                if config.thinking_enabled or config.thinking_budget_tokens != 1024:
+                if (
+                    "thinking_enabled" in config.model_fields_set
+                    or "thinking_budget_tokens" in config.model_fields_set
+                ):
                     self.logger.warning(
                         "Anthropic config 'thinking_enabled'/'thinking_budget_tokens' is deprecated; "
                         "use 'reasoning'."

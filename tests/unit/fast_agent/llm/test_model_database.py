@@ -171,6 +171,14 @@ def test_model_database_reasoning_modes():
     assert ModelDatabase.get_reasoning("gpt-4o") is None
 
 
+def test_model_database_text_verbosity_spec():
+    """Ensure text verbosity support is tracked for GPT-5 models."""
+    spec = ModelDatabase.get_text_verbosity_spec("gpt-5")
+    assert spec is not None
+    assert "low" in spec.allowed
+    assert ModelDatabase.get_text_verbosity_spec("gpt-4o") is None
+
+
 def test_openai_llm_normalizes_repeated_roles():
     """Verify role normalization collapses repeated role strings."""
     agent = LlmAgent(AgentConfig(name="Test Agent"))
@@ -210,6 +218,20 @@ def _make_hf_llm(model: str, hf_settings: HuggingFaceSettings | None = None) -> 
     return HuggingFaceLLM(context=context, model=model, name="test-agent")
 
 
+def _make_hf_llm_with_reasoning(
+    model: str,
+    reasoning: bool | str | int | None,
+) -> HuggingFaceLLM:
+    settings = Settings(hf=HuggingFaceSettings())
+    context = Context(config=settings)
+    return HuggingFaceLLM(
+        context=context,
+        model=model,
+        name="test-agent",
+        reasoning_effort=reasoning,
+    )
+
+
 def test_huggingface_appends_default_provider_from_config():
     llm = _make_hf_llm(
         "moonshotai/kimi-k2-instruct", HuggingFaceSettings(default_provider="fireworks-ai")
@@ -237,3 +259,12 @@ def test_huggingface_explicit_provider_overrides_default():
     assert llm.default_request_params.model == "moonshotai/kimi-k2-instruct"
     args = _hf_request_args(llm)
     assert args["model"] == "moonshotai/kimi-k2-instruct:custom"
+
+
+def test_huggingface_glm_disable_reasoning_toggle():
+    llm = _make_hf_llm_with_reasoning("zai-org/glm-4.7", reasoning=False)
+
+    args = _hf_request_args(llm)
+    extra_body = args.get("extra_body")
+    assert isinstance(extra_body, dict)
+    assert extra_body["disable_reasoning"] is True
