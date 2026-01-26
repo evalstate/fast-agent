@@ -545,6 +545,10 @@ class AzureSettings(BaseModel):
         default=None,
         description="Full endpoint URL (do not use with resource_name)",
     )
+    default_headers: dict[str, str] | None = Field(
+        default=None,
+        description="Custom headers for all API requests",
+    )
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 

@@ -117,6 +117,15 @@ class AzureOpenAILLM(OpenAILLM):
                         "Missing Azure endpoint",
                         "azure_endpoint (base_url) is None at client creation time.",
                     )
+                default_headers = self._default_headers()
+                if default_headers:
+                    return AsyncAzureOpenAI(
+                        azure_ad_token_provider=self.get_azure_token,
+                        azure_endpoint=self.base_url,
+                        api_version=self.api_version,
+                        azure_deployment=self.deployment_name,
+                        default_headers=default_headers,
+                    )
                 return AsyncAzureOpenAI(
                     azure_ad_token_provider=self.get_azure_token,
                     azure_endpoint=self.base_url,
@@ -128,6 +137,15 @@ class AzureOpenAILLM(OpenAILLM):
                     raise ProviderKeyError(
                         "Missing Azure endpoint",
                         "azure_endpoint (base_url) is None at client creation time.",
+                    )
+                default_headers = self._default_headers()
+                if default_headers:
+                    return AsyncAzureOpenAI(
+                        api_key=self.api_key,
+                        azure_endpoint=self.base_url,
+                        api_version=self.api_version,
+                        azure_deployment=self.deployment_name,
+                        default_headers=default_headers,
                     )
                 return AsyncAzureOpenAI(
                     api_key=self.api_key,

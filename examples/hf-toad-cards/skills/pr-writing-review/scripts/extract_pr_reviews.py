@@ -450,7 +450,9 @@ def fetch_pr_data(owner: str, repo: str, pr_number: int, track_evolution: bool =
 
             evo = FileEvolution(final_path=final_path, all_paths=all_paths)
             evo.first_content, evo.first_commit = find_first_content(owner, repo, commits, all_paths)
-            evo.final_content = get_file_content_at_ref(owner, repo, final_path, head_sha)
+            evo.final_content = (
+                get_file_content_at_ref(owner, repo, final_path, head_sha) if head_sha else None
+            )
             evo.final_commit = head_sha[:7] if head_sha else None
 
             file_evolutions[final_path] = evo
