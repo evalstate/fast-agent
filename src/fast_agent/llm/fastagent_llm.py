@@ -387,19 +387,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             self._apply_prompt_provider_specific, full_history, request_params, tools
         )
         end_time = time.perf_counter()
-        duration_ms = round((end_time - start_time) * 1000, 2)
-
-        # Add timing data to channels only if not already present
-        # (preserves original timing when loading saved history)
-        channels = dict(assistant_response.channels or {})
-        if FAST_AGENT_TIMING not in channels:
-            timing_data = {
-                "start_time": start_time,
-                "end_time": end_time,
-                "duration_ms": duration_ms,
-            }
-            channels[FAST_AGENT_TIMING] = [TextContent(type="text", text=json.dumps(timing_data))]
-            assistant_response.channels = channels
+        self._add_timing_channel(assistant_response, start_time, end_time)
 
         self.usage_accumulator.count_tools(len(assistant_response.tool_calls or {}))
         self._append_usage_channel(assistant_response)
@@ -419,6 +407,28 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             TextContent(type="text", text=json.dumps(usage_payload))
         ]
         response.channels = channels
+
+
+    def _add_timing_channel(
+        self,
+        response: PromptMessageExtended,
+        start_time: float,
+        end_time: float,
+    ) -> None:
+        """Add timing data to response channels if not already present.
+
+        Preserves original timing when loading saved history.
+        """
+        duration_ms = round((end_time - start_time) * 1000, 2)
+        channels = dict(response.channels or {})
+        if FAST_AGENT_TIMING not in channels:
+            timing_data = {
+                "start_time": start_time,
+                "end_time": end_time,
+                "duration_ms": duration_ms,
+            }
+            channels[FAST_AGENT_TIMING] = [TextContent(type="text", text=json.dumps(timing_data))]
+            response.channels = channels
 
     def _build_usage_payload(self) -> dict[str, Any] | None:
         if not self.usage_accumulator or not self.usage_accumulator.turns:
@@ -516,19 +526,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         else:
             result, assistant_response = result_or_response
         end_time = time.perf_counter()
-        duration_ms = round((end_time - start_time) * 1000, 2)
-
-        # Add timing data to channels only if not already present
-        # (preserves original timing when loading saved history)
-        channels = dict(assistant_response.channels or {})
-        if FAST_AGENT_TIMING not in channels:
-            timing_data = {
-                "start_time": start_time,
-                "end_time": end_time,
-                "duration_ms": duration_ms,
-            }
-            channels[FAST_AGENT_TIMING] = [TextContent(type="text", text=json.dumps(timing_data))]
-            assistant_response.channels = channels
+        self._add_timing_channel(assistant_response, start_time, end_time)
 
         self.usage_accumulator.count_tools(len(assistant_response.tool_calls or {}))
         self._append_usage_channel(assistant_response)

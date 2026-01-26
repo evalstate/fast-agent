@@ -41,7 +41,15 @@ Recent features include:
 
 > [!IMPORTANT]
 >
-> `fast-agent` The fast-agent documentation repo is here: https://github.com/evalstate/fast-agent-docs. Please feel free to submit PRs for documentation, experience reports or other content you think others may find helpful. All help and feedback warmly received.
+> Documentation is included as a submodule. When cloning, use `--recurse-submodules` to get everything:
+> ```bash
+> git clone --recurse-submodules https://github.com/evalstate/fast-agent.git
+> ```
+> Or if you've already cloned:
+> ```bash
+> git submodule update --init --recursive
+> ```
+> The documentation source is also available at: https://github.com/evalstate/fast-agent-docs
 
 ### Agent Application Development
 
@@ -574,6 +582,26 @@ mcp:
 ### Interactive Shell
 
 ![fast-agent](https://github.com/user-attachments/assets/3e692103-bf97-489a-b519-2d0fee036369)
+
+## Documentation
+
+The documentation site is included as a submodule in `docs/`. To work with the docs locally:
+
+```bash
+# Install docs dependencies (first time only)
+uv run scripts/docs.py install
+
+# Generate reference docs from source code
+uv run scripts/docs.py generate
+
+# Run the dev server (http://127.0.0.1:8000)
+uv run scripts/docs.py serve
+
+# Or generate and serve in one command
+uv run scripts/docs.py all
+```
+
+The generator extracts configuration field descriptions, model aliases, and API references directly from the source code to keep documentation in sync.
 
 ## Project Notes
 

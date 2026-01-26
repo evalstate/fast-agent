@@ -74,6 +74,7 @@ from fast_agent.ui.command_payloads import (
 )
 from fast_agent.ui.mcp_display import render_mcp_status
 from fast_agent.ui.model_display import format_model_display
+from fast_agent.ui.prompt_marks import emit_prompt_mark
 from fast_agent.ui.reasoning_effort_display import render_reasoning_effort_gauge
 from fast_agent.ui.shell_notice import format_shell_notice
 
@@ -2365,11 +2366,15 @@ async def get_enhanced_input(
     buffer_default = pre_populate_buffer if pre_populate_buffer else default
 
     # Get the input - using async version
+    prompt_mark_started = False
     try:
+        emit_prompt_mark("A")
+        prompt_mark_started = True
         result = await session.prompt_async(
             _resolve_prompt_text,
             default=buffer_default,
         )
+        emit_prompt_mark("B")
         # Echo slash command input if the prompt was erased.
         if erase_when_done:
             stripped = result.lstrip()
@@ -2379,12 +2384,18 @@ async def get_enhanced_input(
                 rich_print(f"[dim]{agent_name} ❯ {stripped.splitlines()[0]}[/dim]")
         return parse_special_input(result)
     except KeyboardInterrupt:
+        if prompt_mark_started:
+            emit_prompt_mark("B")
         # Handle Ctrl+C gracefully
         return "STOP"
     except EOFError:
+        if prompt_mark_started:
+            emit_prompt_mark("B")
         # Handle Ctrl+D gracefully
         return "STOP"
     except Exception as e:
+        if prompt_mark_started:
+            emit_prompt_mark("B")
         # Log and gracefully handle other exceptions
         print(f"\nInput error: {type(e).__name__}: {e}")
         return "STOP"

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from rich.text import Text
 
+from fast_agent.commands.handlers._text_utils import truncate_description
 from fast_agent.commands.handlers.shared import (
     load_prompt_messages_from_file,
     replace_agent_history,
@@ -21,23 +22,6 @@ if TYPE_CHECKING:
     from mcp.types import Prompt
 
     from fast_agent.commands.context import CommandContext
-
-
-def _truncate_prompt_description(description: str, char_limit: int = 240) -> str:
-    description = description.strip()
-    if len(description) <= char_limit:
-        return description
-
-    truncate_pos = char_limit
-    sentence_break = description.rfind(". ", 0, char_limit + 20)
-    if sentence_break > char_limit - 50:
-        truncate_pos = sentence_break + 1
-    else:
-        word_break = description.rfind(" ", 0, char_limit + 10)
-        if word_break > char_limit - 30:
-            truncate_pos = word_break
-
-    return description[:truncate_pos].rstrip() + "..."
 
 
 def _format_prompt_args(prompt: dict[str, Any]) -> str:
@@ -126,7 +110,7 @@ def _build_prompt_list_text(
 
         description = (prompt.get("description") or "").strip()
         if description:
-            truncated = _truncate_prompt_description(description)
+            truncated = truncate_description(description)
             for line_text in textwrap.wrap(truncated, width=72):
                 content.append("\n")
                 content.append("     ", style="dim")

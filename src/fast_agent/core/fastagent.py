@@ -1299,9 +1299,10 @@ class FastAgent(DecoratorMixin):
                             return False
                         return await refresh_shared_instance()
 
-                    async def load_card_and_refresh(
-                        source: str, parent_name: str | None
+                    async def _load_card_core(
+                        source: str, parent_name: str | None, *, should_refresh: bool
                     ) -> tuple[list[str], list[str]]:
+                        """Core card loading logic shared by load_card_and_refresh and load_card_source."""
                         if source.startswith(("http://", "https://")):
                             loaded_names = self.load_agents_from_url(source)
                         else:
@@ -1315,26 +1316,19 @@ class FastAgent(DecoratorMixin):
                             if target_name and loaded_names:
                                 added_names = self.attach_agent_tools(target_name, loaded_names)
 
-                        await refresh_shared_instance()
+                        if should_refresh:
+                            await refresh_shared_instance()
                         return loaded_names, added_names
+
+                    async def load_card_and_refresh(
+                        source: str, parent_name: str | None
+                    ) -> tuple[list[str], list[str]]:
+                        return await _load_card_core(source, parent_name, should_refresh=True)
 
                     async def load_card_source(
                         source: str, parent_name: str | None
                     ) -> tuple[list[str], list[str]]:
-                        if source.startswith(("http://", "https://")):
-                            loaded_names = self.load_agents_from_url(source)
-                        else:
-                            loaded_names = self.load_agents(source)
-
-                        added_names: list[str] = []
-                        if parent_name:
-                            target_name = parent_name
-                            if target_name not in self.agents:
-                                target_name = next(iter(self.agents.keys()), None)
-                            if target_name and loaded_names:
-                                added_names = self.attach_agent_tools(target_name, loaded_names)
-
-                        return loaded_names, added_names
+                        return await _load_card_core(source, parent_name, should_refresh=False)
 
                     async def attach_agent_tools_and_refresh(
                         parent_name: str, child_names: Sequence[str]

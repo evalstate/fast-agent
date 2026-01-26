@@ -1159,7 +1159,11 @@ class AgentACPServer(ACPAgent):
                     for agent_name, agent in instance.agents.items():
                         if isinstance(agent, ShellRuntimeCapable) and agent._shell_runtime_enabled:
                             # Create ACPTerminalRuntime for this session
-                            default_limit = self._calculate_terminal_output_limit(agent)
+                            default_limit = getattr(
+                                agent._shell_runtime,
+                                "_output_byte_limit",
+                                self._calculate_terminal_output_limit(agent),
+                            )
                             # Get permission handler if enabled for this session
                             perm_handler = session_state.permission_handler
                             terminal_runtime = ACPTerminalRuntime(

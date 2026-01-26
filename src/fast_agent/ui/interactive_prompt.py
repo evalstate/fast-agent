@@ -82,13 +82,13 @@ from fast_agent.ui.enhanced_prompt import (
 )
 from fast_agent.ui.interactive_shell import run_interactive_shell_command
 from fast_agent.ui.progress_display import progress_display
+from fast_agent.ui.prompt_marks import emit_prompt_mark
 
 # Type alias for the send function
 SendFunc = Callable[[Union[str, PromptMessage, PromptMessageExtended], str], Awaitable[str]]
 
 # Type alias for the agent getter function
 AgentGetter = Callable[[str], object | None]
-
 
 
 class InteractivePrompt:
@@ -113,7 +113,9 @@ class InteractivePrompt:
             rich_print(f"[red]Unable to load agent '{agent_name}'[/red]")
             return None
 
-    def _build_command_context(self, prompt_provider: "AgentApp", agent_name: str) -> CommandContext:
+    def _build_command_context(
+        self, prompt_provider: "AgentApp", agent_name: str
+    ) -> CommandContext:
         settings = get_settings()
         io = TuiCommandIO(
             prompt_provider=cast("AgentProvider", prompt_provider),
@@ -369,7 +371,10 @@ class InteractivePrompt:
                         await self._emit_command_outcome(context, outcome)
                         continue
                     case ShowHistoryCommand(agent=target_agent):
-                        if target_agent and self._get_agent_or_warn(prompt_provider, target_agent) is None:
+                        if (
+                            target_agent
+                            and self._get_agent_or_warn(prompt_provider, target_agent) is None
+                        ):
                             continue
                         context = self._build_command_context(prompt_provider, agent)
                         outcome = await history_handlers.handle_show_history(
@@ -402,7 +407,10 @@ class InteractivePrompt:
                         await self._emit_command_outcome(context, outcome)
                         continue
                     case HistoryFixCommand(agent=target_agent):
-                        if target_agent and self._get_agent_or_warn(prompt_provider, target_agent) is None:
+                        if (
+                            target_agent
+                            and self._get_agent_or_warn(prompt_provider, target_agent) is None
+                        ):
                             continue
                         context = self._build_command_context(prompt_provider, agent)
                         outcome = await history_handlers.handle_history_fix(
@@ -413,7 +421,10 @@ class InteractivePrompt:
                         await self._emit_command_outcome(context, outcome)
                         continue
                     case ClearCommand(kind="clear_last", agent=target_agent):
-                        if target_agent and self._get_agent_or_warn(prompt_provider, target_agent) is None:
+                        if (
+                            target_agent
+                            and self._get_agent_or_warn(prompt_provider, target_agent) is None
+                        ):
                             continue
                         context = self._build_command_context(prompt_provider, agent)
                         outcome = await history_handlers.handle_history_clear_last(
@@ -424,7 +435,10 @@ class InteractivePrompt:
                         await self._emit_command_outcome(context, outcome)
                         continue
                     case ClearCommand(kind="clear_history", agent=target_agent):
-                        if target_agent and self._get_agent_or_warn(prompt_provider, target_agent) is None:
+                        if (
+                            target_agent
+                            and self._get_agent_or_warn(prompt_provider, target_agent) is None
+                        ):
                             continue
                         context = self._build_command_context(prompt_provider, agent)
                         outcome = await history_handlers.handle_history_clear_all(
@@ -635,6 +649,7 @@ class InteractivePrompt:
                 try:
                     # Use the return value from send_func directly - this works even
                     # when use_history=False (e.g., for agents loaded as tools)
+                    emit_prompt_mark("C")
                     progress_display.resume()
                     response_text = await send_func(hash_send_message, hash_send_target)
                 except Exception as exc:
@@ -642,6 +657,7 @@ class InteractivePrompt:
                     continue
                 finally:
                     progress_display.pause()
+                    emit_prompt_mark("D")
 
                 # Status messages after send completes
                 if response_text:
@@ -655,7 +671,9 @@ class InteractivePrompt:
 
             # Handle shell command after input handling
             if shell_execute_cmd:
+                emit_prompt_mark("C")
                 result = run_interactive_shell_command(shell_execute_cmd)
+                emit_prompt_mark("D")
 
                 if result.output.strip():
                     set_last_copyable_output(result.output.rstrip())
@@ -669,11 +687,13 @@ class InteractivePrompt:
             # Send the message to the agent
             # Type narrowing: by this point user_input is str (non-str inputs continue above)
             assert isinstance(user_input, str)
+            emit_prompt_mark("C")
             progress_display.resume()
             try:
                 result = await send_func(user_input, agent)
             finally:
                 progress_display.pause()
+                emit_prompt_mark("D")
 
             if result and result.startswith("⚠️ **System Error:**"):
                 # rich_print(result)
@@ -685,7 +705,9 @@ class InteractivePrompt:
 
         return result
 
-    def _resolve_display(self, prompt_provider: "AgentApp", agent_name: str | None) -> "ConsoleDisplay":
+    def _resolve_display(
+        self, prompt_provider: "AgentApp", agent_name: str | None
+    ) -> "ConsoleDisplay":
         from fast_agent.ui.console_display import ConsoleDisplay
 
         agent = None

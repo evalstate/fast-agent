@@ -404,17 +404,22 @@ class McpAgent(ABC, ToolAgent):
     def _resolve_shell_runtime_settings(self) -> tuple[int, int, int]:
         timeout_seconds = 90
         warning_interval_seconds = 30
+        config_output_byte_limit = None
         shell_config = None
         if self._context and self._context.config:
             shell_config = getattr(self._context.config, "shell_execution", None)
         if shell_config:
             timeout_seconds = getattr(shell_config, "timeout_seconds", 90)
             warning_interval_seconds = getattr(shell_config, "warning_interval_seconds", 30)
+            config_output_byte_limit = getattr(shell_config, "output_byte_limit", None)
 
-        model_name = self.config.model
-        if not model_name and self._context and self._context.config:
-            model_name = getattr(self._context.config, "default_model", None)
-        output_byte_limit = calculate_terminal_output_limit_for_model(model_name)
+        if config_output_byte_limit is not None:
+            output_byte_limit = config_output_byte_limit
+        else:
+            model_name = self.config.model
+            if not model_name and self._context and self._context.config:
+                model_name = getattr(self._context.config, "default_model", None)
+            output_byte_limit = calculate_terminal_output_limit_for_model(model_name)
         return timeout_seconds, warning_interval_seconds, output_byte_limit
 
     def _activate_shell_runtime(
@@ -1513,6 +1518,14 @@ class McpAgent(ABC, ToolAgent):
         if skills_label and skills_label not in server_names:
             server_names.append(skills_label)
 
+        card_tools_label = self._card_tools_label()
+        if card_tools_label and card_tools_label not in server_names:
+            if skills_label and skills_label in server_names:
+                insert_at = server_names.index(skills_label) + 1
+                server_names.insert(insert_at, card_tools_label)
+            else:
+                server_names.append(card_tools_label)
+
         # Add agent-as-tool names to the bottom bar (they aren't MCP servers but should be shown)
         for tool_name in self._agent_tools:
             # Extract the agent name from tool_name (e.g., "agent__foo" -> "foo")
@@ -1529,10 +1542,6 @@ class McpAgent(ABC, ToolAgent):
                 agent_label = agent_name[7:] if agent_name.startswith("agent__") else agent_name
                 if agent_label not in server_names:
                     server_names.append(agent_label)
-
-        card_tools_label = self._card_tools_label()
-        if card_tools_label and card_tools_label not in server_names:
-            server_names.append(card_tools_label)
 
         # Extract servers from tool calls in the message for highlighting
         if highlight_items is None:

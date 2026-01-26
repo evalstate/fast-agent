@@ -34,8 +34,9 @@ TERMINAL_OUTPUT_TOKEN_RATIO = 0.25
 TERMINAL_OUTPUT_TOKEN_HEADROOM_RATIO = 0.2
 """Leave headroom for tool wrapper text and other turn data."""
 
-TERMINAL_AVG_BYTES_PER_TOKEN = 4
-"""Conservative bytes-per-token estimate for mapping token budgets to byte limits."""
+# Empirical observation from real shell outputs (135 samples, avg 3.33 bytes/token)
+TERMINAL_BYTES_PER_TOKEN = 3.3
+"""Bytes-per-token estimate for terminal output limits and display."""
 
 MAX_TERMINAL_OUTPUT_BYTE_LIMIT = 32768
 """Hard cap on default ACP terminal output to avoid oversized tool payloads."""

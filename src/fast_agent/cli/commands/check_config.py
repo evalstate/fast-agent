@@ -175,6 +175,7 @@ def get_config_summary(config_path: Path | None) -> dict:
             "show_tools": default_settings.logger.show_tools,
             "truncate_tools": default_settings.logger.truncate_tools,
             "enable_markup": default_settings.logger.enable_markup,
+            "enable_prompt_marks": default_settings.logger.enable_prompt_marks,
         },
         "mcp_ui_mode": default_settings.mcp_ui_mode,
         "timeline": {
@@ -225,6 +226,9 @@ def get_config_summary(config_path: Path | None) -> dict:
                 ),
                 "enable_markup": logger_config.get(
                     "enable_markup", default_settings.logger.enable_markup
+                ),
+                "enable_prompt_marks": logger_config.get(
+                    "enable_prompt_marks", default_settings.logger.enable_prompt_marks
                 ),
             }
 
@@ -483,6 +487,7 @@ def show_check_summary(env_dir: Path | None = None) -> None:
         ("Show Tools", bool_to_symbol(logger.get("show_tools", True))),
         ("Truncate Tools", bool_to_symbol(logger.get("truncate_tools", True))),
         ("Enable Markup", bool_to_symbol(logger.get("enable_markup", True))),
+        ("Prompt Marks", bool_to_symbol(logger.get("enable_prompt_marks", False))),
         ("Timeline Steps", f"[green]{timeline_steps}[/green]"),
         ("Timeline Interval", f"[green]{format_step_interval(timeline_step_seconds)}[/green]"),
     ]
