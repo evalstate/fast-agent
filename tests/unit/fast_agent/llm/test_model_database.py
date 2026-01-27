@@ -268,3 +268,21 @@ def test_huggingface_glm_disable_reasoning_toggle():
     extra_body = args.get("extra_body")
     assert isinstance(extra_body, dict)
     assert extra_body["disable_reasoning"] is True
+
+
+def test_huggingface_kimi25_disable_reasoning_toggle():
+    llm = _make_hf_llm_with_reasoning("moonshotai/kimi-k2.5", reasoning=False)
+
+    args = _hf_request_args(llm)
+    extra_body = args.get("extra_body")
+    assert isinstance(extra_body, dict)
+    assert extra_body["thinking"] == {"type": "disabled"}
+
+
+def test_huggingface_kimi25_default_reasoning_toggle_enabled():
+    llm = _make_hf_llm("moonshotai/kimi-k2.5")
+
+    args = _hf_request_args(llm)
+    extra_body = args.get("extra_body")
+    assert isinstance(extra_body, dict)
+    assert extra_body["thinking"] == {"type": "enabled"}

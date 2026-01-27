@@ -1,6 +1,7 @@
 import os
 from typing import Any
 
+from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.openai.llm_openai_compatible import OpenAICompatibleLLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.types import RequestParams
@@ -70,13 +71,24 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
             return
 
         disable_reasoning = not bool(effective.value)
-        if disable_reasoning or self.reasoning_effort is not None:
-            extra_body_raw = arguments.get("extra_body", {})
-            extra_body: dict[str, Any] = (
-                extra_body_raw if isinstance(extra_body_raw, dict) else {}
-            )
+        uses_kimi_toggle = self._uses_kimi_thinking_toggle(arguments.get("model"))
+        if not uses_kimi_toggle and not disable_reasoning and self.reasoning_effort is None:
+            return
+
+        extra_body_raw = arguments.get("extra_body", {})
+        extra_body: dict[str, Any] = extra_body_raw if isinstance(extra_body_raw, dict) else {}
+        if uses_kimi_toggle:
+            thinking_type = "disabled" if disable_reasoning else "enabled"
+            extra_body["thinking"] = {"type": thinking_type}
+        else:
             extra_body["disable_reasoning"] = disable_reasoning
-            arguments["extra_body"] = extra_body
+        arguments["extra_body"] = extra_body
+
+    @staticmethod
+    def _uses_kimi_thinking_toggle(model: str | None) -> bool:
+        if not model:
+            return False
+        return ModelDatabase.normalize_model_name(model) == "moonshotai/kimi-k2.5"
 
     def _resolve_default_provider(self) -> str | None:
         config_provider = None
