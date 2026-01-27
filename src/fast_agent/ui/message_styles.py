@@ -39,38 +39,27 @@ def _shorten_items(items: list[str], max_length: int) -> list[str]:
     return [item[: max_length - 1] + "…" if len(item) > max_length else item for item in items]
 
 
+# Indicator shown when jumping to a non-visible highlighted item
+_JUMP_INDICATOR = " ▶ "
+
+
 def _format_bottom_metadata_compact(
     items: list[str],
     highlight_index: int | None,
     highlight_color: str,
     max_width: int | None = None,
 ) -> Text:
-    formatted = Text()
-
-    def will_fit(next_segment: Text) -> bool:
-        if max_width is None:
-            return True
-        return formatted.cell_len + next_segment.cell_len <= max_width
-
-    for i, item in enumerate(items):
-        sep = Text(" • ", style="dim") if i > 0 else Text("")
-        should_highlight = highlight_index is not None and i == highlight_index
-        item_style = highlight_color if should_highlight else "white dim"
-        item_text = Text(item, style=item_style)
-
-        if not will_fit(sep + item_text):
-            if formatted.cell_len == 0 and max_width is not None and max_width > 1:
-                formatted.append("…", style="dim")
-            else:
-                if max_width is None or formatted.cell_len < max_width:
-                    formatted.append(" …", style="dim")
-            break
-
-        if sep.plain:
-            formatted.append_text(sep)
-        formatted.append_text(item_text)
-
-    return formatted
+    """Format items with ' • ' separator, showing highlighted item even if truncated."""
+    separator = " • "
+    default_style = "white dim"
+    return _format_items_with_highlight_jump(
+        items=items,
+        highlight_index=highlight_index,
+        highlight_color=highlight_color,
+        default_style=default_style,
+        separator=separator,
+        max_width=max_width,
+    )
 
 
 def _format_bottom_metadata(
@@ -79,29 +68,194 @@ def _format_bottom_metadata(
     highlight_color: str,
     max_width: int | None = None,
 ) -> Text:
-    formatted = Text()
+    """Format items with ' | ' separator, showing highlighted item even if truncated."""
+    separator = " | "
+    default_style = "dim"
+    return _format_items_with_highlight_jump(
+        items=items,
+        highlight_index=highlight_index,
+        highlight_color=highlight_color,
+        default_style=default_style,
+        separator=separator,
+        max_width=max_width,
+    )
 
-    def will_fit(next_segment: Text) -> bool:
-        if max_width is None:
-            return True
-        return formatted.cell_len + next_segment.cell_len <= max_width
+
+def _format_items_with_highlight_jump(
+    items: list[str],
+    highlight_index: int | None,
+    highlight_color: str,
+    default_style: str,
+    separator: str,
+    max_width: int | None,
+) -> Text:
+    """
+    Format a list of items, ensuring the highlighted item is always visible.
+
+    If the highlighted item would be truncated in normal rendering, we:
+    1. Truncate the visible items earlier to leave space
+    2. Add a dim "▶" jump indicator
+    3. Show the highlighted item at the end
+    """
+    if not items:
+        return Text()
+
+    highlight_idx: int | None = None
+    if highlight_index is not None and 0 <= highlight_index < len(items):
+        highlight_idx = highlight_index
+
+    if highlight_idx is None:
+        return _render_items_normal(
+            items=items,
+            highlight_index=None,
+            highlight_color=highlight_color,
+            default_style=default_style,
+            separator=separator,
+            max_width=max_width,
+        )
+
+    separator_width = Text(separator).cell_len if separator else 0
+    visible_count = 0
+    current_len = 0
 
     for i, item in enumerate(items):
-        sep = Text(" | ", style="dim") if i > 0 else Text("")
-        should_highlight = highlight_index is not None and i == highlight_index
-        item_text = Text(item, style=(highlight_color if should_highlight else "dim"))
+        sep_len = separator_width if i > 0 else 0
+        item_len = Text(item).cell_len
+        segment_len = sep_len + item_len
 
-        if not will_fit(sep + item_text):
-            if formatted.cell_len == 0 and max_width is not None and max_width > 1:
-                formatted.append("…", style="dim")
-            else:
-                if max_width is None or formatted.cell_len < max_width:
-                    formatted.append(" …", style="dim")
+        if max_width is not None and current_len + segment_len > max_width:
             break
+
+        current_len += segment_len
+        visible_count += 1
+
+    highlight_visible = highlight_idx < visible_count
+
+    if highlight_visible:
+        # Normal rendering - highlight is visible or no highlight
+        return _render_items_normal(
+            items=items,
+            highlight_index=highlight_idx,
+            highlight_color=highlight_color,
+            default_style=default_style,
+            separator=separator,
+            max_width=max_width,
+        )
+    else:
+        # Jump rendering - highlight would be truncated
+        return _render_items_with_jump(
+            items=items,
+            highlight_index=highlight_idx,
+            highlight_color=highlight_color,
+            default_style=default_style,
+            separator=separator,
+            max_width=max_width,
+        )
+
+
+def _render_items_normal(
+    items: list[str],
+    highlight_index: int | None,
+    highlight_color: str,
+    default_style: str,
+    separator: str,
+    max_width: int | None,
+) -> Text:
+    """Render items normally, truncating with ellipsis when space runs out."""
+    formatted = Text()
+
+    for i, item in enumerate(items):
+        sep = Text(separator, style="dim") if i > 0 else Text("")
+        should_highlight = highlight_index is not None and i == highlight_index
+        item_style = highlight_color if should_highlight else default_style
+        item_text = Text(item, style=item_style)
+
+        if max_width is not None:
+            if formatted.cell_len + sep.cell_len + item_text.cell_len > max_width:
+                # Doesn't fit - add ellipsis and stop
+                if formatted.cell_len == 0 and max_width > 1:
+                    formatted.append("…", style="dim")
+                elif formatted.cell_len < max_width:
+                    formatted.append(" …", style="dim")
+                break
 
         if sep.plain:
             formatted.append_text(sep)
         formatted.append_text(item_text)
+
+    return formatted
+
+
+def _render_items_with_jump(
+    items: list[str],
+    highlight_index: int,
+    highlight_color: str,
+    default_style: str,
+    separator: str,
+    max_width: int | None,
+) -> Text:
+    """
+    Render items with a jump to the highlighted item.
+
+    Truncates visible items early, shows a dim "▶" indicator, then the highlighted item.
+    """
+    formatted = Text()
+
+    # Build the highlighted item segment
+    highlight_item = items[highlight_index]
+    highlight_text = Text(highlight_item, style=highlight_color)
+    use_jump_indicator = highlight_index > 0
+    jump_indicator = Text(_JUMP_INDICATOR, style="dim") if use_jump_indicator else Text("")
+
+    # Calculate space needed for jump indicator + highlighted item
+    reserved_space = highlight_text.cell_len + (jump_indicator.cell_len if use_jump_indicator else 0)
+
+    if max_width is not None:
+        available_for_prefix = max_width - reserved_space
+
+        if available_for_prefix <= 0:
+            # No space for prefix items, just show jump + highlight (or just highlight)
+            if max_width >= highlight_text.cell_len:
+                if use_jump_indicator and max_width >= reserved_space:
+                    formatted.append_text(jump_indicator)
+                formatted.append_text(highlight_text)
+            else:
+                # Not even enough for the highlight item itself
+                formatted.append("…", style="dim")
+            return formatted
+
+        # Render prefix items that fit within available_for_prefix
+        for i, item in enumerate(items):
+            if i >= highlight_index:
+                break
+
+            sep = Text(separator, style="dim") if i > 0 else Text("")
+            item_text = Text(item, style=default_style)
+
+            if formatted.cell_len + sep.cell_len + item_text.cell_len > available_for_prefix:
+                break
+
+            if sep.plain:
+                formatted.append_text(sep)
+            formatted.append_text(item_text)
+
+    else:
+        # No width limit - just render all items before highlight
+        for i, item in enumerate(items):
+            if i >= highlight_index:
+                break
+
+            sep = Text(separator, style="dim") if i > 0 else Text("")
+            item_text = Text(item, style=default_style)
+
+            if sep.plain:
+                formatted.append_text(sep)
+            formatted.append_text(item_text)
+
+    # Add jump indicator and highlighted item
+    if use_jump_indicator:
+        formatted.append_text(jump_indicator)
+    formatted.append_text(highlight_text)
 
     return formatted
 

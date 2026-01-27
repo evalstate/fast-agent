@@ -68,9 +68,7 @@ def _append_manifest_entry(content: Text, manifest: SkillManifest, index: int) -
     content.append("\n\n")
 
 
-def _format_local_skills_by_directory(
-    manifests_by_dir: dict[Path, list[SkillManifest]]
-) -> Text:
+def _format_local_skills_by_directory(manifests_by_dir: dict[Path, list[SkillManifest]]) -> Text:
     content = Text()
     skill_index = 0
     total_skills = sum(len(manifests) for manifests in manifests_by_dir.values())
@@ -258,7 +256,7 @@ async def handle_set_skills_registry(
         )
         if configured_urls:
             content.append("\n\n")
-            content.append_text(Text("Available registries:", style="dim"))
+            content.append_text(Text("Configured registries:", style="dim"))
             content.append("\n")
             for index, reg_url in enumerate(configured_urls, 1):
                 display = format_marketplace_display_url(reg_url)
@@ -369,9 +367,7 @@ async def handle_add_skill(
             )
             return outcome
 
-        await ctx.io.emit(
-            CommandMessage(text=content, right_info="skills", agent_name=agent_name)
-        )
+        await ctx.io.emit(CommandMessage(text=content, right_info="skills", agent_name=agent_name))
 
         selection = await ctx.io.prompt_selection(
             "Install skill by number or name (empty to cancel): ",
@@ -433,9 +429,7 @@ async def handle_remove_skill(
             )
             return outcome
 
-        await ctx.io.emit(
-            CommandMessage(text=content, right_info="skills", agent_name=agent_name)
-        )
+        await ctx.io.emit(CommandMessage(text=content, right_info="skills", agent_name=agent_name))
 
         selection = await ctx.io.prompt_selection(
             "Remove skill by number or name (empty to cancel): ",

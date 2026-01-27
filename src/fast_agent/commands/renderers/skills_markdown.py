@@ -198,7 +198,7 @@ def render_skills_registry_overview(
 ) -> str:
     lines = [f"# {heading}", "", f"Registry: {current_registry}", ""]
     if configured_urls:
-        lines.append("Available registries:")
+        lines.append("Configured registries:")
         for index, url in enumerate(configured_urls, 1):
             lines.append(f"- [{index}] {url}")
         lines.append("")
