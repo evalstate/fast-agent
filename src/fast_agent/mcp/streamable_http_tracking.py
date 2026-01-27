@@ -18,14 +18,14 @@ from mcp.client.streamable_http import (
     StreamWriter,
 )
 from mcp.shared._httpx_utils import create_mcp_http_client
-from mcp.shared.message import SessionMessage
+from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import JSONRPCError, JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
 
 from fast_agent.mcp.transport_tracking import ChannelEvent, ChannelName
 
 if TYPE_CHECKING:
 
-    from anyio.abc import ObjectReceiveStream, ObjectSendStream
+    from anyio.abc import ObjectReceiveStream, ObjectSendStream, TaskGroup
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,78 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
     ) -> None:
         super().__init__(url)
         self._channel_hook = channel_hook
+
+    async def post_writer(  # type: ignore[override]
+        self,
+        client: httpx.AsyncClient,
+        write_stream_reader: "ObjectReceiveStream[SessionMessage]",
+        read_stream_writer: StreamWriter,
+        write_stream: "ObjectSendStream[SessionMessage]",
+        start_get_stream: Callable[[], None],
+        tg: "TaskGroup",
+    ) -> None:
+        """
+        Override to dispatch all outbound messages asynchronously.
+
+        The base transport awaits non-request messages, which can block elicitation
+        responses behind a long-lived tools/call POST. Running everything in the
+        task group ensures elicitation/create replies are sent immediately.
+        """
+        try:
+            async with write_stream_reader:
+                async for session_message in write_stream_reader:
+                    message = session_message.message
+                    metadata = (
+                        session_message.metadata
+                        if isinstance(session_message.metadata, ClientMessageMetadata)
+                        else None
+                    )
+                    root = message.root if isinstance(message, JSONRPCMessage) else None
+
+                    # For responses/errors, use a short-lived client to avoid blocking behind long POSTs.
+                    response_client: httpx.AsyncClient | None = None
+                    if isinstance(root, (JSONRPCResponse, JSONRPCError)):
+                        response_client = httpx.AsyncClient(
+                            headers=client.headers,
+                            timeout=client.timeout,
+                            limits=httpx.Limits(
+                                max_connections=10,
+                                max_keepalive_connections=0,
+                            ),
+                            http2=False,
+                        )
+
+                    is_resumption = bool(metadata and metadata.resumption_token)
+
+                    # Handle initialized notification
+                    if self._is_initialized_notification(message):
+                        start_get_stream()
+
+                    ctx = RequestContext(
+                        client=response_client or client,
+                        session_id=self.session_id,
+                        session_message=session_message,
+                        metadata=metadata,
+                        read_stream_writer=read_stream_writer,
+                    )
+
+                    async def handle_request_async() -> None:
+                        if is_resumption:
+                            await self._handle_resumption_request(ctx)
+                        else:
+                            await self._handle_post_request(ctx)
+                        if response_client:
+                            await response_client.aclose()
+
+                    # Always dispatch asynchronously so responses are not gated by
+                    # any in-flight POST (e.g., tools/call).
+                    tg.start_soon(handle_request_async)
+
+        except Exception:
+            logger.exception("Error in post_writer")  # pragma: no cover
+        finally:
+            await read_stream_writer.aclose()
+            await write_stream.aclose()
 
     def _emit_channel_event(
         self,
@@ -375,7 +447,6 @@ async def tracking_streamablehttp_client(
 
     client_provided = http_client is not None
     client = http_client or create_mcp_http_client()
-
     async with anyio.create_task_group() as tg:
         try:
             async with AsyncExitStack() as stack:
