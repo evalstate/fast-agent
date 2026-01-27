@@ -2092,7 +2092,7 @@ async def get_enhanced_input(
                     return f"<style fg='{enabled_color}' bg='ansiblack'>{letter}</style>"
                 return f"<style fg='ansiblack' bg='ansiwhite'>{letter}</style>"
 
-            tdv_segment = f"{_style_flag('T', t)}{_style_flag('D', d)}{_style_flag('V', v)}"
+            tdv_segment = f"{_style_flag('T', t)}{_style_flag('V', v)}{_style_flag('D', d)}"
         else:
             model_display = None
             tdv_segment = None

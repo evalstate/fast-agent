@@ -87,6 +87,16 @@ def test_model_query_reasoning_toggle():
     assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=False)
 
 
+def test_model_query_instant_mode_toggle():
+    config = ModelFactory.parse_model_string("hf.moonshotai/Kimi-K2.5?instant=on")
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == "moonshotai/Kimi-K2.5"
+    assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=False)
+
+    config = ModelFactory.parse_model_string("hf.moonshotai/Kimi-K2.5?instant=off")
+    assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=True)
+
+
 def test_model_query_structured_json():
     config = ModelFactory.parse_model_string("claude-sonnet-4-5?structured=json")
     assert config.provider == Provider.ANTHROPIC
@@ -123,6 +133,11 @@ def test_invalid_inputs():
 def test_invalid_structured_query():
     with pytest.raises(ModelConfigError):
         ModelFactory.parse_model_string("claude-sonnet-4-5?structured=maybe")
+
+
+def test_invalid_instant_query():
+    with pytest.raises(ModelConfigError):
+        ModelFactory.parse_model_string("hf.zai-org/GLM-4.7?instant=on")
 
 
 def test_invalid_verbosity_query():

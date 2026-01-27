@@ -66,13 +66,14 @@ def ensure_event_loop() -> asyncio.AbstractEventLoop:
     try:
         return asyncio.get_running_loop()
     except RuntimeError:
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            return create_event_loop()
-        if loop.is_closed():
-            return create_event_loop()
-        return loop
+        policy = asyncio.get_event_loop_policy()
+        local = getattr(policy, "_local", None)
+        loop = getattr(local, "_loop", None) if local is not None else None
+        if isinstance(loop, asyncio.AbstractEventLoop):
+            if loop.is_closed():
+                return create_event_loop()
+            return loop
+        return create_event_loop()
 
 
 def run_sync(

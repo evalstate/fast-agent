@@ -53,6 +53,11 @@ CURATED_MODELS: list[CuratedModel] = [
         display_name="OpenAI gpt-oss-120b",
         description="OpenAI's open-weight models designed for powerful reasoning, agentic tasks, and versatile developer use cases.",
     ),
+    CuratedModel(
+        id="kimi25",
+        display_name="Kimi K2.5",
+        description="Kimi 2.5 seamlessly integrates vision and language understanding with advanced agentic capabilities, instant and thinking modes, as well as conversational and agentic paradigms.",
+    ),
 ]
 
 # Special option for custom model entry

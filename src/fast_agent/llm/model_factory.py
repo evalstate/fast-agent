@@ -142,6 +142,7 @@ class ModelFactory:
         "deepseek31": "hf.deepseek-ai/DeepSeek-V3.1",
         "kimithink": "hf.moonshotai/Kimi-K2-Thinking:together",
         "deepseek32": "hf.deepseek-ai/DeepSeek-V3.2:fireworks-ai",
+        "kimi25": "hf.moonshotai/Kimi-K2.5:novita",
     }
 
     @staticmethod
@@ -184,6 +185,7 @@ class ModelFactory:
         query_setting: ReasoningEffortSetting | None = None
         query_structured: StructuredOutputMode | None = None
         query_text_verbosity: TextVerbosityLevel | None = None
+        query_instant: bool | None = None
         if "?" in model_string:
             model_string, _, query = model_string.partition("?")
             query_params = parse_qs(query)
@@ -211,6 +213,15 @@ class ModelFactory:
                     raise ModelConfigError(
                         f"Invalid structured query value: '{raw_value}' in '{model_string}'"
                     )
+            if "instant" in query_params:
+                values = query_params.get("instant") or []
+                raw_value = values[-1] if values else ""
+                instant_setting = parse_reasoning_setting(raw_value)
+                if instant_setting is None or instant_setting.kind != "toggle":
+                    raise ModelConfigError(
+                        f"Invalid instant query value: '{raw_value}' in '{model_string}'"
+                    )
+                query_instant = bool(instant_setting.value)
 
         suffix: str | None = None
         if ":" in model_string:
@@ -296,6 +307,18 @@ class ModelFactory:
 
         if suffix:
             model_name_str = f"{model_name_str}:{suffix}"
+
+        if query_instant is not None:
+            if reasoning_effort is not None:
+                raise ModelConfigError(
+                    f"Multiple reasoning settings provided for '{model_string}'."
+                )
+            base_model = model_name_str.rsplit(":", 1)[0].strip().lower()
+            if base_model != "moonshotai/kimi-k2.5":
+                raise ModelConfigError(
+                    f"Instant mode is only supported for moonshotai/kimi-k2.5, got '{model_name_str}'."
+                )
+            reasoning_effort = ReasoningEffortSetting(kind="toggle", value=not query_instant)
 
         return ModelConfig(
             provider=provider,
