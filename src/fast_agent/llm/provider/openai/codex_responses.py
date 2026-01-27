@@ -17,7 +17,6 @@ if TYPE_CHECKING:
     from fast_agent.llm.request_params import RequestParams
 
 CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
-DEFAULT_TEXT_VERBOSITY = "medium"
 
 
 class CodexResponsesLLM(ResponsesLLM):
@@ -29,10 +28,6 @@ class CodexResponsesLLM(ResponsesLLM):
         kwargs.pop("provider", None)
         super().__init__(provider=provider, **kwargs)
         self.logger = get_logger(f"{__name__}.{self.name}" if self.name else __name__)
-        self._text_verbosity = kwargs.get("text_verbosity", None)
-        settings = self._get_provider_config()
-        if settings and self._text_verbosity is None:
-            self._text_verbosity = getattr(settings, "text_verbosity", None)
 
     def _display_model(self, model: str | None) -> str | None:
         if not model:
@@ -99,10 +94,4 @@ class CodexResponsesLLM(ResponsesLLM):
                 "Dropping max_output_tokens for Codex responses; parameter unsupported by API"
             )
         args["tool_choice"] = "auto"
-        text_verbosity = self._text_verbosity or DEFAULT_TEXT_VERBOSITY
-        text_payload = args.get("text")
-        if not isinstance(text_payload, dict):
-            text_payload = {}
-        text_payload["verbosity"] = text_verbosity
-        args["text"] = text_payload
         return args

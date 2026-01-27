@@ -52,6 +52,11 @@ from fast_agent.llm.reasoning_effort import (
     validate_reasoning_setting,
 )
 from fast_agent.llm.stream_types import StreamChunk
+from fast_agent.llm.text_verbosity import (
+    TextVerbosityLevel,
+    TextVerbositySpec,
+    validate_text_verbosity,
+)
 from fast_agent.llm.usage_tracking import TurnUsage, UsageAccumulator
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types import PromptMessageExtended, RequestParams
@@ -183,6 +188,14 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             else None
         )
 
+        # Text verbosity configuration (provider-neutral)
+        self._text_verbosity: TextVerbosityLevel | None = None
+        self._text_verbosity_spec: TextVerbositySpec | None = (
+            ModelDatabase.get_text_verbosity_spec(self._model_name or "")
+            if self._model_name
+            else None
+        )
+
         self.verb = kwargs.get("verb")
 
         self._init_api_key = api_key
@@ -213,6 +226,21 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     @property
     def reasoning_effort_spec(self) -> ReasoningEffortSpec | None:
         return self._reasoning_effort_spec
+
+    def set_text_verbosity(self, value: TextVerbosityLevel | None) -> None:
+        if value is None:
+            self._text_verbosity = None
+            return
+
+        self._text_verbosity = validate_text_verbosity(value, self._text_verbosity_spec)
+
+    @property
+    def text_verbosity(self) -> TextVerbosityLevel | None:
+        return self._text_verbosity
+
+    @property
+    def text_verbosity_spec(self) -> TextVerbositySpec | None:
+        return self._text_verbosity_spec
 
     def _initialize_default_params(self, kwargs: dict[str, Any]) -> RequestParams:
         """Initialize default parameters for the LLM.

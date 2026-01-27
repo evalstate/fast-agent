@@ -1,6 +1,6 @@
 [project]
 name = "fast-agent-mcp"
-version = "0.4.41"
+version = "0.4.42"
 description = "Define, Prompt and Test MCP enabled Agents and Workflows"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -43,6 +43,7 @@ dependencies = [
     "tiktoken>=0.12.0",
     "uvloop>=0.22.1; platform_system != 'Windows'",
     "multilspy>=0.0.15",
+    "ruamel.yaml>=0.18.16"
 ]
 
 [project.optional-dependencies]

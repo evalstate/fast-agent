@@ -1,4 +1,5 @@
 import os
+from typing import Any
 
 from fast_agent.llm.provider.openai.llm_openai_compatible import OpenAICompatibleLLM
 from fast_agent.llm.provider_types import Provider
@@ -44,8 +45,9 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
 
     def _prepare_api_request(
         self, messages, tools: list | None, request_params: RequestParams
-    ) -> dict[str, str]:
+    ) -> dict[str, Any]:
         arguments = super()._prepare_api_request(messages, tools, request_params)
+        self._apply_reasoning_toggle(arguments)
         model_name = arguments.get("model")
         base_model, explicit_provider = self._split_provider_suffix(model_name)
         base_model = base_model or model_name
@@ -58,6 +60,23 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
         else:
             arguments["model"] = base_model
         return arguments
+
+    def _apply_reasoning_toggle(self, arguments: dict[str, Any]) -> None:
+        spec = self.reasoning_effort_spec
+        if not spec or spec.kind != "toggle":
+            return
+        effective = self.reasoning_effort or spec.default
+        if not effective or effective.kind != "toggle":
+            return
+
+        disable_reasoning = not bool(effective.value)
+        if disable_reasoning or self.reasoning_effort is not None:
+            extra_body_raw = arguments.get("extra_body", {})
+            extra_body: dict[str, Any] = (
+                extra_body_raw if isinstance(extra_body_raw, dict) else {}
+            )
+            extra_body["disable_reasoning"] = disable_reasoning
+            arguments["extra_body"] = extra_body
 
     def _resolve_default_provider(self) -> str | None:
         config_provider = None

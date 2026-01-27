@@ -121,7 +121,7 @@ class PermissionStore:
         # | server1 | tool1 | allow_always |
 
         in_table = False
-        for line in content.splitlines():
+        for line_number, line in enumerate(content.splitlines(), start=1):
             line = line.strip()
 
             # Skip empty lines and header
@@ -147,6 +147,10 @@ class PermissionStore:
                         logger.warning(
                             f"Invalid permission value in auths.md: {permission}",
                             name="permission_store_parse_error",
+                            file_path=str(self._file_path),
+                            line_number=line_number,
+                            server_name=server_name,
+                            tool_name=tool_name,
                         )
 
     async def _save_to_file(self) -> None:

@@ -58,6 +58,7 @@ from fast_agent.ui.command_payloads import (
     LoadAgentCardCommand,
     LoadPromptCommand,
     ModelReasoningCommand,
+    ModelVerbosityCommand,
     ReloadAgentsCommand,
     ResumeSessionCommand,
     SelectPromptCommand,
@@ -475,6 +476,15 @@ class InteractivePrompt:
                     case ModelReasoningCommand(value=value):
                         context = self._build_command_context(prompt_provider, agent)
                         outcome = await model_handlers.handle_model_reasoning(
+                            context,
+                            agent_name=agent,
+                            value=value,
+                        )
+                        await self._emit_command_outcome(context, outcome)
+                        continue
+                    case ModelVerbosityCommand(value=value):
+                        context = self._build_command_context(prompt_provider, agent)
+                        outcome = await model_handlers.handle_model_verbosity(
                             context,
                             agent_name=agent,
                             value=value,

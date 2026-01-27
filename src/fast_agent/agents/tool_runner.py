@@ -222,19 +222,31 @@ class ToolRunner:
             return self._pending_tool_response
 
         try:
+            hook_phase = "before_tool_call"
             if self._hooks.before_tool_call is not None:
                 await self._hooks.before_tool_call(self, self._pending_tool_request)
+            hook_phase = "run_tools"
             tool_message = await self._agent.run_tools(
                 self._pending_tool_request, request_params=self._request_params
             )
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            tool_calls = self._pending_tool_request.tool_calls or {}
+            tool_call_ids = list(tool_calls.keys())
+            tool_names = [call.params.name for call in tool_calls.values()]
+            agent_name = getattr(self._agent, "name", None)
             tool_message = self._build_tool_error_response(
                 self._pending_tool_request,
-                f"Tool hook or execution failed: {exc}",
+                f"Tool hook or execution failed during {hook_phase}: {exc}",
             )
-            _logger.error("Tool hook or execution failed", exc_info=exc)
+            _logger.exception(
+                "Tool hook or execution failed",
+                agent_name=agent_name,
+                hook_phase=hook_phase,
+                tool_call_ids=tool_call_ids,
+                tool_names=tool_names,
+            )
 
         self._pending_tool_response = tool_message
 

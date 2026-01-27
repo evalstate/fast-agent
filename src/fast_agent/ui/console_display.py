@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, Iterator, Mapping, Union
 from mcp.types import CallToolResult
 from rich.console import Group
 from rich.markdown import Markdown
+from rich.markup import escape as escape_markup
 from rich.panel import Panel
 from rich.text import Text
 
@@ -100,7 +101,10 @@ class ConsoleDisplay:
             console.console.print(content, markup=self._markup)
 
     def _print_plain_text(self, text: str, *, truncate: bool, style: str | None) -> None:
-        self._print_with_style(self._truncate_text(text, truncate=truncate), style=style)
+        safe_text = self._truncate_text(text, truncate=truncate)
+        if self._markup:
+            safe_text = escape_markup(safe_text)
+        self._print_with_style(safe_text, style=style)
 
     def _print_pretty(self, content: object, *, truncate: bool, style: str | None) -> None:
         from rich.pretty import Pretty

@@ -202,6 +202,12 @@ class ModelReasoningCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class ModelVerbosityCommand(CommandBase):
+    value: str | None
+    kind: Literal["model_verbosity"] = "model_verbosity"
+
+
+@dataclass(frozen=True, slots=True)
 class UnknownCommand(CommandBase):
     command: str
     kind: Literal["unknown_command"] = "unknown_command"
@@ -239,6 +245,7 @@ CommandPayload = (
     | ClearSessionsCommand
     | ShellCommand
     | ModelReasoningCommand
+    | ModelVerbosityCommand
     | UnknownCommand
 )
 

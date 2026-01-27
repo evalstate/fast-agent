@@ -5,6 +5,7 @@
 - Keep examples under `examples/` in sync with packaged resources when relevant.
 - Prefer small, focused diffs; avoid reformatting unrelated code.
 - Use Markdown links for images and other content (example: `![Image](https://link.to.image)`).
+- Some unit tests emit warning logs (e.g., invalid auths.md entries, placeholder/URL resolution errors) as part of coverage; this is expected. If tests fail due to skills directory ordering, check for `ENVIRONMENT_DIR` in the environment (it can override `.fast-agent` and skew skill discovery).
 - Project layout quick map:
   - `src/fast_agent/` core runtime and agent logic.
   - `src/fast_agent/core/fastagent.py` owns agent registry, reload/watch, card tooling, and instance refresh.
