@@ -15,7 +15,7 @@ classifiers = [
 requires-python = ">=3.13.5,<3.14"
 dependencies = [
     "fastapi>=0.121.0",
-    "mcp==1.25.0",
+    "mcp==1.26.0",
     "opentelemetry-distro>=0.55b0",
     "opentelemetry-exporter-otlp-proto-http>=1.7.0",
     "pydantic-settings>=2.7.0",
@@ -39,7 +39,7 @@ dependencies = [
     "keyring>=24.3.1",
     "python-frontmatter>=1.1.0",
     "watchfiles>=1.1.0",
-    "agent-client-protocol>=0.7.0",
+    "agent-client-protocol>=0.7.1",
     "tiktoken>=0.12.0",
     "uvloop>=0.22.1; platform_system != 'Windows'",
     "multilspy>=0.0.15",
@@ -128,9 +128,7 @@ dev = [
 [project.scripts]
 fast-agent = "fast_agent.cli.__main__:main"
 apply_patch = "fast_agent.patch.cli:main"
-apply-patch = "fast_agent.patch.cli:main"
 fast-agent-mcp = "fast_agent.cli.__main__:main"
-fastagent = "fast_agent.cli.__main__:app"
 fast-agent-acp = "fast_agent.cli.commands.acp:main"
 fast-agent-hf = "fast_agent.cli.commands.hf:main"
 prompt-server = "fast_agent.mcp.prompts.__main__:main"
