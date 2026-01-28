@@ -43,7 +43,7 @@ from fast_agent.commands.handlers import model as model_handlers
 from fast_agent.commands.handlers import sessions as sessions_handlers
 from fast_agent.commands.handlers import skills as skills_handlers
 from fast_agent.commands.handlers.shared import clear_agent_histories
-from fast_agent.commands.protocols import ACPCommandAllowlistProvider
+from fast_agent.commands.protocols import ACPCommandAllowlistProvider, InstructionAwareAgent
 from fast_agent.commands.renderers.command_markdown import render_command_outcome_markdown
 from fast_agent.commands.renderers.history_markdown import render_history_overview_markdown
 from fast_agent.commands.renderers.session_markdown import render_session_list_markdown
@@ -689,6 +689,8 @@ class SlashCommandHandler:
             else:
                 if refreshed:
                     self.update_session_instruction(self.current_agent_name, refreshed)
+                    if isinstance(agent, InstructionAwareAgent):
+                        self.update_session_instruction(agent.name, refreshed)
 
         summary = build_system_prompt_summary(
             agent=agent,
