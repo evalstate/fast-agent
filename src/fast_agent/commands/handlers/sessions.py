@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from shutil import get_terminal_size
 from typing import TYPE_CHECKING
 
 from rich.text import Text
@@ -10,20 +11,98 @@ from rich.text import Text
 from fast_agent.commands.results import CommandOutcome
 from fast_agent.commands.session_summaries import build_session_list_summary
 from fast_agent.mcp.types import McpAgentProtocol
+from fast_agent.session import display_session_name
 from fast_agent.ui.shell_notice import format_shell_notice
 
 if TYPE_CHECKING:
     from fast_agent.commands.context import CommandContext
+    from fast_agent.session import SessionEntrySummary
 
 
-def _build_session_entries(entries: list[str]) -> Text:
+def _append_session_metadata(line: Text, items: list[tuple[str, str]]) -> None:
+    for value, style in items:
+        line.append(" \u2022 ", style="dim")
+        line.append(value, style=style)
+
+
+def _resolve_terminal_width() -> int:
+    try:
+        from fast_agent.ui.console import console
+
+        width = console.size.width
+    except Exception:
+        width = 0
+    if width <= 0:
+        width = get_terminal_size(fallback=(100, 20)).columns
+    return width
+
+
+def _truncate_summary(summary: str, available: int) -> str | None:
+    if available <= 0:
+        return None
+    if len(summary) <= available:
+        return summary
+    if available == 1:
+        return summary[:available]
+    return summary[: max(0, available - 1)].rstrip() + "…"
+
+
+def _resolve_pin_state(value: str | None, *, current: bool) -> tuple[bool | None, str | None]:
+    if value is None or value.strip() == "" or value.strip().lower() == "toggle":
+        return not current, None
+    normalized = value.strip().lower()
+    if normalized in {"on", "true", "yes", "1", "enable", "enabled"}:
+        return True, None
+    if normalized in {"off", "false", "no", "0", "disable", "disabled"}:
+        return False, None
+    return None, "Usage: /session pin [on|off]"
+
+
+def _build_session_entries(entries: list[SessionEntrySummary], *, usage: str) -> Text:
     content = Text()
-    content.append("Sessions:\n")
-    for line in entries:
-        content.append_text(Text(line))
+    content.append_text(Text("Sessions:", style="bold"))
+    content.append("\n\n")
+    terminal_width = _resolve_terminal_width()
+    bullet_sep = " • "
+    for entry in entries:
+        line = Text()
+        line.append(f"[{entry.index:2}] ", style="dim cyan")
+        line.append(entry.display_name, style="bright_blue bold")
+
+        if entry.is_current:
+            line.append(" ", style="dim")
+            line.append("▶", style="bright_green")
+            line.append(" ", style="dim")
+            line.append(entry.timestamp, style="dim")
+        else:
+            line.append(bullet_sep, style="dim")
+            line.append(entry.timestamp, style="dim")
+
+        metadata_items: list[tuple[str, str]] = []
+        if entry.is_pinned:
+            metadata_items.append(("pin", "yellow"))
+        if entry.agent_count and entry.agent_label:
+            metadata_items.append(
+                (f"{entry.agent_count} agents: {entry.agent_label}", "dim")
+            )
+
+        if metadata_items:
+            _append_session_metadata(line, metadata_items)
+
+        if entry.summary:
+            remaining = terminal_width - line.cell_len - len(bullet_sep)
+            summary_text = _truncate_summary(entry.summary, remaining)
+            if summary_text:
+                line.append(bullet_sep, style="dim")
+                line.append(summary_text, style="white")
+
+        content.append_text(line)
         content.append("\n")
-    content.append_text(Text("Usage: /session resume <id|number>", style="dim"))
+
+    content.append("\n")
+    content.append_text(Text(usage, style="dim"))
     return content
+
 
 
 async def handle_create_session(
@@ -48,7 +127,63 @@ async def handle_list_sessions(ctx: CommandContext) -> CommandOutcome:
         outcome.add_message("No sessions found.", channel="warning", right_info="session")
         return outcome
 
-    outcome.add_message(_build_session_entries(summary.entries), right_info="session")
+    outcome.add_message(
+        _build_session_entries(summary.entry_summaries, usage=summary.usage),
+        right_info="session",
+    )
+    return outcome
+
+
+async def handle_pin_session(
+    ctx: CommandContext,
+    *,
+    value: str | None,
+    target: str | None,
+) -> CommandOutcome:
+    outcome = CommandOutcome()
+    from fast_agent.session import get_session_manager, is_session_pinned
+
+    manager = get_session_manager()
+    session = None
+    if target:
+        resolved = manager.resolve_session_name(target)
+        if resolved:
+            session = manager.get_session(resolved)
+        if session is None:
+            outcome.add_message(
+                f"Session not found: {target}",
+                channel="error",
+                right_info="session",
+            )
+            return outcome
+    else:
+        session = manager.current_session
+        if session is None:
+            sessions = manager.list_sessions()
+            if sessions:
+                session = manager.get_session(sessions[0].name)
+        if session is None:
+            outcome.add_message(
+                "No session available to pin.",
+                channel="warning",
+                right_info="session",
+            )
+            return outcome
+
+    current = is_session_pinned(session.info)
+    desired, error = _resolve_pin_state(value, current=current)
+    if desired is None:
+        outcome.add_message(error or "Usage: /session pin [on|off]", channel="warning")
+        return outcome
+
+    session.set_pinned(desired)
+    label = display_session_name(session.info.name)
+    action = "Pinned" if desired else "Unpinned"
+    outcome.add_message(
+        f"{action} session: {label}",
+        channel="info",
+        right_info="session",
+    )
     return outcome
 
 
@@ -62,7 +197,7 @@ async def handle_clear_sessions(
 
     if not target:
         outcome.add_message(
-            "Usage: /session clear <id|number|all>",
+            "Usage: /session delete <id|number|all>",
             channel="warning",
             right_info="session",
         )

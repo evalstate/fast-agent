@@ -1,6 +1,23 @@
+import os
+from contextlib import contextmanager
 from pathlib import Path
 
 from fast_agent.skills.registry import SkillRegistry
+
+
+@contextmanager
+def _without_environment_dir():
+    import fast_agent.config as config_module
+
+    original_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
+    original_settings = getattr(config_module, "_settings", None)
+    config_module._settings = None
+    try:
+        yield
+    finally:
+        config_module._settings = original_settings
+        if original_env_dir is not None:
+            os.environ["ENVIRONMENT_DIR"] = original_env_dir
 
 
 def write_skill(directory: Path, name: str, description: str = "desc", body: str = "Body") -> Path:
@@ -25,21 +42,23 @@ def test_default_directory_prefers_fast_agent(tmp_path: Path) -> None:
     claude_dir = tmp_path / ".claude" / "skills"
     write_skill(claude_dir, "beta", body="Beta body")
 
-    registry = SkillRegistry(base_dir=tmp_path)
-    assert registry.directories == [default_dir.resolve(), claude_dir.resolve()]
+    with _without_environment_dir():
+        registry = SkillRegistry(base_dir=tmp_path)
+        assert registry.directories == [default_dir.resolve(), claude_dir.resolve()]
 
-    manifests = registry.load_manifests()
-    assert {manifest.name for manifest in manifests} == {"alpha", "beta"}
+        manifests = registry.load_manifests()
+        assert {manifest.name for manifest in manifests} == {"alpha", "beta"}
 
 
 def test_default_directory_falls_back_to_claude(tmp_path: Path) -> None:
     claude_dir = tmp_path / ".claude" / "skills"
     write_skill(claude_dir, "alpha", body="Alpha body")
 
-    registry = SkillRegistry(base_dir=tmp_path)
-    assert registry.directories == [claude_dir.resolve()]
-    manifests = registry.load_manifests()
-    assert len(manifests) == 1 and manifests[0].name == "alpha"
+    with _without_environment_dir():
+        registry = SkillRegistry(base_dir=tmp_path)
+        assert registry.directories == [claude_dir.resolve()]
+        manifests = registry.load_manifests()
+        assert len(manifests) == 1 and manifests[0].name == "alpha"
 
 
 def test_override_directory(tmp_path: Path) -> None:
@@ -65,9 +84,10 @@ def test_load_directory_helper(tmp_path: Path) -> None:
 
 
 def test_no_default_directory(tmp_path: Path) -> None:
-    registry = SkillRegistry(base_dir=tmp_path)
-    assert registry.directories == []
-    assert registry.load_manifests() == []
+    with _without_environment_dir():
+        registry = SkillRegistry(base_dir=tmp_path)
+        assert registry.directories == []
+        assert registry.load_manifests() == []
 
 
 def test_registry_reports_errors(tmp_path: Path) -> None:
@@ -75,11 +95,12 @@ def test_registry_reports_errors(tmp_path: Path) -> None:
     invalid_dir.mkdir(parents=True)
     (invalid_dir / "SKILL.md").write_text("invalid front matter", encoding="utf-8")
 
-    registry = SkillRegistry(base_dir=tmp_path)
-    manifests, errors = registry.load_manifests_with_errors()
-    assert manifests == []
-    assert errors
-    assert "invalid" in errors[0]["path"]
+    with _without_environment_dir():
+        registry = SkillRegistry(base_dir=tmp_path)
+        manifests, errors = registry.load_manifests_with_errors()
+        assert manifests == []
+        assert errors
+        assert "invalid" in errors[0]["path"]
 
 
 def test_override_missing_directory(tmp_path: Path) -> None:

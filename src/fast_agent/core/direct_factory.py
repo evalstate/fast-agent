@@ -17,6 +17,7 @@ from fast_agent.agents.workflow.evaluator_optimizer import (
 from fast_agent.agents.workflow.iterative_planner import IterativePlanner
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.agents.workflow.router_agent import RouterAgent
+from fast_agent.context import Context
 from fast_agent.core import Core
 from fast_agent.core.agent_card_types import AgentCardData
 from fast_agent.core.exceptions import AgentConfigError, ModelConfigError
@@ -38,6 +39,27 @@ from fast_agent.types import RequestParams
 # Type aliases for improved readability and IDE support
 AgentDict = dict[str, AgentProtocol]
 AgentConfigDict = Mapping[str, AgentCardData | dict[str, Any]]
+
+
+class CoreContextProtocol(Protocol):
+    context: Context
+
+
+class _ContextCoreShim:
+    def __init__(self, context: Context) -> None:
+        self.context = context
+
+
+def _ensure_basic_only_agents(agents_dict: AgentConfigDict) -> None:
+    for name, agent_data in agents_dict.items():
+        agent_type = agent_data.get("type") if isinstance(agent_data, Mapping) else None
+        if isinstance(agent_type, AgentType):
+            agent_type = agent_type.value
+        if agent_type != AgentType.BASIC.value:
+            raise AgentConfigError(
+                "Smart tool only supports 'agent' cards",
+                f"Card '{name}' has unsupported type '{agent_type}'",
+            )
 
 def _load_configured_function_tools(
     config: AgentConfig,
@@ -357,7 +379,7 @@ def get_default_model_source(
 
 
 async def create_agents_by_type(
-    app_instance: Core,
+    app_instance: CoreContextProtocol,
     agents_dict: AgentConfigDict,
     agent_type: AgentType,
     model_factory_func: ModelFactoryFunctionProtocol,
@@ -474,6 +496,98 @@ async def create_agents_by_type(
                         app_instance.context,
                         tools=function_tools,
                     )
+
+                    await _finalize_agent(
+                        agent, name, config, agent_data,
+                        model_factory_func, result_agents, session_history_enabled,
+                    )
+
+            elif agent_type == AgentType.SMART:
+                child_names = agent_data.get("child_agents", []) or []
+                if child_names:
+                    function_tools = _load_configured_function_tools(config, agent_data)
+
+                    child_agents: list[AgentProtocol] = []
+                    for agent_name in child_names:
+                        if agent_name not in active_agents:
+                            logger.warning(
+                                "Skipping missing child agent",
+                                data={"agent_name": agent_name, "parent": name},
+                            )
+                            continue
+                        child_agents.append(active_agents[agent_name])
+
+                    from fast_agent.agents.smart_agent import SmartAgentsAsToolsAgent
+                    from fast_agent.agents.workflow.agents_as_tools_agent import (
+                        AgentsAsToolsOptions,
+                        HistoryMergeTarget,
+                        HistorySource,
+                    )
+
+                    raw_opts = agent_data.get("agents_as_tools_options") or {}
+                    opt_kwargs = {k: v for k, v in raw_opts.items() if v is not None}
+                    options = AgentsAsToolsOptions(**opt_kwargs)
+                    child_message_files: dict[str, list[Path]] = {}
+                    if (
+                        options.history_source == HistorySource.MESSAGES
+                        or options.history_merge_target == HistoryMergeTarget.MESSAGES
+                    ):
+                        missing_messages: list[str] = []
+                        for agent_name in child_names:
+                            child_data = agents_dict.get(agent_name)
+                            message_files = (
+                                child_data.get("message_files") if child_data else None
+                            )
+                            if not message_files:
+                                missing_messages.append(agent_name)
+                            else:
+                                child_message_files[agent_name] = list(message_files)
+                        if missing_messages:
+                            missing_list = ", ".join(sorted(set(missing_messages)))
+                            raise AgentConfigError(
+                                "history_source/history_merge_target=messages requires child agents with messages",
+                                f"Missing messages for: {missing_list}",
+                            )
+                    else:
+                        for agent_name in child_names:
+                            child_data = agents_dict.get(agent_name, {})
+                            message_files = child_data.get("message_files")
+                            if message_files:
+                                child_message_files[agent_name] = list(message_files)
+
+                    agent = SmartAgentsAsToolsAgent(
+                        config=config,
+                        context=app_instance.context,
+                        agents=cast("list[LlmAgent]", child_agents),
+                        options=options,
+                        tools=function_tools,
+                        child_message_files=child_message_files,
+                    )
+
+                    await _finalize_agent(
+                        agent, name, config, agent_data,
+                        model_factory_func, result_agents, session_history_enabled,
+                    )
+                else:
+                    function_tools = _load_configured_function_tools(config, agent_data)
+
+                    from fast_agent.agents.smart_agent import SmartAgent, SmartAgentWithUI
+
+                    settings = app_instance.context.config if app_instance.context else None
+                    ui_mode = getattr(settings, "mcp_ui_mode", "auto") if settings else "auto"
+                    if ui_mode != "disabled":
+                        agent = SmartAgentWithUI(
+                            config=config,
+                            context=app_instance.context,
+                            ui_mode=ui_mode,
+                            tools=function_tools,
+                        )
+                    else:
+                        agent = SmartAgent(
+                            config=config,
+                            context=app_instance.context,
+                            tools=function_tools,
+                        )
 
                     await _finalize_agent(
                         agent, name, config, agent_data,
@@ -739,7 +853,7 @@ async def create_agents_by_type(
 
 
 async def active_agents_in_dependency_group(
-    app_instance: Core,
+    app_instance: CoreContextProtocol,
     agents_dict: AgentConfigDict,
     model_factory_func: ModelFactoryFunctionProtocol,
     group: list[str],
@@ -768,7 +882,7 @@ async def active_agents_in_dependency_group(
 
 
 async def create_agents_in_dependency_order(
-    app_instance: Core,
+    app_instance: CoreContextProtocol,
     agents_dict: AgentConfigDict,
     model_factory_func: ModelFactoryFunctionProtocol,
     allow_cycles: bool = False,
@@ -803,6 +917,33 @@ async def create_agents_in_dependency_order(
         await active_agents_in_dependency_group_partial(group, active_agents)
 
     return active_agents
+
+
+async def create_basic_agents_in_dependency_order(
+    context: Context,
+    agents_dict: AgentConfigDict,
+    model_factory_func: ModelFactoryFunctionProtocol,
+    allow_cycles: bool = False,
+) -> AgentDict:
+    """
+    Create BASIC agents in dependency order without a full Core instance.
+
+    Args:
+        context: Application context
+        agents_dict: Dictionary of agent configurations
+        model_factory_func: Function for creating model factories
+        allow_cycles: Whether to allow cyclic dependencies
+
+    Returns:
+        Dictionary of initialized agent instances
+    """
+    _ensure_basic_only_agents(agents_dict)
+    return await create_agents_in_dependency_order(
+        _ContextCoreShim(context),
+        agents_dict,
+        model_factory_func,
+        allow_cycles,
+    )
 
 
 async def _create_default_fan_in_agent(

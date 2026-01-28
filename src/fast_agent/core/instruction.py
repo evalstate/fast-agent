@@ -37,6 +37,7 @@ from typing import Awaitable, Callable
 
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.core.template_escape import protect_escaped_braces, restore_escaped_braces
 
 logger = get_logger(__name__)
 
@@ -196,7 +197,7 @@ class InstructionBuilder:
         Returns:
             The fully resolved instruction string
         """
-        result = self._template
+        result = protect_escaped_braces(self._template)
 
         # 1. Resolve {{url:...}} patterns
         result = self._resolve_url_patterns(result)
@@ -237,7 +238,7 @@ class InstructionBuilder:
                     # For now, replace with empty to avoid confusing the LLM
                     result = result.replace(pattern, "")
 
-        return result
+        return restore_escaped_braces(result)
 
     def _resolve_url_patterns(self, text: str) -> str:
         """Resolve {{url:https://...}} patterns by fetching content."""
@@ -273,6 +274,11 @@ class InstructionBuilder:
 
         workspace_root = self._static.get("workspaceRoot")
 
+        def _should_fallback(path: Path) -> bool:
+            if not path.parts:
+                return False
+            return path.parts[0] in {".fast-agent", ".dev"}
+
         def replace_file(match: re.Match) -> str:
             file_path_str = match.group(1).strip()
             file_path = Path(file_path_str).expanduser()
@@ -288,6 +294,10 @@ class InstructionBuilder:
             # Resolve against workspaceRoot if available
             if workspace_root:
                 resolved_path = (Path(workspace_root) / file_path).resolve()
+                if _should_fallback(file_path) and not resolved_path.exists():
+                    fallback_path = (Path.cwd() / file_path).resolve()
+                    if fallback_path.exists():
+                        resolved_path = fallback_path
             else:
                 resolved_path = file_path.resolve()
 
@@ -315,7 +325,7 @@ class InstructionBuilder:
             Set of placeholder names (without braces)
         """
         # Match {{name}} but not {{url:...}}, {{file:...}}, {{file_silent:...}}
-        pattern = re.compile(r"\{\{(?!url:|file:|file_silent:)([^}]+)\}\}")
+        pattern = re.compile(r"(?<!\\)\{\{(?!url:|file:|file_silent:)([^}]+)\}\}")
         return set(pattern.findall(self._template))
 
     def get_unresolved_placeholders(self) -> Set[str]:

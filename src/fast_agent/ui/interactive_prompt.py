@@ -59,6 +59,7 @@ from fast_agent.ui.command_payloads import (
     LoadPromptCommand,
     ModelReasoningCommand,
     ModelVerbosityCommand,
+    PinSessionCommand,
     ReloadAgentsCommand,
     ResumeSessionCommand,
     SelectPromptCommand,
@@ -516,6 +517,15 @@ class InteractivePrompt:
                         context = self._build_command_context(prompt_provider, agent)
                         outcome = await sessions_handlers.handle_clear_sessions(
                             context,
+                            target=target,
+                        )
+                        await self._emit_command_outcome(context, outcome)
+                        continue
+                    case PinSessionCommand(value=value, target=target):
+                        context = self._build_command_context(prompt_provider, agent)
+                        outcome = await sessions_handlers.handle_pin_session(
+                            context,
+                            value=value,
                             target=target,
                         )
                         await self._emit_command_outcome(context, outcome)

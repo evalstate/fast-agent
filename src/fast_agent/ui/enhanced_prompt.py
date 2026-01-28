@@ -58,6 +58,7 @@ from fast_agent.ui.command_payloads import (
     LoadPromptCommand,
     ModelReasoningCommand,
     ModelVerbosityCommand,
+    PinSessionCommand,
     ReloadAgentsCommand,
     ResumeSessionCommand,
     SaveHistoryCommand,
@@ -608,7 +609,7 @@ class AgentCompleter(Completer):
             "usage": "Show current usage statistics",
             "markdown": "Show last assistant message without markdown formatting",
             "resume": "Resume the last session or specified session id",
-            "session": "Manage sessions (/session list|new|resume|title|fork|clear)",
+            "session": "Manage sessions (/session list|new|resume|title|fork|delete|pin)",
             "card": "Load an AgentCard (add --tool to attach/remove as tool)",
             "agent": "Attach/remove an agent as a tool or dump an AgentCard",
             "reload": "Reload AgentCards from disk",
@@ -808,7 +809,7 @@ class AgentCompleter(Completer):
                 display_meta=preview,
             )
 
-    def _complete_session_ids(self, partial: str):
+    def _complete_session_ids(self, partial: str, *, start_position: int | None = None):
         """Generate completions for recent session ids."""
         from fast_agent.session import (
             display_session_name,
@@ -846,7 +847,7 @@ class AgentCompleter(Completer):
                 display_meta = display_time
             yield Completion(
                 session_id,
-                start_position=-len(partial),
+                start_position=-len(partial) if start_position is None else start_position,
                 display=display_name,
                 display_meta=display_meta,
             )
@@ -1127,6 +1128,18 @@ class AgentCompleter(Completer):
             yield from self._complete_session_ids(partial)
             return
 
+        if text_lower.startswith("/session delete "):
+            partial = text[len("/session delete ") :]
+            if "all".startswith(partial.lower()):
+                yield Completion(
+                    "all",
+                    start_position=-len(partial),
+                    display="all",
+                    display_meta="Delete all sessions",
+                )
+            yield from self._complete_session_ids(partial)
+            return
+
         if text_lower.startswith("/session clear "):
             partial = text[len("/session clear ") :]
             if "all".startswith(partial.lower()):
@@ -1137,6 +1150,38 @@ class AgentCompleter(Completer):
                     display_meta="Delete all sessions",
                 )
             yield from self._complete_session_ids(partial)
+            return
+
+        if text_lower.startswith("/session pin "):
+            remainder = text[len("/session pin ") :]
+            parts = remainder.split(maxsplit=1) if remainder else []
+            if not parts:
+                for option in ("on", "off"):
+                    yield Completion(
+                        option,
+                        start_position=0,
+                        display=option,
+                        display_meta="Toggle session pin",
+                    )
+                yield from self._complete_session_ids("")
+                return
+            first = parts[0].lower()
+            if first in {"on", "off"}:
+                if len(parts) == 1 and not remainder.endswith(" "):
+                    for option in ("on", "off"):
+                        if option.startswith(first):
+                            yield Completion(
+                                option,
+                                start_position=-len(first),
+                                display=option,
+                                display_meta="Toggle session pin",
+                            )
+                    return
+                suffix = parts[1] if len(parts) > 1 else ""
+                start_position = -len(suffix) if suffix else 0
+                yield from self._complete_session_ids(suffix, start_position=start_position)
+                return
+            yield from self._complete_session_ids(remainder)
             return
 
         if text_lower.startswith("/skills "):
@@ -1229,7 +1274,9 @@ class AgentCompleter(Completer):
         if text_lower.startswith("/session "):
             partial = text[len("/session ") :]
             subcommands = {
-                "clear": "Delete a session (or all)",
+                "delete": "Delete a session (or all)",
+                "pin": "Pin or unpin the current session",
+                "clear": "Alias for delete",
                 "list": "List recent sessions",
                 "new": "Create a new session",
                 "resume": "Resume a session",
@@ -1679,8 +1726,39 @@ def parse_special_input(text: str) -> str | CommandPayload:
                 return ListSessionsCommand()
             if subcmd == "new":
                 return CreateSessionCommand(session_name=argument or None)
-            if subcmd == "clear":
+            if subcmd in {"delete", "clear"}:
                 return ClearSessionsCommand(target=argument or None)
+            if subcmd == "pin":
+                pin_tokens: list[str]
+                if argument:
+                    try:
+                        pin_tokens = shlex.split(argument)
+                    except ValueError:
+                        pin_tokens = argument.split(maxsplit=1)
+                else:
+                    pin_tokens = []
+                if not pin_tokens:
+                    return PinSessionCommand(value=None, target=None)
+                first = pin_tokens[0].lower()
+                value_tokens = {
+                    "on",
+                    "off",
+                    "toggle",
+                    "true",
+                    "false",
+                    "yes",
+                    "no",
+                    "1",
+                    "0",
+                    "enable",
+                    "enabled",
+                    "disable",
+                    "disabled",
+                }
+                if first in value_tokens:
+                    target = " ".join(pin_tokens[1:]).strip() or None
+                    return PinSessionCommand(value=first, target=target)
+                return PinSessionCommand(value=None, target=argument or None)
             if subcmd == "title":
                 if not argument:
                     return TitleSessionCommand(title="")
@@ -2321,11 +2399,6 @@ async def get_enhanced_input(
 
             # Display agent info right after help text if agent_provider is available
             if agent_provider and not is_human_input:
-                if _startup_notices:
-                    for notice in _startup_notices:
-                        rich_print(notice)
-                    _startup_notices.clear()
-
                 # Display info for all available agents with tree structure for workflows
                 await _display_all_agents_with_hierarchy(available_agents, agent_provider)
 
@@ -2395,6 +2468,11 @@ async def get_enhanced_input(
                                     rich_print(f"[dim]HuggingFace: {model} via {provider}[/dim]")
                         except Exception:
                             pass
+
+            if agent_provider and not is_human_input and _startup_notices:
+                for notice in _startup_notices:
+                    rich_print(notice)
+                _startup_notices.clear()
 
         rich_print()
         help_message_shown = True
@@ -2607,7 +2685,8 @@ async def handle_special_commands(
         rich_print("  /session resume [id|number] - Resume the last or specified session")
         rich_print("  /session title <text> - Set the current session title")
         rich_print("  /session fork [title] - Fork the current session")
-        rich_print("  /session clear <id|number|all> - Delete a session or all sessions")
+        rich_print("  /session delete <id|number|all> - Delete a session or all sessions")
+        rich_print("  /session pin [on|off] - Pin or unpin the current session")
         rich_print(
             "  /card <filename> [--tool [remove]] - Load an AgentCard (attach/remove as tool)"
         )
@@ -2632,7 +2711,7 @@ async def handle_special_commands(
     elif command == "SESSION_HELP":
         rich_print(
             "[yellow]Usage: /session list | /session new [title] | /session resume [id|number] "
-            "| /session title <text> | /session fork [title] | /session clear <id|number|all>[/yellow]"
+            "| /session title <text> | /session fork [title] | /session delete <id|number|all> | /session pin [on|off][/yellow]"
         )
         return True
 

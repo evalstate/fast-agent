@@ -43,7 +43,7 @@ from fast_agent.commands.handlers import model as model_handlers
 from fast_agent.commands.handlers import sessions as sessions_handlers
 from fast_agent.commands.handlers import skills as skills_handlers
 from fast_agent.commands.handlers.shared import clear_agent_histories
-from fast_agent.commands.protocols import ACPCommandAllowlistProvider
+from fast_agent.commands.protocols import ACPCommandAllowlistProvider, InstructionAwareAgent
 from fast_agent.commands.renderers.command_markdown import render_command_outcome_markdown
 from fast_agent.commands.renderers.history_markdown import render_history_overview_markdown
 from fast_agent.commands.renderers.session_markdown import render_session_list_markdown
@@ -207,6 +207,7 @@ class SlashCommandHandler:
         dump_agent_callback: Callable[[str], Awaitable[str]] | None = None,
         reload_callback: Callable[[], Awaitable[bool]] | None = None,
         set_current_mode_callback: Callable[[str], Awaitable[None] | None] | None = None,
+        instruction_resolver: Callable[[str], Awaitable[str | None]] | None = None,
     ):
         """
         Initialize the slash command handler.
@@ -242,6 +243,7 @@ class SlashCommandHandler:
         self._dump_agent_callback = dump_agent_callback
         self._reload_callback = reload_callback
         self._set_current_mode_callback = set_current_mode_callback
+        self._instruction_resolver = instruction_resolver
 
         # Session-level commands (always available, operate on current agent)
         self._session_commands: dict[str, AvailableCommand] = {
@@ -625,15 +627,17 @@ class SlashCommandHandler:
             return await self._handle_session_title(argument)
         if subcmd == "fork":
             return await self._handle_session_fork(argument)
-        if subcmd == "clear":
-            return await self._handle_session_clear(argument)
+        if subcmd in {"delete", "clear"}:
+            return await self._handle_session_delete(argument)
+        if subcmd == "pin":
+            return await self._handle_session_pin(argument)
 
         return "\n".join(
             [
                 "# session",
                 "",
                 f"Unknown /session action: {subcmd}",
-                "Usage: /session [list|new|resume|title|fork|clear] [args]",
+                "Usage: /session [list|new|resume|title|fork|delete|pin] [args]",
             ]
         )
 
@@ -672,6 +676,21 @@ class SlashCommandHandler:
         agent, error = self._get_current_agent_or_error(heading)
         if error:
             return error
+
+        if self._instruction_resolver:
+            try:
+                refreshed = await self._instruction_resolver(self.current_agent_name)
+            except Exception as exc:
+                self._logger.debug(
+                    "Failed to refresh session instruction",
+                    agent_name=self.current_agent_name,
+                    error=str(exc),
+                )
+            else:
+                if refreshed:
+                    self.update_session_instruction(self.current_agent_name, refreshed)
+                    if isinstance(agent, InstructionAwareAgent):
+                        self.update_session_instruction(agent.name, refreshed)
 
         summary = build_system_prompt_summary(
             agent=agent,
@@ -754,14 +773,54 @@ class SlashCommandHandler:
             )
         return self._format_outcome_as_markdown(outcome, "session new", io=io)
 
-    async def _handle_session_clear(self, argument: str) -> str:
+    async def _handle_session_delete(self, argument: str) -> str:
         ctx = self._build_command_context()
         io = cast("ACPCommandIO", ctx.io)
         outcome = await sessions_handlers.handle_clear_sessions(
             ctx,
             target=argument.strip() or None,
         )
-        return self._format_outcome_as_markdown(outcome, "session clear", io=io)
+        return self._format_outcome_as_markdown(outcome, "session delete", io=io)
+
+    async def _handle_session_pin(self, argument: str) -> str:
+        ctx = self._build_command_context()
+        io = cast("ACPCommandIO", ctx.io)
+        pin_argument = argument.strip() if argument else ""
+        value: str | None = None
+        target: str | None = None
+        if pin_argument:
+            try:
+                pin_tokens = shlex.split(pin_argument)
+            except ValueError:
+                pin_tokens = pin_argument.split(maxsplit=1)
+            if pin_tokens:
+                first = pin_tokens[0].lower()
+                value_tokens = {
+                    "on",
+                    "off",
+                    "toggle",
+                    "true",
+                    "false",
+                    "yes",
+                    "no",
+                    "1",
+                    "0",
+                    "enable",
+                    "enabled",
+                    "disable",
+                    "disabled",
+                }
+                if first in value_tokens:
+                    value = first
+                    target = " ".join(pin_tokens[1:]).strip() or None
+                else:
+                    target = pin_argument
+        outcome = await sessions_handlers.handle_pin_session(
+            ctx,
+            value=value,
+            target=target,
+        )
+        return self._format_outcome_as_markdown(outcome, "session pin", io=io)
 
 
     def _handle_status_auth(self) -> str:

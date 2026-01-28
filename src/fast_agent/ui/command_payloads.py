@@ -188,6 +188,13 @@ class ClearSessionsCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class PinSessionCommand(CommandBase):
+    value: str | None
+    target: str | None
+    kind: Literal["pin_session"] = "pin_session"
+
+
+@dataclass(frozen=True, slots=True)
 class ShellCommand(CommandBase):
     """Execute a shell command directly."""
 
@@ -243,6 +250,7 @@ CommandPayload = (
     | TitleSessionCommand
     | ForkSessionCommand
     | ClearSessionsCommand
+    | PinSessionCommand
     | ShellCommand
     | ModelReasoningCommand
     | ModelVerbosityCommand

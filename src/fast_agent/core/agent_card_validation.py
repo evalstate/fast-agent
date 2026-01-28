@@ -24,6 +24,7 @@ _CARD_REQUIRED_FIELDS = {
     "orchestrator": ("agents",),
     "iterative_planner": ("agents",),
     "maker": ("worker",),
+    "smart": (),
 }
 
 _FILE_PLACEHOLDER_PATTERN = re.compile(r"\{\{file:([^}]+)\}\}")
@@ -93,11 +94,45 @@ def scan_agent_card_directory(
     server_names: set[str] | None = None,
     extra_agent_names: set[str] | None = None,
 ) -> list[AgentCardScanResult]:
-    entries: list[AgentCardScanResult] = []
     card_files = collect_agent_card_files(directory)
     if not card_files:
-        return entries
+        return []
+    return _scan_agent_card_files(
+        card_files,
+        server_names=server_names,
+        extra_agent_names=extra_agent_names,
+    )
 
+
+def scan_agent_card_path(
+    path: Path,
+    *,
+    server_names: set[str] | None = None,
+    extra_agent_names: set[str] | None = None,
+) -> list[AgentCardScanResult]:
+    path = path.expanduser()
+    if path.is_dir():
+        return scan_agent_card_directory(
+            path,
+            server_names=server_names,
+            extra_agent_names=extra_agent_names,
+        )
+    if not path.exists() or path.suffix.lower() not in CARD_EXTENSIONS:
+        return []
+    return _scan_agent_card_files(
+        [path],
+        server_names=server_names,
+        extra_agent_names=extra_agent_names,
+    )
+
+
+def _scan_agent_card_files(
+    card_files: list[Path],
+    *,
+    server_names: set[str] | None = None,
+    extra_agent_names: set[str] | None = None,
+) -> list[AgentCardScanResult]:
+    entries: list[AgentCardScanResult] = []
     name_to_paths: dict[str, list[Path]] = {}
     for card_path in card_files:
         errors: list[str] = []
@@ -374,6 +409,7 @@ def _normalize_card_type(raw_type: Any, errors: list[str]) -> str:
     type_key = raw_type.strip().lower() or "agent"
     if type_key not in {
         "agent",
+        "smart",
         "chain",
         "parallel",
         "evaluator_optimizer",
@@ -480,7 +516,7 @@ def _check_function_tool_spec(spec: str, base_path: Path) -> str | None:
 
 def _card_dependencies(type_key: str, raw: dict[str, Any], errors: list[str]) -> set[str]:
     deps: set[str] = set()
-    if type_key == "agent":
+    if type_key in {"agent", "smart"}:
         deps.update(_ensure_str_list(raw.get("agents"), "agents", errors))
     elif type_key == "chain":
         deps.update(_ensure_str_list(raw.get("sequence"), "sequence", errors))
@@ -513,7 +549,7 @@ def _loaded_agent_dependencies(agent_data: dict[str, Any]) -> set[str]:
         return set()
 
     deps: set[str] = set()
-    if agent_type == AgentType.BASIC.value:
+    if agent_type in {AgentType.BASIC.value, AgentType.SMART.value}:
         deps.update(agent_data.get("child_agents") or [])
     elif agent_type == AgentType.CHAIN.value:
         deps.update(agent_data.get("sequence") or [])
