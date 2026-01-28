@@ -68,6 +68,23 @@ def _append_manifest_entry(content: Text, manifest: SkillManifest, index: int) -
     content.append("\n\n")
 
 
+def _append_registry_entry(
+    content: Text,
+    *,
+    display_url: str,
+    index: int,
+    is_current: bool,
+) -> None:
+    entry = Text()
+    entry.append(f"[{index:2}] ", style="dim cyan")
+    entry.append(display_url, style="bright_blue bold")
+    if is_current:
+        entry.append(" • ", style="dim")
+        entry.append("current", style="dim green")
+    content.append_text(entry)
+    content.append("\n")
+
+
 def _format_local_skills_by_directory(manifests_by_dir: dict[Path, list[SkillManifest]]) -> Text:
     content = Text()
     skill_index = 0
@@ -250,18 +267,30 @@ async def handle_set_skills_registry(
 
     if not argument:
         current = get_marketplace_url(settings)
+        current_display = format_marketplace_display_url(current)
+        configured_displays = [
+            format_marketplace_display_url(reg_url) for reg_url in configured_urls
+        ]
+        current_in_configured = current_display in configured_displays
         content = Text()
-        content.append_text(
-            Text(f"Current registry: {format_marketplace_display_url(current)}", style="dim")
-        )
-        if configured_urls:
+        if not current_in_configured:
+            current_line = Text()
+            current_line.append("current", style="dim green")
+            current_line.append(" • ", style="dim")
+            current_line.append(current_display, style="bright_blue bold")
+            content.append_text(current_line)
             content.append("\n\n")
             content.append_text(Text("Configured registries:", style="dim"))
             content.append("\n")
-            for index, reg_url in enumerate(configured_urls, 1):
-                display = format_marketplace_display_url(reg_url)
-                content.append_text(Text(f"  [{index}] {display}", style="dim"))
-                content.append("\n")
+
+        for index, display in enumerate(configured_displays, 1):
+            _append_registry_entry(
+                content,
+                display_url=display,
+                index=index,
+                is_current=display == current_display,
+            )
+
         content.append("\n")
         content.append_text(Text("Usage: /skills registry <number|url|path>", style="dim"))
         outcome.add_message(content, right_info="skills")

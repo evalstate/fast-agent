@@ -50,6 +50,12 @@ def display_session_name(name: str) -> str:
     return name
 
 
+def is_session_pinned(info: "SessionInfo") -> bool:
+    """Return True if the session is marked as pinned."""
+    value = info.metadata.get("pinned") if isinstance(info.metadata, dict) else None
+    return value is True
+
+
 
 def _sanitize_component(name: str, limit: int = 100) -> str:
     """Sanitize a name for filesystem safety."""
@@ -69,7 +75,7 @@ def _extract_history_agent(filename: str) -> str:
 
 
 def _first_user_preview(
-    messages: list["PromptMessageExtended"], limit: int = 30
+    messages: list["PromptMessageExtended"], limit: int = 240
 ) -> str | None:
     for message in messages:
         if message.role != "user":
@@ -276,6 +282,14 @@ class Session:
         with self._metadata_lock():
             self._atomic_write_json(metadata_file, self.info.to_dict())
         self._dirty = False
+
+    def set_pinned(self, pinned: bool) -> None:
+        """Pin or unpin the session to prevent auto-pruning."""
+        if pinned:
+            self.info.metadata["pinned"] = True
+        else:
+            self.info.metadata.pop("pinned", None)
+        self._save_metadata()
 
     def _atomic_write_json(self, path: pathlib.Path, payload: dict[str, Any]) -> None:
         temp_path: pathlib.Path | None = None
@@ -712,6 +726,8 @@ class SessionManager:
         for session_info in sessions[max_sessions:]:
             if current_name and session_info.name == current_name:
                 continue
+            if is_session_pinned(session_info):
+                continue
             self.delete_session(session_info.name)
 
     def _resolve_session_name(self, name: str | None) -> str | None:
@@ -740,6 +756,10 @@ class SessionManager:
         if len(matches) == 1:
             return matches[0]
         return session_name
+
+    def resolve_session_name(self, name: str | None) -> str | None:
+        """Public wrapper to resolve a session identifier or ordinal index."""
+        return self._resolve_session_name(name)
 
     def _generate_session_id(self) -> str:
         """Generate a secure session identifier."""

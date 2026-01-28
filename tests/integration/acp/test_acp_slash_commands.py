@@ -15,9 +15,10 @@ from mcp.types import TextContent
 
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.config import get_settings, update_global_settings
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
-from fast_agent.session import get_session_manager
+from fast_agent.session import display_session_name, get_session_manager, reset_session_manager
 from fast_agent.session import session_manager as session_manager_module
 
 if TYPE_CHECKING:
@@ -512,6 +513,45 @@ async def test_slash_command_session_list_no_sessions(tmp_path, monkeypatch) -> 
     response = await handler.execute_command("session", "list")
 
     assert "no sessions" in response.lower()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_session_pin_sets_metadata(tmp_path: Path) -> None:
+    """Test /session pin marks the session as pinned."""
+    old_settings = get_settings()
+    env_dir = tmp_path / "env"
+    override = old_settings.model_copy(update={"environment_dir": str(env_dir)})
+    update_global_settings(override)
+    reset_session_manager()
+
+    try:
+        manager = get_session_manager()
+        session = manager.create_session()
+        label = display_session_name(session.info.name)
+
+        handler = _handler(
+            StubAgentInstance(agents={"test-agent": StubAgent(message_history=[])}),
+        )
+        response = await handler.execute_command(
+            "session",
+            f"pin on {session.info.name}",
+        )
+
+        assert "Pinned session" in response
+        assert label in response
+
+        metadata = json.loads(
+            (manager.base_dir / session.info.name / "session.json").read_text()
+        )
+        assert metadata["metadata"].get("pinned") is True
+
+        list_response = await handler.execute_command("session", "list")
+        assert "pin" in list_response.lower()
+        assert label in list_response
+    finally:
+        update_global_settings(old_settings)
+        reset_session_manager()
 
 
 @pytest.mark.integration

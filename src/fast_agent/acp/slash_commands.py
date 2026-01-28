@@ -625,15 +625,17 @@ class SlashCommandHandler:
             return await self._handle_session_title(argument)
         if subcmd == "fork":
             return await self._handle_session_fork(argument)
-        if subcmd == "clear":
-            return await self._handle_session_clear(argument)
+        if subcmd in {"delete", "clear"}:
+            return await self._handle_session_delete(argument)
+        if subcmd == "pin":
+            return await self._handle_session_pin(argument)
 
         return "\n".join(
             [
                 "# session",
                 "",
                 f"Unknown /session action: {subcmd}",
-                "Usage: /session [list|new|resume|title|fork|clear] [args]",
+                "Usage: /session [list|new|resume|title|fork|delete|pin] [args]",
             ]
         )
 
@@ -754,14 +756,54 @@ class SlashCommandHandler:
             )
         return self._format_outcome_as_markdown(outcome, "session new", io=io)
 
-    async def _handle_session_clear(self, argument: str) -> str:
+    async def _handle_session_delete(self, argument: str) -> str:
         ctx = self._build_command_context()
         io = cast("ACPCommandIO", ctx.io)
         outcome = await sessions_handlers.handle_clear_sessions(
             ctx,
             target=argument.strip() or None,
         )
-        return self._format_outcome_as_markdown(outcome, "session clear", io=io)
+        return self._format_outcome_as_markdown(outcome, "session delete", io=io)
+
+    async def _handle_session_pin(self, argument: str) -> str:
+        ctx = self._build_command_context()
+        io = cast("ACPCommandIO", ctx.io)
+        pin_argument = argument.strip() if argument else ""
+        value: str | None = None
+        target: str | None = None
+        if pin_argument:
+            try:
+                pin_tokens = shlex.split(pin_argument)
+            except ValueError:
+                pin_tokens = pin_argument.split(maxsplit=1)
+            if pin_tokens:
+                first = pin_tokens[0].lower()
+                value_tokens = {
+                    "on",
+                    "off",
+                    "toggle",
+                    "true",
+                    "false",
+                    "yes",
+                    "no",
+                    "1",
+                    "0",
+                    "enable",
+                    "enabled",
+                    "disable",
+                    "disabled",
+                }
+                if first in value_tokens:
+                    value = first
+                    target = " ".join(pin_tokens[1:]).strip() or None
+                else:
+                    target = pin_argument
+        outcome = await sessions_handlers.handle_pin_session(
+            ctx,
+            value=value,
+            target=target,
+        )
+        return self._format_outcome_as_markdown(outcome, "session pin", io=io)
 
 
     def _handle_status_auth(self) -> str:

@@ -7,7 +7,8 @@ from pathlib import Path
 from prompt_toolkit.document import Document
 
 import fast_agent.config as config_module
-from fast_agent.config import Settings, SkillsSettings
+from fast_agent.config import Settings, SkillsSettings, get_settings, update_global_settings
+from fast_agent.session import get_session_manager, reset_session_manager
 from fast_agent.ui.enhanced_prompt import AgentCompleter
 
 
@@ -138,6 +139,35 @@ def test_get_completions_for_history_subcommands():
     assert "show" in names
     assert "save" in names
     assert "load" in names
+
+
+def test_get_completions_for_session_pin(tmp_path: Path) -> None:
+    old_settings = get_settings()
+    env_dir = tmp_path / "env"
+    override = old_settings.model_copy(update={"environment_dir": str(env_dir)})
+    update_global_settings(override)
+    reset_session_manager()
+
+    try:
+        manager = get_session_manager()
+        session = manager.create_session()
+
+        completer = AgentCompleter(agents=["agent1"])
+        doc = Document("/session pin ", cursor_position=len("/session pin "))
+        completions = list(completer.get_completions(doc, None))
+        names = [c.text for c in completions]
+
+        assert "on" in names
+        assert "off" in names
+        assert session.info.name in names
+
+        doc = Document("/session pin on ", cursor_position=len("/session pin on "))
+        completions = list(completer.get_completions(doc, None))
+        names = [c.text for c in completions]
+        assert session.info.name in names
+    finally:
+        update_global_settings(old_settings)
+        reset_session_manager()
 
 
 def _write_skill(skill_root: Path, name: str) -> None:
