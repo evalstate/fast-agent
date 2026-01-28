@@ -58,7 +58,11 @@ def _build_run_async_agent_kwargs(
 ) -> dict[str, Any]:
     env_dir = resolve_environment_dir_option(ctx, env_dir)
     stdio_commands = collect_stdio_commands(npx, uvx, stdio)
-    resolved_instruction, agent_name = resolve_instruction_option(instruction)
+    resolved_instruction, agent_name = resolve_instruction_option(
+        instruction,
+        model,
+        "serve",
+    )
 
     return {
         "name": name,

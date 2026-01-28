@@ -102,7 +102,11 @@ def run_acp(
     stdio_commands = collect_stdio_commands(npx, uvx, stdio)
     shell_enabled = shell
 
-    resolved_instruction, agent_name = resolve_instruction_option(instruction, model)
+    resolved_instruction, agent_name = resolve_instruction_option(
+        instruction,
+        model,
+        "serve",
+    )
 
     run_async_agent(
         name=name,
