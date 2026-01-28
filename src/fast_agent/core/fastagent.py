@@ -1476,6 +1476,9 @@ class FastAgent(DecoratorMixin):
                                 from fast_agent.mcp.server import AgentMCPServer
 
                                 tool_description = getattr(self.args, "tool_description", None)
+                                tool_name_template = getattr(
+                                    self.args, "tool_name_template", None
+                                )
                                 server_description = getattr(self.args, "server_description", None)
                                 server_name = getattr(self.args, "server_name", None)
                                 instance_scope = getattr(self.args, "instance_scope", "shared")
@@ -1487,6 +1490,7 @@ class FastAgent(DecoratorMixin):
                                     server_name=server_name or f"{self.name}-MCP-Server",
                                     server_description=server_description,
                                     tool_description=tool_description,
+                                    tool_name_template=tool_name_template,
                                     host=self.args.host,
                                     get_registry_version=self._get_registry_version,
                                     reload_callback=reload_callback,
@@ -1873,6 +1877,7 @@ class FastAgent(DecoratorMixin):
         tool_description: str | None = None,
         instance_scope: str = "shared",
         permissions_enabled: bool = True,
+        tool_name_template: str | None = None,
     ) -> None:
         """
         Start the application as an MCP server.
@@ -1888,6 +1893,8 @@ class FastAgent(DecoratorMixin):
             tool_description: Optional description template for the exposed send tool.
                               Use {agent} to reference the agent name.
             permissions_enabled: Whether to request tool permissions from ACP clients (default: True)
+            tool_name_template: Optional template for exposed agent tool names.
+                                Use {agent} to reference the agent name.
         """
         # This method simply updates the command line arguments and uses run()
         # to ensure we follow the same initialization path for all operations
@@ -1906,6 +1913,7 @@ class FastAgent(DecoratorMixin):
         self.args.host = host
         self.args.port = port
         self.args.tool_description = tool_description
+        self.args.tool_name_template = tool_name_template
         self.args.server_description = server_description
         self.args.server_name = server_name
         self.args.instance_scope = instance_scope
@@ -1946,6 +1954,7 @@ class FastAgent(DecoratorMixin):
         server_description: str | None = None,
         tool_description: str | None = None,
         instance_scope: str = "shared",
+        tool_name_template: str | None = None,
     ) -> None:
         """
         Run the application and expose agents through an MCP server.
@@ -1959,6 +1968,8 @@ class FastAgent(DecoratorMixin):
             server_name: Optional custom name for the MCP server
             server_description: Optional description/instructions for the MCP server
             tool_description: Optional description template for the exposed send tool.
+            tool_name_template: Optional template for exposed agent tool names.
+                                Use {agent} to reference the agent name.
         """
         await self.start_server(
             transport=transport,
@@ -1967,6 +1978,7 @@ class FastAgent(DecoratorMixin):
             server_name=server_name,
             server_description=server_description,
             tool_description=tool_description,
+            tool_name_template=tool_name_template,
             instance_scope=instance_scope,
         )
 

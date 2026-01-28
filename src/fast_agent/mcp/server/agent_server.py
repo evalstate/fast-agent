@@ -82,6 +82,7 @@ class AgentMCPServer:
         host: str = "0.0.0.0",
         get_registry_version: Callable[[], int] | None = None,
         reload_callback: Callable[[], Awaitable[bool]] | None = None,
+        tool_name_template: str | None = None,
     ) -> None:
         """Initialize the server with the provided agent app."""
         self.primary_instance = primary_instance
@@ -144,6 +145,9 @@ class AgentMCPServer:
             # Ensure FastMCP does not attempt to maintain sessions for stateless mode
             self.mcp_server.settings.stateless_http = True
         self._tool_description = tool_description
+        self._tool_name_template = tool_name_template or "{agent}"
+        if "{agent}" not in self._tool_name_template:
+            raise ValueError("tool_name_template must include '{agent}'.")
         self._shared_instance_active = True
         self._registered_agents: set[str] = set(primary_instance.agents.keys())
         # Shutdown coordination
@@ -200,8 +204,10 @@ class AgentMCPServer:
             config = getattr(agent, "config", None)
             agent_description = getattr(config, "description", None)
 
+        tool_name = self._tool_name_template.format(agent=agent_name)
+
         @self.mcp_server.tool(
-            name=f"{agent_name}_send",
+            name=tool_name,
             description=tool_description
             or agent_description
             or f"Send a message to the {agent_name} agent",
@@ -392,7 +398,7 @@ class AgentMCPServer:
         )
 
     def _name_for_send_tool(self) -> str:
-        return "<agent>_send"
+        return self._tool_name_template.format(agent="<agent>")
 
     def _build_progress_reporter(
         self, ctx: MCPContext

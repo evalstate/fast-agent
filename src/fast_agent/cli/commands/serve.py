@@ -27,8 +27,6 @@ class InstanceScope(str, Enum):
     REQUEST = "request"
 
 
-
-
 def _build_run_async_agent_kwargs(
     *,
     ctx: typer.Context,
@@ -47,6 +45,7 @@ def _build_run_async_agent_kwargs(
     uvx: str | None,
     stdio: str | None,
     description: str | None,
+    tool_name_template: str | None,
     transport: ServeTransport,
     host: str,
     port: int,
@@ -86,6 +85,7 @@ def _build_run_async_agent_kwargs(
         "host": host,
         "port": port,
         "tool_description": description,
+        "tool_name_template": tool_name_template,
         "instance_scope": instance_scope.value,
         "permissions_enabled": not no_permissions,
         "reload": reload,
@@ -156,6 +156,11 @@ def serve(
         "-d",
         help="Description used for the exposed send tool (use {agent} to reference the agent name)",
     ),
+    tool_name_template: str | None = typer.Option(
+        None,
+        "--tool-name-template",
+        help="Template for exposed agent tool names (use {agent} to reference the agent name)",
+    ),
     transport: ServeTransport = typer.Option(
         ServeTransport.HTTP,
         "--transport",
@@ -219,6 +224,7 @@ def serve(
             uvx=uvx,
             stdio=stdio,
             description=description,
+            tool_name_template=tool_name_template,
             transport=transport,
             host=host,
             port=port,
