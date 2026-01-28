@@ -162,6 +162,12 @@ def enrich_with_environment_context(
     """
     if cwd:
         context["workspaceRoot"] = cwd
+        from fast_agent.paths import resolve_environment_paths
+
+        env_paths = resolve_environment_paths(cwd=Path(cwd))
+        context["environmentDir"] = str(env_paths.root)
+        context["environmentAgentCardsDir"] = str(env_paths.agent_cards)
+        context["environmentToolCardsDir"] = str(env_paths.tool_cards)
 
     server_platform = platform.platform()
     python_version = platform.python_version()

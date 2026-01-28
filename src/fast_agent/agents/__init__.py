@@ -30,6 +30,10 @@ def __getattr__(name: str):
         from .mcp_agent import McpAgent
 
         return McpAgent
+    elif name == "SmartAgent":
+        from .smart_agent import SmartAgent
+
+        return SmartAgent
     elif name == "ChainAgent":
         from .workflow.chain_agent import ChainAgent
 
@@ -58,6 +62,7 @@ if TYPE_CHECKING:  # pragma: no cover - type checking only
     from .llm_agent import LlmAgent as LlmAgent  # noqa: F401
     from .llm_decorator import LlmDecorator as LlmDecorator  # noqa: F401
     from .mcp_agent import McpAgent as McpAgent  # noqa: F401
+    from .smart_agent import SmartAgent as SmartAgent  # noqa: F401
     from .tool_agent import ToolAgent as ToolAgent  # noqa: F401
     from .workflow.chain_agent import ChainAgent as ChainAgent  # noqa: F401
     from .workflow.evaluator_optimizer import (
@@ -74,6 +79,7 @@ __all__ = [
     "LlmDecorator",
     "ToolAgent",
     "McpAgent",
+    "SmartAgent",
     # Workflow agents
     "ChainAgent",
     "EvaluatorOptimizerAgent",

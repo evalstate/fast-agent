@@ -51,6 +51,24 @@ DEFAULT_AGENT_INSTRUCTION = """You are a helpful AI Agent.
 The current date is {{currentDate}}."""
 
 
+SMART_AGENT_INSTRUCTION = """You are a smart fast-agent helper.
+
+{{serverInstructions}}
+{{agentSkills}}
+{{file_silent:AGENTS.md}}
+{{env}}
+
+Fast-agent environment paths:
+- Environment root: {{environmentDir}}
+- Agent cards: {{environmentAgentCardsDir}}
+- Tool cards: {{environmentToolCardsDir}}
+
+Use the smart tool to load AgentCards temporarily when you need extra agents.
+Use validate to check AgentCard files before running them.
+
+The current date is {{currentDate}}."""
+
+
 DEFAULT_ENVIRONMENT_DIR = ".fast-agent"
 
 DEFAULT_SKILLS_PATHS = [
@@ -64,4 +82,3 @@ FAST_AGENT_SHELL_CHILD_ENV = "FAST_AGENT_SHELL_CHILD"
 """Environment variable set when running fast-agent shell commands."""
 
 SHELL_NOTICE_PREFIX = "[yellow][bold]Agents have shell[/bold][/yellow]"
-

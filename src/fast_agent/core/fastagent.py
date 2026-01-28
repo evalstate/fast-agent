@@ -489,7 +489,7 @@ class FastAgent(DecoratorMixin):
         if not parent_data:
             raise AgentConfigError(f"Agent '{parent_name}' not found")
 
-        if parent_data.get("type") not in ("basic", "custom"):
+        if parent_data.get("type") not in ("basic", "smart", "custom"):
             raise AgentConfigError(f"Agent '{parent_name}' does not support agents-as-tools")
 
         missing = [
@@ -521,7 +521,7 @@ class FastAgent(DecoratorMixin):
         if not parent_data:
             raise AgentConfigError(f"Agent '{parent_name}' not found")
 
-        if parent_data.get("type") not in ("basic", "custom"):
+        if parent_data.get("type") not in ("basic", "smart", "custom"):
             raise AgentConfigError(f"Agent '{parent_name}' does not support agents-as-tools")
 
         existing = list(parent_data.get("child_agents") or [])
