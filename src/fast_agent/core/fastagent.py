@@ -51,11 +51,9 @@ from fast_agent.core.exceptions import (
     ServerConfigError,
     ServerInitializationError,
 )
+from fast_agent.core.instruction_utils import apply_instruction_context
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.core.prompt_templates import (
-    apply_template_variables,
-    enrich_with_environment_context,
-)
+from fast_agent.core.prompt_templates import enrich_with_environment_context
 from fast_agent.core.validation import (
     validate_provider_keys_post_creation,
     validate_server_references,
@@ -1276,16 +1274,10 @@ class FastAgent(DecoratorMixin):
                                     validate_provider_keys_post_creation(updated_agents)
 
                                     if global_prompt_context:
-                                        for agent in updated_agents.values():
-                                            template = getattr(agent, "instruction", None)
-                                            if not template:
-                                                continue
-                                            resolved = apply_template_variables(
-                                                template, global_prompt_context
-                                            )
-                                            if resolved is None or resolved == template:
-                                                continue
-                                            agent.set_instruction(resolved)
+                                        apply_instruction_context(
+                                            updated_agents.values(),
+                                            global_prompt_context,
+                                        )
 
                             primary_instance.registry_version = self._agent_registry_version
                             self._agent_card_last_changed.clear()
@@ -1650,20 +1642,7 @@ class FastAgent(DecoratorMixin):
         self, instance: AgentInstance, context_vars: dict[str, str]
     ) -> None:
         """Resolve late-binding placeholders for all agents in the provided instance."""
-        if not context_vars:
-            return
-
-        for agent in instance.agents.values():
-            template = getattr(agent, "instruction", None)
-            if not template:
-                continue
-
-            resolved = apply_template_variables(template, context_vars)
-            if resolved is None or resolved == template:
-                continue
-
-            # Use set_instruction() which handles syncing request_params and LLM
-            agent.set_instruction(resolved)
+        apply_instruction_context(instance.agents.values(), context_vars)
 
     def _apply_agent_card_histories(self, agents: dict[str, "AgentProtocol"]) -> None:
         if not self._agent_card_histories:

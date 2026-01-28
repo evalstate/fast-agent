@@ -20,10 +20,8 @@ from fast_agent.core.direct_factory import (
     get_model_factory,
 )
 from fast_agent.core.exceptions import AgentConfigError
-from fast_agent.core.prompt_templates import (
-    apply_template_variables,
-    enrich_with_environment_context,
-)
+from fast_agent.core.instruction_utils import apply_instruction_context
+from fast_agent.core.prompt_templates import enrich_with_environment_context
 from fast_agent.core.validation import validate_provider_keys_post_creation
 from fast_agent.mcp.prompts.prompt_load import load_prompt
 from fast_agent.mcp.ui_mixin import McpUIMixin
@@ -101,16 +99,7 @@ def _apply_instruction_context(
     agents: dict[str, AgentProtocol],
     context_vars: Mapping[str, str],
 ) -> None:
-    if not context_vars:
-        return
-    for agent in agents.values():
-        template = getattr(agent, "instruction", None)
-        if not template:
-            continue
-        resolved = apply_template_variables(template, context_vars)
-        if resolved is None or resolved == template:
-            continue
-        agent.set_instruction(resolved)
+    apply_instruction_context(agents.values(), context_vars)
 
 
 async def _shutdown_agents(agents: Mapping[str, AgentProtocol]) -> None:
