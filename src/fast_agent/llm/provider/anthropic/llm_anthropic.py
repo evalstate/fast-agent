@@ -803,7 +803,15 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
         # Use streaming API with helper
         try:
-            async with anthropic.beta.messages.stream(**arguments) as stream:
+            # OpenTelemetry instrumentation wraps the stream() call and returns a coroutine
+            # that must be awaited before using as context manager
+            stream_call = anthropic.beta.messages.stream(**arguments)
+            # Check if it's a coroutine (OpenTelemetry is installed)
+            if asyncio.iscoroutine(stream_call):
+                stream_manager = await stream_call
+            else:
+                stream_manager = stream_call
+            async with stream_manager as stream:
                 # Process the stream
                 response, thinking_segments = await self._process_stream(
                     stream, model, capture_filename
