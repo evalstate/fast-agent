@@ -1,4 +1,0 @@
-# fast-agent-mcp build manifest
-package_name=fast-agent-mcp
-version=0.4.44
-build_timestamp=2026-01-28T22:01:02.651871+00:00
