@@ -154,7 +154,7 @@ Use validate to check AgentCard files before running them.
 
 The current date is {{currentDate}}."""
 
-DEFAULT_GO_AGENT_TYPE = "smart"
+DEFAULT_GO_AGENT_TYPE = "agent"
 """Default agent type for CLI single-model runs ("smart" or "agent")."""
 
 DEFAULT_SERVE_AGENT_TYPE = "agent"
