@@ -1278,19 +1278,16 @@ class FastAgent(DecoratorMixin):
                                             continue
                                         if new_agent.message_history:
                                             continue
-                                        try:
-                                            history = old_agent.message_history
-                                            if history:
-                                                new_agent.message_history.extend(
-                                                    [
-                                                        msg.model_copy(deep=True)
-                                                        if hasattr(msg, "model_copy")
-                                                        else msg
-                                                        for msg in history
-                                                    ]
-                                                )
-                                        except Exception:
+                                        history = old_agent.message_history
+                                        if not history:
                                             continue
+                                        copied_history = [
+                                            msg.model_copy(deep=True)
+                                            if hasattr(msg, "model_copy")
+                                            else msg
+                                            for msg in history
+                                        ]
+                                        new_agent.message_history.extend(copied_history)
                                     validate_provider_keys_post_creation(updated_agents)
 
                                     if global_prompt_context:
