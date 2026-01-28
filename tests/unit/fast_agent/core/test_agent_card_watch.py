@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock
 
 import pytest
-from mcp.types import Role
 
 from fast_agent import FastAgent
 from fast_agent.types import PromptMessageExtended, text_content
@@ -191,7 +190,7 @@ async def test_reload_agents_prunes_removed_child_agents(tmp_path: Path) -> None
 
 
 @pytest.mark.asyncio
-async def test_reload_agents_preserves_history(tmp_path: Path) -> None:
+async def test_reload_agents_preserves_history(monkeypatch, tmp_path: Path) -> None:
     config_path = tmp_path / "fastagent.config.yaml"
     config_path.write_text("", encoding="utf-8")
 
@@ -207,13 +206,14 @@ async def test_reload_agents_preserves_history(tmp_path: Path) -> None:
         parse_cli_args=False,
         quiet=True,
     )
+    monkeypatch.setenv("OPENAI_API_KEY", "test")
     fast.args.watch = True
     fast.load_agents(agents_dir)
 
     async with fast.run() as app:
         agent = app["watcher"]
         history_message = PromptMessageExtended(
-            role=Role.USER,
+            role="user",
             content=[text_content("hello")],
         )
         agent.message_history.append(history_message)
