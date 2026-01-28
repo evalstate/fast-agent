@@ -216,7 +216,7 @@ async def test_reload_agents_preserves_history(tmp_path: Path) -> None:
             role=Role.USER,
             content=[text_content("hello")],
         )
-        agent.load_message_history([history_message])
+        agent.message_history.append(history_message)
 
         card_path.write_text(
             "---\ntype: agent\nname: watcher\n---\nReturn ok updated.\n",

@@ -1276,12 +1276,19 @@ class FastAgent(DecoratorMixin):
                                         old_agent = old_agents.get(name)
                                         if old_agent is None or old_agent is new_agent:
                                             continue
-                                        if not hasattr(old_agent, "message_history"):
-                                            continue
-                                        if hasattr(new_agent, "message_history") and new_agent.message_history:
+                                        if new_agent.message_history:
                                             continue
                                         try:
-                                            new_agent.load_message_history(old_agent.message_history)
+                                            history = old_agent.message_history
+                                            if history:
+                                                new_agent.message_history.extend(
+                                                    [
+                                                        msg.model_copy(deep=True)
+                                                        if hasattr(msg, "model_copy")
+                                                        else msg
+                                                        for msg in history
+                                                    ]
+                                                )
                                         except Exception:
                                             continue
                                     validate_provider_keys_post_creation(updated_agents)
