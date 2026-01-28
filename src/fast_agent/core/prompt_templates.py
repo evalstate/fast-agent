@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Mapping, MutableMapping, Sequence
 
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.core.template_escape import protect_escaped_braces, restore_escaped_braces
 
 if TYPE_CHECKING:
     from fast_agent.skills import SkillManifest
@@ -31,11 +32,12 @@ def apply_template_variables(
     - {{variable}} - Simple variable replacement
     - {{file:relative/path}} - Reads file contents (relative to workspaceRoot, errors if missing)
     - {{file_silent:relative/path}} - Reads file contents (relative to workspaceRoot, empty if missing)
+    - \\{{variable}} - Escape placeholders to render literal braces
     """
     if not template or not variables:
         return template
 
-    resolved = template
+    resolved = protect_escaped_braces(template)
 
     # Get workspaceRoot for file resolution
     workspace_root = variables.get("workspaceRoot")
@@ -97,7 +99,7 @@ def apply_template_variables(
         if placeholder in resolved:
             resolved = resolved.replace(placeholder, value)
 
-    return resolved
+    return restore_escaped_braces(resolved)
 
 
 def load_skills_for_context(

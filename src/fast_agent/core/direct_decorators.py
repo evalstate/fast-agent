@@ -30,6 +30,7 @@ from fast_agent.agents.workflow.router_agent import (
     ROUTING_SYSTEM_INSTRUCTION,
 )
 from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION, SMART_AGENT_INSTRUCTION
+from fast_agent.core.template_escape import protect_escaped_braces, restore_escaped_braces
 from fast_agent.skills import SKILLS_DEFAULT
 from fast_agent.types import RequestParams
 
@@ -140,6 +141,8 @@ def _apply_templates(text: str) -> str:
     import re
     from datetime import datetime
 
+    text = protect_escaped_braces(text)
+
     # Apply {{currentDate}} template
     current_date = datetime.now().strftime("%d %B %Y")
     text = text.replace("{{currentDate}}", current_date)
@@ -153,7 +156,7 @@ def _apply_templates(text: str) -> str:
 
     text = url_pattern.sub(replace_url, text)
 
-    return text
+    return restore_escaped_braces(text, keep_escape=True)
 
 
 def _resolve_instruction(instruction: str | Path | AnyUrl) -> str:

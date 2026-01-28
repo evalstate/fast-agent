@@ -16,6 +16,15 @@ def test_apply_template_variables_is_noop_without_context():
     assert apply_template_variables(template, None) == template
 
 
+def test_apply_template_variables_supports_escaped_placeholders(tmp_path):
+    template = r"Literal: \{{workspaceRoot}} and \{{file:missing.txt}}"
+    variables = {"workspaceRoot": str(tmp_path)}
+
+    result = apply_template_variables(template, variables)
+
+    assert result == "Literal: {{workspaceRoot}} and {{file:missing.txt}}"
+
+
 @pytest.mark.parametrize(
     "variables,expected",
     [

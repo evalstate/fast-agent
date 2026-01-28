@@ -37,6 +37,7 @@ from typing import Awaitable, Callable
 
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.core.template_escape import protect_escaped_braces, restore_escaped_braces
 
 logger = get_logger(__name__)
 
@@ -196,7 +197,7 @@ class InstructionBuilder:
         Returns:
             The fully resolved instruction string
         """
-        result = self._template
+        result = protect_escaped_braces(self._template)
 
         # 1. Resolve {{url:...}} patterns
         result = self._resolve_url_patterns(result)
@@ -237,7 +238,7 @@ class InstructionBuilder:
                     # For now, replace with empty to avoid confusing the LLM
                     result = result.replace(pattern, "")
 
-        return result
+        return restore_escaped_braces(result)
 
     def _resolve_url_patterns(self, text: str) -> str:
         """Resolve {{url:https://...}} patterns by fetching content."""
@@ -315,7 +316,7 @@ class InstructionBuilder:
             Set of placeholder names (without braces)
         """
         # Match {{name}} but not {{url:...}}, {{file:...}}, {{file_silent:...}}
-        pattern = re.compile(r"\{\{(?!url:|file:|file_silent:)([^}]+)\}\}")
+        pattern = re.compile(r"(?<!\\)\{\{(?!url:|file:|file_silent:)([^}]+)\}\}")
         return set(pattern.findall(self._template))
 
     def get_unresolved_placeholders(self) -> Set[str]:
