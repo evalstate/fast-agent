@@ -819,6 +819,9 @@ class Settings(BaseSettings):
     openai: OpenAISettings | None = None
     """Settings for using OpenAI models in the fast-agent application"""
 
+    responses: OpenAISettings | None = None
+    """Settings for using OpenAI Responses models in the fast-agent application"""
+
     openresponses: OpenResponsesSettings | None = None
     """Settings for using Open Responses models in the fast-agent application"""
 
