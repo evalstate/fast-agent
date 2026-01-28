@@ -811,6 +811,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                 stream_manager = await stream_call
             else:
                 stream_manager = stream_call
+            # Type annotation: stream_manager is BetaAsyncMessageStream ats runtime
+            stream_manager = cast("BetaAsyncMessageStream", stream_manager)
             async with stream_manager as stream:
                 # Process the stream
                 response, thinking_segments = await self._process_stream(
