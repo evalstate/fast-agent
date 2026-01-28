@@ -378,7 +378,7 @@ async def test_skills_registry_numbered_selection(tmp_path: Path) -> None:
 
         # Show registry list
         response = await handler.execute_command("skills", "registry")
-        assert "Available registries:" in response
+        assert "Configured registries:" in response
         assert "[1]" in response
         assert "[2]" in response
 

@@ -274,6 +274,11 @@ class InstructionBuilder:
 
         workspace_root = self._static.get("workspaceRoot")
 
+        def _should_fallback(path: Path) -> bool:
+            if not path.parts:
+                return False
+            return path.parts[0] in {".fast-agent", ".dev"}
+
         def replace_file(match: re.Match) -> str:
             file_path_str = match.group(1).strip()
             file_path = Path(file_path_str).expanduser()
@@ -289,6 +294,10 @@ class InstructionBuilder:
             # Resolve against workspaceRoot if available
             if workspace_root:
                 resolved_path = (Path(workspace_root) / file_path).resolve()
+                if _should_fallback(file_path) and not resolved_path.exists():
+                    fallback_path = (Path.cwd() / file_path).resolve()
+                    if fallback_path.exists():
+                        resolved_path = fallback_path
             else:
                 resolved_path = file_path.resolve()
 

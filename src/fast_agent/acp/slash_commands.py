@@ -207,6 +207,7 @@ class SlashCommandHandler:
         dump_agent_callback: Callable[[str], Awaitable[str]] | None = None,
         reload_callback: Callable[[], Awaitable[bool]] | None = None,
         set_current_mode_callback: Callable[[str], Awaitable[None] | None] | None = None,
+        instruction_resolver: Callable[[str], Awaitable[str | None]] | None = None,
     ):
         """
         Initialize the slash command handler.
@@ -242,6 +243,7 @@ class SlashCommandHandler:
         self._dump_agent_callback = dump_agent_callback
         self._reload_callback = reload_callback
         self._set_current_mode_callback = set_current_mode_callback
+        self._instruction_resolver = instruction_resolver
 
         # Session-level commands (always available, operate on current agent)
         self._session_commands: dict[str, AvailableCommand] = {
@@ -674,6 +676,19 @@ class SlashCommandHandler:
         agent, error = self._get_current_agent_or_error(heading)
         if error:
             return error
+
+        if self._instruction_resolver:
+            try:
+                refreshed = await self._instruction_resolver(self.current_agent_name)
+            except Exception as exc:
+                self._logger.debug(
+                    "Failed to refresh session instruction",
+                    agent_name=self.current_agent_name,
+                    error=str(exc),
+                )
+            else:
+                if refreshed:
+                    self.update_session_instruction(self.current_agent_name, refreshed)
 
         summary = build_system_prompt_summary(
             agent=agent,

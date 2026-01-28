@@ -95,11 +95,11 @@ def _apply_agent_card_histories(
         agent.message_history.extend(messages)
 
 
-def _apply_instruction_context(
+async def _apply_instruction_context(
     agents: dict[str, AgentProtocol],
     context_vars: Mapping[str, str],
 ) -> None:
-    apply_instruction_context(agents.values(), context_vars)
+    await apply_instruction_context(agents.values(), context_vars)
 
 
 async def _shutdown_agents(agents: Mapping[str, AgentProtocol]) -> None:
@@ -164,7 +164,7 @@ async def _run_smart_call(
             str(Path.cwd()),
             {"name": "fast-agent"},
         )
-        _apply_instruction_context(agents_map, context_vars)
+        await _apply_instruction_context(agents_map, context_vars)
 
         return await app.send(message)
     finally:

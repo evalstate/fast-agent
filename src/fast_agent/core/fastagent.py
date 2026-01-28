@@ -1128,7 +1128,6 @@ class FastAgent(DecoratorMixin):
                         )
                         if context_variables:
                             global_prompt_context = context_variables
-
                     async def instantiate_agent_instance(
                         app_override: AgentApp | None = None,
                     ) -> AgentInstance:
@@ -1166,7 +1165,9 @@ class FastAgent(DecoratorMixin):
                             managed_instances.append(instance)
                             self._apply_agent_card_histories(instance.agents)
                             if global_prompt_context:
-                                self._apply_instruction_context(instance, global_prompt_context)
+                                await self._apply_instruction_context(
+                                    instance, global_prompt_context
+                                )
                             return instance
 
                     async def dispose_agent_instance(instance: AgentInstance) -> None:
@@ -1274,7 +1275,7 @@ class FastAgent(DecoratorMixin):
                                     validate_provider_keys_post_creation(updated_agents)
 
                                     if global_prompt_context:
-                                        apply_instruction_context(
+                                        await apply_instruction_context(
                                             updated_agents.values(),
                                             global_prompt_context,
                                         )
@@ -1642,11 +1643,11 @@ class FastAgent(DecoratorMixin):
                         except Exception:
                             pass
 
-    def _apply_instruction_context(
+    async def _apply_instruction_context(
         self, instance: AgentInstance, context_vars: dict[str, str]
     ) -> None:
         """Resolve late-binding placeholders for all agents in the provided instance."""
-        apply_instruction_context(instance.agents.values(), context_vars)
+        await apply_instruction_context(instance.agents.values(), context_vars)
 
     def _apply_agent_card_histories(self, agents: dict[str, "AgentProtocol"]) -> None:
         if not self._agent_card_histories:

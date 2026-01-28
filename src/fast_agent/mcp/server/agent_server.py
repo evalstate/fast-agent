@@ -95,6 +95,10 @@ class AgentMCPServer:
         self._shared_instance_lock = asyncio.Lock()
         self._shared_active_requests = 0
         self._stale_instances: list[AgentInstance] = []
+        self._tool_description = tool_description
+        self._tool_name_template = tool_name_template or "{agent}"
+        if "{agent}" not in self._tool_name_template:
+            raise ValueError("tool_name_template must include '{agent}'.")
 
         # Check for OAuth configuration
         oauth_provider, oauth_scopes, resource_url = _get_oauth_config()
@@ -144,10 +148,6 @@ class AgentMCPServer:
         if self._instance_scope == "request":
             # Ensure FastMCP does not attempt to maintain sessions for stateless mode
             self.mcp_server.settings.stateless_http = True
-        self._tool_description = tool_description
-        self._tool_name_template = tool_name_template or "{agent}"
-        if "{agent}" not in self._tool_name_template:
-            raise ValueError("tool_name_template must include '{agent}'.")
         self._shared_instance_active = True
         self._registered_agents: set[str] = set(primary_instance.agents.keys())
         # Shutdown coordination
