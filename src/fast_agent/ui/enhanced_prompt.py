@@ -2321,11 +2321,6 @@ async def get_enhanced_input(
 
             # Display agent info right after help text if agent_provider is available
             if agent_provider and not is_human_input:
-                if _startup_notices:
-                    for notice in _startup_notices:
-                        rich_print(notice)
-                    _startup_notices.clear()
-
                 # Display info for all available agents with tree structure for workflows
                 await _display_all_agents_with_hierarchy(available_agents, agent_provider)
 
@@ -2395,6 +2390,11 @@ async def get_enhanced_input(
                                     rich_print(f"[dim]HuggingFace: {model} via {provider}[/dim]")
                         except Exception:
                             pass
+
+            if agent_provider and not is_human_input and _startup_notices:
+                for notice in _startup_notices:
+                    rich_print(notice)
+                _startup_notices.clear()
 
         rich_print()
         help_message_shown = True
