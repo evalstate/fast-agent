@@ -15,7 +15,12 @@ from fast_agent.cli.commands.url_parser import generate_server_configs, parse_se
 from fast_agent.cli.constants import RESUME_LATEST_SENTINEL
 from fast_agent.cli.env_helpers import resolve_environment_dir_option
 from fast_agent.cli.shared_options import CommonAgentOptions
-from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION, FAST_AGENT_SHELL_CHILD_ENV
+from fast_agent.constants import (
+    DEFAULT_AGENT_INSTRUCTION,
+    DEFAULT_GO_AGENT_TYPE,
+    FAST_AGENT_SHELL_CHILD_ENV,
+    SMART_AGENT_INSTRUCTION,
+)
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.paths import resolve_environment_paths
 from fast_agent.utils.async_utils import configure_uvloop, create_event_loop, ensure_event_loop
@@ -25,13 +30,25 @@ app = typer.Typer(
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
 )
 
-default_instruction = DEFAULT_AGENT_INSTRUCTION
-
 CARD_EXTENSIONS = {".md", ".markdown", ".yaml", ".yml"}
 
 DEFAULT_ENV_PATHS = resolve_environment_paths()
 DEFAULT_AGENT_CARDS_DIR = DEFAULT_ENV_PATHS.agent_cards
 DEFAULT_TOOL_CARDS_DIR = DEFAULT_ENV_PATHS.tool_cards
+
+
+def _is_multi_model(model: str | None) -> bool:
+    return bool(model and "," in model)
+
+
+def _use_smart_agent(model: str | None) -> bool:
+    if _is_multi_model(model):
+        return False
+    return DEFAULT_GO_AGENT_TYPE == "smart"
+
+
+def _resolve_default_instruction(model: str | None) -> str:
+    return SMART_AGENT_INSTRUCTION if _use_smart_agent(model) else DEFAULT_AGENT_INSTRUCTION
 
 
 
@@ -180,12 +197,15 @@ def _merge_card_sources(
     return merged or None
 
 
-def resolve_instruction_option(instruction: str | None) -> tuple[str, str]:
+def resolve_instruction_option(
+    instruction: str | None,
+    model: str | None,
+) -> tuple[str, str]:
     """
     Resolve the instruction option (file or URL) to the instruction string and agent name.
     Returns (resolved_instruction, agent_name).
     """
-    resolved_instruction = default_instruction
+    resolved_instruction = _resolve_default_instruction(model)
     agent_name = "agent"
 
     if instruction:
@@ -226,7 +246,7 @@ def collect_stdio_commands(npx: str | None, uvx: str | None, stdio: str | None) 
 
 async def _run_agent(
     name: str = "fast-agent cli",
-    instruction: str = default_instruction,
+    instruction: str | None = None,
     config_path: str | None = None,
     server_list: list[str] | None = None,
     agent_cards: list[str] | None = None,
@@ -252,6 +272,9 @@ async def _run_agent(
     watch: bool = False,
 ) -> None:
     """Async implementation to run an interactive agent."""
+    if instruction is None:
+        instruction = _resolve_default_instruction(model)
+    use_smart_agent = _use_smart_agent(model)
     if mode == "serve" and transport in ["stdio", "acp"]:
         from fast_agent.ui.console import configure_console_stream
 
@@ -376,8 +399,9 @@ async def _run_agent(
             # If no explicit default, create a fallback "agent" as the default
             # This must happen BEFORE loading card_tools so "agent" exists for attachment
             if not has_explicit_default:
+                agent_decorator = fast.smart if use_smart_agent else fast.agent
 
-                @fast.agent(
+                @agent_decorator(
                     name="agent",
                     instruction=instruction,
                     servers=server_list or [],
@@ -501,7 +525,9 @@ async def _run_agent(
     else:
         # Single model - use original behavior
         # Define the agent with specified parameters
-        @fast.agent(
+        agent_decorator = fast.smart if use_smart_agent else fast.agent
+
+        @agent_decorator(
             name=agent_name or "agent",
             instruction=instruction,
             servers=server_list or [],
@@ -727,7 +753,7 @@ def go(
     # When shell is enabled we don't add an MCP stdio server; handled inside the agent
 
     # Resolve instruction from file/URL or use default
-    resolved_instruction, agent_name = resolve_instruction_option(instruction)
+    resolved_instruction, agent_name = resolve_instruction_option(instruction, model)
 
     run_async_agent(
         name=name,
