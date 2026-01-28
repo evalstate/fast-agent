@@ -4,8 +4,10 @@ from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock
 
 import pytest
+from mcp.types import Role
 
 from fast_agent import FastAgent
+from fast_agent.types import PromptMessageExtended, text_content
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -186,3 +188,44 @@ async def test_reload_agents_prunes_removed_child_agents(tmp_path: Path) -> None
     assert "child" not in fast.agents
     parent_data = fast.agents["parent"]
     assert "child" not in (parent_data.get("child_agents") or [])
+
+
+@pytest.mark.asyncio
+async def test_reload_agents_preserves_history(tmp_path: Path) -> None:
+    config_path = tmp_path / "fastagent.config.yaml"
+    config_path.write_text("", encoding="utf-8")
+
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
+
+    card_path = agents_dir / "watcher.md"
+    _write_agent_card(card_path)
+
+    fast = FastAgent(
+        "watch-test",
+        config_path=str(config_path),
+        parse_cli_args=False,
+        quiet=True,
+    )
+    fast.args.watch = True
+    fast.load_agents(agents_dir)
+
+    async with fast.run() as app:
+        agent = app["watcher"]
+        history_message = PromptMessageExtended(
+            role=Role.USER,
+            content=[text_content("hello")],
+        )
+        agent.load_message_history([history_message])
+
+        card_path.write_text(
+            "---\ntype: agent\nname: watcher\n---\nReturn ok updated.\n",
+            encoding="utf-8",
+        )
+        changed = await fast.reload_agents()
+        assert changed is True
+
+        await app.refresh_if_needed()
+        updated_agent = app["watcher"]
+        assert updated_agent.message_history
+        assert updated_agent.message_history[0].all_text() == "hello"

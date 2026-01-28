@@ -1272,7 +1272,18 @@ class FastAgent(DecoratorMixin):
                                     if name in active_agents_local
                                 }
                                 if updated_agents:
-                                    self._apply_agent_card_histories(updated_agents)
+                                    for name, new_agent in updated_agents.items():
+                                        old_agent = old_agents.get(name)
+                                        if old_agent is None or old_agent is new_agent:
+                                            continue
+                                        if not hasattr(old_agent, "message_history"):
+                                            continue
+                                        if hasattr(new_agent, "message_history") and new_agent.message_history:
+                                            continue
+                                        try:
+                                            new_agent.load_message_history(old_agent.message_history)
+                                        except Exception:
+                                            continue
                                     validate_provider_keys_post_creation(updated_agents)
 
                                     if global_prompt_context:
