@@ -1287,6 +1287,17 @@ class FastAgent(DecoratorMixin):
                                             for msg in history
                                         ]
                                         new_agent.message_history.extend(copied_history)
+                                    for name, new_agent in updated_agents.items():
+                                        if new_agent.message_history:
+                                            continue
+                                        history_files = self._agent_card_histories.get(name)
+                                        if not history_files:
+                                            continue
+                                        messages: list[PromptMessageExtended] = []
+                                        for history_file in history_files:
+                                            messages.extend(load_prompt(history_file))
+                                        if messages:
+                                            new_agent.message_history.extend(messages)
                                     validate_provider_keys_post_creation(updated_agents)
 
                                     if global_prompt_context:
