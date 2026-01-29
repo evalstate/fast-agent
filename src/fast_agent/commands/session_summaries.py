@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from fast_agent.session import (
+    SessionEntrySummary,
+    build_session_entry_summaries,
     format_session_entries,
     get_session_history_window,
     get_session_manager,
@@ -15,6 +17,7 @@ from fast_agent.session import (
 class SessionListSummary:
     entries: list[str]
     usage: str
+    entry_summaries: list[SessionEntrySummary]
 
 
 def build_session_list_summary() -> SessionListSummary:
@@ -25,9 +28,19 @@ def build_session_list_summary() -> SessionListSummary:
         sessions = sessions[:limit]
 
     current = manager.current_session
+    current_name = current.info.name if current else None
     entries = format_session_entries(
         sessions,
-        current.info.name if current else None,
+        current_name,
         mode="compact",
     )
-    return SessionListSummary(entries=entries, usage="Usage: /session resume <id|number>")
+    entry_summaries = build_session_entry_summaries(
+        sessions,
+        current_name,
+        summary_limit=None,
+    )
+    return SessionListSummary(
+        entries=entries,
+        usage="Usage: /session resume <id|number>",
+        entry_summaries=entry_summaries,
+    )

@@ -69,7 +69,7 @@ def test_tool_description_supports_agent_placeholder():
     _assert_prompts_enabled(server)
     _assert_resources_disabled(server)
 
-    tool = server.mcp_server._tool_manager._tools["worker_send"]
+    tool = server.mcp_server._tool_manager._tools["worker"]
     assert tool.description == "Use worker"
 
 
@@ -95,8 +95,33 @@ def test_tool_description_defaults_when_not_provided():
     _assert_prompts_enabled(server)
     _assert_resources_disabled(server)
 
-    tool = server.mcp_server._tool_manager._tools["writer_send"]
+    tool = server.mcp_server._tool_manager._tools["writer"]
     assert tool.description == "Custom text"
+
+
+def test_tool_name_template_overrides_default():
+    async def create_instance() -> AgentInstance:
+        agent = cast("AgentProtocol", _DummyAgent())
+        app = AgentApp({"worker": agent})
+        return AgentInstance(app=app, agents={"worker": agent})
+
+    async def dispose_instance(instance: AgentInstance) -> None:
+        await instance.shutdown()
+
+    primary_instance = asyncio.run(create_instance())
+
+    server = AgentMCPServer(
+        primary_instance=primary_instance,
+        create_instance=create_instance,
+        dispose_instance=dispose_instance,
+        instance_scope="shared",
+        tool_name_template="{agent}_send",
+    )
+
+    _assert_prompts_enabled(server)
+    _assert_resources_disabled(server)
+
+    assert "worker_send" in server.mcp_server._tool_manager._tools
 
 
 def test_request_scope_creates_ephemeral_instances():

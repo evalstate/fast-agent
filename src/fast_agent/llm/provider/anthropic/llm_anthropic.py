@@ -244,6 +244,15 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         assert self.context.config
         return self.context.config.anthropic.base_url if self.context.config.anthropic else None
 
+    def _default_headers(self) -> dict[str, str] | None:
+        """Get custom default headers from configuration."""
+        assert self.context.config
+        return (
+            self.context.config.anthropic.default_headers
+            if self.context.config.anthropic
+            else None
+        )
+
     def _get_cache_mode(self) -> str:
         """Get the cache mode configuration."""
         cache_mode = "auto"  # Default to auto
@@ -688,9 +697,12 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         base_url = self._base_url()
         if base_url and base_url.endswith("/v1"):
             base_url = base_url.rstrip("/v1")
+        default_headers = self._default_headers()
 
         try:
-            anthropic = AsyncAnthropic(api_key=api_key, base_url=base_url)
+            anthropic = AsyncAnthropic(
+                api_key=api_key, base_url=base_url, default_headers=default_headers
+            )
             params = self.get_request_params(request_params)
             messages = self._build_request_messages(
                 params, message_param, pre_messages, history=history

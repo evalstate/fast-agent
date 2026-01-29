@@ -29,7 +29,8 @@ from fast_agent.agents.workflow.iterative_planner import ITERATIVE_PLAN_SYSTEM_P
 from fast_agent.agents.workflow.router_agent import (
     ROUTING_SYSTEM_INSTRUCTION,
 )
-from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
+from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION, SMART_AGENT_INSTRUCTION
+from fast_agent.core.template_escape import protect_escaped_braces, restore_escaped_braces
 from fast_agent.skills import SKILLS_DEFAULT
 from fast_agent.types import RequestParams
 
@@ -140,6 +141,8 @@ def _apply_templates(text: str) -> str:
     import re
     from datetime import datetime
 
+    text = protect_escaped_braces(text)
+
     # Apply {{currentDate}} template
     current_date = datetime.now().strftime("%d %B %Y")
     text = text.replace("{{currentDate}}", current_date)
@@ -153,7 +156,7 @@ def _apply_templates(text: str) -> str:
 
     text = url_pattern.sub(replace_url, text)
 
-    return text
+    return restore_escaped_braces(text, keep_escape=True)
 
 
 def _resolve_instruction(instruction: str | Path | AnyUrl) -> str:
@@ -337,6 +340,66 @@ class DecoratorMixin:
         return _decorator_impl(
             self,
             AgentType.BASIC,
+            name=name,
+            instruction=final_instruction,
+            child_agents=agents,
+            servers=servers,
+            model=model,
+            use_history=use_history,
+            request_params=request_params,
+            human_input=human_input,
+            default=default,
+            elicitation_handler=elicitation_handler,
+            tools=tools,
+            resources=resources,
+            prompts=prompts,
+            skills=skills,
+            function_tools=function_tools,
+            api_key=api_key,
+            agents_as_tools_options={
+                "history_source": history_source,
+                "history_merge_target": history_merge_target,
+                "max_parallel": max_parallel,
+                "child_timeout_sec": child_timeout_sec,
+                "max_display_instances": max_display_instances,
+            },
+        )
+
+    def smart(
+        self,
+        name: str = "default",
+        instruction_or_kwarg: str | Path | AnyUrl | None = None,
+        *,
+        instruction: str | Path | AnyUrl = SMART_AGENT_INSTRUCTION,
+        agents: list[str] | None = None,
+        servers: list[str] = [],
+        tools: dict[str, list[str]] | None = None,
+        resources: dict[str, list[str]] | None = None,
+        prompts: dict[str, list[str]] | None = None,
+        skills: SkillConfig = SKILLS_DEFAULT,
+        function_tools: FunctionToolsConfig = None,
+        model: str | None = None,
+        use_history: bool = True,
+        request_params: RequestParams | None = None,
+        human_input: bool = False,
+        default: bool = False,
+        elicitation_handler: ElicitationFnT | None = None,
+        api_key: str | None = None,
+        history_source: Any | None = None,
+        history_merge_target: Any | None = None,
+        max_parallel: int | None = None,
+        child_timeout_sec: int | None = None,
+        max_display_instances: int | None = None,
+    ) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
+        """Decorator to create and register a smart agent."""
+        final_instruction_raw = (
+            instruction_or_kwarg if instruction_or_kwarg is not None else instruction
+        )
+        final_instruction = _resolve_instruction(final_instruction_raw)
+
+        return _decorator_impl(
+            self,
+            AgentType.SMART,
             name=name,
             instruction=final_instruction,
             child_agents=agents,

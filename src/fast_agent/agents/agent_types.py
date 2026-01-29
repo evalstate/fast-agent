@@ -22,6 +22,7 @@ class AgentType(StrEnum):
 
     LLM = auto()
     BASIC = auto()
+    SMART = auto()
     CUSTOM = auto()
     ORCHESTRATOR = auto()
     PARALLEL = auto()

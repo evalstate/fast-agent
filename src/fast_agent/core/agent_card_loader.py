@@ -10,7 +10,7 @@ import frontmatter
 import yaml
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
-from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
+from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION, SMART_AGENT_INSTRUCTION
 from fast_agent.core.direct_decorators import _resolve_instruction
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.skills import SKILLS_DEFAULT
@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
 _TYPE_MAP: dict[str, AgentType] = {
     "agent": AgentType.BASIC,
+    "smart": AgentType.SMART,
     "chain": AgentType.CHAIN,
     "parallel": AgentType.PARALLEL,
     "evaluator_optimizer": AgentType.EVALUATOR_OPTIMIZER,
@@ -33,33 +34,36 @@ _TYPE_MAP: dict[str, AgentType] = {
 
 _COMMON_FIELDS = {"type", "name", "instruction", "description", "default", "tool_only", "schema_version"}
 
+_AGENT_FIELDS = {
+    *_COMMON_FIELDS,
+    "agents",
+    "servers",
+    "tools",
+    "resources",
+    "prompts",
+    "skills",
+    "model",
+    "use_history",
+    "request_params",
+    "human_input",
+    "api_key",
+    "history_source",
+    "history_merge_target",
+    "max_parallel",
+    "child_timeout_sec",
+    "max_display_instances",
+    "function_tools",
+    "tool_hooks",
+    "lifecycle_hooks",
+    "trim_tool_history",
+    "messages",
+    "shell",
+    "cwd",
+}
+
 _ALLOWED_FIELDS_BY_TYPE: dict[str, set[str]] = {
-    "agent": {
-        *_COMMON_FIELDS,
-        "agents",
-        "servers",
-        "tools",
-        "resources",
-        "prompts",
-        "skills",
-        "model",
-        "use_history",
-        "request_params",
-        "human_input",
-        "api_key",
-        "history_source",
-        "history_merge_target",
-        "max_parallel",
-        "child_timeout_sec",
-        "max_display_instances",
-        "function_tools",
-        "tool_hooks",
-        "lifecycle_hooks",
-        "trim_tool_history",
-        "messages",
-        "shell",
-        "cwd",
-    },
+    "agent": set(_AGENT_FIELDS),
+    "smart": set(_AGENT_FIELDS),
     "chain": {
         *_COMMON_FIELDS,
         "sequence",
@@ -128,6 +132,7 @@ _ALLOWED_FIELDS_BY_TYPE: dict[str, set[str]] = {
 
 _REQUIRED_FIELDS_BY_TYPE: dict[str, set[str]] = {
     "agent": set(),
+    "smart": set(),
     "chain": {"sequence"},
     "parallel": {"fan_out"},
     "evaluator_optimizer": {"generator", "evaluator"},
@@ -141,6 +146,7 @@ _HISTORY_DELIMITERS = {"---USER", "---ASSISTANT", "---RESOURCE"}
 
 _AGENT_TYPE_TO_CARD_TYPE: dict[str, str] = {
     AgentType.BASIC.value: "agent",
+    AgentType.SMART.value: "smart",
     AgentType.CHAIN.value: "chain",
     AgentType.PARALLEL.value: "parallel",
     AgentType.EVALUATOR_OPTIMIZER.value: "evaluator_optimizer",
@@ -152,6 +158,7 @@ _AGENT_TYPE_TO_CARD_TYPE: dict[str, str] = {
 
 _DEFAULT_USE_HISTORY_BY_TYPE: dict[str, bool] = {
     "agent": True,
+    "smart": True,
     "chain": True,
     "parallel": True,
     "evaluator_optimizer": True,
@@ -305,7 +312,15 @@ def _build_card_from_data(
         raise AgentConfigError(f"'schema_version' must be an integer in {path}")
 
     name = _resolve_name(raw.get("name"), path)
-    instruction = _resolve_instruction_field(raw.get("instruction"), body, path)
+    default_instruction = (
+        SMART_AGENT_INSTRUCTION if type_key == "smart" else DEFAULT_AGENT_INSTRUCTION
+    )
+    instruction = _resolve_instruction_field(
+        raw.get("instruction"),
+        body,
+        path,
+        default_instruction=default_instruction,
+    )
     description = _ensure_optional_str(raw.get("description"), "description", path)
 
     required_fields = _REQUIRED_FIELDS_BY_TYPE[type_key]
@@ -353,6 +368,8 @@ def _resolve_instruction_field(
     raw_instruction: Any,
     body: str | None,
     path: Path,
+    *,
+    default_instruction: str = DEFAULT_AGENT_INSTRUCTION,
 ) -> str:
     body_instruction = ""
     if body is not None:
@@ -378,7 +395,7 @@ def _resolve_instruction_field(
             raise AgentConfigError(f"Instruction body must not be empty in {path}")
         return resolved
 
-    return DEFAULT_AGENT_INSTRUCTION
+    return default_instruction
 
 
 def _extract_body_instruction(body: str, path: Path) -> str:
@@ -476,7 +493,8 @@ def _build_agent_data(
             function_tools = [str(t) for t in function_tools_raw]
 
     # Parse shell and cwd for sub-agent shell access
-    shell = _ensure_bool(raw.get("shell"), "shell", path, default=False)
+    shell_default = True if type_key == "smart" else False
+    shell = _ensure_bool(raw.get("shell"), "shell", path, default=shell_default)
     cwd_str = raw.get("cwd")
     cwd: Path | None = None
     if cwd_str is not None:
@@ -548,7 +566,7 @@ def _build_agent_data(
         "tool_only": tool_only,
     }
 
-    if type_key == "agent":
+    if type_key in {"agent", "smart"}:
         agents = _ensure_str_list(raw.get("agents", []), "agents", path)
         if agents:
             agent_data["child_agents"] = agents
@@ -871,7 +889,7 @@ def _build_card_dump(
     if message_paths and "messages" in allowed_fields:
         card["messages"] = [str(path) for path in message_paths]
 
-    if card_type == "agent":
+    if card_type in {"agent", "smart"}:
         child_agents = agent_data.get("child_agents") or []
         if child_agents:
             card["agents"] = list(child_agents)

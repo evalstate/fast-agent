@@ -51,11 +51,9 @@ from fast_agent.core.exceptions import (
     ServerConfigError,
     ServerInitializationError,
 )
+from fast_agent.core.instruction_utils import apply_instruction_context
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.core.prompt_templates import (
-    apply_template_variables,
-    enrich_with_environment_context,
-)
+from fast_agent.core.prompt_templates import enrich_with_environment_context
 from fast_agent.core.validation import (
     validate_provider_keys_post_creation,
     validate_server_references,
@@ -489,7 +487,7 @@ class FastAgent(DecoratorMixin):
         if not parent_data:
             raise AgentConfigError(f"Agent '{parent_name}' not found")
 
-        if parent_data.get("type") not in ("basic", "custom"):
+        if parent_data.get("type") not in ("basic", "smart", "custom"):
             raise AgentConfigError(f"Agent '{parent_name}' does not support agents-as-tools")
 
         missing = [
@@ -521,7 +519,7 @@ class FastAgent(DecoratorMixin):
         if not parent_data:
             raise AgentConfigError(f"Agent '{parent_name}' not found")
 
-        if parent_data.get("type") not in ("basic", "custom"):
+        if parent_data.get("type") not in ("basic", "smart", "custom"):
             raise AgentConfigError(f"Agent '{parent_name}' does not support agents-as-tools")
 
         existing = list(parent_data.get("child_agents") or [])
@@ -1130,7 +1128,6 @@ class FastAgent(DecoratorMixin):
                         )
                         if context_variables:
                             global_prompt_context = context_variables
-
                     async def instantiate_agent_instance(
                         app_override: AgentApp | None = None,
                     ) -> AgentInstance:
@@ -1168,7 +1165,9 @@ class FastAgent(DecoratorMixin):
                             managed_instances.append(instance)
                             self._apply_agent_card_histories(instance.agents)
                             if global_prompt_context:
-                                self._apply_instruction_context(instance, global_prompt_context)
+                                await self._apply_instruction_context(
+                                    instance, global_prompt_context
+                                )
                             return instance
 
                     async def dispose_agent_instance(instance: AgentInstance) -> None:
@@ -1272,20 +1271,29 @@ class FastAgent(DecoratorMixin):
                                     if name in active_agents_local
                                 }
                                 if updated_agents:
-                                    self._apply_agent_card_histories(updated_agents)
+                                    for name, new_agent in updated_agents.items():
+                                        old_agent = old_agents.get(name)
+                                        if old_agent is None or old_agent is new_agent:
+                                            continue
+                                        if new_agent.message_history:
+                                            continue
+                                        history = old_agent.message_history
+                                        if not history:
+                                            continue
+                                        copied_history = [
+                                            msg.model_copy(deep=True)
+                                            if hasattr(msg, "model_copy")
+                                            else msg
+                                            for msg in history
+                                        ]
+                                        new_agent.message_history.extend(copied_history)
                                     validate_provider_keys_post_creation(updated_agents)
 
                                     if global_prompt_context:
-                                        for agent in updated_agents.values():
-                                            template = getattr(agent, "instruction", None)
-                                            if not template:
-                                                continue
-                                            resolved = apply_template_variables(
-                                                template, global_prompt_context
-                                            )
-                                            if resolved is None or resolved == template:
-                                                continue
-                                            agent.set_instruction(resolved)
+                                        await apply_instruction_context(
+                                            updated_agents.values(),
+                                            global_prompt_context,
+                                        )
 
                             primary_instance.registry_version = self._agent_registry_version
                             self._agent_card_last_changed.clear()
@@ -1484,6 +1492,9 @@ class FastAgent(DecoratorMixin):
                                 from fast_agent.mcp.server import AgentMCPServer
 
                                 tool_description = getattr(self.args, "tool_description", None)
+                                tool_name_template = getattr(
+                                    self.args, "tool_name_template", None
+                                )
                                 server_description = getattr(self.args, "server_description", None)
                                 server_name = getattr(self.args, "server_name", None)
                                 instance_scope = getattr(self.args, "instance_scope", "shared")
@@ -1495,6 +1506,7 @@ class FastAgent(DecoratorMixin):
                                     server_name=server_name or f"{self.name}-MCP-Server",
                                     server_description=server_description,
                                     tool_description=tool_description,
+                                    tool_name_template=tool_name_template,
                                     host=self.args.host,
                                     get_registry_version=self._get_registry_version,
                                     reload_callback=reload_callback,
@@ -1646,24 +1658,11 @@ class FastAgent(DecoratorMixin):
                         except Exception:
                             pass
 
-    def _apply_instruction_context(
+    async def _apply_instruction_context(
         self, instance: AgentInstance, context_vars: dict[str, str]
     ) -> None:
         """Resolve late-binding placeholders for all agents in the provided instance."""
-        if not context_vars:
-            return
-
-        for agent in instance.agents.values():
-            template = getattr(agent, "instruction", None)
-            if not template:
-                continue
-
-            resolved = apply_template_variables(template, context_vars)
-            if resolved is None or resolved == template:
-                continue
-
-            # Use set_instruction() which handles syncing request_params and LLM
-            agent.set_instruction(resolved)
+        await apply_instruction_context(instance.agents.values(), context_vars)
 
     def _apply_agent_card_histories(self, agents: dict[str, "AgentProtocol"]) -> None:
         if not self._agent_card_histories:
@@ -1894,6 +1893,7 @@ class FastAgent(DecoratorMixin):
         tool_description: str | None = None,
         instance_scope: str = "shared",
         permissions_enabled: bool = True,
+        tool_name_template: str | None = None,
     ) -> None:
         """
         Start the application as an MCP server.
@@ -1909,6 +1909,8 @@ class FastAgent(DecoratorMixin):
             tool_description: Optional description template for the exposed send tool.
                               Use {agent} to reference the agent name.
             permissions_enabled: Whether to request tool permissions from ACP clients (default: True)
+            tool_name_template: Optional template for exposed agent tool names.
+                                Use {agent} to reference the agent name.
         """
         # This method simply updates the command line arguments and uses run()
         # to ensure we follow the same initialization path for all operations
@@ -1927,6 +1929,7 @@ class FastAgent(DecoratorMixin):
         self.args.host = host
         self.args.port = port
         self.args.tool_description = tool_description
+        self.args.tool_name_template = tool_name_template
         self.args.server_description = server_description
         self.args.server_name = server_name
         self.args.instance_scope = instance_scope
@@ -1967,6 +1970,7 @@ class FastAgent(DecoratorMixin):
         server_description: str | None = None,
         tool_description: str | None = None,
         instance_scope: str = "shared",
+        tool_name_template: str | None = None,
     ) -> None:
         """
         Run the application and expose agents through an MCP server.
@@ -1980,6 +1984,8 @@ class FastAgent(DecoratorMixin):
             server_name: Optional custom name for the MCP server
             server_description: Optional description/instructions for the MCP server
             tool_description: Optional description template for the exposed send tool.
+            tool_name_template: Optional template for exposed agent tool names.
+                                Use {agent} to reference the agent name.
         """
         await self.start_server(
             transport=transport,
@@ -1988,6 +1994,7 @@ class FastAgent(DecoratorMixin):
             server_name=server_name,
             server_description=server_description,
             tool_description=tool_description,
+            tool_name_template=tool_name_template,
             instance_scope=instance_scope,
         )
 

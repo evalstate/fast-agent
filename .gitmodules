@@ -5,3 +5,4 @@
 [submodule "docs"]
 	path = docs
 	url = https://github.com/evalstate/fast-agent-docs
+	branch = main

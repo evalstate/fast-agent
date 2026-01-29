@@ -14,6 +14,8 @@ from rich.text import Text
 from fast_agent.cli.env_helpers import resolve_environment_dir_option
 from fast_agent.config import resolve_config_search_root
 from fast_agent.core.agent_card_validation import scan_agent_card_directory
+from fast_agent.core.exceptions import ModelConfigError
+from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.provider_key_manager import API_KEY_HINT_TEXT, ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
 from fast_agent.paths import resolve_environment_paths
@@ -778,6 +780,20 @@ def show_check_summary(env_dir: Path | None = None) -> None:
             if entry.name != "—" and entry.ignored_reason is None:
                 all_card_names.add(entry.name)
 
+    api_warning_messages: list[str] = []
+    warned_cards: set[str] = set()
+
+    def _should_warn_for_provider(provider: Provider) -> bool:
+        if provider in {Provider.FAST_AGENT, Provider.GENERIC}:
+            return False
+        if provider == Provider.GOOGLE:
+            cfg = config_summary.get("config") if config_summary.get("status") == "parsed" else {}
+            google_cfg = cfg.get("google", {}) if isinstance(cfg, dict) else {}
+            vertex_cfg = google_cfg.get("vertex_ai", {}) if isinstance(google_cfg, dict) else {}
+            if isinstance(vertex_cfg, dict) and vertex_cfg.get("enabled") is True:
+                return False
+        return True
+
     for label, directory in card_directories:
         if not directory.is_dir():
             continue
@@ -810,6 +826,34 @@ def show_check_summary(env_dir: Path | None = None) -> None:
             else:
                 status = "[green]ok[/green]"
 
+            if not entry.errors and entry.ignored_reason is None and entry.name not in warned_cards:
+                try:
+                    from fast_agent.core.agent_card_loader import load_agent_cards
+
+                    cards = load_agent_cards(entry.path)
+                except Exception:
+                    cards = []
+
+                for card in cards:
+                    config = card.agent_data.get("config")
+                    model = config.model if config else None
+                    if not model:
+                        continue
+                    try:
+                        model_config = ModelFactory.parse_model_string(model)
+                    except ModelConfigError:
+                        continue
+                    provider = model_config.provider
+                    if not _should_warn_for_provider(provider):
+                        continue
+                    key_status = api_keys.get(provider.config_name)
+                    if key_status and not key_status["env"] and not key_status["config"]:
+                        api_warning_messages.append(
+                            f"Warning: Card \"{card.name}\" uses model \"{model}\" "
+                            f"({provider.display_name}) but no API key configured."
+                        )
+                        warned_cards.add(card.name)
+
             cards_table.add_row(
                 entry.name,
                 entry.type,
@@ -818,6 +862,9 @@ def show_check_summary(env_dir: Path | None = None) -> None:
             )
 
         console.print(cards_table)
+
+    for warning in api_warning_messages:
+        console.print(f"[yellow]{warning}[/yellow]")
 
     if not found_card_dir:
         console.print(

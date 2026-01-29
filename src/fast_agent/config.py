@@ -368,6 +368,9 @@ class AnthropicSettings(BaseModel):
 
     api_key: str | None = Field(default=None, description="Anthropic API key")
     base_url: str | None = Field(default=None, description="Override API endpoint")
+    default_headers: dict[str, str] | None = Field(
+        default=None, description="Custom headers to pass with every request"
+    )
     cache_mode: Literal["off", "prompt", "auto"] = Field(
         default="auto",
         description="Caching mode: off (disabled), prompt (cache tools+system), auto (same as prompt)",

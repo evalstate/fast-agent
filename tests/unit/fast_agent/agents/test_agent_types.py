@@ -4,6 +4,7 @@ Unit tests for agent types and their interactions with the interactive prompt.
 
 from fast_agent.agents import McpAgent
 from fast_agent.agents.agent_types import AgentConfig, AgentType
+from fast_agent.agents.smart_agent import SmartAgent
 from fast_agent.types import RequestParams
 
 
@@ -11,6 +12,15 @@ def test_agent_type_default():
     """Test that agent_type defaults to AgentType.BASIC.value"""
     agent = McpAgent(config=AgentConfig(name="test_agent"))
     assert agent.agent_type == AgentType.BASIC
+
+
+def test_agent_type_smart_enum():
+    assert AgentType.SMART.value == "smart"
+
+
+def test_smart_agent_type():
+    agent = SmartAgent(config=AgentConfig(name="smart_agent"))
+    assert agent.agent_type == AgentType.SMART
 
 
 def test_instruction_propagates_to_default_request_params():

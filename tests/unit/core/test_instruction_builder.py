@@ -25,6 +25,14 @@ class TestInstructionBuilder:
         assert result == "Today is 17 Dec 2025."
 
     @pytest.mark.asyncio
+    async def test_build_with_escaped_placeholders(self):
+        """Escaped placeholders should remain literal."""
+        builder = InstructionBuilder(r"Literal: \{{currentDate}} and \{{file:missing.md}}")
+        builder.set("currentDate", "17 Dec 2025")
+        result = await builder.build()
+        assert result == "Literal: {{currentDate}} and {{file:missing.md}}"
+
+    @pytest.mark.asyncio
     async def test_build_with_multiple_static_placeholders(self):
         """Build should substitute multiple static placeholders."""
         builder = InstructionBuilder("Hello {{name}}, you are in {{location}}.")
@@ -124,6 +132,12 @@ class TestInstructionBuilder:
         placeholders = builder.get_placeholders()
         # Should not include file: patterns
         assert placeholders == {"name", "greeting"}
+
+    def test_get_placeholders_ignores_escaped(self):
+        """Escaped placeholders should be ignored in placeholder extraction."""
+        builder = InstructionBuilder(r"\{{ignored}} {{real}}")
+        placeholders = builder.get_placeholders()
+        assert placeholders == {"real"}
 
     def test_get_unresolved_placeholders(self):
         """get_unresolved_placeholders should return placeholders without sources."""

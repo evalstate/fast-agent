@@ -70,11 +70,10 @@ from fast_agent.constants import (
 )
 from fast_agent.context import Context
 from fast_agent.core.fastagent import AgentInstance
+from fast_agent.core.instruction_refresh import McpInstructionCapable, build_instruction
+from fast_agent.core.instruction_utils import get_instruction_template
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.core.prompt_templates import (
-    apply_template_variables,
-    enrich_with_environment_context,
-)
+from fast_agent.core.prompt_templates import enrich_with_environment_context
 from fast_agent.interfaces import (
     ACPAwareProtocol,
     AgentProtocol,
@@ -536,7 +535,7 @@ class AgentACPServer(ACPAgent):
             current_mode_id=current_mode_id,
         )
 
-    def _build_session_request_params(
+    async def _build_session_request_params(
         self, agent: Any, session_state: ACPSessionState | None
     ) -> RequestParams | None:
         """
@@ -548,20 +547,47 @@ class AgentACPServer(ACPAgent):
         if not getattr(agent, "_llm", None):
             return None
 
-        # Prefer cached resolved instructions to avoid reprocessing templates
         resolved_cache = session_state.resolved_instructions if session_state else {}
         resolved = resolved_cache.get(getattr(agent, "name", ""), None)
-        if not resolved:
+        if isinstance(agent, McpInstructionCapable) or resolved is None:
             context = session_state.prompt_context if session_state else None
             if not context:
                 return None
-            template = getattr(agent, "instruction", None)
-            if not template:
+            resolved = await self._resolve_instruction_for_session(agent, context)
+            if not resolved:
                 return None
-            resolved = apply_template_variables(template, context)
-            if resolved == template:
-                return None
+            if session_state is not None:
+                session_state.resolved_instructions[getattr(agent, "name", "")] = resolved
         return RequestParams(systemPrompt=resolved)
+
+    async def _resolve_instruction_for_session(
+        self,
+        agent: object,
+        context: dict[str, str],
+    ) -> str | None:
+        template = get_instruction_template(agent)
+        if not template:
+            return None
+
+        aggregator = None
+        skill_manifests = None
+        has_filesystem_runtime = False
+        effective_context = dict(context)
+        if isinstance(agent, McpInstructionCapable):
+            aggregator = agent.aggregator
+            skill_manifests = agent.skill_manifests
+            has_filesystem_runtime = agent.has_filesystem_runtime
+            if agent.instruction_context:
+                effective_context = dict(agent.instruction_context)
+
+        return await build_instruction(
+            template,
+            aggregator=aggregator,
+            skill_manifests=skill_manifests,
+            has_filesystem_runtime=has_filesystem_runtime,
+            context=effective_context,
+            source=getattr(agent, "name", None),
+        )
 
     async def _maybe_refresh_shared_instance(self) -> None:
         if self._instance_scope != "shared" or not self._get_registry_version:
@@ -647,10 +673,7 @@ class AgentACPServer(ACPAgent):
         prompt_context = session_state.prompt_context or {}
         resolved_for_session: dict[str, str] = {}
         for agent_name, agent in instance.agents.items():
-            template = getattr(agent, "instruction", None)
-            if not template:
-                continue
-            resolved = apply_template_variables(template, prompt_context)
+            resolved = await self._resolve_instruction_for_session(agent, prompt_context)
             if resolved:
                 resolved_for_session[agent_name] = resolved
         session_state.resolved_instructions = resolved_for_session
@@ -772,6 +795,18 @@ class AgentACPServer(ACPAgent):
             if session_state.acp_context:
                 await session_state.acp_context.switch_mode(agent_name)
 
+        async def resolve_instruction_for_system(agent_name: str) -> str | None:
+            agent = instance.agents.get(agent_name)
+            if agent is None:
+                return None
+            context = session_state.prompt_context or {}
+            if not context:
+                return None
+            resolved = await self._resolve_instruction_for_session(agent, context)
+            if resolved:
+                session_state.resolved_instructions[agent_name] = resolved
+            return resolved
+
         slash_handler = SlashCommandHandler(
             session_state.session_id,
             instance,
@@ -780,6 +815,7 @@ class AgentACPServer(ACPAgent):
             client_capabilities=self._client_capabilities,
             protocol_version=self._protocol_version,
             session_instructions=resolved_for_session,
+            instruction_resolver=resolve_instruction_for_system,
             card_loader=load_card if self._load_card_callback else None,
             attach_agent_callback=(
                 attach_agent_tools if self._attach_agent_tools_callback else None
@@ -1240,10 +1276,7 @@ class AgentACPServer(ACPAgent):
         # Cache resolved instructions for this session (without mutating shared instances)
         resolved_for_session: dict[str, str] = {}
         for agent_name, agent in instance.agents.items():
-            template = getattr(agent, "instruction", None)
-            if not template:
-                continue
-            resolved = apply_template_variables(template, session_context)
+            resolved = await self._resolve_instruction_for_session(agent, session_context)
             if resolved:
                 resolved_for_session[agent_name] = resolved
         if resolved_for_session:
@@ -1288,6 +1321,18 @@ class AgentACPServer(ACPAgent):
             if session_state.acp_context:
                 await session_state.acp_context.switch_mode(agent_name)
 
+        async def resolve_instruction_for_system(agent_name: str) -> str | None:
+            agent = instance.agents.get(agent_name)
+            if agent is None:
+                return None
+            context = session_state.prompt_context or {}
+            if not context:
+                return None
+            resolved = await self._resolve_instruction_for_session(agent, context)
+            if resolved:
+                session_state.resolved_instructions[agent_name] = resolved
+            return resolved
+
         slash_handler = SlashCommandHandler(
             session_id,
             instance,
@@ -1296,6 +1341,7 @@ class AgentACPServer(ACPAgent):
             client_capabilities=self._client_capabilities,
             protocol_version=self._protocol_version,
             session_instructions=resolved_prompts,
+            instruction_resolver=resolve_instruction_for_system,
             card_loader=load_card if self._load_card_callback else None,
             attach_agent_callback=(
                 attach_agent_tools if self._attach_agent_tools_callback else None
@@ -1705,7 +1751,7 @@ class AgentACPServer(ACPAgent):
 
                     try:
                         # This will trigger streaming callbacks as chunks arrive
-                        session_request_params = self._build_session_request_params(
+                        session_request_params = await self._build_session_request_params(
                             agent, session_state
                         )
                         turn_start_index = None
