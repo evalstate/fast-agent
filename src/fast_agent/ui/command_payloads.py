@@ -148,6 +148,7 @@ class AgentCommand(CommandBase):
 
 @dataclass(frozen=True, slots=True)
 class ListSessionsCommand(CommandBase):
+    show_help: bool = False
     kind: Literal["list_sessions"] = "list_sessions"
 
 

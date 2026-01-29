@@ -19,6 +19,10 @@ def render_session_list_markdown(
         lines.extend(["No sessions found.", "", summary.usage])
         return "\n".join(lines)
 
-    lines.extend(summary.entries)
+    for entry, entry_summary in zip(summary.entries, summary.entry_summaries, strict=False):
+        if entry_summary.is_pinned:
+            lines.append(entry.replace(entry_summary.display_name, f"**{entry_summary.display_name}**", 1))
+        else:
+            lines.append(entry)
     lines.extend(["", summary.usage])
     return "\n".join(lines)

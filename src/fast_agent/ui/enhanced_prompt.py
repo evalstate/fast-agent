@@ -1710,13 +1710,13 @@ def parse_special_input(text: str) -> str | CommandPayload:
         if cmd == "session":
             remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
             if not remainder:
-                return "SESSION_HELP"
+                return ListSessionsCommand(show_help=True)
             try:
                 tokens = shlex.split(remainder)
             except ValueError:
-                return "SESSION_HELP"
+                return ListSessionsCommand(show_help=True)
             if not tokens:
-                return "SESSION_HELP"
+                return ListSessionsCommand(show_help=True)
             subcmd = tokens[0].lower()
             argument = remainder[len(tokens[0]) :].strip()
             if subcmd == "resume":
@@ -1766,7 +1766,7 @@ def parse_special_input(text: str) -> str | CommandPayload:
             if subcmd == "fork":
                 title = argument if argument else None
                 return ForkSessionCommand(title=title)
-            return "SESSION_HELP"
+            return ListSessionsCommand(show_help=True)
         if cmd == "card":
             remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
             if not remainder:
@@ -2686,7 +2686,7 @@ async def handle_special_commands(
         rich_print("  /session title <text> - Set the current session title")
         rich_print("  /session fork [title] - Fork the current session")
         rich_print("  /session delete <id|number|all> - Delete a session or all sessions")
-        rich_print("  /session pin [on|off] - Pin or unpin the current session")
+        rich_print("  /session pin [on|off|id|number] - Pin or unpin a session")
         rich_print(
             "  /card <filename> [--tool [remove]] - Load an AgentCard (attach/remove as tool)"
         )
@@ -2709,11 +2709,7 @@ async def handle_special_commands(
         return True
 
     elif command == "SESSION_HELP":
-        rich_print(
-            "[yellow]Usage: /session list | /session new [title] | /session resume [id|number] "
-            "| /session title <text> | /session fork [title] | /session delete <id|number|all> | /session pin [on|off][/yellow]"
-        )
-        return True
+        return ListSessionsCommand(show_help=True)
 
     elif isinstance(command, str) and command.upper() == "EXIT":
         raise PromptExitError("User requested to exit fast-agent session")

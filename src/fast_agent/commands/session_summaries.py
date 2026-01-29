@@ -20,7 +20,15 @@ class SessionListSummary:
     entry_summaries: list[SessionEntrySummary]
 
 
-def build_session_list_summary() -> SessionListSummary:
+DEFAULT_SESSION_USAGE = "Usage: /session resume <id|number>"
+FULL_SESSION_USAGE = (
+    "Usage: /session list | /session new [title] | /session resume [id|number] | "
+    "/session title <text> | /session fork [title] | /session delete <id|number|all> | "
+    "/session pin [on|off|id|number]"
+)
+
+
+def build_session_list_summary(*, show_help: bool = False) -> SessionListSummary:
     manager = get_session_manager()
     sessions = manager.list_sessions()
     limit = get_session_history_window()
@@ -39,8 +47,9 @@ def build_session_list_summary() -> SessionListSummary:
         current_name,
         summary_limit=None,
     )
+    usage = FULL_SESSION_USAGE if show_help else DEFAULT_SESSION_USAGE
     return SessionListSummary(
         entries=entries,
-        usage="Usage: /session resume <id|number>",
+        usage=usage,
         entry_summaries=entry_summaries,
     )
