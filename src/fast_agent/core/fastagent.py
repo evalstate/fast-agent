@@ -1271,7 +1271,22 @@ class FastAgent(DecoratorMixin):
                                     if name in active_agents_local
                                 }
                                 if updated_agents:
-                                    self._apply_agent_card_histories(updated_agents)
+                                    for name, new_agent in updated_agents.items():
+                                        old_agent = old_agents.get(name)
+                                        if old_agent is None or old_agent is new_agent:
+                                            continue
+                                        if new_agent.message_history:
+                                            continue
+                                        history = old_agent.message_history
+                                        if not history:
+                                            continue
+                                        copied_history = [
+                                            msg.model_copy(deep=True)
+                                            if hasattr(msg, "model_copy")
+                                            else msg
+                                            for msg in history
+                                        ]
+                                        new_agent.message_history.extend(copied_history)
                                     validate_provider_keys_post_creation(updated_agents)
 
                                     if global_prompt_context:
