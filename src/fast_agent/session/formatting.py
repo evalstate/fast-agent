@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Literal
 from fast_agent.session.session_manager import display_session_name, is_session_pinned
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping
+    from collections.abc import Iterable
 
     from .session_manager import SessionInfo
 
