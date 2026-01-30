@@ -18,6 +18,11 @@ FAST_AGENT_USAGE = "fast-agent-usage"
 
 FORCE_SEQUENTIAL_TOOL_CALLS = False
 """Force tool execution to run sequentially even when multiple tool calls are present."""
+
+
+def should_parallelize_tool_calls(tool_call_count: int) -> bool:
+    """Return True when tool calls should run in parallel (and show per-call IDs)."""
+    return (not FORCE_SEQUENTIAL_TOOL_CALLS) and tool_call_count > 1
 # should we have MAX_TOOL_CALLS instead to constrain by number of tools rather than turns...?
 DEFAULT_MAX_ITERATIONS = 99
 """Maximum number of User/Assistant turns to take"""

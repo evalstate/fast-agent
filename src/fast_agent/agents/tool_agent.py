@@ -11,8 +11,8 @@ from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.agents.tool_runner import ToolRunner, ToolRunnerHooks, _ToolLoopAgent
 from fast_agent.constants import (
     FAST_AGENT_ERROR_CHANNEL,
-    FORCE_SEQUENTIAL_TOOL_CALLS,
     HUMAN_INPUT_TOOL_NAME,
+    should_parallelize_tool_calls,
 )
 from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
@@ -501,7 +501,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         available_tools = [t.name for t in tool_schemas]
 
         tool_call_items = list(request.tool_calls.items())
-        should_parallel = (not FORCE_SEQUENTIAL_TOOL_CALLS) and len(tool_call_items) > 1
+        should_parallel = should_parallelize_tool_calls(len(tool_call_items))
 
         planned_calls: list[tuple[str, str, dict[str, Any]]] = []
         for correlation_id, tool_request in tool_call_items:
@@ -515,6 +515,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                     correlation_id=correlation_id,
                     error_message=error_message,
                     tool_results=tool_results,
+                    tool_call_id=correlation_id if should_parallel else None,
                 )
                 break
             planned_calls.append((correlation_id, tool_name, tool_args))
@@ -534,6 +535,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                     tool_name=tool_name,
                     highlight_index=highlight_index,
                     max_item_length=12,
+                    tool_call_id=correlation_id,
                     show_hook_indicator=self.has_before_tool_call_hook,
                 )
 
@@ -570,6 +572,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                     result=result,
                     tool_name=tool_name,
                     timing_ms=duration_ms,
+                    tool_call_id=correlation_id,
                     show_hook_indicator=self.has_after_tool_call_hook,
                 )
 
@@ -628,6 +631,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         correlation_id: str,
         error_message: str,
         tool_results: dict[str, CallToolResult],
+        tool_call_id: str | None = None,
     ) -> str:
         error_result = CallToolResult(
             content=[text_content(error_message)],
@@ -637,6 +641,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         self.display.show_tool_result(
             name=self.name,
             result=error_result,
+            tool_call_id=tool_call_id,
             show_hook_indicator=self.has_after_tool_call_hook,
         )
         return error_message

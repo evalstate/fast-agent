@@ -782,6 +782,8 @@ def show_check_summary(env_dir: Path | None = None) -> None:
 
     api_warning_messages: list[str] = []
     warned_cards: set[str] = set()
+    default_agent_names: list[str] = []
+    default_agent_seen: set[str] = set()
 
     def _should_warn_for_provider(provider: Provider) -> bool:
         if provider in {Provider.FAST_AGENT, Provider.GENERIC}:
@@ -836,6 +838,10 @@ def show_check_summary(env_dir: Path | None = None) -> None:
 
                 for card in cards:
                     config = card.agent_data.get("config")
+                    if config and getattr(config, "default", False):
+                        if card.name not in default_agent_seen:
+                            default_agent_names.append(card.name)
+                            default_agent_seen.add(card.name)
                     model = config.model if config else None
                     if not model:
                         continue
@@ -862,6 +868,13 @@ def show_check_summary(env_dir: Path | None = None) -> None:
             )
 
         console.print(cards_table)
+
+    if len(default_agent_names) > 1:
+        joined = ", ".join(default_agent_names)
+        console.print(
+            "[yellow]Warning:[/yellow] multiple agents are set as default: "
+            f"{joined}"
+        )
 
     for warning in api_warning_messages:
         console.print(f"[yellow]{warning}[/yellow]")
