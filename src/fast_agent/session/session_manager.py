@@ -445,7 +445,8 @@ class SessionManager:
     def __init__(self, *, cwd: pathlib.Path | None = None) -> None:
         """Initialize session manager."""
         base = cwd or pathlib.Path.cwd()
-        env_paths = resolve_environment_paths(cwd=base)
+        env_override = os.getenv("ENVIRONMENT_DIR")
+        env_paths = resolve_environment_paths(cwd=base, override=env_override)
         self.base_dir = env_paths.sessions
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self._current_session: Session | None = None
@@ -842,11 +843,12 @@ def reset_session_manager() -> None:
 def get_session_manager(*, cwd: pathlib.Path | None = None) -> SessionManager:
     """Get or create the global session manager."""
     global _session_manager
+    env_override = os.getenv("ENVIRONMENT_DIR")
     if _session_manager is None:
         _session_manager = SessionManager(cwd=cwd)
         return _session_manager
     if cwd is not None:
-        env_paths = resolve_environment_paths(cwd=cwd)
+        env_paths = resolve_environment_paths(cwd=cwd, override=env_override)
         if _session_manager.base_dir != env_paths.sessions:
             _session_manager = SessionManager(cwd=cwd)
     return _session_manager
