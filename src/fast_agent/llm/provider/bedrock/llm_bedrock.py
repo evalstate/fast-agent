@@ -372,6 +372,30 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
 
         return mapping
 
+    @staticmethod
+    def _resolve_tool_use_name(
+        tool_use_id: str,
+        tool_list: "ListToolsResult | None",
+        tool_name_mapping: dict[str, str] | None,
+    ) -> str:
+        tool_name = "unknown_tool"
+        if tool_list and tool_list.tools:
+            # Try to match by checking if any tool name appears in the tool_use_id
+            for tool in tool_list.tools:
+                if tool.name in tool_use_id or tool_use_id.endswith(f"_{tool.name}"):
+                    tool_name = tool.name
+                    break
+            # If no match, use first tool as fallback
+            if tool_name == "unknown_tool":
+                tool_name = tool_list.tools[0].name
+
+        if tool_name_mapping:
+            for mapped_name, original_name in tool_name_mapping.items():
+                if original_name == tool_name:
+                    return mapped_name
+
+        return tool_name
+
     def _convert_tools_nova_format(
         self, tools: "ListToolsResult", tool_name_mapping: dict[str, str]
     ) -> list[dict[str, Any]]:
@@ -1352,6 +1376,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
 
             # Build tools representation for this schema
             tools_payload: Union[list[dict[str, Any]], str, None] = None
+            tool_name_mapping: dict[str, str] | None = None
             # Get tool name policy (needed even when no tools for cache logic)
             name_policy = (
                 self.capabilities.get(model) or ModelCapabilities()
@@ -1507,17 +1532,9 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                     for tr_info in tool_results:
                         tool_use_id = tr_info["tool_use_id"]
 
-                        # Try to determine tool name from available tools
-                        tool_name = "unknown_tool"
-                        if tool_list and tool_list.tools:
-                            # Try to match by checking if any tool name appears in the tool_use_id
-                            for tool in tool_list.tools:
-                                if tool.name in tool_use_id or tool_use_id.endswith(f"_{tool.name}"):
-                                    tool_name = tool.name
-                                    break
-                            # If no match, use first tool as fallback
-                            if tool_name == "unknown_tool":
-                                tool_name = tool_list.tools[0].name
+                        tool_name = self._resolve_tool_use_name(
+                            tool_use_id, tool_list, tool_name_mapping
+                        )
 
                         tool_use_blocks.append({
                             "toolUse": {
