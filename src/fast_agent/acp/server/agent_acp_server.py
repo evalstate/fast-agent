@@ -6,7 +6,6 @@ and other clients to interact with fast-agent agents over stdio using the ACP pr
 """
 
 import asyncio
-import uuid
 from dataclasses import dataclass, field
 from importlib.metadata import version as get_version
 from pathlib import Path
@@ -405,10 +404,10 @@ class AgentACPServer(ACPAgent):
                     fs_caps = client_capabilities.fs
                     if fs_caps:
                         self._client_supports_fs_read = bool(
-                            getattr(fs_caps, "readTextFile", False)
+                            getattr(fs_caps, "read_text_file", False)
                         )
                         self._client_supports_fs_write = bool(
-                            getattr(fs_caps, "writeTextFile", False)
+                            getattr(fs_caps, "write_text_file", False)
                         )
 
                 # Convert capabilities to a dict for status reporting
@@ -502,7 +501,7 @@ class AgentACPServer(ACPAgent):
                     normalized[key] = bool(value)
             return normalized
 
-        for attr in ("readTextFile", "writeTextFile", "readFile", "writeFile"):
+        for attr in ("read_text_file", "write_text_file"):
             if hasattr(fs_caps, attr):
                 value = getattr(fs_caps, attr)
                 if value is not None:
@@ -1799,7 +1798,8 @@ class AgentACPServer(ACPAgent):
             cmd=cmd,
             request_name="session/new",
         )
-        session_id = str(uuid.uuid4())
+        manager = get_session_manager(cwd=Path(request_cwd).expanduser().resolve())
+        session_id = manager.generate_session_id()
 
         logger.info(
             "ACP new session request",

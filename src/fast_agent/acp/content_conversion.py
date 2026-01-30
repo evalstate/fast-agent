@@ -71,7 +71,7 @@ def _convert_image_content(
     return mcp_types.ImageContent(
         type="image",
         data=acp_image.data,
-        mimeType=acp_image.mimeType,
+        mimeType=acp_image.mime_type,
         annotations=_convert_annotations(acp_image.annotations),
     )
 
@@ -95,13 +95,13 @@ def _convert_resource_contents(
         case acp_schema.TextResourceContents():
             return mcp_types.TextResourceContents(
                 uri=AnyUrl(acp_resource.uri),
-                mimeType=acp_resource.mimeType or None,
+                mimeType=acp_resource.mime_type or None,
                 text=acp_resource.text,
             )
         case acp_schema.BlobResourceContents():
             return mcp_types.BlobResourceContents(
                 uri=AnyUrl(acp_resource.uri),
-                mimeType=acp_resource.mimeType or None,
+                mimeType=acp_resource.mime_type or None,
                 blob=acp_resource.blob,
             )
         case _:

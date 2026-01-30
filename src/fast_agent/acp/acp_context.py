@@ -56,8 +56,8 @@ class ClientCapabilities:
 
         if hasattr(caps, "fs") and caps.fs:
             fs_caps = caps.fs
-            result.fs_read = bool(getattr(fs_caps, "readTextFile", False))
-            result.fs_write = bool(getattr(fs_caps, "writeTextFile", False))
+            result.fs_read = bool(getattr(fs_caps, "read_text_file", False))
+            result.fs_write = bool(getattr(fs_caps, "write_text_file", False))
 
         if hasattr(caps, "_meta") and caps._meta:
             result._meta = dict(caps._meta) if isinstance(caps._meta, dict) else {}

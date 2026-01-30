@@ -806,6 +806,15 @@ class SessionManager:
         """Public wrapper to resolve a session identifier or ordinal index."""
         return self._resolve_session_name(name)
 
+    def generate_session_id(self) -> str:
+        """Generate a unique session identifier without creating a session."""
+        session_id = self._generate_session_id()
+        session_dir = self.base_dir / session_id
+        while session_dir.exists():
+            session_id = self._generate_session_id()
+            session_dir = self.base_dir / session_id
+        return session_id
+
     def _generate_session_id(self) -> str:
         """Generate a secure session identifier."""
         timestamp = datetime.now().strftime(SESSION_TIMESTAMP_FORMAT)
