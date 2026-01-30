@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 from acp.schema import (
     AvailableCommandsUpdate,
     CurrentModeUpdate,
+    SessionInfoUpdate,
     SessionMode,
 )
 
@@ -428,6 +429,20 @@ class ACPContext:
             session_id=self._session_id,
             update=update,
         )
+
+    async def send_session_info_update(
+        self,
+        *,
+        title: str | None,
+        updated_at: str | None = None,
+    ) -> None:
+        """Send a session_info_update notification to the client."""
+        info_update = SessionInfoUpdate(
+            session_update="session_info_update",
+            title=title,
+            updated_at=updated_at,
+        )
+        await self.send_session_update(info_update)
 
     async def invalidate_instruction_cache(
         self, agent_name: str, new_instruction: str | None

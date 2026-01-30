@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
@@ -13,6 +14,19 @@ if TYPE_CHECKING:
     from .session_manager import SessionInfo
 
 SessionListMode = Literal["compact", "verbose"]
+
+
+def extract_session_title(metadata: Mapping[str, object] | None) -> str | None:
+    """Extract a display-friendly session title from metadata."""
+    if not isinstance(metadata, Mapping):
+        return None
+    title = metadata.get("title") or metadata.get("label") or metadata.get(
+        "first_user_preview"
+    )
+    if title is None:
+        return None
+    title_text = " ".join(str(title).split())
+    return title_text or None
 
 
 @dataclass(slots=True)

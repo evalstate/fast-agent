@@ -93,6 +93,7 @@ if TYPE_CHECKING:
 
     from mcp.types import ListToolsResult
 
+    from fast_agent.acp.acp_context import ACPContext
     from fast_agent.commands.context import AgentProvider
     from fast_agent.commands.results import CommandOutcome
     from fast_agent.core.fastagent import AgentInstance
@@ -244,6 +245,7 @@ class SlashCommandHandler:
         self._reload_callback = reload_callback
         self._set_current_mode_callback = set_current_mode_callback
         self._instruction_resolver = instruction_resolver
+        self._acp_context: ACPContext | None = None
 
         # Session-level commands (always available, operate on current agent)
         self._session_commands: dict[str, AvailableCommand] = {
@@ -335,6 +337,10 @@ class SlashCommandHandler:
                 )
 
         return commands
+
+    def set_acp_context(self, acp_context: ACPContext | None) -> None:
+        """Set the ACP context for this handler."""
+        self._acp_context = acp_context
 
     def _get_allowed_session_commands(self) -> dict[str, AvailableCommand]:
         """
@@ -450,6 +456,32 @@ class SlashCommandHandler:
             heading=heading,
             extra_messages=extra_messages,
         )
+
+    async def _send_session_info_update(self) -> None:
+        if self._acp_context is None:
+            return
+        from fast_agent.session import extract_session_title, get_session_manager
+
+        manager = get_session_manager()
+        session = manager.current_session
+        if session is None:
+            return
+
+        title = extract_session_title(session.info.metadata)
+        if title is None:
+            return
+
+        try:
+            await self._acp_context.send_session_info_update(
+                title=title,
+                updated_at=session.info.last_activity.isoformat(),
+            )
+        except Exception as exc:
+            self._logger.debug(
+                "Failed to send ACP session info update",
+                session_id=self.session_id,
+                error=str(exc),
+            )
 
     def is_slash_command(self, prompt_text: str) -> bool:
         """Check if the prompt text is a slash command."""
@@ -742,10 +774,14 @@ class SlashCommandHandler:
     async def _handle_session_title(self, argument: str) -> str:
         ctx = self._build_command_context()
         io = cast("ACPCommandIO", ctx.io)
+        title = argument.strip() or None
         outcome = await sessions_handlers.handle_title_session(
             ctx,
-            title=argument.strip() or None,
+            title=title,
+            session_id=self.session_id,
         )
+        if title:
+            await self._send_session_info_update()
         return self._format_outcome_as_markdown(outcome, "session title", io=io)
 
     async def _handle_session_fork(self, argument: str) -> str:
