@@ -11,8 +11,8 @@ from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.agents.tool_runner import ToolRunner, ToolRunnerHooks, _ToolLoopAgent
 from fast_agent.constants import (
     FAST_AGENT_ERROR_CHANNEL,
-    FORCE_SEQUENTIAL_TOOL_CALLS,
     HUMAN_INPUT_TOOL_NAME,
+    should_parallelize_tool_calls,
 )
 from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
@@ -501,7 +501,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         available_tools = [t.name for t in tool_schemas]
 
         tool_call_items = list(request.tool_calls.items())
-        should_parallel = (not FORCE_SEQUENTIAL_TOOL_CALLS) and len(tool_call_items) > 1
+        should_parallel = should_parallelize_tool_calls(len(tool_call_items))
 
         planned_calls: list[tuple[str, str, dict[str, Any]]] = []
         for correlation_id, tool_request in tool_call_items:

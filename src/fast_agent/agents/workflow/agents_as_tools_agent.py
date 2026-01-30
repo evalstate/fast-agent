@@ -197,7 +197,11 @@ from mcp.types import CallToolResult
 
 from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.agents.tool_runner import ToolRunnerHooks
-from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, FORCE_SEQUENTIAL_TOOL_CALLS
+from fast_agent.constants import (
+    FAST_AGENT_ERROR_CHANNEL,
+    FORCE_SEQUENTIAL_TOOL_CALLS,
+    should_parallelize_tool_calls,
+)
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
 from fast_agent.interfaces import ToolRunnerHookCapable
@@ -1019,7 +1023,7 @@ class AgentsAsToolsAgent(McpAgent):
                         )
                     )
 
-        show_tool_call_id = (not FORCE_SEQUENTIAL_TOOL_CALLS) and len(id_list) > 1
+        show_tool_call_id = should_parallelize_tool_calls(len(id_list))
 
         self._show_parallel_tool_calls(
             call_descriptors,

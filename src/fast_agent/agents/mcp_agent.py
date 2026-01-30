@@ -39,9 +39,9 @@ from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_agent import DEFAULT_CAPABILITIES
 from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.constants import (
-    FORCE_SEQUENTIAL_TOOL_CALLS,
     HUMAN_INPUT_TOOL_NAME,
     SHELL_NOTICE_PREFIX,
+    should_parallelize_tool_calls,
 )
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.core.logging.logger import get_logger
@@ -1000,7 +1000,7 @@ class McpAgent(ABC, ToolAgent):
         namespaced_tools = self._aggregator._namespaced_tool_map
 
         tool_call_items = list(request.tool_calls.items())
-        should_parallel = (not FORCE_SEQUENTIAL_TOOL_CALLS) and len(tool_call_items) > 1
+        should_parallel = should_parallelize_tool_calls(len(tool_call_items))
 
         planned_calls: list[dict[str, Any]] = []
 
