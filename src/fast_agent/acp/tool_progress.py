@@ -115,7 +115,7 @@ class ACPToolProgressManager:
                 try:
                     model = self._tracker.tool_call_model(external_id)
                     if model and hasattr(model, "toolCallId"):
-                        return model.toolCallId
+                        return model.tool_call_id
                 except Exception:
                     # Swallow and fall back to local mapping
                     pass
@@ -170,10 +170,10 @@ class ACPToolProgressManager:
                 status="pending",
                 raw_input=arguments,
             )
-            self._tool_call_id_to_external_id[tool_call_start.toolCallId] = external_id
+            self._tool_call_id_to_external_id[tool_call_start.tool_call_id] = external_id
             # Store titles for later updates
-            self._simple_titles[tool_call_start.toolCallId] = title
-            self._full_titles[tool_call_start.toolCallId] = title
+            self._simple_titles[tool_call_start.tool_call_id] = title
+            self._full_titles[tool_call_start.tool_call_id] = title
 
         # Send the notification
         try:
@@ -181,9 +181,9 @@ class ACPToolProgressManager:
                 session_id=self._session_id, update=tool_call_start
             )
             logger.debug(
-                f"Created tool call notification (non-streaming): {tool_call_start.toolCallId}",
+                f"Created tool call notification (non-streaming): {tool_call_start.tool_call_id}",
                 name="acp_tool_call_ensure",
-                tool_call_id=tool_call_start.toolCallId,
+                tool_call_id=tool_call_start.tool_call_id,
                 external_id=external_id,
                 tool_name=tool_name,
                 server_name=server_name,
@@ -196,7 +196,7 @@ class ACPToolProgressManager:
                 exc_info=True,
             )
 
-        return tool_call_start.toolCallId
+        return tool_call_start.tool_call_id
 
     def handle_tool_stream_event(self, event_type: str, info: dict[str, Any] | None = None) -> None:
         """
@@ -276,7 +276,7 @@ class ACPToolProgressManager:
                     raw_input=None,  # Don't have args yet
                 )
                 # Store mapping from ACP tool_call_id to external_id
-                self._tool_call_id_to_external_id[tool_call_start.toolCallId] = external_id
+                self._tool_call_id_to_external_id[tool_call_start.tool_call_id] = external_id
                 # Initialize streaming state for this tool
                 self._stream_base_titles[tool_use_id] = title
                 self._stream_chunk_counts[tool_use_id] = 0
@@ -287,9 +287,9 @@ class ACPToolProgressManager:
             )
 
             logger.debug(
-                f"Sent early stream tool call notification: {tool_call_start.toolCallId}",
+                f"Sent early stream tool call notification: {tool_call_start.tool_call_id}",
                 name="acp_tool_stream_start",
-                tool_call_id=tool_call_start.toolCallId,
+                tool_call_id=tool_call_start.tool_call_id,
                 external_id=external_id,
                 base_tool_name=base_tool_name,
                 server_name=server_name,
@@ -539,7 +539,7 @@ class ACPToolProgressManager:
                     raw_input=arguments,  # Add complete arguments
                     content=[],  # Clear streaming content
                 )
-                tool_call_id = tool_call_update.toolCallId
+                tool_call_id = tool_call_update.tool_call_id
 
                 # Ensure mapping exists - progress() may return different ID than start()
                 # or the stream notification task may not have stored it yet
@@ -575,8 +575,8 @@ class ACPToolProgressManager:
                     raw_input=arguments,
                 )
                 # Store mapping from ACP tool_call_id to external_id for later lookups
-                self._tool_call_id_to_external_id[tool_call_start.toolCallId] = external_id
-                tool_call_id = tool_call_start.toolCallId
+                self._tool_call_id_to_external_id[tool_call_start.tool_call_id] = external_id
+                tool_call_id = tool_call_start.tool_call_id
                 tool_call_update = tool_call_start
                 # Store simple title (server/tool) for progress updates - no args
                 self._simple_titles[tool_call_id] = f"{server_name}/{tool_name}"

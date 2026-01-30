@@ -355,6 +355,7 @@ async def handle_title_session(
     ctx: CommandContext,
     *,
     title: str | None,
+    session_id: str | None = None,
 ) -> CommandOutcome:
     outcome = CommandOutcome()
     if not title:
@@ -365,8 +366,12 @@ async def handle_title_session(
 
     manager = get_session_manager()
     session = manager.current_session
-    if session is None:
+    if session_id:
+        if session is None or session.info.name != session_id:
+            session = manager.create_session_with_id(session_id)
+    elif session is None:
         session = manager.create_session()
+    assert session is not None
     session.set_title(title)
     outcome.add_message(f"Session title set: {title}", channel="info", right_info="session")
     return outcome

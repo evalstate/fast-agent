@@ -10,7 +10,18 @@ from typing import cast
 
 import acp.schema as acp_schema
 import mcp.types as mcp_types
-from acp.helpers import ContentBlock as ACPContentBlock
+from acp.helpers import (
+    ContentBlock as ACPContentBlock,
+)
+from acp.helpers import (
+    audio_block,
+    embedded_blob_resource,
+    embedded_text_resource,
+    image_block,
+    resource_block,
+    resource_link_block,
+    text_block,
+)
 from mcp.types import ContentBlock as MCPContentBlock
 from pydantic import AnyUrl
 
@@ -60,7 +71,7 @@ def _convert_image_content(
     return mcp_types.ImageContent(
         type="image",
         data=acp_image.data,
-        mimeType=acp_image.mimeType,
+        mimeType=acp_image.mime_type,
         annotations=_convert_annotations(acp_image.annotations),
     )
 
@@ -84,13 +95,13 @@ def _convert_resource_contents(
         case acp_schema.TextResourceContents():
             return mcp_types.TextResourceContents(
                 uri=AnyUrl(acp_resource.uri),
-                mimeType=acp_resource.mimeType or None,
+                mimeType=acp_resource.mime_type or None,
                 text=acp_resource.text,
             )
         case acp_schema.BlobResourceContents():
             return mcp_types.BlobResourceContents(
                 uri=AnyUrl(acp_resource.uri),
-                mimeType=acp_resource.mimeType or None,
+                mimeType=acp_resource.mime_type or None,
                 blob=acp_resource.blob,
             )
         case _:
@@ -238,3 +249,50 @@ def convert_acp_prompt_to_mcp_content_blocks(
             mcp_blocks.append(mcp_block)
 
     return mcp_blocks
+
+
+def convert_mcp_content_to_acp(mcp_content: MCPContentBlock) -> ACPContentBlock | None:
+    """
+    Convert an MCP content block to ACP format.
+
+    Args:
+        mcp_content: Content block from MCP (TextContent, ImageContent, etc.)
+
+    Returns:
+        Corresponding ACP ContentBlock, or None if conversion is not supported.
+    """
+    match mcp_content:
+        case mcp_types.TextContent():
+            return text_block(mcp_content.text)
+        case mcp_types.ImageContent():
+            return image_block(mcp_content.data, mcp_content.mimeType)
+        case mcp_types.AudioContent():
+            return audio_block(mcp_content.data, mcp_content.mimeType)
+        case mcp_types.ResourceLink():
+            return resource_link_block(
+                name=mcp_content.name,
+                uri=str(mcp_content.uri),
+                mime_type=mcp_content.mimeType,
+                size=mcp_content.size,
+                description=mcp_content.description,
+                title=mcp_content.title,
+            )
+        case mcp_types.EmbeddedResource():
+            match mcp_content.resource:
+                case mcp_types.TextResourceContents():
+                    embedded = embedded_text_resource(
+                        uri=str(mcp_content.resource.uri),
+                        text=mcp_content.resource.text,
+                        mime_type=mcp_content.resource.mimeType,
+                    )
+                case mcp_types.BlobResourceContents():
+                    embedded = embedded_blob_resource(
+                        uri=str(mcp_content.resource.uri),
+                        blob=mcp_content.resource.blob,
+                        mime_type=mcp_content.resource.mimeType,
+                    )
+                case _:
+                    return None
+            return resource_block(embedded)
+        case _:
+            return None

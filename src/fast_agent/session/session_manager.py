@@ -442,9 +442,11 @@ class Session:
 class SessionManager:
     """Manages conversation sessions stored in the fast-agent environment."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, cwd: pathlib.Path | None = None) -> None:
         """Initialize session manager."""
-        env_paths = resolve_environment_paths(cwd=pathlib.Path.cwd())
+        base = cwd or pathlib.Path.cwd()
+        env_override = os.getenv("ENVIRONMENT_DIR")
+        env_paths = resolve_environment_paths(cwd=base, override=env_override)
         self.base_dir = env_paths.sessions
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self._current_session: Session | None = None
@@ -489,6 +491,45 @@ class SessionManager:
         self._current_session = session
         self._prune_sessions()
         logger.info(f"Created new session: {session_id}")
+        return session
+
+    def create_session_with_id(self, session_id: str, metadata: dict | None = None) -> Session:
+        """Create or load a session using the provided id."""
+        requested_id = (session_id or "").strip()
+        session_metadata = dict(metadata or {})
+        if requested_id:
+            session_metadata.setdefault("acp_session_id", requested_id)
+
+        if not requested_id or pathlib.Path(requested_id).name != requested_id:
+            logger.warning(
+                "Invalid session id provided; falling back to generated id",
+                data={"session_id": session_id},
+            )
+            return self.create_session(metadata=session_metadata)
+
+        session_dir = self.base_dir / requested_id
+        if session_dir.exists():
+            session = self.load_session(requested_id)
+            if session:
+                if session.info.metadata.get("acp_session_id") != requested_id:
+                    session.info.metadata["acp_session_id"] = requested_id
+                    session._save_metadata()
+                return session
+
+        session_dir.mkdir(parents=True, exist_ok=False)
+        now = datetime.now()
+        info = SessionInfo(
+            name=requested_id,
+            created_at=now,
+            last_activity=now,
+            history_files=[],
+            metadata=session_metadata,
+        )
+        session = Session(info, session_dir)
+        session._save_metadata()
+        self._current_session = session
+        self._prune_sessions()
+        logger.info(f"Created new session: {requested_id}")
         return session
 
     def list_sessions(self) -> list[SessionInfo]:
@@ -755,11 +796,24 @@ class SessionManager:
         ]
         if len(matches) == 1:
             return matches[0]
+        for session in sessions:
+            metadata = session.metadata
+            if isinstance(metadata, dict) and metadata.get("acp_session_id") == session_name:
+                return session.name
         return session_name
 
     def resolve_session_name(self, name: str | None) -> str | None:
         """Public wrapper to resolve a session identifier or ordinal index."""
         return self._resolve_session_name(name)
+
+    def generate_session_id(self) -> str:
+        """Generate a unique session identifier without creating a session."""
+        session_id = self._generate_session_id()
+        session_dir = self.base_dir / session_id
+        while session_dir.exists():
+            session_id = self._generate_session_id()
+            session_dir = self.base_dir / session_id
+        return session_id
 
     def _generate_session_id(self) -> str:
         """Generate a secure session identifier."""
@@ -795,9 +849,15 @@ def reset_session_manager() -> None:
     _session_manager = None
 
 
-def get_session_manager() -> SessionManager:
+def get_session_manager(*, cwd: pathlib.Path | None = None) -> SessionManager:
     """Get or create the global session manager."""
     global _session_manager
+    env_override = os.getenv("ENVIRONMENT_DIR")
     if _session_manager is None:
-        _session_manager = SessionManager()
+        _session_manager = SessionManager(cwd=cwd)
+        return _session_manager
+    if cwd is not None:
+        env_paths = resolve_environment_paths(cwd=cwd, override=env_override)
+        if _session_manager.base_dir != env_paths.sessions:
+            _session_manager = SessionManager(cwd=cwd)
     return _session_manager
