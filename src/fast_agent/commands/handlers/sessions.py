@@ -371,6 +371,7 @@ async def handle_title_session(
             session = manager.create_session_with_id(session_id)
     elif session is None:
         session = manager.create_session()
+    assert session is not None
     session.set_title(title)
     outcome.add_message(f"Session title set: {title}", channel="info", right_info="session")
     return outcome
