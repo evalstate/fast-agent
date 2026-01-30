@@ -76,6 +76,17 @@ class BedrockConverter:
                         }
                     )
 
+        # Handle tool calls (from assistant messages)
+        if multipart_msg.tool_calls:
+            for tool_use_id, call_request in multipart_msg.tool_calls.items():
+                content_list.append({
+                    "toolUse": {
+                        "toolUseId": tool_use_id,
+                        "name": call_request.params.name,
+                        "input": call_request.params.arguments or {}
+                    }
+                })
+
         # Handle regular content
         from mcp.types import TextContent
         for content_item in multipart_msg.content:
