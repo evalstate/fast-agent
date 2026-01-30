@@ -57,4 +57,5 @@ KNOWN_SUBCOMMANDS = {
     "--help",
     "-h",
     "--version",
+    "--star",
 }

@@ -647,7 +647,12 @@ class AgentsAsToolsAgent(McpAgent):
             name, arguments, tool_use_id, request_params=request_params
         )
 
-    def _show_parallel_tool_calls(self, descriptors: list[dict[str, Any]]) -> None:
+    def _show_parallel_tool_calls(
+        self,
+        descriptors: list[dict[str, Any]],
+        *,
+        show_tool_call_id: bool = False,
+    ) -> None:
         """Display tool call headers for parallel agent execution.
 
         Args:
@@ -690,6 +695,7 @@ class AgentsAsToolsAgent(McpAgent):
                 bottom_items=[bottom_item],  # Only this instance's label
                 max_item_length=28,
                 metadata={"correlation_id": corr_id, "instance_name": display_tool_name},
+                tool_call_id=corr_id if show_tool_call_id else None,
                 type_label="subagent",
                 show_hook_indicator=self.has_external_hooks,
             )
@@ -706,7 +712,12 @@ class AgentsAsToolsAgent(McpAgent):
                 show_hook_indicator=self.has_external_hooks,
             )
 
-    def _show_parallel_tool_results(self, records: list[dict[str, Any]]) -> None:
+    def _show_parallel_tool_results(
+        self,
+        records: list[dict[str, Any]],
+        *,
+        show_tool_call_id: bool = False,
+    ) -> None:
         """Display tool result panels for parallel agent execution.
 
         Args:
@@ -723,6 +734,7 @@ class AgentsAsToolsAgent(McpAgent):
             descriptor = record.get("descriptor", {})
             result = record.get("result")
             tool_name = descriptor.get("tool", "(unknown)")
+            corr_id = descriptor.get("id")
 
             if result:
                 base_tool_name = tool_name[7:] if tool_name.startswith("agent__") else tool_name
@@ -734,6 +746,7 @@ class AgentsAsToolsAgent(McpAgent):
                     tool_name=display_tool_name,
                     type_label="subagent response",
                     result=result,
+                    tool_call_id=corr_id if show_tool_call_id else None,
                     show_hook_indicator=self.has_external_hooks,
                 )
         if total > limit:
@@ -1006,7 +1019,12 @@ class AgentsAsToolsAgent(McpAgent):
                         )
                     )
 
-        self._show_parallel_tool_calls(call_descriptors)
+        show_tool_call_id = (not FORCE_SEQUENTIAL_TOOL_CALLS) and len(id_list) > 1
+
+        self._show_parallel_tool_calls(
+            call_descriptors,
+            show_tool_call_id=show_tool_call_id,
+        )
 
         results: list[CallToolResult | BaseException] = []
         if id_list:
@@ -1052,7 +1070,10 @@ class AgentsAsToolsAgent(McpAgent):
             descriptor = descriptor_by_id.get(cid, {})
             ordered_records.append({"descriptor": descriptor, "result": result})
 
-        self._show_parallel_tool_results(ordered_records)
+        self._show_parallel_tool_results(
+            ordered_records,
+            show_tool_call_id=show_tool_call_id,
+        )
 
         return tool_results, tool_loop_error
 

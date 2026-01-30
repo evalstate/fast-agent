@@ -112,6 +112,7 @@ def show_welcome() -> None:
     console.print(table)
 
     console.print(
+        "\nTip: run [bold]fast-agent --star[/bold] to star the GitHub repo."
         "\nVisit [cyan][link=https://fast-agent.ai]fast-agent.ai[/link][/cyan] for more information."
     )
 
@@ -123,6 +124,11 @@ def main(
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Disable output"),
     color: bool = typer.Option(True, "--color/--no-color", help="Enable/disable color output"),
     version: bool = typer.Option(False, "--version", help="Show version and exit"),
+    star: bool = typer.Option(
+        False,
+        "--star",
+        help="Star the evalstate/fast-agent GitHub repository and exit",
+    ),
     env: Path | None = typer.Option(
         None, "--env", help="Override the base fast-agent environment directory"
     ),
@@ -161,6 +167,16 @@ def main(
             app_version = "unknown"
         console.print(f"fast-agent-mcp v{app_version}")
         raise typer.Exit()
+
+    if star:
+        from fast_agent.cli.github import star_repository
+
+        result = star_repository()
+        if result.ok:
+            console.print(f"[green]{result.message}[/green]")
+            raise typer.Exit()
+        console.print(f"[red]{result.message}[/red]")
+        raise typer.Exit(1)
 
     # Show welcome message if no command was invoked
     if ctx.invoked_subcommand is None:
