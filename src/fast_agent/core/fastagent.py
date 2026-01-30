@@ -363,6 +363,8 @@ class FastAgent(DecoratorMixin):
         self._agent_card_file_cache: dict[Path, tuple[int, int]] = {}
         self._agent_card_name_by_path: dict[Path, str] = {}
         self._agent_card_histories: dict[str, list[Path]] = {}
+        self._agent_card_history_mtime: dict[str, float] = {}
+        self._agent_card_history_len: dict[str, int] = {}
         self._agent_card_tool_files: dict[Path, set[Path]] = {}
         self._agent_card_last_changed: set[str] = set()
         self._agent_card_last_removed: set[str] = set()
@@ -697,7 +699,23 @@ class FastAgent(DecoratorMixin):
         for card_path in current_card_files:
             current_tool_files.update(self._agent_card_tool_files.get(card_path, set()))
 
-        watch_files = set(current_card_files) | current_tool_files
+        current_history_files: set[Path] = set()
+        for history_files in self._agent_card_histories.values():
+            for history_file in history_files:
+                try:
+                    if history_file.is_relative_to(root):
+                        current_history_files.add(history_file)
+                except ValueError:
+                    continue
+        for card in cards:
+            for history_file in card.message_files or []:
+                try:
+                    if history_file.is_relative_to(root):
+                        current_history_files.add(history_file)
+                except ValueError:
+                    continue
+
+        watch_files = set(current_card_files) | current_tool_files | current_history_files
         previous_watch_files = self._agent_card_root_watch_files.get(root, set())
         removed_watch_files = previous_watch_files - watch_files
 
@@ -910,6 +928,8 @@ class FastAgent(DecoratorMixin):
             self.agents.pop(name, None)
             self._agent_card_sources.pop(name, None)
             self._agent_card_histories.pop(name, None)
+            self._agent_card_history_mtime.pop(name, None)
+            self._agent_card_history_len.pop(name, None)
 
         for path_entry in removed_files:
             self._agent_card_name_by_path.pop(path_entry, None)
@@ -925,6 +945,8 @@ class FastAgent(DecoratorMixin):
                 self._agent_card_histories[card.name] = card.message_files
             else:
                 self._agent_card_histories.pop(card.name, None)
+                self._agent_card_history_mtime.pop(card.name, None)
+                self._agent_card_history_len.pop(card.name, None)
 
         if removed_names:
             removed_set = set(removed_names)
@@ -1287,17 +1309,37 @@ class FastAgent(DecoratorMixin):
                                             for msg in history
                                         ]
                                         new_agent.message_history.extend(copied_history)
+                                        existing_mtime = self._agent_card_history_mtime.get(name)
+                                        self._record_history_snapshot(
+                                            name, len(new_agent.message_history), existing_mtime
+                                        )
                                     for name, new_agent in updated_agents.items():
-                                        if new_agent.message_history:
-                                            continue
                                         history_files = self._agent_card_histories.get(name)
                                         if not history_files:
+                                            continue
+                                        files_mtime = self._get_history_files_mtime(history_files)
+                                        if files_mtime is None:
+                                            continue
+                                        last_mtime = self._agent_card_history_mtime.get(name)
+                                        last_len = self._agent_card_history_len.get(name)
+                                        current_len = len(new_agent.message_history)
+                                        if last_mtime is None:
+                                            if current_len != 0:
+                                                continue
+                                        elif files_mtime <= last_mtime:
+                                            continue
+                                        elif last_len is not None and current_len != last_len:
                                             continue
                                         messages: list[PromptMessageExtended] = []
                                         for history_file in history_files:
                                             messages.extend(load_prompt(history_file))
-                                        if messages:
-                                            new_agent.message_history.extend(messages)
+                                        if not messages:
+                                            continue
+                                        new_agent.message_history.clear()
+                                        new_agent.message_history.extend(messages)
+                                        self._record_history_snapshot(
+                                            name, len(new_agent.message_history), files_mtime
+                                        )
                                     validate_provider_keys_post_creation(updated_agents)
 
                                     if global_prompt_context:
@@ -1675,6 +1717,21 @@ class FastAgent(DecoratorMixin):
         """Resolve late-binding placeholders for all agents in the provided instance."""
         await apply_instruction_context(instance.agents.values(), context_vars)
 
+    @staticmethod
+    def _get_history_files_mtime(history_files: Sequence[Path]) -> float | None:
+        mtimes: list[float] = []
+        for history_file in history_files:
+            try:
+                mtimes.append(history_file.stat().st_mtime)
+            except OSError:
+                continue
+        return max(mtimes) if mtimes else None
+
+    def _record_history_snapshot(self, name: str, history_len: int, mtime: float | None) -> None:
+        self._agent_card_history_len[name] = history_len
+        if mtime is not None:
+            self._agent_card_history_mtime[name] = mtime
+
     def _apply_agent_card_histories(self, agents: dict[str, "AgentProtocol"]) -> None:
         if not self._agent_card_histories:
             return
@@ -1687,6 +1744,8 @@ class FastAgent(DecoratorMixin):
                 messages.extend(load_prompt(history_file))
             agent.clear(clear_prompts=True)
             agent.message_history.extend(messages)
+            mtime = self._get_history_files_mtime(history_files)
+            self._record_history_snapshot(name, len(messages), mtime)
 
     def _handle_dump_requests(self) -> None:
         dump_dir = getattr(self.args, "dump_agents", None)

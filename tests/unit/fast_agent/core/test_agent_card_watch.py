@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import os
+import time
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock
 
@@ -17,6 +20,7 @@ def _write_agent_card(
     *,
     name: str = "watcher",
     function_tools: list[str] | None = None,
+    messages_file: str | None = None,
 ) -> None:
     lines = [
         "---",
@@ -26,6 +30,8 @@ def _write_agent_card(
     if function_tools:
         lines.append("function_tools:")
         lines.extend([f"  - {spec}" for spec in function_tools])
+    if messages_file:
+        lines.append(f"messages: {messages_file}")
     lines.extend(
         [
             "---",
@@ -34,6 +40,11 @@ def _write_agent_card(
         ]
     )
     path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def _write_history_json(path: Path, text: str) -> None:
+    payload = {"messages": [{"role": "user", "content": {"type": "text", "text": text}}]}
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 @pytest.mark.asyncio
@@ -229,3 +240,44 @@ async def test_reload_agents_preserves_history(monkeypatch, tmp_path: Path) -> N
         updated_agent = app["watcher"]
         assert updated_agent.message_history
         assert updated_agent.message_history[0].all_text() == "hello"
+
+
+@pytest.mark.asyncio
+async def test_reload_agents_updates_history_when_file_newer(monkeypatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "fastagent.config.yaml"
+    config_path.write_text("", encoding="utf-8")
+
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
+
+    history_path = agents_dir / "history.json"
+    _write_history_json(history_path, "first")
+    card_path = agents_dir / "watcher.md"
+    _write_agent_card(card_path, messages_file="history.json")
+
+    fast = FastAgent(
+        "watch-test",
+        config_path=str(config_path),
+        parse_cli_args=False,
+        quiet=True,
+    )
+    monkeypatch.setenv("OPENAI_API_KEY", "test")
+    fast.args.watch = True
+    fast.load_agents(agents_dir)
+
+    async with fast.run() as app:
+        agent = app["watcher"]
+        assert agent.message_history
+        assert agent.message_history[0].all_text() == "first"
+
+        _write_history_json(history_path, "second")
+        new_ts = time.time() + 2.0
+        os.utime(history_path, (new_ts, new_ts))
+
+        changed = await fast.reload_agents()
+        assert changed is True
+
+        await app.refresh_if_needed()
+        updated_agent = app["watcher"]
+        assert updated_agent.message_history
+        assert updated_agent.message_history[0].all_text() == "second"
