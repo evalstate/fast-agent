@@ -888,10 +888,10 @@ class Settings(BaseSettings):
     shell_execution: ShellSettings = ShellSettings()
     """Shell execution timeout and warning settings."""
 
-    llm_retries: int = 0
+    llm_retries: int = 1
     """
     Number of times to retry transient LLM API errors.
-    Defaults to 0; can be overridden via config or FAST_AGENT_RETRIES env.
+    Defaults to 1; can be overridden via config or FAST_AGENT_RETRIES env.
     """
 
     @classmethod
