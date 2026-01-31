@@ -342,7 +342,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         return None
 
     def _resolve_retry_count(self) -> int:
-        """Resolve retries from config first, then env, defaulting to 0."""
+        """Resolve retries from config first, then env, defaulting to 1."""
         config_retries = None
         try:
             config_retries = getattr(self.context.config, "llm_retries", None)
@@ -362,7 +362,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             except (TypeError, ValueError):
                 pass
 
-        return 0
+        return 1
 
     async def generate(
         self,
