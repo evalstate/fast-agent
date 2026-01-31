@@ -327,6 +327,9 @@ class StreamingMessageHandle:
         return self._segment_assembler.handle_text(chunk)
 
     def _render_current_buffer(self) -> None:
+        if not self._active:
+            return
+
         segments = self._segment_assembler.segments
         if not segments:
             return

@@ -14,12 +14,15 @@ from rich.markup import escape
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.core.exceptions import AgentConfigError, ServerConfigError
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import AgentProtocol
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.usage_tracking import last_turn_usage
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.ui.interactive_prompt import InteractivePrompt
 from fast_agent.ui.progress_display import progress_display
+
+logger = get_logger(__name__)
 
 
 class AgentApp:
@@ -530,6 +533,13 @@ class AgentApp:
                 # If we catch an exception here, it means all retries FAILED.
                 if isinstance(e, (KeyboardInterrupt, AgentConfigError, ServerConfigError)):
                     raise e
+
+                logger.exception(
+                    "Agent failed after repeated attempts",
+                    agent_name=agent_name,
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
 
                 # Return pretty text for API failures (keeps session alive)
                 return _format_final_error(e)

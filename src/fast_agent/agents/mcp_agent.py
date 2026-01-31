@@ -1001,6 +1001,27 @@ class McpAgent(ABC, ToolAgent):
 
         tool_call_items = list(request.tool_calls.items())
         should_parallel = should_parallelize_tool_calls(len(tool_call_items))
+        if should_parallel and tool_call_items:
+            subagent_calls = self._count_agent_tool_calls(tool_call_items)
+            if subagent_calls > 1:
+                did_close = self.close_active_streaming_display(
+                    reason="parallel subagent tool calls"
+                )
+                if did_close:
+                    self.logger.info(
+                        "Closing streaming display due to parallel subagent tool calls",
+                        agent_name=self._name,
+                        tool_call_count=len(tool_call_items),
+                        subagent_call_count=subagent_calls,
+                    )
+
+        smart_parallel_calls = 0
+        if getattr(self, "agent_type", None) == AgentType.SMART:
+            smart_parallel_calls = sum(
+                1
+                for _, tool_request in tool_call_items
+                if tool_request.params.name == "smart"
+            )
 
         planned_calls: list[dict[str, Any]] = []
 
@@ -1118,19 +1139,32 @@ class McpAgent(ABC, ToolAgent):
             )
 
         if should_parallel and planned_calls:
-
-            async def run_one(call: dict[str, Any]) -> tuple[str, CallToolResult, float]:
-                start_time = time.perf_counter()
-                result = await self.call_tool(
-                    call["tool_name"],
-                    call["tool_args"],
-                    call["correlation_id"],
-                    request_params=request_params,
+            smart_parallel_active = smart_parallel_calls > 1
+            if smart_parallel_active:
+                setattr(self, "_parallel_smart_tool_calls", True)
+                self.logger.info(
+                    "Parallel smart tool calls detected",
+                    agent_name=self._name,
+                    tool_call_count=len(tool_call_items),
+                    smart_call_count=smart_parallel_calls,
                 )
-                end_time = time.perf_counter()
-                return call["correlation_id"], result, round((end_time - start_time) * 1000, 2)
+            try:
 
-            results = await gather_with_cancel(run_one(call) for call in planned_calls)
+                async def run_one(call: dict[str, Any]) -> tuple[str, CallToolResult, float]:
+                    start_time = time.perf_counter()
+                    result = await self.call_tool(
+                        call["tool_name"],
+                        call["tool_args"],
+                        call["correlation_id"],
+                        request_params=request_params,
+                    )
+                    end_time = time.perf_counter()
+                    return call["correlation_id"], result, round((end_time - start_time) * 1000, 2)
+
+                results = await gather_with_cancel(run_one(call) for call in planned_calls)
+            finally:
+                if smart_parallel_active:
+                    setattr(self, "_parallel_smart_tool_calls", False)
 
             for i, item in enumerate(results):
                 call = planned_calls[i]

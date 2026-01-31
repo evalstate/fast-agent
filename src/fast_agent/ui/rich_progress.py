@@ -59,7 +59,16 @@ class RichProgressDisplay:
     def resume(self) -> None:
         """Resume the progress display."""
         if self._paused:
+            try:
+                live_stack = getattr(self.console, "_live_stack", [])
+            except Exception:
+                live_stack = []
+
+            if live_stack and any(live is not self._progress.live for live in live_stack):
+                return
             ensure_blocking_console()
+            if getattr(self._progress.live, "_nested", False):
+                self._progress.live._nested = False
             for task in self._progress.tasks:
                 task.visible = True
             self._paused = False
@@ -78,11 +87,13 @@ class RichProgressDisplay:
     @contextmanager
     def paused(self):
         """Context manager for temporarily pausing the display."""
+        was_paused = self._paused
         self.pause()
         try:
             yield
         finally:
-            self.resume()
+            if not was_paused:
+                self.resume()
 
     def _get_action_style(self, action: ProgressAction) -> str:
         """Map actions to appropriate styles."""
