@@ -12,7 +12,21 @@ from fast_agent.ui.console_display import ConsoleDisplay
 
 logger = get_logger(__name__)
 
-HookKind = Literal["tool", "agent"]
+HookKind = Literal[
+    "tool",
+    "agent",
+    "extension",
+    "agent_startup",
+    "agent_shutdown",
+]
+
+HOOK_KIND_LABELS: dict[HookKind, str] = {
+    "tool": "extension",
+    "extension": "extension",
+    "agent": "agent",
+    "agent_startup": "agent startup",
+    "agent_shutdown": "agent shutdown",
+}
 
 
 def _resolve_display(agent: object) -> ConsoleDisplay:
@@ -45,7 +59,8 @@ def _normalize_message_lines(message: str | Text | None) -> list[Text]:
 
 def _build_hook_header(hook_kind: HookKind, hook_name: str | None, *, style: str) -> Text:
     header = Text()
-    header.append(f"{hook_kind} hook", style=f"bold {style}")
+    label = HOOK_KIND_LABELS.get(hook_kind, hook_kind)
+    header.append(label, style=f"bold {style}")
     if hook_name:
         header.append(" ")
         header.append(hook_name, style="dim")

@@ -268,13 +268,15 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             hook_type=hook_type,
         )
 
+        hook_kind = "agent_startup" if hook_type == "on_start" else "agent_shutdown"
+
         try:
             await hook(context)
         except Exception as exc:  # noqa: BLE001
             show_hook_failure(
                 self,
                 hook_name=getattr(hook, "__name__", hook_type),
-                hook_kind="agent",
+                hook_kind=hook_kind,
                 error=exc,
             )
             if hook_type == "on_start":
