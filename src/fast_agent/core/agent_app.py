@@ -75,12 +75,23 @@ class AgentApp:
         self._dump_agent_callback = dump_agent_callback
         self._tool_only_agents: set[str] = tool_only_agents or set()
         self._card_collision_warnings: list[str] = card_collision_warnings or []
+        self._apply_agent_registry()
+
+    def _apply_agent_registry(self) -> None:
+        for agent in self._agents.values():
+            registry_setter = getattr(agent, "set_agent_registry", None)
+            if callable(registry_setter):
+                registry_setter(self._agents)
 
     def __getitem__(self, key: str) -> AgentProtocol:
         """Allow access to agents using dictionary syntax."""
         if key not in self._agents:
             raise KeyError(f"Agent '{key}' not found")
         return self._agents[key]
+
+    def get_agent(self, name: str) -> AgentProtocol | None:
+        """Return the named agent if available, else None."""
+        return self._agents.get(name)
 
     def __getattr__(self, name: str) -> AgentProtocol:
         """Allow access to agents using attribute syntax."""
@@ -351,6 +362,7 @@ class AgentApp:
         if not agents:
             raise ValueError("No agents provided!")
         self._agents = agents
+        self._apply_agent_registry()
         if tool_only_agents is not None:
             self._tool_only_agents = tool_only_agents
         if card_collision_warnings is not None:
