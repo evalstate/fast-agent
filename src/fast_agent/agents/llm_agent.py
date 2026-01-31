@@ -22,7 +22,10 @@ from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.console_display import ConsoleDisplay
-from fast_agent.ui.message_display_helpers import build_user_message_display
+from fast_agent.ui.message_display_helpers import (
+    build_tool_use_additional_message,
+    build_user_message_display,
+)
 from fast_agent.workflow_telemetry import (
     NoOpWorkflowTelemetryProvider,
     WorkflowTelemetryProvider,
@@ -143,10 +146,9 @@ class LlmAgent(LlmDecorator):
                 )
 
             case LlmStopReason.TOOL_USE:
-                if None is message.last_text():
-                    additional_segments.append(
-                        Text("The assistant requested tool calls", style="dim green italic")
-                    )
+                tool_use_message = build_tool_use_additional_message(message)
+                if tool_use_message is not None:
+                    additional_segments.append(tool_use_message)
 
             case LlmStopReason.ERROR:
                 # Check if there's detailed error information in the error channel

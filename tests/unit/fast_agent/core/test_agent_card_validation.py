@@ -56,3 +56,59 @@ def test_scan_agent_card_path_for_directory(tmp_path: Path) -> None:
     results = scan_agent_card_path(tmp_path)
     assert len(results) == 1
     assert results[0].name == "dir_agent"
+
+
+def test_scan_agent_cards_reports_dependency_cycle(tmp_path: Path) -> None:
+    agent_a = tmp_path / "agent_a.yaml"
+    agent_a.write_text(
+        "\n".join(
+            [
+                "name: agent_a",
+                "agents:",
+                "  - agent_b",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    agent_b = tmp_path / "agent_b.yaml"
+    agent_b.write_text(
+        "\n".join(
+            [
+                "name: agent_b",
+                "agents:",
+                "  - agent_a",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    results = scan_agent_card_directory(tmp_path)
+    errors_by_name = {entry.name: entry.errors for entry in results}
+
+    assert any(
+        "Circular dependency detected" in err for err in errors_by_name.get("agent_a", [])
+    )
+    assert any(
+        "Circular dependency detected" in err for err in errors_by_name.get("agent_b", [])
+    )
+
+
+def test_scan_agent_cards_allows_acyclic_dependencies(tmp_path: Path) -> None:
+    agent_a = tmp_path / "agent_a.yaml"
+    agent_a.write_text(
+        "\n".join(
+            [
+                "name: agent_a",
+                "agents:",
+                "  - agent_b",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    agent_b = tmp_path / "agent_b.yaml"
+    agent_b.write_text("name: agent_b\n", encoding="utf-8")
+
+    results = scan_agent_card_directory(tmp_path)
+
+    for entry in results:
+        assert not any("Circular dependency detected" in err for err in entry.errors)

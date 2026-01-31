@@ -231,9 +231,7 @@ def _apply_tool_hooks(
                 after_tool_call=existing_hooks.after_tool_call,
                 after_turn_complete=_trimmer_wrapper,
             )
-            # If we only had trim_tool_history and it's now applied, we're done
-            if not config.tool_hooks:
-                return
+            # Keep going so session history hooks can still be applied
 
     # Load custom hooks from config
     if hooks_config:
