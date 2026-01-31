@@ -372,6 +372,30 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
 
         return mapping
 
+    @staticmethod
+    def _resolve_tool_use_name(
+        tool_use_id: str,
+        tool_list: "ListToolsResult | None",
+        tool_name_mapping: dict[str, str] | None,
+    ) -> str:
+        tool_name = "unknown_tool"
+        if tool_list and tool_list.tools:
+            # Try to match by checking if any tool name appears in the tool_use_id
+            for tool in tool_list.tools:
+                if tool.name in tool_use_id or tool_use_id.endswith(f"_{tool.name}"):
+                    tool_name = tool.name
+                    break
+            # If no match, use first tool as fallback
+            if tool_name == "unknown_tool":
+                tool_name = tool_list.tools[0].name
+
+        if tool_name_mapping:
+            for mapped_name, original_name in tool_name_mapping.items():
+                if original_name == tool_name:
+                    return mapped_name
+
+        return tool_name
+
     def _convert_tools_nova_format(
         self, tools: "ListToolsResult", tool_name_mapping: dict[str, str]
     ) -> list[dict[str, Any]]:
@@ -1352,6 +1376,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
 
             # Build tools representation for this schema
             tools_payload: Union[list[dict[str, Any]], str, None] = None
+            tool_name_mapping: dict[str, str] | None = None
             # Get tool name policy (needed even when no tools for cache logic)
             name_policy = (
                 self.capabilities.get(model) or ModelCapabilities()
@@ -1459,22 +1484,86 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             # Tools wiring
             # Always include toolConfig if we have tools OR if there are tool results in the conversation
             has_tool_results = False
+            has_tool_use = False
             for msg in bedrock_messages:
                 if isinstance(msg, dict) and msg.get("content"):
                     for content in msg["content"]:
-                        if isinstance(content, dict) and "toolResult" in content:
-                            has_tool_results = True
+                        if isinstance(content, dict):
+                            if "toolResult" in content:
+                                has_tool_results = True
+                            if "toolUse" in content:
+                                has_tool_use = True
+                        if has_tool_results and has_tool_use:
                             break
-                    if has_tool_results:
+                    if has_tool_results and has_tool_use:
                         break
+
+            # Reconstruct missing assistant messages when tool results exist without corresponding tool use blocks
+            # This ensures Bedrock API receives properly paired toolUse/toolResult blocks
+            if has_tool_results and not has_tool_use:
+                self.logger.warning(
+                    "Detected tool results without corresponding tool use blocks - "
+                    "reconstructing missing assistant message with tool calls"
+                )
+
+                # Group tool results by message index
+                tool_results_by_msg: dict[int, list[dict[str, Any]]] = {}
+                for msg_idx, msg in enumerate(bedrock_messages):
+                    if isinstance(msg, dict) and msg.get("role") == "user" and msg.get("content"):
+                        for content in msg["content"]:
+                            if isinstance(content, dict) and "toolResult" in content:
+                                tool_result = content["toolResult"]
+                                tool_use_id = tool_result.get("toolUseId") or tool_result.get("tool_use_id")
+                                if tool_use_id:
+                                    if msg_idx not in tool_results_by_msg:
+                                        tool_results_by_msg[msg_idx] = []
+                                    tool_results_by_msg[msg_idx].append({
+                                        "tool_use_id": tool_use_id,
+                                        "tool_result": tool_result
+                                    })
+
+                # For each message with tool results, insert ONE assistant message with ALL toolUse blocks
+                # Process in reverse order to maintain correct indices
+                for msg_idx in sorted(tool_results_by_msg.keys(), reverse=True):
+                    tool_results = tool_results_by_msg[msg_idx]
+
+                    # Create toolUse blocks for all tool results in this message
+                    tool_use_blocks = []
+                    for tr_info in tool_results:
+                        tool_use_id = tr_info["tool_use_id"]
+
+                        tool_name = self._resolve_tool_use_name(
+                            tool_use_id, tool_list, tool_name_mapping
+                        )
+
+                        tool_use_blocks.append({
+                            "toolUse": {
+                                "toolUseId": tool_use_id,
+                                "name": tool_name,
+                                "input": {}  # We don't have the original input
+                            }
+                        })
+
+                    # Create single assistant message with all toolUse blocks
+                    assistant_msg = {
+                        "role": "assistant",
+                        "content": tool_use_blocks
+                    }
+
+                    # Insert before the user message with tool results
+                    converse_args["messages"].insert(msg_idx, assistant_msg)
+                    self.logger.debug(
+                        f"Inserted reconstructed assistant message with {len(tool_use_blocks)} toolUse blocks before message {msg_idx}"
+                    )
 
             if (
                 schema_choice in (ToolSchemaType.ANTHROPIC, ToolSchemaType.DEFAULT)
                 and isinstance(tools_payload, list)
-                and tools_payload
+                and (tools_payload or has_tool_results)
             ):
-                # Include tools only when we have actual tools to provide
-                converse_args["toolConfig"] = {"tools": tools_payload}
+                # Include toolConfig when we have tools OR when conversation has tool results
+                # If we have tool results but no tools, use empty list to satisfy Bedrock's requirement
+                converse_args["toolConfig"] = {"tools": tools_payload if tools_payload else []}
 
             # Inference configuration and overrides
             inference_config: dict[str, Any] = {}
