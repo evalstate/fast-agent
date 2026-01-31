@@ -2,7 +2,8 @@
 Validation utilities for FastAgent configuration and dependencies.
 """
 
-from typing import Any, Mapping
+from collections.abc import Iterator, Mapping, Sequence
+from typing import Any
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.core.agent_card_types import AgentCardData
@@ -232,6 +233,49 @@ def get_agent_dependencies(agent_data: AgentCardData | dict[str, Any]) -> set[st
     return deps
 
 
+def find_dependency_cycle(
+    agent_names: Sequence[str],
+    dependencies: Mapping[str, set[str]],
+) -> list[str] | None:
+    available = set(agent_names)
+    visited: set[str] = set()
+    active: set[str] = set()
+    stack: list[tuple[str, Iterator[str]]] = []
+
+    for start in agent_names:
+        if start in visited:
+            continue
+
+        stack.append((start, iter(dependencies.get(start, set()))))
+        active.add(start)
+
+        while stack:
+            node, dep_iter = stack[-1]
+            try:
+                dep = next(dep_iter)
+            except StopIteration:
+                stack.pop()
+                active.remove(node)
+                visited.add(node)
+                continue
+
+            if dep not in available:
+                continue
+
+            if dep in active:
+                path_nodes = [entry[0] for entry in stack]
+                cycle_start = path_nodes.index(dep)
+                return path_nodes[cycle_start:] + [dep]
+
+            if dep in visited:
+                continue
+
+            stack.append((dep, iter(dependencies.get(dep, set()))))
+            active.add(dep)
+
+    return None
+
+
 def get_dependencies_groups(
     agents_dict: Mapping[str, AgentCardData | dict[str, Any]], allow_cycles: bool = False
 ) -> list[list[str]]:
@@ -259,27 +303,11 @@ def get_dependencies_groups(
 
     # Check for cycles if not allowed
     if not allow_cycles:
-        visited = set()
-        path = set()
-
-        def visit(node) -> None:
-            if node in path:
-                path_str = " -> ".join(path) + " -> " + node
-                raise CircularDependencyError(f"Circular dependency detected: {path_str}")
-            if node in visited:
-                return
-
-            path.add(node)
-            for dep in dependencies[node]:
-                if dep in agent_names:  # Skip dependencies to non-existent agents
-                    visit(dep)
-            path.remove(node)
-            visited.add(node)
-
-        # Check each node
-        for name in agent_names:
-            if name not in visited:
-                visit(name)
+        cycle = find_dependency_cycle(agent_names, dependencies)
+        if cycle:
+            raise CircularDependencyError(
+                f"Circular dependency detected: {' -> '.join(cycle)}"
+            )
 
     # Group agents by dependency level
     result = []

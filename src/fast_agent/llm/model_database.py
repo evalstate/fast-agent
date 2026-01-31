@@ -348,7 +348,7 @@ class ModelDatabase:
     )
     KIMI_MOONSHOT_25 = ModelParameters(
         context_window=262144,
-        max_output_tokens=262144,
+        max_output_tokens=16384,
         tokenizes=OPENAI_VISION,
         json_mode="schema",
         reasoning="reasoning_content",

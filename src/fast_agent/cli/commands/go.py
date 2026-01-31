@@ -693,7 +693,6 @@ def go(
     resume: str | None = typer.Option(
         None,
         "--resume",
-        flag_value=RESUME_LATEST_SENTINEL,
         help="Resume the last session or the specified session id",
     ),
     env_dir: Path | None = CommonAgentOptions.env_dir(),

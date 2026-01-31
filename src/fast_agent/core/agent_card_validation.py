@@ -13,6 +13,7 @@ from frontmatter import loads as load_frontmatter
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.core.exceptions import AgentConfigError, format_fast_agent_error
+from fast_agent.core.validation import find_dependency_cycle
 
 CARD_EXTENSIONS = {".md", ".markdown", ".yaml", ".yml"}
 
@@ -275,6 +276,28 @@ def _scan_agent_card_files(
                 dependencies=entry.dependencies,
                 ignored_reason=entry.ignored_reason,
             )
+
+    cycle_candidates = sorted(available_names)
+    if cycle_candidates:
+        dependencies = {
+            entry.name: {dep for dep in entry.dependencies if dep in available_names}
+            for entry in entries
+            if entry.name in available_names
+        }
+        cycle = find_dependency_cycle(cycle_candidates, dependencies)
+        if cycle:
+            cycle_message = f"Circular dependency detected: {' -> '.join(cycle)}"
+            cycle_nodes = set(cycle)
+            for idx, entry in enumerate(entries):
+                if entry.name in cycle_nodes:
+                    entries[idx] = AgentCardScanResult(
+                        name=entry.name,
+                        type=entry.type,
+                        path=entry.path,
+                        errors=entry.errors + [cycle_message],
+                        dependencies=entry.dependencies,
+                        ignored_reason=entry.ignored_reason,
+                    )
 
     return entries
 

@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from rich.text import Text
+
 from fast_agent.mcp.helpers.content_helpers import (
     is_image_content,
     is_resource_content,
     is_resource_link,
 )
+from fast_agent.types import LlmStopReason
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -61,4 +64,22 @@ def build_user_message_display(
 
     return "\n".join(lines), None
 
-__all__ = ["build_user_message_display", "extract_user_attachments"]
+
+def build_tool_use_additional_message(
+    message: "PromptMessageExtended",
+    last_text: str | None = None,
+) -> Text | None:
+    if message.stop_reason != LlmStopReason.TOOL_USE:
+        return None
+    if last_text is None:
+        last_text = message.last_text()
+    if last_text is not None:
+        return None
+    return Text("The assistant requested tool calls", style="dim green italic")
+
+
+__all__ = [
+    "build_tool_use_additional_message",
+    "build_user_message_display",
+    "extract_user_attachments",
+]

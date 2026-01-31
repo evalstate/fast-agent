@@ -11,7 +11,6 @@ from fast_agent.cli.commands.go import (
     resolve_instruction_option,
     run_async_agent,
 )
-from fast_agent.cli.constants import RESUME_LATEST_SENTINEL
 from fast_agent.cli.env_helpers import resolve_environment_dir_option
 from fast_agent.cli.shared_options import CommonAgentOptions
 
@@ -85,7 +84,6 @@ def run_acp(
     resume: str | None = typer.Option(
         None,
         "--resume",
-        flag_value=RESUME_LATEST_SENTINEL,
         help="Resume the last session or the specified session id",
     ),
     reload: bool = CommonAgentOptions.reload(),

@@ -465,6 +465,9 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             after_llm_call=merge(base.after_llm_call, extra.after_llm_call),
             before_tool_call=merge(base.before_tool_call, extra.before_tool_call),
             after_tool_call=merge(base.after_tool_call, extra.after_tool_call),
+            after_turn_complete=merge(
+                base.after_turn_complete, extra.after_turn_complete
+            ),
         )
 
     async def _tool_runner_llm_step(
