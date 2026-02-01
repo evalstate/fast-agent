@@ -21,6 +21,7 @@ from fast_agent.core.direct_factory import (
 )
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.instruction_utils import apply_instruction_context
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt_templates import enrich_with_environment_context
 from fast_agent.core.validation import validate_provider_keys_post_creation
 from fast_agent.mcp.prompts.prompt_load import load_prompt
@@ -33,6 +34,8 @@ if TYPE_CHECKING:
     from fast_agent.context import Context
     from fast_agent.core.agent_card_types import AgentCardData
     from fast_agent.interfaces import AgentProtocol
+
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -51,7 +54,9 @@ def _resolve_agent_card_path(path_value: str, context: Context | None) -> Path:
         if cwd_candidate.exists():
             return cwd_candidate
 
-    env_paths = resolve_environment_paths(settings=context.config if context else None, cwd=Path.cwd())
+    env_paths = resolve_environment_paths(
+        settings=context.config if context else None, cwd=Path.cwd()
+    )
     for base in (env_paths.agent_cards, env_paths.tool_cards):
         env_candidate = (base / candidate).resolve()
         if env_candidate.exists():
@@ -132,6 +137,8 @@ async def _run_smart_call(
     context: "Context | None",
     agent_card_path: str,
     message: str,
+    *,
+    disable_streaming: bool = False,
 ) -> str:
     if context is None:
         raise AgentConfigError("Smart tool requires an initialized context")
@@ -154,6 +161,16 @@ async def _run_smart_call(
             name for name, data in bundle.agents_dict.items() if data.get("tool_only", False)
         }
         app = AgentApp(agents_map, tool_only_agents=tool_only_agents)
+
+        if disable_streaming:
+            for agent in agents_map.values():
+                setter = getattr(agent, "force_non_streaming_next_turn", None)
+                if callable(setter):
+                    setter(reason="parallel smart tool calls")
+            logger.info(
+                "Disabled streaming for smart tool child agents",
+                data={"agent_count": len(agents_map)},
+            )
 
         if bundle.message_files:
             _apply_agent_card_histories(agents_map, bundle.message_files)
@@ -195,6 +212,7 @@ class SmartAgent(McpAgent):
         **kwargs: Any,
     ) -> None:
         super().__init__(config=config, context=context, **kwargs)
+        self._parallel_smart_tool_calls = False
         self._register_smart_tools()
 
     @property
@@ -217,7 +235,13 @@ class SmartAgent(McpAgent):
 
     async def smart(self, agent_card_path: str, message: str) -> str:
         """Load AgentCards and send a message to the default agent."""
-        return await _run_smart_call(self.context, agent_card_path, message)
+        disable_streaming = bool(getattr(self, "_parallel_smart_tool_calls", False))
+        return await _run_smart_call(
+            self.context,
+            agent_card_path,
+            message,
+            disable_streaming=disable_streaming,
+        )
 
     async def validate(self, agent_card_path: str) -> str:
         """Validate AgentCard files for the provided path."""
@@ -244,6 +268,7 @@ class SmartAgentsAsToolsAgent(AgentsAsToolsAgent):
             child_message_files=child_message_files,
             **kwargs,
         )
+        self._parallel_smart_tool_calls = False
         self._register_smart_tools()
 
     @property
@@ -265,7 +290,13 @@ class SmartAgentsAsToolsAgent(AgentsAsToolsAgent):
         self.add_tool(validate_tool)
 
     async def smart(self, agent_card_path: str, message: str) -> str:
-        return await _run_smart_call(self.context, agent_card_path, message)
+        disable_streaming = bool(getattr(self, "_parallel_smart_tool_calls", False))
+        return await _run_smart_call(
+            self.context,
+            agent_card_path,
+            message,
+            disable_streaming=disable_streaming,
+        )
 
     async def validate(self, agent_card_path: str) -> str:
         return await _run_validate_call(self.context, agent_card_path)

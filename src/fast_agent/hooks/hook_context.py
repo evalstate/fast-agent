@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Mapping, Protocol
 
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
 if TYPE_CHECKING:
-    from fast_agent.interfaces import MessageHistoryAgentProtocol
+    from fast_agent.context import Context
+    from fast_agent.interfaces import AgentProtocol, MessageHistoryAgentProtocol
+    from fast_agent.llm.usage_tracking import UsageAccumulator
     from fast_agent.types import PromptMessageExtended
 
 
@@ -61,6 +63,28 @@ class HookContext:
     def message_history(self) -> list[PromptMessageExtended]:
         """Get the agent's current message history."""
         return self.agent.message_history
+
+    @property
+    def usage(self) -> "UsageAccumulator | None":
+        """Return the usage accumulator when available (token stats)."""
+        return getattr(self.agent, "usage_accumulator", None)
+
+    @property
+    def agent_registry(self) -> "Mapping[str, AgentProtocol] | None":
+        """Return the active agent registry when configured."""
+        return getattr(self.agent, "agent_registry", None)
+
+    @property
+    def context(self) -> "Context | None":
+        """Return the agent's context if available."""
+        return getattr(self.agent, "context", None)
+
+    def get_agent(self, name: str) -> "AgentProtocol | None":
+        """Lookup another agent by name when a registry is available."""
+        getter = getattr(self.agent, "get_agent", None)
+        if callable(getter):
+            return getter(name)
+        return None
 
     def load_message_history(self, messages: list[PromptMessageExtended]) -> None:
         """Replace the agent's message history with the given messages."""
