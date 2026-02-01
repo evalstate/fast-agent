@@ -22,13 +22,13 @@ from fast_agent.acp.permission_store import (
     PermissionResult,
     PermissionStore,
 )
-from fast_agent.acp.tool_titles import ARGUMENT_TRUNCATION_LIMIT, build_tool_title
 from fast_agent.acp.tool_permissions import (
     ACPToolPermissionManager,
     NoOpToolPermissionChecker,
     ToolPermissionChecker,
     _infer_tool_kind,
 )
+from fast_agent.acp.tool_titles import ARGUMENT_TRUNCATION_LIMIT, build_tool_title
 
 # =============================================================================
 # Test Doubles for ACPToolPermissionManager Testing
