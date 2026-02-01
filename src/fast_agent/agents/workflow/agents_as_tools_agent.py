@@ -1024,6 +1024,17 @@ class AgentsAsToolsAgent(McpAgent):
                     )
 
         show_tool_call_id = should_parallelize_tool_calls(len(id_list))
+        if len(id_list) > 1:
+            try:
+                did_close = self.close_active_streaming_display(reason="parallel tool calls")
+            except AttributeError:
+                did_close = False
+            if did_close:
+                logger.info(
+                    "Closing streaming display due to parallel subagent tool calls",
+                    tool_call_count=len(id_list),
+                    agent_name=self.name,
+                )
 
         self._show_parallel_tool_calls(
             call_descriptors,

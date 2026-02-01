@@ -6,7 +6,7 @@ from typing import Any, Callable, Dict, List, Sequence
 from mcp.server.fastmcp.tools.base import Tool as FastMCPTool
 from mcp.types import CallToolResult, ListToolsResult, Tool
 
-from fast_agent.agents.agent_types import AgentConfig
+from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.agents.tool_runner import ToolRunner, ToolRunnerHooks, _ToolLoopAgent
 from fast_agent.constants import (
@@ -219,6 +219,23 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         return any(
             tool_request.params.name in self._card_tool_names
             for tool_request in message.tool_calls.values()
+        )
+
+    def _count_agent_tool_calls(self, tool_call_items: list[tuple[str, Any]]) -> int:
+        if not tool_call_items:
+            return 0
+        agent_tool_names = set(self._agent_tools.keys())
+        agent_type = getattr(self, "agent_type", None)
+        if not isinstance(agent_type, AgentType):
+            agent_type = getattr(self.config, "agent_type", None)
+        if agent_type == AgentType.SMART:
+            agent_tool_names.add("smart")
+        if not agent_tool_names:
+            return 0
+        return sum(
+            1
+            for _, tool_request in tool_call_items
+            if tool_request.params.name in agent_tool_names
         )
 
     def add_agent_tool(
@@ -505,6 +522,19 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
 
         tool_call_items = list(request.tool_calls.items())
         should_parallel = should_parallelize_tool_calls(len(tool_call_items))
+        if should_parallel and tool_call_items:
+            subagent_calls = self._count_agent_tool_calls(tool_call_items)
+            if subagent_calls > 1:
+                did_close = self.close_active_streaming_display(
+                    reason="parallel subagent tool calls"
+                )
+                if did_close:
+                    logger.info(
+                        "Closing streaming display due to parallel subagent tool calls",
+                        agent_name=self.name,
+                        tool_call_count=len(tool_call_items),
+                        subagent_call_count=subagent_calls,
+                    )
 
         planned_calls: list[tuple[str, str, dict[str, Any]]] = []
         for correlation_id, tool_request in tool_call_items:

@@ -13,7 +13,9 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from fast_agent.agents.tool_runner import ToolRunnerHooks
 from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.hooks.hook_context import HookContext
+from fast_agent.hooks.hook_messages import show_hook_failure
 from fast_agent.types import PromptMessageExtended
 
 if TYPE_CHECKING:
@@ -116,6 +118,9 @@ def _create_hook_wrapper(
     hook_func: HookFunction,
     hook_type: str,
     agent: Any,  # noqa: ARG001 - kept for API compatibility but not used
+    *,
+    hook_name: str | None = None,
+    hook_spec: str | None = None,
 ) -> Callable[..., Awaitable[None]]:
     """
     Create a wrapper that converts ToolRunner hook signatures to HookContext.
@@ -142,7 +147,22 @@ def _create_hook_wrapper(
                 message=message,
                 hook_type=hook_type,
             )
-            await hook_func(ctx)
+            try:
+                await hook_func(ctx)
+            except Exception as exc:  # noqa: BLE001
+                show_hook_failure(
+                    ctx,
+                    hook_name=hook_name or getattr(hook_func, "__name__", None),
+                    hook_kind="tool",
+                    error=exc,
+                )
+                logger.exception(
+                    "Tool hook failed",
+                    hook_type=hook_type,
+                    hook_name=hook_name,
+                    hook_spec=hook_spec,
+                )
+                raise
 
         return before_llm_wrapper
     else:
@@ -154,7 +174,22 @@ def _create_hook_wrapper(
                 message=message,
                 hook_type=hook_type,
             )
-            await hook_func(ctx)
+            try:
+                await hook_func(ctx)
+            except Exception as exc:  # noqa: BLE001
+                show_hook_failure(
+                    ctx,
+                    hook_name=hook_name or getattr(hook_func, "__name__", None),
+                    hook_kind="tool",
+                    error=exc,
+                )
+                logger.exception(
+                    "Tool hook failed",
+                    hook_type=hook_type,
+                    hook_name=hook_name,
+                    hook_spec=hook_spec,
+                )
+                raise
 
         return message_wrapper
 
@@ -198,10 +233,19 @@ def load_tool_runner_hooks(
 
     for hook_type, spec in hooks_config.items():
         hook_func = load_hook_function(spec, base_path)
-        wrapper = _create_hook_wrapper(hook_func, hook_type, agent)
+        hook_name = spec.rsplit(":", 1)[-1]
+        wrapper = _create_hook_wrapper(
+            hook_func,
+            hook_type,
+            agent,
+            hook_name=hook_name,
+            hook_spec=spec,
+        )
         hooks_kwargs[hook_type] = wrapper
 
     if not hooks_kwargs:
         return None
 
     return ToolRunnerHooks(**hooks_kwargs)
+# Logger for hook execution errors
+logger = get_logger(__name__)
