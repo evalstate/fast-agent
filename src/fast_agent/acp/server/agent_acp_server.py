@@ -57,7 +57,6 @@ from acp.schema import (
 from acp.schema import (
     SessionInfo as AcpSessionInfo,
 )
-from pydantic import AliasChoices
 
 from fast_agent.acp.acp_context import ACPContext, ClientInfo
 from fast_agent.acp.acp_context import ClientCapabilities as FAClientCapabilities
@@ -118,28 +117,6 @@ REFUSAL: StopReason = "refusal"
 MAX_TOKENS: StopReason = "max_tokens"
 CANCELLED: StopReason = "cancelled"
 
-
-def _patch_legacy_cwd_alias() -> None:
-    try:
-        import acp.schema as acp_schema
-    except Exception:
-        return
-
-    request_models = (
-        acp_schema.ListSessionsRequest,
-        acp_schema.LoadSessionRequest,
-        acp_schema.NewSessionRequest,
-        acp_schema.ResumeSessionRequest,
-    )
-    for model in request_models:
-        field = model.model_fields.get("cwd")
-        if field is None:
-            continue
-        field.validation_alias = AliasChoices("cwd", "cmd")
-        model.model_rebuild(force=True)
-
-
-_patch_legacy_cwd_alias()
 
 
 def map_llm_stop_reason_to_acp(llm_stop_reason: LlmStopReason | None) -> StopReason:
@@ -640,20 +617,11 @@ class AgentACPServer(ACPAgent):
         self,
         *,
         cwd: str | None,
-        cmd: str | None,
         request_name: str,
         warn_if_missing: bool = True,
     ) -> str:
         if cwd:
             return cwd
-        if cmd:
-            logger.warning(
-                "Using legacy cmd parameter for ACP request",
-                name="acp_legacy_cmd_param",
-                request=request_name,
-                cmd=cmd,
-            )
-            return cmd
         default_cwd = str(Path.cwd())
         if warn_if_missing:
             logger.warning(
@@ -1600,14 +1568,12 @@ class AgentACPServer(ACPAgent):
         self,
         cursor: str | None = None,
         cwd: str | None = None,
-        cmd: str | None = None,
         **kwargs: Any,
     ) -> ListSessionsResponse:
         """List saved sessions for the current environment."""
         _ = kwargs
         request_cwd = self._resolve_request_cwd(
             cwd=cwd,
-            cmd=cmd,
             request_name="session/list",
             warn_if_missing=False,
         )
@@ -1657,14 +1623,12 @@ class AgentACPServer(ACPAgent):
         mcp_servers: list[HttpMcpServer | SseMcpServer | McpServerStdio],
         session_id: str,
         cwd: str | None = None,
-        cmd: str | None = None,
         **kwargs: Any,
     ) -> LoadSessionResponse | None:
         """Load a saved session and stream history updates."""
         _ = kwargs
         request_cwd = self._resolve_request_cwd(
             cwd=cwd,
-            cmd=cmd,
             request_name="session/load",
         )
         logger.info(
@@ -1702,7 +1666,17 @@ class AgentACPServer(ACPAgent):
                     self._prompt_locks.pop(session_id, None)
                 if session_state.instance != self.primary_instance:
                     await self._dispose_instance_task(session_state.instance)
-            raise RequestError.resource_not_found(session_id)
+            raise RequestError(
+                -32002,
+                f"Session not found: {session_id}",
+                {
+                    "uri": session_id,
+                    "reason": "Session not found",
+                    "details": (
+                        f"Session {session_id} could not be resolved from {request_cwd}"
+                    ),
+                },
+            )
 
         session, loaded, missing_agents = result
         if missing_agents:
@@ -1763,14 +1737,12 @@ class AgentACPServer(ACPAgent):
         session_id: str,
         cwd: str | None = None,
         mcp_servers: list[HttpMcpServer | SseMcpServer | McpServerStdio] | None = None,
-        cmd: str | None = None,
         **kwargs: Any,
     ) -> ResumeSessionResponse:
         """Alias for session/load to support unstable session/resume."""
         _ = kwargs
         request_cwd = self._resolve_request_cwd(
             cwd=cwd,
-            cmd=cmd,
             request_name="session/resume",
         )
         response = await self.load_session(
@@ -1785,7 +1757,6 @@ class AgentACPServer(ACPAgent):
         self,
         mcp_servers: list[HttpMcpServer | SseMcpServer | McpServerStdio],
         cwd: str | None = None,
-        cmd: str | None = None,
         **kwargs: Any,
     ) -> NewSessionResponse:
         """
@@ -1795,7 +1766,6 @@ class AgentACPServer(ACPAgent):
         """
         request_cwd = self._resolve_request_cwd(
             cwd=cwd,
-            cmd=cmd,
             request_name="session/new",
         )
         manager = get_session_manager(cwd=Path(request_cwd).expanduser().resolve())

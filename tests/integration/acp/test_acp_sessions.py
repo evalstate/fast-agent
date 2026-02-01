@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
+from acp.exceptions import RequestError
 from acp.helpers import text_block
 from acp.schema import ClientCapabilities, FileSystemCapability, Implementation
 from acp.stdio import spawn_agent_process
@@ -389,6 +390,54 @@ async def test_acp_load_session_streams_history(
     ]
     assert "hello" in user_texts
     assert "hi" in agent_texts
+
+
+@pytest.mark.integration
+async def test_acp_load_session_missing_returns_resource_not_found(
+    tmp_path: Path,
+) -> None:
+    config_path = TEST_DIR / "fastagent.config.yaml"
+    cmd = [
+        sys.executable,
+        "-m",
+        "fast_agent.cli",
+        "serve",
+        "--config-path",
+        str(config_path),
+        "--transport",
+        "acp",
+        "--model",
+        "passthrough",
+        "--name",
+        "fast-agent-acp-load-missing",
+    ]
+
+    client = TestClient()
+    missing_session_id = "missing-session"
+    environment_dir = tmp_path / ".fast-agent"
+    async with spawn_agent_process(
+        lambda _: client,
+        *cmd,
+        cwd=tmp_path,
+        env={"ENVIRONMENT_DIR": str(environment_dir)},
+    ) as (connection, _process):
+        await _initialize_connection(connection)
+        with pytest.raises(RequestError) as exc_info:
+            await connection.load_session(
+                session_id=missing_session_id,
+                cwd=str(tmp_path),
+                mcp_servers=[],
+            )
+
+    assert exc_info.value.code == -32002
+    data = exc_info.value.data
+    assert isinstance(data, dict)
+    assert data["reason"] == "Session not found"
+    assert data["uri"] == missing_session_id
+    assert (
+        data["details"]
+        == f"Session {missing_session_id} could not be resolved from {tmp_path}"
+    )
 
 
 def _get_session_update_type(update: Any) -> str | None:

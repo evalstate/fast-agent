@@ -24,6 +24,7 @@ from acp.schema import (
 )
 
 from fast_agent.acp.permission_store import PermissionDecision, PermissionResult, PermissionStore
+from fast_agent.acp.tool_titles import build_tool_title
 from fast_agent.core.logging.logger import get_logger
 
 if TYPE_CHECKING:
@@ -245,13 +246,11 @@ class ACPToolPermissionManager:
             PermissionResult from the client
         """
         # Create descriptive title with argument summary
-        title = f"{server_name}/{tool_name}"
-        if arguments:
-            # Include trimmed arg list info in title for user context
-            arg_str = ", ".join(f"{k}={v}" for k, v in list(arguments.items()))
-            if len(arg_str) > 50:
-                arg_str = arg_str[:47] + "..."
-            title = f"{title}({arg_str})"
+        title = build_tool_title(
+            tool_name=tool_name,
+            server_name=server_name,
+            arguments=arguments,
+        )
 
         # If we have an ACP toolCallId already (e.g. from streaming tool notifications),
         # proactively update the tool call title so the client UI matches the permission prompt.

@@ -73,6 +73,7 @@ class TestACPToolProgressManager:
         # Verify it's a tool_call with pending status
         assert notification.sessionUpdate == "tool_call"
         assert notification.status == "pending"
+        assert notification.content == []
 
     @pytest.mark.asyncio
     async def test_on_tool_start_includes_all_args_in_title(self) -> None:
@@ -98,6 +99,26 @@ class TestACPToolProgressManager:
         assert "media-gen/openai-images-generate" in notification.title
         assert "prompt=lion" in notification.title
         assert "tool_result=image" in notification.title
+        assert notification.content == []
+
+    @pytest.mark.asyncio
+    async def test_on_tool_start_omits_builtin_server_name(self) -> None:
+        """Built-in ACP tools should not display the server name in titles."""
+        connection = FakeAgentSideConnection()
+        manager = ACPToolProgressManager(connection, "test-session")
+
+        await manager.on_tool_start(
+            tool_name="execute",
+            server_name="acp_terminal",
+            arguments={"command": "ls"},
+        )
+
+        assert len(connection.notifications) == 1
+        notification = connection.notifications[0]
+        assert notification.sessionUpdate == "tool_call"
+        assert notification.title.startswith("execute")
+        assert "acp_terminal" not in notification.title
+        assert notification.content == []
 
     @pytest.mark.asyncio
     async def test_delta_events_only_notify_after_threshold(self) -> None:
