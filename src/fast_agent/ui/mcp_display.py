@@ -777,7 +777,7 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
                     req = str(channel.request_count).rjust(5)
                     resp = str(channel.response_count).rjust(5)
                     notif = str(channel.notification_count).rjust(5)
-                    ping = str(channel.ping_count if channel.ping_count else "-").rjust(5)
+                    ping = str(channel.ping_count).rjust(5) if channel.ping_count else "-".rjust(5)
                     metrics_style = Colours.TEXT_DEFAULT
             else:
                 req = "-".rjust(5)
@@ -785,7 +785,18 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
                 notif = "-".rjust(5)
                 ping = "-".rjust(5)
                 metrics_style = Colours.TEXT_DIM
-            line.append(f"  {req} {resp} {notif} {ping}", style=metrics_style)
+            if metrics_style == Colours.TEXT_DIM:
+                line.append(f"  {req} {resp} {notif} {ping}", style=metrics_style)
+            else:
+                ping_style = Colours.TEXT_DEFAULT if channel and channel.ping_count else Colours.TEXT_DIM
+                line.append("  ", style="dim")
+                line.append(req, style=metrics_style)
+                line.append(" ", style="dim")
+                line.append(resp, style=metrics_style)
+                line.append(" ", style="dim")
+                line.append(notif, style=metrics_style)
+                line.append(" ", style="dim")
+                line.append(ping, style=ping_style)
 
         console.console.print(line)
 
