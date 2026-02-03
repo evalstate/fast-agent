@@ -309,12 +309,12 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
                         from fast_agent.ui.progress_display import progress_display
 
                         with progress_display.paused():
-                            rich_print(f"\n[yellow]⚠ Provider Error: {str(e)[:300]}...[/yellow]")
+                            rich_print(f"\n[yellow]▲ Provider Error: {str(e)[:300]}...[/yellow]")
                             rich_print(
                                 f"[dim]⟳ Retrying in {wait_time}s... (Attempt {attempt + 1}/{retries})[/dim]"
                             )
                     except ImportError:
-                        print(f"⚠ Provider Error: {str(e)[:300]}...")
+                        print(f"▲ Provider Error: {str(e)[:300]}...")
                         print(f"⟳ Retrying in {wait_time}s... (Attempt {attempt + 1}/{retries})")
 
                     await asyncio.sleep(wait_time)

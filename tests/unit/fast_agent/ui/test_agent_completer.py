@@ -153,6 +153,27 @@ def test_get_completions_for_shell_path_prefix():
             os.chdir(original_cwd)
 
 
+def test_get_completions_for_shell_path_prefix_with_current_dir_partial():
+    """Ensure ./ prefix is preserved when completing in the current directory."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        (Path(tmpdir) / "script.sh").touch()
+
+        completer = AgentCompleter(agents=["agent1"])
+
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(tmpdir)
+
+            doc = Document("!./s", cursor_position=len("!./s"))
+            event = CompleteEvent(completion_requested=True)
+            completions = list(completer.get_completions(doc, event))
+            names = [c.text for c in completions]
+
+            assert "./script.sh" in names
+        finally:
+            os.chdir(original_cwd)
+
+
 def test_get_completions_for_history_subcommands():
     """Test get_completions suggests /history subcommands."""
     completer = AgentCompleter(agents=["agent1"])

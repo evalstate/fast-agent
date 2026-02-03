@@ -633,12 +633,20 @@ class AgentCompleter(Completer):
     def _resolve_completion_search(self, partial: str) -> _CompletionSearch | None:
         raw_dir = ""
         prefix = ""
+        explicit_current_dir = False
         if partial:
-            if partial.endswith("/") or partial.endswith(os.sep):
+            if (
+                partial.endswith("/")
+                or partial.endswith(os.sep)
+                or (os.altsep is not None and partial.endswith(os.altsep))
+            ):
                 raw_dir = partial
                 prefix = ""
             else:
                 raw_dir, prefix = os.path.split(partial)
+                explicit_current_dir = partial.startswith(f".{os.sep}") or (
+                    os.altsep is not None and partial.startswith(f".{os.altsep}")
+                )
 
         raw_dir = raw_dir or "."
         expanded_dir = Path(os.path.expandvars(os.path.expanduser(raw_dir)))
@@ -650,6 +658,8 @@ class AgentCompleter(Completer):
             completion_prefix = raw_dir
             if not completion_prefix.endswith(("/", os.sep)):
                 completion_prefix = f"{completion_prefix}{os.sep}"
+        elif explicit_current_dir:
+            completion_prefix = f".{os.sep}"
 
         return self._CompletionSearch(
             search_dir=expanded_dir,
@@ -1779,8 +1789,6 @@ def parse_special_input(text: str) -> str | CommandPayload:
                     "false",
                     "yes",
                     "no",
-                    "1",
-                    "0",
                     "enable",
                     "enabled",
                     "disable",

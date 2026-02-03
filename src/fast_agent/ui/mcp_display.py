@@ -818,7 +818,7 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
         for channel_type, error_msg in errors:
             error_line = Text(indent)
             error_line.append("│ ", style=Colours.TEXT_DIM)
-            error_line.append("⚠ ", style=Colours.TEXT_WARNING)
+            error_line.append("▲ ", style=Colours.TEXT_WARNING)
             error_line.append(f"{channel_type}: ", style=Colours.TEXT_DEFAULT)
             # Truncate long error messages
             if len(error_msg) > 60:

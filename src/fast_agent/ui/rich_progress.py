@@ -5,11 +5,50 @@ from contextlib import contextmanager
 from typing import Any
 
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TaskID, TextColumn
+from rich.progress import Progress, ProgressColumn, Task, TaskID, TextColumn
+from rich.spinner import Spinner
+from rich.table import Column
+from rich.text import Text
 
 from fast_agent.event_progress import ProgressAction, ProgressEvent
 from fast_agent.ui.console import console as default_console
 from fast_agent.ui.console import ensure_blocking_console
+
+
+class SpinnerDescriptionColumn(ProgressColumn):
+    """Render the task description with an inline spinner (no column padding gap)."""
+
+    def __init__(
+        self,
+        *,
+        spinner_name: str = "dots",
+        spinner_style: str | None = "progress.spinner",
+        speed: float = 1.0,
+        finished_text: str = " ",
+        description_style: str = "progress.description",
+        markup: bool = True,
+        table_column: Column | None = None,
+    ) -> None:
+        self.spinner = Spinner(spinner_name, style=spinner_style, speed=speed)
+        self.finished_text = Text.from_markup(finished_text)
+        self.description_style = description_style
+        self.markup = markup
+        super().__init__(table_column=table_column or Column(no_wrap=True))
+
+    def render(self, task: "Task") -> Text:
+        description_markup = f"[{self.description_style}]{task.description}▎"
+        if self.markup:
+            description_text = Text.from_markup(description_markup)
+        else:
+            description_text = Text(description_markup, style=self.description_style)
+
+        if task.finished:
+            spinner_text = self.finished_text
+        else:
+            rendered = self.spinner.render(task.get_time())
+            spinner_text = rendered if isinstance(rendered, Text) else Text(str(rendered))
+
+        return Text.assemble(description_text, spinner_text)
 
 
 class RichProgressDisplay:
@@ -19,14 +58,11 @@ class RichProgressDisplay:
         """Initialize the progress display."""
         self.console = console or default_console
         self._taskmap: dict[str, TaskID] = {}
+        self._description_spinner = SpinnerDescriptionColumn(spinner_name="dots3")
         self._progress = Progress(
-            SpinnerColumn(spinner_name="simpleDotsScrolling"),
-            TextColumn(
-                "[progress.description]{task.description}▎",
-                #                table_column=Column(max_width=16),
-            ),
+            self._description_spinner,
             TextColumn(text_format="{task.fields[target]:<16}", style="Bold Blue"),
-            TextColumn(text_format="{task.fields[details]}", style="white"),
+            TextColumn(text_format="{task.fields[details]}", style="dim white"),
             console=self.console,
             transient=False,
         )
@@ -164,7 +200,8 @@ class RichProgressDisplay:
             formatted_text = f"▎[dim]▶[/dim] {progress_display}".ljust(17 + 11)
             description = f"[{self._get_action_style(event.action)}]{formatted_text}"
         else:
-            description = f"[{self._get_action_style(event.action)}]▎ {event.action.value:<15}"
+            formatted_text = f"▎[dim]•[/dim] {event.action.value}".ljust(17 + 11)
+            description = f"[{self._get_action_style(event.action)}]{formatted_text}"
 
         # Update basic task information
         update_kwargs: dict[str, Any] = {

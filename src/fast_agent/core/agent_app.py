@@ -515,7 +515,7 @@ class AgentApp:
                 clean_detail = clean_detail[:297] + "..."
             clean_detail = escape(clean_detail)
             return (
-                f"⚠️ **System Error:** The agent failed after repeated attempts.\n"
+                f"▲ **System Error:** The agent failed after repeated attempts.\n"
                 f"Error details: {clean_detail}\n"
                 f"\n*Your context is preserved. You can try sending the message again.*"
             )

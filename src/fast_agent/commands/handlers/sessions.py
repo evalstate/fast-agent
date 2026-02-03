@@ -51,9 +51,9 @@ def _resolve_pin_state(value: str | None, *, current: bool) -> tuple[bool | None
     if value is None or value.strip() == "" or value.strip().lower() == "toggle":
         return not current, None
     normalized = value.strip().lower()
-    if normalized in {"on", "true", "yes", "1", "enable", "enabled"}:
+    if normalized in {"on", "true", "yes", "enable", "enabled"}:
         return True, None
-    if normalized in {"off", "false", "no", "0", "disable", "disabled"}:
+    if normalized in {"off", "false", "no", "disable", "disabled"}:
         return False, None
     return None, "Usage: /session pin [on|off|id|number]"
 
