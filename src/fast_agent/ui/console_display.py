@@ -797,6 +797,7 @@ class ConsoleDisplay:
             use_plain_text=use_plain_text,
             header_left=left,
             header_right=right_info,
+            tool_header_name=name,
             progress_display=progress_display,
         )
         try:

@@ -13,7 +13,7 @@ def test_tool_stream_delta_bootstraps_mode() -> None:
     )
 
     text = "".join(segment.text for segment in assembler.segments)
-    assert "Calling search" in text
+    assert "-> search" in text
     assert "{\"q\":1}" in text
 
     assembler.handle_tool_event("stop", {"tool_name": "search", "tool_use_id": "tool-1"})

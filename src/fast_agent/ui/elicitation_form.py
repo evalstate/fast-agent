@@ -855,7 +855,7 @@ class ElicitationForm:
                     else:
                         data[field_name] = value
                 elif field_name not in self.required_fields:
-                    data[field_name] = None
+                    continue
 
             elif isinstance(widget, Checkbox):
                 data[field_name] = widget.checked

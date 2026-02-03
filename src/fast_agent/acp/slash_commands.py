@@ -839,8 +839,6 @@ class SlashCommandHandler:
                     "false",
                     "yes",
                     "no",
-                    "1",
-                    "0",
                     "enable",
                     "enabled",
                     "disable",

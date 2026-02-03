@@ -241,7 +241,7 @@ class StreamSegmentBuffer:
 class ToolStreamState:
     tool_use_id: str
     tool_name: str
-    segment_index: int
+    segment_index: int | None
     raw_text: str = ""
     display_text: str = ""
     completed: bool = False
@@ -254,9 +254,12 @@ class ToolStreamState:
         self.display_text += self.decoder.decode(chunk)
 
     def render_text(self, *, prefix: str, pretty: bool) -> str:
-        header = f"{prefix} Calling {self.tool_name}\n"
-        if not self.display_text and not pretty:
-            return header
+        tool_name = self.tool_name or "tool"
+        header_prefix = prefix.strip()
+        if header_prefix:
+            header = f"{header_prefix} {tool_name}\n"
+        else:
+            header = f"{tool_name}\n"
 
         args_text = self.display_text
         if pretty and self.raw_text.strip():
@@ -264,8 +267,6 @@ class ToolStreamState:
             if formatted is not None:
                 args_text = formatted
 
-        if pretty and not args_text:
-            return header + "\n"
         if args_text and pretty and not args_text.endswith("\n"):
             args_text += "\n"
         return header + (args_text or "")
@@ -353,23 +354,34 @@ class StreamSegmentAssembler:
 
         if event_type == "start":
             if state is None:
-                state = self._start_tool(tool_use_id, tool_name)
+                state = self._start_tool(tool_use_id, tool_name, create_segment=False)
             state.completed = False
+            chunk = str(info.get("chunk") or "") if info else ""
+            if not chunk:
+                return False
+            state.append(chunk)
             self._update_tool_segment(state, pretty=False)
             return True
 
         if event_type == "delta":
-            if state is None:
-                state = self._start_tool(tool_use_id, tool_name)
             chunk = str(info.get("chunk") or "") if info else ""
+            if not chunk:
+                return False
+            if state is None:
+                state = self._start_tool(tool_use_id, tool_name, create_segment=False)
             state.append(chunk)
             self._update_tool_segment(state, pretty=False)
             return True
 
         if event_type == "stop":
             if state is None:
-                state = self._start_tool(tool_use_id, tool_name)
+                return False
             state.completed = True
+            if not state.raw_text and not state.display_text:
+                self._tool_states.pop(tool_use_id, None)
+                if self._last_tool_id == tool_use_id:
+                    self._last_tool_id = None
+                return False
             self._update_tool_segment(state, pretty=True)
             self._tool_states.pop(tool_use_id, None)
             if self._last_tool_id == tool_use_id:
@@ -415,20 +427,42 @@ class StreamSegmentAssembler:
         if start_index > 0:
             del segments[:start_index]
 
-    def _start_tool(self, tool_use_id: str, tool_name: str) -> ToolStreamState:
-        self._buffer.consume_reasoning_gap()
-        self._buffer.ensure_separator()
-        segment = StreamSegment(kind="tool", text="", tool_name=tool_name, tool_use_id=tool_use_id)
-        self._buffer.append_segment(segment)
+    def _start_tool(
+        self,
+        tool_use_id: str,
+        tool_name: str,
+        *,
+        create_segment: bool = True,
+    ) -> ToolStreamState:
+        segment_index: int | None = None
+        if create_segment:
+            self._buffer.consume_reasoning_gap()
+            self._buffer.ensure_separator()
+            segment = StreamSegment(
+                kind="tool", text="", tool_name=tool_name, tool_use_id=tool_use_id
+            )
+            self._buffer.append_segment(segment)
+            segment_index = len(self._buffer.segments) - 1
         state = ToolStreamState(
             tool_use_id=tool_use_id,
             tool_name=tool_name,
-            segment_index=len(self._buffer.segments) - 1,
+            segment_index=segment_index,
         )
         self._tool_states[tool_use_id] = state
         return state
 
     def _update_tool_segment(self, state: ToolStreamState, *, pretty: bool) -> None:
+        if state.segment_index is None or state.segment_index >= len(self._buffer.segments):
+            self._buffer.consume_reasoning_gap()
+            self._buffer.ensure_separator()
+            segment = StreamSegment(
+                kind="tool",
+                text="",
+                tool_name=state.tool_name,
+                tool_use_id=state.tool_use_id,
+            )
+            self._buffer.append_segment(segment)
+            state.segment_index = len(self._buffer.segments) - 1
         segment = self._buffer.segments[state.segment_index]
         segment.text = state.render_text(prefix=self._tool_prefix, pretty=pretty)
 

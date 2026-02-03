@@ -718,7 +718,7 @@ class InteractivePrompt:
                 progress_display.pause()
                 emit_prompt_mark("D")
 
-            if result and result.startswith("⚠️ **System Error:**"):
+            if result and result.startswith("▲ **System Error:**"):
                 # rich_print(result)
                 print(result)
 
