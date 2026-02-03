@@ -82,6 +82,7 @@ class StreamingMessageHandle:
         use_plain_text: bool = False,
         header_left: str = "",
         header_right: str = "",
+        tool_header_name: str | None = None,
         progress_display: Any = None,
         performance_hook: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
@@ -92,14 +93,18 @@ class StreamingMessageHandle:
         self._use_plain_text = use_plain_text
         self._header_left = header_left
         self._header_right = header_right
+        self._tool_header_prefix: Text | None = None
+        self._tool_header_prefix_plain = ""
+        self._tool_header_color: str | None = None
         self._progress_display = progress_display
         self._progress_paused = False
         self._plain_text_style: str | None = None
         base_kind = "plain" if use_plain_text else "markdown"
         self._render_reasoning_markdown = not use_plain_text
+        self._set_tool_header_prefix(tool_header_name)
         self._segment_assembler = StreamSegmentAssembler(
             base_kind=base_kind,
-            tool_prefix="→",
+            tool_prefix=self._tool_header_prefix_plain,
         )
         self._markdown_truncator = MarkdownTruncator(target_height_ratio=1.0)
         self._plain_truncator = PlainTextTruncator(target_height_ratio=1.0)
@@ -152,6 +157,24 @@ class StreamingMessageHandle:
 
         if self._async_mode and self._loop and self._queue is not None:
             self._worker_task = self._loop.create_task(self._render_worker())
+
+    def _set_tool_header_prefix(self, tool_header_name: str | None) -> None:
+        from fast_agent.ui.message_primitives import MESSAGE_CONFIGS, MessageType
+
+        config = MESSAGE_CONFIGS[MessageType.TOOL_CALL]
+        self._tool_header_color = config["block_color"]
+
+        header_markup = self._display.build_header_left(
+            block_color=config["block_color"],
+            arrow=config["arrow"],
+            arrow_style=config["arrow_style"],
+            name=tool_header_name,
+            is_error=False,
+            show_hook_indicator=False,
+        )
+        header_text = Text.from_markup(header_markup)
+        self._tool_header_prefix = header_text
+        self._tool_header_prefix_plain = header_text.plain
 
     def update(self, chunk: str) -> None:
         if not self._active or not chunk:
@@ -397,8 +420,29 @@ class StreamingMessageHandle:
                     renderables.append(Text(segment.text, style="dim italic"))
                     content_height += estimate_plain_text_height(segment.text, width)
             else:
-                renderables.append(Text(segment.text))
-                content_height += estimate_plain_text_height(segment.text, width)
+                if segment.kind == "tool":
+                    header_text = (
+                        self._tool_header_prefix.copy()
+                        if self._tool_header_prefix is not None
+                        else Text()
+                    )
+                    tool_name = segment.tool_name or "tool"
+                    if tool_name:
+                        if header_text.plain:
+                            header_text.append(" ")
+                        header_text.append(tool_name, style=self._tool_header_color or "")
+
+                    tool_text = header_text
+                    if segment.text:
+                        _, _, args_text = segment.text.partition("\n")
+                        if args_text:
+                            tool_text.append("\n")
+                            tool_text.append(args_text)
+                    renderables.append(tool_text)
+                    content_height += estimate_plain_text_height(tool_text.plain, width)
+                else:
+                    renderables.append(Text(segment.text))
+                    content_height += estimate_plain_text_height(segment.text, width)
 
         self._max_render_height = min(self._max_render_height, max_allowed_height)
         budget_height = min(content_height + self._height_fudge, max_allowed_height)

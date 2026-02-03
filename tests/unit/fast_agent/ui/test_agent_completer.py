@@ -4,6 +4,7 @@ import os
 import tempfile
 from pathlib import Path
 
+from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
 
 import fast_agent.config as config_module
@@ -124,6 +125,30 @@ def test_get_completions_for_history_load_command():
             names = [c.text for c in completions]
 
             assert "test.json" in names
+        finally:
+            os.chdir(original_cwd)
+
+
+def test_get_completions_for_shell_path_prefix():
+    """Ensure shell completions treat path-like tokens as paths."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        (Path(tmpdir) / "script.sh").touch()
+        subdir = Path(tmpdir) / "data"
+        subdir.mkdir()
+
+        completer = AgentCompleter(agents=["agent1"])
+
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(tmpdir)
+
+            doc = Document("!./", cursor_position=len("!./"))
+            event = CompleteEvent(completion_requested=True)
+            completions = list(completer.get_completions(doc, event))
+            names = [c.text for c in completions]
+
+            assert "./script.sh" in names
+            assert "./data/" in names
         finally:
             os.chdir(original_cwd)
 
