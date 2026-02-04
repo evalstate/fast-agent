@@ -230,7 +230,7 @@ def resolve_skill_directories(
         override_dirs = resolved
     manager_dir = get_manager_directory(resolved_settings, cwd=cwd)
     if override_dirs is None:
-        return [manager_dir]
+        return default_skill_paths(resolved_settings, cwd=base)
     if manager_dir not in override_dirs:
         override_dirs.append(manager_dir)
     return override_dirs

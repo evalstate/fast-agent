@@ -246,6 +246,8 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                     if (
                         raw_setting is not None
                         and "reasoning_effort" in config.model_fields_set
+                        and config.reasoning_effort
+                        != config.model_fields["reasoning_effort"].default
                     ):
                         self.logger.warning(
                             "Bedrock config 'reasoning_effort' is deprecated; use 'reasoning'."
