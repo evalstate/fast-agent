@@ -87,7 +87,7 @@ def check_api_keys(secrets_summary: dict, config_summary: dict) -> dict:
     """Check if API keys are configured in secrets file or environment, including Azure DefaultAzureCredential.
     Now also checks Azure config in main config file for retrocompatibility.
     """
-    
+
     results = {
         provider.config_name: {"env": "", "config": ""}
         for provider in Provider
@@ -401,7 +401,9 @@ def show_check_summary(env_dir: Path | None = None) -> None:
         )
     else:  # parsed successfully
         env_table.add_row("Config File", f"[green]Found[/green] ({config_path})")
-        default_model_value = config_summary.get("default_model", "gpt-5-mini.low (system default)")
+        default_model_value = config_summary.get(
+            "default_model", "gpt-5-mini?reasoning=low (system default)"
+        )
         env_table.add_row("Default Model", f"[green]{default_model_value}[/green]")
 
     # Keyring backend (always shown in application-level settings)
@@ -685,7 +687,12 @@ def show_check_summary(env_dir: Path | None = None) -> None:
                     persist = "keyring"
                     if cfg.auth is not None and hasattr(cfg.auth, "persist"):
                         persist = getattr(cfg.auth, "persist") or "keyring"
-                    if keyring and keyring_status.writable and persist == "keyring" and oauth_enabled:
+                    if (
+                        keyring
+                        and keyring_status.writable
+                        and persist == "keyring"
+                        and oauth_enabled
+                    ):
                         identity = compute_server_identity(cfg)
                         tkey = f"oauth:tokens:{identity}"
                         try:
@@ -855,7 +862,7 @@ def show_check_summary(env_dir: Path | None = None) -> None:
                     key_status = api_keys.get(provider.config_name)
                     if key_status and not key_status["env"] and not key_status["config"]:
                         api_warning_messages.append(
-                            f"Warning: Card \"{card.name}\" uses model \"{model}\" "
+                            f'Warning: Card "{card.name}" uses model "{model}" '
                             f"({provider.display_name}) but no API key configured."
                         )
                         warned_cards.add(card.name)
@@ -871,10 +878,7 @@ def show_check_summary(env_dir: Path | None = None) -> None:
 
     if len(default_agent_names) > 1:
         joined = ", ".join(default_agent_names)
-        console.print(
-            "[yellow]Warning:[/yellow] multiple agents are set as default: "
-            f"{joined}"
-        )
+        console.print(f"[yellow]Warning:[/yellow] multiple agents are set as default: {joined}")
 
     for warning in api_warning_messages:
         console.print(f"[yellow]{warning}[/yellow]")

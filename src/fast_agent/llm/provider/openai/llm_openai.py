@@ -95,6 +95,8 @@ class OpenAILLM(
                     if (
                         raw_setting is not None
                         and "reasoning_effort" in config.model_fields_set
+                        and config.reasoning_effort
+                        != config.model_fields["reasoning_effort"].default
                     ):
                         self.logger.warning(
                             "OpenAI config 'reasoning_effort' is deprecated; use 'reasoning'."
