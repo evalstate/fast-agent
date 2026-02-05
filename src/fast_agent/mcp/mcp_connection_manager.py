@@ -19,11 +19,7 @@ from mcp.client.stdio import (
     get_default_environment,
 )
 from mcp.client.streamable_http import GetSessionIdCallback
-from mcp.shared._httpx_utils import (
-    MCP_DEFAULT_SSE_READ_TIMEOUT,
-    MCP_DEFAULT_TIMEOUT,
-    create_mcp_http_client,
-)
+from mcp.shared._httpx_utils import MCP_DEFAULT_SSE_READ_TIMEOUT, MCP_DEFAULT_TIMEOUT
 from mcp.types import Implementation, JSONRPCMessage, ServerCapabilities
 
 from fast_agent.config import MCPServerSettings
@@ -696,10 +692,18 @@ class MCPConnectionManager(ContextDependent):
                         read=config.http_read_timeout_seconds or MCP_DEFAULT_SSE_READ_TIMEOUT,
                     )
 
-                http_client = create_mcp_http_client(
+                # Use an HTTP client that allows concurrent POSTs so elicitation
+                # responses are not blocked behind long-running requests.
+                limits = httpx.Limits(
+                    max_connections=100,
+                    max_keepalive_connections=0,  # force new connection per request to avoid blocking
+                )
+                http_client = httpx.AsyncClient(
                     headers=headers,
                     auth=oauth_auth,
                     timeout=timeout,
+                    limits=limits,
+                    http2=False,  # avoid h2 dependency; still allow concurrent HTTP/1.1 connections
                 )
                 return tracking_streamablehttp_client(
                     config.url,
