@@ -21,6 +21,14 @@ mcp:
     fetch:
       command: "uvx"
       args: ["-q", "--no-progress", "mcp-server-fetch"]
+      env:
+        # mcp-server-fetch uses readabilipy which may call `npm install` on first run.
+        # npm output on stdout will break MCP stdio JSON-RPC parsing, so silence it.
+        npm_config_loglevel: "silent"
+        npm_config_progress: "false"
+        npm_config_fund: "false"
+        npm_config_audit: "false"
+        npm_config_update_notifier: "false"
     time:
       command: "uvx"
       args: ["-q", "--no-progress", "mcp-server-time"]
