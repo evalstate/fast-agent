@@ -20,7 +20,7 @@ mcp:
       args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
     fetch:
       command: "uvx"
-      args: ["mcp-server-fetch"]
+      args: ["-q", "--no-progress", "mcp-server-fetch"]
     time:
       command: "uvx"
-      args: ["mcp-server-time"]
+      args: ["-q", "--no-progress", "mcp-server-time"]
