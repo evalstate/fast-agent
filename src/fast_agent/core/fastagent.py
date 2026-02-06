@@ -128,8 +128,8 @@ class FastAgent(DecoratorMixin):
             )
             parser.add_argument(
                 "--agent",
-                default="default",
-                help="Specify the agent to send a message to (used with --message)",
+                default=None,
+                help="Agent name for --message/--prompt-file (defaults to the app default agent)",
             )
             parser.add_argument(
                 "-m",
@@ -1590,10 +1590,10 @@ class FastAgent(DecoratorMixin):
 
                     # Handle direct message sending if  --message is provided
                     if hasattr(self.args, "message") and self.args.message:
-                        agent_name = self.args.agent
+                        agent_name = getattr(self.args, "agent", None)
                         message = self.args.message
 
-                        if agent_name not in active_agents:
+                        if agent_name and agent_name not in active_agents:
                             available_agents = ", ".join(active_agents.keys())
                             print(
                                 f"\n\nError: Agent '{agent_name}' not found. Available agents: {available_agents}"
@@ -1602,7 +1602,8 @@ class FastAgent(DecoratorMixin):
 
                         try:
                             # Get response from the agent
-                            agent = active_agents[agent_name]
+                            # If agent_name is omitted, resolve the app default agent (config.default=True)
+                            agent = wrapper._agent(agent_name)
                             response = await agent.send(message)
 
                             # In quiet mode, just print the raw response
@@ -1612,15 +1613,16 @@ class FastAgent(DecoratorMixin):
 
                             raise SystemExit(0)
                         except Exception as e:
-                            print(f"\n\nError sending message to agent '{agent_name}': {str(e)}")
+                            display_agent = agent_name or "<default>"
+                            print(f"\n\nError sending message to agent '{display_agent}': {str(e)}")
                             raise SystemExit(1)
 
                     if hasattr(self.args, "prompt_file") and self.args.prompt_file:
-                        agent_name = self.args.agent
+                        agent_name = getattr(self.args, "agent", None)
                         prompt: list[PromptMessageExtended] = load_prompt(
                             Path(self.args.prompt_file)
                         )
-                        if agent_name not in active_agents:
+                        if agent_name and agent_name not in active_agents:
                             available_agents = ", ".join(active_agents.keys())
                             print(
                                 f"\n\nError: Agent '{agent_name}' not found. Available agents: {available_agents}"
@@ -1629,7 +1631,8 @@ class FastAgent(DecoratorMixin):
 
                         try:
                             # Get response from the agent
-                            agent = active_agents[agent_name]
+                            # If agent_name is omitted, resolve the app default agent (config.default=True)
+                            agent = wrapper._agent(agent_name)
                             prompt_result = await agent.generate(prompt)
 
                             # In quiet mode, just print the raw response
@@ -1639,7 +1642,8 @@ class FastAgent(DecoratorMixin):
 
                             raise SystemExit(0)
                         except Exception as e:
-                            print(f"\n\nError sending message to agent '{agent_name}': {str(e)}")
+                            display_agent = agent_name or "<default>"
+                            print(f"\n\nError sending message to agent '{display_agent}': {str(e)}")
                             raise SystemExit(1)
 
                     yield wrapper
