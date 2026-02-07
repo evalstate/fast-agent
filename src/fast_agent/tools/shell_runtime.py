@@ -48,8 +48,8 @@ class ShellRuntime:
         self._warning_interval_seconds = warning_interval_seconds
         self._skills_directory = skills_directory
         self._working_directory = working_directory
-        resolved_limit = output_byte_limit or DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
-        self._output_byte_limit = min(resolved_limit, MAX_TERMINAL_OUTPUT_BYTE_LIMIT)
+        self._output_byte_limit = DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+        self.set_output_byte_limit(output_byte_limit)
         self.enabled: bool = activation_reason is not None
         self._tool: Tool | None = None
         self._display = ConsoleDisplay(config=config)
@@ -85,6 +85,16 @@ class ShellRuntime:
     @property
     def tool(self) -> Tool | None:
         return self._tool
+
+    @property
+    def output_byte_limit(self) -> int:
+        """Return the current byte limit used to retain command output."""
+        return self._output_byte_limit
+
+    def set_output_byte_limit(self, output_byte_limit: int | None) -> None:
+        """Set output retention byte limit, honoring global defaults and hard cap."""
+        resolved_limit = output_byte_limit or DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+        self._output_byte_limit = min(resolved_limit, MAX_TERMINAL_OUTPUT_BYTE_LIMIT)
 
     def announce(self) -> None:
         """Inform the user why the local shell tool is active."""

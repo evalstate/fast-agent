@@ -5,6 +5,7 @@ for the application configuration.
 
 import os
 import re
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -15,7 +16,7 @@ if TYPE_CHECKING:
     from mcp import Implementation
 else:  # pragma: no cover - used only to satisfy type checkers
     Implementation = Any
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
@@ -379,17 +380,12 @@ class AnthropicSettings(BaseModel):
         default="5m",
         description="Cache TTL: 5m (standard) or 1h (extended, additional cost)",
     )
-    thinking_enabled: bool = Field(
-        default=False,
-        description="DEPRECATED: Use 'reasoning' instead. Legacy toggle for extended thinking.",
-    )
-    thinking_budget_tokens: int = Field(
-        default=10000,
-        description="DEPRECATED: Use 'reasoning' instead. Legacy budget setting.",
-    )
     reasoning: ReasoningEffortSetting | str | int | bool | None = Field(
         default=None,
-        description="Reasoning budget (int tokens) or toggle (bool). Use 0 or false to disable.",
+        description=(
+            "Reasoning setting. Supports effort strings (for adaptive models), budget tokens "
+            "(int), or toggle (bool). Use 0 or false to disable."
+        ),
     )
     structured_output_mode: StructuredOutputMode | Literal["auto"] = Field(
         default="auto",
@@ -894,6 +890,9 @@ class Settings(BaseSettings):
     Defaults to 1; can be overridden via config or FAST_AGENT_RETRIES env.
     """
 
+    _config_file: str | None = PrivateAttr(default=None)
+    _secrets_file: str | None = PrivateAttr(default=None)
+
     @classmethod
     def find_config(cls) -> Path | None:
         """Find the config file in the current directory or parent directories."""
@@ -1013,7 +1012,28 @@ def get_settings(config_path: str | os.PathLike[str] | None = None) -> Settings:
             resolved_secrets_yaml = resolve_env_vars(yaml_secrets)
             merged_settings = deep_merge(merged_settings, resolved_secrets_yaml)
 
+    legacy_keys: list[str] = []
+    anthropic_settings = merged_settings.get("anthropic")
+    if isinstance(anthropic_settings, dict):
+        for key in ("thinking_enabled", "thinking_budget_tokens"):
+            if key in anthropic_settings:
+                legacy_keys.append(key)
+    legacy_env = [
+        key
+        for key in ("ANTHROPIC__THINKING_ENABLED", "ANTHROPIC__THINKING_BUDGET_TOKENS")
+        if os.getenv(key) is not None
+    ]
+    if legacy_keys or legacy_env:
+        warnings.warn(
+            "Anthropic config keys 'thinking_enabled'/'thinking_budget_tokens' are deprecated and "
+            "ignored. Use 'anthropic.reasoning' instead.",
+            UserWarning,
+            stacklevel=3,
+        )
+
     _settings = Settings(**merged_settings)
+    _settings._config_file = str(config_file) if config_file else None
+    _settings._secrets_file = str(secrets_file) if secrets_file else None
     return _settings
 
 

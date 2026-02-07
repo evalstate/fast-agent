@@ -151,6 +151,9 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         """
         # Extract request_params before super() call
         self._init_request_params = request_params
+        # Pop long_context before passing kwargs to ContextDependent;
+        # subclasses (e.g. AnthropicLLM) may pop it first for their own handling.
+        long_context_requested = kwargs.pop("long_context", False)
         super().__init__(context=context, **kwargs)
         self.logger = get_logger(__name__)
         self.executor = self.context.executor
@@ -195,6 +198,17 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             if self._model_name
             else None
         )
+
+        # Context window override — set by providers that support extended context
+        # (e.g., Anthropic 1M beta). Defaults to None (use ModelDatabase value).
+        self._context_window_override: int | None = None
+
+        # Warn if long_context was requested but this provider didn't handle it
+        if long_context_requested and self._context_window_override is None:
+            self.logger.warning(
+                f"Long context (context=1m) is not supported for provider "
+                f"'{provider.value}'. Ignoring."
+            )
 
         self.verb = kwargs.get("verb")
 
@@ -1045,9 +1059,15 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
         Uses a lightweight resolver backed by the ModelDatabase and provides
         text/document/vision flags, context window, etc.
+        Applies context_window_override when set (e.g., Anthropic 1M beta).
         """
+        from dataclasses import replace
+
         from fast_agent.llm.model_info import ModelInfo
 
         if not self._model_name:
             return None
-        return ModelInfo.from_name(self._model_name, self._provider)
+        info = ModelInfo.from_name(self._model_name, self._provider)
+        if info and self._context_window_override is not None:
+            info = replace(info, context_window=self._context_window_override)
+        return info

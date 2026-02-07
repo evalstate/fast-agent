@@ -1249,7 +1249,7 @@ class AgentCompleter(Completer):
             parts = remainder.split(maxsplit=1)
             subcommands = {
                 "reasoning": (
-                    "Set reasoning effort (off/low/medium/high/xhigh or budgets like "
+                    "Set reasoning effort (off/low/medium/high/max/xhigh or budgets like "
                     "0/1024/16000/32000)"
                 ),
             }
@@ -2726,7 +2726,7 @@ async def handle_special_commands(
         rich_print("  /skills add    - Install a skill from the marketplace")
         rich_print("  /skills remove - Remove a skill from the manager directory")
         rich_print(
-            "  /model reasoning <value> - Set reasoning effort (off/low/medium/high/xhigh or budgets like 0/1024/16000/32000)"
+            "  /model reasoning <value> - Set reasoning effort (off/low/medium/high/max/xhigh or budgets like 0/1024/16000/32000)"
         )
         rich_print("  /model verbosity <value> - Set text verbosity (low/medium/high)")
         rich_print("  /history [agent_name] - Show chat history overview")
