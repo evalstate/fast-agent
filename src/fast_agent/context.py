@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.mcp import McpInstrumentor
 from opentelemetry.propagate import set_global_textmap
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
@@ -141,8 +142,7 @@ async def configure_otel(config: "Settings") -> None:
     except Exception:  # pragma: no cover - optional instrumentation
         pass
 
-
-#   McpInstrumentor().instrument()
+    McpInstrumentor().instrument()
 
 
 async def configure_logger(config: "Settings") -> None:
