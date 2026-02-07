@@ -209,13 +209,29 @@ class MCPAggregator(ContextDependent):
         self._persistent_connection_manager: MCPConnectionManager | None = None
         self._owns_connection_manager = False
 
-        # Store tool execution handler for integration with ACP or other protocols
-        # Default to NoOpToolExecutionHandler if none provided
-        self._tool_handler = tool_handler or NoOpToolExecutionHandler()
+        # Store tool execution handler for integration with ACP or other protocols.
+        #
+        # In ACP server contexts we attach an ACPContext to `Context` objects and store
+        # a per-session progress manager there. Agent-as-tools workflows can spawn
+        # detached agent instances (and thus new MCPAggregators) at runtime; those
+        # aggregators must pick up the same progress manager so nested tool calls
+        # are visible to ACP clients.
+        resolved_tool_handler = tool_handler
+        if resolved_tool_handler is None and context is not None:
+            acp_ctx = getattr(context, "acp", None)
+            resolved_tool_handler = getattr(acp_ctx, "progress_manager", None) or None
 
-        # Store tool permission handler for ACP or other permission systems
-        # Default to NoOpToolPermissionHandler if none provided (allows all)
-        self._permission_handler = permission_handler or NoOpToolPermissionHandler()
+        # Default to NoOpToolExecutionHandler if none provided.
+        self._tool_handler = resolved_tool_handler or NoOpToolExecutionHandler()
+
+        # Store tool permission handler for ACP or other permission systems.
+        resolved_permission_handler = permission_handler
+        if resolved_permission_handler is None and context is not None:
+            acp_ctx = getattr(context, "acp", None)
+            resolved_permission_handler = getattr(acp_ctx, "permission_handler", None) or None
+
+        # Default to NoOpToolPermissionHandler if none provided (allows all).
+        self._permission_handler = resolved_permission_handler or NoOpToolPermissionHandler()
 
         # Set up logger with agent name in namespace if available
         global logger
