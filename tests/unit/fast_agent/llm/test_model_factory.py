@@ -26,6 +26,7 @@ def test_simple_model_names():
         ("o1-mini", Provider.RESPONSES),
         ("claude-3-haiku-20240307", Provider.ANTHROPIC),
         ("claude-3-5-sonnet-20240620", Provider.ANTHROPIC),
+        ("claude-opus-4-6", Provider.ANTHROPIC),
     ]
 
     for model_name, expected_provider in cases:
@@ -180,6 +181,26 @@ def test_huggingface_alias_without_provider():
     assert config.model_name == "moonshotai/Kimi-K2-Instruct-0905"
 
 
+def test_opus_aliases_resolve_to_opus_46():
+    config = ModelFactory.parse_model_string("opus")
+    assert config.provider == Provider.ANTHROPIC
+    assert config.model_name == "claude-opus-4-6"
+
+    config = ModelFactory.parse_model_string("opus46")
+    assert config.provider == Provider.ANTHROPIC
+    assert config.model_name == "claude-opus-4-6"
+
+
+def test_codexplan_aliases_use_codex_oauth_provider():
+    config = ModelFactory.parse_model_string("codexplan")
+    assert config.provider == Provider.CODEX_RESPONSES
+    assert config.model_name == "gpt-5.3-codex"
+
+    config = ModelFactory.parse_model_string("codexplan52")
+    assert config.provider == Provider.CODEX_RESPONSES
+    assert config.model_name == "gpt-5.2-codex"
+
+
 def test_huggingface_alias_with_default_provider():
     """Test HuggingFace alias that includes a default provider in the alias"""
     # glm alias has :cerebras as default provider
@@ -255,3 +276,85 @@ def test_huggingface_display_info_user_override():
     info = llm.get_hf_display_info()
     assert info["model"] == "zai-org/GLM-4.6"
     assert info["provider"] == "groq"
+
+
+# --- Long context (context=1m) tests ---
+
+
+def test_model_query_context_1m():
+    """Test parsing context=1m for a supported Anthropic model."""
+    config = ModelFactory.parse_model_string("claude-opus-4-6?context=1m")
+    assert config.provider == Provider.ANTHROPIC
+    assert config.model_name == "claude-opus-4-6"
+    assert config.long_context is True
+
+
+def test_model_query_context_1m_with_reasoning():
+    """Test context=1m composes with other query parameters."""
+    config = ModelFactory.parse_model_string("claude-sonnet-4-5?context=1m&reasoning=4096")
+    assert config.long_context is True
+    assert config.reasoning_effort == ReasoningEffortSetting(kind="budget", value=4096)
+
+
+def test_model_query_context_1m_case_insensitive():
+    """The context value should be case-insensitive."""
+    config = ModelFactory.parse_model_string("claude-sonnet-4-0?context=1M")
+    assert config.long_context is True
+
+
+def test_model_query_context_invalid_value():
+    """Only '1m' is accepted; anything else raises."""
+    with pytest.raises(ModelConfigError):
+        ModelFactory.parse_model_string("claude-opus-4-6?context=2m")
+
+
+def test_model_query_context_empty_is_ignored():
+    """Empty context= is dropped by parse_qs, treated as absent."""
+    config = ModelFactory.parse_model_string("claude-opus-4-6?context=")
+    assert config.long_context is False
+
+
+def test_model_query_context_absent_means_false():
+    """Without context=, long_context defaults to False."""
+    config = ModelFactory.parse_model_string("claude-opus-4-6")
+    assert config.long_context is False
+
+
+def test_model_query_context_non_anthropic_parses():
+    """Parsing context=1m succeeds even for non-Anthropic models.
+
+    Provider-level validation happens later, not at parse time.
+    """
+    config = ModelFactory.parse_model_string("gpt-5?context=1m")
+    assert config.long_context is True
+    assert config.provider == Provider.RESPONSES
+
+
+# --- Long context: LLM instantiation tests ---
+
+
+def test_anthropic_long_context_creates_llm_with_override():
+    """Test that creating an Anthropic LLM with long_context sets the override."""
+    factory = ModelFactory.create_factory("claude-opus-4-6?context=1m")
+    agent = LlmAgent(AgentConfig(name="test"))
+    llm = factory(agent)
+    assert isinstance(llm, AnthropicLLM)
+    assert llm._long_context is True
+    assert llm._context_window_override == 1_000_000
+    assert llm._usage_accumulator.context_window_size == 1_000_000
+    # model_info should reflect the override
+    info = llm.model_info
+    assert info is not None
+    assert info.context_window == 1_000_000
+
+
+def test_anthropic_long_context_default_is_200k():
+    """Without context=1m, context window should be 200K."""
+    factory = ModelFactory.create_factory("claude-opus-4-6")
+    agent = LlmAgent(AgentConfig(name="test"))
+    llm = factory(agent)
+    assert isinstance(llm, AnthropicLLM)
+    assert llm._long_context is False
+    info = llm.model_info
+    assert info is not None
+    assert info.context_window == 200_000

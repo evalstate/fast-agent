@@ -14,12 +14,15 @@ from rich.markup import escape
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.core.exceptions import AgentConfigError, ServerConfigError
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import AgentProtocol
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.usage_tracking import last_turn_usage
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.ui.interactive_prompt import InteractivePrompt
 from fast_agent.ui.progress_display import progress_display
+
+logger = get_logger(__name__)
 
 
 class AgentApp:
@@ -75,12 +78,23 @@ class AgentApp:
         self._dump_agent_callback = dump_agent_callback
         self._tool_only_agents: set[str] = tool_only_agents or set()
         self._card_collision_warnings: list[str] = card_collision_warnings or []
+        self._apply_agent_registry()
+
+    def _apply_agent_registry(self) -> None:
+        for agent in self._agents.values():
+            registry_setter = getattr(agent, "set_agent_registry", None)
+            if callable(registry_setter):
+                registry_setter(self._agents)
 
     def __getitem__(self, key: str) -> AgentProtocol:
         """Allow access to agents using dictionary syntax."""
         if key not in self._agents:
             raise KeyError(f"Agent '{key}' not found")
         return self._agents[key]
+
+    def get_agent(self, name: str) -> AgentProtocol | None:
+        """Return the named agent if available, else None."""
+        return self._agents.get(name)
 
     def __getattr__(self, name: str) -> AgentProtocol:
         """Allow access to agents using attribute syntax."""
@@ -351,6 +365,7 @@ class AgentApp:
         if not agents:
             raise ValueError("No agents provided!")
         self._agents = agents
+        self._apply_agent_registry()
         if tool_only_agents is not None:
             self._tool_only_agents = tool_only_agents
         if card_collision_warnings is not None:
@@ -500,7 +515,7 @@ class AgentApp:
                 clean_detail = clean_detail[:297] + "..."
             clean_detail = escape(clean_detail)
             return (
-                f"⚠️ **System Error:** The agent failed after repeated attempts.\n"
+                f"▲ **System Error:** The agent failed after repeated attempts.\n"
                 f"Error details: {clean_detail}\n"
                 f"\n*Your context is preserved. You can try sending the message again.*"
             )
@@ -518,6 +533,13 @@ class AgentApp:
                 # If we catch an exception here, it means all retries FAILED.
                 if isinstance(e, (KeyboardInterrupt, AgentConfigError, ServerConfigError)):
                     raise e
+
+                logger.exception(
+                    "Agent failed after repeated attempts",
+                    agent_name=agent_name,
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
 
                 # Return pretty text for API failures (keeps session alive)
                 return _format_final_error(e)

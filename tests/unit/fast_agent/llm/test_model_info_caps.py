@@ -30,6 +30,12 @@ class DummyLLM:
         self.provider = provider
         self.default_request_params = type("Params", (), {"model": model})()
 
+    @property
+    def model_info(self) -> "ModelInfo | None":
+        if not self.model_name:
+            return None
+        return ModelInfo.from_name(self.model_name, self.provider)
+
 
 class DummyAgent:
     def __init__(self, model: str, provider: Provider = Provider.GOOGLE) -> None:

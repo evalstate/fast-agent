@@ -60,7 +60,12 @@ from fast_agent.llm.provider.anthropic.multipart_converter_anthropic import (
 )
 from fast_agent.llm.provider.error_utils import build_stream_failure_response
 from fast_agent.llm.provider_types import Provider
-from fast_agent.llm.reasoning_effort import parse_reasoning_setting
+from fast_agent.llm.reasoning_effort import (
+    AUTO_REASONING,
+    format_reasoning_setting,
+    is_auto_reasoning,
+    parse_reasoning_setting,
+)
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.structured_output_mode import StructuredOutputMode
 from fast_agent.llm.usage_tracking import TurnUsage
@@ -71,6 +76,9 @@ DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-0"
 STRUCTURED_OUTPUT_TOOL_NAME = "return_structured_output"
 STRUCTURED_OUTPUT_BETA = "structured-outputs-2025-11-13"
 INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14"
+
+# TODO: Remove beta header once Anthropic promotes 1M context to GA.
+LONG_CONTEXT_BETA = "context-1m-2025-08-07"
 
 # Stream capture mode - when enabled, saves all streaming chunks to files for debugging
 # Set FAST_AGENT_LLM_TRACE=1 (or any non-empty value) to enable
@@ -292,35 +300,44 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         # Initialize logger - keep it simple without name reference
         kwargs.pop("provider", None)
         structured_override = kwargs.pop("structured_output_mode", None)
+        long_context_requested = kwargs.pop("long_context", False)
         super().__init__(provider=Provider.ANTHROPIC, **kwargs)
         self._structured_output_mode_override: StructuredOutputMode | None = (
             structured_override
         )
 
         raw_setting = kwargs.get("reasoning_effort", None)
+        reasoning_source: str | None = None
+        if raw_setting is not None:
+            reasoning_source = "llm_kwargs"
         config = self.context.config.anthropic if self.context and self.context.config else None
+        model_name = self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
         if raw_setting is None and config:
             raw_setting = config.reasoning
-            if raw_setting is None:
-                if config.thinking_enabled:
-                    raw_setting = config.thinking_budget_tokens
-                else:
-                    raw_setting = False
-                if (
-                    "thinking_enabled" in config.model_fields_set
-                    or "thinking_budget_tokens" in config.model_fields_set
-                ):
-                    self.logger.warning(
-                        "Anthropic config 'thinking_enabled'/'thinking_budget_tokens' is deprecated; "
-                        "use 'reasoning'."
-                    )
+            if raw_setting is not None:
+                reasoning_source = "config_reasoning"
 
-        if raw_setting is None:
-            from fast_agent.llm.model_database import ModelDatabase
+        from fast_agent.llm.model_database import ModelDatabase
 
-            model_name = self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
-            if ModelDatabase.get_reasoning(model_name) == "anthropic_thinking":
-                raw_setting = 1024
+        reasoning_mode = ModelDatabase.get_reasoning(model_name)
+        spec = ModelDatabase.get_reasoning_effort_spec(model_name)
+
+        if raw_setting is not None and reasoning_mode != "anthropic_thinking":
+            self.logger.warning(
+                "Reasoning setting ignored for model without Anthropic thinking support."
+            )
+            raw_setting = None
+            reasoning_source = None
+
+        if raw_setting is None and reasoning_mode == "anthropic_thinking":
+            if spec and spec.kind == "effort" and spec.allow_auto:
+                # Adaptive-thinking model: use "auto" so the API omits the
+                # effort parameter and lets the provider choose automatically.
+                raw_setting = AUTO_REASONING
+            else:
+                raw_setting = spec.default if spec and spec.default else 1024
+            if raw_setting is not None:
+                reasoning_source = "model_default"
 
         setting = parse_reasoning_setting(raw_setting)
         if setting is not None:
@@ -328,6 +345,62 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                 self.set_reasoning_effort(setting)
             except ValueError as exc:
                 self.logger.warning(f"Invalid reasoning setting: {exc}")
+                if spec and spec.default:
+                    self.set_reasoning_effort(spec.default)
+                    reasoning_source = "model_default"
+                else:
+                    self.set_reasoning_effort(None)
+        else:
+            self.set_reasoning_effort(None)
+
+        if ModelDatabase.get_reasoning(model_name) == "anthropic_thinking":
+            resolved_setting = self.reasoning_effort
+            thinking_enabled = self._is_thinking_enabled(model_name)
+            payload = {
+                "model": model_name,
+                "setting": format_reasoning_setting(resolved_setting),
+                "reasoning_source": reasoning_source or "unknown",
+                "thinking_enabled": thinking_enabled,
+                "config_path": (
+                    self.context.config._config_file if self.context and self.context.config else None
+                ),
+            }
+            if thinking_enabled:
+                self.logger.event(
+                    "info",
+                    "anthropic_reasoning",
+                    "Anthropic reasoning resolved",
+                    None,
+                    payload,
+                )
+            else:
+                self.logger.event(
+                    "warning",
+                    "anthropic_reasoning",
+                    "Anthropic reasoning disabled",
+                    None,
+                    payload,
+                )
+
+        # Long context (1M) setup
+        self._long_context = False
+        if long_context_requested:
+            model_name = self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
+            long_context_window = ModelDatabase.get_long_context_window(model_name)
+            if long_context_window is not None:
+                self._long_context = True
+                self._context_window_override = long_context_window
+                self._usage_accumulator.set_context_window_override(long_context_window)
+                self.logger.info(
+                    f"Long context ({long_context_window:,}) enabled for model '{model_name}'"
+                )
+            else:
+                supported = ", ".join(self._list_supported_long_context_models())
+                self.logger.warning(
+                    f"Long context (context=1m) is not supported for model "
+                    f"'{model_name}'. Ignoring. Supported models: "
+                    f"{supported}"
+                )
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize Anthropic-specific default parameters"""
@@ -339,6 +412,12 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         base_params.model = chosen_model
 
         return base_params
+
+    def _list_supported_long_context_models(self) -> list[str]:
+        """Return models that support explicit long-context overrides."""
+        from fast_agent.llm.model_database import ModelDatabase
+
+        return ModelDatabase.list_long_context_models()
 
     def _base_url(self) -> str | None:
         assert self.context.config
@@ -367,6 +446,15 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             cache_ttl = self.context.config.anthropic.cache_ttl
         return cache_ttl
 
+    def _supports_adaptive_thinking(self, model: str) -> bool:
+        """Return True when model uses adaptive thinking instead of manual budgets."""
+        from fast_agent.llm.model_database import ModelDatabase
+
+        if ModelDatabase.get_reasoning(model) != "anthropic_thinking":
+            return False
+        spec = ModelDatabase.get_reasoning_effort_spec(model)
+        return bool(spec and spec.kind == "effort")
+
     def _is_thinking_enabled(self, model: str) -> bool:
         """Check if extended thinking should be enabled for this request."""
         from fast_agent.llm.model_database import ModelDatabase
@@ -376,14 +464,31 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         setting = self.reasoning_effort
         if setting is None:
             return False
+        if is_auto_reasoning(setting):
+            return self._supports_adaptive_thinking(model)
         if setting.kind == "toggle":
             return bool(setting.value)
         if setting.kind == "budget":
             return bool(setting.value)
         if setting.kind == "effort":
-            self.logger.warning("Anthropic reasoning expects budget tokens; using default budget.")
-            return True
+            if str(setting.value).lower() == "none":
+                return False
+            return self._supports_adaptive_thinking(model)
         return False
+
+    def _resolve_adaptive_effort(self) -> str | None:
+        """Resolve adaptive effort for Anthropic output_config."""
+        setting = self.reasoning_effort
+        if setting is None or setting.kind != "effort":
+            return None
+        if is_auto_reasoning(setting):
+            return None
+        effort = str(setting.value).lower()
+        if effort == "xhigh":
+            return "max"
+        if effort == "none":
+            return None
+        return effort
 
     def _get_thinking_budget(self) -> int:
         """Get the thinking budget tokens (minimum 1024)."""
@@ -391,6 +496,47 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         if setting and setting.kind == "budget" and isinstance(setting.value, int):
             return max(1024, setting.value)
         return 1024
+
+    def _resolve_thinking_arguments(
+        self,
+        model: str,
+        max_tokens: int | None,
+        structured_mode: StructuredOutputMode | None,
+    ) -> tuple[dict[str, Any], bool]:
+        """Build Anthropic thinking/output_config arguments for this request."""
+        args: dict[str, Any] = {}
+        thinking_enabled = self._is_thinking_enabled(model)
+        adaptive_supported = self._supports_adaptive_thinking(model)
+
+        if thinking_enabled and structured_mode == "tool_use":
+            if max_tokens is not None:
+                args["max_tokens"] = max_tokens
+            return args, False
+
+        if not thinking_enabled:
+            if max_tokens is not None:
+                args["max_tokens"] = max_tokens
+            return args, False
+
+        if adaptive_supported:
+            args["thinking"] = {"type": "adaptive"}
+            effort = self._resolve_adaptive_effort()
+            if effort:
+                args["output_config"] = {"effort": effort}
+            args["max_tokens"] = max_tokens if max_tokens is not None else 16000
+            return args, True
+
+        thinking_budget = self._get_thinking_budget()
+        args["thinking"] = {
+            "type": "enabled",
+            "budget_tokens": thinking_budget,
+        }
+        current_max = max_tokens if max_tokens is not None else 16000
+        if current_max <= thinking_budget:
+            args["max_tokens"] = thinking_budget + 8192
+        else:
+            args["max_tokens"] = current_max
+        return args, True
 
     def _resolve_structured_output_mode(
         self, model: str, structured_model: Type[ModelT] | None
@@ -852,29 +998,21 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             if structured_mode == "json" and structured_model:
                 base_args["output_format"] = self._build_output_format(structured_model)
 
-        thinking_enabled = self._is_thinking_enabled(model)
-        if thinking_enabled and structured_mode == "tool_use":
-            thinking_enabled = False
-
-        if thinking_enabled:
-            thinking_budget = self._get_thinking_budget()
-            base_args["thinking"] = {
-                "type": "enabled",
-                "budget_tokens": thinking_budget,
-            }
-            current_max = params.maxTokens or 16000
-            if current_max <= thinking_budget:
-                base_args["max_tokens"] = thinking_budget + 8192
-            else:
-                base_args["max_tokens"] = current_max
-        elif params.maxTokens is not None:
-            base_args["max_tokens"] = params.maxTokens
+        thinking_args, thinking_enabled = self._resolve_thinking_arguments(
+            model=model,
+            max_tokens=params.maxTokens,
+            structured_mode=structured_mode,
+        )
+        base_args.update(thinking_args)
 
         beta_flags: list[str] = []
+        adaptive_thinking = self._supports_adaptive_thinking(model)
         if structured_mode:
             beta_flags.append(STRUCTURED_OUTPUT_BETA)
-        if thinking_enabled and available_tools:
+        if thinking_enabled and available_tools and not adaptive_thinking:
             beta_flags.append(INTERLEAVED_THINKING_BETA)
+        if self._long_context:
+            beta_flags.append(LONG_CONTEXT_BETA)
         if beta_flags:
             base_args["betas"] = beta_flags
 

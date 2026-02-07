@@ -20,6 +20,11 @@ if TYPE_CHECKING:
 class ToolDisplay:
     """Encapsulates rendering logic for tool calls and results."""
 
+    _TOOL_CALL_ID_MAX_LENGTH = 12
+    _TOOL_CALL_ID_PREFIX_LENGTH = 5
+    _TOOL_CALL_ID_SUFFIX_LENGTH = 6
+    _TOOL_CALL_ID_ELLIPSIS = "…"
+
     def __init__(self, display: "ConsoleDisplay") -> None:
         self._display = display
 
@@ -40,6 +45,34 @@ class ToolDisplay:
         if tool_name.startswith("agent__"):
             return tool_name[7:]
         return tool_name
+
+    @classmethod
+    def _format_tool_call_id(cls, tool_call_id: str | None) -> str | None:
+        if not tool_call_id:
+            return None
+        if len(tool_call_id) <= cls._TOOL_CALL_ID_MAX_LENGTH:
+            return tool_call_id
+        return (
+            f"{tool_call_id[: cls._TOOL_CALL_ID_PREFIX_LENGTH]}"
+            f"{cls._TOOL_CALL_ID_ELLIPSIS}"
+            f"{tool_call_id[-cls._TOOL_CALL_ID_SUFFIX_LENGTH :]}"
+        )
+
+    @classmethod
+    def _build_tool_right_info(cls, base_label: str | None, tool_call_id: str | None) -> str:
+        parts: list[str] = []
+        if base_label:
+            parts.append(base_label)
+
+        short_id = cls._format_tool_call_id(tool_call_id)
+        if short_id:
+            parts.append(f"id: {short_id}")
+
+        if not parts:
+            return ""
+
+        joined = " · ".join(parts)
+        return f"[dim]{joined}[/dim]"
 
     def _shell_output_line_limit(self, tool_name: str | None) -> int | None:
         if not tool_name:
@@ -125,6 +158,7 @@ class ToolDisplay:
         tool_name: str | None = None,
         skybridge_config: "SkybridgeServerConfig | None" = None,
         timing_ms: float | None = None,
+        tool_call_id: str | None = None,
         type_label: str = "tool result",
         truncate_content: bool = True,
         show_hook_indicator: bool = False,
@@ -216,7 +250,10 @@ class ToolDisplay:
                 bottom_metadata_items.append("Structured ■")
 
             bottom_metadata = bottom_metadata_items or None
-            right_info = f"[dim]{type_label} - {status}[/dim]"
+            right_info = self._build_tool_right_info(
+                f"{type_label} - {status}",
+                tool_call_id,
+            )
 
             if has_structured:
                 config_map = MESSAGE_CONFIGS[MessageType.TOOL_RESULT]
@@ -305,6 +342,7 @@ class ToolDisplay:
         max_item_length: int | None = None,
         name: str | None = None,
         metadata: dict[str, Any] | None = None,
+        tool_call_id: str | None = None,
         type_label: str = "tool call",
         show_hook_indicator: bool = False,
     ) -> None:
@@ -319,7 +357,10 @@ class ToolDisplay:
             metadata = metadata or {}
 
             display_tool_name = self._display_tool_name(tool_name)
-            right_info = f"[dim]{type_label} - {display_tool_name}[/dim]"
+            right_info = self._build_tool_right_info(
+                f"{type_label} - {display_tool_name}",
+                tool_call_id,
+            )
             content: Any = tool_args
             pre_content: Text | None = None
             truncate_content = True
@@ -351,7 +392,8 @@ class ToolDisplay:
                 elif shell_name:
                     right_parts.append(shell_name)
 
-                right_info = f"[dim]{' | '.join(right_parts)}[/dim]" if right_parts else ""
+                base_label = " | ".join(right_parts) if right_parts else None
+                right_info = self._build_tool_right_info(base_label, tool_call_id)
                 truncate_content = False
 
                 working_dir_display = metadata.get("working_dir_display") or metadata.get(

@@ -508,9 +508,12 @@ class InteractivePrompt:
                             )
                         await self._emit_command_outcome(context, outcome)
                         continue
-                    case ListSessionsCommand():
+                    case ListSessionsCommand(show_help=show_help):
                         context = self._build_command_context(prompt_provider, agent)
-                        outcome = await sessions_handlers.handle_list_sessions(context)
+                        outcome = await sessions_handlers.handle_list_sessions(
+                            context,
+                            show_help=show_help,
+                        )
                         await self._emit_command_outcome(context, outcome)
                         continue
                     case ClearSessionsCommand(target=target):
@@ -715,7 +718,7 @@ class InteractivePrompt:
                 progress_display.pause()
                 emit_prompt_mark("D")
 
-            if result and result.startswith("⚠️ **System Error:**"):
+            if result and result.startswith("▲ **System Error:**"):
                 # rich_print(result)
                 print(result)
 

@@ -9,7 +9,11 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, ReasoningEffortSpec
+from fast_agent.llm.reasoning_effort import (
+    AUTO_REASONING,
+    ReasoningEffortSetting,
+    ReasoningEffortSpec,
+)
 from fast_agent.llm.text_verbosity import TextVerbositySpec
 
 
@@ -45,6 +49,9 @@ class ModelParameters(BaseModel):
 
     cache_ttl: Literal["5m", "1h"] | None = None
     """Cache TTL for providers that support caching. None if not supported."""
+
+    long_context_window: int | None = None
+    """Optional extended context window when explicitly requested by query params."""
 
 
 class ModelDatabase:
@@ -135,6 +142,14 @@ class ModelDatabase:
         max_budget_tokens=128000,
         budget_presets=[0, 1024, 16000, 32000],
         default=ReasoningEffortSetting(kind="budget", value=1024),
+    )
+
+    ANTHROPIC_ADAPTIVE_THINKING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "medium", "high", "max"],
+        allow_toggle_disable=True,
+        allow_auto=True,
+        default=ReasoningEffortSetting(kind="effort", value=AUTO_REASONING),
     )
 
     # Common parameter configurations
@@ -262,6 +277,14 @@ class ModelDatabase:
         reasoning_effort_spec=ANTHROPIC_THINKING_EFFORT_SPEC,
         cache_ttl="5m",
     )
+    ANTHROPIC_OPUS_46 = ModelParameters(
+        context_window=200000,
+        max_output_tokens=32000,
+        tokenizes=ANTHROPIC_MULTIMODAL,
+        reasoning="anthropic_thinking",
+        reasoning_effort_spec=ANTHROPIC_ADAPTIVE_THINKING_EFFORT_SPEC,
+        cache_ttl="5m",
+    )
     ANTHROPIC_OPUS_4_LEGACY = ModelParameters(
         context_window=200000,
         max_output_tokens=32000,
@@ -348,7 +371,7 @@ class ModelDatabase:
     )
     KIMI_MOONSHOT_25 = ModelParameters(
         context_window=262144,
-        max_output_tokens=262144,
+        max_output_tokens=16384,
         tokenizes=OPENAI_VISION,
         json_mode="schema",
         reasoning="reasoning_content",
@@ -413,6 +436,8 @@ class ModelDatabase:
         context_window=256_000, max_output_tokens=64_000, tokenizes=TEXT_ONLY
     )
 
+    ANTHROPIC_LONG_CONTEXT_WINDOW = 1_000_000
+
     # Model configuration database
     # KEEP ALL LOWER CASE KEYS
     MODELS: dict[str, ModelParameters] = {
@@ -455,6 +480,7 @@ class ModelDatabase:
         "gpt-5.1": OPENAI_GPT_5_2,
         "gpt-5.1-codex": OPENAI_GPT_CODEX,
         "gpt-5.2-codex": OPENAI_GPT_CODEX,
+        "gpt-5.3-codex": OPENAI_GPT_CODEX,
         "gpt-5.2": OPENAI_GPT_5,
         # Anthropic Models
         "claude-3-haiku": ANTHROPIC_35_SERIES,
@@ -474,13 +500,24 @@ class ModelDatabase:
         "claude-3-7-sonnet": ANTHROPIC_37_SERIES_THINKING,
         "claude-3-7-sonnet-20250219": ANTHROPIC_37_SERIES_THINKING,
         "claude-3-7-sonnet-latest": ANTHROPIC_37_SERIES_THINKING,
-        "claude-sonnet-4-0": ANTHROPIC_SONNET_4_LEGACY,
-        "claude-sonnet-4-20250514": ANTHROPIC_SONNET_4_LEGACY,
-        "claude-sonnet-4-5": ANTHROPIC_SONNET_4_VERSIONED,
-        "claude-sonnet-4-5-20250929": ANTHROPIC_SONNET_4_VERSIONED,
+        "claude-sonnet-4-0": ANTHROPIC_SONNET_4_LEGACY.model_copy(
+            update={"long_context_window": ANTHROPIC_LONG_CONTEXT_WINDOW}
+        ),
+        "claude-sonnet-4-20250514": ANTHROPIC_SONNET_4_LEGACY.model_copy(
+            update={"long_context_window": ANTHROPIC_LONG_CONTEXT_WINDOW}
+        ),
+        "claude-sonnet-4-5": ANTHROPIC_SONNET_4_VERSIONED.model_copy(
+            update={"long_context_window": ANTHROPIC_LONG_CONTEXT_WINDOW}
+        ),
+        "claude-sonnet-4-5-20250929": ANTHROPIC_SONNET_4_VERSIONED.model_copy(
+            update={"long_context_window": ANTHROPIC_LONG_CONTEXT_WINDOW}
+        ),
         "claude-opus-4-0": ANTHROPIC_OPUS_4_LEGACY,
         "claude-opus-4-1": ANTHROPIC_OPUS_4_VERSIONED,
         "claude-opus-4-5": ANTHROPIC_OPUS_4_VERSIONED,
+        "claude-opus-4-6": ANTHROPIC_OPUS_46.model_copy(
+            update={"long_context_window": ANTHROPIC_LONG_CONTEXT_WINDOW}
+        ),
         "claude-opus-4-20250514": ANTHROPIC_OPUS_4_LEGACY,
         "claude-haiku-4-5-20251001": ANTHROPIC_SONNET_4_VERSIONED,
         "claude-haiku-4-5": ANTHROPIC_SONNET_4_VERSIONED,
@@ -688,6 +725,19 @@ class ModelDatabase:
         """Get cache TTL for a model, or None if not supported"""
         params = cls.get_model_params(model)
         return params.cache_ttl if params else None
+
+    @classmethod
+    def get_long_context_window(cls, model: str) -> int | None:
+        """Get optional long-context override window for a model."""
+        params = cls.get_model_params(model)
+        return params.long_context_window if params else None
+
+    @classmethod
+    def list_long_context_models(cls) -> list[str]:
+        """List model names that support explicit long-context overrides."""
+        return sorted(
+            name for name, params in cls.MODELS.items() if params.long_context_window is not None
+        )
 
     @classmethod
     def list_models(cls) -> list[str]:

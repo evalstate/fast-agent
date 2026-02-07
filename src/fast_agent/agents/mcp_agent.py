@@ -39,9 +39,9 @@ from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_agent import DEFAULT_CAPABILITIES
 from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.constants import (
-    FORCE_SEQUENTIAL_TOOL_CALLS,
     HUMAN_INPUT_TOOL_NAME,
     SHELL_NOTICE_PREFIX,
+    should_parallelize_tool_calls,
 )
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.core.logging.logger import get_logger
@@ -422,6 +422,26 @@ class McpAgent(ABC, ToolAgent):
                 model_name = getattr(self._context.config, "default_model", None)
             output_byte_limit = calculate_terminal_output_limit_for_model(model_name)
         return timeout_seconds, warning_interval_seconds, output_byte_limit
+
+    def _shell_output_limit_overridden(self) -> bool:
+        """Return True when shell output byte limit is explicitly configured."""
+        if not self._context or not self._context.config:
+            return False
+        shell_config = getattr(self._context.config, "shell_execution", None)
+        if shell_config is None:
+            return False
+        return getattr(shell_config, "output_byte_limit", None) is not None
+
+    def _on_llm_attached(self, llm: FastAgentLLMProtocol) -> None:
+        super()._on_llm_attached(llm)
+        if self._shell_runtime is None:
+            return
+        if self._shell_output_limit_overridden():
+            return
+
+        self._shell_runtime.set_output_byte_limit(
+            calculate_terminal_output_limit_for_model(llm.model_name)
+        )
 
     def _activate_shell_runtime(
         self,
@@ -1000,7 +1020,28 @@ class McpAgent(ABC, ToolAgent):
         namespaced_tools = self._aggregator._namespaced_tool_map
 
         tool_call_items = list(request.tool_calls.items())
-        should_parallel = (not FORCE_SEQUENTIAL_TOOL_CALLS) and len(tool_call_items) > 1
+        should_parallel = should_parallelize_tool_calls(len(tool_call_items))
+        if should_parallel and tool_call_items:
+            subagent_calls = self._count_agent_tool_calls(tool_call_items)
+            if subagent_calls > 1:
+                did_close = self.close_active_streaming_display(
+                    reason="parallel subagent tool calls"
+                )
+                if did_close:
+                    self.logger.info(
+                        "Closing streaming display due to parallel subagent tool calls",
+                        agent_name=self._name,
+                        tool_call_count=len(tool_call_items),
+                        subagent_call_count=subagent_calls,
+                    )
+
+        smart_parallel_calls = 0
+        if getattr(self, "agent_type", None) == AgentType.SMART:
+            smart_parallel_calls = sum(
+                1
+                for _, tool_request in tool_call_items
+                if tool_request.params.name == "smart"
+            )
 
         planned_calls: list[dict[str, Any]] = []
 
@@ -1069,6 +1110,7 @@ class McpAgent(ABC, ToolAgent):
                     correlation_id=correlation_id,
                     error_message=error_message,
                     tool_results=tool_results,
+                    tool_call_id=correlation_id if should_parallel else None,
                 )
                 break
 
@@ -1101,6 +1143,7 @@ class McpAgent(ABC, ToolAgent):
                 highlight_index=highlight_index,
                 max_item_length=12,
                 metadata=metadata,
+                tool_call_id=correlation_id if should_parallel else None,
                 show_hook_indicator=self.has_before_tool_call_hook,
             )
 
@@ -1116,19 +1159,32 @@ class McpAgent(ABC, ToolAgent):
             )
 
         if should_parallel and planned_calls:
-
-            async def run_one(call: dict[str, Any]) -> tuple[str, CallToolResult, float]:
-                start_time = time.perf_counter()
-                result = await self.call_tool(
-                    call["tool_name"],
-                    call["tool_args"],
-                    call["correlation_id"],
-                    request_params=request_params,
+            smart_parallel_active = smart_parallel_calls > 1
+            if smart_parallel_active:
+                setattr(self, "_parallel_smart_tool_calls", True)
+                self.logger.info(
+                    "Parallel smart tool calls detected",
+                    agent_name=self._name,
+                    tool_call_count=len(tool_call_items),
+                    smart_call_count=smart_parallel_calls,
                 )
-                end_time = time.perf_counter()
-                return call["correlation_id"], result, round((end_time - start_time) * 1000, 2)
+            try:
 
-            results = await gather_with_cancel(run_one(call) for call in planned_calls)
+                async def run_one(call: dict[str, Any]) -> tuple[str, CallToolResult, float]:
+                    start_time = time.perf_counter()
+                    result = await self.call_tool(
+                        call["tool_name"],
+                        call["tool_args"],
+                        call["correlation_id"],
+                        request_params=request_params,
+                    )
+                    end_time = time.perf_counter()
+                    return call["correlation_id"], result, round((end_time - start_time) * 1000, 2)
+
+                results = await gather_with_cancel(run_one(call) for call in planned_calls)
+            finally:
+                if smart_parallel_active:
+                    setattr(self, "_parallel_smart_tool_calls", False)
 
             for i, item in enumerate(results):
                 call = planned_calls[i]
@@ -1170,6 +1226,7 @@ class McpAgent(ABC, ToolAgent):
                         tool_name=display_tool_name,
                         skybridge_config=skybridge_config,
                         timing_ms=duration_ms,
+                        tool_call_id=correlation_id,
                         show_hook_indicator=self.has_after_tool_call_hook,
                     )
 

@@ -4,6 +4,7 @@ from .formatting import (
     SessionEntrySummary,
     SessionListMode,
     build_session_entry_summaries,
+    extract_session_title,
     format_history_summary,
     format_session_entries,
 )
@@ -27,6 +28,7 @@ __all__ = [
     "SessionListMode",
     "SessionEntrySummary",
     "build_session_entry_summaries",
+    "extract_session_title",
     "format_history_summary",
     "format_session_entries",
     "get_session_history_window",

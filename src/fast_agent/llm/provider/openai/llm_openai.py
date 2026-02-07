@@ -51,6 +51,10 @@ from fast_agent.types import LlmStopReason, PromptMessageExtended
 
 _logger = get_logger(__name__)
 
+
+class EmptyStreamError(RuntimeError):
+    """Raised when a streaming response yields no chunks."""
+
 DEFAULT_OPENAI_MODEL = "gpt-5-mini"
 DEFAULT_REASONING_EFFORT = "low"
 
@@ -91,6 +95,8 @@ class OpenAILLM(
                     if (
                         raw_setting is not None
                         and "reasoning_effort" in config.model_fields_set
+                        and config.reasoning_effort
+                        != config.model_fields["reasoning_effort"].default
                     ):
                         self.logger.warning(
                             "OpenAI config 'reasoning_effort' is deprecated; use 'reasoning'."
@@ -525,6 +531,7 @@ class OpenAILLM(
         # Use ChatCompletionStreamState helper for accumulation (OpenAI only)
         state = ChatCompletionStreamState()
         cumulative_content = ""
+        chunk_count = 0
 
         # Track tool call state for stream events
         tool_call_started: dict[int, dict[str, Any]] = {}
@@ -533,6 +540,7 @@ class OpenAILLM(
         # Process the stream chunks
         # Cancellation is handled via asyncio.Task.cancel() which raises CancelledError
         async for chunk in stream:
+            chunk_count += 1
             # Save chunk if stream capture is enabled
             _save_stream_chunk(capture_filename, chunk)
             # Handle chunk accumulation
@@ -568,6 +576,9 @@ class OpenAILLM(
                 "Streaming completed but tool call(s) never finished: "
                 f"{', '.join(incomplete_tools)}"
             )
+
+        if chunk_count == 0:
+            raise EmptyStreamError("OpenAI streaming response yielded no chunks")
 
         # Check if we hit the length limit to avoid LengthFinishReasonError
         current_snapshot = state.current_completion_snapshot
@@ -893,15 +904,40 @@ class OpenAILLM(
                 # Process the stream
                 timeout = request_params.streaming_timeout
                 if timeout is None:
-                    response, streamed_reasoning = await self._process_stream(
-                        stream, model_name, capture_filename
-                    )
+                    try:
+                        response, streamed_reasoning = await self._process_stream(
+                            stream, model_name, capture_filename
+                        )
+                    except EmptyStreamError as exc:
+                        self.logger.error(
+                            "OpenAI stream returned no chunks; retrying without streaming",
+                            data={
+                                "model": model_name,
+                                "error": str(exc),
+                            },
+                        )
+                        response = await client.chat.completions.create(
+                            **self._prepare_non_streaming_request(arguments)
+                        )
+                        streamed_reasoning = []
                 else:
                     try:
                         response, streamed_reasoning = await asyncio.wait_for(
                             self._process_stream(stream, model_name, capture_filename),
                             timeout=timeout,
                         )
+                    except EmptyStreamError as exc:
+                        self.logger.error(
+                            "OpenAI stream returned no chunks; retrying without streaming",
+                            data={
+                                "model": model_name,
+                                "error": str(exc),
+                            },
+                        )
+                        response = await client.chat.completions.create(
+                            **self._prepare_non_streaming_request(arguments)
+                        )
+                        streamed_reasoning = []
                     except asyncio.TimeoutError as exc:
                         self.logger.error(
                             "Streaming timeout while waiting for OpenAI completion",
@@ -1097,6 +1133,13 @@ class OpenAILLM(
             base_args, request_params, self.OPENAI_EXCLUDE_FIELDS.union(self.BASE_EXCLUDE_FIELDS)
         )
         return arguments
+
+    @staticmethod
+    def _prepare_non_streaming_request(arguments: dict[str, Any]) -> dict[str, Any]:
+        non_stream_args = dict(arguments)
+        non_stream_args["stream"] = False
+        non_stream_args.pop("stream_options", None)
+        return non_stream_args
 
     @staticmethod
     def _extract_reasoning_text(reasoning: Any = None, reasoning_content: Any | None = None) -> str:

@@ -37,6 +37,7 @@ from mcp.types import (
     ContentBlock as MCPContentBlock,
 )
 
+from fast_agent.acp.tool_titles import build_tool_title
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.common import get_resource_name, get_server_name, is_namespaced_name
 
@@ -71,7 +72,7 @@ class ACPToolProgressManager:
         self._tracker = ToolCallTracker()
         # Map ACP tool_call_id → external_id for reverse lookups
         self._tool_call_id_to_external_id: dict[str, str] = {}
-        # Map tool_call_id → simple title (server/tool) for progress updates
+        # Map tool_call_id → simple title (server/tool when applicable) for progress updates
         self._simple_titles: dict[str, str] = {}
         # Map tool_call_id → full title (with args) for completion
         self._full_titles: dict[str, str] = {}
@@ -115,7 +116,7 @@ class ACPToolProgressManager:
                 try:
                     model = self._tracker.tool_call_model(external_id)
                     if model and hasattr(model, "toolCallId"):
-                        return model.toolCallId
+                        return model.tool_call_id
                 except Exception:
                     # Swallow and fall back to local mapping
                     pass
@@ -160,7 +161,7 @@ class ACPToolProgressManager:
         self._stream_tool_use_ids[tool_use_id] = external_id
 
         kind = self._infer_tool_kind(tool_name, arguments)
-        title = f"{server_name}/{tool_name}"
+        title = build_tool_title(tool_name=tool_name, server_name=server_name, include_args=False)
 
         async with self._lock:
             tool_call_start = self._tracker.start(
@@ -168,12 +169,13 @@ class ACPToolProgressManager:
                 title=title,
                 kind=kind,
                 status="pending",
+                content=[],
                 raw_input=arguments,
             )
-            self._tool_call_id_to_external_id[tool_call_start.toolCallId] = external_id
+            self._tool_call_id_to_external_id[tool_call_start.tool_call_id] = external_id
             # Store titles for later updates
-            self._simple_titles[tool_call_start.toolCallId] = title
-            self._full_titles[tool_call_start.toolCallId] = title
+            self._simple_titles[tool_call_start.tool_call_id] = title
+            self._full_titles[tool_call_start.tool_call_id] = title
 
         # Send the notification
         try:
@@ -181,9 +183,9 @@ class ACPToolProgressManager:
                 session_id=self._session_id, update=tool_call_start
             )
             logger.debug(
-                f"Created tool call notification (non-streaming): {tool_call_start.toolCallId}",
+                f"Created tool call notification (non-streaming): {tool_call_start.tool_call_id}",
                 name="acp_tool_call_ensure",
-                tool_call_id=tool_call_start.toolCallId,
+                tool_call_id=tool_call_start.tool_call_id,
                 external_id=external_id,
                 tool_name=tool_name,
                 server_name=server_name,
@@ -196,7 +198,7 @@ class ACPToolProgressManager:
                 exc_info=True,
             )
 
-        return tool_call_start.toolCallId
+        return tool_call_start.tool_call_id
 
     def handle_tool_stream_event(self, event_type: str, info: dict[str, Any] | None = None) -> None:
         """
@@ -261,10 +263,11 @@ class ACPToolProgressManager:
             kind = self._infer_tool_kind(base_tool_name, None)
 
             # Create title with server name if available
-            if server_name:
-                title = f"{server_name}/{base_tool_name}"
-            else:
-                title = base_tool_name
+            title = build_tool_title(
+                tool_name=base_tool_name,
+                server_name=server_name,
+                include_args=False,
+            )
 
             # Use SDK tracker to create the tool call start notification
             async with self._lock:
@@ -273,10 +276,11 @@ class ACPToolProgressManager:
                     title=title,
                     kind=kind,
                     status="pending",
+                    content=[],
                     raw_input=None,  # Don't have args yet
                 )
                 # Store mapping from ACP tool_call_id to external_id
-                self._tool_call_id_to_external_id[tool_call_start.toolCallId] = external_id
+                self._tool_call_id_to_external_id[tool_call_start.tool_call_id] = external_id
                 # Initialize streaming state for this tool
                 self._stream_base_titles[tool_use_id] = title
                 self._stream_chunk_counts[tool_use_id] = 0
@@ -287,9 +291,9 @@ class ACPToolProgressManager:
             )
 
             logger.debug(
-                f"Sent early stream tool call notification: {tool_call_start.toolCallId}",
+                f"Sent early stream tool call notification: {tool_call_start.tool_call_id}",
                 name="acp_tool_stream_start",
-                tool_call_id=tool_call_start.toolCallId,
+                tool_call_id=tool_call_start.tool_call_id,
                 external_id=external_id,
                 base_tool_name=base_tool_name,
                 server_name=server_name,
@@ -518,13 +522,11 @@ class ACPToolProgressManager:
         kind = self._infer_tool_kind(tool_name, arguments)
 
         # Create title
-        title = f"{server_name}/{tool_name}"
-        if arguments:
-            # Include trimmed arg list info in title
-            arg_str = ", ".join(f"{k}={v}" for k, v in list(arguments.items()))
-            if len(arg_str) > 50:
-                arg_str = arg_str[:47] + "..."
-            title = f"{title}({arg_str})"
+        title = build_tool_title(
+            tool_name=tool_name,
+            server_name=server_name,
+            arguments=arguments,
+        )
 
         # Use SDK tracker to create or update the tool call notification
         async with self._lock:
@@ -539,13 +541,17 @@ class ACPToolProgressManager:
                     raw_input=arguments,  # Add complete arguments
                     content=[],  # Clear streaming content
                 )
-                tool_call_id = tool_call_update.toolCallId
+                tool_call_id = tool_call_update.tool_call_id
 
                 # Ensure mapping exists - progress() may return different ID than start()
                 # or the stream notification task may not have stored it yet
                 self._tool_call_id_to_external_id[tool_call_id] = existing_external_id
-                # Store simple title (server/tool) for progress updates - no args
-                self._simple_titles[tool_call_id] = f"{server_name}/{tool_name}"
+                # Store simple title (server/tool when applicable) for progress updates - no args
+                self._simple_titles[tool_call_id] = build_tool_title(
+                    tool_name=tool_name,
+                    server_name=server_name,
+                    include_args=False,
+                )
                 # Store full title (with args) for completion
                 self._full_titles[tool_call_id] = title
 
@@ -572,14 +578,19 @@ class ACPToolProgressManager:
                     title=title,
                     kind=kind,
                     status="pending",
+                    content=[],
                     raw_input=arguments,
                 )
                 # Store mapping from ACP tool_call_id to external_id for later lookups
-                self._tool_call_id_to_external_id[tool_call_start.toolCallId] = external_id
-                tool_call_id = tool_call_start.toolCallId
+                self._tool_call_id_to_external_id[tool_call_start.tool_call_id] = external_id
+                tool_call_id = tool_call_start.tool_call_id
                 tool_call_update = tool_call_start
-                # Store simple title (server/tool) for progress updates - no args
-                self._simple_titles[tool_call_id] = f"{server_name}/{tool_name}"
+                # Store simple title (server/tool when applicable) for progress updates - no args
+                self._simple_titles[tool_call_id] = build_tool_title(
+                    tool_name=tool_name,
+                    server_name=server_name,
+                    include_args=False,
+                )
                 # Store full title (with args) for completion
                 self._full_titles[tool_call_id] = title
 

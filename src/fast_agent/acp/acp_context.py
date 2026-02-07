@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 from acp.schema import (
     AvailableCommandsUpdate,
     CurrentModeUpdate,
+    SessionInfoUpdate,
     SessionMode,
 )
 
@@ -55,8 +56,8 @@ class ClientCapabilities:
 
         if hasattr(caps, "fs") and caps.fs:
             fs_caps = caps.fs
-            result.fs_read = bool(getattr(fs_caps, "readTextFile", False))
-            result.fs_write = bool(getattr(fs_caps, "writeTextFile", False))
+            result.fs_read = bool(getattr(fs_caps, "read_text_file", False))
+            result.fs_write = bool(getattr(fs_caps, "write_text_file", False))
 
         if hasattr(caps, "_meta") and caps._meta:
             result._meta = dict(caps._meta) if isinstance(caps._meta, dict) else {}
@@ -428,6 +429,20 @@ class ACPContext:
             session_id=self._session_id,
             update=update,
         )
+
+    async def send_session_info_update(
+        self,
+        *,
+        title: str | None,
+        updated_at: str | None = None,
+    ) -> None:
+        """Send a session_info_update notification to the client."""
+        info_update = SessionInfoUpdate(
+            session_update="session_info_update",
+            title=title,
+            updated_at=updated_at,
+        )
+        await self.send_session_update(info_update)
 
     async def invalidate_instruction_cache(
         self, agent_name: str, new_instruction: str | None

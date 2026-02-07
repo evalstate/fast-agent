@@ -10,6 +10,7 @@ from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+from fast_agent.mcp.tool_execution_handler import NoOpToolExecutionHandler
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
 
@@ -265,6 +266,32 @@ async def test_after_turn_complete_receives_final_message():
 
     text = get_text(msg.content[0]) if msg.content else ""
     assert text == "done"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_after_turn_complete_with_loop_progress_hooks():
+    """Ensure after_turn_complete survives merge with loop progress hooks."""
+    captured: list[tuple[int, LlmStopReason | None]] = []
+
+    class ProgressHookAgent(ToolAgent):
+        def _tool_runner_hooks(self) -> ToolRunnerHooks | None:
+            async def after_turn_complete(runner, message):
+                captured.append((runner.iteration, message.stop_reason))
+
+            return ToolRunnerHooks(after_turn_complete=after_turn_complete)
+
+    llm = TwoRoundToolUseLlm()
+    agent = ProgressHookAgent(AgentConfig("progress-test"), [tracked_tool_a, tracked_tool_b])
+    agent._llm = llm
+
+    request_params = RequestParams(
+        emit_loop_progress=True,
+        tool_execution_handler=NoOpToolExecutionHandler(),
+    )
+    await agent.generate("hi", request_params=request_params)
+
+    assert captured == [(2, LlmStopReason.END_TURN)]
 
 
 class FailingBeforeToolHookAgent(ToolAgent):

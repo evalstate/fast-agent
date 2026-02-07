@@ -28,6 +28,7 @@ from fast_agent.acp.tool_permissions import (
     ToolPermissionChecker,
     _infer_tool_kind,
 )
+from fast_agent.acp.tool_titles import ARGUMENT_TRUNCATION_LIMIT, build_tool_title
 
 # =============================================================================
 # Test Doubles for ACPToolPermissionManager Testing
@@ -608,6 +609,61 @@ class TestACPToolPermissionManager:
         assert "server1/tool1" in title
         assert "prompt=lion" in title
         assert "tool_result=image" in title
+
+    @pytest.mark.asyncio
+    async def test_truncates_argument_summary_in_title(self, temp_dir: Path) -> None:
+        """Titles should truncate long argument summaries."""
+        connection = FakeAgentSideConnection(
+            permission_responses={"server1/tool1": "allow_once"}
+        )
+        manager = ACPToolPermissionManager(
+            connection=connection,
+            session_id="test-session",
+            cwd=temp_dir,
+        )
+
+        long_value = "a" * (ARGUMENT_TRUNCATION_LIMIT + 10)
+        arguments = {"payload": long_value}
+
+        result = await manager.check_permission("tool1", "server1", arguments)
+
+        assert result.allowed is True
+        request = connection.permission_requests[0]
+        title = request["tool_call"].title
+        summary = title.split("(", 1)[1].rstrip(")")
+        assert summary.endswith("...")
+        assert len(summary) == ARGUMENT_TRUNCATION_LIMIT
+
+    @pytest.mark.asyncio
+    async def test_builtin_server_omits_server_name_in_title(self, temp_dir: Path) -> None:
+        """Built-in ACP tools should omit the server name in titles."""
+        connection = FakeAgentSideConnection(permission_responses={"execute": "allow_once"})
+        manager = ACPToolPermissionManager(
+            connection=connection,
+            session_id="test-session",
+            cwd=temp_dir,
+        )
+
+        arguments = {"command": "ls"}
+        result = await manager.check_permission("execute", "acp_terminal", arguments)
+
+        assert result.allowed is True
+        request = connection.permission_requests[0]
+        title = request["tool_call"].title
+        assert title.startswith("execute")
+        assert "acp_terminal" not in title
+        assert "command=ls" in title
+
+
+def test_build_tool_title_strips_line_breaks() -> None:
+    """Tool titles should strip CR/LF characters for display."""
+    title = build_tool_title(
+        tool_name="do\nthing",
+        server_name="server\r",
+        arguments={"payload": "line1\r\nline2"},
+    )
+    assert "\n" not in title
+    assert "\r" not in title
 
     @pytest.mark.asyncio
     async def test_persists_allow_always_to_store(self, temp_dir: Path) -> None:

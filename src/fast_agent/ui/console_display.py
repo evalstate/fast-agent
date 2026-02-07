@@ -558,6 +558,7 @@ class ConsoleDisplay:
         tool_name: str | None = None,
         skybridge_config: "SkybridgeServerConfig | None" = None,
         timing_ms: float | None = None,
+        tool_call_id: str | None = None,
         type_label: str | None = None,
         truncate_content: bool = True,
         show_hook_indicator: bool = False,
@@ -567,6 +568,7 @@ class ConsoleDisplay:
             "tool_name": tool_name,
             "skybridge_config": skybridge_config,
             "timing_ms": timing_ms,
+            "tool_call_id": tool_call_id,
             "truncate_content": truncate_content,
             "show_hook_indicator": show_hook_indicator,
         }
@@ -584,6 +586,7 @@ class ConsoleDisplay:
         max_item_length: int | None = None,
         name: str | None = None,
         metadata: dict[str, Any] | None = None,
+        tool_call_id: str | None = None,
         type_label: str | None = None,
         show_hook_indicator: bool = False,
     ) -> None:
@@ -593,6 +596,7 @@ class ConsoleDisplay:
             "max_item_length": max_item_length,
             "name": name,
             "metadata": metadata,
+            "tool_call_id": tool_call_id,
             "show_hook_indicator": show_hook_indicator,
         }
         if type_label is not None:
@@ -793,6 +797,7 @@ class ConsoleDisplay:
             use_plain_text=use_plain_text,
             header_left=left,
             header_right=right_info,
+            tool_header_name=name,
             progress_display=progress_display,
         )
         try:

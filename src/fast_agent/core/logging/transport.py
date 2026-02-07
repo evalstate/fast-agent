@@ -433,6 +433,10 @@ class AsyncEventBus:
                                 f"Stacktrace: {''.join(traceback.format_exception(type(r), r, r.__traceback__))}"
                             )
 
+                # Mark the event as processed so queue.join() can complete
+                if event is not None and self._queue is not None:
+                    self._queue.task_done()
+
             except asyncio.CancelledError:
                 # TODO -- added _queue assertion; is that necessary?
                 if event is not None and self._queue is not None:

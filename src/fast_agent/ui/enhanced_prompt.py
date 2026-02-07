@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+from dataclasses import dataclass
 from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -623,25 +624,48 @@ class AgentCompleter(Completer):
             self.commands.pop("usage", None)  # Remove usage command in human input mode
         self.agent_types = agent_types or {}
 
-    def _resolve_completion_search(self, partial: str) -> tuple[Path, str] | None:
+    @dataclass(frozen=True)
+    class _CompletionSearch:
+        search_dir: Path
+        prefix: str
+        completion_prefix: str
+
+    def _resolve_completion_search(self, partial: str) -> _CompletionSearch | None:
+        raw_dir = ""
+        prefix = ""
+        explicit_current_dir = False
         if partial:
-            partial_path = Path(partial)
-            if partial.endswith("/") or partial.endswith(os.sep):
-                search_dir = partial_path
+            if (
+                partial.endswith("/")
+                or partial.endswith(os.sep)
+                or (os.altsep is not None and partial.endswith(os.altsep))
+            ):
+                raw_dir = partial
                 prefix = ""
             else:
-                search_dir = (
-                    partial_path.parent if partial_path.parent != partial_path else Path(".")
+                raw_dir, prefix = os.path.split(partial)
+                explicit_current_dir = partial.startswith(f".{os.sep}") or (
+                    os.altsep is not None and partial.startswith(f".{os.altsep}")
                 )
-                prefix = partial_path.name
-        else:
-            search_dir = Path(".")
-            prefix = ""
 
-        if not search_dir.exists():
+        raw_dir = raw_dir or "."
+        expanded_dir = Path(os.path.expandvars(os.path.expanduser(raw_dir)))
+        if not expanded_dir.exists() or not expanded_dir.is_dir():
             return None
 
-        return search_dir, prefix
+        completion_prefix = ""
+        if raw_dir not in {"", "."}:
+            completion_prefix = raw_dir
+            if not completion_prefix.endswith(("/", os.sep)):
+                completion_prefix = f"{completion_prefix}{os.sep}"
+        elif explicit_current_dir:
+            completion_prefix = f".{os.sep}"
+
+        return self._CompletionSearch(
+            search_dir=expanded_dir,
+            prefix=prefix,
+            completion_prefix=completion_prefix,
+        )
 
     def _iter_file_completions(
         self,
@@ -655,7 +679,9 @@ class AgentCompleter(Completer):
         if not resolved:
             return []
 
-        search_dir, prefix = resolved
+        search_dir = resolved.search_dir
+        prefix = resolved.prefix
+        completion_prefix = resolved.completion_prefix
         completions: list[Completion] = []
         try:
             for entry in sorted(search_dir.iterdir()):
@@ -666,7 +692,7 @@ class AgentCompleter(Completer):
                 if not name.lower().startswith(prefix.lower()):
                     continue
 
-                completion_text = name if search_dir == Path(".") else str(search_dir / name)
+                completion_text = f"{completion_prefix}{name}" if completion_prefix else name
 
                 if entry.is_dir():
                     completions.append(
@@ -686,7 +712,7 @@ class AgentCompleter(Completer):
                             display_meta=file_meta(entry),
                         )
                     )
-        except PermissionError:
+        except (PermissionError, FileNotFoundError, NotADirectoryError):
             return []
 
         return completions
@@ -977,6 +1003,17 @@ class AgentCompleter(Completer):
             except (PermissionError, FileNotFoundError):
                 pass
 
+    def _is_shell_path_token(self, token: str) -> bool:
+        if not token:
+            return False
+        if token.startswith((".", "~", os.sep)):
+            return True
+        if os.sep in token:
+            return True
+        if os.altsep and os.altsep in token:
+            return True
+        return False
+
     def _complete_shell_paths(self, partial: str, delete_len: int, max_results: int = 100):
         """Complete file/directory paths for shell commands.
 
@@ -985,22 +1022,13 @@ class AgentCompleter(Completer):
             delete_len: Number of characters to delete for the completion.
             max_results: Maximum number of completions to yield (default 100).
         """
-        if partial:
-            partial_path = Path(partial)
-            if partial.endswith("/") or partial.endswith(os.sep):
-                search_dir = partial_path
-                prefix = ""
-            else:
-                search_dir = (
-                    partial_path.parent if partial_path.parent != partial_path else Path(".")
-                )
-                prefix = partial_path.name
-        else:
-            search_dir = Path(".")
-            prefix = ""
-
-        if not search_dir.exists():
+        resolved = self._resolve_completion_search(partial)
+        if not resolved:
             return
+
+        search_dir = resolved.search_dir
+        prefix = resolved.prefix
+        completion_prefix = resolved.completion_prefix
 
         try:
             count = 0
@@ -1013,7 +1041,7 @@ class AgentCompleter(Completer):
                 if not name.lower().startswith(prefix.lower()):
                     continue
 
-                completion_text = str(search_dir / name) if search_dir != Path(".") else name
+                completion_text = f"{completion_prefix}{name}" if completion_prefix else name
 
                 if entry.is_dir():
                     yield Completion(
@@ -1030,7 +1058,7 @@ class AgentCompleter(Completer):
                         display_meta="file",
                     )
                 count += 1
-        except PermissionError:
+        except (PermissionError, FileNotFoundError, NotADirectoryError):
             pass
 
     def _complete_subcommands(
@@ -1065,16 +1093,21 @@ class AgentCompleter(Completer):
 
         # Shell completion mode - detect ! prefix
         if text.lstrip().startswith("!"):
-            if not completion_requested:
+            if complete_event and complete_event.text_inserted:
                 return
             # Text after "!" with leading/trailing whitespace stripped
             shell_text = text.lstrip()[1:].lstrip()
             if not shell_text:
+                if completion_requested:
+                    yield from self._complete_executables("", max_results=100)
                 return
 
             if " " not in shell_text:
-                # First token: complete executables
-                yield from self._complete_executables(shell_text)
+                # First token: complete executables or paths.
+                if self._is_shell_path_token(shell_text):
+                    yield from self._complete_shell_paths(shell_text, len(shell_text))
+                else:
+                    yield from self._complete_executables(shell_text)
             else:
                 # After first token: complete paths
                 _, path_part = shell_text.rsplit(" ", 1)
@@ -1216,7 +1249,7 @@ class AgentCompleter(Completer):
             parts = remainder.split(maxsplit=1)
             subcommands = {
                 "reasoning": (
-                    "Set reasoning effort (off/low/medium/high/xhigh or budgets like "
+                    "Set reasoning effort (off/low/medium/high/max/xhigh or budgets like "
                     "0/1024/16000/32000)"
                 ),
             }
@@ -1486,7 +1519,7 @@ def create_keybindings(
         if not stripped:
             return True
         if stripped.startswith("!"):
-            return bool(stripped[1:].lstrip())
+            return True
         if stripped.startswith(("/", "@", "#")):
             return True
         return True
@@ -1498,6 +1531,14 @@ def create_keybindings(
         if not _should_start_completion(text):
             return
         event.current_buffer.start_completion()
+
+    @kb.add("tab")
+    @kb.add("c-i")
+    def _(event) -> None:
+        text = event.current_buffer.document.text_before_cursor
+        if not _should_start_completion(text):
+            return
+        event.current_buffer.start_completion(insert_common_part=True)
 
     @kb.add("c-m", filter=Condition(lambda: not in_multiline_mode))
     def _(event) -> None:
@@ -1710,13 +1751,13 @@ def parse_special_input(text: str) -> str | CommandPayload:
         if cmd == "session":
             remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
             if not remainder:
-                return "SESSION_HELP"
+                return ListSessionsCommand(show_help=True)
             try:
                 tokens = shlex.split(remainder)
             except ValueError:
-                return "SESSION_HELP"
+                return ListSessionsCommand(show_help=True)
             if not tokens:
-                return "SESSION_HELP"
+                return ListSessionsCommand(show_help=True)
             subcmd = tokens[0].lower()
             argument = remainder[len(tokens[0]) :].strip()
             if subcmd == "resume":
@@ -1748,8 +1789,6 @@ def parse_special_input(text: str) -> str | CommandPayload:
                     "false",
                     "yes",
                     "no",
-                    "1",
-                    "0",
                     "enable",
                     "enabled",
                     "disable",
@@ -1766,7 +1805,7 @@ def parse_special_input(text: str) -> str | CommandPayload:
             if subcmd == "fork":
                 title = argument if argument else None
                 return ForkSessionCommand(title=title)
-            return "SESSION_HELP"
+            return ListSessionsCommand(show_help=True)
         if cmd == "card":
             remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
             if not remainder:
@@ -2486,6 +2525,21 @@ async def get_enhanced_input(
 
     # Get the input - using async version
     prompt_mark_started = False
+    accept_state: dict[str, Any] = {}
+    prompt_shutdown_warn_seconds = 0.5
+    buffer = session.default_buffer
+    original_accept_handler = buffer.accept_handler
+
+    def _track_accept(buffer_obj) -> bool:
+        accept_state["accepted_at"] = time.perf_counter()
+        accept_state["text"] = buffer_obj.text
+        accept_state["completer"] = type(buffer_obj.completer).__name__
+        accept_state["had_completions"] = buffer_obj.complete_state is not None
+        if original_accept_handler is not None:
+            return original_accept_handler(buffer_obj)
+        return True
+
+    buffer.accept_handler = _track_accept
     try:
         emit_prompt_mark("A")
         prompt_mark_started = True
@@ -2493,10 +2547,26 @@ async def get_enhanced_input(
             _resolve_prompt_text,
             default=buffer_default,
         )
+        prompt_returned_at = time.perf_counter()
         emit_prompt_mark("B")
         # Echo slash command input if the prompt was erased.
         if erase_when_done:
             stripped = result.lstrip()
+            accepted_at = accept_state.get("accepted_at")
+            if accepted_at:
+                shutdown_delay = prompt_returned_at - accepted_at
+                if shutdown_delay >= prompt_shutdown_warn_seconds and stripped.startswith("!"):
+                    text_preview = str(accept_state.get("text") or "").strip()
+                    if len(text_preview) > 80:
+                        text_preview = text_preview[:77] + "..."
+                    rich_print(
+                        "[yellow]Prompt shutdown delay[/yellow] "
+                        f"{shutdown_delay:.2f}s | "
+                        f"completer={accept_state.get('completer')} "
+                        f"completions_active={accept_state.get('had_completions')} "
+                        f"cwd={Path.cwd()} "
+                        f"input={text_preview!r}"
+                    )
             if stripped.startswith("/"):
                 rich_print(f"[dim]{agent_name} ❯ {stripped.splitlines()[0]}[/dim]")
             elif stripped.startswith("!"):
@@ -2656,7 +2726,7 @@ async def handle_special_commands(
         rich_print("  /skills add    - Install a skill from the marketplace")
         rich_print("  /skills remove - Remove a skill from the manager directory")
         rich_print(
-            "  /model reasoning <value> - Set reasoning effort (off/low/medium/high/xhigh or budgets like 0/1024/16000/32000)"
+            "  /model reasoning <value> - Set reasoning effort (off/low/medium/high/max/xhigh or budgets like 0/1024/16000/32000)"
         )
         rich_print("  /model verbosity <value> - Set text verbosity (low/medium/high)")
         rich_print("  /history [agent_name] - Show chat history overview")
@@ -2686,7 +2756,7 @@ async def handle_special_commands(
         rich_print("  /session title <text> - Set the current session title")
         rich_print("  /session fork [title] - Fork the current session")
         rich_print("  /session delete <id|number|all> - Delete a session or all sessions")
-        rich_print("  /session pin [on|off] - Pin or unpin the current session")
+        rich_print("  /session pin [on|off|id|number] - Pin or unpin a session")
         rich_print(
             "  /card <filename> [--tool [remove]] - Load an AgentCard (attach/remove as tool)"
         )
@@ -2709,11 +2779,7 @@ async def handle_special_commands(
         return True
 
     elif command == "SESSION_HELP":
-        rich_print(
-            "[yellow]Usage: /session list | /session new [title] | /session resume [id|number] "
-            "| /session title <text> | /session fork [title] | /session delete <id|number|all> | /session pin [on|off][/yellow]"
-        )
-        return True
+        return ListSessionsCommand(show_help=True)
 
     elif isinstance(command, str) and command.upper() == "EXIT":
         raise PromptExitError("User requested to exit fast-agent session")

@@ -22,6 +22,25 @@ def test_model_database_context_windows():
     assert ModelDatabase.get_context_window("unknown-model") is None
 
 
+def test_model_database_long_context_windows():
+    """Explicit long-context capability should be tracked in ModelDatabase."""
+    assert ModelDatabase.get_long_context_window("claude-opus-4-6") == 1_000_000
+    assert ModelDatabase.get_long_context_window("claude-sonnet-4-0") == 1_000_000
+    assert ModelDatabase.get_long_context_window("claude-haiku-4-5") is None
+    assert ModelDatabase.get_long_context_window("unknown-model") is None
+
+
+def test_model_database_long_context_model_listing():
+    """Long-context model listing should come from ModelDatabase metadata."""
+    models = ModelDatabase.list_long_context_models()
+    assert "claude-opus-4-6" in models
+    assert "claude-sonnet-4-5" in models
+    assert "claude-sonnet-4-5-20250929" in models
+    assert "claude-sonnet-4-0" in models
+    assert "claude-sonnet-4-20250514" in models
+    assert "claude-haiku-4-5" not in models
+
+
 def test_model_database_max_tokens():
     """Test that ModelDatabase returns expected max tokens"""
     # Test known models with different max_output_tokens (no cap)
@@ -167,8 +186,18 @@ def test_model_database_reasoning_modes():
     assert ModelDatabase.get_reasoning("o1") == "openai"
     assert ModelDatabase.get_reasoning("o3-mini") == "openai"
     assert ModelDatabase.get_reasoning("gpt-5") == "openai"
+    assert ModelDatabase.get_reasoning("claude-opus-4-6") == "anthropic_thinking"
     assert ModelDatabase.get_reasoning("zai-org/glm-4.6") == "reasoning_content"
     assert ModelDatabase.get_reasoning("gpt-4o") is None
+
+
+def test_model_database_opus_46_reasoning_spec():
+    """Opus 4.6 should expose adaptive effort settings."""
+    spec = ModelDatabase.get_reasoning_effort_spec("claude-opus-4-6")
+    assert spec is not None
+    assert spec.kind == "effort"
+    assert spec.allowed_efforts == ["low", "medium", "high", "max"]
+    assert spec.allow_toggle_disable
 
 
 def test_model_database_text_verbosity_spec():

@@ -11,6 +11,7 @@ import asyncio
 import logging
 import threading
 import time
+import traceback
 from contextlib import asynccontextmanager, contextmanager
 from typing import Any
 
@@ -45,6 +46,52 @@ class Logger:
             # If no loop is running, run it until the emit completes
             loop.run_until_complete(self.event_bus.emit(event))
 
+    @staticmethod
+    def _coerce_exc_info(data: dict[str, Any]) -> dict[str, Any]:
+        """Normalize stdlib-style ``exc_info`` into structured event payload fields."""
+        if "exc_info" not in data:
+            return data
+
+        merged = dict(data)
+        exc_info = merged.pop("exc_info", None)
+        if not exc_info:
+            return merged
+
+        exc_type: type[BaseException] | None = None
+        exc_value: BaseException | None = None
+        exc_tb: Any = None
+
+        if exc_info is True:
+            import sys
+
+            current = sys.exc_info()
+            if current[0] is not None:
+                exc_type, exc_value, exc_tb = current
+        elif isinstance(exc_info, BaseException):
+            exc_type = type(exc_info)
+            exc_value = exc_info
+            exc_tb = exc_info.__traceback__
+        elif isinstance(exc_info, tuple) and len(exc_info) == 3:
+            maybe_type, maybe_value, maybe_tb = exc_info
+            if isinstance(maybe_type, type) and issubclass(maybe_type, BaseException):
+                exc_type = maybe_type
+            if isinstance(maybe_value, BaseException):
+                exc_value = maybe_value
+            exc_tb = maybe_tb
+
+        if exc_value is not None:
+            merged.setdefault("error", str(exc_value))
+            merged.setdefault("error_type", exc_value.__class__.__name__)
+
+        if exc_type is not None and exc_value is not None:
+            merged["exception"] = "".join(
+                traceback.format_exception(exc_type, exc_value, exc_tb)
+            )
+        else:
+            merged.setdefault("exception", str(exc_info))
+
+        return merged
+
     def event(
         self,
         etype: EventType,
@@ -72,7 +119,7 @@ class Logger:
         **data,
     ) -> None:
         """Log a debug message."""
-        self.event("debug", name, message, context, data)
+        self.event("debug", name, message, context, self._coerce_exc_info(data))
 
     def info(
         self,
@@ -82,7 +129,7 @@ class Logger:
         **data,
     ) -> None:
         """Log an info message."""
-        self.event("info", name, message, context, data)
+        self.event("info", name, message, context, self._coerce_exc_info(data))
 
     def warning(
         self,
@@ -92,7 +139,7 @@ class Logger:
         **data,
     ) -> None:
         """Log a warning message."""
-        self.event("warning", name, message, context, data)
+        self.event("warning", name, message, context, self._coerce_exc_info(data))
 
     def error(
         self,
@@ -102,7 +149,7 @@ class Logger:
         **data,
     ) -> None:
         """Log an error message."""
-        self.event("error", name, message, context, data)
+        self.event("error", name, message, context, self._coerce_exc_info(data))
 
     def exception(
         self,
@@ -113,13 +160,12 @@ class Logger:
     ) -> None:
         """Log an error message with exception info."""
         import sys
-        import traceback
 
         exc_info = sys.exc_info()
         if exc_info[0] is not None:
             tb_str = "".join(traceback.format_exception(*exc_info))
             data["exception"] = tb_str
-        self.event("error", name, message, context, data)
+        self.event("error", name, message, context, self._coerce_exc_info(data))
 
     def progress(
         self,

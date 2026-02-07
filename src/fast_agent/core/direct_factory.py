@@ -25,6 +25,7 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.model_resolution import HARDCODED_DEFAULT_MODEL, resolve_model_spec
 from fast_agent.core.validation import get_dependencies_groups
 from fast_agent.event_progress import ProgressAction
+from fast_agent.hooks.hook_messages import show_hook_failure
 from fast_agent.interfaces import (
     AgentProtocol,
     LLMFactoryProtocol,
@@ -220,7 +221,21 @@ def _apply_tool_hooks(
                     message=message,
                     hook_type="after_turn_complete",
                 )
-                await trim_tool_loop_history(ctx)
+                try:
+                    await trim_tool_loop_history(ctx)
+                except Exception as exc:  # noqa: BLE001
+                    show_hook_failure(
+                        ctx,
+                        hook_name="trim_tool_loop_history",
+                        hook_kind="tool",
+                        error=exc,
+                    )
+                    logger.exception(
+                        "Tool hook failed",
+                        hook_type="after_turn_complete",
+                        hook_name="trim_tool_loop_history",
+                    )
+                    raise
 
             # Set the hooks directly since we have a callable, not a spec string
             existing_hooks = getattr(agent, "tool_runner_hooks", None) or ToolRunnerHooks()
@@ -231,9 +246,7 @@ def _apply_tool_hooks(
                 after_tool_call=existing_hooks.after_tool_call,
                 after_turn_complete=_trimmer_wrapper,
             )
-            # If we only had trim_tool_history and it's now applied, we're done
-            if not config.tool_hooks:
-                return
+            # Keep going so session history hooks can still be applied
 
     # Load custom hooks from config
     if hooks_config:
@@ -266,7 +279,21 @@ def _apply_tool_hooks(
                 message=message,
                 hook_type="after_turn_complete",
             )
-            await save_session_history(ctx)
+            try:
+                await save_session_history(ctx)
+            except Exception as exc:  # noqa: BLE001
+                show_hook_failure(
+                    ctx,
+                    hook_name="save_session_history",
+                    hook_kind="tool",
+                    error=exc,
+                )
+                logger.exception(
+                    "Tool hook failed",
+                    hook_type="after_turn_complete",
+                    hook_name="save_session_history",
+                )
+                raise
 
         agent.tool_runner_hooks = ToolRunnerHooks(
             before_llm_call=existing_hooks.before_llm_call,

@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 BRAILLE_FILL = {0: "⣿", 1: "⣀", 2: "⣤", 3: "⣶", 4: "⣿"}
 FULL_BLOCK = "⣿"
 INACTIVE_COLOR = "ansibrightblack"
+AUTO_COLOR = "ansiblue"
 MAX_LEVEL = 4
 
 EFFORT_LEVEL_MAPPING = {
@@ -23,6 +24,7 @@ EFFORT_LEVEL_MAPPING = {
     "medium": 3,
     "high": 4,
     "xhigh": 4,
+    "max": 4,
 }
 
 EFFORT_COLOR_MAPPING = {
@@ -32,6 +34,7 @@ EFFORT_COLOR_MAPPING = {
     "medium": "ansiyellow",
     "high": "ansiyellow",
     "xhigh": "ansired",
+    "max": "ansired",
 }
 
 
@@ -83,10 +86,15 @@ def render_reasoning_effort_gauge(
     setting: ReasoningEffortSetting | None,
     spec: ReasoningEffortSpec | None,
 ) -> str | None:
+    from fast_agent.llm.reasoning_effort import is_auto_reasoning
+
     if spec is None:
         return None
 
     effective = setting or spec.default
+    # "auto" means the provider chooses — show as blue full block.
+    if is_auto_reasoning(setting) or is_auto_reasoning(effective):
+        return f"<style bg='{AUTO_COLOR}'>{FULL_BLOCK}</style>"
     if effective is None:
         level = 0
     elif effective.kind == "toggle":

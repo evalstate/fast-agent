@@ -51,11 +51,11 @@ def _resolve_pin_state(value: str | None, *, current: bool) -> tuple[bool | None
     if value is None or value.strip() == "" or value.strip().lower() == "toggle":
         return not current, None
     normalized = value.strip().lower()
-    if normalized in {"on", "true", "yes", "1", "enable", "enabled"}:
+    if normalized in {"on", "true", "yes", "enable", "enabled"}:
         return True, None
-    if normalized in {"off", "false", "no", "0", "disable", "disabled"}:
+    if normalized in {"off", "false", "no", "disable", "disabled"}:
         return False, None
-    return None, "Usage: /session pin [on|off]"
+    return None, "Usage: /session pin [on|off|id|number]"
 
 
 def _build_session_entries(entries: list[SessionEntrySummary], *, usage: str) -> Text:
@@ -67,7 +67,8 @@ def _build_session_entries(entries: list[SessionEntrySummary], *, usage: str) ->
     for entry in entries:
         line = Text()
         line.append(f"[{entry.index:2}] ", style="dim cyan")
-        line.append(entry.display_name, style="bright_blue bold")
+        name_style = "bold yellow" if entry.is_pinned else "bright_blue bold"
+        line.append(entry.display_name, style=name_style)
 
         if entry.is_current:
             line.append(" ", style="dim")
@@ -79,21 +80,24 @@ def _build_session_entries(entries: list[SessionEntrySummary], *, usage: str) ->
             line.append(entry.timestamp, style="dim")
 
         metadata_items: list[tuple[str, str]] = []
-        if entry.is_pinned:
-            metadata_items.append(("pin", "yellow"))
         if entry.agent_count and entry.agent_label:
             metadata_items.append(
                 (f"{entry.agent_count} agents: {entry.agent_label}", "dim")
             )
 
+        if entry.is_pinned:
+            line.append(bullet_sep, style="dim")
+            line.append("(pin)", style="dim")
+
         if metadata_items:
             _append_session_metadata(line, metadata_items)
 
         if entry.summary:
-            remaining = terminal_width - line.cell_len - len(bullet_sep)
+            summary_sep = " " if entry.is_pinned and not metadata_items else bullet_sep
+            remaining = terminal_width - line.cell_len - len(summary_sep)
             summary_text = _truncate_summary(entry.summary, remaining)
             if summary_text:
-                line.append(bullet_sep, style="dim")
+                line.append(summary_sep, style="dim")
                 line.append(summary_text, style="white")
 
         content.append_text(line)
@@ -120,11 +124,17 @@ async def handle_create_session(
     return outcome
 
 
-async def handle_list_sessions(ctx: CommandContext) -> CommandOutcome:
+async def handle_list_sessions(
+    ctx: CommandContext,
+    *,
+    show_help: bool = False,
+) -> CommandOutcome:
     outcome = CommandOutcome()
-    summary = build_session_list_summary()
+    summary = build_session_list_summary(show_help=show_help)
     if not summary.entries:
         outcome.add_message("No sessions found.", channel="warning", right_info="session")
+        if show_help:
+            outcome.add_message(Text(summary.usage, style="dim"), right_info="session")
         return outcome
 
     outcome.add_message(
@@ -173,7 +183,10 @@ async def handle_pin_session(
     current = is_session_pinned(session.info)
     desired, error = _resolve_pin_state(value, current=current)
     if desired is None:
-        outcome.add_message(error or "Usage: /session pin [on|off]", channel="warning")
+        outcome.add_message(
+            error or "Usage: /session pin [on|off|id|number]",
+            channel="warning",
+        )
         return outcome
 
     session.set_pinned(desired)
@@ -342,6 +355,7 @@ async def handle_title_session(
     ctx: CommandContext,
     *,
     title: str | None,
+    session_id: str | None = None,
 ) -> CommandOutcome:
     outcome = CommandOutcome()
     if not title:
@@ -352,8 +366,12 @@ async def handle_title_session(
 
     manager = get_session_manager()
     session = manager.current_session
-    if session is None:
+    if session_id:
+        if session is None or session.info.name != session_id:
+            session = manager.create_session_with_id(session_id)
+    elif session is None:
         session = manager.create_session()
+    assert session is not None
     session.set_title(title)
     outcome.add_message(f"Session title set: {title}", channel="info", right_info="session")
     return outcome

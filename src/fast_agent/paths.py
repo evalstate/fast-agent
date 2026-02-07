@@ -4,9 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
-
-DEFAULT_CLAUDE_SKILLS_DIR = Path(".claude/skills")
+from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR, DEFAULT_SKILLS_PATHS
 
 if TYPE_CHECKING:
     from fast_agent.config import Settings
@@ -77,7 +75,17 @@ def default_skill_paths(
 ) -> list[Path]:
     base = cwd or Path.cwd()
     env_paths = resolve_environment_paths(settings=settings, cwd=base, override=override)
-    return [env_paths.skills, _resolve_relative_path(DEFAULT_CLAUDE_SKILLS_DIR, base)]
+    resolved: list[Path] = []
+    env_skills_entry = Path(DEFAULT_ENVIRONMENT_DIR) / "skills"
+    for entry in DEFAULT_SKILLS_PATHS:
+        raw_path = Path(entry).expanduser()
+        if raw_path == env_skills_entry:
+            path = env_paths.skills
+        else:
+            path = _resolve_relative_path(raw_path, base)
+        if path not in resolved:
+            resolved.append(path)
+    return resolved
 
 
 def resolve_mcp_ui_output_dir(

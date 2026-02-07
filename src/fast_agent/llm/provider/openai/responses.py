@@ -77,6 +77,8 @@ class ResponsesLLM(
                 if (
                     raw_setting is not None
                     and "reasoning_effort" in settings.model_fields_set
+                    and settings.reasoning_effort
+                    != settings.model_fields["reasoning_effort"].default
                 ):
                     self.logger.warning(
                         "Responses config 'reasoning_effort' is deprecated; use 'reasoning'."

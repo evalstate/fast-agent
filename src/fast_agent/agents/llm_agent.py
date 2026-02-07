@@ -18,11 +18,15 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_decorator import LlmDecorator, ModelT
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.context import Context
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.console_display import ConsoleDisplay
-from fast_agent.ui.message_display_helpers import build_user_message_display
+from fast_agent.ui.message_display_helpers import (
+    build_tool_use_additional_message,
+    build_user_message_display,
+)
 from fast_agent.workflow_telemetry import (
     NoOpWorkflowTelemetryProvider,
     WorkflowTelemetryProvider,
@@ -30,7 +34,10 @@ from fast_agent.workflow_telemetry import (
 
 if TYPE_CHECKING:
     from fast_agent.agents.tool_runner import ToolRunnerHooks
+    from fast_agent.ui.streaming import StreamingHandle
 # TODO -- decide what to do with type safety for model/chat_turn()
+
+logger = get_logger(__name__)
 
 DEFAULT_CAPABILITIES = AgentCapabilities(
     streaming=False, push_notifications=False, state_transition_history=False
@@ -55,6 +62,9 @@ class LlmAgent(LlmDecorator):
 
         # Initialize display component
         self._display = ConsoleDisplay(config=self._context.config if self._context else None)
+        self._force_non_streaming_once = False
+        self._force_non_streaming_reason: str | None = None
+        self._active_stream_handle: "StreamingHandle | None" = None
         self.tool_runner_hooks: "ToolRunnerHooks | None" = None
         self._workflow_telemetry_provider: WorkflowTelemetryProvider = (
             NoOpWorkflowTelemetryProvider()
@@ -143,10 +153,9 @@ class LlmAgent(LlmDecorator):
                 )
 
             case LlmStopReason.TOOL_USE:
-                if None is message.last_text():
-                    additional_segments.append(
-                        Text("The assistant requested tool calls", style="dim green italic")
-                    )
+                tool_use_message = build_tool_use_additional_message(message)
+                if tool_use_message is not None:
+                    additional_segments.append(tool_use_message)
 
             case LlmStopReason.ERROR:
                 # Check if there's detailed error information in the error channel
@@ -284,9 +293,30 @@ class LlmAgent(LlmDecorator):
 
     def _should_stream(self) -> bool:
         """Determine whether streaming display should be used."""
+        if self._force_non_streaming_once:
+            self._force_non_streaming_once = False
+            reason = self._force_non_streaming_reason
+            self._force_non_streaming_reason = None
+            if reason:
+                logger.info(
+                    "Streaming disabled for next turn",
+                    agent_name=self.name,
+                    reason=reason,
+                )
+            return False
         if getattr(self, "display", None):
             enabled, _ = self.display.resolve_streaming_preferences()
             return enabled
+        return True
+
+    def force_non_streaming_next_turn(self, *, reason: str | None = None) -> bool:
+        """Disable streaming for the next assistant turn."""
+        if self._force_non_streaming_once:
+            if reason and not self._force_non_streaming_reason:
+                self._force_non_streaming_reason = reason
+            return False
+        self._force_non_streaming_once = True
+        self._force_non_streaming_reason = reason
         return True
 
     async def generate_impl(
@@ -327,6 +357,7 @@ class LlmAgent(LlmDecorator):
                 name=display_name,
                 model=display_model,
             ) as stream_handle:
+                self._active_stream_handle = stream_handle
                 try:
                     remove_listener = llm.add_stream_listener(stream_handle.update_chunk)
                     remove_tool_listener = llm.add_tool_stream_listener(
@@ -349,7 +380,9 @@ class LlmAgent(LlmDecorator):
                 if summary:
                     summary_text = Text(f"\n\n{summary.message}", style="dim red italic")
 
+                self._maybe_close_streaming_for_tool_calls(result)
                 stream_handle.finalize(result)
+                self._active_stream_handle = None
 
             await self.show_assistant_message(
                 result,
@@ -365,6 +398,53 @@ class LlmAgent(LlmDecorator):
             await self.show_assistant_message(result, additional_message=summary_text)
 
         return result
+
+    def close_active_streaming_display(self, *, reason: str | None = None) -> bool:
+        """Close the current streaming display if active."""
+        handle = self._active_stream_handle
+        if handle is None:
+            return False
+        if reason:
+            logger.info(
+                "Closing active streaming display",
+                agent_name=self.name,
+                reason=reason,
+            )
+        try:
+            handle.close()
+        finally:
+            self._active_stream_handle = None
+        return True
+
+    def _maybe_close_streaming_for_tool_calls(
+        self, message: PromptMessageExtended
+    ) -> None:
+        tool_calls = message.tool_calls
+        if not tool_calls or len(tool_calls) <= 1:
+            logger.debug(
+                "Streaming tool-call guard: no parallel tool calls found",
+                agent_name=self.name,
+                tool_call_count=len(tool_calls or {}),
+            )
+            return
+        tool_call_items = list(tool_calls.items())
+        subagent_calls = 0
+        counter = getattr(self, "_count_agent_tool_calls", None)
+        if callable(counter):
+            try:
+                subagent_calls = counter(tool_call_items)
+            except Exception:
+                subagent_calls = 0
+        logger.debug(
+            "Streaming tool-call guard: evaluated tool calls",
+            agent_name=self.name,
+            tool_call_count=len(tool_call_items),
+            subagent_call_count=subagent_calls,
+        )
+        if subagent_calls > 1:
+            self.close_active_streaming_display(
+                reason="parallel subagent tool calls"
+            )
 
     async def structured_impl(
         self,

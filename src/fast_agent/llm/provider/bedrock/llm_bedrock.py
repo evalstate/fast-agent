@@ -246,6 +246,8 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                     if (
                         raw_setting is not None
                         and "reasoning_effort" in config.model_fields_set
+                        and config.reasoning_effort
+                        != config.model_fields["reasoning_effort"].default
                     ):
                         self.logger.warning(
                             "Bedrock config 'reasoning_effort' is deprecated; use 'reasoning'."
@@ -371,6 +373,30 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                 mapping[clean_name] = tool.name
 
         return mapping
+
+    @staticmethod
+    def _resolve_tool_use_name(
+        tool_use_id: str,
+        tool_list: "ListToolsResult | None",
+        tool_name_mapping: dict[str, str] | None,
+    ) -> str:
+        tool_name = "unknown_tool"
+        if tool_list and tool_list.tools:
+            # Try to match by checking if any tool name appears in the tool_use_id
+            for tool in tool_list.tools:
+                if tool.name in tool_use_id or tool_use_id.endswith(f"_{tool.name}"):
+                    tool_name = tool.name
+                    break
+            # If no match, use first tool as fallback
+            if tool_name == "unknown_tool":
+                tool_name = tool_list.tools[0].name
+
+        if tool_name_mapping:
+            for mapped_name, original_name in tool_name_mapping.items():
+                if original_name == tool_name:
+                    return mapped_name
+
+        return tool_name
 
     def _convert_tools_nova_format(
         self, tools: "ListToolsResult", tool_name_mapping: dict[str, str]
@@ -991,12 +1017,19 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             if isinstance(content, str):
                 bedrock_message["content"].append({"text": content})
             elif isinstance(content, list):
+                # CRITICAL: For assistant messages, text blocks MUST come before toolUse blocks
+                # Bedrock rejects messages where toolUse comes before text
+                text_blocks = []
+                tool_use_blocks = []
+                tool_result_blocks = []
+                other_blocks = []
+                
                 for item in content:
                     item_type = item.get("type")
                     if item_type == "text":
-                        bedrock_message["content"].append({"text": item.get("text", "")})
+                        text_blocks.append({"text": item.get("text", "")})
                     elif item_type == "tool_use":
-                        bedrock_message["content"].append(
+                        tool_use_blocks.append(
                             {
                                 "toolUse": {
                                     "toolUseId": item.get("id", ""),
@@ -1013,15 +1046,13 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                         bedrock_content_list = []
                         if raw_content:
                             for part in raw_content:
-                                # FIX: The content parts are dicts, not TextContent objects.
                                 if isinstance(part, dict) and "text" in part:
                                     bedrock_content_list.append({"text": part.get("text", "")})
 
-                        # Bedrock requires content for error statuses.
                         if not bedrock_content_list and status == "error":
                             bedrock_content_list.append({"text": "Tool call failed with an error."})
 
-                        bedrock_message["content"].append(
+                        tool_result_blocks.append(
                             {
                                 "toolResult": {
                                     "toolUseId": tool_use_id,
@@ -1030,6 +1061,12 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                                 }
                             }
                         )
+                    else:
+                        # Handle any other content types
+                        other_blocks.append(item)
+                
+                # Order: text first, then toolUse, then toolResult, then others
+                bedrock_message["content"] = text_blocks + tool_use_blocks + tool_result_blocks + other_blocks
 
             # Only add the message if it has content
             if bedrock_message["content"]:
@@ -1352,6 +1389,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
 
             # Build tools representation for this schema
             tools_payload: Union[list[dict[str, Any]], str, None] = None
+            tool_name_mapping: dict[str, str] | None = None
             # Get tool name policy (needed even when no tools for cache logic)
             name_policy = (
                 self.capabilities.get(model) or ModelCapabilities()
@@ -1459,22 +1497,139 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             # Tools wiring
             # Always include toolConfig if we have tools OR if there are tool results in the conversation
             has_tool_results = False
+            has_tool_use = False
             for msg in bedrock_messages:
                 if isinstance(msg, dict) and msg.get("content"):
                     for content in msg["content"]:
-                        if isinstance(content, dict) and "toolResult" in content:
-                            has_tool_results = True
+                        if isinstance(content, dict):
+                            if "toolResult" in content:
+                                has_tool_results = True
+                            if "toolUse" in content:
+                                has_tool_use = True
+                        if has_tool_results and has_tool_use:
                             break
-                    if has_tool_results:
+                    if has_tool_results and has_tool_use:
                         break
 
-            if (
-                schema_choice in (ToolSchemaType.ANTHROPIC, ToolSchemaType.DEFAULT)
-                and isinstance(tools_payload, list)
-                and tools_payload
-            ):
-                # Include tools only when we have actual tools to provide
-                converse_args["toolConfig"] = {"tools": tools_payload}
+            # Reconstruct missing assistant messages when tool results exist without corresponding tool use blocks
+            # This ensures Bedrock API receives properly paired toolUse/toolResult blocks
+            if has_tool_results and not has_tool_use:
+                self.logger.warning(
+                    "Detected tool results without corresponding tool use blocks - "
+                    "reconstructing missing assistant message with tool calls"
+                )
+
+                # Group tool results by message index
+                tool_results_by_msg: dict[int, list[dict[str, Any]]] = {}
+                for msg_idx, msg in enumerate(bedrock_messages):
+                    if isinstance(msg, dict) and msg.get("role") == "user" and msg.get("content"):
+                        for content in msg["content"]:
+                            if isinstance(content, dict) and "toolResult" in content:
+                                tool_result = content["toolResult"]
+                                tool_use_id = tool_result.get("toolUseId") or tool_result.get("tool_use_id")
+                                if tool_use_id:
+                                    if msg_idx not in tool_results_by_msg:
+                                        tool_results_by_msg[msg_idx] = []
+                                    tool_results_by_msg[msg_idx].append({
+                                        "tool_use_id": tool_use_id,
+                                        "tool_result": tool_result
+                                    })
+
+                # For each message with tool results, insert ONE assistant message with ALL toolUse blocks
+                # Process in reverse order to maintain correct indices
+                for msg_idx in sorted(tool_results_by_msg.keys(), reverse=True):
+                    tool_results = tool_results_by_msg[msg_idx]
+
+                    # Create toolUse blocks for all tool results in this message
+                    tool_use_blocks = []
+                    for tr_info in tool_results:
+                        tool_use_id = tr_info["tool_use_id"]
+
+                        tool_name = self._resolve_tool_use_name(
+                            tool_use_id, tool_list, tool_name_mapping
+                        )
+
+                        tool_use_blocks.append({
+                            "toolUse": {
+                                "toolUseId": tool_use_id,
+                                "name": tool_name,
+                                "input": {}  # We don't have the original input
+                            }
+                        })
+
+                    # Create single assistant message with all toolUse blocks
+                    assistant_msg = {
+                        "role": "assistant",
+                        "content": tool_use_blocks
+                    }
+
+                    # Insert before the user message with tool results
+                    converse_args["messages"].insert(msg_idx, assistant_msg)
+                    self.logger.debug(
+                        f"Inserted reconstructed assistant message with {len(tool_use_blocks)} toolUse blocks before message {msg_idx}"
+                    )
+
+            # Handle orphaned toolUse blocks without corresponding toolResult
+            # This happens in Agents-As-Tools pattern when child agent history gets corrupted
+            if has_tool_use:
+                messages = converse_args["messages"]
+                for msg_idx, msg in enumerate(messages):
+                    if isinstance(msg, dict) and msg.get("role") == "assistant" and msg.get("content"):
+                        tool_use_ids = [
+                            content["toolUse"].get("toolUseId") or content["toolUse"].get("tool_use_id")
+                            for content in msg["content"]
+                            if isinstance(content, dict) and "toolUse" in content
+                        ]
+                        if not tool_use_ids:
+                            continue
+                        # Check if next message has matching toolResults
+                        next_msg = messages[msg_idx + 1] if msg_idx + 1 < len(messages) else None
+                        if next_msg and next_msg.get("role") == "user":
+                            existing_result_ids = {
+                                content["toolResult"].get("toolUseId") or content["toolResult"].get("tool_use_id")
+                                for content in next_msg.get("content", [])
+                                if isinstance(content, dict) and "toolResult" in content
+                            }
+                            missing_ids = [tid for tid in tool_use_ids if tid not in existing_result_ids]
+                        else:
+                            missing_ids = tool_use_ids
+                        # Add placeholder toolResults for orphaned toolUse blocks
+                        if missing_ids:
+                            self.logger.warning(
+                                f"Detected {len(missing_ids)} orphaned toolUse blocks without toolResult - "
+                                "injecting placeholder toolResult messages"
+                            )
+                            placeholder_content = [
+                                {"toolResult": {"toolUseId": tid, "status": "error", "content": [{"text": "Tool was interrupted."}]}}
+                                for tid in missing_ids
+                            ]
+                            if next_msg and next_msg.get("role") == "user":
+                                next_msg["content"].extend(placeholder_content)
+                            else:
+                                messages.insert(msg_idx + 1, {"role": "user", "content": placeholder_content})
+
+            # Noop tool spec for when we need toolConfig but have no actual tools
+            # Bedrock requires at least one tool in toolConfig, so we use a placeholder
+            noop_tool_spec = {
+                "toolSpec": {
+                    "name": "noop",
+                    "description": "This is a placeholder tool that should be ignored.",
+                    "inputSchema": {"json": {"type": "object", "properties": {}}}
+                }
+            }
+
+            # Include toolConfig when we have tools OR when conversation has tool results/use blocks
+            # Bedrock requires toolConfig when toolUse/toolResult blocks are in the conversation
+            # This applies to ALL schema types, not just ANTHROPIC/DEFAULT
+            if schema_choice in (ToolSchemaType.ANTHROPIC, ToolSchemaType.DEFAULT):
+                if isinstance(tools_payload, list) and tools_payload:
+                    converse_args["toolConfig"] = {"tools": tools_payload}
+                elif has_tool_results or has_tool_use:
+                    # Use noop tool since Bedrock requires at least one tool
+                    converse_args["toolConfig"] = {"tools": [noop_tool_spec]}
+            elif has_tool_results or has_tool_use:
+                # For other schemas (like SYSTEM_PROMPT), still need toolConfig if tool blocks exist
+                converse_args["toolConfig"] = {"tools": [noop_tool_spec]}
 
             # Inference configuration and overrides
             inference_config: dict[str, Any] = {}
@@ -1701,14 +1856,57 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                                     f"System: {system_text}\n\nUser: {original_text}"
                                 )
 
-                        # Re-add tools
+                        # Re-add tools or noop toolConfig if conversation has tool blocks
+                        noop_tool_spec = {
+                            "toolSpec": {
+                                "name": "noop",
+                                "description": "This is a placeholder tool that should be ignored.",
+                                "inputSchema": {"json": {"type": "object", "properties": {}}}
+                            }
+                        }
                         if (
                             schema_choice
                             in (ToolSchemaType.ANTHROPIC.value, ToolSchemaType.DEFAULT.value)
-                            and isinstance(tools_payload, list)
-                            and tools_payload
                         ):
-                            converse_args["toolConfig"] = {"tools": tools_payload}
+                            if isinstance(tools_payload, list) and tools_payload:
+                                converse_args["toolConfig"] = {"tools": tools_payload}
+                            elif has_tool_results or has_tool_use:
+                                converse_args["toolConfig"] = {"tools": [noop_tool_spec]}
+                        elif has_tool_results or has_tool_use:
+                            # For other schemas, still need toolConfig if tool blocks exist
+                            converse_args["toolConfig"] = {"tools": [noop_tool_spec]}
+
+                        # Handle orphaned toolUse blocks without corresponding toolResult (retry path)
+                        if has_tool_use:
+                            retry_messages = converse_args["messages"]
+                            for msg_idx, msg in enumerate(retry_messages):
+                                if isinstance(msg, dict) and msg.get("role") == "assistant" and msg.get("content"):
+                                    tool_use_ids = [
+                                        content["toolUse"].get("toolUseId") or content["toolUse"].get("tool_use_id")
+                                        for content in msg["content"]
+                                        if isinstance(content, dict) and "toolUse" in content
+                                    ]
+                                    if not tool_use_ids:
+                                        continue
+                                    next_msg = retry_messages[msg_idx + 1] if msg_idx + 1 < len(retry_messages) else None
+                                    if next_msg and next_msg.get("role") == "user":
+                                        existing_result_ids = {
+                                            content["toolResult"].get("toolUseId") or content["toolResult"].get("tool_use_id")
+                                            for content in next_msg.get("content", [])
+                                            if isinstance(content, dict) and "toolResult" in content
+                                        }
+                                        missing_ids = [tid for tid in tool_use_ids if tid not in existing_result_ids]
+                                    else:
+                                        missing_ids = tool_use_ids
+                                    if missing_ids:
+                                        placeholder_content = [
+                                            {"toolResult": {"toolUseId": tid, "status": "error", "content": [{"text": "Tool was interrupted."}]}}
+                                            for tid in missing_ids
+                                        ]
+                                        if next_msg and next_msg.get("role") == "user":
+                                            next_msg["content"].extend(placeholder_content)
+                                        else:
+                                            retry_messages.insert(msg_idx + 1, {"role": "user", "content": placeholder_content})
 
                         # Same streaming decision using cache
                         has_tools = bool(tools_payload) and bool(

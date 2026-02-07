@@ -6,20 +6,34 @@ from dataclasses import dataclass
 from typing import Final, Literal, TypeAlias, cast
 
 ReasoningEffortKind = Literal["effort", "toggle", "budget"]
-ReasoningEffortLevel = Literal["none", "minimal", "low", "medium", "high", "xhigh"]
-ReasoningEffortValue = ReasoningEffortLevel | bool | int
-
-EFFORT_LEVELS: Final[tuple[ReasoningEffortLevel, ...]] = (
+ReasoningEffortLevel = Literal[
+    "auto",
     "none",
     "minimal",
     "low",
     "medium",
     "high",
     "xhigh",
+    "max",
+]
+ReasoningEffortValue = ReasoningEffortLevel | bool | int
+
+EFFORT_LEVELS: Final[tuple[ReasoningEffortLevel, ...]] = (
+    "auto",
+    "none",
+    "minimal",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max",
 )
 
 TRUE_VALUES: Final[set[str]] = {"true", "on", "1", "yes", "enable", "enabled"}
 FALSE_VALUES: Final[set[str]] = {"false", "off", "0", "no", "disable", "disabled"}
+
+# Sentinel setting that means "use the provider's automatic/default reasoning".
+AUTO_REASONING = "auto"
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +53,8 @@ class ReasoningEffortSpec:
     min_budget_tokens: int | None = None
     max_budget_tokens: int | None = None
     budget_presets: list[int] | None = None
+    allow_toggle_disable: bool = False
+    allow_auto: bool = False
     default: ReasoningEffortSetting | None = None
 
 
@@ -84,7 +100,54 @@ def normalize_effort_for_spec(
         return value
     if value == "minimal" and "low" in allowed:
         return "low"
+    if value == "xhigh" and "max" in allowed:
+        return "max"
+    if value == "max" and "xhigh" in allowed:
+        return "xhigh"
     return None
+
+
+def _budget_presets_for_spec(spec: ReasoningEffortSpec) -> list[int]:
+    budgets: list[int] = []
+    if spec.budget_presets:
+        budgets.extend(value for value in spec.budget_presets if value > 0)
+    if not budgets:
+        if spec.min_budget_tokens is not None:
+            budgets.append(spec.min_budget_tokens)
+        if spec.max_budget_tokens is not None:
+            budgets.append(spec.max_budget_tokens)
+    return sorted({value for value in budgets if value > 0})
+
+
+def map_effort_to_budget(
+    setting: ReasoningEffortSetting,
+    spec: ReasoningEffortSpec,
+) -> ReasoningEffortSetting | None:
+    """Map effort levels to budget presets when a model only supports budgets."""
+    if setting.kind != "effort" or spec.kind != "budget":
+        return None
+    if not isinstance(setting.value, str):
+        return None
+    effort = setting.value
+    if effort in ("auto", "none"):
+        return None
+
+    budgets = _budget_presets_for_spec(spec)
+    if not budgets:
+        return None
+
+    if effort in ("minimal", "low"):
+        budget = budgets[0]
+    elif effort == "medium":
+        budget = budgets[len(budgets) // 2]
+    else:
+        budget = budgets[-1]
+    return ReasoningEffortSetting(kind="budget", value=budget)
+
+
+def is_auto_reasoning(setting: ReasoningEffortSetting | None) -> bool:
+    """Return True when the setting represents automatic/provider-default reasoning."""
+    return setting is not None and setting.kind == "effort" and setting.value == AUTO_REASONING
 
 
 def validate_reasoning_setting(
@@ -94,6 +157,21 @@ def validate_reasoning_setting(
     """Validate a reasoning setting against a model spec."""
     if setting.kind == "toggle" and setting.value is False:
         return setting
+
+    # "auto" is only valid when the spec allows provider-default reasoning.
+    if is_auto_reasoning(setting):
+        if spec.kind != "effort":
+            raise ValueError(f"Expected reasoning kind '{spec.kind}', got '{setting.kind}'.")
+        if not spec.allow_auto:
+            allowed = ", ".join(spec.allowed_efforts or []) or "any"
+            raise ValueError(f"Effort '{setting.value}' not allowed (allowed: {allowed}).")
+        return setting
+
+    if spec.kind == "budget" and setting.kind == "effort":
+        mapped = map_effort_to_budget(setting, spec)
+        if mapped is None:
+            raise ValueError("Effort values are not supported for budget-based reasoning.")
+        setting = mapped
 
     if setting.kind != spec.kind:
         raise ValueError(f"Expected reasoning kind '{spec.kind}', got '{setting.kind}'.")
@@ -133,6 +211,8 @@ def validate_reasoning_setting(
 def format_reasoning_setting(setting: ReasoningEffortSetting | None) -> str:
     if setting is None:
         return "unset"
+    if is_auto_reasoning(setting):
+        return "auto"
     if setting.kind == "effort":
         return f"effort={setting.value}"
     if setting.kind == "budget":
@@ -147,6 +227,13 @@ def available_reasoning_values(spec: ReasoningEffortSpec | None) -> list[str]:
         return []
     if spec.kind == "effort":
         values = list(spec.allowed_efforts or EFFORT_LEVELS)
+        if spec.allow_auto:
+            if "auto" in values:
+                values = ["auto"] + [value for value in values if value != "auto"]
+            else:
+                values.insert(0, "auto")
+        else:
+            values = [value for value in values if value != "auto"]
     elif spec.kind == "budget":
         values = []
         presets = spec.budget_presets
@@ -157,10 +244,12 @@ def available_reasoning_values(spec: ReasoningEffortSpec | None) -> list[str]:
                 values.append(str(spec.min_budget_tokens))
             if spec.max_budget_tokens is not None:
                 values.append(str(spec.max_budget_tokens))
+        aliases = [alias for alias in ("low", "medium", "high", "max") if alias not in values]
+        values = aliases + values
     else:
         values = ["on", "off"]
 
-    if spec.kind != "effort" or "none" in values:
+    if spec.kind != "effort" or "none" in values or spec.allow_toggle_disable:
         if "off" not in values:
             values.append("off")
     return values
