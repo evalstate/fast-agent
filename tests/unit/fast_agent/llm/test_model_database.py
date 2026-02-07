@@ -167,8 +167,18 @@ def test_model_database_reasoning_modes():
     assert ModelDatabase.get_reasoning("o1") == "openai"
     assert ModelDatabase.get_reasoning("o3-mini") == "openai"
     assert ModelDatabase.get_reasoning("gpt-5") == "openai"
+    assert ModelDatabase.get_reasoning("claude-opus-4-6") == "anthropic_thinking"
     assert ModelDatabase.get_reasoning("zai-org/glm-4.6") == "reasoning_content"
     assert ModelDatabase.get_reasoning("gpt-4o") is None
+
+
+def test_model_database_opus_46_reasoning_spec():
+    """Opus 4.6 should expose adaptive effort settings."""
+    spec = ModelDatabase.get_reasoning_effort_spec("claude-opus-4-6")
+    assert spec is not None
+    assert spec.kind == "effort"
+    assert spec.allowed_efforts == ["low", "medium", "high", "max"]
+    assert spec.allow_toggle_disable
 
 
 def test_model_database_text_verbosity_spec():

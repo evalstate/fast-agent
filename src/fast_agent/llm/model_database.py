@@ -9,7 +9,11 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, ReasoningEffortSpec
+from fast_agent.llm.reasoning_effort import (
+    AUTO_REASONING,
+    ReasoningEffortSetting,
+    ReasoningEffortSpec,
+)
 from fast_agent.llm.text_verbosity import TextVerbositySpec
 
 
@@ -137,6 +141,14 @@ class ModelDatabase:
         default=ReasoningEffortSetting(kind="budget", value=1024),
     )
 
+    ANTHROPIC_ADAPTIVE_THINKING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "medium", "high", "max"],
+        allow_toggle_disable=True,
+        allow_auto=True,
+        default=ReasoningEffortSetting(kind="effort", value=AUTO_REASONING),
+    )
+
     # Common parameter configurations
     OPENAI_STANDARD = ModelParameters(
         context_window=128000, max_output_tokens=16384, tokenizes=OPENAI_MULTIMODAL
@@ -260,6 +272,14 @@ class ModelDatabase:
         tokenizes=ANTHROPIC_MULTIMODAL,
         reasoning="anthropic_thinking",
         reasoning_effort_spec=ANTHROPIC_THINKING_EFFORT_SPEC,
+        cache_ttl="5m",
+    )
+    ANTHROPIC_OPUS_46 = ModelParameters(
+        context_window=200000,
+        max_output_tokens=32000,
+        tokenizes=ANTHROPIC_MULTIMODAL,
+        reasoning="anthropic_thinking",
+        reasoning_effort_spec=ANTHROPIC_ADAPTIVE_THINKING_EFFORT_SPEC,
         cache_ttl="5m",
     )
     ANTHROPIC_OPUS_4_LEGACY = ModelParameters(
@@ -455,6 +475,7 @@ class ModelDatabase:
         "gpt-5.1": OPENAI_GPT_5_2,
         "gpt-5.1-codex": OPENAI_GPT_CODEX,
         "gpt-5.2-codex": OPENAI_GPT_CODEX,
+        "gpt-5.3-codex": OPENAI_GPT_CODEX,
         "gpt-5.2": OPENAI_GPT_5,
         # Anthropic Models
         "claude-3-haiku": ANTHROPIC_35_SERIES,
@@ -481,6 +502,7 @@ class ModelDatabase:
         "claude-opus-4-0": ANTHROPIC_OPUS_4_LEGACY,
         "claude-opus-4-1": ANTHROPIC_OPUS_4_VERSIONED,
         "claude-opus-4-5": ANTHROPIC_OPUS_4_VERSIONED,
+        "claude-opus-4-6": ANTHROPIC_OPUS_46,
         "claude-opus-4-20250514": ANTHROPIC_OPUS_4_LEGACY,
         "claude-haiku-4-5-20251001": ANTHROPIC_SONNET_4_VERSIONED,
         "claude-haiku-4-5": ANTHROPIC_SONNET_4_VERSIONED,

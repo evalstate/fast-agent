@@ -326,6 +326,9 @@ class FastAgent(DecoratorMixin):
             # Create settings and update global settings so resolve_skill_directories() works
             instance_settings = config.Settings(**self.config) if hasattr(self, "config") else None
             if instance_settings is not None:
+                instance_settings._config_file = getattr(self, "_loaded_config_file", None)
+                instance_settings._secrets_file = getattr(self, "_loaded_secrets_file", None)
+            if instance_settings is not None:
                 config.update_global_settings(instance_settings)
 
             # Create the app with our local settings
@@ -407,7 +410,8 @@ class FastAgent(DecoratorMixin):
         try:
             # Use get_settings to load config - this handles all paths and secrets merging
             settings = get_settings(self.config_path)
-
+            self._loaded_config_file = settings._config_file if settings else None
+            self._loaded_secrets_file = settings._secrets_file if settings else None
             # Convert to dict for backward compatibility
             self.config = settings.model_dump() if settings else {}
         finally:

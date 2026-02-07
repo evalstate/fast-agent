@@ -26,6 +26,7 @@ def test_simple_model_names():
         ("o1-mini", Provider.RESPONSES),
         ("claude-3-haiku-20240307", Provider.ANTHROPIC),
         ("claude-3-5-sonnet-20240620", Provider.ANTHROPIC),
+        ("claude-opus-4-6", Provider.ANTHROPIC),
     ]
 
     for model_name, expected_provider in cases:
@@ -178,6 +179,26 @@ def test_huggingface_alias_without_provider():
     config = ModelFactory.parse_model_string("kimi", aliases=TEST_ALIASES)
     assert config.provider == Provider.HUGGINGFACE
     assert config.model_name == "moonshotai/Kimi-K2-Instruct-0905"
+
+
+def test_opus_aliases_resolve_to_opus_46():
+    config = ModelFactory.parse_model_string("opus")
+    assert config.provider == Provider.ANTHROPIC
+    assert config.model_name == "claude-opus-4-6"
+
+    config = ModelFactory.parse_model_string("opus46")
+    assert config.provider == Provider.ANTHROPIC
+    assert config.model_name == "claude-opus-4-6"
+
+
+def test_codexplan_aliases_use_codex_oauth_provider():
+    config = ModelFactory.parse_model_string("codexplan")
+    assert config.provider == Provider.CODEX_RESPONSES
+    assert config.model_name == "gpt-5.3-codex"
+
+    config = ModelFactory.parse_model_string("codexplan52")
+    assert config.provider == Provider.CODEX_RESPONSES
+    assert config.model_name == "gpt-5.2-codex"
 
 
 def test_huggingface_alias_with_default_provider():

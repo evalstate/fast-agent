@@ -102,6 +102,7 @@ async def handle_model_reasoning(
             spec.kind == "effort"
             and parsed.value is False
             and "none" not in (spec.allowed_efforts or [])
+            and not spec.allow_toggle_disable
         ):
             allowed = ", ".join(available_reasoning_values(spec))
             outcome.add_message(
