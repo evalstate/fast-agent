@@ -407,6 +407,95 @@ class TestACPToolProgressManager:
         assert "use-b" not in manager._stream_chunk_counts
 
     @pytest.mark.asyncio
+    async def test_stream_start_then_on_tool_start_updates_same_tool_call_id(self) -> None:
+        """
+        If the LLM emits tool stream metadata first, on_tool_start must update
+        the same ACP toolCallId (no duplicate tool cards in the client).
+        """
+        connection = FakeAgentSideConnection()
+        manager = ACPToolProgressManager(connection, "test-session")
+
+        manager.handle_tool_stream_event(
+            "start",
+            {
+                "tool_name": "server__tool_a",
+                "tool_use_id": "use-a",
+            },
+        )
+
+        await asyncio.sleep(0.1)
+        assert len(connection.notifications) == 1
+        stream_start = connection.notifications[0]
+        assert stream_start.sessionUpdate == "tool_call"
+
+        tool_call_id = await manager.on_tool_start(
+            tool_name="tool_a",
+            server_name="server",
+            arguments={"path": "/tmp/a.txt"},
+            tool_use_id="use-a",
+        )
+
+        # A single call should be updated (tool_call_update), not duplicated.
+        assert tool_call_id == stream_start.tool_call_id
+        assert len(connection.notifications) == 2
+        assert connection.notifications[1].sessionUpdate == "tool_call_update"
+
+    @pytest.mark.asyncio
+    async def test_on_tool_start_before_stream_start_dedups_late_stream_start(self) -> None:
+        """
+        If tool execution starts before (or without) tool stream metadata,
+        a late stream start event must not create a second ToolCallStart.
+        """
+        connection = FakeAgentSideConnection()
+        manager = ACPToolProgressManager(connection, "test-session")
+
+        _ = await manager.on_tool_start(
+            tool_name="tool_a",
+            server_name="server",
+            arguments={"path": "/tmp/a.txt"},
+            tool_use_id="use-a",
+        )
+
+        assert len(connection.notifications) == 1
+        assert connection.notifications[0].sessionUpdate == "tool_call"
+
+        manager.handle_tool_stream_event(
+            "start",
+            {
+                "tool_name": "server__tool_a",
+                "tool_use_id": "use-a",
+            },
+        )
+
+        await asyncio.sleep(0.1)
+        # Still only one notification: no duplicate start card.
+        assert len(connection.notifications) == 1
+
+    @pytest.mark.asyncio
+    async def test_duplicate_stream_start_events_are_deduped(self) -> None:
+        """Duplicate stream start events for the same tool_use_id should be ignored."""
+        connection = FakeAgentSideConnection()
+        manager = ACPToolProgressManager(connection, "test-session")
+
+        manager.handle_tool_stream_event(
+            "start",
+            {
+                "tool_name": "server__tool_a",
+                "tool_use_id": "use-a",
+            },
+        )
+        manager.handle_tool_stream_event(
+            "start",
+            {
+                "tool_name": "server__tool_a",
+                "tool_use_id": "use-a",
+            },
+        )
+
+        await asyncio.sleep(0.1)
+        assert len(connection.notifications) == 1
+
+    @pytest.mark.asyncio
     async def test_progress_updates_title_with_progress_and_total(self) -> None:
         """Progress updates should include progress/total in title when total is provided."""
         connection = FakeAgentSideConnection()

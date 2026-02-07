@@ -1,5 +1,6 @@
 import base64
 import json
+from types import SimpleNamespace
 
 import pytest
 from mcp.types import ImageContent, TextContent
@@ -10,6 +11,7 @@ from fast_agent.constants import OPENAI_REASONING_ENCRYPTED
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.llm.provider.openai.responses_content import ResponsesContentMixin
 from fast_agent.llm.provider.openai.responses_files import ResponsesFileMixin
+from fast_agent.llm.provider.openai.responses_output import ResponsesOutputMixin
 from fast_agent.llm.provider.openai.responses_streaming import ResponsesStreamingMixin
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
@@ -43,6 +45,24 @@ class _StreamingHarness(ResponsesStreamingMixin):
     @property
     def events(self) -> list[tuple[str, dict]]:
         return self._events
+
+
+class _OutputHarness(ResponsesOutputMixin):
+    def __init__(self) -> None:
+        self._tool_call_id_map = {}
+
+    def _finalize_turn_usage(self, usage) -> None:  # pragma: no cover
+        return None
+
+    def _normalize_tool_ids(self, tool_use_id: str | None) -> tuple[str, str]:
+        tool_use_id = tool_use_id or ""
+        if tool_use_id.startswith("fc_"):
+            suffix = tool_use_id[len("fc_") :]
+            return tool_use_id, f"call_{suffix}"
+        if tool_use_id.startswith("call_"):
+            suffix = tool_use_id[len("call_") :]
+            return f"fc_{suffix}", tool_use_id
+        return f"fc_{tool_use_id}", f"call_{tool_use_id}"
 
 
 def test_convert_content_parts_text_and_image():
@@ -139,3 +159,47 @@ def test_dedupes_duplicate_reasoning_ids():
     items = harness._convert_extended_messages_to_provider(messages)
     reasoning_items = [item for item in items if item.get("type") == "reasoning"]
     assert len(reasoning_items) == 1
+
+
+def test_responses_tool_use_id_prefers_call_id_when_available():
+    """
+    Responses streaming emits tool_use_id=call_id; tool execution must use the same
+    identifier to avoid duplicated tool cards in ACP clients.
+    """
+    harness = _OutputHarness()
+    response = SimpleNamespace(
+        output=[
+            SimpleNamespace(
+                type="function_call",
+                id="fc_123",
+                call_id="call_123",
+                name="weather",
+                arguments="{}",
+            )
+        ]
+    )
+
+    tool_calls = harness._extract_tool_calls(response)
+    assert tool_calls is not None
+    assert list(tool_calls.keys()) == ["call_123"]
+    assert harness._tool_call_id_map["call_123"] == "call_123"
+
+
+def test_responses_tool_use_id_falls_back_to_item_id_when_call_id_missing():
+    harness = _OutputHarness()
+    response = SimpleNamespace(
+        output=[
+            SimpleNamespace(
+                type="function_call",
+                id="fc_456",
+                call_id=None,
+                name="weather",
+                arguments="{}",
+            )
+        ]
+    )
+
+    tool_calls = harness._extract_tool_calls(response)
+    assert tool_calls is not None
+    assert list(tool_calls.keys()) == ["fc_456"]
+    assert harness._tool_call_id_map["fc_456"] == "call_456"

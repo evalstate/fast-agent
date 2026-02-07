@@ -8,8 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-
-# from opentelemetry.instrumentation.anthropic import AnthropicInstrumentor
+from opentelemetry.instrumentation.mcp import McpInstrumentor
 from opentelemetry.propagate import set_global_textmap
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
@@ -136,8 +135,14 @@ async def configure_otel(config: "Settings") -> None:
     except Exception:  # pragma: no cover - optional instrumentation
         pass
 
+    try:
+        from opentelemetry.instrumentation.anthropic import AnthropicInstrumentor
 
-#   McpInstrumentor().instrument()
+        AnthropicInstrumentor().instrument()
+    except Exception:  # pragma: no cover - optional instrumentation
+        pass
+
+    McpInstrumentor().instrument()
 
 
 async def configure_logger(config: "Settings") -> None:
@@ -207,9 +212,7 @@ async def initialize_context(
     skills_settings = getattr(config, "skills", None)
     override_directories = None
     if skills_settings and getattr(skills_settings, "directories", None):
-        override_directories = [
-            Path(entry).expanduser() for entry in skills_settings.directories
-        ]
+        override_directories = [Path(entry).expanduser() for entry in skills_settings.directories]
     context.skill_registry = SkillRegistry(
         base_dir=Path.cwd(),
         directories=override_directories,
