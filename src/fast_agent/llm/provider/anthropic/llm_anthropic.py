@@ -70,6 +70,9 @@ STRUCTURED_OUTPUT_TOOL_NAME = "return_structured_output"
 STRUCTURED_OUTPUT_BETA = "structured-outputs-2025-11-13"
 INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14"
 
+# TODO: Remove beta header once Anthropic promotes 1M context to GA.
+LONG_CONTEXT_BETA = "context-1m-2025-08-07"
+
 # Stream capture mode - when enabled, saves all streaming chunks to files for debugging
 # Set FAST_AGENT_LLM_TRACE=1 (or any non-empty value) to enable
 STREAM_CAPTURE_ENABLED = bool(os.environ.get("FAST_AGENT_LLM_TRACE"))
@@ -197,6 +200,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         # Initialize logger - keep it simple without name reference
         kwargs.pop("provider", None)
         structured_override = kwargs.pop("structured_output_mode", None)
+        long_context_requested = kwargs.pop("long_context", False)
         super().__init__(provider=Provider.ANTHROPIC, **kwargs)
         self._structured_output_mode_override: StructuredOutputMode | None = (
             structured_override
@@ -278,6 +282,26 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                     payload,
                 )
 
+        # Long context (1M) setup
+        self._long_context = False
+        if long_context_requested:
+            model_name = self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
+            long_context_window = ModelDatabase.get_long_context_window(model_name)
+            if long_context_window is not None:
+                self._long_context = True
+                self._context_window_override = long_context_window
+                self._usage_accumulator.set_context_window_override(long_context_window)
+                self.logger.info(
+                    f"Long context ({long_context_window:,}) enabled for model '{model_name}'"
+                )
+            else:
+                supported = ", ".join(self._list_supported_long_context_models())
+                self.logger.warning(
+                    f"Long context (context=1m) is not supported for model "
+                    f"'{model_name}'. Ignoring. Supported models: "
+                    f"{supported}"
+                )
+
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize Anthropic-specific default parameters"""
         # Get base defaults from parent (includes ModelDatabase lookup)
@@ -288,6 +312,12 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         base_params.model = chosen_model
 
         return base_params
+
+    def _list_supported_long_context_models(self) -> list[str]:
+        """Return models that support explicit long-context overrides."""
+        from fast_agent.llm.model_database import ModelDatabase
+
+        return ModelDatabase.list_long_context_models()
 
     def _base_url(self) -> str | None:
         assert self.context.config
@@ -881,6 +911,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             beta_flags.append(STRUCTURED_OUTPUT_BETA)
         if thinking_enabled and available_tools and not adaptive_thinking:
             beta_flags.append(INTERLEAVED_THINKING_BETA)
+        if self._long_context:
+            beta_flags.append(LONG_CONTEXT_BETA)
         if beta_flags:
             base_args["betas"] = beta_flags
 

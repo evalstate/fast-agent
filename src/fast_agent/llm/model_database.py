@@ -50,6 +50,9 @@ class ModelParameters(BaseModel):
     cache_ttl: Literal["5m", "1h"] | None = None
     """Cache TTL for providers that support caching. None if not supported."""
 
+    long_context_window: int | None = None
+    """Optional extended context window when explicitly requested by query params."""
+
 
 class ModelDatabase:
     """Centralized model configuration database"""
@@ -433,6 +436,8 @@ class ModelDatabase:
         context_window=256_000, max_output_tokens=64_000, tokenizes=TEXT_ONLY
     )
 
+    ANTHROPIC_LONG_CONTEXT_WINDOW = 1_000_000
+
     # Model configuration database
     # KEEP ALL LOWER CASE KEYS
     MODELS: dict[str, ModelParameters] = {
@@ -495,14 +500,24 @@ class ModelDatabase:
         "claude-3-7-sonnet": ANTHROPIC_37_SERIES_THINKING,
         "claude-3-7-sonnet-20250219": ANTHROPIC_37_SERIES_THINKING,
         "claude-3-7-sonnet-latest": ANTHROPIC_37_SERIES_THINKING,
-        "claude-sonnet-4-0": ANTHROPIC_SONNET_4_LEGACY,
-        "claude-sonnet-4-20250514": ANTHROPIC_SONNET_4_LEGACY,
-        "claude-sonnet-4-5": ANTHROPIC_SONNET_4_VERSIONED,
-        "claude-sonnet-4-5-20250929": ANTHROPIC_SONNET_4_VERSIONED,
+        "claude-sonnet-4-0": ANTHROPIC_SONNET_4_LEGACY.model_copy(
+            update={"long_context_window": ANTHROPIC_LONG_CONTEXT_WINDOW}
+        ),
+        "claude-sonnet-4-20250514": ANTHROPIC_SONNET_4_LEGACY.model_copy(
+            update={"long_context_window": ANTHROPIC_LONG_CONTEXT_WINDOW}
+        ),
+        "claude-sonnet-4-5": ANTHROPIC_SONNET_4_VERSIONED.model_copy(
+            update={"long_context_window": ANTHROPIC_LONG_CONTEXT_WINDOW}
+        ),
+        "claude-sonnet-4-5-20250929": ANTHROPIC_SONNET_4_VERSIONED.model_copy(
+            update={"long_context_window": ANTHROPIC_LONG_CONTEXT_WINDOW}
+        ),
         "claude-opus-4-0": ANTHROPIC_OPUS_4_LEGACY,
         "claude-opus-4-1": ANTHROPIC_OPUS_4_VERSIONED,
         "claude-opus-4-5": ANTHROPIC_OPUS_4_VERSIONED,
-        "claude-opus-4-6": ANTHROPIC_OPUS_46,
+        "claude-opus-4-6": ANTHROPIC_OPUS_46.model_copy(
+            update={"long_context_window": ANTHROPIC_LONG_CONTEXT_WINDOW}
+        ),
         "claude-opus-4-20250514": ANTHROPIC_OPUS_4_LEGACY,
         "claude-haiku-4-5-20251001": ANTHROPIC_SONNET_4_VERSIONED,
         "claude-haiku-4-5": ANTHROPIC_SONNET_4_VERSIONED,
@@ -710,6 +725,19 @@ class ModelDatabase:
         """Get cache TTL for a model, or None if not supported"""
         params = cls.get_model_params(model)
         return params.cache_ttl if params else None
+
+    @classmethod
+    def get_long_context_window(cls, model: str) -> int | None:
+        """Get optional long-context override window for a model."""
+        params = cls.get_model_params(model)
+        return params.long_context_window if params else None
+
+    @classmethod
+    def list_long_context_models(cls) -> list[str]:
+        """List model names that support explicit long-context overrides."""
+        return sorted(
+            name for name, params in cls.MODELS.items() if params.long_context_window is not None
+        )
 
     @classmethod
     def list_models(cls) -> list[str]:

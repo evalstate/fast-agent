@@ -22,6 +22,25 @@ def test_model_database_context_windows():
     assert ModelDatabase.get_context_window("unknown-model") is None
 
 
+def test_model_database_long_context_windows():
+    """Explicit long-context capability should be tracked in ModelDatabase."""
+    assert ModelDatabase.get_long_context_window("claude-opus-4-6") == 1_000_000
+    assert ModelDatabase.get_long_context_window("claude-sonnet-4-0") == 1_000_000
+    assert ModelDatabase.get_long_context_window("claude-haiku-4-5") is None
+    assert ModelDatabase.get_long_context_window("unknown-model") is None
+
+
+def test_model_database_long_context_model_listing():
+    """Long-context model listing should come from ModelDatabase metadata."""
+    models = ModelDatabase.list_long_context_models()
+    assert "claude-opus-4-6" in models
+    assert "claude-sonnet-4-5" in models
+    assert "claude-sonnet-4-5-20250929" in models
+    assert "claude-sonnet-4-0" in models
+    assert "claude-sonnet-4-20250514" in models
+    assert "claude-haiku-4-5" not in models
+
+
 def test_model_database_max_tokens():
     """Test that ModelDatabase returns expected max tokens"""
     # Test known models with different max_output_tokens (no cap)

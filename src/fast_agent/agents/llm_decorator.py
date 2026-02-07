@@ -404,8 +404,13 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         attach_kwargs: dict[str, Any] = dict(additional_kwargs)
         attach_kwargs["request_params"] = deepcopy(effective_params)
         self._llm_attach_kwargs = attach_kwargs
+        self._on_llm_attached(self._llm)
 
         return self._llm
+
+    def _on_llm_attached(self, llm: FastAgentLLMProtocol) -> None:
+        """Hook for subclasses that need to react when an LLM is attached."""
+        return None
 
     def _clone_constructor_kwargs(self) -> dict[str, Any]:
         """Hook for subclasses/mixins to supply constructor kwargs when cloning."""

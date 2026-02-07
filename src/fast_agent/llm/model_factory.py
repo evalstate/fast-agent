@@ -30,6 +30,7 @@ class ModelConfig(BaseModel):
     reasoning_effort: ReasoningEffortSetting | None = None
     text_verbosity: TextVerbosityLevel | None = None
     structured_output_mode: StructuredOutputMode | None = None
+    long_context: bool = False
 
 
 class ModelFactory:
@@ -190,6 +191,7 @@ class ModelFactory:
         query_structured: StructuredOutputMode | None = None
         query_text_verbosity: TextVerbosityLevel | None = None
         query_instant: bool | None = None
+        query_long_context: bool = False
         if "?" in model_string:
             model_string, _, query = model_string.partition("?")
             query_params = parse_qs(query)
@@ -226,6 +228,15 @@ class ModelFactory:
                         f"Invalid instant query value: '{raw_value}' in '{model_string}'"
                     )
                 query_instant = bool(instant_setting.value)
+            if "context" in query_params:
+                values = query_params.get("context") or []
+                raw_value = (values[-1] if values else "").strip().lower()
+                if raw_value == "1m":
+                    query_long_context = True
+                else:
+                    raise ModelConfigError(
+                        f"Invalid context query value: '{raw_value}' \u2014 only '1m' is supported"
+                    )
 
         suffix: str | None = None
         if ":" in model_string:
@@ -330,6 +341,7 @@ class ModelFactory:
             reasoning_effort=reasoning_effort,
             text_verbosity=query_text_verbosity,
             structured_output_mode=query_structured,
+            long_context=query_long_context,
         )
 
     @classmethod
@@ -371,6 +383,8 @@ class ModelFactory:
                 kwargs["text_verbosity"] = config.text_verbosity
             if config.structured_output_mode:
                 kwargs["structured_output_mode"] = config.structured_output_mode
+            if config.long_context:
+                kwargs["long_context"] = True
             llm_args = {
                 "model": config.model_name,
                 "request_params": request_params,

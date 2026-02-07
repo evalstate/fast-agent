@@ -23,7 +23,7 @@ try:
     from openai.types.completion_usage import CompletionUsage as OpenAIUsage
 except Exception:  # pragma: no cover - optional dependency
     OpenAIUsage = object  # type: ignore
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, PrivateAttr, computed_field
 
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider_types import Provider
@@ -241,6 +241,14 @@ class UsageAccumulator(BaseModel):
     model: str | None = None
     last_cache_activity_time: float | None = None
 
+    # Provider-set override for the effective context window size.
+    # When set, takes priority over the ModelDatabase lookup (e.g., Anthropic 1M beta).
+    _context_window_override: int | None = PrivateAttr(default=None)
+
+    def set_context_window_override(self, override: int | None) -> None:
+        """Set an explicit context window size, overriding the ModelDatabase value."""
+        self._context_window_override = override
+
     def add_turn(self, turn: TurnUsage) -> None:
         """Add a new turn to the accumulator"""
         self.turns.append(turn)
@@ -343,7 +351,13 @@ class UsageAccumulator(BaseModel):
     @computed_field
     @property
     def context_window_size(self) -> int | None:
-        """Get context window size for current model"""
+        """Get context window size for current model.
+
+        Returns the provider-set override when present (e.g., Anthropic 1M beta),
+        otherwise falls back to the ModelDatabase value.
+        """
+        if self._context_window_override is not None:
+            return self._context_window_override
         if self.model:
             return ModelContextWindows.get_context_window(self.model)
         return None

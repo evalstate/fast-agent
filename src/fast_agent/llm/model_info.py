@@ -63,11 +63,12 @@ class ModelInfo:
 
     @classmethod
     def from_llm(cls, llm: "FastAgentLLMProtocol") -> "ModelInfo" | None:
-        name = llm.model_name
-        provider = llm.provider
-        if not name:
-            return None
-        return cls.from_name(name, provider)
+        """Build ModelInfo from an LLM instance.
+
+        Delegates to ``llm.model_info`` so that provider-level overrides
+        (e.g., Anthropic 1M context window) are reflected automatically.
+        """
+        return llm.model_info
 
     @classmethod
     def from_name(cls, name: str, provider: Provider | None = None) -> "ModelInfo" | None:

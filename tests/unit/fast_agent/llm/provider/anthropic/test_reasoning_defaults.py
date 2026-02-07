@@ -2,15 +2,26 @@
 
 from fast_agent.config import AnthropicSettings, Settings
 from fast_agent.context import Context
+from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
 from fast_agent.llm.reasoning_effort import is_auto_reasoning
 
 
-def _make_llm(model: str, reasoning: str | int | bool | None = None) -> AnthropicLLM:
+def _make_llm(
+    model: str,
+    reasoning: str | int | bool | None = None,
+    *,
+    long_context: bool = False,
+) -> AnthropicLLM:
     settings = Settings()
     settings.anthropic = AnthropicSettings(api_key="test-key", reasoning=reasoning)
     context = Context(config=settings)
-    return AnthropicLLM(context=context, model=model, name="test-agent")
+    return AnthropicLLM(
+        context=context,
+        model=model,
+        name="test-agent",
+        long_context=long_context,
+    )
 
 
 def test_opus_46_uses_adaptive_thinking_by_default():
@@ -148,3 +159,17 @@ def test_opus_46_explicit_auto_uses_adaptive_no_effort():
     assert thinking_enabled
     assert args["thinking"] == {"type": "adaptive"}
     assert "output_config" not in args
+
+
+def test_long_context_supported_models_source_from_model_database():
+    """Anthropic long-context supported list should come from ModelDatabase."""
+    llm = _make_llm("claude-opus-4-6")
+    assert llm._list_supported_long_context_models() == ModelDatabase.list_long_context_models()
+
+
+def test_unsupported_model_keeps_long_context_disabled():
+    """Models without long_context_window metadata should not enable long context."""
+    llm = _make_llm("claude-haiku-4-5", long_context=True)
+    assert llm._long_context is False
+    assert llm.model_info is not None
+    assert llm.model_info.context_window == 200_000
