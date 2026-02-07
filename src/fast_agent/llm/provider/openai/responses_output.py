@@ -69,7 +69,14 @@ class ResponsesOutputMixin:
                     arguments = {}
             else:
                 arguments = {}
-            tool_use_id = item_id or call_id or f"fc_{len(tool_calls)}"
+            # Use call_id as the primary tool identifier.
+            #
+            # Streaming tool notifications (and tool results) use call_id, while id can
+            # refer to the output item ("fc_*"). If we prefer id here, ACP clients can
+            # end up with duplicated/stuck tool cards: a stream-start for call_id and
+            # execution/completion for id. Aligning on call_id keeps tool_use_id stable
+            # across streaming → execution → completion.
+            tool_use_id = call_id or item_id or f"fc_{len(tool_calls)}"
             if not call_id:
                 call_id = self._normalize_tool_ids(tool_use_id)[1]
             self._tool_call_id_map[tool_use_id] = call_id
