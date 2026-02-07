@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, cast
 
 from fast_agent.commands.results import CommandOutcome
+from fast_agent.constants import TERMINAL_BYTES_PER_TOKEN
+from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.reasoning_effort import (
     ReasoningEffortLevel,
     ReasoningEffortSetting,
@@ -14,6 +16,7 @@ from fast_agent.llm.reasoning_effort import (
     parse_reasoning_setting,
     validate_reasoning_setting,
 )
+from fast_agent.llm.terminal_output_limits import calculate_terminal_output_limit_for_model
 from fast_agent.llm.text_verbosity import (
     available_text_verbosity_values,
     format_text_verbosity,
@@ -22,6 +25,70 @@ from fast_agent.llm.text_verbosity import (
 
 if TYPE_CHECKING:
     from fast_agent.commands.context import CommandContext
+
+
+def _format_shell_budget(byte_limit: int, source: str) -> str:
+    estimated_tokens = max(int(byte_limit / TERMINAL_BYTES_PER_TOKEN), 1)
+    return f"Shell output budget: {byte_limit} bytes (~{estimated_tokens} tokens, {source})."
+
+
+def _add_model_details(
+    outcome: CommandOutcome,
+    *,
+    ctx: "CommandContext",
+    agent: object,
+    llm: object,
+    include_shell_budget: bool,
+) -> None:
+    model_name = getattr(llm, "model_name", None)
+    if model_name:
+        outcome.add_message(
+            f"Resolved model: {model_name}.",
+            channel="info",
+            right_info="model",
+        )
+
+    if not include_shell_budget:
+        return
+
+    max_output_tokens = ModelDatabase.get_max_output_tokens(model_name) if model_name else None
+    if max_output_tokens is not None:
+        outcome.add_message(
+            f"Model max output tokens: {max_output_tokens}.",
+            channel="info",
+            right_info="model",
+        )
+
+    shell_runtime = getattr(agent, "shell_runtime", None)
+    runtime_limit = getattr(shell_runtime, "output_byte_limit", None)
+    if isinstance(runtime_limit, int) and runtime_limit > 0:
+        outcome.add_message(
+            _format_shell_budget(runtime_limit, "active runtime"),
+            channel="info",
+            right_info="model",
+        )
+        return
+
+    settings = ctx.resolve_settings()
+    shell_config = getattr(settings, "shell_execution", None)
+    config_limit = getattr(shell_config, "output_byte_limit", None)
+    if isinstance(config_limit, int) and config_limit > 0:
+        outcome.add_message(
+            _format_shell_budget(config_limit, "config override"),
+            channel="info",
+            right_info="model",
+        )
+        return
+
+    if model_name:
+        outcome.add_message(
+            _format_shell_budget(
+                calculate_terminal_output_limit_for_model(model_name),
+                "auto from model",
+            ),
+            channel="info",
+            right_info="model",
+        )
 
 
 def _resolve_toggle_to_default(
@@ -67,13 +134,13 @@ async def handle_model_reasoning(
         )
         return outcome
 
-    model_name = getattr(llm, "_model_name", None)
-    if model_name:
-        outcome.add_message(
-            f"Resolved model: {model_name}.",
-            channel="info",
-            right_info="model",
-        )
+    _add_model_details(
+        outcome,
+        ctx=ctx,
+        agent=agent,
+        llm=llm,
+        include_shell_budget=value is None,
+    )
 
     if value is None:
         current = format_reasoning_setting(llm.reasoning_effort or spec.default)
@@ -102,6 +169,7 @@ async def handle_model_reasoning(
             spec.kind == "effort"
             and parsed.value is False
             and "none" not in (spec.allowed_efforts or [])
+            and not spec.allow_toggle_disable
         ):
             allowed = ", ".join(available_reasoning_values(spec))
             outcome.add_message(
@@ -173,13 +241,13 @@ async def handle_model_verbosity(
         )
         return outcome
 
-    model_name = getattr(llm, "_model_name", None)
-    if model_name:
-        outcome.add_message(
-            f"Resolved model: {model_name}.",
-            channel="info",
-            right_info="model",
-        )
+    _add_model_details(
+        outcome,
+        ctx=ctx,
+        agent=agent,
+        llm=llm,
+        include_shell_budget=value is None,
+    )
 
     if value is None:
         current = format_text_verbosity(llm.text_verbosity or spec.default)

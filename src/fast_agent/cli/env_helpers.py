@@ -30,6 +30,10 @@ def resolve_environment_dir_option(
 
     if isinstance(resolved, Path):
         resolved = resolved.expanduser()
+        if not resolved.is_absolute():
+            resolved = (Path.cwd() / resolved).resolve()
+        else:
+            resolved = resolved.resolve()
         os.environ["ENVIRONMENT_DIR"] = str(resolved)
         return resolved
 

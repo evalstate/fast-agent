@@ -326,6 +326,9 @@ class FastAgent(DecoratorMixin):
             # Create settings and update global settings so resolve_skill_directories() works
             instance_settings = config.Settings(**self.config) if hasattr(self, "config") else None
             if instance_settings is not None:
+                instance_settings._config_file = getattr(self, "_loaded_config_file", None)
+                instance_settings._secrets_file = getattr(self, "_loaded_secrets_file", None)
+            if instance_settings is not None:
                 config.update_global_settings(instance_settings)
 
             # Create the app with our local settings
@@ -391,28 +394,31 @@ class FastAgent(DecoratorMixin):
     def _normalize_environment_dir(value: str | Path | None) -> Path | None:
         if value is None:
             return None
-        return Path(value).expanduser()
+        env_dir = Path(value).expanduser()
+        if not env_dir.is_absolute():
+            return (Path.cwd() / env_dir).resolve()
+        return env_dir.resolve()
 
     def _load_config(self) -> None:
         """Load configuration from YAML file including secrets using get_settings
         but without relying on the global cache."""
 
-        # Import but make a local copy to avoid affecting the global state
-        from fast_agent.config import _settings, get_settings
+        import fast_agent.config as _config_module
 
         # Temporarily clear the global settings to ensure a fresh load
-        old_settings = _settings
-        _settings = None
+        old_settings = _config_module._settings
+        _config_module._settings = None
 
         try:
             # Use get_settings to load config - this handles all paths and secrets merging
-            settings = get_settings(self.config_path)
-
+            settings = _config_module.get_settings(self.config_path)
+            self._loaded_config_file = settings._config_file if settings else None
+            self._loaded_secrets_file = settings._secrets_file if settings else None
             # Convert to dict for backward compatibility
             self.config = settings.model_dump() if settings else {}
         finally:
             # Restore the original global settings
-            _settings = old_settings
+            _config_module._settings = old_settings
 
     @property
     def context(self) -> Context:
