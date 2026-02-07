@@ -53,6 +53,39 @@ def test_agent_message_cli():
 
 
 @pytest.mark.integration
+def test_agent_message_cli_default_agent():
+    """Test sending a message via command line without --agent uses the app default agent."""
+    # Get the path to the test_agent.py file (in the same directory as this test)
+    test_dir = os.path.dirname(os.path.abspath(__file__))
+    test_agent_path = os.path.join(test_dir, "integration_agent.py")
+
+    # Test message
+    test_message = "Hello from command line test (default agent)"
+
+    result = subprocess.run(
+        [
+            "uv",
+            "run",
+            test_agent_path,
+            "--message",
+            test_message,
+        ],
+        capture_output=True,
+        text=True,
+        cwd=test_dir,  # Run in the test directory to use its config
+    )
+
+    # Check that the command succeeded
+    assert result.returncode == 0, f"Command failed with output: {result.stderr}"
+
+    command_output = result.stdout
+    # With the passthrough model, the output should contain the input message
+    assert test_message in command_output, "Test message not found in agent response"
+    # this is from show_user_output
+    assert "▎▶ test" in command_output, "show chat messages included in output"
+
+
+@pytest.mark.integration
 def test_agent_message_prompt_file():
     """Test sending a message via command line to a FastAgent program."""
     # Get the path to the test_agent.py file (in the same directory as this test)
@@ -62,6 +95,32 @@ def test_agent_message_prompt_file():
     # Run the test agent with the --agent and --message flags
     result = subprocess.run(
         ["uv", "run", test_agent_path, "--agent", "test", "--prompt-file", "prompt.txt"],
+        capture_output=True,
+        text=True,
+        cwd=test_dir,  # Run in the test directory to use its config
+    )
+
+    # Check that the command succeeded
+    assert result.returncode == 0, f"Command failed with output: {result.stderr}"
+
+    command_output = result.stdout
+    # With the passthrough model, the output should contain the input message
+    assert "this is from the prompt file" in command_output, (
+        "Test message not found in agent response"
+    )
+    # this is from show_user_output
+    assert "▎▶ test" in command_output, "show chat messages included in output"
+
+
+@pytest.mark.integration
+def test_agent_message_prompt_file_default_agent():
+    """Test sending a prompt file via command line without --agent uses the app default agent."""
+    # Get the path to the test_agent.py file (in the same directory as this test)
+    test_dir = os.path.dirname(os.path.abspath(__file__))
+    test_agent_path = os.path.join(test_dir, "integration_agent.py")
+
+    result = subprocess.run(
+        ["uv", "run", test_agent_path, "--prompt-file", "prompt.txt"],
         capture_output=True,
         text=True,
         cwd=test_dir,  # Run in the test directory to use its config
