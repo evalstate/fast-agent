@@ -235,7 +235,12 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             self._transport_metrics.register_ping_request(request_id)
         try:
             result = await super().send_request(
-                request=request,
+                # NOTE: request must be positional due to an upstream bug in
+                # opentelemetry-instrumentation-mcp (seen in 0.52.1) where the
+                # wrapper expects args[0] and can return None when request is
+                # only provided via kwargs.
+                # TODO: revert to keyword argument once upstream handles kwargs.
+                request,
                 result_type=result_type,
                 request_read_timeout_seconds=request_read_timeout_seconds,
                 metadata=metadata,
