@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 
 from fast_agent.config import get_settings, update_global_settings
-from fast_agent.session import get_session_manager, reset_session_manager
+from fast_agent.session import apply_session_window, get_session_manager, reset_session_manager
 
 
 def test_prune_sessions_skips_pinned(tmp_path) -> None:
@@ -62,3 +62,56 @@ def test_get_session_manager_normalizes_relative_environment_dir(tmp_path) -> No
             os.environ.pop("ENVIRONMENT_DIR", None)
         else:
             os.environ["ENVIRONMENT_DIR"] = original_env
+
+
+def test_apply_session_window_appends_pinned_overflow(tmp_path) -> None:
+    old_settings = get_settings()
+    env_dir = tmp_path / "env"
+    override = old_settings.model_copy(
+        update={
+            "environment_dir": str(env_dir),
+            "session_history_window": 2,
+        }
+    )
+    update_global_settings(override)
+    reset_session_manager()
+
+    try:
+        manager = get_session_manager()
+        oldest = manager.create_session()
+        oldest.set_pinned(True)
+        middle = manager.create_session()
+        newest = manager.create_session()
+
+        visible = apply_session_window(manager.list_sessions())
+        names = [session.name for session in visible]
+
+        assert names == [newest.info.name, middle.info.name, oldest.info.name]
+    finally:
+        update_global_settings(old_settings)
+        reset_session_manager()
+
+
+def test_resolve_session_name_ordinal_includes_pinned_overflow(tmp_path) -> None:
+    old_settings = get_settings()
+    env_dir = tmp_path / "env"
+    override = old_settings.model_copy(
+        update={
+            "environment_dir": str(env_dir),
+            "session_history_window": 2,
+        }
+    )
+    update_global_settings(override)
+    reset_session_manager()
+
+    try:
+        manager = get_session_manager()
+        oldest = manager.create_session()
+        oldest.set_pinned(True)
+        manager.create_session()
+        manager.create_session()
+
+        assert manager.resolve_session_name("3") == oldest.info.name
+    finally:
+        update_global_settings(old_settings)
+        reset_session_manager()

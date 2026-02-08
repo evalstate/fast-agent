@@ -482,7 +482,12 @@ class AgentApp:
         # The agent's prompt method doesn't fully support switching between agents
 
         # Create agent_types dictionary mapping agent names to their types (excluding tool_only)
-        visible_names = set(self.agent_names())
+        # but keep an explicitly targeted tool-only agent available for direct testing.
+        available_names = self.agent_names()
+        if agent_name and agent_name in self._agents and agent_name not in available_names:
+            available_names = [agent_name, *available_names]
+
+        visible_names = set(available_names)
         agent_types = {
             name: agent.agent_type for name, agent in self._agents.items() if name in visible_names
         }
@@ -547,8 +552,9 @@ class AgentApp:
         return await prompt.prompt_loop(
             send_func=send_wrapper,
             default_agent=target_name,  # Pass the agent name, not the agent object
-            available_agents=self.agent_names(),  # Excludes tool_only agents
+            available_agents=available_names,
             prompt_provider=self,  # Pass self as the prompt provider
+            pinned_agent=agent_name,
             default=default_prompt,
         )
 

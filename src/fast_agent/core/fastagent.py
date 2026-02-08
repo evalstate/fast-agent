@@ -1068,6 +1068,8 @@ class FastAgent(DecoratorMixin):
         if config:
             config.model_source = model_source  # type: ignore[attr-defined]
             config.cli_model_override = cli_model_override  # type: ignore[attr-defined]
+            if getattr(self.args, "noenv", False):
+                config.session_history = False
 
         tracer = trace.get_tracer(__name__)
         with tracer.start_as_current_span(self.name):
@@ -1185,6 +1187,7 @@ class FastAgent(DecoratorMixin):
                                     card_collision_warnings=self._card_collision_warnings,
                                 )
                                 app = app_override
+                            setattr(app, "_noenv_mode", bool(getattr(self.args, "noenv", False)))
                             instance = AgentInstance(
                                 app,
                                 agents_map,

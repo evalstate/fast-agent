@@ -1,18 +1,21 @@
 """Dedicated entry point for running FastAgent in ACP mode."""
 
+from __future__ import annotations
+
 import sys
-from pathlib import Path
+from pathlib import Path  # noqa: TC003 - typer resolves Path annotations at runtime
+from typing import TYPE_CHECKING
 
 import typer
 
 from fast_agent.cli.commands import serve
-from fast_agent.cli.commands.go import (
-    collect_stdio_commands,
-    resolve_instruction_option,
-    run_async_agent,
-)
 from fast_agent.cli.env_helpers import resolve_environment_dir_option
+from fast_agent.cli.runtime.request_builders import build_command_run_request
+from fast_agent.cli.runtime.runner import run_request
 from fast_agent.cli.shared_options import CommonAgentOptions
+
+if TYPE_CHECKING:
+    from fast_agent.cli.runtime.run_request import AgentRunRequest
 
 app = typer.Typer(
     help="Run FastAgent as an ACP stdio server without specifying --transport=acp explicitly.",
@@ -30,12 +33,79 @@ ROOT_SUBCOMMANDS = {
 }
 
 
+def _build_run_request(
+    *,
+    ctx: typer.Context,
+    name: str,
+    instruction: str | None,
+    config_path: str | None,
+    servers: str | None,
+    agent_cards: list[str] | None,
+    card_tools: list[str] | None,
+    urls: str | None,
+    auth: str | None,
+    model: str | None,
+    env_dir: Path | None,
+    noenv: bool,
+    skills_dir: Path | None,
+    npx: str | None,
+    uvx: str | None,
+    stdio: str | None,
+    description: str | None,
+    host: str,
+    port: int,
+    shell: bool,
+    instance_scope: serve.InstanceScope,
+    no_permissions: bool,
+    resume: str | None,
+    reload: bool,
+    watch: bool,
+) -> AgentRunRequest:
+    resolved_env_dir = resolve_environment_dir_option(ctx, env_dir, set_env_var=not noenv)
+    return build_command_run_request(
+        name=name,
+        instruction_option=instruction,
+        config_path=config_path,
+        servers=servers,
+        urls=urls,
+        auth=auth,
+        agent_cards=agent_cards,
+        card_tools=card_tools,
+        model=model,
+        message=None,
+        prompt_file=None,
+        result_file=None,
+        resume=resume,
+        npx=npx,
+        uvx=uvx,
+        stdio=stdio,
+        target_agent_name=None,
+        skills_directory=skills_dir,
+        environment_dir=resolved_env_dir,
+        noenv=noenv,
+        shell_enabled=shell,
+        mode="serve",
+        transport=serve.ServeTransport.ACP.value,
+        host=host,
+        port=port,
+        tool_description=description,
+        tool_name_template=None,
+        instance_scope=instance_scope.value,
+        permissions_enabled=not no_permissions,
+        reload=reload,
+        watch=watch,
+    )
+
+
 @app.callback(invoke_without_command=True, no_args_is_help=False)
 def run_acp(
     ctx: typer.Context,
     name: str = typer.Option("fast-agent-acp", "--name", help="Name for the ACP server"),
     instruction: str | None = typer.Option(
-        None, "--instruction", "-i", help="Path to file or URL containing instruction for the agent"
+        None,
+        "--instruction",
+        "-i",
+        help="Path to file or URL containing instruction for the agent",
     ),
     config_path: str | None = CommonAgentOptions.config_path(),
     servers: str | None = CommonAgentOptions.servers(),
@@ -45,6 +115,7 @@ def run_acp(
     auth: str | None = CommonAgentOptions.auth(),
     model: str | None = CommonAgentOptions.model(),
     env_dir: Path | None = CommonAgentOptions.env_dir(),
+    noenv: bool = CommonAgentOptions.noenv(),
     skills_dir: Path | None = CommonAgentOptions.skills_dir(),
     npx: str | None = CommonAgentOptions.npx(),
     uvx: str | None = CommonAgentOptions.uvx(),
@@ -65,12 +136,7 @@ def run_acp(
         "--port",
         help="Port to use when running as a server with HTTP or SSE transport",
     ),
-    shell: bool = typer.Option(
-        False,
-        "--shell",
-        "-x",
-        help="Enable a local shell runtime and expose the execute tool (bash or pwsh).",
-    ),
+    shell: bool = CommonAgentOptions.shell(),
     instance_scope: serve.InstanceScope = typer.Option(
         serve.InstanceScope.SHARED,
         "--instance-scope",
@@ -89,56 +155,39 @@ def run_acp(
     reload: bool = CommonAgentOptions.reload(),
     watch: bool = CommonAgentOptions.watch(),
 ) -> None:
-    """
-    Run FastAgent with ACP transport defaults.
-
-    This mirrors `fast-agent serve --transport acp` but provides a shorter command and
-    a distinct default name so ACP-specific tooling can integrate more easily.
-    """
-    env_dir = resolve_environment_dir_option(ctx, env_dir)
-
-    stdio_commands = collect_stdio_commands(npx, uvx, stdio)
-    shell_enabled = shell
-
-    resolved_instruction, agent_name = resolve_instruction_option(
-        instruction,
-        model,
-        "serve",
-    )
-
-    run_async_agent(
+    """Run FastAgent with ACP transport defaults."""
+    request = _build_run_request(
+        ctx=ctx,
         name=name,
-        instruction=resolved_instruction,
+        instruction=instruction,
         config_path=config_path,
         servers=servers,
-        resume=resume,
         agent_cards=agent_cards,
         card_tools=card_tools,
         urls=urls,
         auth=auth,
         model=model,
-        message=None,
-        prompt_file=None,
-        stdio_commands=stdio_commands,
-        agent_name=agent_name,
-        skills_directory=skills_dir,
-        environment_dir=env_dir,
-        shell_enabled=shell_enabled,
-        mode="serve",
-        transport=serve.ServeTransport.ACP.value,
+        env_dir=env_dir,
+        noenv=noenv,
+        skills_dir=skills_dir,
+        npx=npx,
+        uvx=uvx,
+        stdio=stdio,
+        description=description,
         host=host,
         port=port,
-        tool_description=description,
-        instance_scope=instance_scope.value,
-        permissions_enabled=not no_permissions,
+        shell=shell,
+        instance_scope=instance_scope,
+        no_permissions=no_permissions,
+        resume=resume,
         reload=reload,
         watch=watch,
     )
+    run_request(request)
 
 
 def main() -> None:
     """Console script entrypoint for `fast-agent-acp`."""
-    # Override Click's UsageError exit code from 2 to 1 for consistency
     import click
 
     click.exceptions.UsageError.exit_code = 1
@@ -150,11 +199,8 @@ def main() -> None:
         root_cli_main()
         return
     try:
-        # Run the Typer app without triggering automatic sys.exit so we can
-        # guarantee error output goes to stderr with a non-zero exit code.
         app(standalone_mode=False)
     except click.ClickException as exc:
-        # Preserve Typer's rich formatting when available, otherwise fall back to plain text.
         try:
             import typer.rich_utils as rich_utils
 

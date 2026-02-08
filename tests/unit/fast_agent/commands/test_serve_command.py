@@ -18,9 +18,11 @@ def test_run_async_agent_passes_serve_mode() -> None:
         model=None,
         message=None,
         prompt_file=None,
+        result_file=None,
         resume=None,
         stdio_commands=None,
         agent_name="agent",
+        target_agent_name=None,
         skills_directory=None,
         environment_dir=None,
         shell_enabled=False,
@@ -44,9 +46,9 @@ def test_run_async_agent_passes_serve_mode() -> None:
     assert run_kwargs["instance_scope"] == "shared"
 
 
-def test_serve_command_invokes_run_async_agent() -> None:
+def test_serve_command_builds_run_request() -> None:
     ctx = typer.Context(click.Command("serve"))
-    captured = serve_command._build_run_async_agent_kwargs(
+    request = serve_command._build_run_request(
         ctx=ctx,
         name="fast-agent",
         instruction=None,
@@ -59,6 +61,7 @@ def test_serve_command_invokes_run_async_agent() -> None:
         model=None,
         skills_dir=None,
         env_dir=None,
+        noenv=False,
         npx=None,
         uvx=None,
         stdio="python tool_server.py",
@@ -74,14 +77,52 @@ def test_serve_command_invokes_run_async_agent() -> None:
         watch=True,
     )
 
-    assert captured["mode"] == "serve"
-    assert captured["transport"] == "stdio"
-    assert captured["host"] == "127.0.0.1"
-    assert captured["port"] == 7010
-    assert captured["stdio_commands"] == ["python tool_server.py"]
-    assert captured["tool_description"] == "Chat with {agent}"
-    assert captured["instance_scope"] == "connection"
-    assert captured["agent_cards"] == ["./agents"]
-    assert captured["card_tools"] == ["./tool-cards"]
-    assert captured["reload"] is True
-    assert captured["watch"] is True
+    assert request.mode == "serve"
+    assert request.transport == "stdio"
+    assert request.host == "127.0.0.1"
+    assert request.port == 7010
+    assert request.tool_description == "Chat with {agent}"
+    assert request.instance_scope == "connection"
+    assert request.agent_cards == ["./agents"]
+    assert request.card_tools == ["./tool-cards"]
+    assert request.reload is True
+    assert request.watch is True
+    assert request.stdio_servers is not None
+    first_stdio_config = next(iter(request.stdio_servers.values()))
+    assert first_stdio_config["command"] == "python"
+    assert first_stdio_config["args"] == ["tool_server.py"]
+
+
+def test_serve_command_noenv_forces_permissions_disabled() -> None:
+    ctx = typer.Context(click.Command("serve"))
+    request = serve_command._build_run_request(
+        ctx=ctx,
+        name="fast-agent",
+        instruction=None,
+        config_path=None,
+        servers=None,
+        agent_cards=None,
+        card_tools=None,
+        urls=None,
+        auth=None,
+        model=None,
+        skills_dir=None,
+        env_dir=None,
+        noenv=True,
+        npx=None,
+        uvx=None,
+        stdio=None,
+        description=None,
+        tool_name_template=None,
+        transport=serve_command.ServeTransport.ACP,
+        host="127.0.0.1",
+        port=7010,
+        shell=False,
+        instance_scope=serve_command.InstanceScope.SHARED,
+        no_permissions=False,
+        reload=False,
+        watch=False,
+    )
+
+    assert request.noenv is True
+    assert request.permissions_enabled is False
