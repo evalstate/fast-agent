@@ -73,13 +73,9 @@ class ResponsesLLM(
         if settings and raw_setting is None:
             raw_setting = getattr(settings, "reasoning", None)
             if raw_setting is None and hasattr(settings, "reasoning_effort"):
-                raw_setting = settings.reasoning_effort
-                if (
-                    raw_setting is not None
-                    and "reasoning_effort" in settings.model_fields_set
-                    and settings.reasoning_effort
-                    != settings.model_fields["reasoning_effort"].default
-                ):
+                legacy_setting_explicit = "reasoning_effort" in settings.model_fields_set
+                if legacy_setting_explicit:
+                    raw_setting = settings.reasoning_effort
                     self.logger.warning(
                         "Responses config 'reasoning_effort' is deprecated; use 'reasoning'."
                     )

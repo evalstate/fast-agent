@@ -86,21 +86,16 @@ class OpenAILLM(
 
         # Set up reasoning-related attributes
         raw_setting = kwargs.get("reasoning_effort", None)
-        if self.context and self.context.config and self.context.config.openai:
-            config = self.context.config.openai
-            if raw_setting is None:
-                raw_setting = config.reasoning
-                if raw_setting is None and hasattr(config, "reasoning_effort"):
+        config = self._get_provider_config()
+        if config and raw_setting is None:
+            raw_setting = getattr(config, "reasoning", None)
+            if raw_setting is None and hasattr(config, "reasoning_effort"):
+                legacy_setting_explicit = "reasoning_effort" in config.model_fields_set
+                if legacy_setting_explicit:
                     raw_setting = config.reasoning_effort
-                    if (
-                        raw_setting is not None
-                        and "reasoning_effort" in config.model_fields_set
-                        and config.reasoning_effort
-                        != config.model_fields["reasoning_effort"].default
-                    ):
-                        self.logger.warning(
-                            "OpenAI config 'reasoning_effort' is deprecated; use 'reasoning'."
-                        )
+                    self.logger.warning(
+                        "OpenAI config 'reasoning_effort' is deprecated; use 'reasoning'."
+                    )
 
         setting = parse_reasoning_setting(raw_setting)
         if setting is not None:

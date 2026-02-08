@@ -315,3 +315,12 @@ def test_huggingface_kimi25_default_reasoning_toggle_enabled():
     extra_body = args.get("extra_body")
     assert isinstance(extra_body, dict)
     assert extra_body["thinking"] == {"type": "enabled"}
+
+
+def test_huggingface_kimi25_ignores_openai_legacy_reasoning_default(caplog):
+    caplog.set_level("WARNING")
+
+    llm = _make_hf_llm("moonshotai/kimi-k2.5")
+
+    assert llm.reasoning_effort is None
+    assert all("Invalid reasoning setting" not in record.message for record in caplog.records)
