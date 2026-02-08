@@ -1,6 +1,6 @@
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
-from fast_agent.config import HuggingFaceSettings, Settings
+from fast_agent.config import HuggingFaceSettings, OpenAISettings, Settings
 from fast_agent.constants import DEFAULT_MAX_ITERATIONS
 from fast_agent.context import Context
 from fast_agent.llm.fastagent_llm import FastAgentLLM
@@ -261,6 +261,18 @@ def _make_hf_llm_with_reasoning(
     )
 
 
+def _make_responses_llm(
+    model: str,
+    settings: Settings | None = None,
+) -> ResponsesLLM:
+    context = Context(config=settings or Settings(openai=OpenAISettings()))
+    return ResponsesLLM(
+        context=context,
+        model=model,
+        name="test-agent",
+    )
+
+
 def test_huggingface_appends_default_provider_from_config():
     llm = _make_hf_llm(
         "moonshotai/kimi-k2-instruct", HuggingFaceSettings(default_provider="fireworks-ai")
@@ -321,6 +333,15 @@ def test_huggingface_kimi25_ignores_openai_legacy_reasoning_default(caplog):
     caplog.set_level("WARNING")
 
     llm = _make_hf_llm("moonshotai/kimi-k2.5")
+
+    assert llm.reasoning_effort is None
+    assert all("Invalid reasoning setting" not in record.message for record in caplog.records)
+
+
+def test_responses_llm_ignores_openai_legacy_reasoning_default_for_toggle_models(caplog):
+    caplog.set_level("WARNING")
+
+    llm = _make_responses_llm("moonshotai/kimi-k2.5")
 
     assert llm.reasoning_effort is None
     assert all("Invalid reasoning setting" not in record.message for record in caplog.records)
