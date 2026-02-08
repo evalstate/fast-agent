@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -129,6 +130,103 @@ def _attach_cli_servers_to_selected_agent(fast, request: AgentRunRequest) -> Non
             ]
 
 
+def _sanitize_result_suffix(label: str) -> str:
+    normalized = re.sub(r"[\\/\s]+", "_", label.strip())
+    sanitized = re.sub(r"[^A-Za-z0-9_.-]", "_", normalized)
+    sanitized = re.sub(r"_+", "_", sanitized).strip("._-")
+    return sanitized or "agent"
+
+
+def _build_result_file_with_suffix(base_file: Path, suffix: str) -> Path:
+    if base_file.suffix:
+        return base_file.with_name(f"{base_file.stem}-{suffix}{base_file.suffix}")
+    return base_file.with_name(f"{base_file.name}-{suffix}")
+
+
+def _build_fan_out_result_paths(
+    result_file: str,
+    fan_out_agent_names: list[str],
+) -> list[tuple[str, Path]]:
+    base_path = Path(result_file)
+    suffix_counts: dict[str, int] = {}
+    exports: list[tuple[str, Path]] = []
+
+    for agent_name in fan_out_agent_names:
+        suffix = _sanitize_result_suffix(agent_name)
+        suffix_counts[suffix] = suffix_counts.get(suffix, 0) + 1
+        if suffix_counts[suffix] > 1:
+            suffix = f"{suffix}-{suffix_counts[suffix]}"
+        exports.append((agent_name, _build_result_file_with_suffix(base_path, suffix)))
+
+    return exports
+
+
+async def _save_result_history(agent_app: Any, *, agent_name: str, output_path: Path) -> None:
+    from fast_agent.history.history_exporter import HistoryExporter
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    agent_obj = agent_app._agent(agent_name)
+    await HistoryExporter.save(agent_obj, str(output_path))
+
+
+async def _export_result_histories(
+    agent_app: Any,
+    request: AgentRunRequest,
+    *,
+    fan_out_agent_names: list[str] | None = None,
+) -> None:
+    if not request.result_file:
+        return
+
+    try:
+        if fan_out_agent_names and request.target_agent_name is None:
+            for agent_name, output_path in _build_fan_out_result_paths(
+                request.result_file,
+                fan_out_agent_names,
+            ):
+                await _save_result_history(
+                    agent_app,
+                    agent_name=agent_name,
+                    output_path=output_path,
+                )
+            return
+
+        selected_agent = agent_app._agent(request.target_agent_name)
+        await _save_result_history(
+            agent_app,
+            agent_name=selected_agent.name,
+            output_path=Path(request.result_file),
+        )
+    except Exception as exc:  # noqa: BLE001
+        typer.echo(f"Error exporting result file: {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+
+async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -> None:
+    from fast_agent.mcp.prompts.prompt_load import load_prompt
+
+    await _resume_session_if_requested(agent_app, request)
+    if request.message:
+        response = await agent_app.send(
+            request.message,
+            agent_name=request.target_agent_name,
+        )
+        print(response)
+    elif request.prompt_file:
+        prompt = load_prompt(Path(request.prompt_file))
+        agent_obj = agent_app._agent(request.target_agent_name)
+        await agent_obj.generate(prompt)
+        print(
+            "\nLoaded "
+            f"{len(prompt)} messages from prompt file '{request.prompt_file}'"
+        )
+        await agent_app.interactive(agent_name=request.target_agent_name)
+    else:
+        await agent_app.interactive(agent_name=request.target_agent_name)
+
+    await _export_result_histories(agent_app, request)
+
+
 async def run_agent_request(request: AgentRunRequest) -> None:
     """Run the normalized CLI request."""
     serve_permissions_enabled = request.permissions_enabled and not (
@@ -147,7 +245,6 @@ async def run_agent_request(request: AgentRunRequest) -> None:
 
     from fast_agent import FastAgent
     from fast_agent.agents.llm_agent import LlmAgent
-    from fast_agent.mcp.prompts.prompt_load import load_prompt
     from fast_agent.ui.console_display import ConsoleDisplay
 
     fast = FastAgent(
@@ -250,24 +347,7 @@ async def run_agent_request(request: AgentRunRequest) -> None:
 
         async def cli_agent() -> None:
             async with fast.run() as agent:
-                await _resume_session_if_requested(agent, request)
-                if request.message:
-                    response = await agent.send(
-                        request.message,
-                        agent_name=request.target_agent_name,
-                    )
-                    print(response)
-                elif request.prompt_file:
-                    prompt = load_prompt(Path(request.prompt_file))
-                    agent_obj = agent._agent(request.target_agent_name)
-                    await agent_obj.generate(prompt)
-                    print(
-                        "\nLoaded "
-                        f"{len(prompt)} messages from prompt file '{request.prompt_file}'"
-                    )
-                    await agent.interactive(agent_name=request.target_agent_name)
-                else:
-                    await agent.interactive(agent_name=request.target_agent_name)
+                await _run_single_agent_cli_flow(agent, request)
 
     elif request.model and "," in request.model:
         models = [m.strip() for m in request.model.split(",") if m.strip()]
@@ -327,6 +407,8 @@ async def run_agent_request(request: AgentRunRequest) -> None:
                         display = ConsoleDisplay(config=None)
                         display.show_parallel_results(agent.parallel)
                 elif request.prompt_file:
+                    from fast_agent.mcp.prompts.prompt_load import load_prompt
+
                     prompt = load_prompt(Path(request.prompt_file))
                     if request.target_agent_name:
                         agent_obj = agent._agent(request.target_agent_name)
@@ -345,6 +427,12 @@ async def run_agent_request(request: AgentRunRequest) -> None:
                         pretty_print_parallel=True,
                     )
 
+                await _export_result_histories(
+                    agent,
+                    request,
+                    fan_out_agent_names=fan_out_agents,
+                )
+
     else:
         agent_decorator = fast.smart if smart_agent_enabled else fast.agent
 
@@ -357,24 +445,7 @@ async def run_agent_request(request: AgentRunRequest) -> None:
         )
         async def cli_agent() -> None:
             async with fast.run() as agent:
-                await _resume_session_if_requested(agent, request)
-                if request.message:
-                    response = await agent.send(
-                        request.message,
-                        agent_name=request.target_agent_name,
-                    )
-                    print(response)
-                elif request.prompt_file:
-                    prompt = load_prompt(Path(request.prompt_file))
-                    agent_obj = agent._agent(request.target_agent_name)
-                    await agent_obj.generate(prompt)
-                    print(
-                        "\nLoaded "
-                        f"{len(prompt)} messages from prompt file '{request.prompt_file}'"
-                    )
-                    await agent.interactive(agent_name=request.target_agent_name)
-                else:
-                    await agent.interactive(agent_name=request.target_agent_name)
+                await _run_single_agent_cli_flow(agent, request)
 
         _validate_target_agent_name(fast, request)
 

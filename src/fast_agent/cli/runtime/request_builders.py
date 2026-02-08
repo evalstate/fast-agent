@@ -151,7 +151,10 @@ def _merge_url_servers(
     url_servers: dict[str, UrlServerConfig] | None = None
 
     if urls:
-        parsed_urls = parse_server_urls(urls, auth)
+        try:
+            parsed_urls = parse_server_urls(urls, auth)
+        except ValueError as exc:
+            raise typer.BadParameter(str(exc), param_hint="--url") from exc
         raw_url_servers = generate_server_configs(parsed_urls)
         url_servers = {}
         for server_name, server_config in raw_url_servers.items():
@@ -240,6 +243,7 @@ def build_agent_run_request(
     model: str | None,
     message: str | None,
     prompt_file: str | None,
+    result_file: str | None,
     resume: str | None,
     stdio_commands: list[str] | None,
     agent_name: str | None,
@@ -304,6 +308,7 @@ def build_agent_run_request(
         model=model,
         message=message,
         prompt_file=prompt_file,
+        result_file=result_file,
         resume=resume,
         url_servers=url_servers,
         stdio_servers=stdio_servers,
@@ -339,6 +344,7 @@ def build_run_agent_kwargs(
     model: str | None,
     message: str | None,
     prompt_file: str | None,
+    result_file: str | None,
     resume: str | None,
     stdio_commands: list[str] | None,
     agent_name: str | None,
@@ -370,6 +376,7 @@ def build_run_agent_kwargs(
         model=model,
         message=message,
         prompt_file=prompt_file,
+        result_file=result_file,
         resume=resume,
         stdio_commands=stdio_commands,
         agent_name=agent_name,
@@ -405,6 +412,7 @@ def build_command_run_request(
     model: str | None,
     message: str | None,
     prompt_file: str | None,
+    result_file: str | None,
     resume: str | None,
     npx: str | None,
     uvx: str | None,
@@ -451,6 +459,7 @@ def build_command_run_request(
         model=model,
         message=message,
         prompt_file=prompt_file,
+        result_file=result_file,
         resume=resume,
         stdio_commands=stdio_commands,
         agent_name=inferred_agent_name,

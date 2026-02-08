@@ -40,6 +40,7 @@ class AgentRunRequest:
     model: str | None
     message: str | None
     prompt_file: str | None
+    result_file: str | None
     resume: str | None
     url_servers: dict[str, UrlServerConfig] | None
     stdio_servers: dict[str, StdioServerConfig] | None
@@ -88,6 +89,7 @@ class AgentRunRequest:
             "model": self.model,
             "message": self.message,
             "prompt_file": self.prompt_file,
+            "result_file": self.result_file,
             "resume": self.resume,
             "url_servers": self.url_servers,
             "stdio_servers": self.stdio_servers,

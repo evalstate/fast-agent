@@ -74,6 +74,7 @@ def _build_run_request(
         model=model,
         message=None,
         prompt_file=None,
+        result_file=None,
         resume=resume,
         npx=npx,
         uvx=uvx,

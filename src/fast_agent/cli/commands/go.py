@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path  # noqa: TC003 - typer resolves Path annotations at runtime
-from typing import Any, Literal
+from typing import Literal
 
 import typer
 
@@ -21,7 +21,6 @@ from fast_agent.cli.runtime.request_builders import (
     DEFAULT_TOOL_CARDS_DIR as _DEFAULT_TOOL_CARDS_DIR,
 )
 from fast_agent.cli.runtime.request_builders import (
-    build_agent_run_request,
     build_command_run_request,
     build_run_agent_kwargs,
     is_multi_model,
@@ -83,70 +82,7 @@ def collect_stdio_commands(
     return _collect_stdio_commands(npx, uvx, stdio)
 
 
-def _build_run_agent_kwargs(
-    *,
-    name: str,
-    instruction: str,
-    config_path: str | None,
-    servers: str | None,
-    urls: str | None,
-    auth: str | None,
-    agent_cards: list[str] | None,
-    card_tools: list[str] | None,
-    model: str | None,
-    message: str | None,
-    prompt_file: str | None,
-    resume: str | None,
-    stdio_commands: list[str] | None,
-    agent_name: str | None,
-    target_agent_name: str | None,
-    skills_directory: Path | None,
-    environment_dir: Path | None,
-    shell_enabled: bool,
-    mode: Literal["interactive", "serve"],
-    transport: str,
-    host: str,
-    port: int,
-    tool_description: str | None,
-    tool_name_template: str | None,
-    instance_scope: str,
-    permissions_enabled: bool,
-    reload: bool,
-    watch: bool,
-    noenv: bool = False,
-) -> dict[str, Any]:
-    """Build keyword arguments for the async agent runner."""
-    return build_run_agent_kwargs(
-        name=name,
-        instruction=instruction,
-        config_path=config_path,
-        servers=servers,
-        urls=urls,
-        auth=auth,
-        agent_cards=agent_cards,
-        card_tools=card_tools,
-        model=model,
-        message=message,
-        prompt_file=prompt_file,
-        resume=resume,
-        stdio_commands=stdio_commands,
-        agent_name=agent_name,
-        target_agent_name=target_agent_name,
-        skills_directory=skills_directory,
-        environment_dir=environment_dir,
-        noenv=noenv,
-        shell_enabled=shell_enabled,
-        mode=mode,
-        transport=transport,
-        host=host,
-        port=port,
-        tool_description=tool_description,
-        tool_name_template=tool_name_template,
-        instance_scope=instance_scope,
-        permissions_enabled=permissions_enabled,
-        reload=reload,
-        watch=watch,
-    )
+_build_run_agent_kwargs = build_run_agent_kwargs
 
 
 def _merge_card_sources(
@@ -166,6 +102,7 @@ async def _run_agent(
     model: str | None = None,
     message: str | None = None,
     prompt_file: str | None = None,
+    result_file: str | None = None,
     resume: str | None = None,
     url_servers: dict[str, UrlServerConfig] | None = None,
     stdio_servers: dict[str, StdioServerConfig] | None = None,
@@ -197,6 +134,7 @@ async def _run_agent(
         model=model,
         message=message,
         prompt_file=prompt_file,
+        result_file=result_file,
         resume=resume,
         url_servers=url_servers,
         stdio_servers=stdio_servers,
@@ -232,6 +170,7 @@ def run_async_agent(
     model: str | None = None,
     message: str | None = None,
     prompt_file: str | None = None,
+    result_file: str | None = None,
     resume: str | None = None,
     stdio_commands: list[str] | None = None,
     agent_name: str | None = None,
@@ -253,8 +192,19 @@ def run_async_agent(
 ) -> None:
     """Run the async agent function with proper loop handling."""
     try:
-        request = build_agent_run_request(
+        run_kwargs = _build_run_agent_kwargs(
             name=name,
+            mode=mode,
+            noenv=noenv,
+            resume=resume,
+            model=model,
+            agent_name=agent_name,
+            target_agent_name=target_agent_name,
+            message=message,
+            prompt_file=prompt_file,
+            result_file=result_file,
+            skills_directory=skills_directory,
+            environment_dir=environment_dir,
             instruction=instruction,
             config_path=config_path,
             servers=servers,
@@ -262,28 +212,19 @@ def run_async_agent(
             auth=auth,
             agent_cards=agent_cards,
             card_tools=card_tools,
-            model=model,
-            message=message,
-            prompt_file=prompt_file,
-            resume=resume,
             stdio_commands=stdio_commands,
-            agent_name=agent_name,
-            target_agent_name=target_agent_name,
-            skills_directory=skills_directory,
-            environment_dir=environment_dir,
-            noenv=noenv,
             shell_enabled=shell_enabled,
-            mode=mode,
             transport=transport,
+            instance_scope=instance_scope,
             host=host,
             port=port,
             tool_description=tool_description,
             tool_name_template=tool_name_template,
-            instance_scope=instance_scope,
             permissions_enabled=permissions_enabled,
             reload=reload,
             watch=watch,
         )
+        request = AgentRunRequest(**run_kwargs)
     except ValueError as exc:
         print(f"Error parsing URLs: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc
@@ -320,6 +261,11 @@ def go(
         "--prompt-file",
         "-p",
         help="Path to a prompt file to use (either text or JSON)",
+    ),
+    result: str | None = typer.Option(
+        None,
+        "--result",
+        help="Write resulting history to file (single model) or per-model suffixed files",
     ),
     resume: str | None = typer.Option(
         None,
@@ -363,6 +309,7 @@ def go(
         model=model,
         message=message,
         prompt_file=prompt_file,
+        result_file=result,
         resume=resume,
         npx=npx,
         uvx=uvx,

@@ -18,6 +18,7 @@ def test_run_async_agent_passes_serve_mode() -> None:
         model=None,
         message=None,
         prompt_file=None,
+        result_file=None,
         resume=None,
         stdio_commands=None,
         agent_name="agent",

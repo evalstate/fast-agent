@@ -23,6 +23,7 @@ def test_build_agent_run_request_merges_url_servers_after_explicit_servers() -> 
         model=None,
         message=None,
         prompt_file=None,
+        result_file=None,
         resume=None,
         stdio_commands=None,
         agent_name="agent",
@@ -61,6 +62,7 @@ def test_build_agent_run_request_skips_invalid_stdio_commands(capsys) -> None:
         model=None,
         message=None,
         prompt_file=None,
+        result_file=None,
         resume=None,
         stdio_commands=["python good.py", "python \"unterminated", ""],
         agent_name="agent",
@@ -103,6 +105,7 @@ def test_build_command_run_request_resolves_defaults() -> None:
         model=None,
         message=None,
         prompt_file=None,
+        result_file="out.json",
         resume=None,
         npx=None,
         uvx=None,
@@ -116,6 +119,7 @@ def test_build_command_run_request_resolves_defaults() -> None:
 
     assert request.instruction == resolve_default_instruction(None, "serve")
     assert request.agent_name == "agent"
+    assert request.result_file == "out.json"
 
 
 def test_build_agent_run_request_noenv_keeps_explicit_cards_only() -> None:
@@ -131,6 +135,7 @@ def test_build_agent_run_request_noenv_keeps_explicit_cards_only() -> None:
         model=None,
         message=None,
         prompt_file=None,
+        result_file=None,
         resume=None,
         stdio_commands=None,
         agent_name="agent",
@@ -170,6 +175,7 @@ def test_build_agent_run_request_noenv_forces_serve_permissions_off() -> None:
         model=None,
         message=None,
         prompt_file=None,
+        result_file=None,
         resume=None,
         stdio_commands=None,
         agent_name="agent",
@@ -207,6 +213,7 @@ def test_build_command_run_request_rejects_noenv_with_env() -> None:
             model=None,
             message=None,
             prompt_file=None,
+            result_file=None,
             resume=None,
             npx=None,
             uvx=None,
@@ -234,6 +241,7 @@ def test_build_command_run_request_rejects_noenv_with_resume() -> None:
             model=None,
             message=None,
             prompt_file=None,
+            result_file=None,
             resume="latest",
             npx=None,
             uvx=None,
@@ -244,4 +252,31 @@ def test_build_command_run_request_rejects_noenv_with_resume() -> None:
             shell_enabled=False,
             mode="interactive",
             noenv=True,
+        )
+
+
+def test_build_command_run_request_rejects_malformed_url() -> None:
+    with pytest.raises(typer.BadParameter, match="URL must have http or https scheme"):
+        build_command_run_request(
+            name="cli",
+            instruction_option=None,
+            config_path=None,
+            servers=None,
+            urls="not-a-url",
+            auth=None,
+            agent_cards=None,
+            card_tools=None,
+            model=None,
+            message=None,
+            prompt_file=None,
+            result_file=None,
+            resume=None,
+            npx=None,
+            uvx=None,
+            stdio=None,
+            target_agent_name=None,
+            skills_directory=None,
+            environment_dir=None,
+            shell_enabled=False,
+            mode="interactive",
         )
