@@ -22,6 +22,7 @@ class AgentType(StrEnum):
 
     LLM = auto()
     BASIC = auto()
+    SMART = auto()
     CUSTOM = auto()
     ORCHESTRATOR = auto()
     PARALLEL = auto()
@@ -50,6 +51,12 @@ FunctionToolConfig: TypeAlias = Callable[..., Any] | str
 FunctionToolsConfig: TypeAlias = list[FunctionToolConfig] | None
 
 
+# Tool hooks config maps hook type to function spec string
+# e.g., {"after_turn_complete": "hooks.py:my_hook"}
+ToolHooksConfig: TypeAlias = dict[str, str] | None
+LifecycleHooksConfig: TypeAlias = dict[str, str] | None
+
+
 @dataclass
 class AgentConfig:
     """Configuration for an Agent instance"""
@@ -69,11 +76,16 @@ class AgentConfig:
     human_input: bool = False
     agent_type: AgentType = AgentType.BASIC
     default: bool = False
+    tool_only: bool = False
     elicitation_handler: ElicitationFnT | None = None
     api_key: str | None = None
     function_tools: FunctionToolsConfig = None
     shell: bool = False
     cwd: Path | None = None
+    tool_hooks: ToolHooksConfig = None
+    lifecycle_hooks: LifecycleHooksConfig = None
+    trim_tool_history: bool = False
+    source_path: Path | None = field(default=None, repr=False)
 
     def __post_init__(self):
         """Ensure default_request_params exists with proper history setting"""

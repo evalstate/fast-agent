@@ -18,11 +18,13 @@ from mcp.types import (
     CallToolRequestParams,
     CallToolResult,
     ClientRequest,
+    EmptyResult,
     GetPromptRequest,
     GetPromptRequestParams,
     GetPromptResult,
     Implementation,
     ListRootsResult,
+    PingRequest,
     ReadResourceRequest,
     ReadResourceRequestParams,
     ReadResourceResult,
@@ -224,9 +226,21 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
     ) -> ReceiveResultT:
         logger.debug("send_request: request=", data=request.model_dump())
         request_id = getattr(self, "_request_id", None)
+        is_ping_request = self._is_ping_request(request)
+        if (
+            is_ping_request
+            and request_id is not None
+            and self._transport_metrics is not None
+        ):
+            self._transport_metrics.register_ping_request(request_id)
         try:
             result = await super().send_request(
-                request=request,
+                # NOTE: request must be positional due to an upstream bug in
+                # opentelemetry-instrumentation-mcp (seen in 0.52.1) where the
+                # wrapper expects args[0] and can return None when request is
+                # only provided via kwargs.
+                # TODO: revert to keyword argument once upstream handles kwargs.
+                request,
                 result_type=result_type,
                 request_read_timeout_seconds=request_read_timeout_seconds,
                 metadata=metadata,
@@ -237,8 +251,20 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                 data=result.model_dump() if result is not None else "no response returned",
             )
             self._attach_transport_channel(request_id, result)
+            if (
+                is_ping_request
+                and request_id is not None
+                and self._transport_metrics is not None
+            ):
+                self._transport_metrics.discard_ping_request(request_id)
             return result
         except Exception as e:
+            if (
+                is_ping_request
+                and request_id is not None
+                and self._transport_metrics is not None
+            ):
+                self._transport_metrics.discard_ping_request(request_id)
             from anyio import ClosedResourceError
 
             from fast_agent.core.exceptions import ServerSessionTerminatedError
@@ -261,6 +287,15 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
 
             logger.error(f"send_request failed: {str(e)}")
             raise
+
+    @staticmethod
+    def _is_ping_request(request: ClientRequest) -> bool:
+        root = getattr(request, "root", None)
+        method = getattr(root, "method", None)
+        if not isinstance(method, str):
+            return False
+        method_lower = method.lower()
+        return method_lower == "ping" or method_lower.endswith("/ping") or method_lower.endswith(".ping")
 
     def _is_session_terminated_error(self, exc: Exception) -> bool:
         """Check if exception is a session terminated error (code 32600 from 404)."""
@@ -363,6 +398,15 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             CallToolResult,
             request_read_timeout_seconds=read_timeout_seconds,
             progress_callback=progress_callback,
+        )
+
+    async def ping(self, read_timeout_seconds: timedelta | None = None) -> EmptyResult:
+        """Send a ping request to check server liveness."""
+        request = PingRequest(method="ping")
+        return await self.send_request(
+            ClientRequest(request),
+            EmptyResult,
+            request_read_timeout_seconds=read_timeout_seconds,
         )
 
     async def read_resource(

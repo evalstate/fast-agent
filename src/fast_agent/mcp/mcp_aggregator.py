@@ -115,6 +115,17 @@ class ServerStatus(BaseModel):
     transport_channels: TransportSnapshot | None = None
     skybridge: SkybridgeServerConfig | None = None
     reconnect_count: int = 0
+    ping_interval_seconds: int | None = None
+    ping_max_missed: int | None = None
+    ping_ok_count: int | None = None
+    ping_fail_count: int | None = None
+    ping_consecutive_failures: int | None = None
+    ping_last_ok_at: datetime | None = None
+    ping_last_fail_at: datetime | None = None
+    ping_last_error: str | None = None
+    ping_activity_buckets: list[str] | None = None
+    ping_activity_bucket_seconds: int | None = None
+    ping_activity_bucket_count: int | None = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -198,13 +209,29 @@ class MCPAggregator(ContextDependent):
         self._persistent_connection_manager: MCPConnectionManager | None = None
         self._owns_connection_manager = False
 
-        # Store tool execution handler for integration with ACP or other protocols
-        # Default to NoOpToolExecutionHandler if none provided
-        self._tool_handler = tool_handler or NoOpToolExecutionHandler()
+        # Store tool execution handler for integration with ACP or other protocols.
+        #
+        # In ACP server contexts we attach an ACPContext to `Context` objects and store
+        # a per-session progress manager there. Agent-as-tools workflows can spawn
+        # detached agent instances (and thus new MCPAggregators) at runtime; those
+        # aggregators must pick up the same progress manager so nested tool calls
+        # are visible to ACP clients.
+        resolved_tool_handler = tool_handler
+        if resolved_tool_handler is None and context is not None:
+            acp_ctx = getattr(context, "acp", None)
+            resolved_tool_handler = getattr(acp_ctx, "progress_manager", None) or None
 
-        # Store tool permission handler for ACP or other permission systems
-        # Default to NoOpToolPermissionHandler if none provided (allows all)
-        self._permission_handler = permission_handler or NoOpToolPermissionHandler()
+        # Default to NoOpToolExecutionHandler if none provided.
+        self._tool_handler = resolved_tool_handler or NoOpToolExecutionHandler()
+
+        # Store tool permission handler for ACP or other permission systems.
+        resolved_permission_handler = permission_handler
+        if resolved_permission_handler is None and context is not None:
+            acp_ctx = getattr(context, "acp", None)
+            resolved_permission_handler = getattr(acp_ctx, "permission_handler", None) or None
+
+        # Default to NoOpToolPermissionHandler if none provided (allows all).
+        self._permission_handler = resolved_permission_handler or NoOpToolPermissionHandler()
 
         # Set up logger with agent name in namespace if available
         global logger
@@ -997,49 +1024,88 @@ class MCPAggregator(ContextDependent):
             server_conn = None
             transport: str | None = None
             transport_snapshot: TransportSnapshot | None = None
+            ping_interval_seconds: int | None = None
+            ping_max_missed: int | None = None
+            ping_ok_count: int | None = None
+            ping_fail_count: int | None = None
+            ping_consecutive_failures: int | None = None
+            ping_last_ok_at: datetime | None = None
+            ping_last_fail_at: datetime | None = None
+            ping_last_error: str | None = None
+            ping_activity_buckets: list[str] | None = None
+            ping_activity_bucket_seconds: int | None = None
+            ping_activity_bucket_count: int | None = None
 
             manager = getattr(self, "_persistent_connection_manager", None)
             if self.connection_persistence and manager is not None:
                 try:
-                    server_conn = await manager.get_server(
-                        server_name,
-                        client_session_factory=self._create_session_factory(server_name),
-                    )
-                    implementation = server_conn.server_implementation
-                    if implementation is not None:
-                        implementation_name = implementation.name
-                        implementation_version = implementation.version
-                    capabilities = server_conn.server_capabilities
-                    client_capabilities = server_conn.client_capabilities
-                    session = server_conn.session
-                    client_info = getattr(session, "client_info", None) if session else None
-                    if client_info:
-                        client_info_name = getattr(client_info, "name", None)
-                        client_info_version = getattr(client_info, "version", None)
-                    is_connected = server_conn.is_healthy()
-                    error_message = server_conn._error_message
-                    instructions_available = server_conn.server_instructions_available
-                    instructions_enabled = server_conn.server_instructions_enabled
-                    instructions_included = bool(server_conn.server_instructions)
-                    server_cfg = server_conn.server_config
-                    if session:
-                        elicitation_mode = session.effective_elicitation_mode
-                        session_id = server_conn.session_id
-                        if not session_id and server_conn._get_session_id_cb:
+                    async with manager._lock:
+                        server_conn = manager.running_servers.get(server_name)
+                    if server_conn is None:
+                        is_connected = False
+                    else:
+                        implementation = server_conn.server_implementation
+                        if implementation is not None:
+                            implementation_name = implementation.name
+                            implementation_version = implementation.version
+                        capabilities = server_conn.server_capabilities
+                        client_capabilities = server_conn.client_capabilities
+                        session = server_conn.session
+                        client_info = getattr(session, "client_info", None) if session else None
+                        if client_info:
+                            client_info_name = getattr(client_info, "name", None)
+                            client_info_version = getattr(client_info, "version", None)
+                        if server_conn._initialized_event.is_set():
+                            is_connected = server_conn.is_healthy()
+                        else:
+                            is_connected = False
+                            error_message = error_message or "initializing..."
+                        error_message = error_message or server_conn._error_message
+                        instructions_available = server_conn.server_instructions_available
+                        instructions_enabled = server_conn.server_instructions_enabled
+                        instructions_included = bool(server_conn.server_instructions)
+                        server_cfg = server_conn.server_config
+                        ping_interval_seconds = server_cfg.ping_interval_seconds
+                        ping_max_missed = server_cfg.max_missed_pings
+                        ping_ok_count = server_conn._ping_ok_count
+                        ping_fail_count = server_conn._ping_fail_count
+                        ping_consecutive_failures = server_conn._ping_consecutive_failures
+                        ping_last_ok_at = server_conn._ping_last_ok_at
+                        ping_last_fail_at = server_conn._ping_last_fail_at
+                        ping_last_error = server_conn._ping_last_error
+                        if session:
+                            elicitation_mode = session.effective_elicitation_mode
+                            session_id = server_conn.session_id
+                            if not session_id and server_conn._get_session_id_cb:
+                                try:
+                                    session_id = server_conn._get_session_id_cb()  # type: ignore[attr-defined]
+                                except Exception:
+                                    session_id = None
+                        metrics = server_conn.transport_metrics
+                        if metrics is not None:
                             try:
-                                session_id = server_conn._get_session_id_cb()  # type: ignore[attr-defined]
+                                transport_snapshot = metrics.snapshot()
                             except Exception:
-                                session_id = None
-                    metrics = server_conn.transport_metrics
-                    if metrics is not None:
-                        try:
-                            transport_snapshot = metrics.snapshot()
-                        except Exception:
-                            logger.debug(
-                                "Failed to snapshot transport metrics for server '%s'",
-                                server_name,
-                                exc_info=True,
-                            )
+                                logger.debug(
+                                    "Failed to snapshot transport metrics for server '%s'",
+                                    server_name,
+                                    exc_info=True,
+                                )
+                        bucket_seconds = (
+                            transport_snapshot.activity_bucket_seconds
+                            if transport_snapshot and transport_snapshot.activity_bucket_seconds
+                            else 30
+                        )
+                        bucket_count = (
+                            transport_snapshot.activity_bucket_count
+                            if transport_snapshot and transport_snapshot.activity_bucket_count
+                            else 20
+                        )
+                        ping_activity_buckets = server_conn.build_ping_activity_buckets(
+                            bucket_seconds, bucket_count
+                        )
+                        ping_activity_bucket_seconds = bucket_seconds
+                        ping_activity_bucket_count = bucket_count
                 except Exception as exc:
                     logger.debug(
                         f"Failed to collect status for server '{server_name}'",
@@ -1068,6 +1134,8 @@ class MCPAggregator(ContextDependent):
                 elicitation_mode = (
                     getattr(elicitation, "mode", None) if elicitation else elicitation_mode
                 )
+                ping_interval_seconds = ping_interval_seconds or server_cfg.ping_interval_seconds
+                ping_max_missed = ping_max_missed or server_cfg.max_missed_pings
                 sampling_cfg = server_cfg.sampling
                 spoofing_enabled = server_cfg.implementation is not None
                 if implementation_name is None and server_cfg.implementation is not None:
@@ -1123,6 +1191,17 @@ class MCPAggregator(ContextDependent):
                 transport_channels=transport_snapshot,
                 skybridge=self._skybridge_configs.get(server_name),
                 reconnect_count=reconnect_count,
+                ping_interval_seconds=ping_interval_seconds,
+                ping_max_missed=ping_max_missed,
+                ping_ok_count=ping_ok_count,
+                ping_fail_count=ping_fail_count,
+                ping_consecutive_failures=ping_consecutive_failures,
+                ping_last_ok_at=ping_last_ok_at,
+                ping_last_fail_at=ping_last_fail_at,
+                ping_last_error=ping_last_error,
+                ping_activity_buckets=ping_activity_buckets,
+                ping_activity_bucket_seconds=ping_activity_bucket_seconds,
+                ping_activity_bucket_count=ping_activity_bucket_count,
             )
 
         return status_map

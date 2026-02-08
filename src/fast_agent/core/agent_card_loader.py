@@ -4,18 +4,25 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable
+from typing import TYPE_CHECKING, Any, Iterable
 
 import frontmatter
 import yaml
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
+from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION, SMART_AGENT_INSTRUCTION
 from fast_agent.core.direct_decorators import _resolve_instruction
 from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.skills import SKILLS_DEFAULT
 from fast_agent.types import RequestParams
+
+if TYPE_CHECKING:
+    from fast_agent.core.agent_card_types import AgentCardData
+
 
 _TYPE_MAP: dict[str, AgentType] = {
     "agent": AgentType.BASIC,
+    "smart": AgentType.SMART,
     "chain": AgentType.CHAIN,
     "parallel": AgentType.PARALLEL,
     "evaluator_optimizer": AgentType.EVALUATOR_OPTIMIZER,
@@ -25,32 +32,38 @@ _TYPE_MAP: dict[str, AgentType] = {
     "maker": AgentType.MAKER,
 }
 
-_COMMON_FIELDS = {"type", "name", "instruction", "description", "default", "schema_version"}
+_COMMON_FIELDS = {"type", "name", "instruction", "description", "default", "tool_only", "schema_version"}
+
+_AGENT_FIELDS = {
+    *_COMMON_FIELDS,
+    "agents",
+    "servers",
+    "tools",
+    "resources",
+    "prompts",
+    "skills",
+    "model",
+    "use_history",
+    "request_params",
+    "human_input",
+    "api_key",
+    "history_source",
+    "history_merge_target",
+    "max_parallel",
+    "child_timeout_sec",
+    "max_display_instances",
+    "function_tools",
+    "tool_hooks",
+    "lifecycle_hooks",
+    "trim_tool_history",
+    "messages",
+    "shell",
+    "cwd",
+}
 
 _ALLOWED_FIELDS_BY_TYPE: dict[str, set[str]] = {
-    "agent": {
-        *_COMMON_FIELDS,
-        "agents",
-        "servers",
-        "tools",
-        "resources",
-        "prompts",
-        "skills",
-        "model",
-        "use_history",
-        "request_params",
-        "human_input",
-        "api_key",
-        "history_mode",
-        "max_parallel",
-        "child_timeout_sec",
-        "max_display_instances",
-        "function_tools",
-        "tool_hooks",
-        "messages",
-        "shell",
-        "cwd",
-    },
+    "agent": set(_AGENT_FIELDS),
+    "smart": set(_AGENT_FIELDS),
     "chain": {
         *_COMMON_FIELDS,
         "sequence",
@@ -119,6 +132,7 @@ _ALLOWED_FIELDS_BY_TYPE: dict[str, set[str]] = {
 
 _REQUIRED_FIELDS_BY_TYPE: dict[str, set[str]] = {
     "agent": set(),
+    "smart": set(),
     "chain": {"sequence"},
     "parallel": {"fan_out"},
     "evaluator_optimizer": {"generator", "evaluator"},
@@ -132,6 +146,7 @@ _HISTORY_DELIMITERS = {"---USER", "---ASSISTANT", "---RESOURCE"}
 
 _AGENT_TYPE_TO_CARD_TYPE: dict[str, str] = {
     AgentType.BASIC.value: "agent",
+    AgentType.SMART.value: "smart",
     AgentType.CHAIN.value: "chain",
     AgentType.PARALLEL.value: "parallel",
     AgentType.EVALUATOR_OPTIMIZER.value: "evaluator_optimizer",
@@ -143,6 +158,7 @@ _AGENT_TYPE_TO_CARD_TYPE: dict[str, str] = {
 
 _DEFAULT_USE_HISTORY_BY_TYPE: dict[str, bool] = {
     "agent": True,
+    "smart": True,
     "chain": True,
     "parallel": True,
     "evaluator_optimizer": True,
@@ -157,7 +173,7 @@ _DEFAULT_USE_HISTORY_BY_TYPE: dict[str, bool] = {
 class LoadedAgentCard:
     name: str
     path: Path
-    agent_data: dict[str, Any]
+    agent_data: AgentCardData
     message_files: list[Path]
 
 
@@ -173,12 +189,21 @@ def load_agent_cards(path: Path) -> list[LoadedAgentCard]:
                 continue
             if entry.suffix.lower() not in {".md", ".markdown", ".yaml", ".yml"}:
                 continue
+            if entry.suffix.lower() in {".md", ".markdown"} and not _markdown_has_frontmatter(
+                entry
+            ):
+                continue
             cards.extend(_load_agent_card_file(entry))
         _ensure_unique_names(cards, path)
         return cards
 
     if path.suffix.lower() not in {".md", ".markdown", ".yaml", ".yml"}:
         raise AgentConfigError(f"Unsupported AgentCard file extension: {path}")
+    if path.suffix.lower() in {".md", ".markdown"} and not _markdown_has_frontmatter(path):
+        raise AgentConfigError(
+            "AgentCard markdown files must include frontmatter",
+            f"Missing frontmatter in {path}",
+        )
 
     cards = _load_agent_card_file(path)
     _ensure_unique_names(cards, path)
@@ -235,6 +260,21 @@ def _load_markdown_card(path: Path) -> tuple[dict[str, Any], str]:
     return dict(metadata), body
 
 
+def _markdown_has_frontmatter(path: Path) -> bool:
+    try:
+        raw_text = path.read_text(encoding="utf-8")
+    except Exception:
+        return False
+    if raw_text.startswith("\ufeff"):
+        raw_text = raw_text.lstrip("\ufeff")
+    for line in raw_text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        return stripped in ("---", "+++")
+    return False
+
+
 def _build_card_from_data(
     path: Path,
     raw: dict[str, Any],
@@ -272,7 +312,15 @@ def _build_card_from_data(
         raise AgentConfigError(f"'schema_version' must be an integer in {path}")
 
     name = _resolve_name(raw.get("name"), path)
-    instruction = _resolve_instruction_field(raw.get("instruction"), body, path)
+    default_instruction = (
+        SMART_AGENT_INSTRUCTION if type_key == "smart" else DEFAULT_AGENT_INSTRUCTION
+    )
+    instruction = _resolve_instruction_field(
+        raw.get("instruction"),
+        body,
+        path,
+        default_instruction=default_instruction,
+    )
     description = _ensure_optional_str(raw.get("description"), "description", path)
 
     required_fields = _REQUIRED_FIELDS_BY_TYPE[type_key]
@@ -297,6 +345,8 @@ def _build_card_from_data(
         path=path,
     )
     agent_data["schema_version"] = schema_version
+    if message_files:
+        agent_data["message_files"] = message_files
 
     return LoadedAgentCard(
         name=name,
@@ -308,16 +358,18 @@ def _build_card_from_data(
 
 def _resolve_name(raw_name: Any, path: Path) -> str:
     if raw_name is None:
-        return path.stem
+        return path.stem.replace(" ", "_")
     if not isinstance(raw_name, str) or not raw_name.strip():
         raise AgentConfigError(f"'name' must be a non-empty string in {path}")
-    return raw_name.strip()
+    return raw_name.strip().replace(" ", "_")
 
 
 def _resolve_instruction_field(
     raw_instruction: Any,
     body: str | None,
     path: Path,
+    *,
+    default_instruction: str = DEFAULT_AGENT_INSTRUCTION,
 ) -> str:
     body_instruction = ""
     if body is not None:
@@ -343,7 +395,7 @@ def _resolve_instruction_field(
             raise AgentConfigError(f"Instruction body must not be empty in {path}")
         return resolved
 
-    raise AgentConfigError(f"Instruction is required in {path}")
+    return default_instruction
 
 
 def _extract_body_instruction(body: str, path: Path) -> str:
@@ -409,7 +461,7 @@ def _build_agent_data(
     description: str | None,
     raw: dict[str, Any],
     path: Path,
-) -> dict[str, Any]:
+) -> AgentCardData:
     servers = _ensure_str_list(raw.get("servers", []), "servers", path)
     tools = _ensure_filter_map(raw.get("tools", {}), "tools", path)
     resources = _ensure_filter_map(raw.get("resources", {}), "resources", path)
@@ -420,6 +472,15 @@ def _build_agent_data(
     request_params = _ensure_request_params(raw.get("request_params"), path)
     human_input = _ensure_bool(raw.get("human_input"), "human_input", path, default=False)
     default = _ensure_bool(raw.get("default"), "default", path, default=False)
+    tool_only = _ensure_bool(raw.get("tool_only"), "tool_only", path, default=False)
+
+    # Validate mutual exclusivity of default and tool_only
+    if default and tool_only:
+        raise AgentConfigError(
+            f"Agent '{name}' cannot have both 'default' and 'tool_only' set to true in {path}",
+            "A tool-only agent cannot be the default agent.",
+        )
+
     api_key = raw.get("api_key")
 
     # Parse function_tools - can be a string or list of strings
@@ -432,13 +493,41 @@ def _build_agent_data(
             function_tools = [str(t) for t in function_tools_raw]
 
     # Parse shell and cwd for sub-agent shell access
-    shell = _ensure_bool(raw.get("shell"), "shell", path, default=False)
+    shell_default = True if type_key == "smart" else False
+    shell = _ensure_bool(raw.get("shell"), "shell", path, default=shell_default)
     cwd_str = raw.get("cwd")
     cwd: Path | None = None
     if cwd_str is not None:
         if not isinstance(cwd_str, str):
             raise AgentConfigError(f"'cwd' must be a string in {path}")
         cwd = Path(cwd_str).expanduser()
+
+    # Parse tool_hooks - dict mapping hook type to function spec
+    tool_hooks_raw = raw.get("tool_hooks")
+    tool_hooks: dict[str, str] | None = None
+    if tool_hooks_raw is not None:
+        if not isinstance(tool_hooks_raw, dict):
+            raise AgentConfigError(f"'tool_hooks' must be a dict in {path}")
+        tool_hooks = {str(k): str(v) for k, v in tool_hooks_raw.items()}
+
+    # Parse lifecycle_hooks - dict mapping hook type to function spec
+    lifecycle_hooks_raw = raw.get("lifecycle_hooks")
+    lifecycle_hooks: dict[str, str] | None = None
+    if lifecycle_hooks_raw is not None:
+        if not isinstance(lifecycle_hooks_raw, dict):
+            raise AgentConfigError(f"'lifecycle_hooks' must be a dict in {path}")
+        lifecycle_hooks = {str(k): str(v) for k, v in lifecycle_hooks_raw.items()}
+        from fast_agent.hooks.lifecycle_hook_loader import VALID_LIFECYCLE_HOOK_TYPES
+
+        invalid_types = set(lifecycle_hooks.keys()) - VALID_LIFECYCLE_HOOK_TYPES
+        if invalid_types:
+            raise AgentConfigError(
+                f"Invalid lifecycle hook types: {invalid_types}",
+                f"Valid types are: {sorted(VALID_LIFECYCLE_HOOK_TYPES)}",
+            )
+
+    # Parse trim_tool_history shortcut
+    trim_tool_history = _ensure_bool(raw.get("trim_tool_history"), "trim_tool_history", path)
 
     config = AgentConfig(
         name=name,
@@ -448,15 +537,20 @@ def _build_agent_data(
         tools=tools,
         resources=resources,
         prompts=prompts,
-        skills=raw.get("skills"),
+        skills=raw.get("skills") if raw.get("skills") is not None else SKILLS_DEFAULT,
         model=model,
         use_history=use_history,
         human_input=human_input,
         default=default,
+        tool_only=tool_only,
         api_key=api_key,
         function_tools=function_tools,
         shell=shell,
         cwd=cwd,
+        tool_hooks=tool_hooks,
+        lifecycle_hooks=lifecycle_hooks,
+        trim_tool_history=trim_tool_history,
+        source_path=path,
     )
 
     if request_params is not None:
@@ -464,14 +558,15 @@ def _build_agent_data(
         config.default_request_params.systemPrompt = config.instruction
         config.default_request_params.use_history = config.use_history
 
-    agent_data: dict[str, Any] = {
+    agent_data: AgentCardData = {
         "config": config,
         "type": agent_type.value,
         "func": None,
         "source_path": str(path),
+        "tool_only": tool_only,
     }
 
-    if type_key == "agent":
+    if type_key in {"agent", "smart"}:
         agents = _ensure_str_list(raw.get("agents", []), "agents", path)
         if agents:
             agent_data["child_agents"] = agents
@@ -480,8 +575,6 @@ def _build_agent_data(
                 agent_data["agents_as_tools_options"] = opts
         if "function_tools" in raw:
             agent_data["function_tools"] = raw.get("function_tools")
-        if "tool_hooks" in raw:
-            agent_data["tool_hooks"] = raw.get("tool_hooks")
     elif type_key == "chain":
         sequence = _ensure_str_list(raw.get("sequence", []), "sequence", path)
         if not sequence:
@@ -619,13 +712,20 @@ def _ensure_request_params(value: Any, path: Path) -> RequestParams | None:
 
 def _agents_as_tools_options(raw: dict[str, Any], path: Path) -> dict[str, Any]:
     options: dict[str, Any] = {}
-    history_mode = raw.get("history_mode")
+    history_source = raw.get("history_source")
+    history_merge_target = raw.get("history_merge_target")
     max_parallel = raw.get("max_parallel")
     child_timeout_sec = raw.get("child_timeout_sec")
     max_display_instances = raw.get("max_display_instances")
 
-    if history_mode is not None:
-        options["history_mode"] = history_mode
+    if history_source is not None:
+        options["history_source"] = _ensure_optional_str(
+            history_source, "history_source", path
+        )
+    if history_merge_target is not None:
+        options["history_merge_target"] = _ensure_optional_str(
+            history_merge_target, "history_merge_target", path
+        )
     if max_parallel is not None:
         options["max_parallel"] = _ensure_int(max_parallel, "max_parallel", path)
     if child_timeout_sec is not None:
@@ -652,7 +752,7 @@ def _ensure_float(value: Any, field: str, path: Path) -> float:
 
 
 def dump_agents_to_dir(
-    agents: dict[str, dict[str, Any]],
+    agents: dict[str, AgentCardData],
     output_dir: Path,
     *,
     as_yaml: bool = False,
@@ -675,16 +775,29 @@ def dump_agents_to_dir(
 
 def dump_agent_to_path(
     name: str,
-    agent_data: dict[str, Any],
+    agent_data: AgentCardData,
     output_path: Path,
     *,
     as_yaml: bool = False,
     message_paths: list[Path] | None = None,
 ) -> None:
-    card_dict, instruction = _build_card_dump(name, agent_data, message_paths)
+    payload = dump_agent_to_string(
+        name, agent_data, as_yaml=as_yaml, message_paths=message_paths
+    )
     output_path = output_path.expanduser().resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(payload, encoding="utf-8")
 
+
+def dump_agent_to_string(
+    name: str,
+    agent_data: AgentCardData,
+    *,
+    as_yaml: bool = False,
+    message_paths: list[Path] | None = None,
+) -> str:
+    """Render an AgentCard to a string."""
+    card_dict, instruction = _build_card_dump(name, agent_data, message_paths)
     if as_yaml:
         card_dict = dict(card_dict)
         card_dict["instruction"] = instruction
@@ -693,23 +806,19 @@ def dump_agent_to_path(
             sort_keys=False,
             allow_unicode=False,
         ).rstrip()
-        output_path.write_text(f"{payload}\n", encoding="utf-8")
-        return
+        return f"{payload}\n"
 
     frontmatter = yaml.safe_dump(
         card_dict,
         sort_keys=False,
         allow_unicode=False,
     ).rstrip()
-    output_path.write_text(
-        f"---\n{frontmatter}\n---\n{instruction.rstrip()}\n",
-        encoding="utf-8",
-    )
+    return f"---\n{frontmatter}\n---\n{instruction.rstrip()}\n"
 
 
 def _build_card_dump(
     name: str,
-    agent_data: dict[str, Any],
+    agent_data: AgentCardData,
     message_paths: list[Path] | None,
 ) -> tuple[dict[str, Any], str]:
     agent_type_value = agent_data.get("type")
@@ -736,6 +845,9 @@ def _build_card_dump(
 
     if config.default and "default" in allowed_fields:
         card["default"] = True
+
+    if config.tool_only and "tool_only" in allowed_fields:
+        card["tool_only"] = True
 
     if config.description and "description" in allowed_fields:
         card["description"] = config.description
@@ -777,15 +889,24 @@ def _build_card_dump(
     if message_paths and "messages" in allowed_fields:
         card["messages"] = [str(path) for path in message_paths]
 
-    if card_type == "agent":
+    if card_type in {"agent", "smart"}:
         child_agents = agent_data.get("child_agents") or []
         if child_agents:
             card["agents"] = list(child_agents)
         opts = agent_data.get("agents_as_tools_options") or {}
-        if "history_mode" in opts and opts["history_mode"] is not None:
-            history_mode = opts["history_mode"]
-            card["history_mode"] = (
-                history_mode.value if hasattr(history_mode, "value") else history_mode
+        if "history_source" in opts and opts["history_source"] is not None:
+            history_source = opts["history_source"]
+            card["history_source"] = (
+                history_source.value
+                if hasattr(history_source, "value")
+                else history_source
+            )
+        if "history_merge_target" in opts and opts["history_merge_target"] is not None:
+            history_merge_target = opts["history_merge_target"]
+            card["history_merge_target"] = (
+                history_merge_target.value
+                if hasattr(history_merge_target, "value")
+                else history_merge_target
             )
         if "max_parallel" in opts and opts["max_parallel"] is not None:
             card["max_parallel"] = opts["max_parallel"]
@@ -796,9 +917,14 @@ def _build_card_dump(
         function_tools = _serialize_string_list(agent_data.get("function_tools"))
         if function_tools is not None:
             card["function_tools"] = function_tools
-        tool_hooks = _serialize_string_list(agent_data.get("tool_hooks"))
-        if tool_hooks is not None:
-            card["tool_hooks"] = tool_hooks
+        # tool_hooks is a dict, get from config
+        config = agent_data.get("config")
+        if isinstance(config, AgentConfig) and config.tool_hooks:
+            card["tool_hooks"] = config.tool_hooks
+        if isinstance(config, AgentConfig) and config.lifecycle_hooks:
+            card["lifecycle_hooks"] = config.lifecycle_hooks
+        if config and config.trim_tool_history:
+            card["trim_tool_history"] = True
     elif card_type == "chain":
         card["sequence"] = list(agent_data.get("sequence") or [])
         cumulative = agent_data.get("cumulative", False)

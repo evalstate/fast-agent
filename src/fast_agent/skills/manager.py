@@ -14,19 +14,20 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from fast_agent.config import Settings, get_settings
-from fast_agent.constants import DEFAULT_SKILLS_PATHS
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.paths import default_skill_paths
 from fast_agent.skills.registry import SkillManifest, SkillRegistry
 
 logger = get_logger(__name__)
 
 DEFAULT_SKILL_REGISTRIES = [
+    "https://github.com/fast-agent-ai/skills",
     "https://github.com/huggingface/skills",
     "https://github.com/anthropics/skills",
 ]
 
 DEFAULT_MARKETPLACE_URL = (
-    "https://github.com/huggingface/skills/blob/main/.claude-plugin/marketplace.json"
+    "https://github.com/fast-agent-ai/skills/blob/main/marketplace.json"
 )
 
 
@@ -173,7 +174,7 @@ def get_manager_directory(
         if skills_settings.directories:
             directory = skills_settings.directories[0]
     if not directory:
-        directory = DEFAULT_SKILLS_PATHS[0]
+        directory = default_skill_paths(resolved_settings, cwd=base)[0]
 
     path = Path(directory).expanduser()
     if not path.is_absolute():
@@ -214,14 +215,22 @@ def format_marketplace_display_url(url: str) -> str:
 def resolve_skill_directories(
     settings: Settings | None = None, *, cwd: Path | None = None
 ) -> list[Path]:
+    base = cwd or Path.cwd()
     resolved_settings = settings or get_settings()
     skills_settings = getattr(resolved_settings, "skills", None)
     override_dirs: list[Path] | None = None
     if skills_settings and getattr(skills_settings, "directories", None):
-        override_dirs = [Path(entry).expanduser() for entry in skills_settings.directories]
+        # Resolve paths the same way get_manager_directory does
+        resolved: list[Path] = []
+        for entry in skills_settings.directories:
+            path = Path(entry).expanduser()
+            if not path.is_absolute():
+                path = (base / path).resolve()
+            resolved.append(path)
+        override_dirs = resolved
     manager_dir = get_manager_directory(resolved_settings, cwd=cwd)
     if override_dirs is None:
-        return [manager_dir]
+        return default_skill_paths(resolved_settings, cwd=base)
     if manager_dir not in override_dirs:
         override_dirs.append(manager_dir)
     return override_dirs
@@ -364,18 +373,40 @@ def _candidate_marketplace_urls(url: str) -> list[str]:
             if len(parts) >= 4 and parts[2] in {"tree", "blob"}:
                 ref = parts[3]
                 base_path = "/".join(parts[4:])
-                suffix = ".claude-plugin/marketplace.json"
-                if base_path:
-                    suffix = f"{base_path.rstrip('/')}/{suffix}"
-                return [
-                    f"https://raw.githubusercontent.com/{org}/{repo}/{ref}/{suffix}"
-                ]
+                return _github_marketplace_candidates(org, repo, ref, base_path)
             if len(parts) == 2:
                 return [
-                    f"https://raw.githubusercontent.com/{org}/{repo}/main/.claude-plugin/marketplace.json",
-                    f"https://raw.githubusercontent.com/{org}/{repo}/master/.claude-plugin/marketplace.json",
+                    *_github_marketplace_candidates(org, repo, "main", ""),
+                    *_github_marketplace_candidates(org, repo, "master", ""),
                 ]
     return [normalized]
+
+
+def _github_marketplace_candidates(
+    org: str, repo: str, ref: str, base_path: str
+) -> list[str]:
+    suffixes = _marketplace_path_candidates(base_path)
+    return [
+        f"https://raw.githubusercontent.com/{org}/{repo}/{ref}/{suffix}"
+        for suffix in suffixes
+    ]
+
+
+def _marketplace_path_candidates(base_path: str) -> list[str]:
+    cleaned = base_path.strip().strip("/")
+    if not cleaned:
+        return [".claude-plugin/marketplace.json", "marketplace.json"]
+
+    path = PurePosixPath(cleaned)
+    if path.name.lower() == "marketplace.json":
+        return [str(path)]
+    if path.name == ".claude-plugin":
+        return [str(path / "marketplace.json")]
+
+    return [
+        str(path / ".claude-plugin" / "marketplace.json"),
+        str(path / "marketplace.json"),
+    ]
 
 
 def candidate_marketplace_urls(url: str) -> list[str]:
@@ -391,6 +422,11 @@ def _parse_marketplace_payload(
         parsed = _parse_github_url(source_url)
         if parsed:
             repo_url, repo_ref, _ = parsed
+        else:
+            # Check if source_url is a local path and derive repo root
+            local_repo = _derive_local_repo_root(source_url)
+            if local_repo:
+                repo_url = local_repo
     try:
         model = MarketplacePayloadModel.model_validate(
             payload,
@@ -722,6 +758,45 @@ def _resolve_local_repo(repo_url: str) -> Path | None:
         repo_path = repo_path.resolve()
     if repo_path.exists():
         return repo_path
+    return None
+
+
+def _derive_local_repo_root(source_url: str) -> str | None:
+    """Derive the local repo root from a marketplace.json source URL.
+
+    For a local path like `/path/to/repo/.claude-plugin/marketplace.json`,
+    returns `/path/to/repo` so skills can be installed from the local repo.
+    """
+    parsed = urlparse(source_url)
+    if parsed.scheme in {"http", "https", "ssh"}:
+        return None
+
+    if parsed.scheme == "file":
+        path = Path(parsed.path)
+    else:
+        path = Path(source_url)
+
+    path = path.expanduser()
+    if not path.is_absolute():
+        path = path.resolve()
+
+    if not path.exists():
+        return None
+
+    # If it's a marketplace.json file, find the repo root
+    if path.is_file() and path.name == "marketplace.json":
+        # Check if inside .claude-plugin directory
+        if path.parent.name == ".claude-plugin":
+            repo_root = path.parent.parent
+        else:
+            repo_root = path.parent
+        if repo_root.exists():
+            return str(repo_root)
+
+    # If it's a directory, use it directly
+    if path.is_dir():
+        return str(path)
+
     return None
 
 

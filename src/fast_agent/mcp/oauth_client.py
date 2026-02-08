@@ -282,23 +282,17 @@ async def _print_authorization_link(auth_url: str, warn_if_no_keyring: bool = Fa
     console.console.print("[bold]Open this link to authorize:[/bold]", markup=True)
     console.console.print(f"[link={auth_url}]{auth_url}[/link]")
     if warn_if_no_keyring:
-        try:
-            import keyring  # type: ignore
+        from fast_agent.core.keyring_utils import get_keyring_status
 
-            backend = keyring.get_keyring()
-            try:
-                from keyring.backends.fail import Keyring as FailKeyring  # type: ignore
-
-                if isinstance(backend, FailKeyring):
-                    console.console.print(
-                        "[yellow]Warning:[/yellow] Keyring backend not available — tokens will not be persisted."
-                    )
-            except Exception:
-                # If we cannot detect the fail backend, do nothing
-                pass
-        except Exception:
+        status = get_keyring_status()
+        if not status.writable:
+            backend_note = (
+                "Keyring backend not available"
+                if not status.available
+                else f"Keyring backend '{status.name}' not writable"
+            )
             console.console.print(
-                "[yellow]Warning:[/yellow] Keyring backend not available — tokens will not be persisted."
+                f"[yellow]Warning:[/yellow] {backend_note} — tokens will not be persisted."
             )
     logger.info("OAuth authorization URL emitted to console")
 

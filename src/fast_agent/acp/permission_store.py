@@ -2,7 +2,7 @@
 ACP Tool Permission Store
 
 Provides persistent storage for tool execution permissions.
-Stores permissions in a human-readable markdown file at .fast-agent/auths.md.
+Stores permissions in a human-readable markdown file within the fast-agent environment.
 """
 
 import asyncio
@@ -10,12 +10,13 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
+from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.paths import resolve_environment_paths
 
 logger = get_logger(__name__)
 
-# Default path relative to session working directory
-DEFAULT_PERMISSIONS_FILE = ".fast-agent/auths.md"
+DEFAULT_PERMISSIONS_FILE = Path(DEFAULT_ENVIRONMENT_DIR) / "auths.md"
 
 
 class PermissionDecision(str, Enum):
@@ -78,7 +79,9 @@ class PermissionStore:
             cwd: Working directory for the session. If None, uses current directory.
         """
         self._cwd = Path(cwd) if cwd else Path.cwd()
-        self._file_path = self._cwd / DEFAULT_PERMISSIONS_FILE
+        override = DEFAULT_ENVIRONMENT_DIR if cwd is not None else None
+        env_paths = resolve_environment_paths(cwd=self._cwd, override=override)
+        self._file_path = env_paths.permissions_file
         self._cache: dict[str, PermissionDecision] = {}
         self._loaded = False
         self._lock = asyncio.Lock()
@@ -118,7 +121,7 @@ class PermissionStore:
         # | server1 | tool1 | allow_always |
 
         in_table = False
-        for line in content.splitlines():
+        for line_number, line in enumerate(content.splitlines(), start=1):
             line = line.strip()
 
             # Skip empty lines and header
@@ -144,6 +147,10 @@ class PermissionStore:
                         logger.warning(
                             f"Invalid permission value in auths.md: {permission}",
                             name="permission_store_parse_error",
+                            file_path=str(self._file_path),
+                            line_number=line_number,
+                            server_name=server_name,
+                            tool_name=tool_name,
                         )
 
     async def _save_to_file(self) -> None:

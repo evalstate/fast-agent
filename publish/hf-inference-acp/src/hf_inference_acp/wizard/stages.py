@@ -16,6 +16,7 @@ class WizardStage(Enum):
     TOKEN_VERIFY = "token_verify"
     MODEL_SELECT = "model_select"
     MCP_CONNECT = "mcp_connect"
+    AGENT_EXAMPLES = "agent_examples"
     CONFIRM = "confirm"
     COMPLETE = "complete"
 
@@ -30,6 +31,7 @@ class WizardState:
     selected_model: str | None = None
     selected_model_display: str | None = None
     mcp_load_on_start: bool = False
+    install_agent_examples: bool = True  # Default to recommended (yes)
     error_message: str | None = None
     # Track if this is the first message (to show welcome)
     first_message: bool = True
@@ -43,6 +45,7 @@ class WizardState:
             "selected_model": self.selected_model,
             "selected_model_display": self.selected_model_display,
             "mcp_load_on_start": self.mcp_load_on_start,
+            "install_agent_examples": self.install_agent_examples,
             "error_message": self.error_message,
         }
 

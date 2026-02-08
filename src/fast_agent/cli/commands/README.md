@@ -96,6 +96,7 @@ fast-agent serve [OPTIONS]
 - `--port INTEGER`: Port when using HTTP or SSE transport (default: 8000)
 - `--shell`, `-x`: Enable a local shell runtime and expose the execute tool
 - `--description`, `-d TEXT`: Description used for each send tool (supports `{agent}` placeholder)
+- `--tool-name-template TEXT`: Template for exposed agent tool names (supports `{agent}` placeholder)
 - `--instance-scope [shared|connection|request]`: Control how MCP clients receive isolated agent instances (default: shared)
 - `--reload`: Enable manual AgentCard reloads (ACP: `/reload`, MCP: `reload_agent_cards`)
 - `--watch`: Watch AgentCard paths and reload

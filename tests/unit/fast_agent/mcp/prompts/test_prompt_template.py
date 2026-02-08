@@ -99,6 +99,30 @@ Tell me about {{topic}}.
         assert template.content_sections[2].text == "Tell me about {{topic}}."
         assert template.template_variables == {"name", "topic"}
 
+    def test_delimited_mode_with_preamble(self):
+        """Test parsing delimiters when the template starts with a preamble"""
+        template_text = """# Writing Style Examples
+These are real before/after examples.
+
+---USER
+Review this sentence.
+
+---ASSISTANT
+Here is feedback.
+"""
+        template = PromptTemplate(template_text)
+
+        assert len(template.content_sections) == 3
+        assert template.content_sections[0].role == "user"
+        assert (
+            template.content_sections[0].text
+            == "# Writing Style Examples\nThese are real before/after examples."
+        )
+        assert template.content_sections[1].role == "user"
+        assert template.content_sections[1].text == "Review this sentence."
+        assert template.content_sections[2].role == "assistant"
+        assert template.content_sections[2].text == "Here is feedback."
+
     def test_custom_delimiters(self):
         """Test parsing a template with custom delimiters"""
         template_text = """#USER

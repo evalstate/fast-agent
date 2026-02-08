@@ -2,20 +2,27 @@
 Direct AgentApp implementation for interacting with agents without proxies.
 """
 
-from typing import Awaitable, Callable, Mapping, Union
+import time
+from datetime import datetime
+from typing import Awaitable, Callable, Mapping, Sequence, Union
 
 from deprecated import deprecated
 from mcp.types import GetPromptResult, PromptMessage
 from rich import print as rich_print
+from rich.markup import escape
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.core.exceptions import AgentConfigError, ServerConfigError
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import AgentProtocol
+from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.usage_tracking import last_turn_usage
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.ui.interactive_prompt import InteractivePrompt
 from fast_agent.ui.progress_display import progress_display
+
+logger = get_logger(__name__)
 
 
 class AgentApp:
@@ -36,7 +43,15 @@ class AgentApp:
         *,
         reload_callback: Callable[[], Awaitable[bool]] | None = None,
         refresh_callback: Callable[[], Awaitable[bool]] | None = None,
-        load_card_callback: Callable[[str], Awaitable[list[str]]] | None = None,
+        load_card_callback: Callable[[str, str | None], Awaitable[tuple[list[str], list[str]]]]
+        | None = None,
+        attach_agent_tools_callback: Callable[[str, Sequence[str]], Awaitable[list[str]]]
+        | None = None,
+        detach_agent_tools_callback: Callable[[str, Sequence[str]], Awaitable[list[str]]]
+        | None = None,
+        dump_agent_callback: Callable[[str], Awaitable[str]] | None = None,
+        tool_only_agents: set[str] | None = None,
+        card_collision_warnings: list[str] | None = None,
     ) -> None:
         """
         Initialize the DirectAgentApp.
@@ -45,6 +60,12 @@ class AgentApp:
             agents: Dictionary of agent instances keyed by name
             reload_callback: Optional callback for manual AgentCard reloads
             refresh_callback: Optional callback for lazy instance refresh before requests
+            load_card_callback: Optional callback for loading AgentCards at runtime
+            attach_agent_tools_callback: Optional callback for attaching agent tools
+            detach_agent_tools_callback: Optional callback for detaching agent tools
+            dump_agent_callback: Optional callback for dumping AgentCards
+            tool_only_agents: Optional set of agent names that are tool-only (hidden from listings)
+            card_collision_warnings: Optional list of warnings from agent card name collisions
         """
         if len(agents) == 0:
             raise ValueError("No agents provided!")
@@ -52,12 +73,28 @@ class AgentApp:
         self._reload_callback = reload_callback
         self._refresh_callback = refresh_callback
         self._load_card_callback = load_card_callback
+        self._attach_agent_tools_callback = attach_agent_tools_callback
+        self._detach_agent_tools_callback = detach_agent_tools_callback
+        self._dump_agent_callback = dump_agent_callback
+        self._tool_only_agents: set[str] = tool_only_agents or set()
+        self._card_collision_warnings: list[str] = card_collision_warnings or []
+        self._apply_agent_registry()
+
+    def _apply_agent_registry(self) -> None:
+        for agent in self._agents.values():
+            registry_setter = getattr(agent, "set_agent_registry", None)
+            if callable(registry_setter):
+                registry_setter(self._agents)
 
     def __getitem__(self, key: str) -> AgentProtocol:
         """Allow access to agents using dictionary syntax."""
         if key not in self._agents:
             raise KeyError(f"Agent '{key}' not found")
         return self._agents[key]
+
+    def get_agent(self, name: str) -> AgentProtocol | None:
+        """Return the named agent if available, else None."""
+        return self._agents.get(name)
 
     def __getattr__(self, name: str) -> AgentProtocol:
         """Allow access to agents using attribute syntax."""
@@ -125,10 +162,17 @@ class AgentApp:
                 raise ValueError(f"Agent '{agent_name}' not found")
             return self._agents[agent_name]
 
+        # Skip tool_only agents when selecting default
         for agent in self._agents.values():
-            if agent.config.default:
+            if agent.config.default and agent.name not in self._tool_only_agents:
                 return agent
 
+        # Fall back to first non-tool_only agent
+        for name, agent in self._agents.items():
+            if name not in self._tool_only_agents:
+                return agent
+
+        # If all agents are tool_only, return the first one anyway
         return next(iter(self._agents.values()))
 
     async def apply_prompt(
@@ -277,17 +321,60 @@ class AgentApp:
         """Return True if agent card loading is available."""
         return self._load_card_callback is not None
 
-    async def load_agent_card(self, source: str) -> list[str]:
+    def can_attach_agent_tools(self) -> bool:
+        """Return True if agent tool attachment is available."""
+        return self._attach_agent_tools_callback is not None
+
+    def can_dump_agent_cards(self) -> bool:
+        """Return True if agent card dumping is available."""
+        return self._dump_agent_callback is not None
+
+    async def load_agent_card(
+        self, source: str, parent_agent: str | None = None
+    ) -> tuple[list[str], list[str]]:
         """Load an AgentCard source and refresh active instances when available."""
         if not self._load_card_callback:
             raise RuntimeError("Agent card loading is not available.")
-        return await self._load_card_callback(source)
+        return await self._load_card_callback(source, parent_agent)
 
-    def set_agents(self, agents: dict[str, AgentProtocol]) -> None:
+    async def attach_agent_tools(self, parent_agent: str, child_agents: Sequence[str]) -> list[str]:
+        """Attach agents as tools to a parent agent."""
+        if not self._attach_agent_tools_callback:
+            raise RuntimeError("Agent tool attachment is not available.")
+        return await self._attach_agent_tools_callback(parent_agent, child_agents)
+
+    async def detach_agent_tools(self, parent_agent: str, child_agents: Sequence[str]) -> list[str]:
+        """Detach agents-as-tools from a parent agent."""
+        if not self._detach_agent_tools_callback:
+            raise RuntimeError("Agent tool detachment is not available.")
+        return await self._detach_agent_tools_callback(parent_agent, child_agents)
+
+    async def dump_agent_card(self, agent_name: str) -> str:
+        """Dump an AgentCard for the requested agent."""
+        if not self._dump_agent_callback:
+            raise RuntimeError("Agent card dumping is not available.")
+        return await self._dump_agent_callback(agent_name)
+
+    def set_agents(
+        self,
+        agents: dict[str, AgentProtocol],
+        tool_only_agents: set[str] | None = None,
+        card_collision_warnings: list[str] | None = None,
+    ) -> None:
         """Replace the active agent map (used after reload)."""
         if not agents:
             raise ValueError("No agents provided!")
         self._agents = agents
+        self._apply_agent_registry()
+        if tool_only_agents is not None:
+            self._tool_only_agents = tool_only_agents
+        if card_collision_warnings is not None:
+            self._card_collision_warnings = card_collision_warnings
+
+    @property
+    def card_collision_warnings(self) -> list[str]:
+        """Return warnings from agent card name collisions."""
+        return list(self._card_collision_warnings)
 
     def set_reload_callback(self, callback: Callable[[], Awaitable[bool]] | None) -> None:
         """Update the reload callback for manual AgentCard refresh."""
@@ -298,22 +385,48 @@ class AgentApp:
         self._refresh_callback = callback
 
     def set_load_card_callback(
-        self, callback: Callable[[str], Awaitable[list[str]]] | None
+        self,
+        callback: Callable[[str, str | None], Awaitable[tuple[list[str], list[str]]]] | None,
     ) -> None:
         """Update the callback for loading agent cards at runtime."""
         self._load_card_callback = callback
 
+    def set_attach_agent_tools_callback(
+        self, callback: Callable[[str, Sequence[str]], Awaitable[list[str]]] | None
+    ) -> None:
+        """Update the callback for attaching agent tools."""
+        self._attach_agent_tools_callback = callback
+
+    def set_detach_agent_tools_callback(
+        self, callback: Callable[[str, Sequence[str]], Awaitable[list[str]]] | None
+    ) -> None:
+        """Update the callback for detaching agent tools."""
+        self._detach_agent_tools_callback = callback
+
+    def set_dump_agent_callback(self, callback: Callable[[str], Awaitable[str]] | None) -> None:
+        """Update the callback for dumping agent cards."""
+        self._dump_agent_callback = callback
+
     def agent_names(self) -> list[str]:
-        """Return available agent names."""
-        return list(self._agents.keys())
+        """Return available agent names (excluding tool_only agents)."""
+        return [name for name in self._agents.keys() if name not in self._tool_only_agents]
+
+    def can_detach_agent_tools(self) -> bool:
+        """Return True if agent tool detachment is available."""
+        return self._detach_agent_tools_callback is not None
 
     def agent_types(self) -> dict[str, AgentType]:
         """Return mapping of agent names to agent types."""
         return {name: agent.agent_type for name, agent in self._agents.items()}
 
-    async def _refresh_if_needed(self) -> None:
+    async def refresh_if_needed(self) -> bool:
+        """Refresh agent instances if the registry has changed."""
+        return await self._refresh_if_needed()
+
+    async def _refresh_if_needed(self) -> bool:
         if self._refresh_callback:
-            await self._refresh_callback()
+            return await self._refresh_callback()
+        return False
 
     @deprecated
     async def prompt(
@@ -368,22 +481,46 @@ class AgentApp:
         # Don't delegate to the agent's own prompt method - use our implementation
         # The agent's prompt method doesn't fully support switching between agents
 
-        # Create agent_types dictionary mapping agent names to their types
-        agent_types = {name: agent.agent_type for name, agent in self._agents.items()}
+        # Create agent_types dictionary mapping agent names to their types (excluding tool_only)
+        # but keep an explicitly targeted tool-only agent available for direct testing.
+        available_names = self.agent_names()
+        if agent_name and agent_name in self._agents and agent_name not in available_names:
+            available_names = [agent_name, *available_names]
+
+        visible_names = set(available_names)
+        agent_types = {
+            name: agent.agent_type for name, agent in self._agents.items() if name in visible_names
+        }
 
         # Create the interactive prompt
         prompt = InteractivePrompt(agent_types=agent_types)
-        
-        # Helper for pretty formatting the FINAL error    
+
+        # Helper for pretty formatting the FINAL error
         def _format_final_error(error: Exception) -> str:
-            detail = getattr(error, "message", None) or str(error)
-            detail = detail.strip() if isinstance(detail, str) else ""
+            message_attr = getattr(error, "message", None)
+            detail_candidates = []
+            if isinstance(message_attr, str):
+                detail_candidates.append(message_attr)
+            elif message_attr is not None:
+                detail_candidates.append(str(message_attr))
+            detail_candidates.extend([str(error), repr(error), type(error).__name__])
+
+            detail = ""
+            for candidate in detail_candidates:
+                if isinstance(candidate, str) and candidate.strip():
+                    detail = candidate.strip()
+                    break
+
+            error_type = type(error).__name__
+            if detail and not detail.startswith(error_type):
+                detail = f"{error_type}: {detail}"
+
             clean_detail = detail.replace("\n", " ")
             if len(clean_detail) > 300:
                 clean_detail = clean_detail[:297] + "..."
-            
+            clean_detail = escape(clean_detail)
             return (
-                f"⚠️ **System Error:** The agent failed after repeated attempts.\n"
+                f"▲ **System Error:** The agent failed after repeated attempts.\n"
                 f"Error details: {clean_detail}\n"
                 f"\n*Your context is preserved. You can try sending the message again.*"
             )
@@ -402,14 +539,22 @@ class AgentApp:
                 if isinstance(e, (KeyboardInterrupt, AgentConfigError, ServerConfigError)):
                     raise e
 
+                logger.exception(
+                    "Agent failed after repeated attempts",
+                    agent_name=agent_name,
+                    error=str(e),
+                    error_type=type(e).__name__,
+                )
+
                 # Return pretty text for API failures (keeps session alive)
                 return _format_final_error(e)
 
         return await prompt.prompt_loop(
             send_func=send_wrapper,
             default_agent=target_name,  # Pass the agent name, not the agent object
-            available_agents=list(self._agents.keys()),
+            available_agents=available_names,
             prompt_provider=self,  # Pass self as the prompt provider
+            pinned_agent=agent_name,
             default=default_prompt,
         )
 
@@ -425,9 +570,7 @@ class AgentApp:
         if agent.agent_type == AgentType.PARALLEL:
             self._show_parallel_agent_usage(agent, turn_start_indices or {})
         else:
-            self._show_regular_agent_usage(
-                agent, (turn_start_indices or {}).get(agent.name)
-            )
+            self._show_regular_agent_usage(agent, (turn_start_indices or {}).get(agent.name))
 
     def _capture_turn_start_indices(self, agent_name: str) -> dict[str, int]:
         """Capture usage accumulator turn indices for a user-initiated turn."""
@@ -456,6 +599,7 @@ class AgentApp:
         usage_info = self._format_agent_usage(agent, turn_start_index)
         if usage_info:
             with progress_display.paused():
+                rich_print()
                 rich_print(
                     f"[dim]Last turn: {usage_info['display_text']}[/dim]{usage_info['cache_suffix']}"
                 )
@@ -545,6 +689,25 @@ class AgentApp:
         ):
             cache_indicators += "[bright_green]*[/bright_green]"
 
+        # Build cache expiry time if cache is active
+        cache_expiry_text = ""
+        if cache_indicators and agent.usage_accumulator.last_cache_activity_time:
+            model = agent.usage_accumulator.model
+            # Get cache TTL: prefer config setting, fall back to model database
+            cache_ttl = ModelDatabase.get_cache_ttl(model) if model else None
+            if cache_ttl:
+                # Override with config setting for Anthropic models
+                context = getattr(agent, "context", None)
+                if context and context.config and context.config.anthropic:
+                    cache_ttl = context.config.anthropic.cache_ttl
+                ttl_minutes = 60 if cache_ttl == "1h" else 5
+                expiry_timestamp = agent.usage_accumulator.last_cache_activity_time + (
+                    ttl_minutes * 60
+                )
+                if expiry_timestamp > time.time():
+                    expiry_time = datetime.fromtimestamp(expiry_timestamp).strftime("%H:%M")
+                    cache_expiry_text = f" [dim]({expiry_time})[/dim]"
+
         # Build context percentage - get from accumulator, not individual turn
         context_info = ""
         context_percentage = agent.usage_accumulator.context_usage_percentage
@@ -556,7 +719,7 @@ class AgentApp:
 
         # Build display text
         display_text = f"{input_tokens:,} Input, {output_tokens:,} Output{tool_info}{context_info}"
-        cache_suffix = f" {cache_indicators}" if cache_indicators else ""
+        cache_suffix = f" {cache_indicators}{cache_expiry_text}" if cache_indicators else ""
 
         return {
             "input_tokens": input_tokens,

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
+import shutil
 import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from acp.helpers import text_block, tool_content
@@ -25,6 +27,7 @@ if TYPE_CHECKING:
 
 from hf_inference_acp.hf_config import (
     CONFIG_FILE,
+    copy_toad_cards_from_resources,
     get_default_model,
     get_hf_token_source,
     has_hf_token,
@@ -89,6 +92,20 @@ def _resolve_alias_display(model: str) -> tuple[str, str] | None:
     return model, resolved
 
 
+def _collect_agent_card_warnings(context: "Context | None") -> list[str]:
+    if not context:
+        return []
+    warnings = getattr(context, "agent_card_errors", None)
+    if not warnings:
+        return []
+    cleaned: list[str] = []
+    for message in warnings:
+        message_text = str(message).strip()
+        if message_text:
+            cleaned.append(message_text)
+    return cleaned
+
+
 async def _lookup_and_format_providers(model: str) -> str | None:
     """Look up inference providers for a model and return a formatted message.
 
@@ -130,6 +147,11 @@ class SetupAgent(ACPAwareMixin, McpAgent):
         """Initialize the Setup agent."""
         McpAgent.__init__(self, config=config, context=context, **kwargs)
         self._context = context
+        self._record_agent_card_warnings()
+
+    def _record_agent_card_warnings(self) -> None:
+        for warning in _collect_agent_card_warnings(self._context):
+            self._record_warning(warning)
 
     async def attach_llm(self, llm_factory, model=None, request_params=None, **kwargs):
         """Override to set up wizard callback after LLM is attached."""
@@ -212,6 +234,15 @@ class SetupAgent(ACPAwareMixin, McpAgent):
             "check": ACPCommand(
                 description="Verify huggingface_hub installation and configuration",
                 handler=self._handle_check,
+            ),
+            "reset": ACPCommand(
+                description="Reset the local .fast-agent directory",
+                input_hint="confirm",
+                handler=self._handle_reset,
+            ),
+            "quickstart": ACPCommand(
+                description="Install example agent and tool cards to .fast-agent directory",
+                handler=self._handle_quickstart,
             ),
         }
 
@@ -325,6 +356,106 @@ class SetupAgent(ACPAwareMixin, McpAgent):
 
         return "\n".join(lines)
 
+    async def _handle_reset(self, arguments: str) -> str:
+        """Handler for /reset command."""
+        confirmation = arguments.strip().lower()
+        if confirmation not in {"confirm", "yes", "y"}:
+            return (
+                "This will delete the local `.fast-agent` directory and recreate it empty.\n\n"
+                "To proceed, run:\n"
+                "`/reset confirm`"
+            )
+
+        base_dir = Path(self.config.cwd) if self.config.cwd else Path.cwd()
+        target_dir = (base_dir / ".fast-agent").resolve()
+
+        try:
+            if target_dir.exists():
+                shutil.rmtree(target_dir)
+            target_dir.mkdir(parents=True, exist_ok=True)
+            (target_dir / "agent-cards").mkdir(parents=True, exist_ok=True)
+            (target_dir / "tool-cards").mkdir(parents=True, exist_ok=True)
+        except Exception as exc:  # noqa: BLE001
+            return f"Error resetting `{target_dir}`: {exc}"
+
+        return (
+            "Reset complete.\n\n"
+            f"Recreated `{target_dir}` with empty `agent-cards` and `tool-cards` folders."
+        )
+
+    async def _handle_quickstart(self, arguments: str) -> str:
+        """Handler for /quickstart command - copy toad-cards to .fast-agent directory."""
+        base_dir = Path(self.config.cwd) if self.config.cwd else Path.cwd()
+        target_dir = (base_dir / ".fast-agent").resolve()
+
+        # Parse arguments for force flag
+        args = arguments.strip().lower()
+        force = args in ("force", "--force", "-f")
+
+        # Check if directory exists with content
+        if target_dir.exists() and not force:
+            existing_items = []
+            if (target_dir / "agent-cards").exists():
+                agent_cards = list((target_dir / "agent-cards").glob("*.md"))
+                if agent_cards:
+                    existing_items.append("agent-cards")
+            if (target_dir / "tool-cards").exists():
+                tool_cards = list((target_dir / "tool-cards").glob("*.md"))
+                if tool_cards:
+                    existing_items.append("tool-cards")
+
+            if existing_items:
+                return (
+                    f"`.fast-agent` directory already exists with: {', '.join(existing_items)}\n\n"
+                    "Use `/quickstart force` to overwrite existing files."
+                )
+
+        # Attempt to copy from fast-agent-mcp package resources
+        try:
+            created = self._copy_toad_cards_from_resources(target_dir, force)
+        except Exception as exc:
+            return f"Error installing examples: {exc}"
+
+        if not created:
+            return "No files were copied. The example resources may not be available."
+
+        # Generate success message
+        lines = [
+            "## Quickstart Examples Installed",
+            "",
+            f"Installed {len(created)} files to `.fast-agent/`",
+            "",
+            "**Directory structure:**",
+            "```",
+            ".fast-agent/",
+            "├── agent-cards/          # Agent definitions (loaded automatically)",
+            "├── tool-cards/           # Tool definitions (loaded automatically)",
+            "├── shared/               # Shared context snippets",
+            "├── skills/               # Tool definitions (loaded on-demand)",
+            "```",
+            "",
+            "The cards are now installed. Restart Toad and use `ctrl+o` to switch Agents.",
+            "",
+            "**Available agent cards:**",
+        ]
+
+        # List agent cards
+        agent_cards_dir = target_dir / "agent-cards"
+        if agent_cards_dir.exists():
+            for card_file in sorted(agent_cards_dir.glob("*.md")):
+                lines.append(f"- `{card_file.stem}`")
+
+        return "\n".join(lines)
+
+    def _copy_toad_cards_from_resources(self, target_dir: Path, force: bool) -> list[str]:
+        """Copy toad-cards from fast-agent-mcp package resources."""
+        created = copy_toad_cards_from_resources(target_dir, force)
+        if not created:
+            raise RuntimeError(
+                "Example files not found. Ensure fast-agent-mcp is installed correctly."
+            )
+        return created
+
     async def _get_model_provider_info(self, model: str) -> str | None:
         """Get a brief provider info string for a model.
 
@@ -365,6 +496,11 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
         McpAgent.__init__(self, config=config, context=context, **kwargs)
         self._context = context
         self._hf_mcp_connected = False
+        self._record_agent_card_warnings()
+
+    def _record_agent_card_warnings(self) -> None:
+        for warning in _collect_agent_card_warnings(self._context):
+            self._record_warning(warning)
 
     @property
     def acp_commands(self) -> dict[str, ACPCommand]:
@@ -529,7 +665,7 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
                 tool_list = "\n".join(f"- `{name}`" for name in tool_names[:10])
                 more = f"\n- ... and {len(tool_names) - 10} more" if len(tool_names) > 10 else ""
                 return (
-                    "Connected to HuggingFace MCP server.\n\n"
+                    "Connected to Hugging Face MCP server.\n\n"
                     f"**Available tools ({len(tool_names)}):**\n{tool_list}{more}"
                 )
             else:

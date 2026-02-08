@@ -2,6 +2,7 @@
 
 import pytest
 
+from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.instruction import InstructionBuilder
 
 
@@ -22,6 +23,14 @@ class TestInstructionBuilder:
         builder.set("currentDate", "17 Dec 2025")
         result = await builder.build()
         assert result == "Today is 17 Dec 2025."
+
+    @pytest.mark.asyncio
+    async def test_build_with_escaped_placeholders(self):
+        """Escaped placeholders should remain literal."""
+        builder = InstructionBuilder(r"Literal: \{{currentDate}} and \{{file:missing.md}}")
+        builder.set("currentDate", "17 Dec 2025")
+        result = await builder.build()
+        assert result == "Literal: {{currentDate}} and {{file:missing.md}}"
 
     @pytest.mark.asyncio
     async def test_build_with_multiple_static_placeholders(self):
@@ -124,6 +133,12 @@ class TestInstructionBuilder:
         # Should not include file: patterns
         assert placeholders == {"name", "greeting"}
 
+    def test_get_placeholders_ignores_escaped(self):
+        """Escaped placeholders should be ignored in placeholder extraction."""
+        builder = InstructionBuilder(r"\{{ignored}} {{real}}")
+        placeholders = builder.get_placeholders()
+        assert placeholders == {"real"}
+
     def test_get_unresolved_placeholders(self):
         """get_unresolved_placeholders should return placeholders without sources."""
         builder = InstructionBuilder("{{a}} {{b}} {{c}}")
@@ -182,6 +197,15 @@ class TestInstructionBuilderFilePatterns:
 
         result = await builder.build()
         assert result == "Base."
+
+    @pytest.mark.asyncio
+    async def test_file_pattern_missing_file_raises(self, tmp_path):
+        """{{file:path}} should raise AgentConfigError when missing."""
+        builder = InstructionBuilder("Base. {{file:missing.md}}")
+        builder.set("workspaceRoot", str(tmp_path))
+
+        with pytest.raises(AgentConfigError, match="Instruction file not found"):
+            await builder.build()
 
     @pytest.mark.asyncio
     async def test_file_pattern_rejects_absolute_paths(self):

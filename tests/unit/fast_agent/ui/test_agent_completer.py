@@ -4,8 +4,12 @@ import os
 import tempfile
 from pathlib import Path
 
+from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
 
+import fast_agent.config as config_module
+from fast_agent.config import Settings, SkillsSettings, get_settings, update_global_settings
+from fast_agent.session import get_session_manager, reset_session_manager
 from fast_agent.ui.enhanced_prompt import AgentCompleter
 
 
@@ -104,8 +108,8 @@ def test_complete_history_files_handles_subdirectory():
             os.chdir(original_cwd)
 
 
-def test_get_completions_for_load_history_command():
-    """Test get_completions provides file completions after /load_history."""
+def test_get_completions_for_history_load_command():
+    """Test get_completions provides file completions after /history load."""
     with tempfile.TemporaryDirectory() as tmpdir:
         (Path(tmpdir) / "test.json").touch()
 
@@ -115,8 +119,8 @@ def test_get_completions_for_load_history_command():
         try:
             os.chdir(tmpdir)
 
-            # Simulate typing "/load_history "
-            doc = Document("/load_history ", cursor_position=14)
+            # Simulate typing "/history load "
+            doc = Document("/history load ", cursor_position=14)
             completions = list(completer.get_completions(doc, None))
             names = [c.text for c in completions]
 
@@ -125,10 +129,12 @@ def test_get_completions_for_load_history_command():
             os.chdir(original_cwd)
 
 
-def test_get_completions_for_load_shortcut():
-    """Test get_completions works with /load shortcut."""
+def test_get_completions_for_shell_path_prefix():
+    """Ensure shell completions treat path-like tokens as paths."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        (Path(tmpdir) / "test.md").touch()
+        (Path(tmpdir) / "script.sh").touch()
+        subdir = Path(tmpdir) / "data"
+        subdir.mkdir()
 
         completer = AgentCompleter(agents=["agent1"])
 
@@ -136,14 +142,161 @@ def test_get_completions_for_load_shortcut():
         try:
             os.chdir(tmpdir)
 
-            # Simulate typing "/load "
-            doc = Document("/load ", cursor_position=6)
-            completions = list(completer.get_completions(doc, None))
+            doc = Document("!./", cursor_position=len("!./"))
+            event = CompleteEvent(completion_requested=True)
+            completions = list(completer.get_completions(doc, event))
             names = [c.text for c in completions]
 
-            assert "test.md" in names
+            assert "./script.sh" in names
+            assert "./data/" in names
         finally:
             os.chdir(original_cwd)
+
+
+def test_get_completions_for_shell_path_prefix_with_current_dir_partial():
+    """Ensure ./ prefix is preserved when completing in the current directory."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        (Path(tmpdir) / "script.sh").touch()
+
+        completer = AgentCompleter(agents=["agent1"])
+
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(tmpdir)
+
+            doc = Document("!./s", cursor_position=len("!./s"))
+            event = CompleteEvent(completion_requested=True)
+            completions = list(completer.get_completions(doc, event))
+            names = [c.text for c in completions]
+
+            assert "./script.sh" in names
+        finally:
+            os.chdir(original_cwd)
+
+
+def test_get_completions_for_history_subcommands():
+    """Test get_completions suggests /history subcommands."""
+    completer = AgentCompleter(agents=["agent1"])
+
+    doc = Document("/history ", cursor_position=9)
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert "show" in names
+    assert "save" in names
+    assert "load" in names
+
+
+def test_get_completions_for_session_pin(tmp_path: Path) -> None:
+    old_settings = get_settings()
+    env_dir = tmp_path / "env"
+    override = old_settings.model_copy(update={"environment_dir": str(env_dir)})
+    update_global_settings(override)
+    reset_session_manager()
+
+    try:
+        manager = get_session_manager()
+        session = manager.create_session()
+
+        completer = AgentCompleter(agents=["agent1"])
+        doc = Document("/session pin ", cursor_position=len("/session pin "))
+        completions = list(completer.get_completions(doc, None))
+        names = [c.text for c in completions]
+
+        assert "on" in names
+        assert "off" in names
+        assert session.info.name in names
+
+        doc = Document("/session pin on ", cursor_position=len("/session pin on "))
+        completions = list(completer.get_completions(doc, None))
+        names = [c.text for c in completions]
+        assert session.info.name in names
+    finally:
+        update_global_settings(old_settings)
+        reset_session_manager()
+
+
+def test_noenv_session_completion_does_not_create_session_storage(tmp_path: Path) -> None:
+    old_settings = get_settings()
+    env_dir = tmp_path / "env"
+    override = old_settings.model_copy(update={"environment_dir": str(env_dir)})
+    update_global_settings(override)
+    reset_session_manager()
+
+    try:
+        completer = AgentCompleter(agents=["agent1"], noenv_mode=True)
+        doc = Document("/resume ", cursor_position=len("/resume "))
+        completions = list(completer.get_completions(doc, None))
+
+        assert completions == []
+        assert not (env_dir / "sessions").exists()
+    finally:
+        update_global_settings(old_settings)
+        reset_session_manager()
+
+
+def _write_skill(skill_root: Path, name: str) -> None:
+    skill_dir = skill_root / name
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    skill_file = skill_dir / "SKILL.md"
+    skill_file.write_text(
+        "---\nname: {name}\ndescription: Test skill\n---\n".format(name=name),
+        encoding="utf-8",
+    )
+
+
+def test_get_completions_for_skills_subcommands():
+    """Test get_completions suggests /skills subcommands."""
+    completer = AgentCompleter(agents=["agent1"])
+
+    doc = Document("/skills ", cursor_position=8)
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert "list" in names
+    assert "add" in names
+    assert "remove" in names
+    assert "registry" in names
+
+
+def test_get_completions_for_skills_remove(monkeypatch):
+    """Test get_completions suggests local skills for /skills remove."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        skills_root = Path(tmpdir) / "skills"
+        _write_skill(skills_root, "alpha")
+        _write_skill(skills_root, "beta")
+
+        settings = Settings(skills=SkillsSettings(directories=[str(skills_root)]))
+        monkeypatch.setattr(config_module, "_settings", settings)
+
+        completer = AgentCompleter(agents=["agent1"])
+        doc = Document("/skills remove ", cursor_position=15)
+        completions = list(completer.get_completions(doc, None))
+        names = [c.text for c in completions]
+
+        assert "alpha" in names
+        assert "beta" in names
+
+
+def test_get_completions_for_skills_registry(monkeypatch):
+    """Test get_completions suggests registry choices for /skills registry."""
+    settings = Settings(
+        skills=SkillsSettings(
+            marketplace_urls=[
+                "https://example.com/registry-one.json",
+                "https://example.com/registry-two.json",
+            ]
+        )
+    )
+    monkeypatch.setattr(config_module, "_settings", settings)
+
+    completer = AgentCompleter(agents=["agent1"])
+    doc = Document("/skills registry ", cursor_position=17)
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert "1" in names
+    assert "2" in names
 
 
 def test_complete_agent_card_files_finds_md_and_yaml():
@@ -246,13 +399,13 @@ def test_command_completions_still_work():
     """Test that regular command completions still work."""
     completer = AgentCompleter(agents=["agent1"])
 
-    # Simulate typing "/load"
-    doc = Document("/load", cursor_position=5)
+    # Simulate typing "/hist"
+    doc = Document("/hist", cursor_position=5)
     completions = list(completer.get_completions(doc, None))
     names = [c.text for c in completions]
 
-    # Should complete to load_history command
-    assert "load_history" in names
+    # Should complete to history command
+    assert "history" in names
 
 
 def test_agent_completions_still_work():

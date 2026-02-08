@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
@@ -9,9 +10,12 @@ from typing import (
     Union,
 )
 
-from mcp.types import ListToolsResult, TextContent
+from mcp.types import CallToolResult, ListToolsResult, TextContent
 
 from fast_agent.constants import DEFAULT_MAX_ITERATIONS, FAST_AGENT_ERROR_CHANNEL
+from fast_agent.core.logging.logger import get_logger
+from fast_agent.interfaces import MessageHistoryAgentProtocol
+from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
@@ -23,7 +27,7 @@ class _AgentConfig(Protocol):
     use_history: bool
 
 
-class _ToolLoopAgent(Protocol):
+class _ToolLoopAgent(MessageHistoryAgentProtocol, Protocol):
     config: _AgentConfig
 
     async def _tool_runner_llm_step(
@@ -42,6 +46,9 @@ class _ToolLoopAgent(Protocol):
     async def list_tools(self) -> ListToolsResult: ...
 
 
+_logger = get_logger(__name__)
+
+
 @dataclass(frozen=True)
 class ToolRunnerHooks:
     """
@@ -50,6 +57,13 @@ class ToolRunnerHooks:
     These hooks are intentionally low-level and mutation-friendly: they can
     inspect and modify the agent history (via agent.load_message_history),
     tweak request params, or append extra messages via the runner.
+
+    Hook points:
+    - before_llm_call: Called before each LLM call with the messages to send
+    - after_llm_call: Called after each LLM response is received
+    - before_tool_call: Called before tools are executed
+    - after_tool_call: Called after tool results are received
+    - after_turn_complete: Called once after the entire turn completes (when stop_reason != TOOL_USE)
     """
 
     before_llm_call: (
@@ -58,6 +72,9 @@ class ToolRunnerHooks:
     after_llm_call: Callable[["ToolRunner", PromptMessageExtended], Awaitable[None]] | None = None
     before_tool_call: Callable[["ToolRunner", PromptMessageExtended], Awaitable[None]] | None = None
     after_tool_call: Callable[["ToolRunner", PromptMessageExtended], Awaitable[None]] | None = None
+    after_turn_complete: (
+        Callable[["ToolRunner", PromptMessageExtended], Awaitable[None]] | None
+    ) = None
 
 
 class ToolRunner:
@@ -126,11 +143,77 @@ class ToolRunner:
 
     async def until_done(self) -> PromptMessageExtended:
         last: PromptMessageExtended | None = None
-        async for message in self:
-            last = message
+        try:
+            async for message in self:
+                last = message
+        except (asyncio.CancelledError, KeyboardInterrupt) as exc:
+            try:
+                setattr(self._agent, "_last_turn_cancelled", True)
+                setattr(
+                    self._agent,
+                    "_last_turn_cancel_reason",
+                    "cancelled" if isinstance(exc, asyncio.CancelledError) else "interrupted",
+                )
+            except Exception:
+                pass
+            self._reset_history_after_cancelled_turn()
+            raise
         if last is None:
             raise RuntimeError("ToolRunner produced no messages")
+
+        # Fire after_turn_complete hook once the entire turn is done
+        if self._hooks.after_turn_complete is not None:
+            await self._hooks.after_turn_complete(self, last)
+
         return last
+
+    def _reset_history_after_cancelled_turn(self) -> None:
+        history = self._agent.message_history
+        if not history:
+            return
+
+        last_success_idx: int | None = None
+        for idx in range(len(history) - 1, -1, -1):
+            msg = history[idx]
+            if msg.role != "assistant":
+                continue
+            if msg.stop_reason in (LlmStopReason.TOOL_USE, LlmStopReason.CANCELLED):
+                continue
+            last_success_idx = idx
+            break
+
+        if last_success_idx is None:
+            template_prefix: list[PromptMessageExtended] = []
+            for msg in history:
+                if msg.is_template:
+                    template_prefix.append(msg)
+                else:
+                    break
+            if len(template_prefix) != len(history):
+                self._agent.load_message_history(template_prefix)
+            return
+
+        if last_success_idx < len(history) - 1:
+            self._agent.load_message_history(history[: last_success_idx + 1])
+
+    def _build_tool_error_response(
+        self, request: PromptMessageExtended, error_message: str
+    ) -> PromptMessageExtended:
+        tool_results: dict[str, CallToolResult] = {}
+        for tool_id in (request.tool_calls or {}).keys():
+            tool_results[tool_id] = CallToolResult(
+                content=[text_content(error_message)],
+                isError=True,
+            )
+
+        channels = {FAST_AGENT_ERROR_CHANNEL: [text_content(error_message)]}
+
+        return PromptMessageExtended(
+            role="user",
+            content=[text_content(error_message)],
+            tool_results=tool_results,
+            channels=channels,
+        )
 
     async def generate_tool_call_response(self) -> PromptMessageExtended | None:
         if self._pending_tool_request is None:
@@ -138,16 +221,40 @@ class ToolRunner:
         if self._pending_tool_response is not None:
             return self._pending_tool_response
 
-        if self._hooks.before_tool_call is not None:
-            await self._hooks.before_tool_call(self, self._pending_tool_request)
+        try:
+            hook_phase = "before_tool_call"
+            if self._hooks.before_tool_call is not None:
+                await self._hooks.before_tool_call(self, self._pending_tool_request)
+            hook_phase = "run_tools"
+            tool_message = await self._agent.run_tools(
+                self._pending_tool_request, request_params=self._request_params
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            tool_calls = self._pending_tool_request.tool_calls or {}
+            tool_call_ids = list(tool_calls.keys())
+            tool_names = [call.params.name for call in tool_calls.values()]
+            agent_name = getattr(self._agent, "name", None)
+            tool_message = self._build_tool_error_response(
+                self._pending_tool_request,
+                f"Tool hook or execution failed during {hook_phase}: {exc}",
+            )
+            _logger.exception(
+                "Tool hook or execution failed",
+                agent_name=agent_name,
+                hook_phase=hook_phase,
+                tool_call_ids=tool_call_ids,
+                tool_names=tool_names,
+            )
 
-        tool_message = await self._agent.run_tools(
-            self._pending_tool_request, request_params=self._request_params
-        )
         self._pending_tool_response = tool_message
 
         if self._hooks.after_tool_call is not None:
-            await self._hooks.after_tool_call(self, tool_message)
+            try:
+                await self._hooks.after_tool_call(self, tool_message)
+            except Exception as exc:
+                _logger.error("Tool hook failed after tool call", exc_info=exc)
 
         self._stage_tool_response(tool_message)
         self._pending_tool_request = None

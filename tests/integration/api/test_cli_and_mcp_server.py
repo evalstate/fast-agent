@@ -1,6 +1,7 @@
 import asyncio
 import os
 import subprocess
+import sys
 from typing import TYPE_CHECKING
 
 import httpx
@@ -52,6 +53,39 @@ def test_agent_message_cli():
 
 
 @pytest.mark.integration
+def test_agent_message_cli_default_agent():
+    """Test sending a message via command line without --agent uses the app default agent."""
+    # Get the path to the test_agent.py file (in the same directory as this test)
+    test_dir = os.path.dirname(os.path.abspath(__file__))
+    test_agent_path = os.path.join(test_dir, "integration_agent.py")
+
+    # Test message
+    test_message = "Hello from command line test (default agent)"
+
+    result = subprocess.run(
+        [
+            "uv",
+            "run",
+            test_agent_path,
+            "--message",
+            test_message,
+        ],
+        capture_output=True,
+        text=True,
+        cwd=test_dir,  # Run in the test directory to use its config
+    )
+
+    # Check that the command succeeded
+    assert result.returncode == 0, f"Command failed with output: {result.stderr}"
+
+    command_output = result.stdout
+    # With the passthrough model, the output should contain the input message
+    assert test_message in command_output, "Test message not found in agent response"
+    # this is from show_user_output
+    assert "▎▶ test" in command_output, "show chat messages included in output"
+
+
+@pytest.mark.integration
 def test_agent_message_prompt_file():
     """Test sending a message via command line to a FastAgent program."""
     # Get the path to the test_agent.py file (in the same directory as this test)
@@ -61,6 +95,32 @@ def test_agent_message_prompt_file():
     # Run the test agent with the --agent and --message flags
     result = subprocess.run(
         ["uv", "run", test_agent_path, "--agent", "test", "--prompt-file", "prompt.txt"],
+        capture_output=True,
+        text=True,
+        cwd=test_dir,  # Run in the test directory to use its config
+    )
+
+    # Check that the command succeeded
+    assert result.returncode == 0, f"Command failed with output: {result.stderr}"
+
+    command_output = result.stdout
+    # With the passthrough model, the output should contain the input message
+    assert "this is from the prompt file" in command_output, (
+        "Test message not found in agent response"
+    )
+    # this is from show_user_output
+    assert "▎▶ test" in command_output, "show chat messages included in output"
+
+
+@pytest.mark.integration
+def test_agent_message_prompt_file_default_agent():
+    """Test sending a prompt file via command line without --agent uses the app default agent."""
+    # Get the path to the test_agent.py file (in the same directory as this test)
+    test_dir = os.path.dirname(os.path.abspath(__file__))
+    test_agent_path = os.path.join(test_dir, "integration_agent.py")
+
+    result = subprocess.run(
+        ["uv", "run", test_agent_path, "--prompt-file", "prompt.txt"],
         capture_output=True,
         text=True,
         cwd=test_dir,  # Run in the test directory to use its config
@@ -124,7 +184,7 @@ async def test_agent_server_option_stdio(fast_agent):
     async def agent_function():
         async with fast_agent.run() as agent:
             assert "connected" == await agent.send("connected")
-            result = await agent.send('***CALL_TOOL test_send {"message": "stdio server test"}')
+            result = await agent.send('***CALL_TOOL test {"message": "stdio server test"}')
             assert "stdio server test" == result
 
     await agent_function()
@@ -139,9 +199,9 @@ async def test_agent_server_option_stdio_and_prompt_history(fast_agent):
     async def agent_function():
         async with fast_agent.run() as agent:
             assert "connected" == await agent.send("connected")
-            result = await agent.send('***CALL_TOOL test_send {"message": "message one"}')
+            result = await agent.send('***CALL_TOOL test {"message": "message one"}')
             assert "message one" == result
-            result = await agent.send('***CALL_TOOL test_send {"message": "message two"}')
+            result = await agent.send('***CALL_TOOL test {"message": "message two"}')
             assert "message two" == result
 
             history: GetPromptResult = await agent.get_prompt("test_history", server_name="std_io")
@@ -194,7 +254,7 @@ async def test_agent_transport_option_sse(fast_agent, mcp_test_ports, wait_for_p
             async with fast_agent.run() as agent:
                 # Try connecting and sending a message
                 assert "connected" == await agent.send("connected")
-                result = await agent.send('***CALL_TOOL test_send {"message": "sse server test"}')
+                result = await agent.send('***CALL_TOOL test {"message": "sse server test"}')
                 assert "sse server test" == result
 
         await agent_function()
@@ -271,9 +331,11 @@ async def test_serve_request_scope_disables_session_header(mcp_test_ports, wait_
                 assert response.status_code == 200
                 assert "mcp-session-id" not in response.headers
 
-        async with streamable_http_client(
-            f"http://127.0.0.1:{port}/mcp"
-        ) as (read_stream, write_stream, _):
+        async with streamable_http_client(f"http://127.0.0.1:{port}/mcp") as (
+            read_stream,
+            write_stream,
+            _,
+        ):
             async with ClientSession(read_stream, write_stream) as session:
                 init_result = await session.initialize()
                 assert init_result.capabilities.prompts is None
@@ -330,7 +392,7 @@ async def test_agent_server_option_http(fast_agent, mcp_test_ports, wait_for_por
             async with fast_agent.run() as agent:
                 # Try connecting and sending a message
                 assert "connected" == await agent.send("connected")
-                result = await agent.send('***CALL_TOOL test_send {"message": "http server test"}')
+                result = await agent.send('***CALL_TOOL test {"message": "http server test"}')
                 assert "http server test" == result
 
         await agent_function()
@@ -338,6 +400,67 @@ async def test_agent_server_option_http(fast_agent, mcp_test_ports, wait_for_por
     finally:
         # Terminate the server process
         if server_proc.poll() is None:  # If still running
+            server_proc.terminate()
+            try:
+                server_proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                server_proc.kill()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_agent_server_option_http_with_watch(mcp_test_ports, wait_for_port, tmp_path):
+    """Server mode should start cleanly with --watch enabled."""
+
+    config_path = tmp_path / "fastagent.config.yaml"
+    config_path.write_text("", encoding="utf-8")
+
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
+    card_path = agents_dir / "watcher.md"
+    card_path.write_text(
+        "---\ntype: agent\nname: watcher\n---\nEcho test.\n",
+        encoding="utf-8",
+    )
+
+    port = mcp_test_ports["http"]
+
+    server_proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "fast_agent.cli",
+            "serve",
+            "--config-path",
+            str(config_path),
+            "--transport",
+            "http",
+            "--port",
+            str(port),
+            "--model",
+            "passthrough",
+            "--name",
+            "fast-agent-watch-test",
+            "--card",
+            str(agents_dir),
+            "--watch",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        cwd=tmp_path,
+    )
+
+    try:
+        await wait_for_port("127.0.0.1", port, process=server_proc)
+        card_path.write_text(
+            "---\ntype: agent\nname: watcher\n---\nEcho test updated.\n",
+            encoding="utf-8",
+        )
+        await asyncio.sleep(0.25)
+        assert server_proc.poll() is None
+    finally:
+        if server_proc.poll() is None:
             server_proc.terminate()
             try:
                 server_proc.wait(timeout=2)
@@ -383,18 +506,18 @@ async def test_agent_server_emits_mcp_progress_notifications(
 
         progress_events: list[tuple[float, float | None, str | None]] = []
 
-        async def on_progress(
-            progress: float, total: float | None, message: str | None
-        ) -> None:
+        async def on_progress(progress: float, total: float | None, message: str | None) -> None:
             progress_events.append((progress, total, message))
 
-        async with streamable_http_client(
-            f"http://127.0.0.1:{port}/mcp"
-        ) as (read_stream, write_stream, _):
+        async with streamable_http_client(f"http://127.0.0.1:{port}/mcp") as (
+            read_stream,
+            write_stream,
+            _,
+        ):
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
                 params = types.CallToolRequestParams(
-                    name="test_send", arguments={"message": "progress check"}
+                    name="test", arguments={"message": "progress check"}
                 )
                 request = types.CallToolRequest(method="tools/call", params=params)
                 result = await session.send_request(
@@ -412,9 +535,9 @@ async def test_agent_server_emits_mcp_progress_notifications(
             await asyncio.sleep(0.1)
 
         assert progress_events
-        assert any(
-            message and "step" in message for _, _, message in progress_events
-        ), f"Unexpected progress messages: {progress_events}"
+        assert any(message and "step" in message for _, _, message in progress_events), (
+            f"Unexpected progress messages: {progress_events}"
+        )
     finally:
         if server_proc.poll() is None:
             server_proc.terminate()

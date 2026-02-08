@@ -5,7 +5,7 @@ Implements type-safe factories with improved error handling.
 
 from functools import partial
 from pathlib import Path
-from typing import Any, Protocol, TypeVar, cast
+from typing import Any, Callable, Mapping, Protocol, TypeVar, cast
 
 from fast_agent.agents import McpAgent
 from fast_agent.agents.agent_types import AgentConfig, AgentType
@@ -17,12 +17,15 @@ from fast_agent.agents.workflow.evaluator_optimizer import (
 from fast_agent.agents.workflow.iterative_planner import IterativePlanner
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.agents.workflow.router_agent import RouterAgent
+from fast_agent.context import Context
 from fast_agent.core import Core
+from fast_agent.core.agent_card_types import AgentCardData
 from fast_agent.core.exceptions import AgentConfigError, ModelConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.model_resolution import HARDCODED_DEFAULT_MODEL, resolve_model_spec
 from fast_agent.core.validation import get_dependencies_groups
 from fast_agent.event_progress import ProgressAction
+from fast_agent.hooks.hook_messages import show_hook_failure
 from fast_agent.interfaces import (
     AgentProtocol,
     LLMFactoryProtocol,
@@ -30,12 +33,117 @@ from fast_agent.interfaces import (
 )
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.mcp.ui_agent import McpAgentWithUI
-from fast_agent.tools.function_tool_loader import load_function_tools
+from fast_agent.tools.function_tool_loader import FastMCPTool, load_function_tools
+from fast_agent.tools.hook_loader import load_tool_runner_hooks
 from fast_agent.types import RequestParams
 
 # Type aliases for improved readability and IDE support
 AgentDict = dict[str, AgentProtocol]
-AgentConfigDict = dict[str, dict[str, Any]]
+AgentConfigDict = Mapping[str, AgentCardData | dict[str, Any]]
+
+
+class CoreContextProtocol(Protocol):
+    context: Context
+
+
+class _ContextCoreShim:
+    def __init__(self, context: Context) -> None:
+        self.context = context
+
+
+def _ensure_basic_only_agents(agents_dict: AgentConfigDict) -> None:
+    for name, agent_data in agents_dict.items():
+        agent_type = agent_data.get("type") if isinstance(agent_data, Mapping) else None
+        if isinstance(agent_type, AgentType):
+            agent_type = agent_type.value
+        if agent_type != AgentType.BASIC.value:
+            raise AgentConfigError(
+                "Smart tool only supports 'agent' cards",
+                f"Card '{name}' has unsupported type '{agent_type}'",
+            )
+
+def _load_configured_function_tools(
+    config: AgentConfig,
+    agent_data: Mapping[str, Any],
+) -> list[FastMCPTool]:
+    """Load function tools from config or agent_data, resolving paths.
+
+    Args:
+        config: The agent configuration
+        agent_data: The agent data dictionary from card or registry
+
+    Returns:
+        List of loaded function tools (may be empty)
+    """
+    tools_config_raw = config.function_tools
+    if tools_config_raw is None:
+        tools_config_raw = agent_data.get("function_tools")
+
+    tools_config: list[Callable[..., Any] | str] | None = None
+    if isinstance(tools_config_raw, str):
+        tools_config = [tools_config_raw]
+    elif isinstance(tools_config_raw, list):
+        tools_config = cast("list[Callable[..., Any] | str]", tools_config_raw)
+
+    if not tools_config:
+        return []
+
+    source_path = agent_data.get("source_path")
+    base_path = Path(source_path).parent if source_path else None
+    return load_function_tools(tools_config, base_path)
+
+
+
+
+async def _finalize_agent(
+    agent: LlmAgent,
+    name: str,
+    config: AgentConfig,
+    agent_data: Mapping[str, Any],
+    model_factory_func: ModelFactoryFunctionProtocol,
+    result_agents: AgentDict,
+    session_history_enabled: bool,
+) -> None:
+    """Complete agent setup: initialize, attach LLM, apply hooks, register.
+
+    Args:
+        agent: The agent instance to finalize
+        name: Agent name for registration
+        config: Agent configuration
+        agent_data: Agent data dictionary (for source_path)
+        model_factory_func: Factory function for LLM creation
+        result_agents: Dictionary to register the agent in
+        session_history_enabled: Whether session history tracking is enabled
+    """
+    await agent.initialize()
+
+    llm_factory = model_factory_func(model=config.model)
+    await agent.attach_llm(
+        llm_factory,
+        request_params=config.default_request_params,
+        api_key=config.api_key,
+    )
+
+    if config.tool_hooks or config.trim_tool_history or session_history_enabled:
+        _apply_tool_hooks(
+            agent,
+            config,
+            agent_data.get("source_path"),
+            enable_session_history=session_history_enabled,
+        )
+
+    result_agents[name] = agent
+
+    logger.info(
+        f"Loaded {name}",
+        data={
+            "progress_action": ProgressAction.LOADED,
+            "agent_name": name,
+            "target": name,
+        },
+    )
+
+
 T = TypeVar("T")  # For generic types
 
 
@@ -70,6 +178,130 @@ def _create_agent_with_ui_if_needed(
     else:
         # Create the original agent instance
         return agent_class(config=config, context=context, **kwargs)
+
+
+def _apply_tool_hooks(
+    agent: LlmAgent,
+    config: AgentConfig,
+    source_path: str | None = None,
+    *,
+    enable_session_history: bool = False,
+) -> None:
+    """
+    Apply tool runner hooks to an agent based on config.
+
+    Handles both:
+    - tool_hooks: dict mapping hook types to function specs
+    - trim_tool_history: shortcut to apply built-in history trimmer
+
+    Args:
+        agent: The agent to apply hooks to
+        config: Agent configuration with tool_hooks and/or trim_tool_history
+        source_path: Path to the source file for resolving relative hook paths
+    """
+    # Import here to avoid circular imports
+    from fast_agent.agents.tool_runner import ToolRunnerHooks
+    from fast_agent.hooks import save_session_history, trim_tool_loop_history
+    from fast_agent.hooks.hook_context import HookContext
+
+    hooks_config = config.tool_hooks
+    trim_history = config.trim_tool_history
+
+    # If trim_tool_history is set and no after_turn_complete hook is configured,
+    # add the built-in trimmer
+    if trim_history:
+        if hooks_config is None:
+            hooks_config = {}
+        if "after_turn_complete" not in hooks_config:
+            # Use a wrapper that creates HookContext for the built-in trimmer
+            async def _trimmer_wrapper(runner, message):
+                ctx = HookContext(
+                    runner=runner,
+                    agent=agent,
+                    message=message,
+                    hook_type="after_turn_complete",
+                )
+                try:
+                    await trim_tool_loop_history(ctx)
+                except Exception as exc:  # noqa: BLE001
+                    show_hook_failure(
+                        ctx,
+                        hook_name="trim_tool_loop_history",
+                        hook_kind="tool",
+                        error=exc,
+                    )
+                    logger.exception(
+                        "Tool hook failed",
+                        hook_type="after_turn_complete",
+                        hook_name="trim_tool_loop_history",
+                    )
+                    raise
+
+            # Set the hooks directly since we have a callable, not a spec string
+            existing_hooks = getattr(agent, "tool_runner_hooks", None) or ToolRunnerHooks()
+            agent.tool_runner_hooks = ToolRunnerHooks(
+                before_llm_call=existing_hooks.before_llm_call,
+                after_llm_call=existing_hooks.after_llm_call,
+                before_tool_call=existing_hooks.before_tool_call,
+                after_tool_call=existing_hooks.after_tool_call,
+                after_turn_complete=_trimmer_wrapper,
+            )
+            # Keep going so session history hooks can still be applied
+
+    # Load custom hooks from config
+    if hooks_config:
+        base_path = Path(source_path).parent if source_path else None
+        loaded_hooks = load_tool_runner_hooks(hooks_config, agent, base_path)
+        if loaded_hooks:
+            # Merge with any existing hooks (trim_tool_history wrapper)
+            existing = getattr(agent, "tool_runner_hooks", None)
+            if existing:
+                agent.tool_runner_hooks = ToolRunnerHooks(
+                    before_llm_call=loaded_hooks.before_llm_call or existing.before_llm_call,
+                    after_llm_call=loaded_hooks.after_llm_call or existing.after_llm_call,
+                    before_tool_call=loaded_hooks.before_tool_call or existing.before_tool_call,
+                    after_tool_call=loaded_hooks.after_tool_call or existing.after_tool_call,
+                    after_turn_complete=loaded_hooks.after_turn_complete or existing.after_turn_complete,
+                )
+            else:
+                agent.tool_runner_hooks = loaded_hooks
+
+    if enable_session_history:
+        existing_hooks = getattr(agent, "tool_runner_hooks", None) or ToolRunnerHooks()
+        existing_after_turn = existing_hooks.after_turn_complete
+
+        async def _session_history_wrapper(runner, message):
+            if existing_after_turn is not None:
+                await existing_after_turn(runner, message)
+            ctx = HookContext(
+                runner=runner,
+                agent=agent,
+                message=message,
+                hook_type="after_turn_complete",
+            )
+            try:
+                await save_session_history(ctx)
+            except Exception as exc:  # noqa: BLE001
+                show_hook_failure(
+                    ctx,
+                    hook_name="save_session_history",
+                    hook_kind="tool",
+                    error=exc,
+                )
+                logger.exception(
+                    "Tool hook failed",
+                    hook_type="after_turn_complete",
+                    hook_name="save_session_history",
+                )
+                raise
+
+        agent.tool_runner_hooks = ToolRunnerHooks(
+            before_llm_call=existing_hooks.before_llm_call,
+            after_llm_call=existing_hooks.after_llm_call,
+            before_tool_call=existing_hooks.before_tool_call,
+            after_tool_call=existing_hooks.after_tool_call,
+            after_turn_complete=_session_history_wrapper,
+        )
 
 
 class AgentCreatorProtocol(Protocol):
@@ -174,7 +406,7 @@ def get_default_model_source(
 
 
 async def create_agents_by_type(
-    app_instance: Core,
+    app_instance: CoreContextProtocol,
     agents_dict: AgentConfigDict,
     agent_type: AgentType,
     model_factory_func: ModelFactoryFunctionProtocol,
@@ -200,6 +432,9 @@ async def create_agents_by_type(
 
     # Create a dictionary to store the initialized agents
     result_agents: AgentDict = {}
+    session_history_enabled = True
+    if app_instance.context and app_instance.context.config:
+        session_history_enabled = getattr(app_instance.context.config, "session_history", True)
 
     # Get all agents of the specified type
     for name, agent_data in agents_dict.items():
@@ -214,59 +449,72 @@ async def create_agents_by_type(
                 # If BASIC agent declares child_agents, build an Agents-as-Tools wrapper
                 child_names = agent_data.get("child_agents", []) or []
                 if child_names:
+                    function_tools = _load_configured_function_tools(config, agent_data)
+
                     # Ensure child agents are already created
                     child_agents: list[AgentProtocol] = []
                     for agent_name in child_names:
                         if agent_name not in active_agents:
-                            raise AgentConfigError(f"Agent {agent_name} not found")
+                            logger.warning(
+                                "Skipping missing child agent",
+                                data={"agent_name": agent_name, "parent": name},
+                            )
+                            continue
                         child_agents.append(active_agents[agent_name])
 
                     # Import here to avoid circulars at module import time
                     from fast_agent.agents.workflow.agents_as_tools_agent import (
                         AgentsAsToolsAgent,
                         AgentsAsToolsOptions,
+                        HistoryMergeTarget,
+                        HistorySource,
                     )
                     raw_opts = agent_data.get("agents_as_tools_options") or {}
                     opt_kwargs = {k: v for k, v in raw_opts.items() if v is not None}
                     options = AgentsAsToolsOptions(**opt_kwargs)
+                    child_message_files: dict[str, list[Path]] = {}
+                    if (
+                        options.history_source == HistorySource.MESSAGES
+                        or options.history_merge_target == HistoryMergeTarget.MESSAGES
+                    ):
+                        missing_messages: list[str] = []
+                        for agent_name in child_names:
+                            child_data = agents_dict.get(agent_name)
+                            message_files = (
+                                child_data.get("message_files") if child_data else None
+                            )
+                            if not message_files:
+                                missing_messages.append(agent_name)
+                            else:
+                                child_message_files[agent_name] = list(message_files)
+                        if missing_messages:
+                            missing_list = ", ".join(sorted(set(missing_messages)))
+                            raise AgentConfigError(
+                                "history_source/history_merge_target=messages requires child agents with messages",
+                                f"Missing messages for: {missing_list}",
+                            )
+                    else:
+                        for agent_name in child_names:
+                            child_data = agents_dict.get(agent_name, {})
+                            message_files = child_data.get("message_files")
+                            if message_files:
+                                child_message_files[agent_name] = list(message_files)
 
                     agent = AgentsAsToolsAgent(
                         config=config,
                         context=app_instance.context,
                         agents=cast("list[LlmAgent]", child_agents),  # expose children as tools
                         options=options,
+                        tools=function_tools,
+                        child_message_files=child_message_files,
                     )
 
-                    await agent.initialize()
-
-                    # Attach LLM to the agent
-                    llm_factory = model_factory_func(model=config.model)
-                    await agent.attach_llm(
-                        llm_factory,
-                        request_params=config.default_request_params,
-                        api_key=config.api_key,
-                    )
-                    result_agents[name] = agent
-
-                    # Log successful agent creation
-                    logger.info(
-                        f"Loaded {name}",
-                        data={
-                            "progress_action": ProgressAction.LOADED,
-                            "agent_name": name,
-                            "target": name,
-                        },
+                    await _finalize_agent(
+                        agent, name, config, agent_data,
+                        model_factory_func, result_agents, session_history_enabled,
                     )
                 else:
-                    # Load function tools if configured
-                    function_tools = []
-                    if config.function_tools:
-                        # Use source_path from agent card for relative path resolution
-                        source_path = agent_data.get("source_path")
-                        base_path = Path(source_path).parent if source_path else None
-                        function_tools = load_function_tools(
-                            config.function_tools, base_path
-                        )
+                    function_tools = _load_configured_function_tools(config, agent_data)
 
                     # Create agent with UI support if needed
                     agent = _create_agent_with_ui_if_needed(
@@ -276,25 +524,101 @@ async def create_agents_by_type(
                         tools=function_tools,
                     )
 
-                    await agent.initialize()
-
-                    # Attach LLM to the agent
-                    llm_factory = model_factory_func(model=config.model)
-                    await agent.attach_llm(
-                        llm_factory,
-                        request_params=config.default_request_params,
-                        api_key=config.api_key,
+                    await _finalize_agent(
+                        agent, name, config, agent_data,
+                        model_factory_func, result_agents, session_history_enabled,
                     )
-                    result_agents[name] = agent
 
-                    # Log successful agent creation
-                    logger.info(
-                        f"Loaded {name}",
-                        data={
-                            "progress_action": ProgressAction.LOADED,
-                            "agent_name": name,
-                            "target": name,
-                        },
+            elif agent_type == AgentType.SMART:
+                child_names = agent_data.get("child_agents", []) or []
+                if child_names:
+                    function_tools = _load_configured_function_tools(config, agent_data)
+
+                    child_agents: list[AgentProtocol] = []
+                    for agent_name in child_names:
+                        if agent_name not in active_agents:
+                            logger.warning(
+                                "Skipping missing child agent",
+                                data={"agent_name": agent_name, "parent": name},
+                            )
+                            continue
+                        child_agents.append(active_agents[agent_name])
+
+                    from fast_agent.agents.smart_agent import SmartAgentsAsToolsAgent
+                    from fast_agent.agents.workflow.agents_as_tools_agent import (
+                        AgentsAsToolsOptions,
+                        HistoryMergeTarget,
+                        HistorySource,
+                    )
+
+                    raw_opts = agent_data.get("agents_as_tools_options") or {}
+                    opt_kwargs = {k: v for k, v in raw_opts.items() if v is not None}
+                    options = AgentsAsToolsOptions(**opt_kwargs)
+                    child_message_files: dict[str, list[Path]] = {}
+                    if (
+                        options.history_source == HistorySource.MESSAGES
+                        or options.history_merge_target == HistoryMergeTarget.MESSAGES
+                    ):
+                        missing_messages: list[str] = []
+                        for agent_name in child_names:
+                            child_data = agents_dict.get(agent_name)
+                            message_files = (
+                                child_data.get("message_files") if child_data else None
+                            )
+                            if not message_files:
+                                missing_messages.append(agent_name)
+                            else:
+                                child_message_files[agent_name] = list(message_files)
+                        if missing_messages:
+                            missing_list = ", ".join(sorted(set(missing_messages)))
+                            raise AgentConfigError(
+                                "history_source/history_merge_target=messages requires child agents with messages",
+                                f"Missing messages for: {missing_list}",
+                            )
+                    else:
+                        for agent_name in child_names:
+                            child_data = agents_dict.get(agent_name, {})
+                            message_files = child_data.get("message_files")
+                            if message_files:
+                                child_message_files[agent_name] = list(message_files)
+
+                    agent = SmartAgentsAsToolsAgent(
+                        config=config,
+                        context=app_instance.context,
+                        agents=cast("list[LlmAgent]", child_agents),
+                        options=options,
+                        tools=function_tools,
+                        child_message_files=child_message_files,
+                    )
+
+                    await _finalize_agent(
+                        agent, name, config, agent_data,
+                        model_factory_func, result_agents, session_history_enabled,
+                    )
+                else:
+                    function_tools = _load_configured_function_tools(config, agent_data)
+
+                    from fast_agent.agents.smart_agent import SmartAgent, SmartAgentWithUI
+
+                    settings = app_instance.context.config if app_instance.context else None
+                    ui_mode = getattr(settings, "mcp_ui_mode", "auto") if settings else "auto"
+                    if ui_mode != "disabled":
+                        agent = SmartAgentWithUI(
+                            config=config,
+                            context=app_instance.context,
+                            ui_mode=ui_mode,
+                            tools=function_tools,
+                        )
+                    else:
+                        agent = SmartAgent(
+                            config=config,
+                            context=app_instance.context,
+                            tools=function_tools,
+                        )
+
+                    await _finalize_agent(
+                        agent, name, config, agent_data,
+                        model_factory_func, result_agents, session_history_enabled,
                     )
 
             elif agent_type == AgentType.CUSTOM:
@@ -320,6 +644,31 @@ async def create_agents_by_type(
                     request_params=config.default_request_params,
                     api_key=config.api_key,
                 )
+
+                # Handle child_agents for custom agents (attach them as tools)
+                child_names = agent_data.get("child_agents", []) or []
+                if child_names:
+                    add_tool_fn = getattr(agent, "add_agent_tool", None)
+                    if callable(add_tool_fn):
+                        for child_name in child_names:
+                            if child_name not in active_agents:
+                                logger.warning(
+                                    "Skipping missing child agent",
+                                    data={"agent_name": child_name, "parent": name},
+                                )
+                                continue
+                            child_agent = active_agents[child_name]
+                            add_tool_fn(child_agent)
+
+                # Apply tool hooks if configured
+                if config.tool_hooks or config.trim_tool_history or session_history_enabled:
+                    _apply_tool_hooks(
+                        agent,
+                        config,
+                        agent_data.get("source_path"),
+                        enable_session_history=session_history_enabled,
+                    )
+
                 result_agents[name] = agent
 
                 # Log successful agent creation
@@ -531,7 +880,7 @@ async def create_agents_by_type(
 
 
 async def active_agents_in_dependency_group(
-    app_instance: Core,
+    app_instance: CoreContextProtocol,
     agents_dict: AgentConfigDict,
     model_factory_func: ModelFactoryFunctionProtocol,
     group: list[str],
@@ -560,7 +909,7 @@ async def active_agents_in_dependency_group(
 
 
 async def create_agents_in_dependency_order(
-    app_instance: Core,
+    app_instance: CoreContextProtocol,
     agents_dict: AgentConfigDict,
     model_factory_func: ModelFactoryFunctionProtocol,
     allow_cycles: bool = False,
@@ -595,6 +944,33 @@ async def create_agents_in_dependency_order(
         await active_agents_in_dependency_group_partial(group, active_agents)
 
     return active_agents
+
+
+async def create_basic_agents_in_dependency_order(
+    context: Context,
+    agents_dict: AgentConfigDict,
+    model_factory_func: ModelFactoryFunctionProtocol,
+    allow_cycles: bool = False,
+) -> AgentDict:
+    """
+    Create BASIC agents in dependency order without a full Core instance.
+
+    Args:
+        context: Application context
+        agents_dict: Dictionary of agent configurations
+        model_factory_func: Function for creating model factories
+        allow_cycles: Whether to allow cyclic dependencies
+
+    Returns:
+        Dictionary of initialized agent instances
+    """
+    _ensure_basic_only_agents(agents_dict)
+    return await create_agents_in_dependency_order(
+        _ContextCoreShim(context),
+        agents_dict,
+        model_factory_func,
+        allow_cycles,
+    )
 
 
 async def _create_default_fan_in_agent(

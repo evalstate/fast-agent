@@ -8,7 +8,7 @@ This class extends LlmDecorator with LLM-specific interaction behaviors includin
 - Chat display integration
 """
 
-from typing import Callable, List, Optional, Tuple
+from typing import TYPE_CHECKING, Callable, List, Optional, Tuple
 
 from a2a.types import AgentCapabilities
 from mcp import Tool
@@ -18,21 +18,26 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_decorator import LlmDecorator, ModelT
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.context import Context
-from fast_agent.mcp.helpers.content_helpers import (
-    get_text,
-    is_image_content,
-    is_resource_content,
-    is_resource_link,
-)
+from fast_agent.core.logging.logger import get_logger
+from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.console_display import ConsoleDisplay
+from fast_agent.ui.message_display_helpers import (
+    build_tool_use_additional_message,
+    build_user_message_display,
+)
 from fast_agent.workflow_telemetry import (
     NoOpWorkflowTelemetryProvider,
     WorkflowTelemetryProvider,
 )
 
+if TYPE_CHECKING:
+    from fast_agent.agents.tool_runner import ToolRunnerHooks
+    from fast_agent.ui.streaming import StreamingHandle
 # TODO -- decide what to do with type safety for model/chat_turn()
+
+logger = get_logger(__name__)
 
 DEFAULT_CAPABILITIES = AgentCapabilities(
     streaming=False, push_notifications=False, state_transition_history=False
@@ -57,6 +62,10 @@ class LlmAgent(LlmDecorator):
 
         # Initialize display component
         self._display = ConsoleDisplay(config=self._context.config if self._context else None)
+        self._force_non_streaming_once = False
+        self._force_non_streaming_reason: str | None = None
+        self._active_stream_handle: "StreamingHandle | None" = None
+        self.tool_runner_hooks: "ToolRunnerHooks | None" = None
         self._workflow_telemetry_provider: WorkflowTelemetryProvider = (
             NoOpWorkflowTelemetryProvider()
         )
@@ -91,6 +100,7 @@ class LlmAgent(LlmDecorator):
         model: str | None = None,
         additional_message: Optional[Text] = None,
         render_markdown: bool | None = None,
+        show_hook_indicator: bool | None = None,
     ) -> None:
         """Display an assistant message with appropriate styling based on stop reason.
 
@@ -143,10 +153,9 @@ class LlmAgent(LlmDecorator):
                 )
 
             case LlmStopReason.TOOL_USE:
-                if None is message.last_text():
-                    additional_segments.append(
-                        Text("The assistant requested tool calls", style="dim green italic")
-                    )
+                tool_use_message = build_tool_use_additional_message(message)
+                if tool_use_message is not None:
+                    additional_segments.append(tool_use_message)
 
             case LlmStopReason.ERROR:
                 # Check if there's detailed error information in the error channel
@@ -207,6 +216,14 @@ class LlmAgent(LlmDecorator):
         display_name = name if name is not None else self.name
         display_model = model if model is not None else (self.llm.model_name if self.llm else None)
 
+        if message.tool_calls and display_model is not None:
+            usage_accumulator = self.usage_accumulator
+            context_percentage = (
+                usage_accumulator.context_usage_percentage if usage_accumulator else None
+            )
+            if context_percentage is not None:
+                display_model = f"{display_model} ({context_percentage:.1f}%)"
+
         # Convert highlight_items to highlight_index
         highlight_index = None
         if highlight_items and bottom_items:
@@ -221,6 +238,12 @@ class LlmAgent(LlmDecorator):
                 except ValueError:
                     pass
 
+        # Use explicit show_hook_indicator if provided, otherwise check for after_llm_call hook
+        hook_indicator = (
+            show_hook_indicator
+            if show_hook_indicator is not None
+            else getattr(self, "has_after_llm_call_hook", False)
+        )
         await self.display.show_assistant_message(
             message_text,
             bottom_items=bottom_items,
@@ -230,46 +253,70 @@ class LlmAgent(LlmDecorator):
             model=display_model,
             additional_message=additional_message_text,
             render_markdown=render_markdown,
+            show_hook_indicator=hook_indicator,
+        )
+
+    def _display_user_messages(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+    ) -> None:
+        if not messages:
+            return
+
+        display_messages = [
+            message for message in messages if self._should_display_user_message(message)
+        ]
+        if not display_messages:
+            return
+
+        _ = request_params
+        part_count = len(display_messages)
+
+        message_text, attachments = build_user_message_display(display_messages)
+
+        self.display.show_user_message(
+            message_text,
+            chat_turn=0,
+            name=self.name,
+            attachments=attachments if attachments else None,
+            part_count=part_count if part_count > 1 else None,
+            show_hook_indicator=getattr(self, "has_before_llm_call_hook", False),
         )
 
     def show_user_message(self, message: PromptMessageExtended) -> None:
         """Display a user message in a formatted panel."""
-        model = self.llm.model_name if self.llm else None
-        chat_turn = self.llm.chat_turn() if self.llm else 0
+        self._display_user_messages([message])
 
-        # Extract attachment descriptions from non-text content
-        attachments: list[str] = []
-        for content in message.content:
-            if is_resource_link(content):
-                # ResourceLink: show name or mime type
-                from mcp.types import ResourceLink
-
-                assert isinstance(content, ResourceLink)
-                label = content.name or content.mimeType or "resource"
-                attachments.append(label)
-            elif is_image_content(content):
-                attachments.append("image")
-            elif is_resource_content(content):
-                # EmbeddedResource: show name or uri
-                from mcp.types import EmbeddedResource
-
-                assert isinstance(content, EmbeddedResource)
-                label = getattr(content.resource, "name", None) or str(content.resource.uri)
-                attachments.append(label)
-
-        self.display.show_user_message(
-            message.last_text() or "",
-            model,
-            chat_turn,
-            name=self.name,
-            attachments=attachments if attachments else None,
-        )
+    def _should_display_user_message(self, message: PromptMessageExtended) -> bool:
+        return True
 
     def _should_stream(self) -> bool:
         """Determine whether streaming display should be used."""
+        if self._force_non_streaming_once:
+            self._force_non_streaming_once = False
+            reason = self._force_non_streaming_reason
+            self._force_non_streaming_reason = None
+            if reason:
+                logger.info(
+                    "Streaming disabled for next turn",
+                    agent_name=self.name,
+                    reason=reason,
+                )
+            return False
         if getattr(self, "display", None):
             enabled, _ = self.display.resolve_streaming_preferences()
             return enabled
+        return True
+
+    def force_non_streaming_next_turn(self, *, reason: str | None = None) -> bool:
+        """Disable streaming for the next assistant turn."""
+        if self._force_non_streaming_once:
+            if reason and not self._force_non_streaming_reason:
+                self._force_non_streaming_reason = reason
+            return False
+        self._force_non_streaming_once = True
+        self._force_non_streaming_reason = reason
         return True
 
     async def generate_impl(
@@ -282,14 +329,16 @@ class LlmAgent(LlmDecorator):
         Enhanced generate implementation that resets tool call tracking.
         Messages are already normalized to List[PromptMessageExtended].
         """
+
         if "user" == messages[-1].role:
             trailing_users: list[PromptMessageExtended] = []
             for message in reversed(messages):
                 if message.role != "user":
                     break
                 trailing_users.append(message)
-            for message in reversed(trailing_users):
-                self.show_user_message(message=message)
+            self._display_user_messages(
+                list(reversed(trailing_users)), request_params=request_params
+            )
 
         # TODO - manage error catch, recovery, pause
         summary_text: Text | None = None
@@ -308,6 +357,7 @@ class LlmAgent(LlmDecorator):
                 name=display_name,
                 model=display_model,
             ) as stream_handle:
+                self._active_stream_handle = stream_handle
                 try:
                     remove_listener = llm.add_stream_listener(stream_handle.update_chunk)
                     remove_tool_listener = llm.add_tool_stream_listener(
@@ -330,7 +380,9 @@ class LlmAgent(LlmDecorator):
                 if summary:
                     summary_text = Text(f"\n\n{summary.message}", style="dim red italic")
 
+                self._maybe_close_streaming_for_tool_calls(result)
                 stream_handle.finalize(result)
+                self._active_stream_handle = None
 
             await self.show_assistant_message(
                 result,
@@ -338,9 +390,7 @@ class LlmAgent(LlmDecorator):
                 render_markdown=render_markdown,
             )
         else:
-            result, summary = await self._generate_with_summary(
-                messages, request_params, tools
-            )
+            result, summary = await self._generate_with_summary(messages, request_params, tools)
 
             summary_text = (
                 Text(f"\n\n{summary.message}", style="dim red italic") if summary else None
@@ -348,6 +398,53 @@ class LlmAgent(LlmDecorator):
             await self.show_assistant_message(result, additional_message=summary_text)
 
         return result
+
+    def close_active_streaming_display(self, *, reason: str | None = None) -> bool:
+        """Close the current streaming display if active."""
+        handle = self._active_stream_handle
+        if handle is None:
+            return False
+        if reason:
+            logger.info(
+                "Closing active streaming display",
+                agent_name=self.name,
+                reason=reason,
+            )
+        try:
+            handle.close()
+        finally:
+            self._active_stream_handle = None
+        return True
+
+    def _maybe_close_streaming_for_tool_calls(
+        self, message: PromptMessageExtended
+    ) -> None:
+        tool_calls = message.tool_calls
+        if not tool_calls or len(tool_calls) <= 1:
+            logger.debug(
+                "Streaming tool-call guard: no parallel tool calls found",
+                agent_name=self.name,
+                tool_call_count=len(tool_calls or {}),
+            )
+            return
+        tool_call_items = list(tool_calls.items())
+        subagent_calls = 0
+        counter = getattr(self, "_count_agent_tool_calls", None)
+        if callable(counter):
+            try:
+                subagent_calls = counter(tool_call_items)
+            except Exception:
+                subagent_calls = 0
+        logger.debug(
+            "Streaming tool-call guard: evaluated tool calls",
+            agent_name=self.name,
+            tool_call_count=len(tool_call_items),
+            subagent_call_count=subagent_calls,
+        )
+        if subagent_calls > 1:
+            self.close_active_streaming_display(
+                reason="parallel subagent tool calls"
+            )
 
     async def structured_impl(
         self,
@@ -361,8 +458,9 @@ class LlmAgent(LlmDecorator):
                 if message.role != "user":
                     break
                 trailing_users.append(message)
-            for message in reversed(trailing_users):
-                self.show_user_message(message=message)
+            self._display_user_messages(
+                list(reversed(trailing_users)), request_params=request_params
+            )
 
         (result, message), summary = await self._structured_with_summary(
             messages, model, request_params

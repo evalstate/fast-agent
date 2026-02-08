@@ -111,6 +111,9 @@ class JSONSerializer:
 
             # Handle Pydantic models
             if hasattr(obj, "model_dump"):  # Pydantic v2
+                module = getattr(obj, "__module__", "")
+                if module.startswith("openai.types.responses"):
+                    return self._serialize_object(obj.model_dump(warnings="none"))
                 return self._serialize_object(obj.model_dump())
             if hasattr(obj, "dict"):  # Pydantic v1
                 return self._serialize_object(obj.dict())

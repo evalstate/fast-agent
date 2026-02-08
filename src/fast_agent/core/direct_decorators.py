@@ -29,7 +29,8 @@ from fast_agent.agents.workflow.iterative_planner import ITERATIVE_PLAN_SYSTEM_P
 from fast_agent.agents.workflow.router_agent import (
     ROUTING_SYSTEM_INSTRUCTION,
 )
-from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
+from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION, SMART_AGENT_INSTRUCTION
+from fast_agent.core.template_escape import protect_escaped_braces, restore_escaped_braces
 from fast_agent.skills import SKILLS_DEFAULT
 from fast_agent.types import RequestParams
 
@@ -140,6 +141,8 @@ def _apply_templates(text: str) -> str:
     import re
     from datetime import datetime
 
+    text = protect_escaped_braces(text)
+
     # Apply {{currentDate}} template
     current_date = datetime.now().strftime("%d %B %Y")
     text = text.replace("{{currentDate}}", current_date)
@@ -153,7 +156,7 @@ def _apply_templates(text: str) -> str:
 
     text = url_pattern.sub(replace_url, text)
 
-    return text
+    return restore_escaped_braces(text, keep_escape=True)
 
 
 def _resolve_instruction(instruction: str | Path | AnyUrl) -> str:
@@ -265,524 +268,603 @@ def _decorator_impl(
     return decorator
 
 
-def agent(
-    self,
-    name: str = "default",
-    instruction_or_kwarg: str | Path | AnyUrl | None = None,
-    *,
-    instruction: str | Path | AnyUrl = DEFAULT_AGENT_INSTRUCTION,
-    agents: list[str] | None = None,
-    servers: list[str] = [],
-    tools: dict[str, list[str]] | None = None,
-    resources: dict[str, list[str]] | None = None,
-    prompts: dict[str, list[str]] | None = None,
-    skills: SkillConfig = SKILLS_DEFAULT,
-    function_tools: FunctionToolsConfig = None,
-    model: str | None = None,
-    use_history: bool = True,
-    request_params: RequestParams | None = None,
-    human_input: bool = False,
-    default: bool = False,
-    elicitation_handler: ElicitationFnT | None = None,
-    api_key: str | None = None,
-    history_mode: Any | None = None,
-    max_parallel: int | None = None,
-    child_timeout_sec: int | None = None,
-    max_display_instances: int | None = None,
-) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
+
+class DecoratorMixin:
     """
-    Decorator to create and register a standard agent with type-safe signature.
-
-    Args:
-        name: Name of the agent
-        instruction_or_kwarg: Optional positional parameter for instruction
-        instruction: Base instruction for the agent (keyword arg)
-        servers: List of server names the agent should connect to
-        tools: Optional list of tool names or patterns to include
-        resources: Optional list of resource names or patterns to include
-        prompts: Optional list of prompt names or patterns to include
-        function_tools: Optional list of Python function tools to include
-        model: Model specification string
-        use_history: Whether to maintain conversation history
-        request_params: Additional request parameters for the LLM
-        human_input: Whether to enable human input capabilities
-        default: Whether to mark this as the default agent
-        elicitation_handler: Custom elicitation handler function (ElicitationFnT)
-        api_key: Optional API key for the LLM provider
-
-    Returns:
-        A decorator that registers the agent with proper type annotations
+    Mixin class providing decorator methods for FastAgent.
+    
+    This mixin contains all the agent decorator methods (@agent, @router, etc.)
+    that can be applied to async functions to register them as agents.
+    
+    The host class must provide an `agents` dict attribute for storing
+    agent configurations.
     """
-    final_instruction_raw = (
-        instruction_or_kwarg if instruction_or_kwarg is not None else instruction
-    )
-    final_instruction = _resolve_instruction(final_instruction_raw)
 
-    return _decorator_impl(
+    # Type hint for the agents dict (provided by host class)
+    agents: dict[str, Any]
+
+    def agent(
         self,
-        AgentType.BASIC,
-        name=name,
-        instruction=final_instruction,
-        child_agents=agents,
-        servers=servers,
-        model=model,
-        use_history=use_history,
-        request_params=request_params,
-        human_input=human_input,
-        default=default,
-        elicitation_handler=elicitation_handler,
-        tools=tools,
-        resources=resources,
-        prompts=prompts,
-        skills=skills,
-        function_tools=function_tools,
-        api_key=api_key,
-        agents_as_tools_options={
-            "history_mode": history_mode,
-            "max_parallel": max_parallel,
-            "child_timeout_sec": child_timeout_sec,
-            "max_display_instances": max_display_instances,
-        },
-    )
+        name: str = "default",
+        instruction_or_kwarg: str | Path | AnyUrl | None = None,
+        *,
+        instruction: str | Path | AnyUrl = DEFAULT_AGENT_INSTRUCTION,
+        agents: list[str] | None = None,
+        servers: list[str] = [],
+        tools: dict[str, list[str]] | None = None,
+        resources: dict[str, list[str]] | None = None,
+        prompts: dict[str, list[str]] | None = None,
+        skills: SkillConfig = SKILLS_DEFAULT,
+        function_tools: FunctionToolsConfig = None,
+        model: str | None = None,
+        use_history: bool = True,
+        request_params: RequestParams | None = None,
+        human_input: bool = False,
+        default: bool = False,
+        elicitation_handler: ElicitationFnT | None = None,
+        api_key: str | None = None,
+        history_source: Any | None = None,
+        history_merge_target: Any | None = None,
+        max_parallel: int | None = None,
+        child_timeout_sec: int | None = None,
+        max_display_instances: int | None = None,
+    ) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
+        """
+        Decorator to create and register a standard agent with type-safe signature.
 
+        Args:
+            name: Name of the agent
+            instruction_or_kwarg: Optional positional parameter for instruction
+            instruction: Base instruction for the agent (keyword arg)
+            servers: List of server names the agent should connect to
+            tools: Optional list of tool names or patterns to include
+            resources: Optional list of resource names or patterns to include
+            prompts: Optional list of prompt names or patterns to include
+            function_tools: Optional list of Python function tools to include
+            model: Model specification string
+            use_history: Whether to maintain conversation history
+            request_params: Additional request parameters for the LLM
+            human_input: Whether to enable human input capabilities
+            default: Whether to mark this as the default agent
+            elicitation_handler: Custom elicitation handler function (ElicitationFnT)
+            api_key: Optional API key for the LLM provider
 
-def custom(
-    self,
-    cls,
-    name: str = "default",
-    instruction_or_kwarg: str | Path | AnyUrl | None = None,
-    *,
-    instruction: str | Path | AnyUrl = "You are a helpful agent.",
-    servers: list[str] = [],
-    tools: dict[str, list[str]] | None = None,
-    resources: dict[str, list[str]] | None = None,
-    prompts: dict[str, list[str]] | None = None,
-    skills: SkillConfig = SKILLS_DEFAULT,
-    model: str | None = None,
-    use_history: bool = True,
-    request_params: RequestParams | None = None,
-    human_input: bool = False,
-    default: bool = False,
-    elicitation_handler: ElicitationFnT | None = None,
-    api_key: str | None = None,
-) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
-    """
-    Decorator to create and register a standard agent with type-safe signature.
+        Returns:
+            A decorator that registers the agent with proper type annotations
+        """
+        final_instruction_raw = (
+            instruction_or_kwarg if instruction_or_kwarg is not None else instruction
+        )
+        final_instruction = _resolve_instruction(final_instruction_raw)
 
-    Args:
-        name: Name of the agent
-        instruction_or_kwarg: Optional positional parameter for instruction
-        instruction: Base instruction for the agent (keyword arg)
-        servers: List of server names the agent should connect to
-        model: Model specification string
-        use_history: Whether to maintain conversation history
-        request_params: Additional request parameters for the LLM
-        human_input: Whether to enable human input capabilities
-        elicitation_handler: Custom elicitation handler function (ElicitationFnT)
+        return _decorator_impl(
+            self,
+            AgentType.BASIC,
+            name=name,
+            instruction=final_instruction,
+            child_agents=agents,
+            servers=servers,
+            model=model,
+            use_history=use_history,
+            request_params=request_params,
+            human_input=human_input,
+            default=default,
+            elicitation_handler=elicitation_handler,
+            tools=tools,
+            resources=resources,
+            prompts=prompts,
+            skills=skills,
+            function_tools=function_tools,
+            api_key=api_key,
+            agents_as_tools_options={
+                "history_source": history_source,
+                "history_merge_target": history_merge_target,
+                "max_parallel": max_parallel,
+                "child_timeout_sec": child_timeout_sec,
+                "max_display_instances": max_display_instances,
+            },
+        )
 
-    Returns:
-        A decorator that registers the agent with proper type annotations
-    """
-    final_instruction_raw = (
-        instruction_or_kwarg if instruction_or_kwarg is not None else instruction
-    )
-    final_instruction = _resolve_instruction(final_instruction_raw)
-
-    return _decorator_impl(
+    def smart(
         self,
-        AgentType.CUSTOM,
-        name=name,
-        instruction=final_instruction,
-        servers=servers,
-        model=model,
-        use_history=use_history,
-        request_params=request_params,
-        human_input=human_input,
-        agent_class=cls,
-        default=default,
-        elicitation_handler=elicitation_handler,
-        api_key=api_key,
-        tools=tools,
-        resources=resources,
-        prompts=prompts,
-        skills=skills,
-    )
+        name: str = "default",
+        instruction_or_kwarg: str | Path | AnyUrl | None = None,
+        *,
+        instruction: str | Path | AnyUrl = SMART_AGENT_INSTRUCTION,
+        agents: list[str] | None = None,
+        servers: list[str] = [],
+        tools: dict[str, list[str]] | None = None,
+        resources: dict[str, list[str]] | None = None,
+        prompts: dict[str, list[str]] | None = None,
+        skills: SkillConfig = SKILLS_DEFAULT,
+        function_tools: FunctionToolsConfig = None,
+        model: str | None = None,
+        use_history: bool = True,
+        request_params: RequestParams | None = None,
+        human_input: bool = False,
+        default: bool = False,
+        elicitation_handler: ElicitationFnT | None = None,
+        api_key: str | None = None,
+        history_source: Any | None = None,
+        history_merge_target: Any | None = None,
+        max_parallel: int | None = None,
+        child_timeout_sec: int | None = None,
+        max_display_instances: int | None = None,
+    ) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
+        """Decorator to create and register a smart agent."""
+        final_instruction_raw = (
+            instruction_or_kwarg if instruction_or_kwarg is not None else instruction
+        )
+        final_instruction = _resolve_instruction(final_instruction_raw)
+
+        return _decorator_impl(
+            self,
+            AgentType.SMART,
+            name=name,
+            instruction=final_instruction,
+            child_agents=agents,
+            servers=servers,
+            model=model,
+            use_history=use_history,
+            request_params=request_params,
+            human_input=human_input,
+            default=default,
+            elicitation_handler=elicitation_handler,
+            tools=tools,
+            resources=resources,
+            prompts=prompts,
+            skills=skills,
+            function_tools=function_tools,
+            api_key=api_key,
+            agents_as_tools_options={
+                "history_source": history_source,
+                "history_merge_target": history_merge_target,
+                "max_parallel": max_parallel,
+                "child_timeout_sec": child_timeout_sec,
+                "max_display_instances": max_display_instances,
+            },
+        )
 
 
-DEFAULT_INSTRUCTION_ORCHESTRATOR = """
-You are an expert planner. Given an objective task and a list of Agents
-(which are collections of capabilities), your job is to break down the objective
-into a series of steps, which can be performed by these agents.
-"""
-
-
-def orchestrator(
-    self,
-    name: str,
-    *,
-    agents: list[str],
-    instruction: str | Path | AnyUrl = DEFAULT_INSTRUCTION_ORCHESTRATOR,
-    model: str | None = None,
-    request_params: RequestParams | None = None,
-    use_history: bool = False,
-    human_input: bool = False,
-    plan_type: Literal["full", "iterative"] = "full",
-    plan_iterations: int = 5,
-    default: bool = False,
-    api_key: str | None = None,
-) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
-    """
-    Decorator to create and register an orchestrator agent with type-safe signature.
-
-    Args:
-        name: Name of the orchestrator
-        agents: List of agent names this orchestrator can use
-        instruction: Base instruction for the orchestrator
-        model: Model specification string
-        use_history: Whether to maintain conversation history
-        request_params: Additional request parameters for the LLM
-        human_input: Whether to enable human input capabilities
-        plan_type: Planning approach - "full" or "iterative"
-        plan_iterations: Maximum number of planning iterations
-        default: Whether to mark this as the default agent
-
-    Returns:
-        A decorator that registers the orchestrator with proper type annotations
-    """
-
-    # Create final request params with plan_iterations
-    resolved_instruction = _resolve_instruction(instruction)
-
-    return _decorator_impl(
+    def custom(
         self,
-        AgentType.ORCHESTRATOR,
-        name=name,
-        instruction=resolved_instruction,
-        servers=[],  # Orchestrators don't connect to servers directly
-        model=model,
-        use_history=use_history,
-        request_params=request_params,
-        human_input=human_input,
-        child_agents=agents,
-        plan_type=plan_type,
-        plan_iterations=plan_iterations,
-        default=default,
-        api_key=api_key,
-    )
+        cls,
+        name: str = "default",
+        instruction_or_kwarg: str | Path | AnyUrl | None = None,
+        *,
+        instruction: str | Path | AnyUrl = "You are a helpful agent.",
+        agents: list[str] | None = None,
+        servers: list[str] = [],
+        tools: dict[str, list[str]] | None = None,
+        resources: dict[str, list[str]] | None = None,
+        prompts: dict[str, list[str]] | None = None,
+        skills: SkillConfig = SKILLS_DEFAULT,
+        model: str | None = None,
+        use_history: bool = True,
+        request_params: RequestParams | None = None,
+        human_input: bool = False,
+        default: bool = False,
+        elicitation_handler: ElicitationFnT | None = None,
+        api_key: str | None = None,
+    ) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
+        """
+        Decorator to create and register a standard agent with type-safe signature.
+
+        Args:
+            name: Name of the agent
+            instruction_or_kwarg: Optional positional parameter for instruction
+            instruction: Base instruction for the agent (keyword arg)
+            servers: List of server names the agent should connect to
+            model: Model specification string
+            use_history: Whether to maintain conversation history
+            request_params: Additional request parameters for the LLM
+            human_input: Whether to enable human input capabilities
+            elicitation_handler: Custom elicitation handler function (ElicitationFnT)
+
+        Returns:
+            A decorator that registers the agent with proper type annotations
+        """
+        final_instruction_raw = (
+            instruction_or_kwarg if instruction_or_kwarg is not None else instruction
+        )
+        final_instruction = _resolve_instruction(final_instruction_raw)
+
+        return _decorator_impl(
+            self,
+            AgentType.CUSTOM,
+            name=name,
+            instruction=final_instruction,
+            child_agents=agents,
+            servers=servers,
+            model=model,
+            use_history=use_history,
+            request_params=request_params,
+            human_input=human_input,
+            agent_class=cls,
+            default=default,
+            elicitation_handler=elicitation_handler,
+            api_key=api_key,
+            tools=tools,
+            resources=resources,
+            prompts=prompts,
+            skills=skills,
+        )
 
 
-def iterative_planner(
-    self,
-    name: str,
-    *,
-    agents: list[str],
-    instruction: str | Path | AnyUrl = ITERATIVE_PLAN_SYSTEM_PROMPT_TEMPLATE,
-    model: str | None = None,
-    request_params: RequestParams | None = None,
-    plan_iterations: int = -1,
-    default: bool = False,
-    api_key: str | None = None,
-) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
+    DEFAULT_INSTRUCTION_ORCHESTRATOR = """
+    You are an expert planner. Given an objective task and a list of Agents
+    (which are collections of capabilities), your job is to break down the objective
+    into a series of steps, which can be performed by these agents.
     """
-    Decorator to create and register an orchestrator agent with type-safe signature.
 
-    Args:
-        name: Name of the orchestrator
-        agents: List of agent names this orchestrator can use
-        instruction: Base instruction for the orchestrator
-        model: Model specification string
-        use_history: Whether to maintain conversation history
-        request_params: Additional request parameters for the LLM
-        human_input: Whether to enable human input capabilities
-        plan_type: Planning approach - "full" or "iterative"
-        plan_iterations: Maximum number of planning iterations (0 for unlimited)
-        default: Whether to mark this as the default agent
 
-    Returns:
-        A decorator that registers the orchestrator with proper type annotations
-    """
-
-    # Create final request params with plan_iterations
-    resolved_instruction = _resolve_instruction(instruction)
-
-    return _decorator_impl(
+    def orchestrator(
         self,
-        AgentType.ITERATIVE_PLANNER,
-        name=name,
-        instruction=resolved_instruction,
-        servers=[],  # Orchestrators don't connect to servers directly
-        model=model,
-        use_history=False,
-        request_params=request_params,
-        child_agents=agents,
-        plan_iterations=plan_iterations,
-        default=default,
-        api_key=api_key,
-    )
+        name: str,
+        *,
+        agents: list[str],
+        instruction: str | Path | AnyUrl = DEFAULT_INSTRUCTION_ORCHESTRATOR,
+        model: str | None = None,
+        request_params: RequestParams | None = None,
+        use_history: bool = False,
+        human_input: bool = False,
+        plan_type: Literal["full", "iterative"] = "full",
+        plan_iterations: int = 5,
+        default: bool = False,
+        api_key: str | None = None,
+    ) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
+        """
+        Decorator to create and register an orchestrator agent with type-safe signature.
+
+        Args:
+            name: Name of the orchestrator
+            agents: List of agent names this orchestrator can use
+            instruction: Base instruction for the orchestrator
+            model: Model specification string
+            use_history: Whether to maintain conversation history
+            request_params: Additional request parameters for the LLM
+            human_input: Whether to enable human input capabilities
+            plan_type: Planning approach - "full" or "iterative"
+            plan_iterations: Maximum number of planning iterations
+            default: Whether to mark this as the default agent
+
+        Returns:
+            A decorator that registers the orchestrator with proper type annotations
+        """
+
+        # Create final request params with plan_iterations
+        resolved_instruction = _resolve_instruction(instruction)
+
+        return _decorator_impl(
+            self,
+            AgentType.ORCHESTRATOR,
+            name=name,
+            instruction=resolved_instruction,
+            servers=[],  # Orchestrators don't connect to servers directly
+            model=model,
+            use_history=use_history,
+            request_params=request_params,
+            human_input=human_input,
+            child_agents=agents,
+            plan_type=plan_type,
+            plan_iterations=plan_iterations,
+            default=default,
+            api_key=api_key,
+        )
 
 
-def router(
-    self,
-    name: str,
-    *,
-    agents: list[str],
-    instruction: str | Path | AnyUrl | None = None,
-    servers: list[str] = [],
-    tools: dict[str, list[str]] | None = None,
-    resources: dict[str, list[str]] | None = None,
-    prompts: dict[str, list[str]] | None = None,
-    model: str | None = None,
-    use_history: bool = False,
-    request_params: RequestParams | None = None,
-    human_input: bool = False,
-    default: bool = False,
-    elicitation_handler: ElicitationFnT
-    | None = None,  ## exclude from docs, decide whether allowable
-    api_key: str | None = None,
-) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
-    """
-    Decorator to create and register a router agent with type-safe signature.
-
-    Args:
-        name: Name of the router
-        agents: List of agent names this router can route to
-        instruction: Base instruction for the router
-        model: Model specification string
-        use_history: Whether to maintain conversation history
-        request_params: Additional request parameters for the LLM
-        human_input: Whether to enable human input capabilities
-        default: Whether to mark this as the default agent
-        elicitation_handler: Custom elicitation handler function (ElicitationFnT)
-
-    Returns:
-        A decorator that registers the router with proper type annotations
-    """
-    resolved_instruction = _resolve_instruction(instruction or ROUTING_SYSTEM_INSTRUCTION)
-
-    return _decorator_impl(
+    def iterative_planner(
         self,
-        AgentType.ROUTER,
-        name=name,
-        instruction=resolved_instruction,
-        servers=servers,
-        model=model,
-        use_history=use_history,
-        request_params=request_params,
-        human_input=human_input,
-        default=default,
-        router_agents=agents,
-        elicitation_handler=elicitation_handler,
-        api_key=api_key,
-        tools=tools,
-        prompts=prompts,
-        resources=resources,
-    )
+        name: str,
+        *,
+        agents: list[str],
+        instruction: str | Path | AnyUrl = ITERATIVE_PLAN_SYSTEM_PROMPT_TEMPLATE,
+        model: str | None = None,
+        request_params: RequestParams | None = None,
+        plan_iterations: int = -1,
+        default: bool = False,
+        api_key: str | None = None,
+    ) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
+        """
+        Decorator to create and register an orchestrator agent with type-safe signature.
+
+        Args:
+            name: Name of the orchestrator
+            agents: List of agent names this orchestrator can use
+            instruction: Base instruction for the orchestrator
+            model: Model specification string
+            use_history: Whether to maintain conversation history
+            request_params: Additional request parameters for the LLM
+            human_input: Whether to enable human input capabilities
+            plan_type: Planning approach - "full" or "iterative"
+            plan_iterations: Maximum number of planning iterations (0 for unlimited)
+            default: Whether to mark this as the default agent
+
+        Returns:
+            A decorator that registers the orchestrator with proper type annotations
+        """
+
+        # Create final request params with plan_iterations
+        resolved_instruction = _resolve_instruction(instruction)
+
+        return _decorator_impl(
+            self,
+            AgentType.ITERATIVE_PLANNER,
+            name=name,
+            instruction=resolved_instruction,
+            servers=[],  # Orchestrators don't connect to servers directly
+            model=model,
+            use_history=False,
+            request_params=request_params,
+            child_agents=agents,
+            plan_iterations=plan_iterations,
+            default=default,
+            api_key=api_key,
+        )
 
 
-def chain(
-    self,
-    name: str,
-    *,
-    sequence: list[str],
-    instruction: str | Path | AnyUrl | None = None,
-    cumulative: bool = False,
-    default: bool = False,
-) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
-    """
-    Decorator to create and register a chain agent with type-safe signature.
-
-    Args:
-        name: Name of the chain
-        sequence: List of agent names in the chain, executed in sequence
-        instruction: Base instruction for the chain
-        cumulative: Whether to use cumulative mode (each agent sees all previous responses)
-        default: Whether to mark this as the default agent
-
-    Returns:
-        A decorator that registers the chain with proper type annotations
-    """
-    # Validate sequence is not empty
-    if not sequence:
-        from fast_agent.core.exceptions import AgentConfigError
-
-        raise AgentConfigError(f"Chain '{name}' requires at least one agent in the sequence")
-
-    default_instruction = """Chain processes requests through a series of agents in sequence, the output of each agent is passed to the next."""
-    resolved_instruction = _resolve_instruction(instruction or default_instruction)
-
-    return _decorator_impl(
+    def router(
         self,
-        AgentType.CHAIN,
-        name=name,
-        instruction=resolved_instruction,
-        sequence=sequence,
-        cumulative=cumulative,
-        default=default,
-    )
+        name: str,
+        *,
+        agents: list[str],
+        instruction: str | Path | AnyUrl | None = None,
+        servers: list[str] = [],
+        tools: dict[str, list[str]] | None = None,
+        resources: dict[str, list[str]] | None = None,
+        prompts: dict[str, list[str]] | None = None,
+        model: str | None = None,
+        use_history: bool = False,
+        request_params: RequestParams | None = None,
+        human_input: bool = False,
+        default: bool = False,
+        elicitation_handler: ElicitationFnT
+        | None = None,  ## exclude from docs, decide whether allowable
+        api_key: str | None = None,
+    ) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
+        """
+        Decorator to create and register a router agent with type-safe signature.
+
+        Args:
+            name: Name of the router
+            agents: List of agent names this router can route to
+            instruction: Base instruction for the router
+            model: Model specification string
+            use_history: Whether to maintain conversation history
+            request_params: Additional request parameters for the LLM
+            human_input: Whether to enable human input capabilities
+            default: Whether to mark this as the default agent
+            elicitation_handler: Custom elicitation handler function (ElicitationFnT)
+
+        Returns:
+            A decorator that registers the router with proper type annotations
+        """
+        resolved_instruction = _resolve_instruction(instruction or ROUTING_SYSTEM_INSTRUCTION)
+
+        return _decorator_impl(
+            self,
+            AgentType.ROUTER,
+            name=name,
+            instruction=resolved_instruction,
+            servers=servers,
+            model=model,
+            use_history=use_history,
+            request_params=request_params,
+            human_input=human_input,
+            default=default,
+            router_agents=agents,
+            elicitation_handler=elicitation_handler,
+            api_key=api_key,
+            tools=tools,
+            prompts=prompts,
+            resources=resources,
+        )
 
 
-def parallel(
-    self,
-    name: str,
-    *,
-    fan_out: list[str],
-    fan_in: str | None = None,
-    instruction: str | Path | AnyUrl | None = None,
-    include_request: bool = True,
-    default: bool = False,
-) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
-    """
-    Decorator to create and register a parallel agent with type-safe signature.
-
-    Args:
-        name: Name of the parallel agent
-        fan_out: List of agents to execute in parallel
-        fan_in: Agent to aggregate results
-        instruction: Base instruction for the parallel agent
-        include_request: Whether to include the original request when aggregating
-        default: Whether to mark this as the default agent
-
-    Returns:
-        A decorator that registers the parallel agent with proper type annotations
-    """
-    default_instruction = """
-    You are a parallel processor that executes multiple agents simultaneously
-    and aggregates their results.
-    """
-    resolved_instruction = _resolve_instruction(instruction or default_instruction)
-
-    return _decorator_impl(
+    def chain(
         self,
-        AgentType.PARALLEL,
-        name=name,
-        instruction=resolved_instruction,
-        servers=[],  # Parallel agents don't connect to servers directly
-        fan_in=fan_in,
-        fan_out=fan_out,
-        include_request=include_request,
-        default=default,
-    )
+        name: str,
+        *,
+        sequence: list[str],
+        instruction: str | Path | AnyUrl | None = None,
+        cumulative: bool = False,
+        default: bool = False,
+    ) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
+        """
+        Decorator to create and register a chain agent with type-safe signature.
+
+        Args:
+            name: Name of the chain
+            sequence: List of agent names in the chain, executed in sequence
+            instruction: Base instruction for the chain
+            cumulative: Whether to use cumulative mode (each agent sees all previous responses)
+            default: Whether to mark this as the default agent
+
+        Returns:
+            A decorator that registers the chain with proper type annotations
+        """
+        # Validate sequence is not empty
+        if not sequence:
+            from fast_agent.core.exceptions import AgentConfigError
+
+            raise AgentConfigError(f"Chain '{name}' requires at least one agent in the sequence")
+
+        default_instruction = """Chain processes requests through a series of agents in sequence, the output of each agent is passed to the next."""
+        resolved_instruction = _resolve_instruction(instruction or default_instruction)
+
+        return _decorator_impl(
+            self,
+            AgentType.CHAIN,
+            name=name,
+            instruction=resolved_instruction,
+            sequence=sequence,
+            cumulative=cumulative,
+            default=default,
+        )
 
 
-def evaluator_optimizer(
-    self,
-    name: str,
-    *,
-    generator: str,
-    evaluator: str,
-    instruction: str | Path | AnyUrl | None = None,
-    min_rating: str = "GOOD",
-    max_refinements: int = 3,
-    refinement_instruction: str | None = None,
-    default: bool = False,
-) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
-    """
-    Decorator to create and register an evaluator-optimizer agent with type-safe signature.
-
-    Args:
-        name: Name of the evaluator-optimizer agent
-        generator: Name of the agent that generates responses
-        evaluator: Name of the agent that evaluates responses
-        instruction: Base instruction for the evaluator-optimizer
-        min_rating: Minimum acceptable quality rating (EXCELLENT, GOOD, FAIR, POOR)
-        max_refinements: Maximum number of refinement iterations
-        default: Whether to mark this as the default agent
-
-    Returns:
-        A decorator that registers the evaluator-optimizer with proper type annotations
-    """
-    default_instruction = """
-    You implement an iterative refinement process where content is generated,
-    evaluated for quality, and then refined based on specific feedback until
-    it reaches an acceptable quality standard.
-    """
-    resolved_instruction = _resolve_instruction(instruction or default_instruction)
-
-    return _decorator_impl(
+    def parallel(
         self,
-        AgentType.EVALUATOR_OPTIMIZER,
-        name=name,
-        instruction=resolved_instruction,
-        servers=[],  # Evaluator-optimizer doesn't connect to servers directly
-        generator=generator,
-        evaluator=evaluator,
-        min_rating=min_rating,
-        max_refinements=max_refinements,
-        refinement_instruction=refinement_instruction,
-        default=default,
-    )
+        name: str,
+        *,
+        fan_out: list[str],
+        fan_in: str | None = None,
+        instruction: str | Path | AnyUrl | None = None,
+        include_request: bool = True,
+        default: bool = False,
+    ) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
+        """
+        Decorator to create and register a parallel agent with type-safe signature.
+
+        Args:
+            name: Name of the parallel agent
+            fan_out: List of agents to execute in parallel
+            fan_in: Agent to aggregate results
+            instruction: Base instruction for the parallel agent
+            include_request: Whether to include the original request when aggregating
+            default: Whether to mark this as the default agent
+
+        Returns:
+            A decorator that registers the parallel agent with proper type annotations
+        """
+        default_instruction = """
+        You are a parallel processor that executes multiple agents simultaneously
+        and aggregates their results.
+        """
+        resolved_instruction = _resolve_instruction(instruction or default_instruction)
+
+        return _decorator_impl(
+            self,
+            AgentType.PARALLEL,
+            name=name,
+            instruction=resolved_instruction,
+            servers=[],  # Parallel agents don't connect to servers directly
+            fan_in=fan_in,
+            fan_out=fan_out,
+            include_request=include_request,
+            default=default,
+        )
 
 
-def maker(
-    self,
-    name: str,
-    *,
-    worker: str,
-    k: int = 3,
-    max_samples: int = 50,
-    match_strategy: str = "exact",
-    red_flag_max_length: int | None = None,
-    instruction: str | Path | AnyUrl | None = None,
-    default: bool = False,
-) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
-    """
-    Decorator to create a MAKER agent for statistical error correction via voting.
-
-    MAKER: Massively decomposed Agentic processes with K-voting Error Reduction.
-
-    Based on the paper "Solving a Million-Step LLM Task with Zero Errors"
-    (arXiv:2511.09030). Implements first-to-ahead-by-k voting where multiple
-    samples are drawn from a worker agent, and the first response to achieve
-    a k-vote margin over alternatives wins.
-
-    This enables high reliability with cost-effective models by trading
-    compute (multiple samples) for accuracy (statistical consensus).
-
-    Args:
-        name: Name of the MAKER agent
-        worker: Name of the agent to sample from for voting
-        k: Margin required to declare winner (first-to-ahead-by-k).
-           Higher k = more reliable but more samples needed.
-           Default of 3 provides strong guarantees for most use cases.
-        max_samples: Maximum samples before falling back to plurality vote
-        match_strategy: How to compare responses for voting:
-            - "exact": Character-for-character match
-            - "normalized": Ignore whitespace and case differences
-            - "structured": Parse as JSON and compare structurally
-        red_flag_max_length: Discard responses longer than this (characters).
-                             Per the paper, overly long responses correlate
-                             with errors. None = no length limit.
-        instruction: Base instruction for the MAKER agent
-        default: Whether to mark this as the default agent
-
-    Returns:
-        A decorator that registers the MAKER agent
-
-    Example:
-        @fast.agent(name="calculator", instruction="Return only the numeric result")
-        @fast.maker(name="reliable_calc", worker="calculator", k=3)
-        async def main():
-            async with fast.run() as agent:
-                result = await agent.reliable_calc.send("What is 17 * 23?")
-    """
-    default_instruction = """
-    MAKER: Massively decomposed Agentic processes with K-voting Error Reduction.
-    Implements statistical error correction through voting consensus.
-    Multiple samples are drawn and the first response to achieve a k-vote
-    margin wins, ensuring high reliability even with cost-effective models.
-    """
-    resolved_instruction = _resolve_instruction(instruction or default_instruction)
-
-    return _decorator_impl(
+    def evaluator_optimizer(
         self,
-        AgentType.MAKER,
-        name=name,
-        instruction=resolved_instruction,
-        servers=[],  # MAKER doesn't connect to servers directly
-        worker=worker,
-        k=k,
-        max_samples=max_samples,
-        match_strategy=match_strategy,
-        red_flag_max_length=red_flag_max_length,
-        default=default,
-    )
+        name: str,
+        *,
+        generator: str,
+        evaluator: str,
+        instruction: str | Path | AnyUrl | None = None,
+        min_rating: str = "GOOD",
+        max_refinements: int = 3,
+        refinement_instruction: str | None = None,
+        default: bool = False,
+    ) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
+        """
+        Decorator to create and register an evaluator-optimizer agent with type-safe signature.
+
+        Args:
+            name: Name of the evaluator-optimizer agent
+            generator: Name of the agent that generates responses
+            evaluator: Name of the agent that evaluates responses
+            instruction: Base instruction for the evaluator-optimizer
+            min_rating: Minimum acceptable quality rating (EXCELLENT, GOOD, FAIR, POOR)
+            max_refinements: Maximum number of refinement iterations
+            default: Whether to mark this as the default agent
+
+        Returns:
+            A decorator that registers the evaluator-optimizer with proper type annotations
+        """
+        default_instruction = """
+        You implement an iterative refinement process where content is generated,
+        evaluated for quality, and then refined based on specific feedback until
+        it reaches an acceptable quality standard.
+        """
+        resolved_instruction = _resolve_instruction(instruction or default_instruction)
+
+        return _decorator_impl(
+            self,
+            AgentType.EVALUATOR_OPTIMIZER,
+            name=name,
+            instruction=resolved_instruction,
+            servers=[],  # Evaluator-optimizer doesn't connect to servers directly
+            generator=generator,
+            evaluator=evaluator,
+            min_rating=min_rating,
+            max_refinements=max_refinements,
+            refinement_instruction=refinement_instruction,
+            default=default,
+        )
+
+
+    def maker(
+        self,
+        name: str,
+        *,
+        worker: str,
+        k: int = 3,
+        max_samples: int = 50,
+        match_strategy: str = "exact",
+        red_flag_max_length: int | None = None,
+        instruction: str | Path | AnyUrl | None = None,
+        default: bool = False,
+    ) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
+        """
+        Decorator to create a MAKER agent for statistical error correction via voting.
+
+        MAKER: Massively decomposed Agentic processes with K-voting Error Reduction.
+
+        Based on the paper "Solving a Million-Step LLM Task with Zero Errors"
+        (arXiv:2511.09030). Implements first-to-ahead-by-k voting where multiple
+        samples are drawn from a worker agent, and the first response to achieve
+        a k-vote margin over alternatives wins.
+
+        This enables high reliability with cost-effective models by trading
+        compute (multiple samples) for accuracy (statistical consensus).
+
+        Args:
+            name: Name of the MAKER agent
+            worker: Name of the agent to sample from for voting
+            k: Margin required to declare winner (first-to-ahead-by-k).
+               Higher k = more reliable but more samples needed.
+               Default of 3 provides strong guarantees for most use cases.
+            max_samples: Maximum samples before falling back to plurality vote
+            match_strategy: How to compare responses for voting:
+                - "exact": Character-for-character match
+                - "normalized": Ignore whitespace and case differences
+                - "structured": Parse as JSON and compare structurally
+            red_flag_max_length: Discard responses longer than this (characters).
+                                 Per the paper, overly long responses correlate
+                                 with errors. None = no length limit.
+            instruction: Base instruction for the MAKER agent
+            default: Whether to mark this as the default agent
+
+        Returns:
+            A decorator that registers the MAKER agent
+
+        Example:
+            @fast.agent(name="calculator", instruction="Return only the numeric result")
+            @fast.maker(name="reliable_calc", worker="calculator", k=3)
+            async def main():
+                async with fast.run() as agent:
+                    result = await agent.reliable_calc.send("What is 17 * 23?")
+        """
+        default_instruction = """
+        MAKER: Massively decomposed Agentic processes with K-voting Error Reduction.
+        Implements statistical error correction through voting consensus.
+        Multiple samples are drawn and the first response to achieve a k-vote
+        margin wins, ensuring high reliability even with cost-effective models.
+        """
+        resolved_instruction = _resolve_instruction(instruction or default_instruction)
+
+        return _decorator_impl(
+            self,
+            AgentType.MAKER,
+            name=name,
+            instruction=resolved_instruction,
+            servers=[],  # MAKER doesn't connect to servers directly
+            worker=worker,
+            k=k,
+            max_samples=max_samples,
+            match_strategy=match_strategy,
+            red_flag_max_length=red_flag_max_length,
+            default=default,
+        )

@@ -9,6 +9,13 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from fast_agent.llm.reasoning_effort import (
+    AUTO_REASONING,
+    ReasoningEffortSetting,
+    ReasoningEffortSpec,
+)
+from fast_agent.llm.text_verbosity import TextVerbositySpec
+
 
 class ModelParameters(BaseModel):
     """Configuration parameters for a specific model"""
@@ -28,11 +35,23 @@ class ModelParameters(BaseModel):
     reasoning: None | str = None
     """Reasoning output style. 'tags' if enclosed in <thinking> tags, 'none' if not used"""
 
+    reasoning_effort_spec: ReasoningEffortSpec | None = None
+    """Reasoning effort input configuration supported by the model, if any."""
+
+    text_verbosity_spec: TextVerbositySpec | None = None
+    """Text verbosity configuration supported by the model, if any."""
+
     stream_mode: Literal["openai", "manual"] = "openai"
     """Determines how streaming deltas should be processed."""
 
     system_role: None | str = "system"
     """Role to use for the System Prompt"""
+
+    cache_ttl: Literal["5m", "1h"] | None = None
+    """Cache TTL for providers that support caching. None if not supported."""
+
+    long_context_window: int | None = None
+    """Optional extended context window when explicitly requested by query params."""
 
 
 class ModelDatabase:
@@ -75,6 +94,64 @@ class ModelDatabase:
     XAI_VISION = ["text/plain", "image/jpeg", "image/png", "image/webp"]
     TEXT_ONLY = ["text/plain"]
 
+    OPENAI_O_CLASS_REASONING = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "medium", "high"],
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
+    )
+
+    OPENAI_GPT_5_CLASS_REASONING = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["minimal", "low", "medium", "high"],
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
+    )
+
+    OPENAI_GPT_51_CLASS_REASONING = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["none", "low", "medium", "high", "xhigh"],
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
+    )
+
+    OPENAI_GPT_5_CODEX_CLASS_REASONING = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "medium", "high", "xhigh"],
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
+    )
+
+    OPENAI_REASONING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["minimal", "low", "medium", "high", "xhigh"],
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
+    )
+
+    OPENAI_TEXT_VERBOSITY_SPEC = TextVerbositySpec()
+
+    GLM_REASONING_TOGGLE_SPEC = ReasoningEffortSpec(
+        kind="toggle",
+        default=ReasoningEffortSetting(kind="toggle", value=True),
+    )
+
+    KIMI_REASONING_TOGGLE_SPEC = ReasoningEffortSpec(
+        kind="toggle",
+        default=ReasoningEffortSetting(kind="toggle", value=True),
+    )
+
+    ANTHROPIC_THINKING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="budget",
+        min_budget_tokens=1024,
+        max_budget_tokens=128000,
+        budget_presets=[0, 1024, 16000, 32000],
+        default=ReasoningEffortSetting(kind="budget", value=1024),
+    )
+
+    ANTHROPIC_ADAPTIVE_THINKING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "medium", "high", "max"],
+        allow_toggle_disable=True,
+        allow_auto=True,
+        default=ReasoningEffortSetting(kind="effort", value=AUTO_REASONING),
+    )
+
     # Common parameter configurations
     OPENAI_STANDARD = ModelParameters(
         context_window=128000, max_output_tokens=16384, tokenizes=OPENAI_MULTIMODAL
@@ -89,19 +166,32 @@ class ModelDatabase:
         max_output_tokens=100000,
         tokenizes=OPENAI_VISION,
         reasoning="openai",
+        reasoning_effort_spec=OPENAI_REASONING_EFFORT_SPEC,
     )
 
     ANTHROPIC_LEGACY = ModelParameters(
-        context_window=200000, max_output_tokens=4096, tokenizes=ANTHROPIC_MULTIMODAL
+        context_window=200000,
+        max_output_tokens=4096,
+        tokenizes=ANTHROPIC_MULTIMODAL,
+        json_mode=None,
+        cache_ttl="5m",
     )
 
     ANTHROPIC_35_SERIES = ModelParameters(
-        context_window=200000, max_output_tokens=8192, tokenizes=ANTHROPIC_MULTIMODAL
+        context_window=200000,
+        max_output_tokens=8192,
+        tokenizes=ANTHROPIC_MULTIMODAL,
+        json_mode=None,
+        cache_ttl="5m",
     )
 
     # TODO--- TO USE 64,000 NEED TO SUPPORT STREAMING
     ANTHROPIC_37_SERIES = ModelParameters(
-        context_window=200000, max_output_tokens=16384, tokenizes=ANTHROPIC_MULTIMODAL
+        context_window=200000,
+        max_output_tokens=16384,
+        tokenizes=ANTHROPIC_MULTIMODAL,
+        json_mode=None,
+        cache_ttl="5m",
     )
 
     QWEN_STANDARD = ModelParameters(
@@ -135,6 +225,7 @@ class ModelDatabase:
         max_output_tokens=100000,
         tokenizes=OPENAI_MULTIMODAL,
         reasoning="openai",
+        reasoning_effort_spec=OPENAI_O_CLASS_REASONING,
     )
 
     OPENAI_O3_MINI_SERIES = ModelParameters(
@@ -142,6 +233,7 @@ class ModelDatabase:
         max_output_tokens=100000,
         tokenizes=TEXT_ONLY,
         reasoning="openai",
+        reasoning_effort_spec=OPENAI_O_CLASS_REASONING,
     )
     OPENAI_GPT_OSS_SERIES = ModelParameters(
         context_window=131072,
@@ -155,6 +247,26 @@ class ModelDatabase:
         max_output_tokens=128000,
         tokenizes=OPENAI_MULTIMODAL,
         reasoning="openai",
+        reasoning_effort_spec=OPENAI_GPT_5_CLASS_REASONING,
+        text_verbosity_spec=OPENAI_TEXT_VERBOSITY_SPEC,
+    )
+
+    OPENAI_GPT_5_2 = ModelParameters(
+        context_window=400000,
+        max_output_tokens=128000,
+        tokenizes=OPENAI_MULTIMODAL,
+        reasoning="openai",
+        reasoning_effort_spec=OPENAI_GPT_51_CLASS_REASONING,
+        text_verbosity_spec=OPENAI_TEXT_VERBOSITY_SPEC,
+    )
+
+    OPENAI_GPT_CODEX = ModelParameters(
+        context_window=400000,
+        max_output_tokens=128000,
+        tokenizes=OPENAI_MULTIMODAL,
+        reasoning="openai",
+        reasoning_effort_spec=OPENAI_GPT_5_CODEX_CLASS_REASONING,
+        text_verbosity_spec=OPENAI_TEXT_VERBOSITY_SPEC,
     )
 
     ANTHROPIC_OPUS_4_VERSIONED = ModelParameters(
@@ -162,12 +274,42 @@ class ModelDatabase:
         max_output_tokens=32000,
         tokenizes=ANTHROPIC_MULTIMODAL,
         reasoning="anthropic_thinking",
+        reasoning_effort_spec=ANTHROPIC_THINKING_EFFORT_SPEC,
+        cache_ttl="5m",
+    )
+    ANTHROPIC_OPUS_46 = ModelParameters(
+        context_window=200000,
+        max_output_tokens=32000,
+        tokenizes=ANTHROPIC_MULTIMODAL,
+        reasoning="anthropic_thinking",
+        reasoning_effort_spec=ANTHROPIC_ADAPTIVE_THINKING_EFFORT_SPEC,
+        cache_ttl="5m",
+    )
+    ANTHROPIC_OPUS_4_LEGACY = ModelParameters(
+        context_window=200000,
+        max_output_tokens=32000,
+        tokenizes=ANTHROPIC_MULTIMODAL,
+        reasoning="anthropic_thinking",
+        reasoning_effort_spec=ANTHROPIC_THINKING_EFFORT_SPEC,
+        json_mode=None,
+        cache_ttl="5m",
     )
     ANTHROPIC_SONNET_4_VERSIONED = ModelParameters(
         context_window=200000,
         max_output_tokens=64000,
         tokenizes=ANTHROPIC_MULTIMODAL,
         reasoning="anthropic_thinking",
+        reasoning_effort_spec=ANTHROPIC_THINKING_EFFORT_SPEC,
+        cache_ttl="5m",
+    )
+    ANTHROPIC_SONNET_4_LEGACY = ModelParameters(
+        context_window=200000,
+        max_output_tokens=64000,
+        tokenizes=ANTHROPIC_MULTIMODAL,
+        reasoning="anthropic_thinking",
+        reasoning_effort_spec=ANTHROPIC_THINKING_EFFORT_SPEC,
+        json_mode=None,
+        cache_ttl="5m",
     )
     # Claude 3.7 Sonnet supports extended thinking (deprecated but still available)
     ANTHROPIC_37_SERIES_THINKING = ModelParameters(
@@ -175,6 +317,9 @@ class ModelDatabase:
         max_output_tokens=16384,
         tokenizes=ANTHROPIC_MULTIMODAL,
         reasoning="anthropic_thinking",
+        reasoning_effort_spec=ANTHROPIC_THINKING_EFFORT_SPEC,
+        json_mode=None,
+        cache_ttl="5m",
     )
 
     DEEPSEEK_CHAT_STANDARD = ModelParameters(
@@ -224,7 +369,14 @@ class ModelDatabase:
         json_mode="object",
         reasoning="reasoning_content",
     )
-
+    KIMI_MOONSHOT_25 = ModelParameters(
+        context_window=262144,
+        max_output_tokens=16384,
+        tokenizes=OPENAI_VISION,
+        json_mode="schema",
+        reasoning="reasoning_content",
+        reasoning_effort_spec=KIMI_REASONING_TOGGLE_SPEC,
+    )
     # FIXME: xAI has not documented the max output tokens for Grok 4. Using Grok 3 as a placeholder. Will need to update when available (if ever)
     GROK_4 = ModelParameters(context_window=256000, max_output_tokens=16385, tokenizes=TEXT_ONLY)
 
@@ -252,6 +404,7 @@ class ModelDatabase:
         tokenizes=TEXT_ONLY,
         json_mode="object",
         reasoning="reasoning_content",
+        reasoning_effort_spec=GLM_REASONING_TOGGLE_SPEC,
         stream_mode="manual",
     )
 
@@ -278,6 +431,12 @@ class ModelDatabase:
     HF_PROVIDER_QWEN3_NEXT = ModelParameters(
         context_window=262_000, max_output_tokens=8192, tokenizes=TEXT_ONLY
     )
+
+    ALIYUN_QWEN3_MODERN = ModelParameters(
+        context_window=256_000, max_output_tokens=64_000, tokenizes=TEXT_ONLY
+    )
+
+    ANTHROPIC_LONG_CONTEXT_WINDOW = 1_000_000
 
     # Model configuration database
     # KEEP ALL LOWER CASE KEYS
@@ -318,9 +477,10 @@ class ModelDatabase:
         "gpt-5": OPENAI_GPT_5,
         "gpt-5-mini": OPENAI_GPT_5,
         "gpt-5-nano": OPENAI_GPT_5,
-        "gpt-5.1": OPENAI_GPT_5,
-        "gpt-5.1-mini": OPENAI_GPT_5,  # pre-emptive
-        "gpt-5.1-nano": OPENAI_GPT_5,  # pre-emptive
+        "gpt-5.1": OPENAI_GPT_5_2,
+        "gpt-5.1-codex": OPENAI_GPT_CODEX,
+        "gpt-5.2-codex": OPENAI_GPT_CODEX,
+        "gpt-5.3-codex": OPENAI_GPT_CODEX,
         "gpt-5.2": OPENAI_GPT_5,
         # Anthropic Models
         "claude-3-haiku": ANTHROPIC_35_SERIES,
@@ -340,14 +500,25 @@ class ModelDatabase:
         "claude-3-7-sonnet": ANTHROPIC_37_SERIES_THINKING,
         "claude-3-7-sonnet-20250219": ANTHROPIC_37_SERIES_THINKING,
         "claude-3-7-sonnet-latest": ANTHROPIC_37_SERIES_THINKING,
-        "claude-sonnet-4-0": ANTHROPIC_SONNET_4_VERSIONED,
-        "claude-sonnet-4-20250514": ANTHROPIC_SONNET_4_VERSIONED,
-        "claude-sonnet-4-5": ANTHROPIC_SONNET_4_VERSIONED,
-        "claude-sonnet-4-5-20250929": ANTHROPIC_SONNET_4_VERSIONED,
-        "claude-opus-4-0": ANTHROPIC_OPUS_4_VERSIONED,
+        "claude-sonnet-4-0": ANTHROPIC_SONNET_4_LEGACY.model_copy(
+            update={"long_context_window": ANTHROPIC_LONG_CONTEXT_WINDOW}
+        ),
+        "claude-sonnet-4-20250514": ANTHROPIC_SONNET_4_LEGACY.model_copy(
+            update={"long_context_window": ANTHROPIC_LONG_CONTEXT_WINDOW}
+        ),
+        "claude-sonnet-4-5": ANTHROPIC_SONNET_4_VERSIONED.model_copy(
+            update={"long_context_window": ANTHROPIC_LONG_CONTEXT_WINDOW}
+        ),
+        "claude-sonnet-4-5-20250929": ANTHROPIC_SONNET_4_VERSIONED.model_copy(
+            update={"long_context_window": ANTHROPIC_LONG_CONTEXT_WINDOW}
+        ),
+        "claude-opus-4-0": ANTHROPIC_OPUS_4_LEGACY,
         "claude-opus-4-1": ANTHROPIC_OPUS_4_VERSIONED,
         "claude-opus-4-5": ANTHROPIC_OPUS_4_VERSIONED,
-        "claude-opus-4-20250514": ANTHROPIC_OPUS_4_VERSIONED,
+        "claude-opus-4-6": ANTHROPIC_OPUS_46.model_copy(
+            update={"long_context_window": ANTHROPIC_LONG_CONTEXT_WINDOW}
+        ),
+        "claude-opus-4-20250514": ANTHROPIC_OPUS_4_LEGACY,
         "claude-haiku-4-5-20251001": ANTHROPIC_SONNET_4_VERSIONED,
         "claude-haiku-4-5": ANTHROPIC_SONNET_4_VERSIONED,
         # DeepSeek Models
@@ -376,6 +547,7 @@ class ModelDatabase:
         "moonshotai/kimi-k2-instruct-0905": KIMI_MOONSHOT,
         "moonshotai/kimi-k2-thinking": KIMI_MOONSHOT_THINKING,
         "moonshotai/kimi-k2-thinking-0905": KIMI_MOONSHOT_THINKING,
+        "moonshotai/kimi-k2.5": KIMI_MOONSHOT_25,
         "qwen/qwen3-32b": QWEN3_REASONER,
         "deepseek-r1-distill-llama-70b": DEEPSEEK_DISTILL,
         "openai/gpt-oss-120b": OPENAI_GPT_OSS_SERIES,  # https://cookbook.openai.com/articles/openai-harmony
@@ -386,7 +558,9 @@ class ModelDatabase:
         "minimaxai/minimax-m2.1": MINIMAX_21,
         "qwen/qwen3-next-80b-a3b-instruct": HF_PROVIDER_QWEN3_NEXT,
         "deepseek-ai/deepseek-v3.1": HF_PROVIDER_DEEPSEEK31,
-        "deepseek-ai/deepseek-v3.2-exp": HF_PROVIDER_DEEPSEEK32,
+        "deepseek-ai/deepseek-v3.2": HF_PROVIDER_DEEPSEEK32,
+        # aliyun modern
+        "qwen3-max": ALIYUN_QWEN3_MODERN,
     }
 
     @classmethod
@@ -412,6 +586,9 @@ class ModelDatabase:
         model_spec = (model or "").strip()
         if not model_spec:
             return ""
+
+        if "?" in model_spec:
+            model_spec = model_spec.split("?", 1)[0].strip()
 
         # If it's already a known key, keep it as-is (after casing/whitespace normalization).
         direct_key = model_spec.lower()
@@ -512,6 +689,18 @@ class ModelDatabase:
         return params.reasoning if params else None
 
     @classmethod
+    def get_reasoning_effort_spec(cls, model: str) -> ReasoningEffortSpec | None:
+        """Get reasoning effort capabilities for a model, if defined."""
+        params = cls.get_model_params(model)
+        return params.reasoning_effort_spec if params else None
+
+    @classmethod
+    def get_text_verbosity_spec(cls, model: str) -> TextVerbositySpec | None:
+        """Get text verbosity capabilities for a model, if defined."""
+        params = cls.get_model_params(model)
+        return params.text_verbosity_spec if params else None
+
+    @classmethod
     def get_stream_mode(cls, model: str | None) -> Literal["openai", "manual"]:
         """Return preferred streaming accumulation strategy for a model."""
         if not model:
@@ -530,6 +719,25 @@ class ModelDatabase:
         if params:
             return params.max_output_tokens
         return 2048  # Fallback for unknown models
+
+    @classmethod
+    def get_cache_ttl(cls, model: str) -> Literal["5m", "1h"] | None:
+        """Get cache TTL for a model, or None if not supported"""
+        params = cls.get_model_params(model)
+        return params.cache_ttl if params else None
+
+    @classmethod
+    def get_long_context_window(cls, model: str) -> int | None:
+        """Get optional long-context override window for a model."""
+        params = cls.get_model_params(model)
+        return params.long_context_window if params else None
+
+    @classmethod
+    def list_long_context_models(cls) -> list[str]:
+        """List model names that support explicit long-context overrides."""
+        return sorted(
+            name for name, params in cls.MODELS.items() if params.long_context_window is not None
+        )
 
     @classmethod
     def list_models(cls) -> list[str]:

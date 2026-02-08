@@ -6,10 +6,12 @@ import json
 from collections import Counter, defaultdict
 from copy import deepcopy
 from dataclasses import dataclass
+from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
+    Literal,
     Mapping,
     Self,
     Sequence,
@@ -22,6 +24,8 @@ if TYPE_CHECKING:
     from rich.text import Text
 
     from fast_agent.agents.llm_agent import LlmAgent
+    from fast_agent.agents.tool_runner import ToolRunnerHooks
+    from fast_agent.hooks.lifecycle_hook_loader import AgentLifecycleHooks
 
 from a2a.types import AgentCard
 from mcp import ListToolsResult, Tool
@@ -48,12 +52,15 @@ from fast_agent.constants import (
     FAST_AGENT_REMOVED_METADATA_CHANNEL,
 )
 from fast_agent.context import Context
+from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.hooks.hook_messages import show_hook_failure
 from fast_agent.interfaces import (
     AgentProtocol,
     FastAgentLLMProtocol,
     LLMFactoryProtocol,
     StreamingAgentProtocol,
+    ToolRunnerHookCapable,
 )
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider_types import Provider
@@ -185,6 +192,9 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         # Agent-owned conversation state (PromptMessageExtended only)
         self._message_history: list[PromptMessageExtended] = []
 
+        # Optional registry for cross-agent lookups (populated by AgentApp)
+        self._agent_registry: Mapping[str, AgentProtocol] | None = None
+
         # Store the default request params from config
         self._default_request_params = self.config.default_request_params
 
@@ -193,6 +203,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         self._initialized = False
         self._llm_factory_ref: LLMFactoryProtocol | None = None
         self._llm_attach_kwargs: dict[str, Any] | None = None
+        self._lifecycle_hooks: "AgentLifecycleHooks | None" = None
 
     @property
     def context(self) -> Context | None:
@@ -210,10 +221,70 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         self._initialized = value
 
     async def initialize(self) -> None:
+        await self._run_lifecycle_hook("on_start")
         self.initialized = True
 
     async def shutdown(self) -> None:
+        await self._finalize_shutdown()
+
+    async def _finalize_shutdown(self, *, run_hook: bool = True) -> None:
+        if run_hook:
+            await self._run_lifecycle_hook("on_shutdown")
         self.initialized = False
+
+    def _load_lifecycle_hooks(self) -> "AgentLifecycleHooks":
+        if self._lifecycle_hooks is not None:
+            return self._lifecycle_hooks
+
+        from fast_agent.hooks.lifecycle_hook_loader import load_lifecycle_hooks
+
+        base_path = None
+        source_path = getattr(self.config, "source_path", None)
+        if source_path:
+            source_path = (
+                Path(source_path).expanduser()
+                if not isinstance(source_path, Path)
+                else source_path
+            )
+            base_path = source_path.parent
+
+        self._lifecycle_hooks = load_lifecycle_hooks(self.config.lifecycle_hooks, base_path)
+        return self._lifecycle_hooks
+
+    async def _run_lifecycle_hook(
+        self, hook_type: Literal["on_start", "on_shutdown"]
+    ) -> None:
+        hooks = self._load_lifecycle_hooks()
+        hook = hooks.on_start if hook_type == "on_start" else hooks.on_shutdown
+        if hook is None:
+            return
+
+        from fast_agent.hooks.lifecycle_hook_context import AgentLifecycleContext
+
+        context = AgentLifecycleContext(
+            agent=self,
+            context=self.context,
+            config=self.config,
+            hook_type=hook_type,
+        )
+
+        hook_kind = "agent_startup" if hook_type == "on_start" else "agent_shutdown"
+
+        try:
+            await hook(context)
+        except Exception as exc:  # noqa: BLE001
+            show_hook_failure(
+                self,
+                hook_name=getattr(hook, "__name__", hook_type),
+                hook_kind=hook_kind,
+                error=exc,
+            )
+            if hook_type == "on_start":
+                logger.exception("Lifecycle hook failed", hook_type=hook_type)
+                raise AgentConfigError(
+                    f"Lifecycle hook '{hook_type}' failed", str(exc)
+                ) from exc
+            logger.exception("Lifecycle hook failed during shutdown", hook_type=hook_type)
 
     @property
     def instruction(self) -> str:
@@ -225,6 +296,45 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         self._instruction = instruction
         if self._default_request_params:
             self._default_request_params.systemPrompt = instruction
+        if self._llm is not None:
+            self._llm.instruction = instruction
+            self._llm.default_request_params.systemPrompt = instruction
+
+    async def set_model(self, model: str | None) -> None:
+        """Set the default model for this agent and reattach the LLM if needed."""
+        self.config.model = model
+
+        if model is None:
+            if self._default_request_params:
+                self._default_request_params.model = None
+            return
+
+        from fast_agent.llm.model_factory import ModelFactory
+
+        model_config = ModelFactory.parse_model_string(model)
+        resolved_model = model_config.model_name
+        if self._default_request_params:
+            self._default_request_params.model = resolved_model
+
+        if self._llm_attach_kwargs is None:
+            raise RuntimeError(
+                "LLM attachment parameters missing despite factory being available"
+            )
+
+        attach_kwargs = dict(self._llm_attach_kwargs)
+        request_params = attach_kwargs.pop("request_params", None)
+        if request_params is not None:
+            request_params = deepcopy(request_params)
+            request_params.model = resolved_model
+
+        llm_factory = ModelFactory.create_factory(model)
+
+        await self.attach_llm(
+            llm_factory,
+            model=resolved_model,
+            request_params=request_params,
+            **attach_kwargs,
+        )
 
     @property
     def agent_type(self) -> AgentType:
@@ -239,6 +349,21 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         Return the name of this agent.
         """
         return self._name
+
+    def set_agent_registry(self, registry: Mapping[str, AgentProtocol] | None) -> None:
+        """Attach a registry for resolving other agents by name."""
+        self._agent_registry = registry
+
+    def get_agent(self, name: str) -> AgentProtocol | None:
+        """Return an agent from the attached registry, if any."""
+        if self._agent_registry is None:
+            return None
+        return self._agent_registry.get(name)
+
+    @property
+    def agent_registry(self) -> Mapping[str, AgentProtocol] | None:
+        """Expose the current agent registry (if configured)."""
+        return self._agent_registry
 
     async def attach_llm(
         self,
@@ -279,8 +404,13 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         attach_kwargs: dict[str, Any] = dict(additional_kwargs)
         attach_kwargs["request_params"] = deepcopy(effective_params)
         self._llm_attach_kwargs = attach_kwargs
+        self._on_llm_attached(self._llm)
 
         return self._llm
+
+    def _on_llm_attached(self, llm: FastAgentLLMProtocol) -> None:
+        """Hook for subclasses that need to react when an LLM is attached."""
+        return None
 
     def _clone_constructor_kwargs(self) -> dict[str, Any]:
         """Hook for subclasses/mixins to supply constructor kwargs when cloning."""
@@ -296,6 +426,16 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         constructor_kwargs = self._clone_constructor_kwargs()
         clone = type(self)(config=new_config, context=self.context, **constructor_kwargs)
         await clone.initialize()
+
+        if self._agent_registry is not None and hasattr(clone, "set_agent_registry"):
+            clone.set_agent_registry(self._agent_registry)
+
+        # Copy tool_runner_hooks if present
+        hooks: ToolRunnerHooks | None = None
+        if isinstance(self, ToolRunnerHookCapable):
+            hooks = self.tool_runner_hooks
+        if hooks is not None and isinstance(clone, ToolRunnerHookCapable):
+            clone.tool_runner_hooks = hooks
 
         if self._llm_factory_ref is not None:
             if self._llm_attach_kwargs is None:

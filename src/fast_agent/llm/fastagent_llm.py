@@ -32,6 +32,7 @@ from fast_agent.constants import (
     CONTROL_MESSAGE_SAVE_HISTORY,
     DEFAULT_MAX_ITERATIONS,
     FAST_AGENT_TIMING,
+    FAST_AGENT_USAGE,
 )
 from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.exceptions import AgentConfigError, ProviderKeyError, ServerConfigError
@@ -45,7 +46,17 @@ from fast_agent.interfaces import (
 from fast_agent.llm.memory import Memory, SimpleMemory
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.reasoning_effort import (
+    ReasoningEffortSetting,
+    ReasoningEffortSpec,
+    validate_reasoning_setting,
+)
 from fast_agent.llm.stream_types import StreamChunk
+from fast_agent.llm.text_verbosity import (
+    TextVerbosityLevel,
+    TextVerbositySpec,
+    validate_text_verbosity,
+)
 from fast_agent.llm.usage_tracking import TurnUsage, UsageAccumulator
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types import PromptMessageExtended, RequestParams
@@ -101,9 +112,15 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     PARAM_MCP_METADATA = "mcp_metadata"
     PARAM_TOOL_HANDLER = "tool_execution_handler"
     PARAM_LOOP_PROGRESS = "emit_loop_progress"
+    PARAM_STREAMING_TIMEOUT = "streaming_timeout"
 
     # Base set of fields that should always be excluded
-    BASE_EXCLUDE_FIELDS = {PARAM_METADATA, PARAM_TOOL_HANDLER, PARAM_LOOP_PROGRESS}
+    BASE_EXCLUDE_FIELDS = {
+        PARAM_METADATA,
+        PARAM_TOOL_HANDLER,
+        PARAM_LOOP_PROGRESS,
+        PARAM_STREAMING_TIMEOUT,
+    }
 
     """
     Implementation of the Llm Protocol - intended be subclassed for Provider
@@ -134,6 +151,9 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         """
         # Extract request_params before super() call
         self._init_request_params = request_params
+        # Pop long_context before passing kwargs to ContextDependent;
+        # subclasses (e.g. AnthropicLLM) may pop it first for their own handling.
+        long_context_requested = kwargs.pop("long_context", False)
         super().__init__(context=context, **kwargs)
         self.logger = get_logger(__name__)
         self.executor = self.context.executor
@@ -163,6 +183,33 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         # Cache effective model name for type-safe access
         self._model_name: str | None = self.default_request_params.model
 
+        # Reasoning effort configuration (provider-neutral)
+        self._reasoning_effort: ReasoningEffortSetting | None = None
+        self._reasoning_effort_spec: ReasoningEffortSpec | None = (
+            ModelDatabase.get_reasoning_effort_spec(self._model_name or "")
+            if self._model_name
+            else None
+        )
+
+        # Text verbosity configuration (provider-neutral)
+        self._text_verbosity: TextVerbosityLevel | None = None
+        self._text_verbosity_spec: TextVerbositySpec | None = (
+            ModelDatabase.get_text_verbosity_spec(self._model_name or "")
+            if self._model_name
+            else None
+        )
+
+        # Context window override — set by providers that support extended context
+        # (e.g., Anthropic 1M beta). Defaults to None (use ModelDatabase value).
+        self._context_window_override: int | None = None
+
+        # Warn if long_context was requested but this provider didn't handle it
+        if long_context_requested and self._context_window_override is None:
+            self.logger.warning(
+                f"Long context (context=1m) is not supported for provider "
+                f"'{provider.value}'. Ignoring."
+            )
+
         self.verb = kwargs.get("verb")
 
         self._init_api_key = api_key
@@ -173,6 +220,41 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         self._tool_stream_listeners: set[Callable[[str, dict[str, Any] | None], None]] = set()
         self.retry_count = self._resolve_retry_count()
         self.retry_backoff_seconds: float = 10.0
+
+    def set_reasoning_effort(self, setting: ReasoningEffortSetting | None) -> None:
+        if setting is None:
+            self._reasoning_effort = None
+            return
+
+        if self._reasoning_effort_spec:
+            self._reasoning_effort = validate_reasoning_setting(
+                setting, self._reasoning_effort_spec
+            )
+        else:
+            self._reasoning_effort = setting
+
+    @property
+    def reasoning_effort(self) -> ReasoningEffortSetting | None:
+        return self._reasoning_effort
+
+    @property
+    def reasoning_effort_spec(self) -> ReasoningEffortSpec | None:
+        return self._reasoning_effort_spec
+
+    def set_text_verbosity(self, value: TextVerbosityLevel | None) -> None:
+        if value is None:
+            self._text_verbosity = None
+            return
+
+        self._text_verbosity = validate_text_verbosity(value, self._text_verbosity_spec)
+
+    @property
+    def text_verbosity(self) -> TextVerbosityLevel | None:
+        return self._text_verbosity
+
+    @property
+    def text_verbosity_spec(self) -> TextVerbositySpec | None:
+        return self._text_verbosity_spec
 
     def _initialize_default_params(self, kwargs: dict[str, Any]) -> RequestParams:
         """Initialize default parameters for the LLM.
@@ -241,12 +323,12 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
                         from fast_agent.ui.progress_display import progress_display
 
                         with progress_display.paused():
-                            rich_print(f"\n[yellow]⚠ Provider Error: {str(e)[:300]}...[/yellow]")
+                            rich_print(f"\n[yellow]▲ Provider Error: {str(e)[:300]}...[/yellow]")
                             rich_print(
                                 f"[dim]⟳ Retrying in {wait_time}s... (Attempt {attempt + 1}/{retries})[/dim]"
                             )
                     except ImportError:
-                        print(f"⚠ Provider Error: {str(e)[:300]}...")
+                        print(f"▲ Provider Error: {str(e)[:300]}...")
                         print(f"⟳ Retrying in {wait_time}s... (Attempt {attempt + 1}/{retries})")
 
                     await asyncio.sleep(wait_time)
@@ -274,7 +356,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         return None
 
     def _resolve_retry_count(self) -> int:
-        """Resolve retries from config first, then env, defaulting to 0."""
+        """Resolve retries from config first, then env, defaulting to 1."""
         config_retries = None
         try:
             config_retries = getattr(self.context.config, "llm_retries", None)
@@ -294,7 +376,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             except (TypeError, ValueError):
                 pass
 
-        return 0
+        return 1
 
     async def generate(
         self,
@@ -347,11 +429,40 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             self._apply_prompt_provider_specific, full_history, request_params, tools
         )
         end_time = time.perf_counter()
-        duration_ms = round((end_time - start_time) * 1000, 2)
+        self._add_timing_channel(assistant_response, start_time, end_time)
 
-        # Add timing data to channels only if not already present
-        # (preserves original timing when loading saved history)
-        channels = dict(assistant_response.channels or {})
+        self.usage_accumulator.count_tools(len(assistant_response.tool_calls or {}))
+        self._append_usage_channel(assistant_response)
+
+        return assistant_response
+
+    def _append_usage_channel(self, response: PromptMessageExtended) -> None:
+        usage_payload = self._build_usage_payload()
+        if not usage_payload:
+            return
+
+        channels = dict(response.channels or {})
+        if FAST_AGENT_USAGE in channels:
+            return
+
+        channels[FAST_AGENT_USAGE] = [
+            TextContent(type="text", text=json.dumps(usage_payload))
+        ]
+        response.channels = channels
+
+
+    def _add_timing_channel(
+        self,
+        response: PromptMessageExtended,
+        start_time: float,
+        end_time: float,
+    ) -> None:
+        """Add timing data to response channels if not already present.
+
+        Preserves original timing when loading saved history.
+        """
+        duration_ms = round((end_time - start_time) * 1000, 2)
+        channels = dict(response.channels or {})
         if FAST_AGENT_TIMING not in channels:
             timing_data = {
                 "start_time": start_time,
@@ -359,11 +470,34 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
                 "duration_ms": duration_ms,
             }
             channels[FAST_AGENT_TIMING] = [TextContent(type="text", text=json.dumps(timing_data))]
-            assistant_response.channels = channels
+            response.channels = channels
 
-        self.usage_accumulator.count_tools(len(assistant_response.tool_calls or {}))
+    def _build_usage_payload(self) -> dict[str, Any] | None:
+        if not self.usage_accumulator or not self.usage_accumulator.turns:
+            return None
 
-        return assistant_response
+        turn_usage = self.usage_accumulator.turns[-1]
+        return {
+            "turn": turn_usage.model_dump(mode="json", exclude={"raw_usage"}),
+            "raw_usage": self._serialize_raw_usage(turn_usage.raw_usage),
+            "summary": self.usage_accumulator.get_summary(),
+        }
+
+    def _serialize_raw_usage(self, raw_usage: object) -> object:
+        for attr in ("model_dump", "dict"):
+            method = getattr(raw_usage, attr, None)
+            if callable(method):
+                try:
+                    return method()
+                except Exception:
+                    continue
+        raw_dict = getattr(raw_usage, "__dict__", None)
+        if isinstance(raw_dict, dict):
+            try:
+                return dict(raw_dict)
+            except Exception:
+                pass
+        return str(raw_usage)
 
     @abstractmethod
     async def _apply_prompt_provider_specific(
@@ -434,19 +568,10 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         else:
             result, assistant_response = result_or_response
         end_time = time.perf_counter()
-        duration_ms = round((end_time - start_time) * 1000, 2)
+        self._add_timing_channel(assistant_response, start_time, end_time)
 
-        # Add timing data to channels only if not already present
-        # (preserves original timing when loading saved history)
-        channels = dict(assistant_response.channels or {})
-        if FAST_AGENT_TIMING not in channels:
-            timing_data = {
-                "start_time": start_time,
-                "end_time": end_time,
-                "duration_ms": duration_ms,
-            }
-            channels[FAST_AGENT_TIMING] = [TextContent(type="text", text=json.dumps(timing_data))]
-            assistant_response.channels = channels
+        self.usage_accumulator.count_tools(len(assistant_response.tool_calls or {}))
+        self._append_usage_channel(assistant_response)
 
         return result, assistant_response
 
@@ -934,9 +1059,15 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
         Uses a lightweight resolver backed by the ModelDatabase and provides
         text/document/vision flags, context window, etc.
+        Applies context_window_override when set (e.g., Anthropic 1M beta).
         """
+        from dataclasses import replace
+
         from fast_agent.llm.model_info import ModelInfo
 
         if not self._model_name:
             return None
-        return ModelInfo.from_name(self._model_name, self._provider)
+        info = ModelInfo.from_name(self._model_name, self._provider)
+        if info and self._context_window_override is not None:
+            info = replace(info, context_window=self._context_window_override)
+        return info

@@ -442,7 +442,6 @@ name: orchestrator
 agents:
   - agent1
   - agent2
-history_mode: fork
 max_parallel: 128
 child_timeout_sec: 600
 max_display_instances: 20

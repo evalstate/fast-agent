@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
 from fast_agent.agents.agent_types import AgentConfig
+from fast_agent.config import Settings
+from fast_agent.context import Context
 
 
 def _ensure_hf_inference_acp_on_path() -> None:
@@ -40,13 +41,7 @@ async def test_apply_model_does_not_override_request_params_model(monkeypatch) -
 
     monkeypatch.setattr(HuggingFaceAgent, "attach_llm", fake_attach_llm, raising=True)
 
-    context = SimpleNamespace(
-        executor=None,
-        config=SimpleNamespace(shell_execution=None, default_model=None, mcp_ui_mode="disabled"),
-        skill_registry=None,
-        shell_runtime=False,
-        acp=None,
-    )
+    context = Context(config=Settings(mcp_ui_mode="disabled", default_model=None))
 
     agent = HuggingFaceAgent(config=AgentConfig(name="huggingface"), context=context)
 

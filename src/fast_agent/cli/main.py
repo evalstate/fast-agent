@@ -1,13 +1,18 @@
 """Main CLI entry point for MCP Agent."""
 
 import importlib
+import os
+from pathlib import Path
 
 import click
 import typer
 import typer.main
 from typer.core import TyperGroup
 
+from fast_agent.cli.constants import normalize_resume_flag_args
+from fast_agent.cli.env_helpers import resolve_environment_dir_option
 from fast_agent.cli.terminal import Application
+from fast_agent.constants import FAST_AGENT_SHELL_CHILD_ENV
 from fast_agent.ui.console import console as shared_console
 
 LAZY_SUBCOMMANDS: dict[str, str] = {
@@ -16,6 +21,7 @@ LAZY_SUBCOMMANDS: dict[str, str] = {
     "acp": "fast_agent.cli.commands.acp:app",
     "setup": "fast_agent.cli.commands.setup:app",
     "check": "fast_agent.cli.commands.check_config:app",
+    "config": "fast_agent.cli.commands.config:app",
     "auth": "fast_agent.cli.commands.auth:app",
     "quickstart": "fast_agent.cli.commands.quickstart:app",
     "bootstrap": "fast_agent.cli.commands.quickstart:app",
@@ -25,6 +31,10 @@ LAZY_SUBCOMMANDS: dict[str, str] = {
 
 class LazyGroup(TyperGroup):
     lazy_subcommands: dict[str, str] = {}
+
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        normalize_resume_flag_args(args)
+        return super().parse_args(ctx, args)
 
     def list_commands(self, ctx: click.Context) -> list[str]:
         return sorted(self.lazy_subcommands)
@@ -94,6 +104,7 @@ def show_welcome() -> None:
     table.add_row("go -x", "Start an interactive session with a local shell tool")
     table.add_row("[bold]serve[/bold]", "Start fast-agent as an MCP server")
     table.add_row("check", "Show current configuration")
+    table.add_row("config", "Configure settings interactively (shell, model)")
     table.add_row("auth", "Manage OAuth tokens in the OS keyring for MCP servers")
     table.add_row("setup", "Create agent template and configuration")
     table.add_row("quickstart", "Create example applications (workflow, researcher, etc.)")
@@ -113,11 +124,24 @@ def main(
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Disable output"),
     color: bool = typer.Option(True, "--color/--no-color", help="Enable/disable color output"),
     version: bool = typer.Option(False, "--version", help="Show version and exit"),
+    env: Path | None = typer.Option(
+        None, "--env", help="Override the base fast-agent environment directory"
+    ),
 ) -> None:
     """fast-agent - Build effective agents using Model Context Protocol (MCP).
 
     Use --help with any command for detailed usage information.
     """
+    if os.getenv(FAST_AGENT_SHELL_CHILD_ENV):
+        typer.echo(
+            "fast-agent is already running inside a fast-agent shell command. "
+            "Exit the shell or unset FAST_AGENT_SHELL_CHILD to continue.",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    resolve_environment_dir_option(ctx, env)
+
     application.verbosity = 1 if verbose else 0 if not quiet else -1
     if not color:
         # Recreate consoles without color when --no-color is provided

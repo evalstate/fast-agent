@@ -5,10 +5,13 @@ from typing import TYPE_CHECKING, Protocol, Sequence, runtime_checkable
 from fast_agent.interfaces import AgentProtocol
 
 if TYPE_CHECKING:
+    from rich.text import Text
+
     from fast_agent.context import Context
     from fast_agent.mcp.mcp_aggregator import MCPAggregator
     from fast_agent.skills import SkillManifest
     from fast_agent.skills.registry import SkillRegistry
+    from fast_agent.tools.shell_runtime import ShellRuntime
     from fast_agent.ui.console_display import ConsoleDisplay
 
 
@@ -46,3 +49,14 @@ class McpAgentProtocol(AgentProtocol, Protocol):
 
     @skill_registry.setter
     def skill_registry(self, value: "SkillRegistry | None") -> None: ...
+
+    @property
+    def shell_runtime_enabled(self) -> bool: ...
+
+    @property
+    def shell_access_modes(self) -> tuple[str, ...]: ...
+
+    @property
+    def shell_runtime(self) -> "ShellRuntime | None": ...
+
+    def shell_notice_line(self) -> "Text | None": ...

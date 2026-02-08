@@ -1,4 +1,6 @@
 
+import os
+
 import pytest
 
 from fast_agent.core.prompt_templates import (
@@ -12,6 +14,15 @@ def test_apply_template_variables_is_noop_without_context():
     # First pass - no context yet
     assert apply_template_variables(template, {}) == template
     assert apply_template_variables(template, None) == template
+
+
+def test_apply_template_variables_supports_escaped_placeholders(tmp_path):
+    template = r"Literal: \{{workspaceRoot}} and \{{file:missing.txt}}"
+    variables = {"workspaceRoot": str(tmp_path)}
+
+    result = apply_template_variables(template, variables)
+
+    assert result == "Literal: {{workspaceRoot}} and {{file:missing.txt}}"
 
 
 @pytest.mark.parametrize(
@@ -138,7 +149,16 @@ This is the skill body content.
     context: dict[str, str] = {}
     client_info = {"name": "test-client"}
 
-    enrich_with_environment_context(context, str(tmp_path), client_info)
+    original_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
+    import fast_agent.config as config_module
+    original_settings = getattr(config_module, "_settings", None)
+    config_module._settings = None
+    try:
+        enrich_with_environment_context(context, str(tmp_path), client_info)
+    finally:
+        config_module._settings = original_settings
+        if original_env_dir is not None:
+            os.environ["ENVIRONMENT_DIR"] = original_env_dir
 
     # Verify skills were loaded
     assert "agentSkills" in context
@@ -221,3 +241,25 @@ description: Skill 1
 
     assert len(manifests) == 1
     assert manifests[0].name == "skill1"
+
+
+def test_load_skills_for_context_uses_environment_dir_setting(tmp_path):
+    """load_skills_for_context should honor settings.environment_dir when using defaults."""
+    from fast_agent.config import Settings, get_settings, update_global_settings
+    from fast_agent.core.prompt_templates import load_skills_for_context
+
+    skills_dir = tmp_path / ".dev" / "skills" / "env-skill"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "SKILL.md").write_text(
+        "---\nname: env-skill\ndescription: Skill from env directory\n---\n",
+        encoding="utf-8",
+    )
+
+    previous_settings = get_settings()
+    update_global_settings(Settings(environment_dir=".dev"))
+    try:
+        manifests = load_skills_for_context(str(tmp_path), None)
+    finally:
+        update_global_settings(previous_settings)
+
+    assert [manifest.name for manifest in manifests] == ["env-skill"]

@@ -1,4 +1,3 @@
-
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.config import HuggingFaceSettings, Settings
@@ -9,6 +8,7 @@ from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
+from fast_agent.llm.provider.openai.responses import ResponsesLLM
 
 
 def test_model_database_context_windows():
@@ -20,6 +20,25 @@ def test_model_database_context_windows():
 
     # Test unknown model
     assert ModelDatabase.get_context_window("unknown-model") is None
+
+
+def test_model_database_long_context_windows():
+    """Explicit long-context capability should be tracked in ModelDatabase."""
+    assert ModelDatabase.get_long_context_window("claude-opus-4-6") == 1_000_000
+    assert ModelDatabase.get_long_context_window("claude-sonnet-4-0") == 1_000_000
+    assert ModelDatabase.get_long_context_window("claude-haiku-4-5") is None
+    assert ModelDatabase.get_long_context_window("unknown-model") is None
+
+
+def test_model_database_long_context_model_listing():
+    """Long-context model listing should come from ModelDatabase metadata."""
+    models = ModelDatabase.list_long_context_models()
+    assert "claude-opus-4-6" in models
+    assert "claude-sonnet-4-5" in models
+    assert "claude-sonnet-4-5-20250929" in models
+    assert "claude-sonnet-4-0" in models
+    assert "claude-sonnet-4-20250514" in models
+    assert "claude-haiku-4-5" not in models
 
 
 def test_model_database_max_tokens():
@@ -167,8 +186,26 @@ def test_model_database_reasoning_modes():
     assert ModelDatabase.get_reasoning("o1") == "openai"
     assert ModelDatabase.get_reasoning("o3-mini") == "openai"
     assert ModelDatabase.get_reasoning("gpt-5") == "openai"
+    assert ModelDatabase.get_reasoning("claude-opus-4-6") == "anthropic_thinking"
     assert ModelDatabase.get_reasoning("zai-org/glm-4.6") == "reasoning_content"
     assert ModelDatabase.get_reasoning("gpt-4o") is None
+
+
+def test_model_database_opus_46_reasoning_spec():
+    """Opus 4.6 should expose adaptive effort settings."""
+    spec = ModelDatabase.get_reasoning_effort_spec("claude-opus-4-6")
+    assert spec is not None
+    assert spec.kind == "effort"
+    assert spec.allowed_efforts == ["low", "medium", "high", "max"]
+    assert spec.allow_toggle_disable
+
+
+def test_model_database_text_verbosity_spec():
+    """Ensure text verbosity support is tracked for GPT-5 models."""
+    spec = ModelDatabase.get_text_verbosity_spec("gpt-5")
+    assert spec is not None
+    assert "low" in spec.allowed
+    assert ModelDatabase.get_text_verbosity_spec("gpt-4o") is None
 
 
 def test_openai_llm_normalizes_repeated_roles():
@@ -189,7 +226,7 @@ def test_openai_llm_uses_model_database_reasoning_flag():
     agent = LlmAgent(AgentConfig(name="Test Agent"))
 
     reasoning_llm = ModelFactory.create_factory("o1")(agent=agent)
-    assert isinstance(reasoning_llm, OpenAILLM)
+    assert isinstance(reasoning_llm, ResponsesLLM)
     assert reasoning_llm._reasoning
     assert getattr(reasoning_llm, "_reasoning_mode", None) == "openai"
 
@@ -208,6 +245,20 @@ def _make_hf_llm(model: str, hf_settings: HuggingFaceSettings | None = None) -> 
     settings = Settings(hf=hf_settings or HuggingFaceSettings())
     context = Context(config=settings)
     return HuggingFaceLLM(context=context, model=model, name="test-agent")
+
+
+def _make_hf_llm_with_reasoning(
+    model: str,
+    reasoning: bool | str | int | None,
+) -> HuggingFaceLLM:
+    settings = Settings(hf=HuggingFaceSettings())
+    context = Context(config=settings)
+    return HuggingFaceLLM(
+        context=context,
+        model=model,
+        name="test-agent",
+        reasoning_effort=reasoning,
+    )
 
 
 def test_huggingface_appends_default_provider_from_config():
@@ -237,3 +288,30 @@ def test_huggingface_explicit_provider_overrides_default():
     assert llm.default_request_params.model == "moonshotai/kimi-k2-instruct"
     args = _hf_request_args(llm)
     assert args["model"] == "moonshotai/kimi-k2-instruct:custom"
+
+
+def test_huggingface_glm_disable_reasoning_toggle():
+    llm = _make_hf_llm_with_reasoning("zai-org/glm-4.7", reasoning=False)
+
+    args = _hf_request_args(llm)
+    extra_body = args.get("extra_body")
+    assert isinstance(extra_body, dict)
+    assert extra_body["disable_reasoning"] is True
+
+
+def test_huggingface_kimi25_disable_reasoning_toggle():
+    llm = _make_hf_llm_with_reasoning("moonshotai/kimi-k2.5", reasoning=False)
+
+    args = _hf_request_args(llm)
+    extra_body = args.get("extra_body")
+    assert isinstance(extra_body, dict)
+    assert extra_body["thinking"] == {"type": "disabled"}
+
+
+def test_huggingface_kimi25_default_reasoning_toggle_enabled():
+    llm = _make_hf_llm("moonshotai/kimi-k2.5")
+
+    args = _hf_request_args(llm)
+    extra_body = args.get("extra_body")
+    assert isinstance(extra_body, dict)
+    assert extra_body["thinking"] == {"type": "enabled"}

@@ -1,6 +1,6 @@
 import unittest
 
-from anthropic.types import Usage as AnthropicUsage
+from anthropic.types.beta import BetaUsage as AnthropicUsage
 from openai.types.completion_usage import CompletionUsage as OpenAIUsage
 
 from fast_agent.llm.usage_tracking import TurnUsage

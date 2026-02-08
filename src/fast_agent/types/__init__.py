@@ -27,7 +27,7 @@ from fast_agent.mcp.helpers.content_helpers import (
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 # Conversation analysis utilities
-from .conversation_summary import ConversationSummary
+from .conversation_summary import ConversationSummary, split_into_turns
 
 # Stop reason enum - imported directly to avoid circular dependency
 from .llm_stop_reason import LlmStopReason
@@ -54,6 +54,7 @@ __all__ = [
     "normalize_to_extended_list",
     # Analysis utilities
     "ConversationSummary",
+    "split_into_turns",
     # Search utilities
     "search_messages",
     "find_matches",

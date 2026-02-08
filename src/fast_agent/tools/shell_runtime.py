@@ -8,11 +8,22 @@ import signal
 import subprocess
 import time
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from mcp.types import CallToolResult, TextContent, Tool
+from rich.text import Text
 
+if TYPE_CHECKING:
+    from fast_agent.config import Settings
+# Import tool progress context for reporting shell execution progress
+from fast_agent.agents.tool_agent import _tool_progress_context
+from fast_agent.constants import (
+    DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
+    MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
+    TERMINAL_BYTES_PER_TOKEN,
+)
 from fast_agent.ui import console
+from fast_agent.ui.console_display import ConsoleDisplay
 from fast_agent.ui.progress_display import progress_display
 from fast_agent.utils.async_utils import gather_with_cancel
 
@@ -28,6 +39,8 @@ class ShellRuntime:
         warning_interval_seconds: int = 30,
         skills_directory: Path | None = None,
         working_directory: Path | None = None,
+        output_byte_limit: int | None = None,
+        config: Settings | None = None,
     ) -> None:
         self._activation_reason = activation_reason
         self._logger = logger
@@ -35,8 +48,18 @@ class ShellRuntime:
         self._warning_interval_seconds = warning_interval_seconds
         self._skills_directory = skills_directory
         self._working_directory = working_directory
+        self._output_byte_limit = DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+        self.set_output_byte_limit(output_byte_limit)
         self.enabled: bool = activation_reason is not None
         self._tool: Tool | None = None
+        self._display = ConsoleDisplay(config=config)
+        self._output_display_lines: int | None = None
+        self._show_bash_output = True
+        if config is not None:
+            shell_config = getattr(config, "shell_execution", None)
+            if shell_config is not None:
+                self._output_display_lines = getattr(shell_config, "output_display_lines", None)
+                self._show_bash_output = bool(getattr(shell_config, "show_bash", True))
 
         if self.enabled:
             # Detect the shell early so we can include it in the tool description
@@ -63,6 +86,16 @@ class ShellRuntime:
     def tool(self) -> Tool | None:
         return self._tool
 
+    @property
+    def output_byte_limit(self) -> int:
+        """Return the current byte limit used to retain command output."""
+        return self._output_byte_limit
+
+    def set_output_byte_limit(self, output_byte_limit: int | None) -> None:
+        """Set output retention byte limit, honoring global defaults and hard cap."""
+        resolved_limit = output_byte_limit or DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+        self._output_byte_limit = min(resolved_limit, MAX_TERMINAL_OUTPUT_BYTE_LIMIT)
+
     def announce(self) -> None:
         """Inform the user why the local shell tool is active."""
         if not self.enabled or not self._activation_reason:
@@ -70,6 +103,15 @@ class ShellRuntime:
 
         message = f"Local shell execute tool enabled {self._activation_reason}."
         self._logger.info(message)
+
+    def _render_display_line(self, text: str, style: str | None) -> Text:
+        display_text = text.rstrip("\n").expandtabs()
+        renderable = Text(display_text, style=style or "")
+        renderable.no_wrap = True
+        width = max(1, console.console.size.width)
+        if len(display_text) > width:
+            renderable.truncate(width, overflow="ellipsis")
+        return renderable
 
     def working_directory(self) -> Path:
         """Return the working directory used for shell execution."""
@@ -129,6 +171,7 @@ class ShellRuntime:
             "working_dir_display": working_dir_display,
             "timeout_seconds": self._timeout_seconds,
             "warning_interval_seconds": self._warning_interval_seconds,
+            "output_byte_limit": self._output_byte_limit,
             "streams_output": True,
             "returns_exit_code": True,
         }
@@ -198,14 +241,20 @@ class ShellRuntime:
                     )
 
                 output_segments: list[str] = []
+                output_bytes = 0
+                output_truncated = False
+                truncation_notice_printed = False
+                display_line_limit = self._output_display_lines
+                displayed_line_count = 0
+                display_ellipsis_printed = False
                 # Track last output time in a mutable container for sharing across coroutines
                 last_output_time = [time.time()]
                 timeout_occurred = [False]
                 watchdog_task = None
 
-                async def stream_output(
-                    stream, style: str | None, is_stderr: bool = False
-                ) -> None:
+                async def stream_output(stream, style: str | None, is_stderr: bool = False) -> None:
+                    nonlocal output_bytes, output_truncated, truncation_notice_printed
+                    nonlocal displayed_line_count, display_ellipsis_printed
                     if not stream:
                         return
                     while True:
@@ -213,12 +262,58 @@ class ShellRuntime:
                         if not line:
                             break
                         text = line.decode(errors="replace")
-                        output_segments.append(text if not is_stderr else f"[stderr] {text}")
-                        console.console.print(
-                            text.rstrip("\n"),
-                            style=style,
-                            markup=False,
-                        )
+                        output_text = text if not is_stderr else f"[stderr] {text}"
+                        if not output_truncated:
+                            output_blob = output_text.encode("utf-8", errors="replace")
+                            remaining = self._output_byte_limit - output_bytes
+                            if remaining > 0:
+                                if len(output_blob) <= remaining:
+                                    output_segments.append(output_text)
+                                    output_bytes += len(output_blob)
+                                else:
+                                    truncated_text = output_blob[:remaining].decode(
+                                        "utf-8", errors="replace"
+                                    )
+                                    if truncated_text:
+                                        output_segments.append(truncated_text)
+                                    output_bytes += remaining
+                                    output_truncated = True
+                            else:
+                                output_truncated = True
+
+                        if output_truncated and not truncation_notice_printed:
+                            if self._show_bash_output and (
+                                display_line_limit is None or display_line_limit > 0
+                            ):
+                                estimated_tokens = int(
+                                    self._output_byte_limit / TERMINAL_BYTES_PER_TOKEN
+                                )
+                                message = Text(
+                                    "▶ Agent output truncated (> ~", style="black on red"
+                                )
+                                message.append(str(estimated_tokens))
+                                message.append(" tokens)", style="black on red")
+                                console.console.print(message)
+                            truncation_notice_printed = True
+
+                        if self._show_bash_output:
+                            if display_line_limit is None:
+                                console.console.print(
+                                    self._render_display_line(text, style),
+                                    markup=False,
+                                )
+                            elif display_line_limit <= 0:
+                                pass
+                            elif displayed_line_count < display_line_limit:
+                                console.console.print(
+                                    self._render_display_line(text, style),
+                                    markup=False,
+                                )
+                                displayed_line_count += 1
+                            elif not display_ellipsis_printed:
+                                console.console.print("...", style="dim", markup=False)
+                                display_ellipsis_printed = True
+
                         # Update last output time whenever we receive a line
                         last_output_time[0] = time.time()
 
@@ -244,10 +339,24 @@ class ShellRuntime:
                         time_since_warning = elapsed - last_warning_time
                         if time_since_warning >= self._warning_interval_seconds and remaining > 0:
                             self._logger.debug(f"Watchdog: warning at {int(remaining)}s remaining")
-                            console.console.print(
-                                f"▶ No output detected - terminating in {int(remaining)}s",
-                                style="black on red",
-                            )
+                            if self._show_bash_output:
+                                console.console.print(
+                                    f"▶ No output detected - terminating in {int(remaining)}s",
+                                    style="black on red",
+                                )
+                            # Report progress to parent agent if in tool context
+                            ctx = _tool_progress_context.get()
+                            if ctx:
+                                handler, tool_call_id = ctx
+                                try:
+                                    await handler.on_tool_progress(
+                                        tool_call_id,
+                                        0.5,
+                                        None,
+                                        f"Waiting for output ({int(elapsed)}) seconds ...",
+                                    )
+                                except Exception:
+                                    pass
                             last_warning_time = elapsed
 
                         # Timeout exceeded
@@ -256,9 +365,10 @@ class ShellRuntime:
                             self._logger.debug(
                                 "Watchdog: timeout exceeded, terminating process group"
                             )
-                            console.console.print(
-                                "▶ Timeout exceeded - terminating process", style="black on red"
-                            )
+                            if self._show_bash_output:
+                                console.console.print(
+                                    "▶ Timeout exceeded - terminating process", style="black on red"
+                                )
                             try:
                                 if is_windows:
                                     # Windows: try to signal the entire process group before terminating
@@ -338,6 +448,10 @@ class ShellRuntime:
                     combined_output = "".join(output_segments)
                     if combined_output and not combined_output.endswith("\n"):
                         combined_output += "\n"
+                    if output_truncated:
+                        combined_output += (
+                            f"[Output truncated after {self._output_byte_limit} bytes]\n"
+                        )
                     combined_output += (
                         f"(timeout after {self._timeout_seconds}s - process terminated)"
                     )
@@ -356,6 +470,10 @@ class ShellRuntime:
                     # Add explicit exit code message for the LLM
                     if combined_output and not combined_output.endswith("\n"):
                         combined_output += "\n"
+                    if output_truncated:
+                        combined_output += (
+                            f"[Output truncated after {self._output_byte_limit} bytes]\n"
+                        )
                     combined_output += f"process exit code was {return_code}"
 
                     result = CallToolResult(
@@ -369,35 +487,8 @@ class ShellRuntime:
                     )
 
                 # Display bottom separator with exit code
-                try:
-                    from rich.text import Text
-                except Exception:  # pragma: no cover
-                    Text = None  # type: ignore[assignment]
-
-                if Text:
-                    # Build bottom separator matching the style: ─| exit code 0 |─────────
-                    width = console.console.size.width
-                    exit_code_style = "red" if return_code != 0 else "dim"
-                    exit_code_text = f"exit code {return_code}"
-
-                    prefix = Text("─| ")
-                    prefix.stylize("dim")
-                    exit_text = Text(exit_code_text, style=exit_code_style)
-                    suffix = Text(" |")
-                    suffix.stylize("dim")
-
-                    separator = Text()
-                    separator.append_text(prefix)
-                    separator.append_text(exit_text)
-                    separator.append_text(suffix)
-                    remaining = width - separator.cell_len
-                    if remaining > 0:
-                        separator.append("─" * remaining, style="dim")
-
-                    console.console.print()
-                    console.console.print(separator)
-                else:
-                    console.console.print(f"exit code {return_code}", style="dim")
+                if self._show_bash_output:
+                    self._display.show_shell_exit_code(return_code)
 
                 setattr(result, "_suppress_display", True)
                 setattr(result, "exit_code", return_code)

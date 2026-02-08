@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 import httpx
 from pydantic import BaseModel, Field, computed_field
 
+from fast_agent.mcp.hf_auth import add_hf_auth_header
 from fast_agent.utils.async_utils import run_sync
 
 if TYPE_CHECKING:
@@ -34,7 +35,7 @@ class InferenceProvider(BaseModel):
     """Information about an inference provider for a model."""
 
     name: str
-    status: InferenceProviderStatus = InferenceProviderStatus.LIVE
+    status: str = InferenceProviderStatus.LIVE.value
     provider_id: str = Field(default="", alias="providerId")
     task: str = ""
     is_model_author: bool = Field(default=False, alias="isModelAuthor")
@@ -64,7 +65,7 @@ class InferenceProviderLookupResult(BaseModel):
     @property
     def live_providers(self) -> list[InferenceProvider]:
         """Return only providers with 'live' status."""
-        return [p for p in self.providers if p.status == InferenceProviderStatus.LIVE]
+        return [p for p in self.providers if p.status == InferenceProviderStatus.LIVE.value]
 
     def format_provider_list(self) -> str:
         """Format the list of live providers as a comma-separated string."""
@@ -164,12 +165,13 @@ async def lookup_inference_providers(
     if ":" in model_id:
         model_id = model_id.rsplit(":", 1)[0]
 
-    url = f"{HF_API_BASE}/{model_id}"
-    params = {"expand[]": "inferenceProviderMapping"}
+    url = f"{HF_API_BASE}/{model_id}?expand=inferenceProviderMapping"
+    params = None
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.get(url, params=params)
+            headers = add_hf_auth_header(url, None)
+            response = await client.get(url, params=params, headers=headers)
 
             if response.status_code == 401:
                 # Model does not exist

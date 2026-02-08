@@ -1,5 +1,6 @@
 """Command to check FastAgent configuration."""
 
+import os
 import platform
 import sys
 from importlib.metadata import version
@@ -10,8 +11,14 @@ import yaml
 from rich.table import Table
 from rich.text import Text
 
+from fast_agent.cli.env_helpers import resolve_environment_dir_option
+from fast_agent.config import resolve_config_search_root
+from fast_agent.core.agent_card_validation import scan_agent_card_directory
+from fast_agent.core.exceptions import ModelConfigError
+from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.provider_key_manager import API_KEY_HINT_TEXT, ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
+from fast_agent.paths import resolve_environment_paths
 from fast_agent.skills import SkillRegistry
 from fast_agent.ui.console import console
 
@@ -21,11 +28,12 @@ app = typer.Typer(
 )
 
 
-def find_config_files(start_path: Path) -> dict[str, Path | None]:
+def find_config_files(start_path: Path, env_dir: Path | None = None) -> dict[str, Path | None]:
     """Find FastAgent configuration files, preferring secrets file next to config file."""
-    from fast_agent.config import find_fastagent_config_files
+    from fast_agent.config import find_fastagent_config_files, resolve_config_search_root
 
-    config_path, secrets_path = find_fastagent_config_files(start_path)
+    search_root = resolve_config_search_root(start_path, env_dir=env_dir)
+    config_path, secrets_path = find_fastagent_config_files(search_root)
     return {
         "config": config_path,
         "secrets": secrets_path,
@@ -79,7 +87,6 @@ def check_api_keys(secrets_summary: dict, config_summary: dict) -> dict:
     """Check if API keys are configured in secrets file or environment, including Azure DefaultAzureCredential.
     Now also checks Azure config in main config file for retrocompatibility.
     """
-    import os
 
     results = {
         provider.config_name: {"env": "", "config": ""}
@@ -122,14 +129,22 @@ def check_api_keys(secrets_summary: dict, config_summary: dict) -> dict:
                 results[provider_name]["config"] = "DefaultAzureCredential"
                 continue
 
-        # Check secrets file if it was parsed successfully
+        # Check secrets file first, then fall back to main config file
+        config_key = None
         if secrets_status == "parsed":
             config_key = ProviderKeyManager.get_config_file_key(provider_name, secrets)
-            if config_key and config_key != API_KEY_HINT_TEXT:
-                if len(config_key) > 5:
-                    results[provider_name]["config"] = f"...{config_key[-5:]}"
-                else:
-                    results[provider_name]["config"] = "...***"
+
+        # Fall back to main config file if not found in secrets
+        if not config_key or config_key == API_KEY_HINT_TEXT:
+            main_config = config.get("config", {})
+            if main_config:
+                config_key = ProviderKeyManager.get_config_file_key(provider_name, main_config)
+
+        if config_key and config_key != API_KEY_HINT_TEXT:
+            if len(config_key) > 5:
+                results[provider_name]["config"] = f"...{config_key[-5:]}"
+            else:
+                results[provider_name]["config"] = "...***"
 
     return results
 
@@ -162,6 +177,7 @@ def get_config_summary(config_path: Path | None) -> dict:
             "show_tools": default_settings.logger.show_tools,
             "truncate_tools": default_settings.logger.truncate_tools,
             "enable_markup": default_settings.logger.enable_markup,
+            "enable_prompt_marks": default_settings.logger.enable_prompt_marks,
         },
         "mcp_ui_mode": default_settings.mcp_ui_mode,
         "timeline": {
@@ -186,6 +202,7 @@ def get_config_summary(config_path: Path | None) -> dict:
 
         # Mark as successfully parsed
         result["status"] = "parsed"
+        result["config"] = config  # Store raw config for API key checking
 
         if not config:
             return result
@@ -211,6 +228,9 @@ def get_config_summary(config_path: Path | None) -> dict:
                 ),
                 "enable_markup": logger_config.get(
                     "enable_markup", default_settings.logger.enable_markup
+                ),
+                "enable_prompt_marks": logger_config.get(
+                    "enable_prompt_marks", default_settings.logger.enable_prompt_marks
                 ),
             }
 
@@ -299,10 +319,11 @@ def get_config_summary(config_path: Path | None) -> dict:
     return result
 
 
-def show_check_summary() -> None:
+def show_check_summary(env_dir: Path | None = None) -> None:
     """Show a summary of checks with colorful styling."""
     cwd = Path.cwd()
-    config_files = find_config_files(cwd)
+    search_root = resolve_config_search_root(cwd, env_dir=env_dir)
+    config_files = find_config_files(cwd, env_dir=env_dir)
     system_info = get_system_info()
     config_summary = get_config_summary(config_files["config"])
     secrets_summary = get_secrets_summary(config_files["secrets"])
@@ -338,25 +359,16 @@ def show_check_summary() -> None:
     env_table.add_column("Value")
 
     # Determine keyring backend early so it can appear in the top section
-    # Also detect whether the backend is actually usable (not the fail backend)
-    keyring_usable = False
+    # Also detect whether the backend is actually writable (not just present)
     try:
         import keyring  # type: ignore
-
-        keyring_backend = keyring.get_keyring()
-        keyring_name = getattr(keyring_backend, "name", keyring_backend.__class__.__name__)
-        try:
-            # Detect the "fail" backend explicitly; it's present but unusable
-            from keyring.backends.fail import Keyring as FailKeyring  # type: ignore
-
-            keyring_usable = not isinstance(keyring_backend, FailKeyring)
-        except Exception:
-            # If we can't import the fail backend marker, assume usable
-            keyring_usable = True
     except Exception:
         keyring = None  # type: ignore
-        keyring_name = "unavailable"
-        keyring_usable = False
+
+    from fast_agent.core.keyring_utils import get_keyring_status
+
+    keyring_status = get_keyring_status()
+    keyring_name = keyring_status.name
 
     # Python info (highlight version and path in green)
     env_table.add_row(
@@ -389,22 +401,33 @@ def show_check_summary() -> None:
         )
     else:  # parsed successfully
         env_table.add_row("Config File", f"[green]Found[/green] ({config_path})")
-        default_model_value = config_summary.get("default_model", "gpt-5-mini.low (system default)")
+        default_model_value = config_summary.get(
+            "default_model", "gpt-5-mini?reasoning=low (system default)"
+        )
         env_table.add_row("Default Model", f"[green]{default_model_value}[/green]")
 
     # Keyring backend (always shown in application-level settings)
-    if keyring_usable and keyring_name != "unavailable":
-        env_table.add_row("Keyring Backend", f"[green]{keyring_name}[/green]")
+    if keyring_status.available:
+        if keyring_status.writable:
+            keyring_display = f"[green]{keyring_name}[/green]"
+        else:
+            keyring_display = f"[yellow]{keyring_name} (not writable)[/yellow]"
     else:
-        env_table.add_row("Keyring Backend", "[red]not available[/red]")
+        keyring_display = "[red]not available[/red]"
+    env_table.add_row("Keyring Backend", keyring_display)
 
     console.print(env_table)
 
     def _relative_path(path: Path) -> str:
         try:
-            return str(path.relative_to(cwd))
+            return str(path.relative_to(search_root))
         except ValueError:
             return str(path)
+
+    def _truncate(text: str, length: int = 70) -> str:
+        if len(text) <= length:
+            return text
+        return text[: length - 3] + "..."
 
     skills_override = config_summary.get("skills_directories")
     override_directories = (
@@ -412,7 +435,7 @@ def show_check_summary() -> None:
         if isinstance(skills_override, list)
         else None
     )
-    skills_registry = SkillRegistry(base_dir=cwd, directories=override_directories)
+    skills_registry = SkillRegistry(base_dir=search_root, directories=override_directories)
     skills_dirs = skills_registry.directories
     skills_manifests, skill_errors = skills_registry.load_manifests_with_errors()
 
@@ -468,6 +491,7 @@ def show_check_summary() -> None:
         ("Show Tools", bool_to_symbol(logger.get("show_tools", True))),
         ("Truncate Tools", bool_to_symbol(logger.get("truncate_tools", True))),
         ("Enable Markup", bool_to_symbol(logger.get("enable_markup", True))),
+        ("Prompt Marks", bool_to_symbol(logger.get("enable_prompt_marks", False))),
         ("Timeline Steps", f"[green]{timeline_steps}[/green]"),
         ("Timeline Interval", f"[green]{format_step_interval(timeline_step_seconds)}[/green]"),
     ]
@@ -567,6 +591,46 @@ def show_check_summary() -> None:
     _print_section_header("API Keys", color="blue")
     console.print(keys_table)
 
+    # Codex OAuth panel (separate from API keys)
+    try:
+        from datetime import datetime
+
+        from fast_agent.llm.provider.openai.codex_oauth import get_codex_token_status
+
+        codex_status = get_codex_token_status()
+        codex_table = Table(show_header=True, box=None)
+        codex_table.add_column("Token", style="white", header_style="bold bright_white")
+        codex_table.add_column("Expires", style="white", header_style="bold bright_white")
+        codex_table.add_column("Keyring", style="white", header_style="bold bright_white")
+
+        if not keyring_status.available:
+            keyring_display = "[red]not available[/red]"
+        elif not keyring_status.writable:
+            keyring_display = f"[yellow]{keyring_status.name} (not writable)[/yellow]"
+        else:
+            keyring_display = f"[green]{keyring_status.name}[/green]"
+
+        if not codex_status["present"]:
+            token_display = "[dim]Not configured[/dim]"
+            expires_display = "[dim]-[/dim]"
+        else:
+            token_display = "[bold green]OAuth token[/bold green]"
+            expires_at = codex_status.get("expires_at")
+            if expires_at:
+                expires_display = datetime.fromtimestamp(expires_at).strftime("%Y-%m-%d %H:%M")
+                if codex_status.get("expired"):
+                    expires_display = f"[red]expired {expires_display}[/red]"
+                else:
+                    expires_display = f"[green]{expires_display}[/green]"
+            else:
+                expires_display = "[green]unknown[/green]"
+
+        codex_table.add_row(token_display, expires_display, keyring_display)
+        _print_section_header("Codex OAuth", color="blue")
+        console.print(codex_table)
+    except Exception:
+        pass
+
     # MCP Servers panel (shown after API Keys)
     if config_summary.get("status") == "parsed":
         mcp_servers = config_summary.get("mcp_servers", [])
@@ -623,7 +687,12 @@ def show_check_summary() -> None:
                     persist = "keyring"
                     if cfg.auth is not None and hasattr(cfg.auth, "persist"):
                         persist = getattr(cfg.auth, "persist") or "keyring"
-                    if keyring and keyring_usable and persist == "keyring" and oauth_enabled:
+                    if (
+                        keyring
+                        and keyring_status.writable
+                        and persist == "keyring"
+                        and oauth_enabled
+                    ):
                         identity = compute_server_identity(cfg)
                         tkey = f"oauth:tokens:{identity}"
                         try:
@@ -631,8 +700,10 @@ def show_check_summary() -> None:
                         except Exception:
                             has = False
                         token_status = "[bold green]✓[/bold green]" if has else "[dim]✗[/dim]"
-                    elif persist == "keyring" and not keyring_usable and oauth_enabled:
+                    elif persist == "keyring" and not keyring_status.available and oauth_enabled:
                         token_status = "[red]not available[/red]"
+                    elif persist == "keyring" and not keyring_status.writable and oauth_enabled:
+                        token_status = "[yellow]not writable[/yellow]"
                     elif persist == "memory" and oauth_enabled:
                         token_status = "[yellow]memory[/yellow]"
 
@@ -656,11 +727,6 @@ def show_check_summary() -> None:
             skills_table.add_column("Description", style="white", header_style="bold bright_white")
             skills_table.add_column("Source", style="dim", header_style="bold bright_white")
             skills_table.add_column("Status", style="green", header_style="bold bright_white")
-
-            def _truncate(text: str, length: int = 70) -> str:
-                if len(text) <= length:
-                    return text
-                return text[: length - 3] + "..."
 
             for manifest in skills_manifests:
                 source_display = _relative_path(manifest.path.parent)
@@ -692,6 +758,134 @@ def show_check_summary() -> None:
     else:
         console.print(
             "[dim]Agent Skills not configured. Go to https://fast-agent.ai/agents/skills/[/dim]"
+        )
+
+    server_names: set[str] | None = None
+    if config_summary.get("status") == "parsed":
+        mcp_servers = config_summary.get("mcp_servers", [])
+        if isinstance(mcp_servers, list):
+            server_names = {
+                server.get("name", "")
+                for server in mcp_servers
+                if isinstance(server, dict) and server.get("name")
+            }
+
+    _print_section_header("Agent Cards", color="blue")
+    env_paths = resolve_environment_paths(override=env_dir)
+    card_directories = [
+        ("Agent Cards", env_paths.agent_cards),
+        ("Tool Cards", env_paths.tool_cards),
+    ]
+    found_card_dir = False
+    all_card_names: set[str] = set()
+    for _, directory in card_directories:
+        if not directory.is_dir():
+            continue
+        found_card_dir = True
+        entries = scan_agent_card_directory(directory, server_names=server_names)
+        for entry in entries:
+            if entry.name != "—" and entry.ignored_reason is None:
+                all_card_names.add(entry.name)
+
+    api_warning_messages: list[str] = []
+    warned_cards: set[str] = set()
+    default_agent_names: list[str] = []
+    default_agent_seen: set[str] = set()
+
+    def _should_warn_for_provider(provider: Provider) -> bool:
+        if provider in {Provider.FAST_AGENT, Provider.GENERIC}:
+            return False
+        if provider == Provider.GOOGLE:
+            cfg = config_summary.get("config") if config_summary.get("status") == "parsed" else {}
+            google_cfg = cfg.get("google", {}) if isinstance(cfg, dict) else {}
+            vertex_cfg = google_cfg.get("vertex_ai", {}) if isinstance(google_cfg, dict) else {}
+            if isinstance(vertex_cfg, dict) and vertex_cfg.get("enabled") is True:
+                return False
+        return True
+
+    for label, directory in card_directories:
+        if not directory.is_dir():
+            continue
+        console.print(f"{label} Directory: [green]{_relative_path(directory)}[/green]")
+
+        entries = scan_agent_card_directory(
+            directory,
+            server_names=server_names,
+            extra_agent_names=all_card_names,
+        )
+        if not entries:
+            console.print("[yellow]No AgentCards found in this directory[/yellow]")
+            continue
+
+        cards_table = Table(show_header=True, box=None)
+        cards_table.add_column("Name", style="cyan", header_style="bold bright_white")
+        cards_table.add_column("Type", style="white", header_style="bold bright_white")
+        cards_table.add_column("Source", style="dim", header_style="bold bright_white")
+        cards_table.add_column("Status", style="green", header_style="bold bright_white")
+
+        for entry in entries:
+            error_messages = entry.errors
+            if entry.ignored_reason:
+                status = f"[dim]ignored - {entry.ignored_reason}[/dim]"
+            elif error_messages:
+                error_text = _truncate(error_messages[0], 60)
+                if len(error_messages) > 1:
+                    error_text = f"{error_text} (+{len(error_messages) - 1} more)"
+                status = f"[red]{error_text}[/red]"
+            else:
+                status = "[green]ok[/green]"
+
+            if not entry.errors and entry.ignored_reason is None and entry.name not in warned_cards:
+                try:
+                    from fast_agent.core.agent_card_loader import load_agent_cards
+
+                    cards = load_agent_cards(entry.path)
+                except Exception:
+                    cards = []
+
+                for card in cards:
+                    config = card.agent_data.get("config")
+                    if config and getattr(config, "default", False):
+                        if card.name not in default_agent_seen:
+                            default_agent_names.append(card.name)
+                            default_agent_seen.add(card.name)
+                    model = config.model if config else None
+                    if not model:
+                        continue
+                    try:
+                        model_config = ModelFactory.parse_model_string(model)
+                    except ModelConfigError:
+                        continue
+                    provider = model_config.provider
+                    if not _should_warn_for_provider(provider):
+                        continue
+                    key_status = api_keys.get(provider.config_name)
+                    if key_status and not key_status["env"] and not key_status["config"]:
+                        api_warning_messages.append(
+                            f'Warning: Card "{card.name}" uses model "{model}" '
+                            f"({provider.display_name}) but no API key configured."
+                        )
+                        warned_cards.add(card.name)
+
+            cards_table.add_row(
+                entry.name,
+                entry.type,
+                _relative_path(entry.path),
+                status,
+            )
+
+        console.print(cards_table)
+
+    if len(default_agent_names) > 1:
+        joined = ", ".join(default_agent_names)
+        console.print(f"[yellow]Warning:[/yellow] multiple agents are set as default: {joined}")
+
+    for warning in api_warning_messages:
+        console.print(f"[yellow]{warning}[/yellow]")
+
+    if not found_card_dir:
+        console.print(
+            "[dim]No local AgentCard directories found in the fast-agent environment.[/dim]"
         )
 
     # Show help tips
@@ -774,7 +968,13 @@ def show(
 
 
 @app.callback(invoke_without_command=True)
-def main(ctx: typer.Context) -> None:
+def main(
+    ctx: typer.Context,
+    env_dir: Path | None = typer.Option(
+        None, "--env", help="Override the base fast-agent environment directory"
+    ),
+) -> None:
     """Check and diagnose FastAgent configuration."""
+    env_dir = resolve_environment_dir_option(ctx, env_dir)
     if ctx.invoked_subcommand is None:
-        show_check_summary()
+        show_check_summary(env_dir=env_dir)

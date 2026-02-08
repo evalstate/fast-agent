@@ -35,7 +35,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Awaitable, Callable
 
+from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.core.template_escape import protect_escaped_braces, restore_escaped_braces
 
 logger = get_logger(__name__)
 
@@ -105,14 +107,16 @@ class InstructionBuilder:
         "pythonVer": _get_python_version,
     }
 
-    def __init__(self, template: str):
+    def __init__(self, template: str, *, source: str | None = None):
         """
         Initialize the builder with a template string.
 
         Args:
             template: The instruction template with {{placeholder}} patterns
+            source: Optional label for diagnostics (agent name, card, etc.)
         """
         self._template = template
+        self._source = source
         self._static: dict[str, str] = {}
         self._resolvers: dict[str, Resolver] = {}
 
@@ -120,6 +124,11 @@ class InstructionBuilder:
     def template(self) -> str:
         """The original template string."""
         return self._template
+
+    @property
+    def source(self) -> str | None:
+        """Optional source label for diagnostics (agent name, card, etc.)."""
+        return self._source
 
     # ─────────────────────────────────────────────────────────────────────────
     # Source Registration (Fluent API)
@@ -188,7 +197,7 @@ class InstructionBuilder:
         Returns:
             The fully resolved instruction string
         """
-        result = self._template
+        result = protect_escaped_braces(self._template)
 
         # 1. Resolve {{url:...}} patterns
         result = self._resolve_url_patterns(result)
@@ -220,12 +229,16 @@ class InstructionBuilder:
                     value = await resolver()
                     result = result.replace(pattern, value)
                 except Exception as e:
-                    logger.warning(f"Failed to resolve {{{{placeholder}}}}: {e}")
+                    logger.warning(
+                        f"Failed to resolve {{{{{placeholder}}}}}: {e}",
+                        placeholder=placeholder,
+                        source=self._source,
+                    )
                     # Leave placeholder in place or replace with empty?
                     # For now, replace with empty to avoid confusing the LLM
                     result = result.replace(pattern, "")
 
-        return result
+        return restore_escaped_braces(result)
 
     def _resolve_url_patterns(self, text: str) -> str:
         """Resolve {{url:https://...}} patterns by fetching content."""
@@ -236,7 +249,11 @@ class InstructionBuilder:
             try:
                 return _fetch_url_content(url)
             except Exception as e:
-                logger.warning(f"Failed to fetch URL {url}: {e}")
+                logger.warning(
+                    f"Failed to fetch URL {url}: {e}",
+                    url=url,
+                    source=self._source,
+                )
                 return ""
 
         return url_pattern.sub(replace_url, text)
@@ -257,6 +274,11 @@ class InstructionBuilder:
 
         workspace_root = self._static.get("workspaceRoot")
 
+        def _should_fallback(path: Path) -> bool:
+            if not path.parts:
+                return False
+            return path.parts[0] in {".fast-agent", ".dev"}
+
         def replace_file(match: re.Match) -> str:
             file_path_str = match.group(1).strip()
             file_path = Path(file_path_str).expanduser()
@@ -272,15 +294,22 @@ class InstructionBuilder:
             # Resolve against workspaceRoot if available
             if workspace_root:
                 resolved_path = (Path(workspace_root) / file_path).resolve()
+                if _should_fallback(file_path) and not resolved_path.exists():
+                    fallback_path = (Path.cwd() / file_path).resolve()
+                    if fallback_path.exists():
+                        resolved_path = fallback_path
             else:
                 resolved_path = file_path.resolve()
 
             try:
                 return resolved_path.read_text(encoding="utf-8")
-            except FileNotFoundError:
+            except FileNotFoundError as exc:
                 if silent:
                     return ""
-                raise
+                raise AgentConfigError(
+                    "Instruction file not found for template placeholder",
+                    f"Placeholder: {{{{file:{file_path_str}}}}}\nMissing: {resolved_path}",
+                ) from exc
 
         return file_pattern.sub(replace_file, text)
 
@@ -296,7 +325,7 @@ class InstructionBuilder:
             Set of placeholder names (without braces)
         """
         # Match {{name}} but not {{url:...}}, {{file:...}}, {{file_silent:...}}
-        pattern = re.compile(r"\{\{(?!url:|file:|file_silent:)([^}]+)\}\}")
+        pattern = re.compile(r"(?<!\\)\{\{(?!url:|file:|file_silent:)([^}]+)\}\}")
         return set(pattern.findall(self._template))
 
     def get_unresolved_placeholders(self) -> Set[str]:
@@ -317,7 +346,7 @@ class InstructionBuilder:
         Returns:
             A new InstructionBuilder with copied state
         """
-        new_builder = InstructionBuilder(self._template)
+        new_builder = InstructionBuilder(self._template, source=self._source)
         new_builder._static = self._static.copy()
         new_builder._resolvers = self._resolvers.copy()
         return new_builder
@@ -328,7 +357,8 @@ class InstructionBuilder:
         template_preview = (
             self._template[:50] + "..." if len(self._template) > 50 else self._template
         )
+        source_label = f", source={self._source!r}" if self._source else ""
         return (
             f"InstructionBuilder(template={template_preview!r}, "
-            f"static={static_count}, resolvers={resolver_count})"
+            f"static={static_count}, resolvers={resolver_count}{source_label})"
         )

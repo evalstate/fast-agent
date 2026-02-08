@@ -14,6 +14,8 @@
 
 **`fast-agent`** enables you to create and interact with sophisticated multimodal Agents and Workflows in minutes. It is the first framework with complete, end-to-end tested MCP Feature support including Sampling and Elicitations.
 
+`fast-agent` is CLI-first, with an optional prompt_toolkit-powered interactive terminal prompt (TUI-style input, completions, and in-terminal menus); responses can stream live to the terminal via rich without relying on full-screen curses UIs or external GUI overlays.
+
 <!-- ![multi_model_trim](https://github.com/user-attachments/assets/c8bf7474-2c41-4ef3-8924-06e29907d7c6) -->
 
 The simple declarative syntax lets you concentrate on composing your Prompts and MCP Servers to [build effective agents](https://www.anthropic.com/research/building-effective-agents).
@@ -39,7 +41,15 @@ Recent features include:
 
 > [!IMPORTANT]
 >
-> `fast-agent` The fast-agent documentation repo is here: https://github.com/evalstate/fast-agent-docs. Please feel free to submit PRs for documentation, experience reports or other content you think others may find helpful. All help and feedback warmly received.
+> Documentation is included as a submodule. When cloning, use `--recurse-submodules` to get everything:
+> ```bash
+> git clone --recurse-submodules https://github.com/evalstate/fast-agent.git
+> ```
+> Or if you've already cloned:
+> ```bash
+> git submodule update --init --recursive
+> ```
+> The documentation source is also available at: https://github.com/evalstate/fast-agent-docs
 
 ### Agent Application Development
 
@@ -265,6 +275,20 @@ mcp:
 ```
 
 - To disable OAuth for a specific server , set `auth.oauth: false` for that server.
+
+## MCP Ping (optional)
+
+The MCP ping utility can be enabled by either peer (client or server). See the [Ping overview](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#overview).
+
+Client-side pinging is configured per server (default: 30s interval, 3 missed pings):
+
+```yaml
+mcp:
+  servers:
+    myserver:
+      ping_interval_seconds: 30 # optional; <=0 disables
+      max_missed_pings: 3 # optional; consecutive timeouts before marking failed
+```
 
 ## Workflows
 
@@ -501,7 +525,6 @@ agent["greeter"].send("Good Evening!")          # Dictionary access is supported
   name="orchestrator",                    # orchestrator agent name
   instruction="instruction",              # orchestrator instruction (routing/decomposition/aggregation)
   agents=["agent1", "agent2"],            # exposed as tools: agent__agent1, agent__agent2
-  history_mode="fork",                    # scratch|fork|fork_and_merge
   max_parallel=128,                       # cap parallel child tool calls (OpenAI limit is 128)
   child_timeout_sec=600,                  # per-child timeout (seconds)
   max_display_instances=20,               # collapse progress display after top-N instances
@@ -559,6 +582,26 @@ mcp:
 ### Interactive Shell
 
 ![fast-agent](https://github.com/user-attachments/assets/3e692103-bf97-489a-b519-2d0fee036369)
+
+## Documentation
+
+The documentation site is included as a submodule in `docs/`. To work with the docs locally:
+
+```bash
+# Install docs dependencies (first time only)
+uv run scripts/docs.py install
+
+# Generate reference docs from source code
+uv run scripts/docs.py generate
+
+# Run the dev server (http://127.0.0.1:8000)
+uv run scripts/docs.py serve
+
+# Or generate and serve in one command
+uv run scripts/docs.py all
+```
+
+The generator extracts configuration field descriptions, model aliases, and API references directly from the source code to keep documentation in sync.
 
 ## Project Notes
 

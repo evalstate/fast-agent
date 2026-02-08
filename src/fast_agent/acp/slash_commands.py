@@ -4,20 +4,27 @@ Slash Commands for ACP
 Provides slash command support for the ACP server, allowing clients to
 discover and invoke special commands with the /command syntax.
 
-Session commands (status, tools, save, clear, load) are always available.
+Session commands (status, tools, skills, history, clear, session) are always available.
 Agent-specific commands are queried from the current agent if it implements
 ACPAwareProtocol.
 """
 
 from __future__ import annotations
 
+import inspect
 import shlex
-import textwrap
 import time
 import uuid
 from importlib.metadata import version as get_version
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Protocol, runtime_checkable
+from typing import (
+    TYPE_CHECKING,
+    Awaitable,
+    Callable,
+    Iterable,
+    Sequence,
+    cast,
+)
 
 from acp.helpers import text_block, tool_content
 from acp.schema import (
@@ -28,80 +35,148 @@ from acp.schema import (
     UnstructuredCommandInput,
 )
 
-from fast_agent.agents.agent_types import AgentType
+from fast_agent.acp.command_io import ACPCommandIO
+from fast_agent.commands.context import CommandContext
+from fast_agent.commands.handlers import agent_cards as agent_card_handlers
+from fast_agent.commands.handlers import history as history_handlers
+from fast_agent.commands.handlers import model as model_handlers
+from fast_agent.commands.handlers import sessions as sessions_handlers
+from fast_agent.commands.handlers import skills as skills_handlers
+from fast_agent.commands.handlers.shared import clear_agent_histories
+from fast_agent.commands.protocols import ACPCommandAllowlistProvider, InstructionAwareAgent
+from fast_agent.commands.renderers.command_markdown import render_command_outcome_markdown
+from fast_agent.commands.renderers.history_markdown import render_history_overview_markdown
+from fast_agent.commands.renderers.session_markdown import render_session_list_markdown
+from fast_agent.commands.renderers.skills_markdown import (
+    render_marketplace_skills,
+    render_skill_list,
+    render_skills_by_directory,
+    render_skills_registry_overview,
+    render_skills_remove_list,
+)
+from fast_agent.commands.renderers.status_markdown import (
+    render_permissions_markdown,
+    render_status_markdown,
+    render_system_prompt_markdown,
+)
+from fast_agent.commands.renderers.tools_markdown import render_tools_markdown
+from fast_agent.commands.session_summaries import build_session_list_summary
+from fast_agent.commands.status_summaries import (
+    build_permissions_summary,
+    build_status_summary,
+    build_system_prompt_summary,
+)
+from fast_agent.commands.tool_summaries import build_tool_summaries
 from fast_agent.config import get_settings
-from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
-from fast_agent.core.agent_tools import add_tools_for_agents
 from fast_agent.core.instruction_refresh import rebuild_agent_instruction
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.history.history_exporter import HistoryExporter
 from fast_agent.interfaces import ACPAwareProtocol, AgentProtocol
-from fast_agent.llm.model_info import ModelInfo
-from fast_agent.mcp.helpers.content_helpers import get_text
-from fast_agent.mcp.prompts.prompt_load import load_history_into_agent
+from fast_agent.paths import resolve_environment_paths
+from fast_agent.skills import SKILLS_DEFAULT
 from fast_agent.skills.manager import (
-    MarketplaceSkill,
+    DEFAULT_SKILL_REGISTRIES,
     candidate_marketplace_urls,
     fetch_marketplace_skills,
     fetch_marketplace_skills_with_source,
     format_marketplace_display_url,
     get_manager_directory,
     get_marketplace_url,
-    install_marketplace_skill,
     list_local_skills,
     reload_skill_manifests,
-    remove_local_skill,
     resolve_skill_directories,
-    select_manifest_by_name_or_index,
-    select_skill_by_name_or_index,
 )
 from fast_agent.skills.registry import SkillManifest, format_skills_for_prompt
-from fast_agent.types.conversation_summary import ConversationSummary
-from fast_agent.utils.time import format_duration
 
 if TYPE_CHECKING:
-    from mcp.types import ListToolsResult, Tool
+    from collections.abc import Mapping
 
+    from mcp.types import ListToolsResult
+
+    from fast_agent.acp.acp_context import ACPContext
+    from fast_agent.commands.context import AgentProvider
+    from fast_agent.commands.results import CommandOutcome
     from fast_agent.core.fastagent import AgentInstance
-    from fast_agent.skills.registry import SkillRegistry
 
 
-@runtime_checkable
-class WarningAwareAgent(Protocol):
-    @property
-    def warnings(self) -> list[str]: ...
+class _SimpleAgentProvider:
+    def __init__(self, agents: "Mapping[str, object]") -> None:
+        self._agents = agents
 
-    @property
-    def skill_registry(self) -> "SkillRegistry | None": ...
+    def _agent(self, name: str):
+        return self._agents[name]
 
+    def agent_names(self) -> Iterable[str]:
+        return list(self._agents.keys())
 
-@runtime_checkable
-class InstructionAwareAgent(Protocol):
-    @property
-    def name(self) -> str: ...
-
-    @property
-    def instruction(self) -> str | None: ...
+    async def list_prompts(self, namespace: str | None, agent_name: str | None = None) -> object:
+        return {}
 
 
-@runtime_checkable
-class ACPCommandAllowlistProvider(Protocol):
-    @property
-    def acp_session_commands_allowlist(self) -> set[str] | None: ...
+class _ACPAgentCardManager:
+    def __init__(self, handler: "SlashCommandHandler") -> None:
+        self._handler = handler
 
+    def can_load_agent_cards(self) -> bool:
+        return self._handler._card_loader is not None
 
-@runtime_checkable
-class ParallelAgentProtocol(Protocol):
-    @property
-    def fan_out_agents(self) -> list[AgentProtocol] | None: ...
+    def can_dump_agent_cards(self) -> bool:
+        return self._handler._dump_agent_callback is not None
 
-    @property
-    def fan_in_agent(self) -> AgentProtocol | None: ...
+    def can_attach_agent_tools(self) -> bool:
+        return self._handler._attach_agent_callback is not None
 
+    def can_detach_agent_tools(self) -> bool:
+        return self._handler._detach_agent_callback is not None
 
-@runtime_checkable
-class HfDisplayInfoProvider(Protocol):
-    def get_hf_display_info(self) -> dict[str, Any]: ...
+    def can_reload_agents(self) -> bool:
+        return self._handler._reload_callback is not None
+
+    async def load_agent_card(
+        self, source: str, parent_agent: str | None = None
+    ) -> tuple[list[str], list[str]]:
+        if not self._handler._card_loader:
+            raise RuntimeError("AgentCard loading is not available.")
+        instance, loaded_names, attached_names = await self._handler._card_loader(
+            source, parent_agent
+        )
+        self._handler.instance = instance
+        return loaded_names, attached_names
+
+    async def dump_agent_card(self, agent_name: str) -> str:
+        if not self._handler._dump_agent_callback:
+            raise RuntimeError("AgentCard dumping is not available.")
+        return await self._handler._dump_agent_callback(agent_name)
+
+    async def attach_agent_tools(
+        self, parent_agent: str, child_agents: Sequence[str]
+    ) -> list[str]:
+        if not self._handler._attach_agent_callback:
+            raise RuntimeError("Agent tool attachment is not available.")
+        instance, attached_names = await self._handler._attach_agent_callback(
+            parent_agent, list(child_agents)
+        )
+        self._handler.instance = instance
+        return attached_names
+
+    async def detach_agent_tools(
+        self, parent_agent: str, child_agents: Sequence[str]
+    ) -> list[str]:
+        if not self._handler._detach_agent_callback:
+            raise RuntimeError("Agent tool detachment is not available.")
+        instance, removed_names = await self._handler._detach_agent_callback(
+            parent_agent, list(child_agents)
+        )
+        self._handler.instance = instance
+        return removed_names
+
+    async def reload_agents(self) -> bool:
+        if not self._handler._reload_callback:
+            return False
+        return await self._handler._reload_callback()
+
+    def agent_names(self) -> Iterable[str]:
+        return list(self._handler.instance.agents.keys())
 
 
 class SlashCommandHandler:
@@ -118,8 +193,23 @@ class SlashCommandHandler:
         client_capabilities: dict | None = None,
         protocol_version: int | None = None,
         session_instructions: dict[str, str] | None = None,
-        card_loader: Callable[[str], Awaitable[tuple["AgentInstance", list[str]]]] | None = None,
+        card_loader: Callable[
+            [str, str | None], Awaitable[tuple["AgentInstance", list[str], list[str]]]
+        ]
+        | None = None,
+        attach_agent_callback: Callable[
+            [str, Sequence[str]], Awaitable[tuple["AgentInstance", list[str]]]
+        ]
+        | None = None,
+        detach_agent_callback: Callable[
+            [str, Sequence[str]], Awaitable[tuple["AgentInstance", list[str]]]
+        ]
+        | None = None,
+        dump_agent_callback: Callable[[str], Awaitable[str]] | None = None,
         reload_callback: Callable[[], Awaitable[bool]] | None = None,
+        set_current_mode_callback: Callable[[str], Awaitable[None] | None] | None = None,
+        instruction_resolver: Callable[[str], Awaitable[str | None]] | None = None,
+        noenv: bool = False,
     ):
         """
         Initialize the slash command handler.
@@ -150,7 +240,14 @@ class SlashCommandHandler:
         self.protocol_version = protocol_version
         self._session_instructions = session_instructions or {}
         self._card_loader = card_loader
+        self._attach_agent_callback = attach_agent_callback
+        self._detach_agent_callback = detach_agent_callback
+        self._dump_agent_callback = dump_agent_callback
         self._reload_callback = reload_callback
+        self._set_current_mode_callback = set_current_mode_callback
+        self._instruction_resolver = instruction_resolver
+        self._noenv = noenv
+        self._acp_context: ACPContext | None = None
 
         # Session-level commands (always available, operate on current agent)
         self._session_commands: dict[str, AvailableCommand] = {
@@ -173,33 +270,53 @@ class SlashCommandHandler:
                     root=UnstructuredCommandInput(hint="[add|remove|registry] [name|number|url]")
                 ),
             ),
-            "save": AvailableCommand(
-                name="save",
-                description="Save conversation history",
-                input=None,
+            "model": AvailableCommand(
+                name="model",
+                description="Update model settings",
+                input=AvailableCommandInput(
+                    root=UnstructuredCommandInput(hint="reasoning <value> | verbosity <value>")
+                ),
+            ),
+            "history": AvailableCommand(
+                name="history",
+                description="Show or manage conversation history",
+                input=AvailableCommandInput(
+                    root=UnstructuredCommandInput(hint="[show|save|load] [args]")
+                ),
             ),
             "clear": AvailableCommand(
                 name="clear",
                 description="Clear history (`last` for prev. turn)",
                 input=AvailableCommandInput(root=UnstructuredCommandInput(hint="[last]")),
             ),
-            "load": AvailableCommand(
-                name="load",
-                description="Load conversation history from file",
-                input=AvailableCommandInput(root=UnstructuredCommandInput(hint="<filename>")),
+            "session": AvailableCommand(
+                name="session",
+                description="List or manage sessions",
+                input=AvailableCommandInput(
+                    root=UnstructuredCommandInput(
+                        hint="[list|new|resume|title|fork|clear] [args]"
+                    )
+                ),
             ),
             "card": AvailableCommand(
                 name="card",
                 description="Load an AgentCard from file or URL",
                 input=AvailableCommandInput(
-                    root=UnstructuredCommandInput(hint="<filename|url> [--tool]")
+                    root=UnstructuredCommandInput(hint="<filename|url> [--tool [remove]]")
+                ),
+            ),
+            "agent": AvailableCommand(
+                name="agent",
+                description="Attach an agent as a tool or dump its AgentCard",
+                input=AvailableCommandInput(
+                    root=UnstructuredCommandInput(hint="<@name> [--tool [remove]|--dump]")
                 ),
             ),
         }
         if self._reload_callback is not None:
             self._session_commands["reload"] = AvailableCommand(
                 name="reload",
-                description="Reload AgentCards from disk",
+                description="Reload AgentCards",
                 input=None,
             )
 
@@ -222,6 +339,10 @@ class SlashCommandHandler:
                 )
 
         return commands
+
+    def set_acp_context(self, acp_context: ACPContext | None) -> None:
+        """Set the ACP context for this handler."""
+        self._acp_context = acp_context
 
     def _get_allowed_session_commands(self) -> dict[str, AvailableCommand]:
         """
@@ -259,6 +380,17 @@ class SlashCommandHandler:
             agent_name: Name of the agent to use for slash commands
         """
         self.current_agent_name = agent_name
+
+    async def _switch_current_mode(self, agent_name: str) -> bool:
+        """Switch current mode for ACP session state if available."""
+        if agent_name not in self.instance.agents:
+            return False
+        self.set_current_agent(agent_name)
+        if self._set_current_mode_callback:
+            result = self._set_current_mode_callback(agent_name)
+            if inspect.isawaitable(result):
+                await result
+        return True
 
     def update_session_instruction(self, agent_name: str, instruction: str | None) -> None:
         """
@@ -300,6 +432,61 @@ class SlashCommandHandler:
             missing_template or f"Agent '{self.current_agent_name}' not found for this session."
         )
         return None, "\n".join([heading, "", message])
+
+    def _build_command_context(self) -> CommandContext:
+        settings = get_settings()
+        provider = getattr(self.instance, "app", None)
+        if provider is None:
+            provider = _SimpleAgentProvider(self.instance.agents)
+        return CommandContext(
+            agent_provider=cast("AgentProvider", provider),
+            current_agent_name=self.current_agent_name,
+            io=ACPCommandIO(),
+            settings=settings,
+            noenv=self._noenv,
+        )
+
+    def _format_outcome_as_markdown(
+        self,
+        outcome: CommandOutcome,
+        heading: str,
+        *,
+        io: ACPCommandIO | None = None,
+    ) -> str:
+        extra_messages = io.messages if io else None
+        return render_command_outcome_markdown(
+            outcome,
+            heading=heading,
+            extra_messages=extra_messages,
+        )
+
+    async def _send_session_info_update(self) -> None:
+        if self._acp_context is None:
+            return
+        if self._noenv:
+            return
+        from fast_agent.session import extract_session_title, get_session_manager
+
+        manager = get_session_manager()
+        session = manager.current_session
+        if session is None:
+            return
+
+        title = extract_session_title(session.info.metadata)
+        if title is None:
+            return
+
+        try:
+            await self._acp_context.send_session_info_update(
+                title=title,
+                updated_at=session.info.last_activity.isoformat(),
+            )
+        except Exception as exc:
+            self._logger.debug(
+                "Failed to send ACP session info update",
+                session_id=self.session_id,
+                error=str(exc),
+            )
 
     def is_slash_command(self, prompt_text: str) -> bool:
         """Check if the prompt text is a slash command."""
@@ -348,14 +535,18 @@ class SlashCommandHandler:
                 return await self._handle_tools()
             if command_name == "skills":
                 return await self._handle_skills(arguments)
-            if command_name == "save":
-                return await self._handle_save(arguments)
+            if command_name == "history":
+                return await self._handle_history(arguments)
             if command_name == "clear":
                 return await self._handle_clear(arguments)
-            if command_name == "load":
-                return await self._handle_load(arguments)
+            if command_name == "model":
+                return await self._handle_model(arguments)
+            if command_name == "session":
+                return await self._handle_session(arguments)
             if command_name == "card":
                 return await self._handle_card(arguments)
+            if command_name == "agent":
+                return await self._handle_agent(arguments)
             if command_name == "reload":
                 return await self._handle_reload()
 
@@ -372,9 +563,133 @@ class SlashCommandHandler:
             f"  /{cmd.name} - {cmd.description}" for cmd in available
         )
 
+    async def _handle_history(self, arguments: str | None = None) -> str:
+        """Handle the /history command."""
+        remainder = (arguments or "").strip()
+        if not remainder:
+            return await self._render_history_overview()
+
+        try:
+            tokens = shlex.split(remainder)
+        except ValueError:
+            tokens = remainder.split(maxsplit=1)
+
+        if not tokens:
+            return await self._render_history_overview()
+
+        subcmd = tokens[0].lower()
+        argument = remainder[len(tokens[0]) :].strip()
+
+        if subcmd in {"show", "list"}:
+            return await self._render_history_overview()
+        if subcmd == "save":
+            return await self._handle_save(argument)
+        if subcmd == "load":
+            return await self._handle_load(argument)
+
+        return "\n".join(
+            [
+                "# history",
+                "",
+                f"Unknown /history action: {subcmd}",
+                "Usage: /history [show|save|load] [args]",
+            ]
+        )
+
+    async def _handle_model(self, arguments: str | None = None) -> str:
+        remainder = (arguments or "").strip()
+        value = None
+        return_value = "reasoning"
+        if remainder:
+            try:
+                tokens = shlex.split(remainder)
+            except ValueError:
+                tokens = remainder.split(maxsplit=1)
+
+            if tokens:
+                subcmd = tokens[0].lower()
+                argument = remainder[len(tokens[0]) :].strip()
+                if subcmd == "verbosity":
+                    return_value = "verbosity"
+                    value = argument or None
+                elif subcmd == "reasoning":
+                    value = argument or None
+                else:
+                    return "Usage: /model reasoning <value> | /model verbosity <value>"
+
+        io = ACPCommandIO()
+        ctx = CommandContext(
+            agent_provider=_SimpleAgentProvider(self.instance.agents),
+            current_agent_name=self.current_agent_name,
+            io=io,
+            noenv=self._noenv,
+        )
+        if return_value == "verbosity":
+            outcome = await model_handlers.handle_model_verbosity(
+                ctx,
+                agent_name=self.current_agent_name,
+                value=value,
+            )
+        else:
+            outcome = await model_handlers.handle_model_reasoning(
+                ctx,
+                agent_name=self.current_agent_name,
+                value=value,
+            )
+        return render_command_outcome_markdown(outcome, heading="model")
+
+    async def _handle_session(self, arguments: str | None = None) -> str:
+        """Handle the /session command."""
+        if self._noenv:
+            return "\n".join(
+                [
+                    "# session",
+                    "",
+                    "Session commands are disabled in --noenv mode.",
+                ]
+            )
+
+        remainder = (arguments or "").strip()
+        if not remainder:
+            return self._render_session_list()
+
+        try:
+            tokens = shlex.split(remainder)
+        except ValueError:
+            tokens = remainder.split(maxsplit=1)
+
+        if not tokens:
+            return self._render_session_list()
+
+        subcmd = tokens[0].lower()
+        argument = remainder[len(tokens[0]) :].strip()
+
+        if subcmd == "list":
+            return self._render_session_list()
+        if subcmd == "new":
+            return await self._handle_session_new(argument)
+        if subcmd == "resume":
+            return await self._handle_session_resume(argument)
+        if subcmd == "title":
+            return await self._handle_session_title(argument)
+        if subcmd == "fork":
+            return await self._handle_session_fork(argument)
+        if subcmd in {"delete", "clear"}:
+            return await self._handle_session_delete(argument)
+        if subcmd == "pin":
+            return await self._handle_session_pin(argument)
+
+        return "\n".join(
+            [
+                "# session",
+                "",
+                f"Unknown /session action: {subcmd}",
+                "Usage: /session [list|new|resume|title|fork|delete|pin] [args]",
+            ]
+        )
+
     async def _handle_status(self, arguments: str | None = None) -> str:
         """Handle the /status command."""
-        # Check for subcommands
         normalized = (arguments or "").strip().lower()
         if normalized == "system":
             return await self._handle_status_system()
@@ -383,195 +698,23 @@ class SlashCommandHandler:
         if normalized == "authreset":
             return self._handle_status_authreset()
 
-        # Get fast-agent version
         try:
             fa_version = get_version("fast-agent-mcp")
         except Exception:
             fa_version = "unknown"
 
-        # Get model information from current agent (not primary)
         agent = self._get_current_agent()
-
-        # Check if this is a PARALLEL agent
-        is_parallel_agent = agent is not None and agent.agent_type == AgentType.PARALLEL
-
-        # For non-parallel agents, extract standard model info
-        model_name = "unknown"
-        model_provider = "unknown"
-        model_provider_display = "unknown"
-        context_window = "unknown"
-        capabilities_line = "Capabilities: unknown"
-
-        if agent and not is_parallel_agent and agent.llm:
-            model_info = ModelInfo.from_llm(agent.llm)
-            if model_info:
-                model_name = model_info.name
-                model_provider = str(model_info.provider.value)
-                model_provider_display = model_info.provider.display_name
-                if model_info.context_window:
-                    context_window = f"{model_info.context_window} tokens"
-                capability_parts = []
-                if model_info.supports_text:
-                    capability_parts.append("Text")
-                if model_info.supports_document:
-                    capability_parts.append("Document")
-                if model_info.supports_vision:
-                    capability_parts.append("Vision")
-                if capability_parts:
-                    capabilities_line = f"Capabilities: {', '.join(capability_parts)}"
-
-        # Get conversation statistics
-        summary_stats = self._get_conversation_stats(agent)
-
-        # Format the status response
-        status_lines = [
-            "# fast-agent ACP status",
-            "",
-            "## Version",
-            f"fast-agent-mcp: {fa_version} - https://fast-agent.ai/",
-            "",
-        ]
-
-        # Add client information if available
-        if self.client_info or self.client_capabilities:
-            status_lines.extend(["## Client Information", ""])
-
-            if self.client_info:
-                client_name = self.client_info.get("name", "unknown")
-                client_version = self.client_info.get("version", "unknown")
-                client_title = self.client_info.get("title")
-
-                if client_title:
-                    status_lines.append(f"Client: {client_title} ({client_name})")
-                else:
-                    status_lines.append(f"Client: {client_name}")
-                status_lines.append(f"Client Version: {client_version}")
-
-            if self.protocol_version:
-                status_lines.append(f"ACP Protocol Version: {self.protocol_version}")
-
-            if self.client_capabilities:
-                # Filesystem capabilities
-                if "fs" in self.client_capabilities:
-                    fs_caps = self.client_capabilities["fs"]
-                    if fs_caps:
-                        for key, value in fs_caps.items():
-                            status_lines.append(f"  - {key}: {value}")
-
-                # Terminal capability
-                if "terminal" in self.client_capabilities:
-                    status_lines.append(f"  - Terminal: {self.client_capabilities['terminal']}")
-
-                # Meta capabilities
-                if "_meta" in self.client_capabilities:
-                    meta_caps = self.client_capabilities["_meta"]
-                    if meta_caps:
-                        status_lines.append("Meta:")
-                        for key, value in meta_caps.items():
-                            status_lines.append(f"  - {key}: {value}")
-
-            status_lines.append("")
-
-        # Build model section based on agent type
-        if is_parallel_agent:
-            # Special handling for PARALLEL agents
-            status_lines.append("## Active Models (Parallel Mode)")
-            status_lines.append("")
-
-            # Display fan-out agents
-            fan_out_agents = (
-                agent.fan_out_agents if isinstance(agent, ParallelAgentProtocol) else None
-            )
-            if fan_out_agents:
-                status_lines.append(f"### Fan-Out Agents ({len(fan_out_agents)})")
-                for idx, fan_out_agent in enumerate(fan_out_agents, 1):
-                    agent_name = fan_out_agent.name
-                    status_lines.append(f"**{idx}. {agent_name}**")
-
-                    # Get model info for this fan-out agent
-                    if fan_out_agent.llm:
-                        model_info = ModelInfo.from_llm(fan_out_agent.llm)
-                        if model_info:
-                            provider_display = model_info.provider.display_name
-                            status_lines.append(f"  - Provider: {provider_display}")
-                            status_lines.append(f"  - Model: {model_info.name}")
-                            if model_info.context_window:
-                                status_lines.append(
-                                    f"  - Context Window: {model_info.context_window} tokens"
-                                )
-                    else:
-                        status_lines.append("  - Model: unknown")
-
-                    status_lines.append("")
-            else:
-                status_lines.append("Fan-Out Agents: none configured")
-                status_lines.append("")
-
-            # Display fan-in agent
-            fan_in_agent = agent.fan_in_agent if isinstance(agent, ParallelAgentProtocol) else None
-            if fan_in_agent:
-                fan_in_name = fan_in_agent.name
-                status_lines.append(f"### Fan-In Agent: {fan_in_name}")
-
-                # Get model info for fan-in agent
-                if fan_in_agent.llm:
-                    model_info = ModelInfo.from_llm(fan_in_agent.llm)
-                    if model_info:
-                        provider_display = model_info.provider.display_name
-                        status_lines.append(f"  - Provider: {provider_display}")
-                        status_lines.append(f"  - Model: {model_info.name}")
-                        if model_info.context_window:
-                            status_lines.append(
-                                f"  - Context Window: {model_info.context_window} tokens"
-                            )
-                else:
-                    status_lines.append("  - Model: unknown")
-
-                status_lines.append("")
-            else:
-                status_lines.append("Fan-In Agent: none configured")
-                status_lines.append("")
-
-        else:
-            # Standard single-model display
-            provider_line = f"{model_provider}"
-            if model_provider_display != "unknown":
-                provider_line = f"{model_provider_display} ({model_provider})"
-
-            # For HuggingFace, add the routing provider info
-            if agent and agent.llm and isinstance(agent.llm, HfDisplayInfoProvider):
-                hf_info = agent.llm.get_hf_display_info()
-                if hf_info:
-                    hf_provider = hf_info.get("provider", "auto-routing")
-                    provider_line = f"{model_provider_display} ({model_provider}) / {hf_provider}"
-
-            status_lines.extend(
-                [
-                    "## Active Model",
-                    f"- Provider: {provider_line}",
-                    f"- Model: {model_name}",
-                    f"- Context Window: {context_window}",
-                    f"- {capabilities_line}",
-                    "",
-                ]
-            )
-
-        # Add conversation statistics
-        status_lines.append(
-            f"## Conversation Statistics ({agent.name if agent else 'Unknown'})"
-        )
-
         uptime_seconds = max(time.time() - self._created_at, 0.0)
-        status_lines.extend(summary_stats)
-        status_lines.extend(["", f"ACP Agent Uptime: {format_duration(uptime_seconds)}"])
-        status_lines.extend(["", "## Error Handling"])
-        status_lines.extend(self._get_error_handling_report(agent))
-        warning_report = self._get_warning_report(agent)
-        if warning_report:
-            status_lines.append("")
-            status_lines.extend(warning_report)
-
-        return "\n".join(status_lines)
+        summary = build_status_summary(
+            fast_agent_version=fa_version,
+            agent=agent,
+            client_info=self.client_info,
+            client_capabilities=self.client_capabilities,
+            protocol_version=str(self.protocol_version) if self.protocol_version is not None else None,
+            uptime_seconds=uptime_seconds,
+            instance=self.instance,
+        )
+        return render_status_markdown(summary, heading="fast-agent ACP status")
 
     async def _handle_status_system(self) -> str:
         """Handle the /status system command to show the system prompt."""
@@ -581,125 +724,235 @@ class SlashCommandHandler:
         if error:
             return error
 
-        agent_name = (
-            agent.name if isinstance(agent, InstructionAwareAgent) else self.current_agent_name
+        if self._instruction_resolver:
+            try:
+                refreshed = await self._instruction_resolver(self.current_agent_name)
+            except Exception as exc:
+                self._logger.debug(
+                    "Failed to refresh session instruction",
+                    agent_name=self.current_agent_name,
+                    error=str(exc),
+                )
+            else:
+                if refreshed:
+                    self.update_session_instruction(self.current_agent_name, refreshed)
+                    if isinstance(agent, InstructionAwareAgent):
+                        self.update_session_instruction(agent.name, refreshed)
+
+        summary = build_system_prompt_summary(
+            agent=agent,
+            session_instructions=self._session_instructions,
+            current_agent_name=self.current_agent_name,
+        )
+        return render_system_prompt_markdown(summary, heading="system prompt")
+
+    async def _render_history_overview(self) -> str:
+        """Render a lightweight conversation history overview."""
+        heading = "# conversation history"
+        agent, error = self._get_current_agent_or_error(heading)
+        if error:
+            return error
+        assert agent is not None
+
+        ctx = self._build_command_context()
+        io = cast("ACPCommandIO", ctx.io)
+        await history_handlers.handle_show_history(
+            ctx,
+            agent_name=self.current_agent_name,
+        )
+        if not io.history_overview:
+            return "\n".join([heading, "", "No messages yet."])
+
+        return render_history_overview_markdown(
+            io.history_overview,
+            heading="conversation history",
         )
 
-        system_prompt = None
-        if agent_name in self._session_instructions:
-            system_prompt = self._session_instructions[agent_name]
-        elif isinstance(agent, InstructionAwareAgent):
-            system_prompt = agent.instruction
-        if not system_prompt:
+    def _render_session_list(self) -> str:
+        """Render a list of recent sessions."""
+        if self._noenv:
             return "\n".join(
                 [
-                    heading,
+                    "# sessions",
                     "",
-                    "No system prompt available for this agent.",
+                    "Session commands are disabled in --noenv mode.",
                 ]
             )
+        summary = build_session_list_summary()
+        return render_session_list_markdown(summary, heading="sessions")
 
-        # Format the response
-        lines = [
-            heading,
-            "",
-            f"**Agent:** {agent_name}",
-            "",
-            system_prompt,
-        ]
+    async def _handle_session_resume(self, argument: str) -> str:
+        session_id = argument or None
+        ctx = self._build_command_context()
+        io = cast("ACPCommandIO", ctx.io)
+        outcome = await sessions_handlers.handle_resume_session(
+            ctx,
+            agent_name=self.current_agent_name,
+            session_id=session_id,
+        )
+        if outcome.switch_agent:
+            await self._switch_current_mode(outcome.switch_agent)
+        return self._format_outcome_as_markdown(outcome, "session resume", io=io)
 
-        return "\n".join(lines)
+    async def _handle_session_title(self, argument: str) -> str:
+        ctx = self._build_command_context()
+        io = cast("ACPCommandIO", ctx.io)
+        title = argument.strip() or None
+        outcome = await sessions_handlers.handle_title_session(
+            ctx,
+            title=title,
+            session_id=self.session_id,
+        )
+        if title:
+            await self._send_session_info_update()
+        return self._format_outcome_as_markdown(outcome, "session title", io=io)
+
+    async def _handle_session_fork(self, argument: str) -> str:
+        ctx = self._build_command_context()
+        io = cast("ACPCommandIO", ctx.io)
+        outcome = await sessions_handlers.handle_fork_session(
+            ctx,
+            title=argument.strip() or None,
+        )
+        return self._format_outcome_as_markdown(outcome, "session fork", io=io)
+
+    async def _handle_session_new(self, argument: str) -> str:
+        ctx = self._build_command_context()
+        io = cast("ACPCommandIO", ctx.io)
+        outcome = await sessions_handlers.handle_create_session(
+            ctx,
+            session_name=argument.strip() or None,
+        )
+        cleared = clear_agent_histories(self.instance.agents, self._logger)
+        if cleared:
+            cleared_list = ", ".join(sorted(cleared))
+            outcome.add_message(
+                f"Cleared agent history: {cleared_list}",
+                channel="info",
+            )
+        return self._format_outcome_as_markdown(outcome, "session new", io=io)
+
+    async def _handle_session_delete(self, argument: str) -> str:
+        ctx = self._build_command_context()
+        io = cast("ACPCommandIO", ctx.io)
+        outcome = await sessions_handlers.handle_clear_sessions(
+            ctx,
+            target=argument.strip() or None,
+        )
+        return self._format_outcome_as_markdown(outcome, "session delete", io=io)
+
+    async def _handle_session_pin(self, argument: str) -> str:
+        ctx = self._build_command_context()
+        io = cast("ACPCommandIO", ctx.io)
+        pin_argument = argument.strip() if argument else ""
+        value: str | None = None
+        target: str | None = None
+        if pin_argument:
+            try:
+                pin_tokens = shlex.split(pin_argument)
+            except ValueError:
+                pin_tokens = pin_argument.split(maxsplit=1)
+            if pin_tokens:
+                first = pin_tokens[0].lower()
+                value_tokens = {
+                    "on",
+                    "off",
+                    "toggle",
+                    "true",
+                    "false",
+                    "yes",
+                    "no",
+                    "enable",
+                    "enabled",
+                    "disable",
+                    "disabled",
+                }
+                if first in value_tokens:
+                    value = first
+                    target = " ".join(pin_tokens[1:]).strip() or None
+                else:
+                    target = pin_argument
+        outcome = await sessions_handlers.handle_pin_session(
+            ctx,
+            value=value,
+            target=target,
+        )
+        return self._format_outcome_as_markdown(outcome, "session pin", io=io)
+
 
     def _handle_status_auth(self) -> str:
         """Handle the /status auth command to show permissions from auths.md."""
-        heading = "# permissions"
-        auths_path = Path("./.fast-agent/auths.md")
+        heading = "permissions"
+        auths_path = resolve_environment_paths().permissions_file
         resolved_path = auths_path.resolve()
 
         if not auths_path.exists():
-            return "\n".join(
-                [
-                    heading,
-                    "",
-                    "No permissions set",
-                    "",
-                    f"Path: `{resolved_path}`",
-                ]
+            summary = build_permissions_summary(
+                heading=heading,
+                message="No permissions set",
+                path=str(resolved_path),
             )
+            return render_permissions_markdown(summary)
 
         try:
             content = auths_path.read_text(encoding="utf-8")
-            return "\n".join(
-                [
-                    heading,
-                    "",
-                    content.strip() if content.strip() else "No permissions set",
-                    "",
-                    f"Path: `{resolved_path}`",
-                ]
+            message = content.strip() if content.strip() else "No permissions set"
+            summary = build_permissions_summary(
+                heading=heading,
+                message=message,
+                path=str(resolved_path),
             )
+            return render_permissions_markdown(summary)
         except Exception as exc:
-            return "\n".join(
-                [
-                    heading,
-                    "",
-                    f"Failed to read permissions file: {exc}",
-                    "",
-                    f"Path: `{resolved_path}`",
-                ]
+            summary = build_permissions_summary(
+                heading=heading,
+                message=f"Failed to read permissions file: {exc}",
+                path=str(resolved_path),
             )
+            return render_permissions_markdown(summary)
 
     def _handle_status_authreset(self) -> str:
         """Handle the /status authreset command to remove the auths.md file."""
-        heading = "# reset permissions"
-        auths_path = Path("./.fast-agent/auths.md")
+        heading = "reset permissions"
+        auths_path = resolve_environment_paths().permissions_file
         resolved_path = auths_path.resolve()
 
         if not auths_path.exists():
-            return "\n".join(
-                [
-                    heading,
-                    "",
-                    "No permissions file exists.",
-                    "",
-                    f"Path: `{resolved_path}`",
-                ]
+            summary = build_permissions_summary(
+                heading=heading,
+                message="No permissions file exists.",
+                path=str(resolved_path),
             )
+            return render_permissions_markdown(summary)
 
         try:
             auths_path.unlink()
-            return "\n".join(
-                [
-                    heading,
-                    "",
-                    "Permissions file removed successfully.",
-                    "",
-                    f"Path: `{resolved_path}`",
-                ]
+            summary = build_permissions_summary(
+                heading=heading,
+                message="Permissions file removed successfully.",
+                path=str(resolved_path),
             )
+            return render_permissions_markdown(summary)
         except Exception as exc:
-            return "\n".join(
-                [
-                    heading,
-                    "",
-                    f"Failed to remove permissions file: {exc}",
-                    "",
-                    f"Path: `{resolved_path}`",
-                ]
+            summary = build_permissions_summary(
+                heading=heading,
+                message=f"Failed to remove permissions file: {exc}",
+                path=str(resolved_path),
             )
+            return render_permissions_markdown(summary)
 
     async def _handle_tools(self) -> str:
         """List available tools for the current agent."""
-        heading = "# tools"
+        heading = "tools"
 
-        agent, error = self._get_current_agent_or_error(heading)
+        agent, error = self._get_current_agent_or_error(f"# {heading}")
         if error:
             return error
 
         if not isinstance(agent, AgentProtocol):
             return "\n".join(
                 [
-                    heading,
+                    f"# {heading}",
                     "",
                     "This agent does not support tool listing.",
                 ]
@@ -707,10 +960,10 @@ class SlashCommandHandler:
 
         try:
             tools_result: "ListToolsResult" = await agent.list_tools()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001
             return "\n".join(
                 [
-                    heading,
+                    f"# {heading}",
                     "",
                     "Failed to fetch tools from the agent.",
                     f"Details: {exc}",
@@ -721,18 +974,14 @@ class SlashCommandHandler:
         if not tools:
             return "\n".join(
                 [
-                    heading,
+                    f"# {heading}",
                     "",
                     "No MCP tools available for this agent.",
                 ]
             )
 
-        lines = [heading, ""]
-        for index, tool in enumerate(tools, start=1):
-            lines.extend(self._format_tool_lines(tool, index))
-            lines.append("")
-
-        return "\n".join(lines).strip()
+        summaries = build_tool_summaries(agent, list(tools))
+        return render_tools_markdown(summaries, heading=heading)
 
     async def _handle_skills(self, arguments: str | None = None) -> str:
         """Manage local skills (list/add/remove)."""
@@ -757,26 +1006,17 @@ class SlashCommandHandler:
 
         # Get configured registries from settings
         settings = get_settings()
-        configured_urls = settings.skills.marketplace_urls or []
+        configured_urls = settings.skills.marketplace_urls or list(DEFAULT_SKILL_REGISTRIES)
 
         if not argument:
             current = get_marketplace_url(settings)
             display_current = format_marketplace_display_url(current)
-
-            lines = [heading, "", f"Registry: {display_current}", ""]
-
-            # Show numbered list if registries configured
-            if configured_urls:
-                lines.append("Available registries:")
-                for i, reg_url in enumerate(configured_urls, 1):
-                    display = format_marketplace_display_url(reg_url)
-                    lines.append(f"- [{i}] {display}")
-                lines.append("")
-
-            lines.append(
-                "Usage: `/skills registry [number|URL]`.\n\n URL should point to a repo with a valid `marketplace.json`"
+            display_registries = [format_marketplace_display_url(url) for url in configured_urls]
+            return render_skills_registry_overview(
+                heading="skills registry",
+                current_registry=display_current,
+                configured_urls=display_registries,
             )
-            return "\n".join(lines)
 
         # Check if argument is a number (select from configured registries)
         if argument.isdigit():
@@ -847,9 +1087,54 @@ class SlashCommandHandler:
         return "\n".join(response_lines)
 
     def _handle_skills_list(self) -> str:
-        manager_dir = get_manager_directory()
-        manifests = list_local_skills(manager_dir)
-        return self._format_local_skills(manifests, manager_dir)
+        directories = resolve_skill_directories()
+        all_manifests: dict[Path, list[SkillManifest]] = {}
+        for directory in directories:
+            all_manifests[directory] = list_local_skills(directory) if directory.exists() else []
+        response = render_skills_by_directory(all_manifests, heading="skills", cwd=Path.cwd())
+        override_section = self._skills_override_section()
+        if override_section:
+            return "\n".join([response, "", override_section])
+        return response
+
+    def _skills_override_section(self) -> str | None:
+        agent = self._get_current_agent()
+        if not agent:
+            return None
+        config = getattr(agent, "config", None)
+        if not config:
+            return None
+        if getattr(config, "skills", SKILLS_DEFAULT) is SKILLS_DEFAULT:
+            return None
+        manifests = list(getattr(config, "skill_manifests", []) or [])
+        sources: list[str] = []
+        for manifest in manifests:
+            path = getattr(manifest, "path", None)
+            if not path:
+                continue
+            source_path = path.parent if Path(path).is_file() else Path(path)
+            try:
+                display_path = source_path.relative_to(Path.cwd())
+            except ValueError:
+                display_path = source_path
+            sources.append(str(display_path))
+        sources = sorted(set(sources))
+        lines = [
+            "## Active agent skills (override)",
+            "",
+            "Note: this agent has an explicit skills configuration. `/skills` lists global skills directories from settings, not per-agent overrides.",
+            "Update settings.skills.directories or the --skills flag to change this list.",
+        ]
+        if sources:
+            sources_list = ", ".join(f"`{source}`" for source in sources)
+            lines.extend(["", f"Sources: {sources_list}"])
+        lines.append("")
+        if not manifests:
+            lines.append("No skills configured for this agent.")
+        else:
+            lines.append("Configured skills:")
+            lines.extend(render_skill_list(manifests, cwd=Path.cwd()))
+        return "\n".join(lines)
 
     async def _handle_skills_add(self, argument: str) -> str:
         if argument.strip().lower() in {"q", "quit", "exit"}:
@@ -870,128 +1155,98 @@ class SlashCommandHandler:
             start=True,
         )
 
-        marketplace_url = get_marketplace_url()
-        try:
-            marketplace = await fetch_marketplace_skills(marketplace_url)
-        except Exception as exc:  # noqa: BLE001
-            return (
-                "# skills add\n\n"
-                f"Failed to load marketplace: {exc}\n\n"
-                f"Repository: `{format_marketplace_display_url(marketplace_url)}`"
+        argument_value = argument.strip() or None
+
+        if not argument_value:
+            marketplace_url = get_marketplace_url(get_settings())
+            display_url = format_marketplace_display_url(marketplace_url)
+            try:
+                marketplace = await fetch_marketplace_skills(marketplace_url)
+            except Exception as exc:  # noqa: BLE001
+                return (
+                    "# skills add\n\n"
+                    f"Failed to load marketplace: {exc}\n\n"
+                    f"Repository: `{display_url}`"
+                )
+
+            repository = display_url
+            if marketplace:
+                repo_url = marketplace[0].repo_url
+                repo_ref = marketplace[0].repo_ref
+                repository = f"{repo_url}@{repo_ref}" if repo_ref else repo_url
+
+            return render_marketplace_skills(
+                marketplace,
+                heading="skills add",
+                repository=repository,
             )
 
-        if not marketplace:
-            return "# skills add\n\nNo skills found in the marketplace."
-
-        if not argument:
-            lines = [
-                "# skills add",
-                "",
-                f"Repository: `{format_marketplace_display_url(marketplace_url)}`",
-            ]
-            # repo_hint = self._get_marketplace_repo_hint(marketplace)
-            # if repo_hint:
-            #     lines.append(f"Repository: `{repo_hint}`")
-            lines.extend(["", "Available skills:  ", ""])
-            lines.extend(self._format_marketplace_list(marketplace))
-            lines.append("")
-            lines.append("Install with `/skills add <number|name>`.")
-            lines.append("Change registry with `/skills registry`.")
-            return "\n".join(lines)
-
-        skill = select_skill_by_name_or_index(marketplace, argument)
-        if not skill:
-            return "Skill not found. Use `/skills add` to list available skills."
-
-        manager_dir = get_manager_directory()
-        repo_label = self._format_repo_label(skill)
-        await self._send_skills_update(
-            agent,
-            tool_call_id,
-            title="Installing skill",
-            status="in_progress",
-            message=(
-                f"Cloning {repo_label} ({skill.repo_subdir})"
-                if repo_label
-                else f"Cloning skill source ({skill.repo_subdir})"
-            ),
-        )
+        ctx = self._build_command_context()
+        io = cast("ACPCommandIO", ctx.io)
         try:
-            install_path = await install_marketplace_skill(skill, destination_root=manager_dir)
+            outcome = await skills_handlers.handle_add_skill(
+                ctx,
+                agent_name=self.current_agent_name,
+                argument=argument_value,
+                interactive=False,
+            )
         except Exception as exc:  # noqa: BLE001
             await self._send_skills_update(
                 agent,
                 tool_call_id,
                 title="Install failed",
                 status="completed",
-                message=f"Failed to install skill: {exc}",
+                message=str(exc),
             )
             return f"# skills add\n\nFailed to install skill: {exc}"
 
-        await self._refresh_agent_skills(agent)
-        await self._send_skills_update(
-            agent,
-            tool_call_id,
-            title="Install complete",
-            status="completed",
-            message=f"Installed {skill.name}",
-        )
+        if any(message.channel == "error" for message in outcome.messages):
+            await self._send_skills_update(
+                agent,
+                tool_call_id,
+                title="Install failed",
+                status="completed",
+                message="Failed to install skill",
+            )
+        else:
+            await self._send_skills_update(
+                agent,
+                tool_call_id,
+                title="Install complete",
+                status="completed",
+                message="Installed skill",
+            )
 
-        return "\n".join(
-            [
-                "# skills add",
-                "",
-                f"Installed: {skill.name}",
-                f"Location: `{install_path}`",
-            ]
-        )
+        return self._format_outcome_as_markdown(outcome, "skills add", io=io)
 
     async def _handle_skills_remove(self, argument: str) -> str:
         if argument.strip().lower() in {"q", "quit", "exit"}:
             return "Cancelled."
 
-        manager_dir = get_manager_directory()
-        manifests = list_local_skills(manager_dir)
-        if not manifests:
-            return "# skills remove\n\nNo local skills to remove."
-
-        if not argument:
-            lines = [
-                "# skills remove",
-                "",
-                "Installed skills:",
-            ]
-            lines.extend(self._format_local_list(manifests))
-            lines.append("")
-            lines.append(
-                "Remove with `/skills remove <number|name>` or `/skills remove q` to cancel."
+        argument_value = argument.strip() or None
+        if not argument_value:
+            manager_dir = get_manager_directory()
+            manifests = list_local_skills(manager_dir)
+            return render_skills_remove_list(
+                heading="skills remove",
+                manager_dir=manager_dir,
+                manifests=manifests,
+                cwd=Path.cwd(),
             )
-            return "\n".join(lines)
 
-        manifest = select_manifest_by_name_or_index(manifests, argument)
-        if not manifest:
-            return "Skill not found. Use `/skills remove` to list installed skills."
-
+        ctx = self._build_command_context()
+        io = cast("ACPCommandIO", ctx.io)
         try:
-            skill_dir = Path(manifest.path).parent
-            remove_local_skill(skill_dir, destination_root=manager_dir)
+            outcome = await skills_handlers.handle_remove_skill(
+                ctx,
+                agent_name=self.current_agent_name,
+                argument=argument_value,
+                interactive=False,
+            )
         except Exception as exc:  # noqa: BLE001
             return f"# skills remove\n\nFailed to remove skill: {exc}"
 
-        agent, error = self._get_current_agent_or_error("# skills remove")
-        if error:
-            return error
-        assert agent is not None
-
-        await self._refresh_agent_skills(agent)
-
-        return "\n".join(
-            [
-                "# skills remove",
-                "",
-                f"Removed: {manifest.name}",
-            ]
-        )
+        return self._format_outcome_as_markdown(outcome, "skills remove", io=io)
 
     async def _refresh_agent_skills(self, agent: AgentProtocol) -> None:
         override_dirs = resolve_skill_directories(get_settings())
@@ -1011,77 +1266,6 @@ class SlashCommandHandler:
             context=instruction_context,
             skill_registry=registry,
         )
-
-    def _format_local_skills(self, manifests: list[SkillManifest], manager_dir: Path) -> str:
-        lines = ["# skills", "", f"Directory: `{manager_dir}`", ""]
-        if not manifests:
-            lines.append("No skills available in the manager directory.")
-            lines.append("")
-            lines.append("Use `/skills add` to list available skills to install.")
-            return "\n".join(lines)
-        lines.append("Installed skills:")
-        lines.extend(self._format_local_list(manifests))
-        lines.append("")
-        lines.append("Use `/skills add` to list available skills to install\n")
-        lines.append("Remove a skill with `/skills remove <number|name>`.\n")
-        lines.append("Change skills registry with `/skills registry <url>`.\n")
-        return "\n".join(lines)
-
-    def _format_local_list(self, manifests: list[SkillManifest]) -> list[str]:
-        lines: list[str] = []
-        for index, manifest in enumerate(manifests, 1):
-            name = manifest.name
-            description = manifest.description
-            path = manifest.path
-            source_path = path.parent if path.is_file() else path
-            try:
-                display_path = source_path.relative_to(Path.cwd())
-            except ValueError:
-                display_path = source_path
-
-            lines.append(f"- [{index}] {name}")
-            if description:
-                wrapped = textwrap.fill(description, width=76, subsequent_indent="    ")
-                lines.append(f"  - {wrapped}")
-            lines.append(f"  - source: `{display_path}`")
-        return lines
-
-    def _format_marketplace_list(self, marketplace: list[MarketplaceSkill]) -> list[str]:
-        lines: list[str] = []
-        current_bundle: str | None = None
-        for index, entry in enumerate(marketplace, 1):
-            bundle_name = entry.bundle_name
-            bundle_description = entry.bundle_description
-            if bundle_name and bundle_name != current_bundle:
-                current_bundle = bundle_name
-                if lines:
-                    lines.append("")
-                lines.append(f"**{bundle_name}**  ")
-                if bundle_description:
-                    wrapped = textwrap.fill(bundle_description, width=76)
-                    lines.append(wrapped)
-                lines.append("")
-            lines.append(f"- [{index}] **{entry.name}**")
-            if entry.description:
-                wrapped = textwrap.fill(entry.description, width=76, subsequent_indent="    ")
-                lines.append(f"  - {wrapped}")
-            if entry.source_url:
-                lines.append(f"  - source: [link]({entry.source_url})")
-        return lines
-
-    def _format_repo_label(self, entry: MarketplaceSkill) -> str | None:
-        repo_url = entry.repo_url
-        if not repo_url:
-            return None
-        repo_ref = entry.repo_ref
-        if repo_ref:
-            return f"{repo_url}@{repo_ref}"
-        return repo_url
-
-    def _get_marketplace_repo_hint(self, marketplace: list[MarketplaceSkill]) -> str | None:
-        if not marketplace:
-            return None
-        return self._format_repo_label(marketplace[0])
 
     def _build_tool_call_id(self) -> str:
         return str(uuid.uuid4())
@@ -1125,67 +1309,8 @@ class SlashCommandHandler:
         except Exception:
             return
 
-    def _format_tool_lines(self, tool: "Tool", index: int) -> list[str]:
-        """
-        Convert a Tool into markdown-friendly lines.
-
-        We avoid fragile getattr usage by relying on the typed attributes
-        provided by mcp.types.Tool. Additional guards are added for optional fields.
-        """
-        lines: list[str] = []
-
-        meta = tool.meta or {}
-        name = tool.name or "unnamed"
-        title = (tool.title or "").strip()
-
-        header = f"{index}. **{name}**"
-        if title:
-            header = f"{header} - {title}"
-        if meta.get("openai/skybridgeEnabled"):
-            header = f"{header} _(skybridge)_"
-        lines.append(header)
-
-        description = (tool.description or "").strip()
-        if description:
-            wrapped = textwrap.wrap(description, width=92)
-            if wrapped:
-                indent = "    "
-                lines.extend(f"{indent}{desc_line}" for desc_line in wrapped[:6])
-                if len(wrapped) > 6:
-                    lines.append(f"{indent}...")
-
-        args_line = self._format_tool_arguments(tool)
-        if args_line:
-            lines.append(f"    - Args: {args_line}")
-
-        template = meta.get("openai/skybridgeTemplate")
-        if template:
-            lines.append(f"    - Template: `{template}`")
-
-        return lines
-
-    def _format_tool_arguments(self, tool: "Tool") -> str | None:
-        """Render tool input schema fields as inline-code argument list."""
-        schema = tool.inputSchema if isinstance(tool.inputSchema, dict) else None
-        if not schema:
-            return None
-
-        properties = schema.get("properties")
-        if not isinstance(properties, dict) or not properties:
-            return None
-
-        required_raw = schema.get("required", [])
-        required = set(required_raw) if isinstance(required_raw, list) else set()
-
-        args: list[str] = []
-        for prop_name in properties.keys():
-            suffix = "*" if prop_name in required else ""
-            args.append(f"`{prop_name}{suffix}`")
-
-        return ", ".join(args) if args else None
-
     async def _handle_save(self, arguments: str | None = None) -> str:
-        """Handle the /save command by persisting conversation history."""
+        """Handle the /history save command by persisting conversation history."""
         heading = "# save conversation"
 
         agent, error = self._get_current_agent_or_error(
@@ -1198,29 +1323,19 @@ class SlashCommandHandler:
 
         filename = arguments.strip() if arguments and arguments.strip() else None
 
-        try:
-            saved_path = await self.history_exporter.save(agent, filename)
-        except Exception as exc:
-            return "\n".join(
-                [
-                    heading,
-                    "",
-                    "Failed to save conversation history.",
-                    f"Details: {exc}",
-                ]
-            )
-
-        return "\n".join(
-            [
-                heading,
-                "",
-                "Conversation history saved successfully.",
-                f"Filename: `{saved_path}`",
-            ]
+        ctx = self._build_command_context()
+        io = cast("ACPCommandIO", ctx.io)
+        outcome = await history_handlers.handle_history_save(
+            ctx,
+            agent_name=self.current_agent_name,
+            filename=filename,
+            send_func=None,
+            history_exporter=self.history_exporter,
         )
+        return self._format_outcome_as_markdown(outcome, "save conversation", io=io)
 
     async def _handle_load(self, arguments: str | None = None) -> str:
-        """Handle the /load command by loading conversation history from a file."""
+        """Handle the /history load command by loading conversation history from a file."""
         heading = "# load conversation"
 
         agent, error = self._get_current_agent_or_error(
@@ -1232,59 +1347,66 @@ class SlashCommandHandler:
         assert agent is not None
 
         filename = arguments.strip() if arguments and arguments.strip() else None
-
+        error_message = None
         if not filename:
-            return "\n".join(
-                [
-                    heading,
-                    "",
-                    "Filename required for /load command.",
-                    "Usage: /load <filename>",
-                ]
-            )
+            error_message = "Filename required for /history load."
+        else:
+            file_path = Path(filename)
+            if not file_path.exists():
+                error_message = f"File not found: {filename}"
 
-        file_path = Path(filename)
-        if not file_path.exists():
-            return "\n".join(
-                [
-                    heading,
-                    "",
-                    f"File not found: `{filename}`",
-                ]
+        ctx = self._build_command_context()
+        io = cast("ACPCommandIO", ctx.io)
+        outcome = await history_handlers.handle_history_load(
+            ctx,
+            agent_name=self.current_agent_name,
+            filename=filename,
+            error=error_message,
         )
-
-        try:
-            load_history_into_agent(agent, file_path)
-        except Exception as exc:
-            return "\n".join(
-                [
-                    heading,
-                    "",
-                    "Failed to load conversation history.",
-                    f"Details: {exc}",
-                ]
-            )
-
-        message_count = len(agent.message_history)
-
-        return "\n".join(
-            [
-                heading,
-                "",
-                "Conversation history loaded successfully.",
-                f"Filename: `{filename}`",
-                f"Messages: {message_count}",
-            ]
-        )
+        return self._format_outcome_as_markdown(outcome, "load conversation", io=io)
 
     async def _handle_card(self, arguments: str | None = None) -> str:
         """Handle the /card command by loading an AgentCard and refreshing agents."""
-        if not self._card_loader:
-            return "AgentCard loading is not available in this session."
+        args = (arguments or "").strip()
+        tokens: list[str] = []
+        if args:
+            try:
+                tokens = shlex.split(args)
+            except ValueError as exc:
+                return f"Invalid arguments: {exc}"
 
+        add_tool = False
+        remove_tool = False
+        filename = None
+        for token in tokens:
+            if token in {"tool", "--tool", "--as-tool", "-t"}:
+                add_tool = True
+                continue
+            if token in {"remove", "--remove"}:
+                add_tool = True
+                remove_tool = True
+                continue
+            if filename is None:
+                filename = token
+
+        manager = _ACPAgentCardManager(self)
+        ctx = self._build_command_context()
+        io = cast("ACPCommandIO", ctx.io)
+        outcome = await agent_card_handlers.handle_card_load(
+            ctx,
+            manager=manager,
+            filename=filename,
+            add_tool=add_tool,
+            remove_tool=remove_tool,
+            current_agent=self.current_agent_name or self.primary_agent_name,
+        )
+        return self._format_outcome_as_markdown(outcome, "card", io=io)
+
+    async def _handle_agent(self, arguments: str | None = None) -> str:
+        """Handle the /agent command for attach or dump actions."""
         args = (arguments or "").strip()
         if not args:
-            return "Filename required for /card command.\nUsage: /card <filename|url> [--tool]"
+            return "Usage: /agent <name> --tool | /agent [name] --dump"
 
         try:
             tokens = shlex.split(args)
@@ -1292,70 +1414,67 @@ class SlashCommandHandler:
             return f"Invalid arguments: {exc}"
 
         add_tool = False
-        filename = None
+        remove_tool = False
+        dump = False
+        agent_name = None
+        unknown: list[str] = []
         for token in tokens:
             if token in {"tool", "--tool", "--as-tool", "-t"}:
                 add_tool = True
                 continue
-            if filename is None:
-                filename = token
+            if token in {"remove", "--remove"}:
+                add_tool = True
+                remove_tool = True
+                continue
+            if token in {"dump", "--dump", "-d"}:
+                dump = True
+                continue
+            if agent_name is None:
+                agent_name = token[1:] if token.startswith("@") else token
+                continue
+            unknown.append(token)
 
-        if not filename:
-            return "Filename required for /card command.\nUsage: /card <filename|url> [--tool]"
+        if unknown:
+            return f"Unexpected arguments: {', '.join(unknown)}"
+        if add_tool and dump:
+            return "Use either --tool or --dump, not both."
+        if not add_tool and not dump:
+            return "Usage: /agent <name> --tool [remove] | /agent [name] --dump"
 
-        try:
-            instance, loaded_names = await self._card_loader(filename)
-        except Exception as exc:
-            return f"AgentCard load failed: {exc}"
+        target_agent = agent_name or self.current_agent_name or self.primary_agent_name
+        if not target_agent:
+            return "No agent available for this session."
 
-        self.instance = instance
-
-        if not loaded_names:
-            summary = "AgentCard loaded."
-        else:
-            summary = "Loaded AgentCard(s): " + ", ".join(loaded_names)
-
-        if not add_tool:
-            return summary
-
-        parent_name = self.current_agent_name
-        if not parent_name or parent_name not in instance.agents:
-            parent_name = next(iter(instance.agents.keys()), None)
-            self.current_agent_name = parent_name or self.current_agent_name
-        if not parent_name:
-            return summary
-
-        parent = instance.agents.get(parent_name)
-        add_tool_fn = getattr(parent, "add_agent_tool", None)
-        if not callable(add_tool_fn):
-            return f"{summary}\nCurrent agent does not support tool injection."
-
-        tool_agents = [instance.agents.get(child_name) for child_name in loaded_names]
-        added_tools = add_tools_for_agents(add_tool_fn, tool_agents)
-
-        if not added_tools:
-            return summary
-        return f"{summary}\nAdded tool(s): {', '.join(added_tools)}"
+        ctx = self._build_command_context()
+        io = cast("ACPCommandIO", ctx.io)
+        outcome = await agent_card_handlers.handle_agent_command(
+            ctx,
+            manager=_ACPAgentCardManager(self),
+            current_agent=self.current_agent_name or self.primary_agent_name or target_agent,
+            target_agent=agent_name,
+            add_tool=add_tool,
+            remove_tool=remove_tool,
+            dump=dump,
+        )
+        return self._format_outcome_as_markdown(outcome, "agent", io=io)
 
     async def _handle_reload(self) -> str:
-        if not self._reload_callback:
-            return "AgentCard reload is not available in this session."
-        try:
-            changed = await self._reload_callback()
-        except Exception as exc:  # noqa: BLE001
-            return f"# reload\n\nFailed to reload AgentCards: {exc}"
-        if not changed:
-            return "# reload\n\nNo AgentCard changes detected."
-        return "# reload\n\nReloaded AgentCards."
+        ctx = self._build_command_context()
+        io = cast("ACPCommandIO", ctx.io)
+        outcome = await agent_card_handlers.handle_reload_agents(
+            ctx,
+            manager=_ACPAgentCardManager(self),
+        )
+        return self._format_outcome_as_markdown(outcome, "reload", io=io)
 
     async def _handle_clear(self, arguments: str | None = None) -> str:
         """Handle /clear and /clear last commands."""
         normalized = (arguments or "").strip().lower()
         if normalized == "last":
-            return self._handle_clear_last()
-        return self._handle_clear_all()
+            return await self._handle_clear_last()
+        return await self._handle_clear_all()
 
-    def _handle_clear_all(self) -> str:
+    async def _handle_clear_all(self) -> str:
         """Clear the entire conversation history."""
         heading = "# clear conversation"
         agent, error = self._get_current_agent_or_error(
@@ -1366,45 +1485,15 @@ class SlashCommandHandler:
             return error
         assert agent is not None
 
-        try:
-            original_count = len(agent.message_history)
-            agent.clear()
-            cleared = True
-        except Exception as exc:
-            return "\n".join(
-                [
-                    heading,
-                    "",
-                    "Failed to clear conversation history.",
-                    f"Details: {exc}",
-                ]
-            )
-
-        if not cleared:
-            return "\n".join(
-                [
-                    heading,
-                    "",
-                    "Agent does not expose a clear() method or message history list.",
-                ]
-            )
-
-        removed_text = (
-            f"Removed {original_count} message(s)." if isinstance(original_count, int) else ""
+        ctx = self._build_command_context()
+        io = cast("ACPCommandIO", ctx.io)
+        outcome = await history_handlers.handle_history_clear_all(
+            ctx,
+            agent_name=self.current_agent_name,
         )
+        return self._format_outcome_as_markdown(outcome, "clear conversation", io=io)
 
-        response_lines = [
-            heading,
-            "",
-            "Conversation history cleared.",
-        ]
-
-        if removed_text:
-            response_lines.append(removed_text)
-
-        return "\n".join(response_lines)
-
-    def _handle_clear_last(self) -> str:
+    async def _handle_clear_last(self) -> str:
         """Remove the most recent conversation message."""
         heading = "# clear last conversation turn"
         agent, error = self._get_current_agent_or_error(
@@ -1415,228 +1504,10 @@ class SlashCommandHandler:
             return error
         assert agent is not None
 
-        try:
-            removed = agent.pop_last_message()
-            if removed is None and agent.message_history:
-                removed = agent.message_history.pop()
-        except Exception as exc:
-            return "\n".join(
-                [
-                    heading,
-                    "",
-                    "Failed to remove the last message.",
-                    f"Details: {exc}",
-                ]
-            )
-
-        if removed is None:
-            return "\n".join(
-                [
-                    heading,
-                    "",
-                    "No messages available to remove.",
-                ]
-            )
-
-        role = removed.role if removed else "message"
-        return "\n".join(
-            [
-                heading,
-                "",
-                f"Removed last {role} message.",
-            ]
+        ctx = self._build_command_context()
+        io = cast("ACPCommandIO", ctx.io)
+        outcome = await history_handlers.handle_history_clear_last(
+            ctx,
+            agent_name=self.current_agent_name,
         )
-
-    def _get_conversation_stats(self, agent: AgentProtocol | None) -> list[str]:
-        """Get conversation statistics from the agent's message history."""
-        if not agent:
-            return [
-                "- Turns: 0",
-                "- Tool Calls: 0",
-                "- Context Used: 0%",
-            ]
-
-        try:
-            # Create a conversation summary from message history
-            summary = ConversationSummary(messages=agent.message_history)
-
-            # Calculate turns (user + assistant message pairs)
-            turns = min(summary.user_message_count, summary.assistant_message_count)
-
-            # Get tool call statistics
-            tool_calls = summary.tool_calls
-            tool_errors = summary.tool_errors
-            tool_successes = summary.tool_successes
-            context_usage_line = self._context_usage_line(summary, agent)
-
-            stats = [
-                f"- Turns: {turns}",
-                f"- Messages: {summary.message_count} (user: {summary.user_message_count}, assistant: {summary.assistant_message_count})",
-                f"- Tool Calls: {tool_calls} (successes: {tool_successes}, errors: {tool_errors})",
-                context_usage_line,
-            ]
-
-            # Add timing information if available
-            if summary.total_elapsed_time_ms > 0:
-                stats.append(
-                    f"- Total LLM Time: {format_duration(summary.total_elapsed_time_ms / 1000)}"
-                )
-
-            if summary.conversation_span_ms > 0:
-                span_seconds = summary.conversation_span_ms / 1000
-                stats.append(
-                    f"- Conversation Runtime (LLM + tools): {format_duration(span_seconds)}"
-                )
-
-            # Add tool breakdown if there were tool calls
-            if tool_calls > 0 and summary.tool_call_map:
-                stats.append("")
-                stats.append("### Tool Usage Breakdown")
-                for tool_name, count in sorted(
-                    summary.tool_call_map.items(), key=lambda x: x[1], reverse=True
-                ):
-                    stats.append(f"  - {tool_name}: {count}")
-
-            return stats
-
-        except Exception as e:
-            return [
-                "- Turns: error",
-                "- Tool Calls: error",
-                f"- Context Used: error ({e})",
-            ]
-
-    def _get_error_handling_report(
-        self, agent: AgentProtocol | None, max_entries: int = 3
-    ) -> list[str]:
-        """Summarize error channel availability and recent entries."""
-        channel_label = f"Error Channel: {FAST_AGENT_ERROR_CHANNEL}"
-        if not agent:
-            return ["_No errors recorded_"]
-
-        recent_entries: list[str] = []
-        history = agent.message_history
-
-        for message in reversed(history):
-            channels = message.channels or {}
-            channel_blocks = channels.get(FAST_AGENT_ERROR_CHANNEL)
-            if not channel_blocks:
-                continue
-
-            for block in channel_blocks:
-                text = get_text(block)
-                if text:
-                    cleaned = text.replace("\n", " ").strip()
-                    if cleaned:
-                        recent_entries.append(cleaned)
-                else:
-                    # Truncate long content (e.g., base64 image data)
-                    block_str = str(block)
-                    if len(block_str) > 60:
-                        recent_entries.append(f"{block_str[:60]}... ({len(block_str)} characters)")
-                    else:
-                        recent_entries.append(block_str)
-                if len(recent_entries) >= max_entries:
-                    break
-            if len(recent_entries) >= max_entries:
-                break
-
-        if recent_entries:
-            lines = [channel_label, "Recent Entries:"]
-            lines.extend(f"- {entry}" for entry in recent_entries)
-            return lines
-
-        return ["_No errors recorded_"]
-
-    def _get_warning_report(self, agent: AgentProtocol | None, max_entries: int = 5) -> list[str]:
-        warnings: list[str] = []
-        if isinstance(agent, WarningAwareAgent):
-            warnings.extend(agent.warnings)
-            if agent.skill_registry:
-                warnings.extend(agent.skill_registry.warnings)
-
-        cleaned: list[str] = []
-        seen: set[str] = set()
-        for warning in warnings:
-            message = str(warning).strip()
-            if message and message not in seen:
-                cleaned.append(message)
-                seen.add(message)
-
-        if not cleaned:
-            return []
-
-        lines = ["Warnings:"]
-        for message in cleaned[:max_entries]:
-            lines.append(f"- {message}")
-        if len(cleaned) > max_entries:
-            lines.append(f"- ... ({len(cleaned) - max_entries} more)")
-        return lines
-
-    def _context_usage_line(self, summary: ConversationSummary, agent: AgentProtocol) -> str:
-        """Generate a context usage line with token estimation and fallbacks."""
-        # Prefer usage accumulator when available (matches enhanced/interactive prompt display)
-        usage = agent.usage_accumulator
-        if usage:
-            window = usage.context_window_size
-            tokens = usage.current_context_tokens
-            pct = usage.context_usage_percentage
-            if window and pct is not None:
-                return f"- Context Used: {min(pct, 100.0):.1f}% (~{tokens:,} tokens of {window:,})"
-            if tokens:
-                return f"- Context Used: ~{tokens:,} tokens (window unknown)"
-
-        # Fallback to tokenizing the actual conversation text
-        token_count, char_count = self._estimate_tokens(summary, agent)
-
-        model_info = ModelInfo.from_llm(agent.llm) if agent.llm else None
-        if model_info and model_info.context_window:
-            percentage = (
-                (token_count / model_info.context_window) * 100
-                if model_info.context_window
-                else 0.0
-            )
-            percentage = min(percentage, 100.0)
-            return f"- Context Used: {percentage:.1f}% (~{token_count:,} tokens of {model_info.context_window:,})"
-
-        token_text = f"~{token_count:,} tokens" if token_count else "~0 tokens"
-        return f"- Context Used: {char_count:,} chars ({token_text} est.)"
-
-    def _estimate_tokens(
-        self, summary: ConversationSummary, agent: AgentProtocol
-    ) -> tuple[int, int]:
-        """Estimate tokens and return (tokens, characters) for the conversation history."""
-        text_parts: list[str] = []
-        for message in summary.messages:
-            for content in message.content:
-                text = get_text(content)
-                if text:
-                    text_parts.append(text)
-
-        combined = "\n".join(text_parts)
-        char_count = len(combined)
-        if not combined:
-            return 0, 0
-
-        model_name = None
-        llm = agent.llm
-        if llm:
-            model_name = llm.model_name
-
-        token_count = self._count_tokens_with_tiktoken(combined, model_name)
-        return token_count, char_count
-
-    def _count_tokens_with_tiktoken(self, text: str, model_name: str | None) -> int:
-        """Try to count tokens with tiktoken; fall back to a rough chars/4 estimate."""
-        try:
-            import tiktoken
-
-            if model_name:
-                encoding = tiktoken.encoding_for_model(model_name)
-            else:
-                encoding = tiktoken.get_encoding("cl100k_base")
-
-            return len(encoding.encode(text))
-        except Exception:
-            # Rough heuristic: ~4 characters per token (matches default bytes/token constant)
-            return max(1, (len(text) + 3) // 4)
+        return self._format_outcome_as_markdown(outcome, "clear last conversation turn", io=io)

@@ -15,6 +15,8 @@ PROVIDER_ENVIRONMENT_MAP: dict[str, str] = {
     # provider name and suffix "_API_KEY" - so no specific mapping needed unless overriding
     "hf": "HF_TOKEN",
     "responses": "OPENAI_API_KEY",  # Temporary workaround
+    "openresponses": "OPENRESPONSES_API_KEY",
+    "codexresponses": "CODEX_API_KEY",
 }
 PROVIDER_CONFIG_KEY_ALIASES: dict[str, tuple[str, ...]] = {
     # HuggingFace historically used "huggingface" (full name) in config files,
@@ -115,6 +117,12 @@ class ProviderKeyManager:
         if not api_key:
             api_key = ProviderKeyManager.get_env_var(provider_name)
 
+        # Codex OAuth tokens stored in keyring (if no env/config key supplied)
+        if not api_key and provider_name == "codexresponses":
+            from fast_agent.llm.provider.openai.codex_oauth import get_codex_access_token
+
+            api_key = get_codex_access_token()
+
         # HuggingFace: also support tokens managed by huggingface_hub (e.g. `hf auth login`)
         # even when HF_TOKEN isn't explicitly set in the environment or config.
         if not api_key and provider_name in {"hf", "huggingface"}:
@@ -127,6 +135,12 @@ class ProviderKeyManager:
 
         if not api_key and provider_name == "generic":
             api_key = "ollama"  # Default for generic provider
+
+        if not api_key and provider_name == "codexresponses":
+            raise ProviderKeyError(
+                "Codex OAuth token not configured",
+                "Run `fast-agent auth codex-login` to authenticate, or set the CODEX_API_KEY environment variable.",
+            )
 
         if not api_key:
             # Get proper display name for error message

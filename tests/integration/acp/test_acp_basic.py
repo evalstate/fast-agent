@@ -23,6 +23,36 @@ pytestmark = pytest.mark.asyncio(loop_scope="module")
 END_TURN: StopReason = "end_turn"
 
 
+def _get_session_update_type(update: Any) -> str | None:
+    # The update can be either an object with sessionUpdate attr or a dict with sessionUpdate key
+    if hasattr(update, "sessionUpdate"):
+        return update.sessionUpdate
+    if isinstance(update, dict):
+        return update.get("sessionUpdate")
+    return None
+
+
+async def _wait_for_session_update_type(
+    client: TestClient,
+    session_id: str,
+    update_type: str,
+    timeout: float = 2.0,
+) -> None:
+    """Wait for a specific session/update type (avoids flake when sessions emit other updates first)."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while loop.time() < deadline:
+        if any(
+            n
+            for n in client.notifications
+            if n["session_id"] == session_id
+            and _get_session_update_type(n["update"]) == update_type
+        ):
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"Expected sessionUpdate={update_type!r} for session_id={session_id}")
+
+
 @pytest.mark.integration
 async def test_acp_initialize_and_prompt_roundtrip(
     acp_basic: tuple[ClientSideConnection, TestClient, InitializeResponse],
@@ -37,6 +67,15 @@ async def test_acp_initialize_and_prompt_roundtrip(
     )
     assert agent_info is not None
     assert agent_info.name == "fast-agent-acp-test"
+    auth_methods = getattr(init_response, "auth_methods", None) or getattr(
+        init_response, "authMethods", None
+    )
+    assert auth_methods is not None
+    assert any(getattr(m, "id", None) == "fast-agent-ai-secrets" for m in auth_methods), (
+        "Expected fast-agent-ai-secrets auth method to be advertised"
+    )
+    # Ensure authenticate RPC is wired (no session required).
+    await connection.authenticate(method_id="fast-agent-ai-secrets")
     # AgentCapabilities schema changed upstream; ensure we advertised prompt support.
     prompt_caps = getattr(init_response.agent_capabilities, "prompts", None) or getattr(
         init_response.agent_capabilities, "prompt_capabilities", None
@@ -53,26 +92,18 @@ async def test_acp_initialize_and_prompt_roundtrip(
     )
     assert prompt_response.stop_reason == END_TURN
 
-    await _wait_for_notifications(client)
+    await _wait_for_session_update_type(client, session_id, "agent_message_chunk")
 
     # TestClient now stores notifications as dicts with session_id and update keys
     # Find the agent_message_chunk notification (may not be the last one due to commands update)
-    # The update can be either an object with sessionUpdate attr or a dict with sessionUpdate key
-    def get_session_update_type(update: Any) -> str | None:
-        if hasattr(update, "sessionUpdate"):
-            return update.sessionUpdate
-        if isinstance(update, dict):
-            return update.get("sessionUpdate")
-        return None
-
     message_updates = [
         n
         for n in client.notifications
         if n["session_id"] == session_id
-        and get_session_update_type(n["update"]) == "agent_message_chunk"
+        and _get_session_update_type(n["update"]) == "agent_message_chunk"
     ]
     assert message_updates, (
-        f"Expected agent_message_chunk, got: {[get_session_update_type(n['update']) for n in client.notifications]}"
+        f"Expected agent_message_chunk, got: {[_get_session_update_type(n['update']) for n in client.notifications]}"
     )
     update = message_updates[-1]["update"]
     # Passthrough model mirrors user input, so the agent content should match the prompt.
@@ -128,15 +159,15 @@ async def test_acp_session_modes_included_in_new_session(
 
 
 @pytest.mark.integration
-async def test_acp_overlapping_prompts_are_refused(
+async def test_acp_overlapping_prompts_are_serialized(
     acp_basic: tuple[ClientSideConnection, TestClient, InitializeResponse],
 ) -> None:
     """
-    Test that overlapping prompt requests for the same session are refused.
+    Test that overlapping prompt requests for the same session are serialized.
 
     Per ACP protocol, only one prompt can be active per session at a time.
-    If a second prompt arrives while one is in progress, it should be immediately
-    refused with stopReason="refusal".
+    If a second prompt arrives while one is in progress, it should be queued
+    and processed after the first completes. Both prompts should succeed.
     """
     connection, _client, init_response = acp_basic
 
@@ -163,13 +194,11 @@ async def test_acp_overlapping_prompts_are_refused(
     # Wait for both to complete
     prompt1_response, prompt2_response = await asyncio.gather(prompt1_task, prompt2_task)
 
-    # One should succeed, one should be refused
-    # (We don't know which one arrives first due to async scheduling)
+    # Both should succeed - the second one waits in the queue for the first to complete
     responses = [_get_stop_reason(prompt1_response), _get_stop_reason(prompt2_response)]
-    assert "end_turn" in responses, "One prompt should succeed"
-    assert "refusal" in responses, "One prompt should be refused"
+    assert responses == ["end_turn", "end_turn"], "Both prompts should succeed (serialized)"
 
-    # After both complete, a new prompt should succeed
+    # After both complete, a new prompt should also succeed
     prompt3_response = await connection.prompt(
         session_id=session_id, prompt=[text_block("third prompt")]
     )

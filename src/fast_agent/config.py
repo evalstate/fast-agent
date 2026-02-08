@@ -5,6 +5,7 @@ for the application configuration.
 
 import os
 import re
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -15,8 +16,12 @@ if TYPE_CHECKING:
     from mcp import Implementation
 else:  # pragma: no cover - used only to satisfy type checkers
     Implementation = Any
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
+from fast_agent.llm.structured_output_mode import StructuredOutputMode
+from fast_agent.llm.text_verbosity import TextVerbosityLevel
 
 
 class MCPServerAuthSettings(BaseModel):
@@ -70,7 +75,7 @@ class MCPServerAuthSettings(BaseModel):
 
 
 class MCPSamplingSettings(BaseModel):
-    model: str = "gpt-5-mini.low"
+    model: str = "gpt-5-mini?reasoning=low"
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
@@ -142,11 +147,30 @@ class SkillsSettings(BaseModel):
 class ShellSettings(BaseModel):
     """Configuration for shell execution behavior."""
 
-    timeout_seconds: int = 90
-    """Maximum seconds to wait for command output before terminating (default: 90s)"""
-
-    warning_interval_seconds: int = 30
-    """Show timeout warnings every N seconds (default: 30s)"""
+    timeout_seconds: int = Field(
+        default=90,
+        description="Maximum seconds to wait for command output before terminating",
+    )
+    warning_interval_seconds: int = Field(
+        default=30,
+        description="Show timeout warnings every N seconds",
+    )
+    interactive_use_pty: bool = Field(
+        default=True,
+        description="Use a PTY for interactive prompt shell commands",
+    )
+    output_display_lines: int | None = Field(
+        default=5,
+        description="Maximum output lines to display (None = no limit)",
+    )
+    show_bash: bool = Field(
+        default=True,
+        description="Show shell command output on the console",
+    )
+    output_byte_limit: int | None = Field(
+        default=None,
+        description="Override model-based output byte limit (None = auto)",
+    )
 
     model_config = ConfigDict(extra="ignore")
 
@@ -165,6 +189,24 @@ class ShellSettings(BaseModel):
         if isinstance(value, str):
             return MCPTimelineSettings._parse_duration(value)
         return int(value)
+
+    @field_validator("output_display_lines", mode="before")
+    @classmethod
+    def _coerce_output_display_lines(cls, value: Any) -> int | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped == "":
+                return None
+            if not stripped.isdigit():
+                raise ValueError("output_display_lines must be a non-negative integer.")
+            value = int(stripped)
+        else:
+            value = int(value)
+        if value < 0:
+            raise ValueError("output_display_lines must be a non-negative integer.")
+        return value
 
 
 class MCPRootSettings(BaseModel):
@@ -212,6 +254,12 @@ class MCPServerSettings(BaseModel):
 
     read_timeout_seconds: int | None = None
     """The timeout in seconds for the session."""
+
+    ping_interval_seconds: int = 30
+    """Interval for MCP ping requests. Set <=0 to disable pinging."""
+
+    max_missed_pings: int = 3
+    """Number of consecutive missed ping responses before treating the connection as failed."""
 
     http_timeout_seconds: int | None = None
     """Overall HTTP timeout (seconds) for StreamableHTTP transport. Defaults to MCP SDK."""
@@ -262,6 +310,16 @@ class MCPServerSettings(BaseModel):
 
     implementation: Implementation | None = None
 
+    @field_validator("max_missed_pings", mode="before")
+    @classmethod
+    def _coerce_max_missed_pings(cls, value: Any) -> int:
+        if isinstance(value, str):
+            value = int(value.strip())
+        value = int(value)
+        if value <= 0:
+            raise ValueError("max_missed_pings must be greater than zero.")
+        return value
+
     @model_validator(mode="before")
     @classmethod
     def validate_transport_inference(cls, values):
@@ -307,221 +365,282 @@ class MCPSettings(BaseModel):
 
 
 class AnthropicSettings(BaseModel):
-    """
-    Settings for using Anthropic models in the fast-agent application.
-    """
+    """Settings for using Anthropic models in the fast-agent application."""
 
-    api_key: str | None = None
-
-    base_url: str | None = None
-
-    cache_mode: Literal["off", "prompt", "auto"] = "auto"
-    """
-    Controls how caching is applied for Anthropic models when prompt_caching is enabled globally.
-    - "off": No caching, even if global prompt_caching is true.
-    - "prompt": Caches tools+system prompt (1 block) and template content. Useful for large, static prompts.
-    - "auto": Currently same as "prompt" - caches tools+system prompt (1 block) and template content.
-    """
-
-    thinking_enabled: bool = False
-    """
-    Enable extended thinking for supported Claude models (Sonnet 4+, Opus 4+).
-    When enabled, Claude will show its step-by-step reasoning process.
-    Note: Extended thinking is incompatible with structured output (forced tool choice).
-    """
-
-    thinking_budget_tokens: int = 10000
-    """
-    Maximum tokens for Claude's internal reasoning process (minimum 1024).
-    Larger budgets enable more thorough analysis for complex problems.
-    Must be less than max_tokens.
-    """
+    api_key: str | None = Field(default=None, description="Anthropic API key")
+    base_url: str | None = Field(default=None, description="Override API endpoint")
+    default_headers: dict[str, str] | None = Field(
+        default=None, description="Custom headers to pass with every request"
+    )
+    cache_mode: Literal["off", "prompt", "auto"] = Field(
+        default="auto",
+        description="Caching mode: off (disabled), prompt (cache tools+system), auto (same as prompt)",
+    )
+    cache_ttl: Literal["5m", "1h"] = Field(
+        default="5m",
+        description="Cache TTL: 5m (standard) or 1h (extended, additional cost)",
+    )
+    reasoning: ReasoningEffortSetting | str | int | bool | None = Field(
+        default=None,
+        description=(
+            "Reasoning setting. Supports effort strings (for adaptive models), budget tokens "
+            "(int), or toggle (bool). Use 0 or false to disable."
+        ),
+    )
+    structured_output_mode: StructuredOutputMode | Literal["auto"] = Field(
+        default="auto",
+        description="Structured output mode: auto, json, or tool_use",
+    )
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
 class OpenAISettings(BaseModel):
-    """
-    Settings for using OpenAI models in the fast-agent application.
-    """
+    """Settings for using OpenAI models in the fast-agent application."""
 
-    api_key: str | None = None
-    reasoning_effort: Literal["minimal", "low", "medium", "high"] = "medium"
+    api_key: str | None = Field(default=None, description="OpenAI API key")
+    base_url: str | None = Field(default=None, description="Override API endpoint")
+    reasoning: ReasoningEffortSetting | str | int | bool | None = Field(
+        default=None,
+        description="Unified reasoning setting (effort level or budget)",
+    )
+    reasoning_effort: Literal["minimal", "low", "medium", "high"] = Field(
+        default="medium",
+        description="Default reasoning effort: minimal, low, medium, high",
+    )
+    text_verbosity: TextVerbosityLevel = Field(
+        default="medium",
+        description="Text verbosity level: low, medium, high",
+    )
+    default_headers: dict[str, str] | None = Field(
+        default=None,
+        description="Custom headers for all API requests",
+    )
 
-    base_url: str | None = None
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
-    default_headers: dict[str, str] | None = None
-    """Custom headers to include in all requests to the OpenAI API."""
+
+class OpenResponsesSettings(BaseModel):
+    """Settings for using Open Responses models in the fast-agent application."""
+
+    api_key: str | None = Field(default=None, description="Open Responses API key")
+    base_url: str | None = Field(default=None, description="Open Responses endpoint URL")
+    reasoning: ReasoningEffortSetting | str | int | bool | None = Field(
+        default=None,
+        description="Unified reasoning setting (effort level or budget)",
+    )
+    reasoning_effort: Literal["minimal", "low", "medium", "high"] = Field(
+        default="medium",
+        description="Default reasoning effort: minimal, low, medium, high",
+    )
+    default_headers: dict[str, str] | None = Field(
+        default=None,
+        description="Custom headers for all API requests",
+    )
+
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+
+class CodexResponsesSettings(BaseModel):
+    """Settings for using Codex Responses via ChatGPT OAuth tokens."""
+
+    api_key: str | None = Field(default=None, description="Codex Responses API key")
+    base_url: str | None = Field(default=None, description="Override API endpoint")
+    text_verbosity: Literal["low", "medium", "high"] = Field(
+        default="medium",
+        description="Text verbosity level: low, medium, high",
+    )
+    default_headers: dict[str, str] | None = Field(
+        default=None,
+        description="Custom headers for all API requests",
+    )
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
 class DeepSeekSettings(BaseModel):
-    """
-    Settings for using DeepSeek models in the fast-agent application.
-    """
+    """Settings for using DeepSeek models in the fast-agent application."""
 
-    api_key: str | None = None
-    # reasoning_effort: Literal["low", "medium", "high"] = "medium"
-
-    base_url: str | None = None
-
-    default_headers: dict[str, str] | None = None
-    """Custom headers to include in all requests to the DeepSeek API."""
+    api_key: str | None = Field(default=None, description="DeepSeek API key")
+    base_url: str | None = Field(default=None, description="Override API endpoint")
+    default_headers: dict[str, str] | None = Field(
+        default=None,
+        description="Custom headers for all API requests",
+    )
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
 class GoogleSettings(BaseModel):
-    """
-    Settings for using Google models (via OpenAI-compatible API) in the fast-agent application.
-    """
+    """Settings for using Google models in the fast-agent application."""
 
-    api_key: str | None = None
-    # reasoning_effort: Literal["low", "medium", "high"] = "medium"
-
-    base_url: str | None = None
-
-    default_headers: dict[str, str] | None = None
-    """Custom headers to include in all requests to the Google API."""
+    api_key: str | None = Field(default=None, description="Google API key")
+    base_url: str | None = Field(default=None, description="Override API endpoint")
+    default_headers: dict[str, str] | None = Field(
+        default=None,
+        description="Custom headers for all API requests",
+    )
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
 class XAISettings(BaseModel):
-    """
-    Settings for using xAI Grok models in the fast-agent application.
-    """
+    """Settings for using xAI Grok models in the fast-agent application."""
 
-    api_key: str | None = None
-    base_url: str | None = "https://api.x.ai/v1"
-
-    default_headers: dict[str, str] | None = None
-    """Custom headers to include in all requests to the xAI API."""
+    api_key: str | None = Field(default=None, description="xAI API key")
+    base_url: str | None = Field(
+        default="https://api.x.ai/v1",
+        description="xAI API endpoint (default: https://api.x.ai/v1)",
+    )
+    default_headers: dict[str, str] | None = Field(
+        default=None,
+        description="Custom headers for all API requests",
+    )
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
 class GenericSettings(BaseModel):
-    """
-    Settings for using generic OpenAI-compatible models in the fast-agent application.
-    """
+    """Settings for using generic OpenAI-compatible models (e.g., Ollama)."""
 
-    api_key: str | None = None
-
-    base_url: str | None = None
-
-    default_headers: dict[str, str] | None = None
-    """Custom headers to include in all requests to the API."""
+    api_key: str | None = Field(default=None, description="API key (default: 'ollama' for Ollama)")
+    base_url: str | None = Field(
+        default=None,
+        description="API endpoint (default: http://localhost:11434/v1 for Ollama)",
+    )
+    default_headers: dict[str, str] | None = Field(
+        default=None,
+        description="Custom headers for all API requests",
+    )
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
 class OpenRouterSettings(BaseModel):
-    """
-    Settings for using OpenRouter models via its OpenAI-compatible API.
-    """
+    """Settings for using OpenRouter models via its OpenAI-compatible API."""
 
-    api_key: str | None = None
-
-    base_url: str | None = None  # Optional override, defaults handled in provider
-
-    default_headers: dict[str, str] | None = None
-    """Custom headers to include in all requests to the OpenRouter API."""
+    api_key: str | None = Field(default=None, description="OpenRouter API key")
+    base_url: str | None = Field(
+        default=None,
+        description="Override API endpoint (default: https://openrouter.ai/api/v1)",
+    )
+    default_headers: dict[str, str] | None = Field(
+        default=None,
+        description="Custom headers for all API requests",
+    )
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
 class AzureSettings(BaseModel):
-    """
-    Settings for using Azure OpenAI Service in the fast-agent application.
-    """
+    """Settings for using Azure OpenAI Service in the fast-agent application."""
 
-    api_key: str | None = None
-    resource_name: str | None = None
-    azure_deployment: str | None = None
-    api_version: str | None = None
-    base_url: str | None = None  # Optional, can be constructed from resource_name
+    api_key: str | None = Field(default=None, description="Azure OpenAI API key")
+    resource_name: str | None = Field(
+        default=None,
+        description="Azure resource name (do not use with base_url)",
+    )
+    azure_deployment: str | None = Field(
+        default=None,
+        description="Azure deployment name (required)",
+    )
+    api_version: str | None = Field(default=None, description="API version (e.g., 2023-05-15)")
+    base_url: str | None = Field(
+        default=None,
+        description="Full endpoint URL (do not use with resource_name)",
+    )
+    default_headers: dict[str, str] | None = Field(
+        default=None,
+        description="Custom headers for all API requests",
+    )
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
 class GroqSettings(BaseModel):
-    """
-    Settings for using Groq models in the fast-agent application.
-    """
+    """Settings for using Groq models in the fast-agent application."""
 
-    api_key: str | None = None
-    base_url: str | None = "https://api.groq.com/openai/v1"
-
-    default_headers: dict[str, str] | None = None
-    """Custom headers to include in all requests to the Groq API."""
+    api_key: str | None = Field(default=None, description="Groq API key")
+    base_url: str | None = Field(
+        default="https://api.groq.com/openai/v1",
+        description="Groq API endpoint",
+    )
+    default_headers: dict[str, str] | None = Field(
+        default=None,
+        description="Custom headers for all API requests",
+    )
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
 class OpenTelemetrySettings(BaseModel):
-    """
-    OTEL settings for the fast-agent application.
-    """
+    """OpenTelemetry settings for the fast-agent application."""
 
-    enabled: bool = False
-
-    service_name: str = "fast-agent"
-
-    otlp_endpoint: str = "http://localhost:4318/v1/traces"
-    """OTLP endpoint for OpenTelemetry tracing"""
-
-    console_debug: bool = False
-    """Log spans to console"""
-
-    sample_rate: float = 1.0
-    """Sample rate for tracing (1.0 = sample everything)"""
+    enabled: bool = Field(default=False, description="Enable OpenTelemetry tracing")
+    service_name: str = Field(default="fast-agent", description="OTEL service name")
+    otlp_endpoint: str = Field(
+        default="http://localhost:4318/v1/traces",
+        description="OTLP endpoint for tracing",
+    )
+    console_debug: bool = Field(default=False, description="Log spans to console")
+    sample_rate: float = Field(
+        default=1.0,
+        description="Sample rate for tracing (1.0 = sample everything)",
+    )
 
 
 class TensorZeroSettings(BaseModel):
-    """
-    Settings for using TensorZero via its OpenAI-compatible API.
-    """
+    """Settings for using TensorZero LLM gateway."""
 
-    base_url: str | None = None
-    api_key: str | None = None
-
-    default_headers: dict[str, str] | None = None
-    """Custom headers to include in all requests to the TensorZero API."""
+    base_url: str | None = Field(
+        default=None,
+        description="TensorZero endpoint (default: http://localhost:3000)",
+    )
+    api_key: str | None = Field(default=None, description="TensorZero API key (if required)")
+    default_headers: dict[str, str] | None = Field(
+        default=None,
+        description="Custom headers for all API requests",
+    )
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
 class BedrockSettings(BaseModel):
-    """
-    Settings for using AWS Bedrock models in the fast-agent application.
-    """
+    """Settings for using AWS Bedrock models in the fast-agent application."""
 
-    region: str | None = None
-    """AWS region for Bedrock service"""
-
-    profile: str | None = None
-    """AWS profile to use for authentication"""
-
-    reasoning_effort: Literal["minimal", "low", "medium", "high"] = "minimal"
-    """Default reasoning effort for Bedrock models. Can be overridden in model string (e.g., bedrock.claude-sonnet-4-0.high)"""
+    region: str | None = Field(default=None, description="AWS region for Bedrock (e.g., us-east-1)")
+    profile: str | None = Field(
+        default=None,
+        description="AWS profile for authentication (default: 'default')",
+    )
+    reasoning: ReasoningEffortSetting | str | int | bool | None = Field(
+        default=None,
+        description="Unified reasoning setting (effort level or budget)",
+    )
+    reasoning_effort: Literal["minimal", "low", "medium", "high"] = Field(
+        default="minimal",
+        description="Default reasoning effort: minimal, low, medium, high",
+    )
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
 class HuggingFaceSettings(BaseModel):
-    """
-    Settings for HuggingFace authentication (used for MCP connections).
-    """
+    """Settings for HuggingFace Inference Providers."""
 
-    # Leave unset to allow the provider to use its default router endpoint.
-    base_url: str | None = None
-    api_key: str | None = None
-    default_provider: str | None = None
-
-    default_headers: dict[str, str] | None = None
-    """Custom headers to include in all requests to the HuggingFace API."""
+    api_key: str | None = Field(default=None, description="HuggingFace token (HF_TOKEN)")
+    base_url: str | None = Field(
+        default=None,
+        description="Override router endpoint (default: https://router.huggingface.co/v1)",
+    )
+    default_provider: str | None = Field(
+        default=None,
+        description="Default inference provider (e.g., groq, fireworks-ai, cerebras)",
+    )
+    default_headers: dict[str, str] | None = Field(
+        default=None,
+        description="Custom headers for all API requests",
+    )
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
@@ -569,8 +688,14 @@ class LoggerSettings(BaseModel):
     """Truncate display of long tool calls"""
     enable_markup: bool = True
     """Enable markup in console output. Disable for outputs that may conflict with rich console formatting"""
+
+    enable_prompt_marks: bool = True
+    """Emit OSC 133 prompt marks for terminals that support scrollbar markers."""
     streaming: Literal["markdown", "plain", "none"] = "markdown"
     """Streaming renderer for assistant responses"""
+
+    message_style: Literal["classic", "a3"] = "a3"
+    """Chat message layout style for console output."""
 
 
 def find_fastagent_config_files(start_path: Path) -> tuple[Path | None, Path | None]:
@@ -624,6 +749,27 @@ def find_fastagent_config_files(start_path: Path) -> tuple[Path | None, Path | N
     return config_path, secrets_path
 
 
+def resolve_config_search_root(
+    start_path: Path,
+    *,
+    env_dir: str | Path | None = None,
+) -> Path:
+    """Resolve the base path for discovering config and secrets files.
+
+    If env_dir is provided (or ENVIRONMENT_DIR is set), search from there instead
+    of the current working directory.
+    """
+    base = start_path.resolve()
+    override = env_dir if env_dir is not None else os.getenv("ENVIRONMENT_DIR")
+    if not override:
+        return base
+
+    root = Path(override).expanduser()
+    if not root.is_absolute():
+        root = (base / root).resolve()
+    return root
+
+
 class Settings(BaseSettings):
     """
     Settings class for the fast-agent application.
@@ -643,15 +789,25 @@ class Settings(BaseSettings):
     execution_engine: Literal["asyncio"] = "asyncio"
     """Execution engine for the fast-agent application"""
 
+    environment_dir: str | None = None
+    """Base directory for fast-agent runtime data (defaults to .fast-agent)."""
+
     default_model: str | None = None
     """
-    Default model for agents. Format is provider.model_name.<reasoning_effort>, for example openai.o3-mini.low
+    Default model for agents. Format is provider.model_name.<reasoning_effort> or provider.model?reasoning=<value>,
+    for example openai.o3-mini.low or openai.o3-mini?reasoning=high.
     Aliases are provided for common models e.g. sonnet, haiku, gpt-4.1, o3-mini etc.
     If not set, falls back to FAST_AGENT_MODEL env var, then to "gpt-5-mini.low".
     """
 
     auto_sampling: bool = True
     """Enable automatic sampling model selection if not explicitly configured"""
+
+    session_history: bool = True
+    """Persist session history in the environment sessions folder (default: True)."""
+
+    session_history_window: int = 20
+    """Maximum number of sessions to keep in the rolling window (default: 20)."""
 
     anthropic: AnthropicSettings | None = None
     """Settings for using Anthropic models in the fast-agent application"""
@@ -661,6 +817,15 @@ class Settings(BaseSettings):
 
     openai: OpenAISettings | None = None
     """Settings for using OpenAI models in the fast-agent application"""
+
+    responses: OpenAISettings | None = None
+    """Settings for using OpenAI Responses models in the fast-agent application"""
+
+    openresponses: OpenResponsesSettings | None = None
+    """Settings for using Open Responses models in the fast-agent application"""
+
+    codexresponses: CodexResponsesSettings | None = None
+    """Settings for using Codex Responses models in the fast-agent application"""
 
     deepseek: DeepSeekSettings | None = None
     """Settings for using DeepSeek models in the fast-agent application"""
@@ -719,11 +884,14 @@ class Settings(BaseSettings):
     shell_execution: ShellSettings = ShellSettings()
     """Shell execution timeout and warning settings."""
 
-    llm_retries: int = 0
+    llm_retries: int = 1
     """
     Number of times to retry transient LLM API errors.
-    Defaults to 0; can be overridden via config or FAST_AGENT_RETRIES env.
+    Defaults to 1; can be overridden via config or FAST_AGENT_RETRIES env.
     """
+
+    _config_file: str | None = PrivateAttr(default=None)
+    _secrets_file: str | None = PrivateAttr(default=None)
 
     @classmethod
     def find_config(cls) -> Path | None:
@@ -819,7 +987,8 @@ def get_settings(config_path: str | os.PathLike[str] | None = None) -> Settings:
             _, secrets_file = find_fastagent_config_files(config_file.parent)
     else:
         # Use standardized discovery for both config and secrets
-        config_file, secrets_file = find_fastagent_config_files(Path.cwd())
+        search_root = resolve_config_search_root(Path.cwd())
+        config_file, secrets_file = find_fastagent_config_files(search_root)
 
     merged_settings = {}
 
@@ -843,5 +1012,37 @@ def get_settings(config_path: str | os.PathLike[str] | None = None) -> Settings:
             resolved_secrets_yaml = resolve_env_vars(yaml_secrets)
             merged_settings = deep_merge(merged_settings, resolved_secrets_yaml)
 
+    legacy_keys: list[str] = []
+    anthropic_settings = merged_settings.get("anthropic")
+    if isinstance(anthropic_settings, dict):
+        for key in ("thinking_enabled", "thinking_budget_tokens"):
+            if key in anthropic_settings:
+                legacy_keys.append(key)
+    legacy_env = [
+        key
+        for key in ("ANTHROPIC__THINKING_ENABLED", "ANTHROPIC__THINKING_BUDGET_TOKENS")
+        if os.getenv(key) is not None
+    ]
+    if legacy_keys or legacy_env:
+        warnings.warn(
+            "Anthropic config keys 'thinking_enabled'/'thinking_budget_tokens' are deprecated and "
+            "ignored. Use 'anthropic.reasoning' instead.",
+            UserWarning,
+            stacklevel=3,
+        )
+
     _settings = Settings(**merged_settings)
+    _settings._config_file = str(config_file) if config_file else None
+    _settings._secrets_file = str(secrets_file) if secrets_file else None
     return _settings
+
+
+def update_global_settings(settings: Settings) -> None:
+    """Update the global settings instance.
+
+    This is used to propagate CLI overrides (like --skills-dir) into the
+    global settings so that functions like resolve_skill_directories()
+    work correctly without needing to pass settings around explicitly.
+    """
+    global _settings
+    _settings = settings

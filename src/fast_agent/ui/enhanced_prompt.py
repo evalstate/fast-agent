@@ -2,13 +2,18 @@
 Enhanced prompt functionality with advanced prompt_toolkit features.
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import os
+import platform
 import shlex
+import shutil
 import subprocess
 import tempfile
-from collections.abc import Callable, Iterable
+import time
+from dataclasses import dataclass
 from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -19,25 +24,47 @@ from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.styles import Style
 from rich import print as rich_print
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.agents.workflow.router_agent import RouterAgent
-from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, FAST_AGENT_REMOVED_METADATA_CHANNEL
+from fast_agent.constants import (
+    FAST_AGENT_ERROR_CHANNEL,
+    FAST_AGENT_REMOVED_METADATA_CHANNEL,
+)
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.llm.model_info import ModelInfo
+from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.reasoning_effort import available_reasoning_values
+from fast_agent.llm.text_verbosity import available_text_verbosity_values
 from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.ui.command_payloads import (
+    AgentCommand,
     ClearCommand,
+    ClearSessionsCommand,
     CommandPayload,
+    CreateSessionCommand,
+    ForkSessionCommand,
+    HashAgentCommand,
+    HistoryFixCommand,
+    HistoryReviewCommand,
+    HistoryRewindCommand,
+    ListSessionsCommand,
     ListToolsCommand,
     LoadAgentCardCommand,
     LoadHistoryCommand,
+    LoadPromptCommand,
+    ModelReasoningCommand,
+    ModelVerbosityCommand,
+    PinSessionCommand,
     ReloadAgentsCommand,
+    ResumeSessionCommand,
     SaveHistoryCommand,
     SelectPromptCommand,
+    ShellCommand,
     ShowHistoryCommand,
     ShowMarkdownCommand,
     ShowMcpStatusCommand,
@@ -45,12 +72,22 @@ from fast_agent.ui.command_payloads import (
     ShowUsageCommand,
     SkillsCommand,
     SwitchAgentCommand,
+    TitleSessionCommand,
+    UnknownCommand,
     is_command_payload,
 )
 from fast_agent.ui.mcp_display import render_mcp_status
+from fast_agent.ui.model_display import format_model_display
+from fast_agent.ui.prompt_marks import emit_prompt_mark
+from fast_agent.ui.reasoning_effort_display import render_reasoning_effort_gauge
+from fast_agent.ui.shell_notice import format_shell_notice
+from fast_agent.ui.text_verbosity_display import render_text_verbosity_gauge
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable, Iterator, Sequence
+
     from fast_agent.core.agent_app import AgentApp
+    from fast_agent.types import PromptMessageExtended
 
 # Get the application version
 try:
@@ -66,6 +103,19 @@ available_agents = set()
 
 # Keep track of multi-line mode state
 in_multiline_mode = False
+
+# Track last copyable output (shell output or assistant response)
+_last_copyable_output: str | None = None
+
+# Track transient copy notice for the toolbar.
+_copy_notice: str | None = None
+_copy_notice_until: float = 0.0
+
+
+def set_last_copyable_output(output: str) -> None:
+    """Set the last copyable output for Ctrl+Y clipboard functionality."""
+    global _last_copyable_output
+    _last_copyable_output = output
 
 
 def _show_system_cmd() -> ShowSystemCommand:
@@ -92,6 +142,31 @@ def _switch_agent_cmd(agent_name: str) -> SwitchAgentCommand:
     return SwitchAgentCommand(agent_name=agent_name)
 
 
+def _hash_agent_cmd(agent_name: str, message: str) -> HashAgentCommand:
+    return HashAgentCommand(agent_name=agent_name, message=message)
+
+
+def _default_shell_command() -> str:
+    """Best-effort shell choice for interactive prompt commands."""
+    if platform.system() == "Windows":
+        for shell_name in ["pwsh", "powershell", "cmd"]:
+            shell_path = shutil.which(shell_name)
+            if shell_path:
+                return shell_path
+        return os.environ.get("COMSPEC", "cmd.exe")
+
+    shell_env = os.environ.get("SHELL")
+    if shell_env and Path(shell_env).exists():
+        return shell_env
+
+    for shell_name in ["bash", "zsh", "sh"]:
+        shell_path = shutil.which(shell_name)
+        if shell_path:
+            return shell_path
+
+    return "sh"
+
+
 def _show_history_cmd(target_agent: str | None) -> ShowHistoryCommand:
     return ShowHistoryCommand(agent=target_agent)
 
@@ -112,19 +187,47 @@ def _load_history_cmd(filename: str | None, error: str | None) -> LoadHistoryCom
     return LoadHistoryCommand(filename=filename, error=error)
 
 
+def _load_prompt_cmd(filename: str | None, error: str | None) -> LoadPromptCommand:
+    return LoadPromptCommand(filename=filename, error=error)
+
+
+def _history_rewind_cmd(turn_index: int | None, error: str | None) -> HistoryRewindCommand:
+    return HistoryRewindCommand(turn_index=turn_index, error=error)
+
+
+def _history_review_cmd(turn_index: int | None, error: str | None) -> HistoryReviewCommand:
+    return HistoryReviewCommand(turn_index=turn_index, error=error)
+
+
+def _history_fix_cmd(target_agent: str | None) -> HistoryFixCommand:
+    return HistoryFixCommand(agent=target_agent)
+
+
 def _load_agent_card_cmd(
-    filename: str | None, add_tool: bool, error: str | None
+    filename: str | None, add_tool: bool, remove_tool: bool, error: str | None
 ) -> LoadAgentCardCommand:
-    return LoadAgentCardCommand(filename=filename, add_tool=add_tool, error=error)
+    return LoadAgentCardCommand(
+        filename=filename, add_tool=add_tool, remove_tool=remove_tool, error=error
+    )
+
+
+def _agent_cmd(
+    agent_name: str | None, add_tool: bool, remove_tool: bool, dump: bool, error: str | None
+) -> AgentCommand:
+    return AgentCommand(
+        agent_name=agent_name,
+        add_tool=add_tool,
+        remove_tool=remove_tool,
+        dump=dump,
+        error=error,
+    )
 
 
 def _reload_agents_cmd() -> ReloadAgentsCommand:
     return ReloadAgentsCommand()
 
 
-def _select_prompt_cmd(
-    prompt_index: int | None, prompt_name: str | None
-) -> SelectPromptCommand:
+def _select_prompt_cmd(prompt_index: int | None, prompt_name: str | None) -> SelectPromptCommand:
     return SelectPromptCommand(prompt_index=prompt_index, prompt_name=prompt_name)
 
 
@@ -160,6 +263,14 @@ help_message_shown = False
 
 # Track which agents have shown their info
 _agent_info_shown = set()
+
+# One-off notices to render at the top of the prompt UI
+_startup_notices: list[str] = []
+
+
+def queue_startup_notice(notice: str) -> None:
+    if notice:
+        _startup_notices.append(notice)
 
 
 async def show_mcp_status(agent_name: str, agent_provider: "AgentApp | None") -> None:
@@ -400,9 +511,7 @@ async def _display_router_children(router_agent, agent_provider: "AgentApp | Non
         await _display_child_agent_info(child_agent, prefix, agent_provider)
 
 
-async def _display_tool_children(
-    tool_children, agent_provider: "AgentApp | None"
-) -> None:
+async def _display_tool_children(tool_children, agent_provider: "AgentApp | None") -> None:
     """Display tool-exposed child agents in tree format."""
     for i, child_agent in enumerate(tool_children):
         is_last = i == len(tool_children) - 1
@@ -429,6 +538,7 @@ def _collect_tool_children(agent) -> list[Any]:
         seen.add(name)
         unique_children.append(child)
     return unique_children
+
 
 async def _display_child_agent_info(
     child_agent, prefix: str, agent_provider: "AgentApp | None"
@@ -482,165 +592,765 @@ class AgentCompleter(Completer):
         agents: list[str],
         agent_types: dict[str, AgentType] | None = None,
         is_human_input: bool = False,
+        current_agent: str | None = None,
+        agent_provider: "AgentApp | None" = None,
+        noenv_mode: bool = False,
     ) -> None:
         self.agents = agents
+        self.current_agent = current_agent
+        self.agent_provider = agent_provider
+        self.noenv_mode = noenv_mode
         # Map commands to their descriptions for better completion hints
         self.commands = {
             "mcp": "Show MCP server status",
-            "history": "Show conversation history overview (optionally another agent)",
-            "tools": "List available MCP Tools",
-            "skills": "Manage local skills (/skills, /skills add, /skills remove)",
-            "prompt": "List and choose MCP prompts, or apply specific prompt (/prompt <name>)",
-            "clear": "Clear history",
-            "clear last": "Remove the most recent message from history",
-            "agents": "List available agents",
+            "history": "Show conversation history overview (or /history save|load|clear|rewind|review|fix)",
+            "tools": "List tools",
+            "model": "Update model settings (/model reasoning <value> | /model verbosity <value>)",
+            "skills": "Manage skills (/skills, /skills add, /skills remove, /skills registry)",
+            "prompt": "Load a Prompt File or use MCP Prompt",
             "system": "Show the current system prompt",
             "usage": "Show current usage statistics",
             "markdown": "Show last assistant message without markdown formatting",
-            "save_history": "Save history; .json = MCP JSON, others = Markdown",
-            "load_history": "Load history from a file",
-            "card": "Load an AgentCard (add --tool to expose as tool)",
+            "resume": "Resume the last session or specified session id",
+            "session": "Manage sessions (/session list|new|resume|title|fork|delete|pin)",
+            "card": "Load an AgentCard (add --tool to attach/remove as tool)",
+            "agent": "Attach/remove an agent as a tool or dump an AgentCard",
             "reload": "Reload AgentCards from disk",
             "help": "Show commands and shortcuts",
             "EXIT": "Exit fast-agent, terminating any running workflows",
             "STOP": "Stop this prompting session and move to next workflow step",
         }
         if is_human_input:
-            self.commands.pop("agents")
             self.commands.pop("prompt", None)  # Remove prompt command in human input mode
             self.commands.pop("tools", None)  # Remove tools command in human input mode
             self.commands.pop("usage", None)  # Remove usage command in human input mode
         self.agent_types = agent_types or {}
 
-    def _complete_history_files(self, partial: str):
-        """Generate completions for history files (.json and .md)."""
-        from pathlib import Path
+    @dataclass(frozen=True)
+    class _CompletionSearch:
+        search_dir: Path
+        prefix: str
+        completion_prefix: str
 
-        # Determine directory and prefix to search
+    def _resolve_completion_search(self, partial: str) -> _CompletionSearch | None:
+        raw_dir = ""
+        prefix = ""
+        explicit_current_dir = False
         if partial:
-            partial_path = Path(partial)
-            if partial.endswith("/") or partial.endswith(os.sep):
-                search_dir = partial_path
+            if (
+                partial.endswith("/")
+                or partial.endswith(os.sep)
+                or (os.altsep is not None and partial.endswith(os.altsep))
+            ):
+                raw_dir = partial
                 prefix = ""
             else:
-                search_dir = partial_path.parent if partial_path.parent != partial_path else Path(".")
-                prefix = partial_path.name
-        else:
-            search_dir = Path(".")
-            prefix = ""
+                raw_dir, prefix = os.path.split(partial)
+                explicit_current_dir = partial.startswith(f".{os.sep}") or (
+                    os.altsep is not None and partial.startswith(f".{os.altsep}")
+                )
 
-        # Ensure search_dir exists
-        if not search_dir.exists():
-            return
+        raw_dir = raw_dir or "."
+        expanded_dir = Path(os.path.expandvars(os.path.expanduser(raw_dir)))
+        if not expanded_dir.exists() or not expanded_dir.is_dir():
+            return None
 
+        completion_prefix = ""
+        if raw_dir not in {"", "."}:
+            completion_prefix = raw_dir
+            if not completion_prefix.endswith(("/", os.sep)):
+                completion_prefix = f"{completion_prefix}{os.sep}"
+        elif explicit_current_dir:
+            completion_prefix = f".{os.sep}"
+
+        return self._CompletionSearch(
+            search_dir=expanded_dir,
+            prefix=prefix,
+            completion_prefix=completion_prefix,
+        )
+
+    def _iter_file_completions(
+        self,
+        partial: str,
+        *,
+        file_filter: Callable[[Path], bool],
+        file_meta: Callable[[Path], str],
+        include_hidden_dirs: bool = False,
+    ) -> Iterable[Completion]:
+        resolved = self._resolve_completion_search(partial)
+        if not resolved:
+            return []
+
+        search_dir = resolved.search_dir
+        prefix = resolved.prefix
+        completion_prefix = resolved.completion_prefix
+        completions: list[Completion] = []
         try:
-            # List directory contents
             for entry in sorted(search_dir.iterdir()):
                 name = entry.name
-
-                # Skip hidden files
-                if name.startswith("."):
+                is_hidden = name.startswith(".")
+                if is_hidden and not (include_hidden_dirs and entry.is_dir()):
                     continue
-
-                # Check if name matches prefix
                 if not name.lower().startswith(prefix.lower()):
                     continue
 
-                # Build the completion text
-                if search_dir == Path("."):
-                    completion_text = name
-                else:
-                    completion_text = str(search_dir / name)
+                completion_text = f"{completion_prefix}{name}" if completion_prefix else name
 
-                # Handle directories - add trailing slash
                 if entry.is_dir():
-                    yield Completion(
-                        completion_text + "/",
-                        start_position=-len(partial),
-                        display=name + "/",
-                        display_meta="directory",
+                    completions.append(
+                        Completion(
+                            completion_text + "/",
+                            start_position=-len(partial),
+                            display=name + "/",
+                            display_meta="directory",
+                        )
                     )
-                # Handle .json and .md files
-                elif entry.is_file() and (name.endswith(".json") or name.endswith(".md")):
-                    file_type = "JSON history" if name.endswith(".json") else "Markdown"
-                    yield Completion(
-                        completion_text,
-                        start_position=-len(partial),
-                        display=name,
-                        display_meta=file_type,
+                elif entry.is_file() and file_filter(entry):
+                    completions.append(
+                        Completion(
+                            completion_text,
+                            start_position=-len(partial),
+                            display=name,
+                            display_meta=file_meta(entry),
+                        )
                     )
-        except PermissionError:
-            pass  # Skip directories we can't read
+        except (PermissionError, FileNotFoundError, NotADirectoryError):
+            return []
+
+        return completions
+
+    def _complete_history_files(self, partial: str):
+        """Generate completions for history files (.json and .md)."""
+
+        def _history_filter(entry: Path) -> bool:
+            return entry.name.endswith(".json") or entry.name.endswith(".md")
+
+        def _history_meta(entry: Path) -> str:
+            return "JSON history" if entry.name.endswith(".json") else "Markdown"
+
+        yield from self._iter_file_completions(
+            partial,
+            file_filter=_history_filter,
+            file_meta=_history_meta,
+            include_hidden_dirs=True,
+        )
+
+    def _normalize_turn_preview(self, text: str, *, limit: int = 60) -> str:
+        normalized = " ".join(text.split())
+        if not normalized:
+            return "<no text>"
+        if len(normalized) <= limit:
+            return normalized
+        return normalized[: limit - 1] + "…"
+
+    def _iter_user_turns(self):
+        if not self.agent_provider or not self.current_agent:
+            return []
+        try:
+            agent_obj = self.agent_provider._agent(self.current_agent)
+        except Exception:
+            return []
+        history = getattr(agent_obj, "message_history", [])
+        turns: list[list[PromptMessageExtended]] = []
+        current: list[PromptMessageExtended] = []
+        saw_assistant = False
+
+        for message in list(history):
+            is_new_user = message.role == "user" and not message.tool_results
+            if is_new_user:
+                if not current:
+                    current = [message]
+                    saw_assistant = False
+                    continue
+                if not saw_assistant:
+                    current.append(message)
+                    continue
+                turns.append(current)
+                current = [message]
+                saw_assistant = False
+                continue
+            if current:
+                current.append(message)
+                if message.role == "assistant":
+                    saw_assistant = True
+
+        if current:
+            turns.append(current)
+
+        user_turns = []
+        for turn in turns:
+            if not turn:
+                continue
+            first = turn[0]
+            if first.role != "user" or first.tool_results:
+                continue
+            user_turns.append(first)
+        return user_turns
+
+    def _resolve_reasoning_values(self) -> list[str]:
+        if not self.agent_provider or not self.current_agent:
+            return []
+        try:
+            agent_obj = self.agent_provider._agent(self.current_agent)
+        except Exception:
+            return []
+        llm = getattr(agent_obj, "llm", None) or getattr(agent_obj, "_llm", None)
+        if not llm:
+            return []
+        return available_reasoning_values(getattr(llm, "reasoning_effort_spec", None))
+
+    def _resolve_verbosity_values(self) -> list[str]:
+        if not self.agent_provider or not self.current_agent:
+            return []
+        try:
+            agent_obj = self.agent_provider._agent(self.current_agent)
+        except Exception:
+            return []
+        llm = getattr(agent_obj, "llm", None) or getattr(agent_obj, "_llm", None)
+        if not llm:
+            return []
+        return available_text_verbosity_values(getattr(llm, "text_verbosity_spec", None))
+
+    def _complete_history_rewind(self, partial: str):
+        user_turns = self._iter_user_turns()
+        if not user_turns:
+            return
+        partial_clean = partial.strip()
+        for index in range(len(user_turns), 0, -1):
+            message = user_turns[index - 1]
+            index_str = str(index)
+            if partial_clean and not index_str.startswith(partial_clean):
+                continue
+            content = getattr(message, "content", []) or []
+            text = None
+            if content:
+                from fast_agent.mcp.helpers.content_helpers import get_text
+
+                text = get_text(content[0])
+            if not text or text == "<no text>":
+                text = ""
+            preview = self._normalize_turn_preview(text or "")
+            yield Completion(
+                index_str,
+                start_position=-len(partial),
+                display=f"turn {index_str}",
+                display_meta=preview,
+            )
+
+    def _complete_session_ids(self, partial: str, *, start_position: int | None = None):
+        """Generate completions for recent session ids."""
+        if self.noenv_mode:
+            return
+
+        from fast_agent.session import (
+            apply_session_window,
+            display_session_name,
+            get_session_manager,
+        )
+
+        manager = get_session_manager()
+        sessions = apply_session_window(manager.list_sessions())
+        partial_lower = partial.lower()
+        for session_info in sessions:
+            session_id = session_info.name
+            display_name = display_session_name(session_id)
+            if partial and not (
+                session_id.lower().startswith(partial_lower)
+                or display_name.lower().startswith(partial_lower)
+            ):
+                continue
+            display_time = session_info.last_activity.strftime("%Y-%m-%d %H:%M")
+            metadata = session_info.metadata or {}
+            summary = (
+                metadata.get("title")
+                or metadata.get("label")
+                or metadata.get("first_user_preview")
+                or ""
+            )
+            summary = " ".join(str(summary).split())
+            if summary:
+                summary = summary[:30]
+                display_meta = f"{display_time} • {summary}"
+            else:
+                display_meta = display_time
+            yield Completion(
+                session_id,
+                start_position=-len(partial) if start_position is None else start_position,
+                display=display_name,
+                display_meta=display_meta,
+            )
 
     def _complete_agent_card_files(self, partial: str):
         """Generate completions for AgentCard files (.md/.markdown/.yaml/.yml)."""
-        from pathlib import Path
+        card_extensions = {".md", ".markdown", ".yaml", ".yml"}
 
-        if partial:
-            partial_path = Path(partial)
-            if partial.endswith("/") or partial.endswith(os.sep):
-                search_dir = partial_path
-                prefix = ""
-            else:
-                search_dir = partial_path.parent if partial_path.parent != partial_path else Path(".")
-                prefix = partial_path.name
-        else:
-            search_dir = Path(".")
-            prefix = ""
+        def _card_filter(entry: Path) -> bool:
+            return entry.suffix.lower() in card_extensions
 
-        if not search_dir.exists():
+        def _card_meta(_: Path) -> str:
+            return "AgentCard"
+
+        yield from self._iter_file_completions(
+            partial,
+            file_filter=_card_filter,
+            file_meta=_card_meta,
+            include_hidden_dirs=True,
+        )
+
+    def _complete_local_skill_names(self, partial: str):
+        """Generate completions for local skill names and indices."""
+        from fast_agent.skills.manager import get_manager_directory
+        from fast_agent.skills.registry import SkillRegistry
+
+        manager_dir = get_manager_directory()
+        manifests = SkillRegistry.load_directory(manager_dir)
+        if not manifests:
             return
 
-        card_extensions = {".md", ".markdown", ".yaml", ".yml"}
+        partial_lower = partial.lower()
+        include_numbers = not partial or partial.isdigit()
+        for index, manifest in enumerate(manifests, 1):
+            name = manifest.name
+            if name and (not partial or name.lower().startswith(partial_lower)):
+                yield Completion(
+                    name,
+                    start_position=-len(partial),
+                    display=name,
+                    display_meta="local skill",
+                )
+            if include_numbers:
+                index_text = str(index)
+                if not partial or index_text.startswith(partial):
+                    yield Completion(
+                        index_text,
+                        start_position=-len(partial),
+                        display=index_text,
+                        display_meta=name or "local skill",
+                    )
+
+    def _complete_skill_registries(self, partial: str):
+        """Generate completions for configured skills registries."""
+        from fast_agent.config import get_settings
+        from fast_agent.skills.manager import (
+            DEFAULT_SKILL_REGISTRIES,
+            format_marketplace_display_url,
+        )
+
+        settings = get_settings()
+        skills_settings = getattr(settings, "skills", None)
+        configured_urls = (
+            getattr(skills_settings, "marketplace_urls", None) if skills_settings else None
+        ) or list(DEFAULT_SKILL_REGISTRIES)
+        active_url = getattr(skills_settings, "marketplace_url", None) if skills_settings else None
+        if active_url and active_url not in configured_urls:
+            configured_urls.append(active_url)
+
+        unique_urls: list[str] = []
+        seen_urls = set()
+        for url in configured_urls:
+            if url in seen_urls:
+                continue
+            seen_urls.add(url)
+            unique_urls.append(url)
+
+        partial_lower = partial.lower()
+        include_numbers = not partial or partial.isdigit()
+        include_urls = bool(partial) and not partial.isdigit()
+        for index, url in enumerate(unique_urls, 1):
+            display = format_marketplace_display_url(url)
+            index_text = str(index)
+            if include_numbers and index_text.startswith(partial):
+                yield Completion(
+                    index_text,
+                    start_position=-len(partial),
+                    display=index_text,
+                    display_meta=display,
+                )
+            if include_urls and url.lower().startswith(partial_lower):
+                yield Completion(
+                    url,
+                    start_position=-len(partial),
+                    display=index_text,
+                    display_meta=display,
+                )
+
+    def _complete_executables(self, partial: str, max_results: int = 100):
+        """Complete executable names from PATH.
+
+        Args:
+            partial: The partial executable name to match.
+            max_results: Maximum number of completions to yield (default 100).
+                        Limits scan time on systems with large PATH.
+        """
+        seen = set()
+        count = 0
+        for path_dir in os.environ.get("PATH", "").split(os.pathsep):
+            if count >= max_results:
+                break
+            try:
+                for entry in Path(path_dir).iterdir():
+                    if count >= max_results:
+                        break
+                    if entry.is_file() and os.access(entry, os.X_OK):
+                        name = entry.name
+                        if name.startswith(partial) and name not in seen:
+                            seen.add(name)
+                            count += 1
+                            yield Completion(
+                                name,
+                                start_position=-len(partial),
+                                display=name,
+                                display_meta="executable",
+                            )
+            except (PermissionError, FileNotFoundError):
+                pass
+
+    def _is_shell_path_token(self, token: str) -> bool:
+        if not token:
+            return False
+        if token.startswith((".", "~", os.sep)):
+            return True
+        if os.sep in token:
+            return True
+        if os.altsep and os.altsep in token:
+            return True
+        return False
+
+    def _complete_shell_paths(self, partial: str, delete_len: int, max_results: int = 100):
+        """Complete file/directory paths for shell commands.
+
+        Args:
+            partial: The partial path to complete.
+            delete_len: Number of characters to delete for the completion.
+            max_results: Maximum number of completions to yield (default 100).
+        """
+        resolved = self._resolve_completion_search(partial)
+        if not resolved:
+            return
+
+        search_dir = resolved.search_dir
+        prefix = resolved.prefix
+        completion_prefix = resolved.completion_prefix
+
         try:
+            count = 0
             for entry in sorted(search_dir.iterdir()):
+                if count >= max_results:
+                    break
                 name = entry.name
-                if name.startswith("."):
+                if name.startswith(".") and not prefix.startswith("."):
                     continue
                 if not name.lower().startswith(prefix.lower()):
                     continue
 
-                if search_dir == Path("."):
-                    completion_text = name
-                else:
-                    completion_text = str(search_dir / name)
+                completion_text = f"{completion_prefix}{name}" if completion_prefix else name
 
                 if entry.is_dir():
                     yield Completion(
                         completion_text + "/",
-                        start_position=-len(partial),
+                        start_position=-delete_len,
                         display=name + "/",
                         display_meta="directory",
                     )
-                elif entry.is_file() and entry.suffix.lower() in card_extensions:
+                else:
                     yield Completion(
                         completion_text,
-                        start_position=-len(partial),
+                        start_position=-delete_len,
                         display=name,
-                        display_meta="AgentCard",
+                        display_meta="file",
                     )
-        except PermissionError:
-            pass  # Skip directories we can't read
+                count += 1
+        except (PermissionError, FileNotFoundError, NotADirectoryError):
+            pass
+
+    def _complete_subcommands(
+        self,
+        parts: Sequence[str],
+        remainder: str,
+        subcommands: dict[str, str],
+    ) -> Iterator[Completion]:
+        """Yield completions for subcommand names from a dict.
+
+        Args:
+            parts: Split parts of the remainder text
+            remainder: Full remainder text after the command prefix
+            subcommands: Dict mapping subcommand names to descriptions
+        """
+        if not parts or (len(parts) == 1 and not remainder.endswith(" ")):
+            partial = parts[0] if parts else ""
+            for subcmd, description in subcommands.items():
+                if subcmd.startswith(partial.lower()):
+                    yield Completion(
+                        subcmd,
+                        start_position=-len(partial),
+                        display=subcmd,
+                        display_meta=description,
+                    )
 
     def get_completions(self, document, complete_event):
         """Synchronous completions method - this is what prompt_toolkit expects by default"""
         text = document.text_before_cursor
         text_lower = text.lower()
+        completion_requested = bool(complete_event and complete_event.completion_requested)
 
-        # Sub-completion for /load_history - show .json and .md files
-        if text_lower.startswith("/load_history ") or text_lower.startswith("/load "):
-            # Extract the partial path after the command
-            if text_lower.startswith("/load_history "):
-                partial = text[len("/load_history "):]
+        # Shell completion mode - detect ! prefix
+        if text.lstrip().startswith("!"):
+            if complete_event and complete_event.text_inserted:
+                return
+            # Text after "!" with leading/trailing whitespace stripped
+            shell_text = text.lstrip()[1:].lstrip()
+            if not shell_text:
+                if completion_requested:
+                    yield from self._complete_executables("", max_results=100)
+                return
+
+            if " " not in shell_text:
+                # First token: complete executables or paths.
+                if self._is_shell_path_token(shell_text):
+                    yield from self._complete_shell_paths(shell_text, len(shell_text))
+                else:
+                    yield from self._complete_executables(shell_text)
             else:
-                partial = text[len("/load "):]
+                # After first token: complete paths
+                _, path_part = shell_text.rsplit(" ", 1)
+                yield from self._complete_shell_paths(path_part, len(path_part))
+            return
 
+        # Sub-completion for /history load - show .json and .md files
+        if text_lower.startswith("/history load "):
+            partial = text[len("/history load ") :]
             yield from self._complete_history_files(partial)
             return
 
+        if text_lower.startswith("/history rewind "):
+            partial = text[len("/history rewind ") :]
+            yield from self._complete_history_rewind(partial)
+            return
+
+        if text_lower.startswith("/history review "):
+            partial = text[len("/history review ") :]
+            yield from self._complete_history_rewind(partial)
+            return
+
+        if text_lower.startswith("/prompt load "):
+            partial = text[len("/prompt load ") :]
+            yield from self._complete_history_files(partial)
+            return
+
+        if text_lower.startswith("/history clear "):
+            partial = text[len("/history clear ") :]
+            subcommands = {
+                "all": "Clear the full history",
+                "last": "Remove the most recent message",
+            }
+            for subcmd, description in subcommands.items():
+                if subcmd.startswith(partial.lower()):
+                    yield Completion(
+                        subcmd,
+                        start_position=-len(partial),
+                        display=subcmd,
+                        display_meta=description,
+                    )
+            return
+
+        if text_lower.startswith("/resume "):
+            partial = text[len("/resume ") :]
+            yield from self._complete_session_ids(partial)
+            return
+
+        if text_lower.startswith("/session resume "):
+            partial = text[len("/session resume ") :]
+            yield from self._complete_session_ids(partial)
+            return
+
+        if text_lower.startswith("/session delete "):
+            partial = text[len("/session delete ") :]
+            if "all".startswith(partial.lower()):
+                yield Completion(
+                    "all",
+                    start_position=-len(partial),
+                    display="all",
+                    display_meta="Delete all sessions",
+                )
+            yield from self._complete_session_ids(partial)
+            return
+
+        if text_lower.startswith("/session clear "):
+            partial = text[len("/session clear ") :]
+            if "all".startswith(partial.lower()):
+                yield Completion(
+                    "all",
+                    start_position=-len(partial),
+                    display="all",
+                    display_meta="Delete all sessions",
+                )
+            yield from self._complete_session_ids(partial)
+            return
+
+        if text_lower.startswith("/session pin "):
+            remainder = text[len("/session pin ") :]
+            parts = remainder.split(maxsplit=1) if remainder else []
+            if not parts:
+                for option in ("on", "off"):
+                    yield Completion(
+                        option,
+                        start_position=0,
+                        display=option,
+                        display_meta="Toggle session pin",
+                    )
+                yield from self._complete_session_ids("")
+                return
+            first = parts[0].lower()
+            if first in {"on", "off"}:
+                if len(parts) == 1 and not remainder.endswith(" "):
+                    for option in ("on", "off"):
+                        if option.startswith(first):
+                            yield Completion(
+                                option,
+                                start_position=-len(first),
+                                display=option,
+                                display_meta="Toggle session pin",
+                            )
+                    return
+                suffix = parts[1] if len(parts) > 1 else ""
+                start_position = -len(suffix) if suffix else 0
+                yield from self._complete_session_ids(suffix, start_position=start_position)
+                return
+            yield from self._complete_session_ids(remainder)
+            return
+
+        if text_lower.startswith("/skills "):
+            remainder = text[len("/skills ") :]
+            if not remainder:
+                remainder = ""
+            parts = remainder.split(maxsplit=1)
+            subcommands = {
+                "list": "List local skills",
+                "add": "Install a skill",
+                "remove": "Remove a local skill",
+                "registry": "Set skills registry",
+            }
+            yield from self._complete_subcommands(parts, remainder, subcommands)
+            if not parts or (len(parts) == 1 and not remainder.endswith(" ")):
+                return
+
+            subcmd = parts[0].lower()
+            argument = parts[1] if len(parts) > 1 else ""
+            if subcmd in {"remove", "rm", "delete", "uninstall"}:
+                yield from self._complete_local_skill_names(argument)
+                return
+            if subcmd in {"registry", "marketplace", "source"}:
+                yield from self._complete_skill_registries(argument)
+                return
+            return
+
+        if text_lower.startswith("/model "):
+            remainder = text[len("/model ") :]
+            if not remainder:
+                remainder = ""
+            parts = remainder.split(maxsplit=1)
+            subcommands = {
+                "reasoning": (
+                    "Set reasoning effort (off/low/medium/high/max/xhigh or budgets like "
+                    "0/1024/16000/32000)"
+                ),
+            }
+            if self._resolve_verbosity_values():
+                subcommands["verbosity"] = "Set text verbosity (low/medium/high)"
+            yield from self._complete_subcommands(parts, remainder, subcommands)
+            if not parts or (len(parts) == 1 and not remainder.endswith(" ")):
+                return
+
+            subcmd = parts[0].lower()
+            argument = parts[1] if len(parts) > 1 else ""
+            if subcmd == "reasoning":
+                for value in self._resolve_reasoning_values():
+                    if value.startswith(argument.lower()):
+                        yield Completion(
+                            value,
+                            start_position=-len(argument),
+                            display=value,
+                            display_meta="reasoning",
+                        )
+                return
+            if subcmd == "verbosity":
+                for value in self._resolve_verbosity_values():
+                    if value.startswith(argument.lower()):
+                        yield Completion(
+                            value,
+                            start_position=-len(argument),
+                            display=value,
+                            display_meta="verbosity",
+                        )
+                return
+
+            return
+
+        if text_lower.startswith("/history "):
+            partial = text[len("/history ") :]
+            subcommands = {
+                "show": "Show history overview",
+                "save": "Save history to a file",
+                "load": "Load history from a file",
+                "clear": "Clear history (all or last)",
+                "rewind": "Rewind to a previous user turn",
+                "review": "Review a previous user turn in full",
+            }
+            for subcmd, description in subcommands.items():
+                if subcmd.startswith(partial.lower()):
+                    yield Completion(
+                        subcmd,
+                        start_position=-len(partial),
+                        display=subcmd,
+                        display_meta=description,
+                    )
+            return
+
+        if text_lower.startswith("/session "):
+            partial = text[len("/session ") :]
+            subcommands = {
+                "delete": "Delete a session (or all)",
+                "pin": "Pin or unpin the current session",
+                "clear": "Alias for delete",
+                "list": "List recent sessions",
+                "new": "Create a new session",
+                "resume": "Resume a session",
+                "title": "Set session title",
+                "fork": "Fork current session",
+            }
+            for subcmd, description in subcommands.items():
+                if subcmd.startswith(partial.lower()):
+                    yield Completion(
+                        subcmd,
+                        start_position=-len(partial),
+                        display=subcmd,
+                        display_meta=description,
+                    )
+            return
+
         if text_lower.startswith("/card "):
-            partial = text[len("/card "):]
+            partial = text[len("/card ") :]
             yield from self._complete_agent_card_files(partial)
+            return
+
+        # Sub-completion for /agent - show available agent names (excluding current agent)
+        if text_lower.startswith("/agent "):
+            partial = text[len("/agent ") :].lstrip()
+            # Strip leading @ if present
+            if partial.startswith("@"):
+                partial = partial[1:]
+            for agent in self.agents:
+                # Don't suggest attaching current agent to itself
+                if agent == self.current_agent:
+                    continue
+                if agent.lower().startswith(partial.lower()):
+                    agent_type = self.agent_types.get(agent, AgentType.BASIC).value
+                    yield Completion(
+                        agent,
+                        start_position=-len(partial),
+                        display=agent,
+                        display_meta=agent_type,
+                    )
             return
 
         # Complete commands
@@ -669,6 +1379,32 @@ class AgentCompleter(Completer):
                         display=agent,
                         display_meta=agent_type,
                     )
+
+        if completion_requested:
+            if text and not text[-1].isspace():
+                partial = text.split()[-1]
+            else:
+                partial = ""
+            yield from self._complete_shell_paths(partial, len(partial))
+            return
+
+        # Complete agent names for hash commands (#agent_name message)
+        elif text.startswith("#"):
+            # Only complete if we haven't finished the agent name yet (no space after #agent)
+            rest = text[1:]
+            if " " not in rest:
+                # Still typing agent name
+                agent_name = rest
+                for agent in self.agents:
+                    if agent.lower().startswith(agent_name.lower()):
+                        # Get agent type or default to "Agent"
+                        agent_type = self.agent_types.get(agent, AgentType.BASIC).value
+                        yield Completion(
+                            agent + " ",  # Add space after agent name for message input
+                            start_position=-len(agent_name),
+                            display=agent,
+                            display_meta=f"# {agent_type}",
+                        )
 
 
 # Helper function to open text in an external editor
@@ -750,6 +1486,22 @@ def get_text_from_editor(initial_text: str = "") -> str:
     return edited_text.strip()  # Added strip() to remove trailing newlines often added by editors
 
 
+class ShellPrefixLexer(Lexer):
+    """Lexer that highlights shell (!) and comment (#) commands."""
+
+    def lex_document(self, document):
+        def get_line_tokens(line_number):
+            line = document.lines[line_number]
+            stripped = line.lstrip()
+            if stripped.startswith("!"):
+                return [("class:shell-command", line)]
+            if stripped.startswith("#"):
+                return [("class:comment-command", line)]
+            return [("", line)]
+
+        return get_line_tokens
+
+
 class AgentKeyBindings(KeyBindings):
     agent_provider: "AgentApp | None" = None
     current_agent_name: str | None = None
@@ -763,6 +1515,32 @@ def create_keybindings(
 ) -> AgentKeyBindings:
     """Create custom key bindings."""
     kb = AgentKeyBindings()
+
+    def _should_start_completion(text: str) -> bool:
+        stripped = text.lstrip()
+        if not stripped:
+            return True
+        if stripped.startswith("!"):
+            return True
+        if stripped.startswith(("/", "@", "#")):
+            return True
+        return True
+
+    @kb.add("c-space")
+    @kb.add("c-@")
+    def _(event) -> None:
+        text = event.current_buffer.document.text_before_cursor
+        if not _should_start_completion(text):
+            return
+        event.current_buffer.start_completion()
+
+    @kb.add("tab")
+    @kb.add("c-i")
+    def _(event) -> None:
+        text = event.current_buffer.document.text_before_cursor
+        if not _should_start_completion(text):
+            return
+        event.current_buffer.start_completion(insert_common_part=True)
 
     @kb.add("c-m", filter=Condition(lambda: not in_multiline_mode))
     def _(event) -> None:
@@ -844,7 +1622,30 @@ def create_keybindings(
 
     @kb.add("c-y")
     async def _(event) -> None:
-        """Ctrl+Y: Copy last assistant response to clipboard."""
+        """Ctrl+Y: Copy last output (shell or assistant) to clipboard."""
+        global _last_copyable_output
+
+        def _show_copy_notice() -> None:
+            global _copy_notice, _copy_notice_until
+            _copy_notice = "COPIED"
+            _copy_notice_until = time.monotonic() + 2.0
+            if event.app:
+                event.app.invalidate()
+            else:
+                rich_print("\n[green]✓ Copied to clipboard[/green]")
+
+        # Priority 1: Last shell/copyable output if set
+        if _last_copyable_output:
+            try:
+                import pyperclip
+
+                pyperclip.copy(_last_copyable_output)
+                _show_copy_notice()
+                return
+            except Exception:
+                pass
+
+        # Priority 2: Fall back to last assistant message
         if kb.agent_provider and kb.current_agent_name:
             try:
                 # Get the agent from AgentApp
@@ -857,7 +1658,7 @@ def create_keybindings(
                         import pyperclip
 
                         pyperclip.copy(content)
-                        rich_print("\n[green]✓ Copied to clipboard[/green]")
+                        _show_copy_notice()
                         return
             except Exception:
                 pass
@@ -881,79 +1682,268 @@ def parse_special_input(text: str) -> str | CommandPayload:
 
         if cmd == "help":
             return "HELP"
-        if cmd == "agents":
-            return "LIST_AGENTS"
         if cmd == "system":
             return _show_system_cmd()
         if cmd == "usage":
             return _show_usage_cmd()
         if cmd == "history":
-            target_agent = None
-            if len(cmd_parts) > 1:
-                candidate = cmd_parts[1].strip()
-                if candidate:
-                    target_agent = candidate
-            return _show_history_cmd(target_agent)
-        if cmd == "clear":
-            target_agent = None
-            if len(cmd_parts) > 1:
-                remainder = cmd_parts[1].strip()
-                if remainder:
-                    tokens = remainder.split(maxsplit=1)
-                    if tokens and tokens[0].lower() == "last":
-                        if len(tokens) > 1:
-                            candidate = tokens[1].strip()
-                            if candidate:
-                                target_agent = candidate
-                        return _clear_last_cmd(target_agent)
-                    target_agent = remainder
-            return _clear_history_cmd(target_agent)
+            remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
+            if not remainder:
+                return _show_history_cmd(None)
+            try:
+                tokens = shlex.split(remainder)
+            except ValueError:
+                candidate = remainder.strip()
+                return _show_history_cmd(candidate or None)
+            if not tokens:
+                return _show_history_cmd(None)
+            subcmd = tokens[0].lower()
+            argument = " ".join(tokens[1:]).strip()
+            if subcmd == "show":
+                return _show_history_cmd(argument or None)
+            if subcmd == "save":
+                return _save_history_cmd(argument or None)
+            if subcmd == "load":
+                if not argument:
+                    return _load_history_cmd(None, "Filename required for /history load")
+                return _load_history_cmd(argument, None)
+            if subcmd == "review":
+                if not argument:
+                    return _history_review_cmd(None, "Turn number required for /history review")
+                try:
+                    turn_index = int(argument)
+                except ValueError:
+                    return _history_review_cmd(None, "Turn number must be an integer")
+                return _history_review_cmd(turn_index, None)
+            if subcmd == "fix":
+                return _history_fix_cmd(argument or None)
+            if subcmd == "rewind":
+                if not argument:
+                    return _history_rewind_cmd(None, "Turn number required for /history rewind")
+                try:
+                    turn_index = int(argument)
+                except ValueError:
+                    return _history_rewind_cmd(None, "Turn number must be an integer")
+                return _history_rewind_cmd(turn_index, None)
+            if subcmd == "clear":
+                tokens = argument.split(maxsplit=1) if argument else []
+                action = tokens[0].lower() if tokens else "all"
+                target_agent = tokens[1].strip() if len(tokens) > 1 else None
+                if action == "last":
+                    return _clear_last_cmd(target_agent)
+                if action == "all":
+                    return _clear_history_cmd(target_agent)
+                return _clear_history_cmd(argument or None)
+            return _show_history_cmd(remainder)
         if cmd == "markdown":
             return _show_markdown_cmd()
         if cmd in ("save_history", "save"):
-            filename = (
-                cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
-            )
+            filename = cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
             return _save_history_cmd(filename)
         if cmd in ("load_history", "load"):
-            filename = (
+            filename = cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
+            if not filename:
+                return _load_history_cmd(None, "Filename required for /history load")
+            return _load_history_cmd(filename, None)
+        if cmd == "resume":
+            session_id = (
                 cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
             )
-            if not filename:
-                return _load_history_cmd(None, "Filename required for load_history")
-            return _load_history_cmd(filename, None)
+            return ResumeSessionCommand(session_id=session_id)
+        if cmd == "session":
+            remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
+            if not remainder:
+                return ListSessionsCommand(show_help=True)
+            try:
+                tokens = shlex.split(remainder)
+            except ValueError:
+                return ListSessionsCommand(show_help=True)
+            if not tokens:
+                return ListSessionsCommand(show_help=True)
+            subcmd = tokens[0].lower()
+            argument = remainder[len(tokens[0]) :].strip()
+            if subcmd == "resume":
+                session_id = argument if argument else None
+                return ResumeSessionCommand(session_id=session_id)
+            if subcmd == "list":
+                return ListSessionsCommand()
+            if subcmd == "new":
+                return CreateSessionCommand(session_name=argument or None)
+            if subcmd in {"delete", "clear"}:
+                return ClearSessionsCommand(target=argument or None)
+            if subcmd == "pin":
+                pin_tokens: list[str]
+                if argument:
+                    try:
+                        pin_tokens = shlex.split(argument)
+                    except ValueError:
+                        pin_tokens = argument.split(maxsplit=1)
+                else:
+                    pin_tokens = []
+                if not pin_tokens:
+                    return PinSessionCommand(value=None, target=None)
+                first = pin_tokens[0].lower()
+                value_tokens = {
+                    "on",
+                    "off",
+                    "toggle",
+                    "true",
+                    "false",
+                    "yes",
+                    "no",
+                    "enable",
+                    "enabled",
+                    "disable",
+                    "disabled",
+                }
+                if first in value_tokens:
+                    target = " ".join(pin_tokens[1:]).strip() or None
+                    return PinSessionCommand(value=first, target=target)
+                return PinSessionCommand(value=None, target=argument or None)
+            if subcmd == "title":
+                if not argument:
+                    return TitleSessionCommand(title="")
+                return TitleSessionCommand(title=argument)
+            if subcmd == "fork":
+                title = argument if argument else None
+                return ForkSessionCommand(title=title)
+            return ListSessionsCommand(show_help=True)
         if cmd == "card":
             remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
             if not remainder:
-                return _load_agent_card_cmd(None, False, "Filename required for /card")
+                return _load_agent_card_cmd(None, False, False, "Filename required for /card")
             try:
                 tokens = shlex.split(remainder)
             except ValueError as exc:
-                return _load_agent_card_cmd(None, False, f"Invalid arguments: {exc}")
+                return _load_agent_card_cmd(None, False, False, f"Invalid arguments: {exc}")
             add_tool = False
+            remove_tool = False
             filename = None
             for token in tokens:
                 if token in {"tool", "--tool", "--as-tool", "-t"}:
                     add_tool = True
                     continue
+                if token in {"remove", "--remove", "--rm"}:
+                    remove_tool = True
+                    add_tool = True
+                    continue
                 if filename is None:
                     filename = token
             if not filename:
-                return _load_agent_card_cmd(None, add_tool, "Filename required for /card")
-            return _load_agent_card_cmd(filename, add_tool, None)
+                return _load_agent_card_cmd(
+                    None, add_tool, remove_tool, "Filename required for /card"
+                )
+            return _load_agent_card_cmd(filename, add_tool, remove_tool, None)
+        if cmd == "agent":
+            remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
+            if not remainder:
+                return _agent_cmd(
+                    None,
+                    False,
+                    False,
+                    False,
+                    "Usage: /agent <name> --tool | /agent [name] --dump",
+                )
+            try:
+                tokens = shlex.split(remainder)
+            except ValueError as exc:
+                return _agent_cmd(None, False, False, False, f"Invalid arguments: {exc}")
+            add_tool = False
+            remove_tool = False
+            dump = False
+            agent_name = None
+            unknown: list[str] = []
+            for token in tokens:
+                if token in {"tool", "--tool", "--as-tool", "-t"}:
+                    add_tool = True
+                    continue
+                if token in {"remove", "--remove", "--rm"}:
+                    remove_tool = True
+                    add_tool = True
+                    continue
+                if token in {"dump", "--dump", "-d"}:
+                    dump = True
+                    continue
+                if agent_name is None:
+                    agent_name = token[1:] if token.startswith("@") else token
+                    continue
+                unknown.append(token)
+            if unknown:
+                return _agent_cmd(
+                    agent_name,
+                    add_tool,
+                    remove_tool,
+                    dump,
+                    f"Unexpected arguments: {', '.join(unknown)}",
+                )
+            if add_tool and dump:
+                return _agent_cmd(
+                    agent_name,
+                    add_tool,
+                    remove_tool,
+                    dump,
+                    "Use either --tool or --dump, not both",
+                )
+            if not add_tool and not dump:
+                return _agent_cmd(
+                    agent_name,
+                    add_tool,
+                    remove_tool,
+                    dump,
+                    "Usage: /agent <name> --tool | /agent [name] --dump",
+                )
+            if add_tool and not agent_name:
+                return _agent_cmd(
+                    agent_name,
+                    add_tool,
+                    remove_tool,
+                    dump,
+                    "Agent name is required for /agent --tool",
+                )
+            return _agent_cmd(agent_name, add_tool, remove_tool, dump, None)
         if cmd == "reload":
             return _reload_agents_cmd()
         if cmd in ("mcpstatus", "mcp"):
             return _show_mcp_status_cmd()
         if cmd == "prompt":
-            if len(cmd_parts) > 1:
-                prompt_arg = cmd_parts[1].strip()
-                if prompt_arg.isdigit():
-                    return _select_prompt_cmd(int(prompt_arg), None)
-                return _select_prompt_cmd(None, prompt_arg)
-            return _select_prompt_cmd(None, None)
+            remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
+            if not remainder:
+                return _select_prompt_cmd(None, None)
+            try:
+                tokens = shlex.split(remainder)
+            except ValueError:
+                tokens = []
+            if tokens:
+                subcmd = tokens[0].lower()
+                argument = remainder[len(tokens[0]) :].strip()
+                if subcmd == "load":
+                    if not argument:
+                        return _load_prompt_cmd(None, "Filename required for /prompt load")
+                    return _load_prompt_cmd(argument, None)
+            if remainder.lower().endswith((".json", ".md")):
+                return _load_prompt_cmd(remainder, None)
+            if remainder.isdigit():
+                return _select_prompt_cmd(int(remainder), None)
+            return _select_prompt_cmd(None, remainder)
         if cmd == "tools":
             return _list_tools_cmd()
+        if cmd == "model":
+            remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
+            if not remainder:
+                return ModelReasoningCommand(value=None)
+            try:
+                tokens = shlex.split(remainder)
+            except ValueError:
+                tokens = remainder.split(maxsplit=1)
+            if not tokens:
+                return ModelReasoningCommand(value=None)
+            subcmd = tokens[0].lower()
+            argument = remainder[len(tokens[0]) :].strip()
+            if subcmd == "reasoning":
+                return ModelReasoningCommand(value=argument or None)
+            if subcmd == "verbosity":
+                return ModelVerbosityCommand(value=argument or None)
+            return UnknownCommand(command=cmd_line)
         if cmd == "skills":
             remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
             if not remainder:
@@ -967,8 +1957,28 @@ def parse_special_input(text: str) -> str | CommandPayload:
         if cmd.lower() == "stop":
             return "STOP"
 
+        return UnknownCommand(command=cmd_line)
+
     if cmd_line and cmd_line.startswith("@"):
         return _switch_agent_cmd(cmd_line[1:].strip())
+
+    # Hash command: #agent_name message - send message to agent, return result to buffer
+    if cmd_line and cmd_line.startswith("#"):
+        rest = cmd_line[1:].strip()
+        if " " in rest:
+            # Split into agent name and message
+            agent_name, message = rest.split(" ", 1)
+            return _hash_agent_cmd(agent_name.strip(), message.strip())
+        elif rest:
+            # Just agent name, no message - return empty hash command (user will be prompted)
+            return _hash_agent_cmd(rest.strip(), "")
+
+    # Shell command: ! command - execute directly in shell
+    if cmd_line and cmd_line.startswith("!"):
+        command = cmd_line[1:].strip()
+        if command:
+            return ShellCommand(command=command)
+        return ShellCommand(command=_default_shell_command())
 
     return text
 
@@ -984,6 +1994,8 @@ async def get_enhanced_input(
     is_human_input: bool = False,
     toolbar_color: str = "ansiblue",
     agent_provider: "AgentApp | None" = None,
+    noenv_mode: bool = False,
+    pre_populate_buffer: str = "",
 ) -> str | CommandPayload:
     """
     Enhanced input with advanced prompt_toolkit features.
@@ -999,6 +2011,8 @@ async def get_enhanced_input(
         is_human_input: Whether this is a human input request (disables agent selection features)
         toolbar_color: Color to use for the agent name in the toolbar (default: "ansiblue")
         agent_provider: Optional AgentApp for displaying agent info
+        noenv_mode: Whether session operations should be disabled for --noenv mode
+        pre_populate_buffer: Text to pre-populate in the input buffer for editing (one-off)
 
     Returns:
         User input string or parsed command payload
@@ -1009,6 +2023,11 @@ async def get_enhanced_input(
     in_multiline_mode = multiline
     if available_agent_names:
         available_agents = set(available_agent_names)
+    if agent_provider:
+        try:
+            available_agents = set(agent_provider.agent_names())
+        except Exception:
+            pass
 
     # Get or create history object for this agent
     if agent_name not in agent_histories:
@@ -1022,6 +2041,7 @@ async def get_enhanced_input(
 
     # Define toolbar function that will update dynamically
     def get_toolbar():
+        global _copy_notice
         if in_multiline_mode:
             mode_style = "ansired"  # More noticeable for multiline mode
             mode_text = "MULTILINE"
@@ -1047,8 +2067,8 @@ async def get_enhanced_input(
         if agent_provider:
             try:
                 agent = agent_provider._agent(agent_name)
-            except Exception as exc:
-                print(f"[toolbar debug] unable to resolve agent '{agent_name}': {exc}")
+            except Exception:
+                agent = None
 
         if agent:
             for message in agent.message_history:
@@ -1084,14 +2104,78 @@ async def get_enhanced_input(
                 if context and context.config:
                     model_name = context.config.default_model
 
+            codex_suffix = ""
+            reasoning_gauge = None
+            verbosity_gauge = None
             if model_name:
+                display_name = format_model_display(model_name) or model_name
+                if llm and getattr(llm, "provider", None) == Provider.CODEX_RESPONSES:
+                    codex_suffix = " <style bg='ansiyellow'>$</style>"
+                if llm:
+                    try:
+                        reasoning_gauge = render_reasoning_effort_gauge(
+                            llm.reasoning_effort,
+                            llm.reasoning_effort_spec,
+                        )
+                        verbosity_gauge = render_text_verbosity_gauge(
+                            llm.text_verbosity,
+                            llm.text_verbosity_spec,
+                        )
+                    except Exception:
+                        reasoning_gauge = None
+                        verbosity_gauge = None
                 max_len = 25
                 model_display = (
-                    model_name[: max_len - 1] + "…" if len(model_name) > max_len else model_name
+                    display_name[: max_len - 1] + "…"
+                    if len(display_name) > max_len
+                    else display_name
                 )
             else:
-                print(f"[toolbar debug] no model resolved for agent '{agent_name}'")
-                model_display = "unknown"
+                if isinstance(agent, ParallelAgent):
+                    parallel_models: list[str] = []
+                    for fan_out_agent in agent.fan_out_agents:
+                        child_llm = None
+                        try:
+                            child_llm = fan_out_agent.llm
+                        except AssertionError:
+                            child_llm = getattr(fan_out_agent, "_llm", None)
+                        except Exception:
+                            child_llm = None
+
+                        child_model_name = None
+                        if child_llm:
+                            child_model_name = getattr(child_llm, "model_name", None)
+                            if not child_model_name:
+                                child_model_name = getattr(
+                                    getattr(child_llm, "default_request_params", None),
+                                    "model",
+                                    None,
+                                )
+                        if not child_model_name:
+                            child_model_name = fan_out_agent.config.model
+                        if not child_model_name and fan_out_agent.config.default_request_params:
+                            child_model_name = fan_out_agent.config.default_request_params.model
+                        if child_model_name:
+                            display_name = (
+                                format_model_display(child_model_name) or child_model_name
+                            )
+                            parallel_models.append(display_name)
+
+                    if parallel_models:
+                        deduped_models = list(dict.fromkeys(parallel_models))
+                        display_name = ",".join(deduped_models)
+                        max_len = 25
+                        model_display = (
+                            display_name[: max_len - 1] + "…"
+                            if len(display_name) > max_len
+                            else display_name
+                        )
+                    else:
+                        model_display = "parallel"
+
+                if not model_display:
+                    print(f"[toolbar debug] no model resolved for agent '{agent_name}'")
+                    model_display = "unknown"
 
             # Build TDV capability segment based on model database
             info = None
@@ -1129,7 +2213,7 @@ async def get_enhanced_input(
                     return f"<style fg='{enabled_color}' bg='ansiblack'>{letter}</style>"
                 return f"<style fg='ansiblack' bg='ansiwhite'>{letter}</style>"
 
-            tdv_segment = f"{_style_flag('T', t)}{_style_flag('D', d)}{_style_flag('V', v)}"
+            tdv_segment = f"{_style_flag('T', t)}{_style_flag('V', v)}{_style_flag('D', d)}"
         else:
             model_display = None
             tdv_segment = None
@@ -1139,11 +2223,21 @@ async def get_enhanced_input(
         if model_display:
             # Model chip + inline TDV flags
             if tdv_segment:
+                gauge_segment = ""
+                if reasoning_gauge or verbosity_gauge:
+                    gauges = "".join(gauge for gauge in (reasoning_gauge, verbosity_gauge) if gauge)
+                    gauge_segment = f" {gauges}"
                 middle_segments.append(
-                    f"{tdv_segment} <style bg='ansigreen'>{model_display}</style>"
+                    f"{tdv_segment}{gauge_segment} <style bg='ansigreen'>{model_display}</style>{codex_suffix}"
                 )
             else:
-                middle_segments.append(f"<style bg='ansigreen'>{model_display}</style>")
+                gauge_segment = ""
+                if reasoning_gauge or verbosity_gauge:
+                    gauges = "".join(gauge for gauge in (reasoning_gauge, verbosity_gauge) if gauge)
+                    gauge_segment = f" {gauges}"
+                middle_segments.append(
+                    f"{gauge_segment} <style bg='ansigreen'>{model_display}</style>{codex_suffix}"
+                )
 
         # Add turn counter (formatted as 3 digits)
         middle_segments.append(f"{turn_count:03d}")
@@ -1182,17 +2276,25 @@ async def get_enhanced_input(
                 heading = "event" if total_events == 1 else "events"
                 notification_segment = f" | ◀ {total_events} {heading} ({summary})"
 
+        copy_notice = ""
+        if _copy_notice:
+            if time.monotonic() < _copy_notice_until:
+                copy_notice = f" | <style fg='{mode_style}' bg='ansiblack'> {_copy_notice} </style>"
+            else:
+                # Expire the notice once the timer elapses.
+                _copy_notice = None
+
         if middle:
             return HTML(
                 f" <style fg='{toolbar_color}' bg='ansiblack'> {agent_name} </style> "
                 f" {middle} | <style fg='{mode_style}' bg='ansiblack'> {mode_text} </style> | "
-                f"{version_segment}{notification_segment}"
+                f"{version_segment}{notification_segment}{copy_notice}"
             )
         else:
             return HTML(
                 f" <style fg='{toolbar_color}' bg='ansiblack'> {agent_name} </style> "
                 f"Mode: <style fg='{mode_style}' bg='ansiblack'> {mode_text} </style> | "
-                f"{version_segment}{notification_segment}"
+                f"{version_segment}{notification_segment}{copy_notice}"
             )
 
     # A more terminal-agnostic style that should work across themes
@@ -1203,8 +2305,12 @@ async def get_enhanced_input(
             "completion-menu.meta.completion": "bg:#ansiblack #ansiblue",
             "completion-menu.meta.completion.current": "bg:#ansibrightblack #ansiblue",
             "bottom-toolbar": "#ansiblack bg:#ansigray",
+            "shell-command": "#ansired",
+            "comment-command": "#ansiblue",
         }
     )
+    erase_when_done = True
+
     # Create session with history and completions
     session = PromptSession(
         history=agent_histories[agent_name],
@@ -1212,14 +2318,18 @@ async def get_enhanced_input(
             agents=list(available_agents) if available_agents else [],
             agent_types=agent_types or {},
             is_human_input=is_human_input,
+            current_agent=agent_name,
+            agent_provider=agent_provider,
+            noenv_mode=noenv_mode,
         ),
+        lexer=ShellPrefixLexer(),
         complete_while_typing=True,
         multiline=Condition(lambda: in_multiline_mode),
         complete_in_thread=True,
         mouse_support=False,
         bottom_toolbar=get_toolbar,
         style=custom_style,
-        erase_when_done=True,
+        erase_when_done=erase_when_done,
     )
 
     # Create key bindings with a reference to the app
@@ -1242,18 +2352,14 @@ async def get_enhanced_input(
         except Exception:
             shell_agent = None
 
-    if shell_agent:
-        direct_shell_enabled = bool(getattr(shell_agent, "_shell_runtime_enabled", False))
-        modes_attr = getattr(shell_agent, "_shell_access_modes", ())
-        if isinstance(modes_attr, (list, tuple)):
-            shell_access_modes = tuple(str(mode) for mode in modes_attr)
-        elif modes_attr:
-            shell_access_modes = (str(modes_attr),)
+    if isinstance(shell_agent, McpAgentProtocol):
+        direct_shell_enabled = shell_agent.shell_runtime_enabled
+        shell_access_modes = shell_agent.shell_access_modes
 
         sub_agent_shells = [
             child
             for child in _collect_tool_children(shell_agent)
-            if getattr(child, "_shell_runtime_enabled", False)
+            if isinstance(child, McpAgentProtocol) and child.shell_runtime_enabled
         ]
         if sub_agent_shells:
             if direct_shell_enabled:
@@ -1262,24 +2368,36 @@ async def get_enhanced_input(
             else:
                 shell_access_modes = ("sub-agent",)
                 if len(sub_agent_shells) == 1:
-                    shell_runtime = getattr(sub_agent_shells[0], "_shell_runtime", None)
+                    shell_runtime = sub_agent_shells[0].shell_runtime
 
         shell_enabled = direct_shell_enabled or bool(sub_agent_shells)
         if direct_shell_enabled:
-            shell_runtime = getattr(shell_agent, "_shell_runtime", None)
+            shell_runtime = shell_agent.shell_runtime
 
         # Get the detected shell name from the runtime
         if shell_enabled and shell_runtime:
             runtime_info = shell_runtime.runtime_info()
             shell_name = runtime_info.get("name")
 
-    # Create formatted prompt text
-    arrow_segment = "<ansibrightyellow>❯</ansibrightyellow>" if shell_enabled else "❯"
-    prompt_text = f"<ansibrightblue>{agent_name}</ansibrightblue> {arrow_segment} "
+    def _resolve_prompt_text() -> HTML:
+        buffer_text = ""
+        try:
+            buffer_text = session.default_buffer.text
+        except Exception:
+            buffer_text = ""
 
-    # Add default value display if requested
-    if show_default and default and default != "STOP":
-        prompt_text = f"{prompt_text} [<ansigreen>{default}</ansigreen>] "
+        if buffer_text.lstrip().startswith("!"):
+            arrow_segment = "<ansired>❯</ansired>"
+        else:
+            arrow_segment = "<ansibrightyellow>❯</ansibrightyellow>" if shell_enabled else "❯"
+
+        prompt_text = f"<ansibrightblue>{agent_name}</ansibrightblue> {arrow_segment} "
+
+        # Add default value display if requested
+        if show_default and default and default != "STOP":
+            prompt_text = f"{prompt_text} [<ansigreen>{default}</ansigreen>] "
+
+        return HTML(prompt_text)
 
     # Only show hints at startup if requested
     if show_stop_hint:
@@ -1294,8 +2412,34 @@ async def get_enhanced_input(
             rich_print("[dim]Type /help for commands. Ctrl+T toggles multiline mode.[/dim]")
         else:
             rich_print(
-                "[dim]Type '/' for commands, '@' to switch agent. Ctrl+T multiline, CTRL+E external editor.[/dim]\n"
+                "[dim]Use '/' for commands, '!' for shell. '#' to query, '@' to switch agents\nCTRL+T multiline, CTRL+Y copy last message, CTRL+E external editor.[/dim]\n"
             )
+
+        if shell_enabled:
+            modes_display = ", ".join(shell_access_modes or ("direct",))
+            shell_display = f"{modes_display}, {shell_name}" if shell_name else modes_display
+
+            # Add working directory info
+            if shell_runtime:
+                working_dir = shell_runtime.working_directory()
+                try:
+                    # Try to show relative to cwd for cleaner display
+                    working_dir_display = str(working_dir.relative_to(Path.cwd()))
+                    if working_dir_display == ".":
+                        # Show last 2 parts of the path (e.g., "source/fast-agent")
+                        parts = Path.cwd().parts
+                        if len(parts) >= 2:
+                            working_dir_display = "/".join(parts[-2:])
+                        elif len(parts) == 1:
+                            working_dir_display = parts[0]
+                        else:
+                            working_dir_display = str(Path.cwd())
+                except ValueError:
+                    # If not relative to cwd, show absolute path
+                    working_dir_display = str(working_dir)
+                shell_display = f"{shell_display} | cwd: {working_dir_display}"
+
+            rich_print(format_shell_notice(shell_access_modes, shell_runtime))
 
             # Display agent info right after help text if agent_provider is available
             if agent_provider and not is_human_input:
@@ -1365,54 +2509,87 @@ async def get_enhanced_input(
                                     hf_info = get_hf_info()
                                     model = hf_info.get("model", "unknown")
                                     provider = hf_info.get("provider", "auto-routing")
-                                    rich_print(
-                                        f"[dim]HuggingFace: {model} via {provider}[/dim]"
-                                    )
+                                    rich_print(f"[dim]HuggingFace: {model} via {provider}[/dim]")
                         except Exception:
                             pass
 
-        if shell_enabled:
-            modes_display = ", ".join(shell_access_modes or ("direct",))
-            shell_display = f"{modes_display}, {shell_name}" if shell_name else modes_display
-
-            # Add working directory info
-            if shell_runtime:
-                working_dir = shell_runtime.working_directory()
-                try:
-                    # Try to show relative to cwd for cleaner display
-                    working_dir_display = str(working_dir.relative_to(Path.cwd()))
-                    if working_dir_display == ".":
-                        # Show last 2 parts of the path (e.g., "source/fast-agent")
-                        parts = Path.cwd().parts
-                        if len(parts) >= 2:
-                            working_dir_display = "/".join(parts[-2:])
-                        elif len(parts) == 1:
-                            working_dir_display = parts[0]
-                        else:
-                            working_dir_display = str(Path.cwd())
-                except ValueError:
-                    # If not relative to cwd, show absolute path
-                    working_dir_display = str(working_dir)
-                shell_display = f"{shell_display} | cwd: {working_dir_display}"
-
-            rich_print(f"[yellow]Shell Access ({shell_display})[/yellow]")
+            if agent_provider and not is_human_input and _startup_notices:
+                for notice in _startup_notices:
+                    rich_print(notice)
+                _startup_notices.clear()
 
         rich_print()
         help_message_shown = True
 
     # Process special commands
 
+    # Determine what to use as the buffer's initial content:
+    # - pre_populate_buffer takes priority (one-off, for # command results)
+    # - otherwise use the default parameter
+    buffer_default = pre_populate_buffer if pre_populate_buffer else default
+
     # Get the input - using async version
+    prompt_mark_started = False
+    accept_state: dict[str, Any] = {}
+    prompt_shutdown_warn_seconds = 0.5
+    buffer = session.default_buffer
+    original_accept_handler = buffer.accept_handler
+
+    def _track_accept(buffer_obj) -> bool:
+        accept_state["accepted_at"] = time.perf_counter()
+        accept_state["text"] = buffer_obj.text
+        accept_state["completer"] = type(buffer_obj.completer).__name__
+        accept_state["had_completions"] = buffer_obj.complete_state is not None
+        if original_accept_handler is not None:
+            return original_accept_handler(buffer_obj)
+        return True
+
+    buffer.accept_handler = _track_accept
     try:
-        result = await session.prompt_async(HTML(prompt_text), default=default)
+        emit_prompt_mark("A")
+        prompt_mark_started = True
+        result = await session.prompt_async(
+            _resolve_prompt_text,
+            default=buffer_default,
+        )
+        prompt_returned_at = time.perf_counter()
+        emit_prompt_mark("B")
+        # Echo slash command input if the prompt was erased.
+        if erase_when_done:
+            stripped = result.lstrip()
+            accepted_at = accept_state.get("accepted_at")
+            if accepted_at:
+                shutdown_delay = prompt_returned_at - accepted_at
+                if shutdown_delay >= prompt_shutdown_warn_seconds and stripped.startswith("!"):
+                    text_preview = str(accept_state.get("text") or "").strip()
+                    if len(text_preview) > 80:
+                        text_preview = text_preview[:77] + "..."
+                    rich_print(
+                        "[yellow]Prompt shutdown delay[/yellow] "
+                        f"{shutdown_delay:.2f}s | "
+                        f"completer={accept_state.get('completer')} "
+                        f"completions_active={accept_state.get('had_completions')} "
+                        f"cwd={Path.cwd()} "
+                        f"input={text_preview!r}"
+                    )
+            if stripped.startswith("/"):
+                rich_print(f"[dim]{agent_name} ❯ {stripped.splitlines()[0]}[/dim]")
+            elif stripped.startswith("!"):
+                rich_print(f"[dim]{agent_name} ❯ {stripped.splitlines()[0]}[/dim]")
         return parse_special_input(result)
     except KeyboardInterrupt:
+        if prompt_mark_started:
+            emit_prompt_mark("B")
         # Handle Ctrl+C gracefully
         return "STOP"
     except EOFError:
+        if prompt_mark_started:
+            emit_prompt_mark("B")
         # Handle Ctrl+D gracefully
         return "STOP"
     except Exception as e:
+        if prompt_mark_started:
+            emit_prompt_mark("B")
         # Log and gracefully handle other exceptions
         print(f"\nInput error: {type(e).__name__}: {e}")
         return "STOP"
@@ -1541,35 +2718,58 @@ async def handle_special_commands(
     if is_command_payload(command):
         return cast("CommandPayload", command)
 
-    global agent_histories
+    global agent_histories, available_agents
 
     # Check for special string commands
     if command == "HELP":
         rich_print("\n[bold]Available Commands:[/bold]")
         rich_print("  /help          - Show this help")
-        rich_print("  /agents        - List available agents")
         rich_print("  /system        - Show the current system prompt")
-        rich_print("  /prompt <name> - Apply a specific prompt by name")
+        rich_print("  /prompt <name> - Load a Prompt File or use MCP Prompt")
         rich_print("  /usage         - Show current usage statistics")
         rich_print("  /skills        - List local skills for the manager directory")
         rich_print("  /skills add    - Install a skill from the marketplace")
         rich_print("  /skills remove - Remove a skill from the manager directory")
+        rich_print(
+            "  /model reasoning <value> - Set reasoning effort (off/low/medium/high/max/xhigh or budgets like 0/1024/16000/32000)"
+        )
+        rich_print("  /model verbosity <value> - Set text verbosity (low/medium/high)")
         rich_print("  /history [agent_name] - Show chat history overview")
-        rich_print("  /clear [agent_name]   - Clear conversation history (keeps templates)")
-        rich_print("  /clear last [agent_name] - Remove the most recent message from history")
+        rich_print(
+            "  /history clear all [agent_name] - Clear conversation history (keeps templates)"
+        )
+        rich_print(
+            "  /history clear last [agent_name] - Remove the most recent message from history"
+        )
         rich_print("  /markdown      - Show last assistant message without markdown formatting")
         rich_print("  /mcpstatus     - Show MCP server status summary for the active agent")
-        rich_print("  /save_history [filename] - Save current chat history to a file")
+        rich_print("  /history save [filename] - Save current chat history to a file")
         rich_print(
             "      [dim]Tip: Use a .json extension for MCP-compatible JSON; any other extension saves Markdown.[/dim]"
         )
         rich_print(
             "      [dim]Default: Timestamped filename (e.g., 25_01_15_14_30-conversation.json)[/dim]"
         )
-        rich_print("  /load_history <filename> - Load chat history from a file")
-        rich_print("  /card <filename> [--tool] - Load an AgentCard")
-        rich_print("  /reload        - Reload AgentCards from disk")
+        rich_print("  /history load <filename> - Load chat history from a file")
+        rich_print("  /history rewind <turn> - Rewind to a prior user turn")
+        rich_print("  /history review <turn> - Review a prior user turn in full")
+        rich_print("  /history fix [agent_name] - Remove the last pending tool call")
+        rich_print("  /resume [id|number] - Resume the last or specified session")
+        rich_print("  /session list - List recent sessions")
+        rich_print("  /session new [title] - Create a new session")
+        rich_print("  /session resume [id|number] - Resume the last or specified session")
+        rich_print("  /session title <text> - Set the current session title")
+        rich_print("  /session fork [title] - Fork the current session")
+        rich_print("  /session delete <id|number|all> - Delete a session or all sessions")
+        rich_print("  /session pin [on|off|id|number] - Pin or unpin a session")
+        rich_print(
+            "  /card <filename> [--tool [remove]] - Load an AgentCard (attach/remove as tool)"
+        )
+        rich_print("  /agent <name> --tool [remove] - Attach/remove an agent as a tool")
+        rich_print("  /agent [name] --dump - Print an AgentCard to screen")
+        rich_print("  /reload        - Reload AgentCards")
         rich_print("  @agent_name    - Switch to agent")
+        rich_print("  #agent_name <msg> - Send message to agent, return result to input buffer")
         rich_print("  STOP           - Return control back to the workflow")
         rich_print("  EXIT           - Exit fast-agent, terminating any running workflows")
         rich_print("\n[bold]Keyboard Shortcuts:[/bold]")
@@ -1583,17 +2783,11 @@ async def handle_special_commands(
         rich_print("  Up/Down        - Navigate history")
         return True
 
+    elif command == "SESSION_HELP":
+        return ListSessionsCommand(show_help=True)
+
     elif isinstance(command, str) and command.upper() == "EXIT":
         raise PromptExitError("User requested to exit fast-agent session")
-
-    elif command == "LIST_AGENTS":
-        if available_agents:
-            rich_print("\n[bold]Available Agents:[/bold]")
-            for agent in sorted(available_agents):
-                rich_print(f"  @{agent}")
-        else:
-            rich_print("[yellow]No agents available[/yellow]")
-        return True
 
     elif command == "SHOW_USAGE":
         return _show_usage_cmd()

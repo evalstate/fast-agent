@@ -5,11 +5,23 @@ This module handles conversion of content blocks from the Agent Client Protocol 
 to Model Context Protocol (MCP) format for processing by fast-agent.
 """
 
+import re
 from typing import cast
 
 import acp.schema as acp_schema
 import mcp.types as mcp_types
-from acp.helpers import ContentBlock as ACPContentBlock
+from acp.helpers import (
+    ContentBlock as ACPContentBlock,
+)
+from acp.helpers import (
+    audio_block,
+    embedded_blob_resource,
+    embedded_text_resource,
+    image_block,
+    resource_block,
+    resource_link_block,
+    text_block,
+)
 from mcp.types import ContentBlock as MCPContentBlock
 from pydantic import AnyUrl
 
@@ -59,7 +71,7 @@ def _convert_image_content(
     return mcp_types.ImageContent(
         type="image",
         data=acp_image.data,
-        mimeType=acp_image.mimeType,
+        mimeType=acp_image.mime_type,
         annotations=_convert_annotations(acp_image.annotations),
     )
 
@@ -83,13 +95,13 @@ def _convert_resource_contents(
         case acp_schema.TextResourceContents():
             return mcp_types.TextResourceContents(
                 uri=AnyUrl(acp_resource.uri),
-                mimeType=acp_resource.mimeType or None,
+                mimeType=acp_resource.mime_type or None,
                 text=acp_resource.text,
             )
         case acp_schema.BlobResourceContents():
             return mcp_types.BlobResourceContents(
                 uri=AnyUrl(acp_resource.uri),
-                mimeType=acp_resource.mimeType or None,
+                mimeType=acp_resource.mime_type or None,
                 blob=acp_resource.blob,
             )
         case _:
@@ -114,6 +126,109 @@ def _convert_annotations(
     )
 
 
+def _file_uri_to_path(uri: str) -> str:
+    """
+    Convert a file:// URI to a local filesystem path.
+
+    Examples:
+        file:///home/user/foo.txt -> /home/user/foo.txt
+        file:///C:/Users/test/foo.txt -> C:/Users/test/foo.txt
+        /already/a/path.txt -> /already/a/path.txt (unchanged)
+    """
+    if uri.startswith("file:///"):
+        path = uri[7:]  # Remove "file://"
+        # On Windows, file:///C:/path -> C:/path (remove leading /)
+        # On Unix, file:///home/user -> /home/user (keep leading /)
+        if len(path) > 2 and path[0] == "/" and path[2] == ":":
+            # Windows path like /C:/Users/...
+            path = path[1:]
+        return path
+    elif uri.startswith("file://"):
+        # file://host/path or malformed - just strip file://
+        return uri[7:]
+    return uri
+
+
+def inline_resources_for_slash_command(
+    acp_prompt: list[ACPContentBlock],
+) -> list[ACPContentBlock]:
+    """
+    If the prompt starts with a slash command, inline resource paths into the text.
+
+    When ACP clients attach files via "@" syntax, they come as separate resource
+    blocks. This function detects slash commands and converts file:// URIs to
+    local paths so slash command handlers receive usable file paths.
+
+    Handles two client behaviors:
+    1. Text has "@filename" references that match resource URIs by filename:
+       Input:  [TextBlock("/card @foo.txt"), ResourceBlock(uri="file:///path/foo.txt")]
+       Output: [TextBlock("/card /path/foo.txt")]
+
+    2. Text ends with trailing space and resources follow without "@" references:
+       Input:  [TextBlock("/card "), ResourceBlock(uri="file:///foo.txt")]
+       Output: [TextBlock("/card /foo.txt")]
+
+    Args:
+        acp_prompt: List of ACP content blocks
+
+    Returns:
+        Modified prompt with resource paths inlined if it's a slash command,
+        otherwise returns the original prompt unchanged.
+    """
+    if not acp_prompt:
+        return acp_prompt
+
+    first_block = acp_prompt[0]
+
+    # Only process if first block is text starting with "/"
+    if not isinstance(first_block, acp_schema.TextContentBlock):
+        return acp_prompt
+
+    text = first_block.text
+    if not text.lstrip().startswith("/"):
+        return acp_prompt
+
+    # Collect paths from resource blocks, indexed by filename
+    # Convert file:// URIs to local paths for slash command handlers
+    path_by_filename: dict[str, str] = {}
+    paths: list[str] = []
+    for block in acp_prompt[1:]:
+        if isinstance(block, acp_schema.EmbeddedResourceContentBlock):
+            uri = block.resource.uri
+            if uri:
+                uri_str = str(uri)
+                # Convert file:// URI to local path
+                path = _file_uri_to_path(uri_str)
+                paths.append(path)
+                # Extract filename for matching @references
+                # e.g., "/path/to/foo.txt" -> "foo.txt"
+                filename = path.rsplit("/", 1)[-1]
+                # Also handle Windows paths with backslashes
+                if "\\" in filename:
+                    filename = filename.rsplit("\\", 1)[-1]
+                if filename:
+                    path_by_filename[filename] = path
+
+    if not paths:
+        return acp_prompt
+
+    # Check if text contains @filename references to replace
+    at_pattern = re.compile(r"@(\S+)")
+    matches = at_pattern.findall(text)
+
+    if matches:
+        # Replace @filename with corresponding path
+        inlined_text = text
+        for match in matches:
+            if match in path_by_filename:
+                inlined_text = inlined_text.replace(f"@{match}", path_by_filename[match])
+    else:
+        # No @references found, append paths to the end
+        inlined_text = text.rstrip() + " " + " ".join(paths)
+
+    return [acp_schema.TextContentBlock(type="text", text=inlined_text)]
+
+
 def convert_acp_prompt_to_mcp_content_blocks(
     acp_prompt: list[ACPContentBlock],
 ) -> list[MCPContentBlock]:
@@ -134,3 +249,50 @@ def convert_acp_prompt_to_mcp_content_blocks(
             mcp_blocks.append(mcp_block)
 
     return mcp_blocks
+
+
+def convert_mcp_content_to_acp(mcp_content: MCPContentBlock) -> ACPContentBlock | None:
+    """
+    Convert an MCP content block to ACP format.
+
+    Args:
+        mcp_content: Content block from MCP (TextContent, ImageContent, etc.)
+
+    Returns:
+        Corresponding ACP ContentBlock, or None if conversion is not supported.
+    """
+    match mcp_content:
+        case mcp_types.TextContent():
+            return text_block(mcp_content.text)
+        case mcp_types.ImageContent():
+            return image_block(mcp_content.data, mcp_content.mimeType)
+        case mcp_types.AudioContent():
+            return audio_block(mcp_content.data, mcp_content.mimeType)
+        case mcp_types.ResourceLink():
+            return resource_link_block(
+                name=mcp_content.name,
+                uri=str(mcp_content.uri),
+                mime_type=mcp_content.mimeType,
+                size=mcp_content.size,
+                description=mcp_content.description,
+                title=mcp_content.title,
+            )
+        case mcp_types.EmbeddedResource():
+            match mcp_content.resource:
+                case mcp_types.TextResourceContents():
+                    embedded = embedded_text_resource(
+                        uri=str(mcp_content.resource.uri),
+                        text=mcp_content.resource.text,
+                        mime_type=mcp_content.resource.mimeType,
+                    )
+                case mcp_types.BlobResourceContents():
+                    embedded = embedded_blob_resource(
+                        uri=str(mcp_content.resource.uri),
+                        blob=mcp_content.resource.blob,
+                        mime_type=mcp_content.resource.mimeType,
+                    )
+                case _:
+                    return None
+            return resource_block(embedded)
+        case _:
+            return None

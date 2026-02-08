@@ -237,8 +237,40 @@ def status(
             )
         console.print(map_table)
 
+    try:
+        from datetime import datetime
+
+        from fast_agent.llm.provider.openai.codex_oauth import get_codex_token_status
+
+        codex_status = get_codex_token_status()
+        codex_table = Table(show_header=True, box=None)
+        codex_table.add_column("Codex OAuth", style="white", header_style="bold")
+        codex_table.add_column("Token", header_style="bold")
+        codex_table.add_column("Expires", header_style="bold")
+
+        if not codex_status.get("present"):
+            token_display = "[dim]Not configured[/dim]"
+            expires_display = "[dim]-[/dim]"
+        else:
+            token_display = "[bold green]Present[/bold green]"
+            expires_at = codex_status.get("expires_at")
+            if expires_at:
+                expires_display = datetime.fromtimestamp(expires_at).strftime("%Y-%m-%d %H:%M")
+                if codex_status.get("expired"):
+                    expires_display = f"[red]expired {expires_display}[/red]"
+                else:
+                    expires_display = f"[green]{expires_display}[/green]"
+            else:
+                expires_display = "[green]unknown[/green]"
+
+        codex_table.add_row("Token", token_display, expires_display)
+        console.print("\n[bold]Codex OAuth[/bold]")
+        console.print(codex_table)
+    except Exception:
+        pass
+
     console.print(
-        "\n[dim]Run 'fast-agent auth clear --identity <identity>' to remove a token, or 'fast-agent auth clear --all' to remove all.[/dim]"
+        "\n[dim]Run 'fast-agent auth clear --identity <identity>' to remove a token, or 'fast-agent auth clear --all' to remove all.\nCodex OAuth: 'fast-agent auth codexplan' (login) or 'fast-agent auth codex-clear' (remove).[/dim]"
     )
 
 
@@ -293,6 +325,83 @@ def main(
             status(target=None, config_path=config_path)
         except Exception as e:
             typer.echo(f"Error showing auth status: {e}")
+
+
+@app.command("codex-login")
+def codex_login() -> None:
+    """Start OAuth flow for Codex and store tokens in the keyring."""
+    from fast_agent.core.exceptions import ProviderKeyError, format_fast_agent_error
+    from fast_agent.llm.provider.openai.codex_oauth import login_codex_oauth
+
+    try:
+        login_codex_oauth()
+        typer.echo("Codex OAuth login complete. Tokens stored in keyring.")
+    except ProviderKeyError as exc:
+        typer.echo(format_fast_agent_error(exc))
+        raise typer.Exit(1)
+
+
+@app.command("codexplan")
+def codexplan() -> None:
+    """Ensure Codex OAuth tokens are present; optionally start login."""
+    from fast_agent.core.exceptions import ProviderKeyError, format_fast_agent_error
+    from fast_agent.core.keyring_utils import get_keyring_status
+    from fast_agent.llm.provider.openai.codex_oauth import (
+        get_codex_token_status,
+        login_codex_oauth,
+    )
+
+    keyring_status = get_keyring_status()
+    if not keyring_status.writable:
+        if not keyring_status.available:
+            detail = "No usable keyring backend was detected."
+        else:
+            detail = f"Keyring backend '{keyring_status.name}' is not writable."
+        typer.echo(
+            "Keyring backend not writable; cannot store Codex OAuth tokens. "
+            f"{detail}"
+        )
+        raise typer.Exit(1)
+
+    status = get_codex_token_status()
+    if status.get("present"):
+        typer.echo("Codex OAuth token already present in keyring.")
+        return
+
+    if not typer.confirm("No Codex OAuth token found. Start OAuth login flow now?", default=True):
+        raise typer.Exit(1)
+
+    try:
+        login_codex_oauth()
+        typer.echo("Codex OAuth login complete. Tokens stored in keyring.")
+    except ProviderKeyError as exc:
+        typer.echo(format_fast_agent_error(exc))
+        raise typer.Exit(1)
+
+
+@app.command("codex-clear")
+def codex_clear() -> None:
+    """Remove Codex OAuth tokens from the keyring."""
+    from fast_agent.core.keyring_utils import get_keyring_status
+    from fast_agent.llm.provider.openai.codex_oauth import clear_codex_tokens
+
+    status = get_keyring_status()
+    if not status.available:
+        typer.echo("Keyring backend not available; nothing to clear.")
+        raise typer.Exit(1)
+    if not status.writable:
+        typer.echo(
+            "Keyring backend not writable; deletion may fail. "
+            f"Detected backend '{status.name}'."
+        )
+
+    if not typer.confirm("Remove Codex OAuth tokens from keyring?", default=False):
+        raise typer.Exit()
+
+    if clear_codex_tokens():
+        typer.echo("Codex OAuth tokens removed.")
+    else:
+        typer.echo("No Codex OAuth tokens found.")
 
 
 @app.command()

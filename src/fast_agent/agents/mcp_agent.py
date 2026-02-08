@@ -38,10 +38,15 @@ from pydantic import BaseModel
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_agent import DEFAULT_CAPABILITIES
 from fast_agent.agents.tool_agent import ToolAgent
-from fast_agent.constants import FORCE_SEQUENTIAL_TOOL_CALLS, HUMAN_INPUT_TOOL_NAME
+from fast_agent.constants import (
+    HUMAN_INPUT_TOOL_NAME,
+    SHELL_NOTICE_PREFIX,
+    should_parallelize_tool_calls,
+)
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import FastAgentLLMProtocol
+from fast_agent.llm.terminal_output_limits import calculate_terminal_output_limit_for_model
 from fast_agent.mcp.common import (
     get_resource_name,
     get_server_name,
@@ -70,6 +75,11 @@ ModelT = TypeVar("ModelT", bound=BaseModel)
 ItemT = TypeVar("ItemT")
 
 LLM = TypeVar("LLM", bound=FastAgentLLMProtocol)
+
+# Display name overrides for tools shown in the bottom bar
+TOOL_DISPLAY_NAMES: dict[str, str] = {
+    "read_skill": "skill",
+}
 
 if TYPE_CHECKING:
     from rich.text import Text
@@ -126,6 +136,18 @@ class McpAgent(ABC, ToolAgent):
             except Exception:
                 manifests = []
 
+        self._shell_runtime: ShellRuntime | None = None
+        self._shell_notice_emitted = False
+        self._allow_shell_notice = False
+        self._shell_runtime_enabled = False
+        self._shell_access_modes: tuple[str, ...] = ()
+        self._bash_tool: Tool | None = None
+        # Allow external runtime injection (e.g., for ACP terminal support)
+        self._external_runtime = None
+
+        # Allow filesystem runtime injection (e.g., for ACP filesystem support)
+        self._filesystem_runtime = None
+
         self._skill_manifests: list[SkillManifest] = []
         self._skill_map: dict[str, SkillManifest] = {}
         self._skill_reader: SkillReader | None = None
@@ -156,54 +178,36 @@ class McpAgent(ABC, ToolAgent):
             else:
                 self._shell_runtime_activation_reason = "via " + " and ".join(reasons)
 
-        # Get timeout configuration from context
-        timeout_seconds = 90  # default
-        warning_interval_seconds = 30  # default
-        if context and context.config:
-            shell_config = getattr(context.config, "shell_execution", None)
-            if shell_config:
-                timeout_seconds = getattr(shell_config, "timeout_seconds", 90)
-                warning_interval_seconds = getattr(shell_config, "warning_interval_seconds", 30)
-
         # Derive skills directory from this agent's manifests (respects per-agent config)
         skills_directory = None
         if self._skill_manifests:
             # Get the skills directory from the first manifest's path
-            # Path structure: .fast-agent/skills/skill-name/SKILL.md
+            # Path structure: <env>/skills/skill-name/SKILL.md
             # So we need parent.parent of the manifest path
             first_manifest = self._skill_manifests[0]
             if first_manifest.path:
                 skills_directory = first_manifest.path.parent.parent
 
-        self._shell_runtime = ShellRuntime(
-            self._shell_runtime_activation_reason,
-            self.logger,
-            timeout_seconds=timeout_seconds,
-            warning_interval_seconds=warning_interval_seconds,
-            skills_directory=skills_directory,
-            working_directory=self.config.cwd,
-        )
-        self._shell_runtime_enabled = self._shell_runtime.enabled
         self._shell_access_modes: tuple[str, ...] = ()
-        if self._shell_runtime_enabled:
-            modes: list[str] = ["[red]direct[/red]"]
+        if self._shell_runtime_activation_reason is not None:
+            modes: list[str] = []
             if skills_configured:
                 modes.append("skills")
             if shell_flag_requested:
                 modes.append("switch")
             self._shell_access_modes = tuple(modes)
-        self._bash_tool = self._shell_runtime.tool
-        if self._shell_runtime_enabled:
-            self._shell_runtime.announce()
+
+        self._activate_shell_runtime(
+            self._shell_runtime_activation_reason,
+            working_directory=self.config.cwd,
+            skills_directory=skills_directory,
+            access_modes=self._shell_access_modes,
+        )
 
         # Store instruction context for template resolution
         self._instruction_context: dict[str, str] = {}
 
-        # Allow external runtime injection (e.g., for ACP terminal support)
-        self._external_runtime = None
-
-        # Allow filesystem runtime injection (e.g., for ACP filesystem support)
-        self._filesystem_runtime = None
+        self._allow_shell_notice = True
 
         # Store the default request params from config
         self._default_request_params = self.config.default_request_params
@@ -264,12 +268,16 @@ class McpAgent(ABC, ToolAgent):
         # Apply template substitution to the instruction with server instructions
         await self._apply_instruction_templates()
 
+        await super().initialize()
+
     async def shutdown(self) -> None:
         """
         Shutdown the agent and close all MCP server connections.
         NOTE: This method is called automatically when the agent is used as an async context manager.
         """
+        await self._run_lifecycle_hook("on_shutdown")
         await self._aggregator.close()
+        await self._finalize_shutdown(run_hook=False)
 
     def enable_shell(self, working_directory: Path | None = None) -> None:
         """
@@ -283,33 +291,16 @@ class McpAgent(ABC, ToolAgent):
         """
         if self._shell_runtime_enabled:
             # Already enabled, but update working directory if specified
-            if working_directory is not None:
-                self._shell_runtime._working_directory = working_directory
+            shell_runtime = self._shell_runtime
+            if working_directory is not None and shell_runtime is not None:
+                shell_runtime._working_directory = working_directory
             return
 
-        # Get timeout configuration from context
-        timeout_seconds = 90
-        warning_interval_seconds = 30
-        if self.context and self.context.config:
-            shell_config = getattr(self.context.config, "shell_execution", None)
-            if shell_config:
-                timeout_seconds = getattr(shell_config, "timeout_seconds", 90)
-                warning_interval_seconds = getattr(shell_config, "warning_interval_seconds", 30)
-
-        # Create a new shell runtime with the activation reason
-        self._shell_runtime_activation_reason = "via enable_shell() call"
-        self._shell_runtime = ShellRuntime(
-            self._shell_runtime_activation_reason,
-            self.logger,
-            timeout_seconds=timeout_seconds,
-            warning_interval_seconds=warning_interval_seconds,
+        self._activate_shell_runtime(
+            "via enable_shell() call",
             working_directory=working_directory,
+            access_modes=("[red]direct[/red]",),
         )
-        self._shell_runtime_enabled = self._shell_runtime.enabled
-        self._bash_tool = self._shell_runtime.tool
-        self._shell_access_modes = ("[red]direct[/red]",)
-        if self._shell_runtime_enabled:
-            self._shell_runtime.announce()
 
     async def get_server_status(self) -> dict[str, ServerStatus]:
         """Expose server status details for UI and diagnostics consumers."""
@@ -370,15 +361,13 @@ class McpAgent(ABC, ToolAgent):
             skill_manifests=self._skill_manifests,
             has_filesystem_runtime=self.has_filesystem_runtime,
             context=self._instruction_context,
+            source=self._name,
         )
         self.set_instruction(new_instruction)
 
         # Warn if skills configured but placeholder missing
         if self._skill_manifests and "{{agentSkills}}" not in self._instruction_template:
-            warning_message = (
-                "Agent skills are configured but the system prompt does not include {{agentSkills}}. "
-                "Skill descriptions will not be added to the system prompt."
-            )
+            warning_message = f"[dim]Agent '{self._name}' skills are configured but no {{{{agentSkills}}}} in system prompt.[/dim]"
             self._record_warning(warning_message)
 
         self.logger.debug(f"Applied instruction templates for agent {self._name}")
@@ -388,8 +377,129 @@ class McpAgent(ABC, ToolAgent):
         self._skill_map = {manifest.name: manifest for manifest in self._skill_manifests}
         if self._skill_manifests:
             self._skill_reader = SkillReader(self._skill_manifests, self.logger)
+            self._ensure_shell_runtime_for_skills()
         else:
             self._skill_reader = None
+
+    def _ensure_shell_runtime_for_skills(self) -> None:
+        if self._shell_runtime_enabled:
+            return
+        if self._external_runtime is not None:
+            return
+
+        # Derive skills directory from manifests (respects per-agent config)
+        skills_directory = None
+        if self._skill_manifests:
+            first_manifest = self._skill_manifests[0]
+            if first_manifest.path:
+                skills_directory = first_manifest.path.parent.parent
+
+        self._activate_shell_runtime(
+            "because agent skills are configured",
+            skills_directory=skills_directory,
+            working_directory=self.config.cwd,
+            access_modes=("skills",),
+            show_shell_notice=True,
+        )
+
+    def _resolve_shell_runtime_settings(self) -> tuple[int, int, int]:
+        timeout_seconds = 90
+        warning_interval_seconds = 30
+        config_output_byte_limit = None
+        shell_config = None
+        if self._context and self._context.config:
+            shell_config = getattr(self._context.config, "shell_execution", None)
+        if shell_config:
+            timeout_seconds = getattr(shell_config, "timeout_seconds", 90)
+            warning_interval_seconds = getattr(shell_config, "warning_interval_seconds", 30)
+            config_output_byte_limit = getattr(shell_config, "output_byte_limit", None)
+
+        if config_output_byte_limit is not None:
+            output_byte_limit = config_output_byte_limit
+        else:
+            model_name = self.config.model
+            if not model_name and self._context and self._context.config:
+                model_name = getattr(self._context.config, "default_model", None)
+            output_byte_limit = calculate_terminal_output_limit_for_model(model_name)
+        return timeout_seconds, warning_interval_seconds, output_byte_limit
+
+    def _shell_output_limit_overridden(self) -> bool:
+        """Return True when shell output byte limit is explicitly configured."""
+        if not self._context or not self._context.config:
+            return False
+        shell_config = getattr(self._context.config, "shell_execution", None)
+        if shell_config is None:
+            return False
+        return getattr(shell_config, "output_byte_limit", None) is not None
+
+    def _on_llm_attached(self, llm: FastAgentLLMProtocol) -> None:
+        super()._on_llm_attached(llm)
+        if self._shell_runtime is None:
+            return
+        if self._shell_output_limit_overridden():
+            return
+
+        self._shell_runtime.set_output_byte_limit(
+            calculate_terminal_output_limit_for_model(llm.model_name)
+        )
+
+    def _activate_shell_runtime(
+        self,
+        activation_reason: str | None,
+        *,
+        working_directory: Path | None = None,
+        skills_directory: Path | None = None,
+        access_modes: tuple[str, ...] = (),
+        show_shell_notice: bool = False,
+    ) -> None:
+        if activation_reason is not None and self._external_runtime is not None:
+            return
+
+        timeout_seconds, warning_interval_seconds, output_byte_limit = (
+            self._resolve_shell_runtime_settings()
+        )
+
+        self._shell_runtime_activation_reason = activation_reason
+        self._shell_runtime = ShellRuntime(
+            activation_reason,
+            self.logger,
+            timeout_seconds=timeout_seconds,
+            warning_interval_seconds=warning_interval_seconds,
+            skills_directory=skills_directory,
+            working_directory=working_directory,
+            output_byte_limit=output_byte_limit,
+            config=self._context.config if self._context else None,
+        )
+        self._shell_runtime_enabled = self._shell_runtime.enabled
+        self._bash_tool = self._shell_runtime.tool
+        self._shell_access_modes = access_modes if self._shell_runtime_enabled else ()
+        if self._shell_runtime_enabled:
+            self._shell_runtime.announce()
+            if show_shell_notice and self._allow_shell_notice and not self._shell_notice_emitted:
+                self._shell_notice_emitted = True
+                try:
+                    console.console.print(SHELL_NOTICE_PREFIX)
+                except Exception:  # pragma: no cover - console fallback
+                    pass
+
+    @property
+    def shell_runtime_enabled(self) -> bool:
+        return self._shell_runtime_enabled
+
+    @property
+    def shell_access_modes(self) -> tuple[str, ...]:
+        return self._shell_access_modes
+
+    @property
+    def shell_runtime(self) -> ShellRuntime | None:
+        return self._shell_runtime
+
+    def shell_notice_line(self) -> "Text | None":
+        if not self._shell_runtime_enabled or self._shell_runtime is None:
+            return None
+        from fast_agent.ui.shell_notice import format_shell_notice
+
+        return format_shell_notice(self._shell_access_modes, self._shell_runtime)
 
     def _record_warning(self, message: str) -> None:
         if message in self._warning_messages_seen:
@@ -398,7 +508,7 @@ class McpAgent(ABC, ToolAgent):
         self._warnings.append(message)
         self.logger.warning(message)
         try:
-            console.console.print(f"[yellow]{message}[/yellow]")
+            console.error_console.print(f"[yellow]{message}[/yellow]")
         except Exception:  # pragma: no cover - console fallback
             pass
 
@@ -607,7 +717,11 @@ class McpAgent(ABC, ToolAgent):
             return await self._skill_reader.execute(arguments)
 
         # Fall back to shell runtime
-        if self._shell_runtime.tool and name == self._shell_runtime.tool.name:
+        if (
+            self._shell_runtime
+            and self._shell_runtime.tool
+            and name == self._shell_runtime.tool.name
+        ):
             return await self._shell_runtime.execute(arguments)
 
         if name == HUMAN_INPUT_TOOL_NAME:
@@ -906,7 +1020,28 @@ class McpAgent(ABC, ToolAgent):
         namespaced_tools = self._aggregator._namespaced_tool_map
 
         tool_call_items = list(request.tool_calls.items())
-        should_parallel = (not FORCE_SEQUENTIAL_TOOL_CALLS) and len(tool_call_items) > 1
+        should_parallel = should_parallelize_tool_calls(len(tool_call_items))
+        if should_parallel and tool_call_items:
+            subagent_calls = self._count_agent_tool_calls(tool_call_items)
+            if subagent_calls > 1:
+                did_close = self.close_active_streaming_display(
+                    reason="parallel subagent tool calls"
+                )
+                if did_close:
+                    self.logger.info(
+                        "Closing streaming display due to parallel subagent tool calls",
+                        agent_name=self._name,
+                        tool_call_count=len(tool_call_items),
+                        subagent_call_count=subagent_calls,
+                    )
+
+        smart_parallel_calls = 0
+        if getattr(self, "agent_type", None) == AgentType.SMART:
+            smart_parallel_calls = sum(
+                1
+                for _, tool_request in tool_call_items
+                if tool_request.params.name == "smart"
+            )
 
         planned_calls: list[dict[str, Any]] = []
 
@@ -955,7 +1090,11 @@ class McpAgent(ABC, ToolAgent):
 
             tool_available = (
                 tool_name == HUMAN_INPUT_TOOL_NAME
-                or (self._shell_runtime.tool and tool_name == self._shell_runtime.tool.name)
+                or (
+                    self._shell_runtime
+                    and self._shell_runtime.tool
+                    and tool_name == self._shell_runtime.tool.name
+                )
                 or is_external_runtime_tool
                 or is_filesystem_runtime_tool
                 or is_skill_reader_tool
@@ -971,12 +1110,14 @@ class McpAgent(ABC, ToolAgent):
                     correlation_id=correlation_id,
                     error_message=error_message,
                     tool_results=tool_results,
+                    tool_call_id=correlation_id if should_parallel else None,
                 )
                 break
 
             metadata: dict[str, Any] | None = None
             if (
                 self._shell_runtime_enabled
+                and self._shell_runtime
                 and self._shell_runtime.tool
                 and tool_name == self._shell_runtime.tool.name
             ):
@@ -1002,6 +1143,8 @@ class McpAgent(ABC, ToolAgent):
                 highlight_index=highlight_index,
                 max_item_length=12,
                 metadata=metadata,
+                tool_call_id=correlation_id if should_parallel else None,
+                show_hook_indicator=self.has_before_tool_call_hook,
             )
 
             planned_calls.append(
@@ -1016,19 +1159,32 @@ class McpAgent(ABC, ToolAgent):
             )
 
         if should_parallel and planned_calls:
-
-            async def run_one(call: dict[str, Any]) -> tuple[str, CallToolResult, float]:
-                start_time = time.perf_counter()
-                result = await self.call_tool(
-                    call["tool_name"],
-                    call["tool_args"],
-                    call["correlation_id"],
-                    request_params=request_params,
+            smart_parallel_active = smart_parallel_calls > 1
+            if smart_parallel_active:
+                setattr(self, "_parallel_smart_tool_calls", True)
+                self.logger.info(
+                    "Parallel smart tool calls detected",
+                    agent_name=self._name,
+                    tool_call_count=len(tool_call_items),
+                    smart_call_count=smart_parallel_calls,
                 )
-                end_time = time.perf_counter()
-                return call["correlation_id"], result, round((end_time - start_time) * 1000, 2)
+            try:
 
-            results = await gather_with_cancel(run_one(call) for call in planned_calls)
+                async def run_one(call: dict[str, Any]) -> tuple[str, CallToolResult, float]:
+                    start_time = time.perf_counter()
+                    result = await self.call_tool(
+                        call["tool_name"],
+                        call["tool_args"],
+                        call["correlation_id"],
+                        request_params=request_params,
+                    )
+                    end_time = time.perf_counter()
+                    return call["correlation_id"], result, round((end_time - start_time) * 1000, 2)
+
+                results = await gather_with_cancel(run_one(call) for call in planned_calls)
+            finally:
+                if smart_parallel_active:
+                    setattr(self, "_parallel_smart_tool_calls", False)
 
             for i, item in enumerate(results):
                 call = planned_calls[i]
@@ -1070,6 +1226,8 @@ class McpAgent(ABC, ToolAgent):
                         tool_name=display_tool_name,
                         skybridge_config=skybridge_config,
                         timing_ms=duration_ms,
+                        tool_call_id=correlation_id,
+                        show_hook_indicator=self.has_after_tool_call_hook,
                     )
 
             return self._finalize_tool_results(
@@ -1112,6 +1270,7 @@ class McpAgent(ABC, ToolAgent):
                         tool_name=display_tool_name,
                         skybridge_config=skybridge_config,
                         timing_ms=duration_ms,
+                        show_hook_indicator=self.has_after_tool_call_hook,
                     )
 
                 self.logger.debug(f"MCP tool {display_tool_name} executed successfully")
@@ -1122,7 +1281,11 @@ class McpAgent(ABC, ToolAgent):
                     isError=True,
                 )
                 tool_results[correlation_id] = error_result
-                self.display.show_tool_result(name=self._name, result=error_result)
+                self.display.show_tool_result(
+                    name=self._name,
+                    result=error_result,
+                    show_hook_indicator=self.has_after_tool_call_hook,
+                )
 
         return self._finalize_tool_results(
             tool_results, tool_timings=tool_timings, tool_loop_error=tool_loop_error
@@ -1181,6 +1344,8 @@ class McpAgent(ABC, ToolAgent):
             except ValueError:
                 highlight_index = None
 
+        if bottom_items is not None:
+            bottom_items = [TOOL_DISPLAY_NAMES.get(name, name) for name in bottom_items]
         return display_tool_name, bottom_items, highlight_index
 
     @staticmethod
@@ -1384,6 +1549,7 @@ class McpAgent(ABC, ToolAgent):
         model: str | None = None,
         additional_message: Union["Text", None] = None,
         render_markdown: bool | None = None,
+        show_hook_indicator: bool | None = None,
     ) -> None:
         """
         Display an assistant message with MCP servers in the bottom bar.
@@ -1406,6 +1572,35 @@ class McpAgent(ABC, ToolAgent):
         if shell_label:
             server_names = [shell_label, *(name for name in server_names if name != shell_label)]
 
+        skills_label = self._skills_tool_label()
+        if skills_label and skills_label not in server_names:
+            server_names.append(skills_label)
+
+        card_tools_label = self._card_tools_label()
+        if card_tools_label and card_tools_label not in server_names:
+            if skills_label and skills_label in server_names:
+                insert_at = server_names.index(skills_label) + 1
+                server_names.insert(insert_at, card_tools_label)
+            else:
+                server_names.append(card_tools_label)
+
+        # Add agent-as-tool names to the bottom bar (they aren't MCP servers but should be shown)
+        for tool_name in self._agent_tools:
+            # Extract the agent name from tool_name (e.g., "agent__foo" -> "foo")
+            agent_label = tool_name[7:] if tool_name.startswith("agent__") else tool_name
+            if agent_label not in server_names:
+                server_names.append(agent_label)
+
+        # Also check _child_agents (used by AgentsAsToolsAgent)
+        # Import at runtime to avoid circular import
+        from fast_agent.agents.workflow.agents_as_tools_agent import AgentsAsToolsAgent
+
+        if isinstance(self, AgentsAsToolsAgent):
+            for agent_name in self._child_agents:
+                agent_label = agent_name[7:] if agent_name.startswith("agent__") else agent_name
+                if agent_label not in server_names:
+                    server_names.append(agent_label)
+
         # Extract servers from tool calls in the message for highlighting
         if highlight_items is None:
             highlight_servers = self._extract_servers_from_message(message)
@@ -1414,7 +1609,11 @@ class McpAgent(ABC, ToolAgent):
             if isinstance(highlight_items, str):
                 highlight_servers = [highlight_items]
             else:
-                highlight_servers = highlight_items
+                highlight_servers = list(highlight_items)
+
+        if card_tools_label and self._card_tools_used(message):
+            if card_tools_label not in highlight_servers:
+                highlight_servers.append(card_tools_label)
 
         # Call parent's implementation with server information
         await super().show_assistant_message(
@@ -1426,6 +1625,7 @@ class McpAgent(ABC, ToolAgent):
             model=model,
             additional_message=additional_message,
             render_markdown=render_markdown,
+            show_hook_indicator=show_hook_indicator,
         )
 
     def _extract_servers_from_message(self, message: PromptMessageExtended) -> list[str]:
@@ -1445,8 +1645,22 @@ class McpAgent(ABC, ToolAgent):
             for tool_request in message.tool_calls.values():
                 tool_name = tool_request.params.name
 
+                if tool_name in self._agent_tools:
+                    agent_label = tool_name[7:] if tool_name.startswith("agent__") else tool_name
+                    if agent_label not in servers:
+                        servers.append(agent_label)
+                    continue
+
+                child_agents = getattr(self, "_child_agents", None)
+                if isinstance(child_agents, dict) and tool_name in child_agents:
+                    agent_label = tool_name[7:] if tool_name.startswith("agent__") else tool_name
+                    if agent_label not in servers:
+                        servers.append(agent_label)
+                    continue
+
                 if (
                     self._shell_runtime_enabled
+                    and self._shell_runtime
                     and self._shell_runtime.tool
                     and tool_name == self._shell_runtime.tool.name
                 ):
@@ -1454,6 +1668,22 @@ class McpAgent(ABC, ToolAgent):
                     if shell_label and shell_label not in servers:
                         servers.append(shell_label)
                     continue
+
+                # Check if this is a skills reader tool call
+                if self._skill_reader and self._skill_reader.enabled:
+                    if tool_name == self._skill_reader.tool.name:
+                        skills_label = self._skills_tool_label()
+                        if skills_label and skills_label not in servers:
+                            servers.append(skills_label)
+                        continue
+
+                # Check if this is a skills reader tool call
+                if self._skill_reader and self._skill_reader.enabled:
+                    if tool_name == self._skill_reader.tool.name:
+                        skills_label = self._skills_tool_label()
+                        if skills_label and skills_label not in servers:
+                            servers.append(skills_label)
+                        continue
 
                 # Use aggregator's mapping to find the server for this tool
                 if tool_name in self._aggregator._namespaced_tool_map:
@@ -1465,12 +1695,19 @@ class McpAgent(ABC, ToolAgent):
 
     def _shell_server_label(self) -> str | None:
         """Return the display label for the local shell runtime."""
-        if not self._shell_runtime_enabled or not self._shell_runtime.tool:
+        shell_runtime = self._shell_runtime
+        if not self._shell_runtime_enabled or not shell_runtime or not shell_runtime.tool:
             return None
 
-        runtime_info = self._shell_runtime.runtime_info()
+        runtime_info = shell_runtime.runtime_info()
         runtime_name = runtime_info.get("name")
         return runtime_name or "shell"
+
+    def _skills_tool_label(self) -> str | None:
+        if self._skill_reader and self._skill_reader.enabled:
+            name = self._skill_reader.tool.name
+            return TOOL_DISPLAY_NAMES.get(name, name)
+        return None
 
     async def _parse_resource_name(self, name: str, resource_type: str) -> tuple[str | None, str]:
         """Delegate resource name parsing to the aggregator."""

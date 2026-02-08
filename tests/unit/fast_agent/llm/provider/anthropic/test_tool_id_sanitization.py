@@ -1,12 +1,7 @@
-from typing import TYPE_CHECKING
-
 from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
 
 from fast_agent.llm.provider.anthropic.multipart_converter_anthropic import AnthropicConverter
 from fast_agent.types import PromptMessageExtended
-
-if TYPE_CHECKING:
-    from anthropic.types import MessageParam
 
 
 def test_sanitizes_tool_use_ids_for_assistant_calls():
@@ -17,8 +12,9 @@ def test_sanitizes_tool_use_ids_for_assistant_calls():
 
     msg = PromptMessageExtended(role="assistant", content=[], tool_calls={dirty_id: req})
 
-    converted: MessageParam = AnthropicConverter.convert_to_anthropic(msg)
+    converted = AnthropicConverter.convert_to_anthropic(msg)
 
+    assert isinstance(converted, dict)
     assert converted["role"] == "assistant"
     content_blocks = list(converted["content"])
     assert isinstance(content_blocks[0], dict)
@@ -32,8 +28,9 @@ def test_sanitizes_tool_use_ids_for_tool_results():
 
     msg = PromptMessageExtended(role="user", content=[], tool_results={dirty_id: result})
 
-    converted: MessageParam = AnthropicConverter.convert_to_anthropic(msg)
+    converted = AnthropicConverter.convert_to_anthropic(msg)
 
+    assert isinstance(converted, dict)
     assert converted["role"] == "user"
     content_blocks = list(converted["content"])
     assert isinstance(content_blocks[0], dict)

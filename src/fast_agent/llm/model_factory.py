@@ -1,5 +1,5 @@
-from enum import Enum
 from typing import Type, Union
+from urllib.parse import parse_qs
 
 from pydantic import BaseModel
 
@@ -10,19 +10,16 @@ from fast_agent.llm.internal.playback import PlaybackLLM
 from fast_agent.llm.internal.silent import SilentLLM
 from fast_agent.llm.internal.slow import SlowLLM
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, parse_reasoning_setting
+from fast_agent.llm.structured_output_mode import (
+    StructuredOutputMode,
+    parse_structured_output_mode,
+)
+from fast_agent.llm.text_verbosity import TextVerbosityLevel, parse_text_verbosity
 from fast_agent.types import RequestParams
 
 # Type alias for LLM classes
 LLMClass = Union[Type[PassthroughLLM], Type[PlaybackLLM], Type[SilentLLM], Type[SlowLLM], type]
-
-
-class ReasoningEffort(Enum):
-    """Optional reasoning effort levels"""
-
-    MINIMAL = "minimal"
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
 
 
 class ModelConfig(BaseModel):
@@ -30,20 +27,14 @@ class ModelConfig(BaseModel):
 
     provider: Provider
     model_name: str
-    reasoning_effort: ReasoningEffort | None = None
+    reasoning_effort: ReasoningEffortSetting | None = None
+    text_verbosity: TextVerbosityLevel | None = None
+    structured_output_mode: StructuredOutputMode | None = None
+    long_context: bool = False
 
 
 class ModelFactory:
     """Factory for creating LLM instances based on model specifications"""
-
-    # Mapping of effort strings to enum values
-    # TODO -- move this to the model database
-    EFFORT_MAP = {
-        "minimal": ReasoningEffort.MINIMAL,  # Alias for low effort
-        "low": ReasoningEffort.LOW,
-        "medium": ReasoningEffort.MEDIUM,
-        "high": ReasoningEffort.HIGH,
-    }
 
     """
     TODO -- add audio supporting got-4o-audio-preview
@@ -60,19 +51,20 @@ class ModelFactory:
         "gpt-4.1": Provider.OPENAI,
         "gpt-4.1-mini": Provider.OPENAI,
         "gpt-4.1-nano": Provider.OPENAI,
-        "gpt-5": Provider.OPENAI,
-        "gpt-5.1": Provider.OPENAI,
-        "gpt-5.1-mini": Provider.OPENAI,
-        "gpt-5.1-nano": Provider.OPENAI,
-        "gpt-5-mini": Provider.OPENAI,
-        "gpt-5-nano": Provider.OPENAI,
-        "gpt-5.2": Provider.OPENAI,
-        "o1-mini": Provider.OPENAI,
-        "o1": Provider.OPENAI,
-        "o1-preview": Provider.OPENAI,
-        "o3": Provider.OPENAI,
-        "o3-mini": Provider.OPENAI,
-        "o4-mini": Provider.OPENAI,
+        "gpt-5": Provider.RESPONSES,
+        "gpt-5.1": Provider.RESPONSES,
+        "gpt-5-mini": Provider.RESPONSES,
+        "gpt-5-nano": Provider.RESPONSES,
+        "gpt-5.2": Provider.RESPONSES,
+        "gpt-5.1-codex": Provider.RESPONSES,
+        "gpt-5.2-codex": Provider.RESPONSES,
+        "gpt-5.3-codex": Provider.RESPONSES,
+        "o1-mini": Provider.RESPONSES,
+        "o1": Provider.RESPONSES,
+        "o1-preview": Provider.RESPONSES,
+        "o3": Provider.RESPONSES,
+        "o3-mini": Provider.RESPONSES,
+        "o4-mini": Provider.RESPONSES,
         "claude-3-haiku-20240307": Provider.ANTHROPIC,
         "claude-3-5-haiku-20241022": Provider.ANTHROPIC,
         "claude-3-5-haiku-latest": Provider.ANTHROPIC,
@@ -86,6 +78,7 @@ class ModelFactory:
         "claude-opus-4-0": Provider.ANTHROPIC,
         "claude-opus-4-1": Provider.ANTHROPIC,
         "claude-opus-4-5": Provider.ANTHROPIC,
+        "claude-opus-4-6": Provider.ANTHROPIC,
         "claude-opus-4-20250514": Provider.ANTHROPIC,
         "claude-sonnet-4-20250514": Provider.ANTHROPIC,
         "claude-sonnet-4-0": Provider.ANTHROPIC,
@@ -110,11 +103,15 @@ class ModelFactory:
         "qwen-plus": Provider.ALIYUN,
         "qwen-max": Provider.ALIYUN,
         "qwen-long": Provider.ALIYUN,
+        "qwen3-max": Provider.ALIYUN,
     }
 
     MODEL_ALIASES = {
-        "gpt51": "openai.gpt-5.1",
-        "gpt52": "openai.gpt-5.2",
+        "gpt51": "responses.gpt-5.1",
+        "gpt52": "responses.gpt-5.2",
+        "codex": "responses.gpt-5.2-codex",
+        "codexplan": "codexresponses.gpt-5.3-codex",
+        "codexplan52": "codexresponses.gpt-5.2-codex",
         "sonnet": "claude-sonnet-4-5",
         "sonnet4": "claude-sonnet-4-0",
         "sonnet45": "claude-sonnet-4-5",
@@ -125,9 +122,10 @@ class ModelFactory:
         "haiku3": "claude-3-haiku-20240307",
         "haiku35": "claude-3-5-haiku-latest",
         "haiku45": "claude-haiku-4-5",
-        "opus": "claude-opus-4-5",
+        "opus": "claude-opus-4-6",
         "opus4": "claude-opus-4-1",
         "opus45": "claude-opus-4-5",
+        "opus46": "claude-opus-4-6",
         "opus3": "claude-3-opus-latest",
         "deepseekv3": "deepseek-chat",
         "deepseek3": "deepseek-chat",
@@ -144,11 +142,12 @@ class ModelFactory:
         "kimi": "hf.moonshotai/Kimi-K2-Instruct-0905:groq",
         "gpt-oss": "hf.openai/gpt-oss-120b:cerebras",
         "gpt-oss-20b": "hf.openai/gpt-oss-20b",
-        "glm": "hf.zai-org/GLM-4.7:zai-org:novita",
+        "glm": "hf.zai-org/GLM-4.7:cerebras",
         "qwen3": "hf.Qwen/Qwen3-Next-80B-A3B-Instruct:together",
         "deepseek31": "hf.deepseek-ai/DeepSeek-V3.1",
         "kimithink": "hf.moonshotai/Kimi-K2-Thinking:together",
-        "deepseek32": "deepseek-ai/DeepSeek-V3.2-Exp:novita",
+        "deepseek32": "hf.deepseek-ai/DeepSeek-V3.2:fireworks-ai",
+        "kimi25": "hf.moonshotai/Kimi-K2.5:novita",
     }
 
     @staticmethod
@@ -188,6 +187,57 @@ class ModelFactory:
         if aliases is None:
             aliases = cls.MODEL_ALIASES
 
+        query_setting: ReasoningEffortSetting | None = None
+        query_structured: StructuredOutputMode | None = None
+        query_text_verbosity: TextVerbosityLevel | None = None
+        query_instant: bool | None = None
+        query_long_context: bool = False
+        if "?" in model_string:
+            model_string, _, query = model_string.partition("?")
+            query_params = parse_qs(query)
+            if "reasoning" in query_params:
+                values = query_params.get("reasoning") or []
+                raw_value = values[-1] if values else ""
+                query_setting = parse_reasoning_setting(raw_value)
+                if query_setting is None:
+                    raise ModelConfigError(
+                        f"Invalid reasoning query value: '{raw_value}' in '{model_string}'"
+                    )
+            if "verbosity" in query_params:
+                values = query_params.get("verbosity") or []
+                raw_value = values[-1] if values else ""
+                query_text_verbosity = parse_text_verbosity(raw_value)
+                if query_text_verbosity is None:
+                    raise ModelConfigError(
+                        f"Invalid verbosity query value: '{raw_value}' in '{model_string}'"
+                    )
+            if "structured" in query_params:
+                values = query_params.get("structured") or []
+                raw_value = values[-1] if values else ""
+                query_structured = parse_structured_output_mode(raw_value)
+                if query_structured is None:
+                    raise ModelConfigError(
+                        f"Invalid structured query value: '{raw_value}' in '{model_string}'"
+                    )
+            if "instant" in query_params:
+                values = query_params.get("instant") or []
+                raw_value = values[-1] if values else ""
+                instant_setting = parse_reasoning_setting(raw_value)
+                if instant_setting is None or instant_setting.kind != "toggle":
+                    raise ModelConfigError(
+                        f"Invalid instant query value: '{raw_value}' in '{model_string}'"
+                    )
+                query_instant = bool(instant_setting.value)
+            if "context" in query_params:
+                values = query_params.get("context") or []
+                raw_value = (values[-1] if values else "").strip().lower()
+                if raw_value == "1m":
+                    query_long_context = True
+                else:
+                    raise ModelConfigError(
+                        f"Invalid context query value: '{raw_value}' \u2014 only '1m' is supported"
+                    )
+
         suffix: str | None = None
         if ":" in model_string:
             base, suffix = model_string.rsplit(":", 1)
@@ -211,14 +261,21 @@ class ModelFactory:
 
         model_name_str = model_string  # Default full string as model name initially
         provider: Provider | None = provider_override
-        reasoning_effort = None
+        reasoning_effort = query_setting
         parts_for_provider_model = []
 
         # Check for reasoning effort first (last part)
-        if len(parts) > 1 and parts[-1].lower() in cls.EFFORT_MAP:
-            reasoning_effort = cls.EFFORT_MAP[parts[-1].lower()]
-            # Remove effort from parts list for provider/model name determination
-            parts_for_provider_model = parts[:-1]
+        if len(parts) > 1 and parse_reasoning_setting(parts[-1].lower()):
+            suffix_setting = parse_reasoning_setting(parts[-1].lower())
+            if suffix_setting and suffix_setting.kind == "effort":
+                if query_setting is not None:
+                    raise ModelConfigError(
+                        f"Multiple reasoning settings provided for '{model_string}'."
+                    )
+                reasoning_effort = suffix_setting
+                parts_for_provider_model = parts[:-1]
+            else:
+                parts_for_provider_model = parts[:]
         else:
             parts_for_provider_model = parts[:]
 
@@ -266,8 +323,25 @@ class ModelFactory:
         if suffix:
             model_name_str = f"{model_name_str}:{suffix}"
 
+        if query_instant is not None:
+            if reasoning_effort is not None:
+                raise ModelConfigError(
+                    f"Multiple reasoning settings provided for '{model_string}'."
+                )
+            base_model = model_name_str.rsplit(":", 1)[0].strip().lower()
+            if base_model != "moonshotai/kimi-k2.5":
+                raise ModelConfigError(
+                    f"Instant mode is only supported for moonshotai/kimi-k2.5, got '{model_name_str}'."
+                )
+            reasoning_effort = ReasoningEffortSetting(kind="toggle", value=not query_instant)
+
         return ModelConfig(
-            provider=provider, model_name=model_name_str, reasoning_effort=reasoning_effort
+            provider=provider,
+            model_name=model_name_str,
+            reasoning_effort=reasoning_effort,
+            text_verbosity=query_text_verbosity,
+            structured_output_mode=query_structured,
+            long_context=query_long_context,
         )
 
     @classmethod
@@ -304,7 +378,13 @@ class ModelFactory:
             base_params = RequestParams()
             base_params.model = config.model_name
             if config.reasoning_effort:
-                kwargs["reasoning_effort"] = config.reasoning_effort.value
+                kwargs["reasoning_effort"] = config.reasoning_effort
+            if config.text_verbosity:
+                kwargs["text_verbosity"] = config.text_verbosity
+            if config.structured_output_mode:
+                kwargs["structured_output_mode"] = config.structured_output_mode
+            if config.long_context:
+                kwargs["long_context"] = True
             llm_args = {
                 "model": config.model_name,
                 "request_params": request_params,
@@ -384,6 +464,14 @@ class ModelFactory:
                 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 
                 return ResponsesLLM
+            if provider == Provider.CODEX_RESPONSES:
+                from fast_agent.llm.provider.openai.codex_responses import CodexResponsesLLM
+
+                return CodexResponsesLLM
+            if provider == Provider.OPENRESPONSES:
+                from fast_agent.llm.provider.openai.openresponses import OpenResponsesLLM
+
+                return OpenResponsesLLM
 
         except Exception as e:
             raise ModelConfigError(

@@ -162,6 +162,7 @@ class TransportChannelMetrics:
         self._stdio_notification_count = 0
 
         self._response_channel_by_id: dict[RequestId, ChannelName] = {}
+        self._ping_request_ids: set[RequestId] = set()
 
         try:
             seconds = 30 if bucket_seconds is None else int(bucket_seconds)
@@ -208,6 +209,14 @@ class TransportChannelMetrics:
             elif event.channel == "stdio":
                 self._handle_stdio_event(event, now)
 
+    def register_ping_request(self, request_id: RequestId) -> None:
+        with self._lock:
+            self._ping_request_ids.add(request_id)
+
+    def discard_ping_request(self, request_id: RequestId) -> None:
+        with self._lock:
+            self._ping_request_ids.discard(request_id)
+
     def _handle_post_event(self, event: ChannelEvent, now: datetime) -> None:
         mode = "json" if event.channel == "post-json" else "sse"
         if event.event_type == "message" and event.message is not None:
@@ -226,7 +235,8 @@ class TransportChannelMetrics:
             self._post_last_at = now
 
             self._record_response_channel(event)
-            self._record_history(event.channel, classification, now)
+            if classification != "ping":
+                self._record_history(event.channel, classification, now)
         elif event.event_type == "error":
             self._record_history(event.channel, "error", now)
 
@@ -347,6 +357,20 @@ class TransportChannelMetrics:
         sub_mode: str | None = None,
     ) -> str:
         classification = self._classify_message(message)
+        root = message.root
+        request_id: RequestId | None = None
+        if isinstance(root, (JSONRPCRequest, JSONRPCResponse, JSONRPCError)):
+            request_id = getattr(root, "id", None)
+
+        if classification == "ping" and request_id is not None and isinstance(root, JSONRPCRequest):
+            self._ping_request_ids.add(request_id)
+        elif (
+            classification == "response"
+            and request_id is not None
+            and request_id in self._ping_request_ids
+        ):
+            self._ping_request_ids.discard(request_id)
+            classification = "ping"
 
         if channel_key == "post":
             if classification == "request":

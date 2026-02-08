@@ -82,6 +82,7 @@ class AgentMCPServer:
         host: str = "0.0.0.0",
         get_registry_version: Callable[[], int] | None = None,
         reload_callback: Callable[[], Awaitable[bool]] | None = None,
+        tool_name_template: str | None = None,
     ) -> None:
         """Initialize the server with the provided agent app."""
         self.primary_instance = primary_instance
@@ -94,6 +95,10 @@ class AgentMCPServer:
         self._shared_instance_lock = asyncio.Lock()
         self._shared_active_requests = 0
         self._stale_instances: list[AgentInstance] = []
+        self._tool_description = tool_description
+        self._tool_name_template = tool_name_template or "{agent}"
+        if "{agent}" not in self._tool_name_template:
+            raise ValueError("tool_name_template must include '{agent}'.")
 
         # Check for OAuth configuration
         oauth_provider, oauth_scopes, resource_url = _get_oauth_config()
@@ -143,7 +148,6 @@ class AgentMCPServer:
         if self._instance_scope == "request":
             # Ensure FastMCP does not attempt to maintain sessions for stateless mode
             self.mcp_server.settings.stateless_http = True
-        self._tool_description = tool_description
         self._shared_instance_active = True
         self._registered_agents: set[str] = set(primary_instance.agents.keys())
         # Shutdown coordination
@@ -200,8 +204,10 @@ class AgentMCPServer:
             config = getattr(agent, "config", None)
             agent_description = getattr(config, "description", None)
 
+        tool_name = self._tool_name_template.format(agent=agent_name)
+
         @self.mcp_server.tool(
-            name=f"{agent_name}_send",
+            name=tool_name,
             description=tool_description
             or agent_description
             or f"Send a message to the {agent_name} agent",
@@ -313,7 +319,7 @@ class AgentMCPServer:
     def _register_reload_tool(self) -> None:
         @self.mcp_server.tool(
             name="reload_agent_cards",
-            description="Reload AgentCards from disk",
+            description="Reload AgentCards",
             structured_output=False,
         )
         async def reload_agent_cards(ctx: MCPContext) -> str:
@@ -380,19 +386,19 @@ class AgentMCPServer:
         agent_count = len(self.primary_instance.agents)
         base = server_description or f"This server provides access to {agent_count} agents."
         if self._instance_scope == "request":
-            scope_info = "do not retain history between your requests"
+            scope_info = "do NOT retain history between your requests"
         elif self._instance_scope == "connection":
             scope_info = "retain history between tool calls."
         else:
             scope_info = "retain history between tool calls."
         return (
-            f"{base} Use the  `{self._name_for_send_tool()}` tools to send messages to agents."
-            f"Agents {self._instance_scope} "
-            f"({scope_info})"
+            f"{base} Use the  `{self._name_for_send_tool()}` tools to send messages to agents. "
+            f"Instance mode is {self._instance_scope} "
+            f"Agents ({scope_info})"
         )
 
     def _name_for_send_tool(self) -> str:
-        return "<agent>_send"
+        return self._tool_name_template.format(agent="<agent>")
 
     def _build_progress_reporter(
         self, ctx: MCPContext

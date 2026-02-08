@@ -1,5 +1,7 @@
 import os
+from typing import Any
 
+from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.openai.llm_openai_compatible import OpenAICompatibleLLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.types import RequestParams
@@ -44,8 +46,9 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
 
     def _prepare_api_request(
         self, messages, tools: list | None, request_params: RequestParams
-    ) -> dict[str, str]:
+    ) -> dict[str, Any]:
         arguments = super()._prepare_api_request(messages, tools, request_params)
+        self._apply_reasoning_toggle(arguments)
         model_name = arguments.get("model")
         base_model, explicit_provider = self._split_provider_suffix(model_name)
         base_model = base_model or model_name
@@ -58,6 +61,34 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
         else:
             arguments["model"] = base_model
         return arguments
+
+    def _apply_reasoning_toggle(self, arguments: dict[str, Any]) -> None:
+        spec = self.reasoning_effort_spec
+        if not spec or spec.kind != "toggle":
+            return
+        effective = self.reasoning_effort or spec.default
+        if not effective or effective.kind != "toggle":
+            return
+
+        disable_reasoning = not bool(effective.value)
+        uses_kimi_toggle = self._uses_kimi_thinking_toggle(arguments.get("model"))
+        if not uses_kimi_toggle and not disable_reasoning and self.reasoning_effort is None:
+            return
+
+        extra_body_raw = arguments.get("extra_body", {})
+        extra_body: dict[str, Any] = extra_body_raw if isinstance(extra_body_raw, dict) else {}
+        if uses_kimi_toggle:
+            thinking_type = "disabled" if disable_reasoning else "enabled"
+            extra_body["thinking"] = {"type": thinking_type}
+        else:
+            extra_body["disable_reasoning"] = disable_reasoning
+        arguments["extra_body"] = extra_body
+
+    @staticmethod
+    def _uses_kimi_thinking_toggle(model: str | None) -> bool:
+        if not model:
+            return False
+        return ModelDatabase.normalize_model_name(model) == "moonshotai/kimi-k2.5"
 
     def _resolve_default_provider(self) -> str | None:
         config_provider = None

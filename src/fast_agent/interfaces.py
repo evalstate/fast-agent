@@ -25,7 +25,9 @@ from pydantic import BaseModel
 from rich.text import Text
 
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, ReasoningEffortSpec
 from fast_agent.llm.stream_types import StreamChunk
+from fast_agent.llm.text_verbosity import TextVerbosityLevel, TextVerbositySpec
 from fast_agent.llm.usage_tracking import UsageAccumulator
 from fast_agent.types import PromptMessageExtended, RequestParams
 
@@ -41,6 +43,7 @@ __all__ = [
     "FastAgentLLMProtocol",
     "StreamingAgentProtocol",
     "LlmAgentProtocol",
+    "MessageHistoryAgentProtocol",
     "AgentProtocol",
     "ToolRunnerHookCapable",
     "ACPAwareProtocol",
@@ -51,6 +54,18 @@ __all__ = [
 
 
 ModelT = TypeVar("ModelT", bound=BaseModel)
+
+
+class MessageHistoryAgentProtocol(Protocol):
+    """Protocol for agents that support message history operations."""
+
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def message_history(self) -> list[PromptMessageExtended]: ...
+
+    def load_message_history(self, messages: list[PromptMessageExtended] | None) -> None: ...
 
 
 class LLMFactoryProtocol(Protocol):
@@ -93,6 +108,7 @@ class FastAgentLLMProtocol(Protocol):
     ) -> RequestParams: ...
 
     default_request_params: RequestParams
+    instruction: str | None
 
     def add_stream_listener(self, listener: Callable[[StreamChunk], None]) -> Callable[[], None]: ...
 
@@ -121,6 +137,22 @@ class FastAgentLLMProtocol(Protocol):
 
     def clear(self, *, clear_prompts: bool = False) -> None: ...
 
+    def set_reasoning_effort(self, setting: ReasoningEffortSetting | None) -> None: ...
+
+    @property
+    def reasoning_effort(self) -> ReasoningEffortSetting | None: ...
+
+    @property
+    def reasoning_effort_spec(self) -> ReasoningEffortSpec | None: ...
+
+    def set_text_verbosity(self, value: TextVerbosityLevel | None) -> None: ...
+
+    @property
+    def text_verbosity(self) -> TextVerbosityLevel | None: ...
+
+    @property
+    def text_verbosity_spec(self) -> TextVerbositySpec | None: ...
+
 
 @runtime_checkable
 class LlmAgentProtocol(Protocol):
@@ -138,6 +170,8 @@ class LlmAgentProtocol(Protocol):
     async def initialize(self) -> None: ...
 
     async def shutdown(self) -> None: ...
+
+    async def set_model(self, model: str | None) -> None: ...
 
     def clear(self, *, clear_prompts: bool = False) -> None: ...
 
@@ -280,6 +314,9 @@ class ToolRunnerHookCapable(Protocol):
 
     @property
     def tool_runner_hooks(self) -> "ToolRunnerHooks | None": ...
+
+    @tool_runner_hooks.setter
+    def tool_runner_hooks(self, value: "ToolRunnerHooks | None") -> None: ...
 
 
 @runtime_checkable

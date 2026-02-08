@@ -21,6 +21,12 @@ from fast_agent.interfaces import ModelT
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.provider.bedrock.multipart_converter_bedrock import BedrockConverter
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.reasoning_effort import (
+    ReasoningEffortSetting,
+    ReasoningEffortSpec,
+    parse_reasoning_setting,
+    validate_reasoning_setting,
+)
 from fast_agent.llm.usage_tracking import TurnUsage
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
@@ -52,24 +58,21 @@ except ImportError:
 DEFAULT_BEDROCK_MODEL = "amazon.nova-lite-v1:0"
 
 
-# Local ReasoningEffort enum to avoid circular imports
-class ReasoningEffort(Enum):
-    """Reasoning effort levels for Bedrock models"""
-
-    MINIMAL = "minimal"
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-
-
 # Reasoning effort to token budget mapping
 # Based on AWS recommendations: start with 1024 minimum, increment reasonably
 REASONING_EFFORT_BUDGETS = {
-    ReasoningEffort.MINIMAL: 0,  # Disabled
-    ReasoningEffort.LOW: 512,  # Light reasoning
-    ReasoningEffort.MEDIUM: 1024,  # AWS minimum recommendation
-    ReasoningEffort.HIGH: 2048,  # Higher reasoning
+    "minimal": 0,  # Disabled
+    "low": 512,  # Light reasoning
+    "medium": 1024,  # AWS minimum recommendation
+    "high": 2048,  # Higher reasoning
 }
+
+BEDROCK_REASONING_SPEC = ReasoningEffortSpec(
+    kind="budget",
+    min_budget_tokens=0,
+    max_budget_tokens=None,
+    default=ReasoningEffortSetting(kind="budget", value=REASONING_EFFORT_BUDGETS["medium"]),
+)
 
 # Bedrock message format types
 BedrockMessage = dict[str, Any]  # Bedrock message format
@@ -233,15 +236,32 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         self._force_non_streaming_once: bool = False
 
         # Set up reasoning-related attributes
-        self._reasoning_effort = kwargs.get("reasoning_effort", None)
-        if (
-            self._reasoning_effort is None
-            and self.context
-            and self.context.config
-            and self.context.config.bedrock
-        ):
-            if hasattr(self.context.config.bedrock, "reasoning_effort"):
-                self._reasoning_effort = self.context.config.bedrock.reasoning_effort
+        raw_setting = kwargs.get("reasoning_effort", None)
+        if self.context and self.context.config and self.context.config.bedrock:
+            config = self.context.config.bedrock
+            if raw_setting is None:
+                raw_setting = config.reasoning
+                if raw_setting is None and hasattr(config, "reasoning_effort"):
+                    raw_setting = config.reasoning_effort
+                    if (
+                        raw_setting is not None
+                        and "reasoning_effort" in config.model_fields_set
+                        and config.reasoning_effort
+                        != config.model_fields["reasoning_effort"].default
+                    ):
+                        self.logger.warning(
+                            "Bedrock config 'reasoning_effort' is deprecated; use 'reasoning'."
+                        )
+
+        setting = parse_reasoning_setting(raw_setting)
+        if setting is not None:
+            try:
+                self.set_reasoning_effort(setting)
+            except ValueError as exc:
+                self.logger.warning(f"Invalid reasoning setting: {exc}")
+
+        if self._reasoning_effort_spec is None:
+            self._reasoning_effort_spec = BEDROCK_REASONING_SPEC
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize Bedrock-specific default parameters"""
@@ -258,6 +278,30 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
     def model(self) -> str:
         """Get the model name, guaranteed to be set."""
         return self.default_request_params.model or DEFAULT_BEDROCK_MODEL
+
+    def _resolve_reasoning_budget(self) -> int:
+        setting = self.reasoning_effort
+        if setting is None:
+            return 0
+        if setting.kind == "toggle":
+            return 0 if not setting.value else REASONING_EFFORT_BUDGETS["medium"]
+        if setting.kind == "effort":
+            return REASONING_EFFORT_BUDGETS.get(str(setting.value), 0)
+        if setting.kind == "budget":
+            return max(0, int(setting.value))
+        return 0
+
+    def set_reasoning_effort(self, setting: ReasoningEffortSetting | None) -> None:
+        if setting is None:
+            self._reasoning_effort = None
+            return
+
+        spec = self._reasoning_effort_spec or BEDROCK_REASONING_SPEC
+        if setting.kind == "effort":
+            budget = REASONING_EFFORT_BUDGETS.get(str(setting.value), 0)
+            setting = ReasoningEffortSetting(kind="budget", value=budget)
+
+        self._reasoning_effort = validate_reasoning_setting(setting, spec)
 
     def _get_bedrock_client(self):
         """Get or create Bedrock client."""
@@ -329,6 +373,30 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                 mapping[clean_name] = tool.name
 
         return mapping
+
+    @staticmethod
+    def _resolve_tool_use_name(
+        tool_use_id: str,
+        tool_list: "ListToolsResult | None",
+        tool_name_mapping: dict[str, str] | None,
+    ) -> str:
+        tool_name = "unknown_tool"
+        if tool_list and tool_list.tools:
+            # Try to match by checking if any tool name appears in the tool_use_id
+            for tool in tool_list.tools:
+                if tool.name in tool_use_id or tool_use_id.endswith(f"_{tool.name}"):
+                    tool_name = tool.name
+                    break
+            # If no match, use first tool as fallback
+            if tool_name == "unknown_tool":
+                tool_name = tool_list.tools[0].name
+
+        if tool_name_mapping:
+            for mapped_name, original_name in tool_name_mapping.items():
+                if original_name == tool_name:
+                    return mapped_name
+
+        return tool_name
 
     def _convert_tools_nova_format(
         self, tools: "ListToolsResult", tool_name_mapping: dict[str, str]
@@ -499,6 +567,35 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         )
         return bedrock_tools
 
+    def _parse_tool_arguments(self, func_name: str, args_str: str) -> dict[str, Any]:
+        """Parse tool call arguments from key=value or single-value format.
+
+        Args:
+            func_name: The function name (used for special case handling)
+            args_str: The raw argument string to parse
+
+        Returns:
+            Dictionary of parsed arguments
+        """
+        arguments: dict[str, Any] = {}
+        if not args_str:
+            return arguments
+        try:
+            if "=" in args_str:
+                # Split by comma, then by = for each part
+                for arg_part in args_str.split(","):
+                    if "=" in arg_part:
+                        key, value = arg_part.split("=", 1)
+                        arguments[key.strip()] = value.strip().strip("\"'")
+            else:
+                # Single value argument - try to map to appropriate parameter name
+                value = args_str.strip("\"'")
+                # Handle common single-parameter functions
+                arguments = {"location": value} if func_name == "check_weather" else {"value": value}
+        except Exception as e:
+            self.logger.warning(f"Failed to parse tool arguments: {args_str} - {e}")
+        return arguments
+
     def _parse_system_prompt_tool_response(
         self, processed_response: dict[str, Any], model: str
     ) -> list[dict[str, Any]]:
@@ -556,32 +653,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             for i, (func_name, args_str) in enumerate(action_matches):
                 func_name = func_name.strip()
                 args_str = args_str.strip()
-
-                # Parse arguments - handle quoted strings and key=value pairs
-                arguments = {}
-                if args_str:
-                    try:
-                        # Handle key=value format like location="London"
-                        if "=" in args_str:
-                            # Split by comma, then by = for each part
-                            for arg_part in args_str.split(","):
-                                if "=" in arg_part:
-                                    key, value = arg_part.split("=", 1)
-                                    key = key.strip()
-                                    value = value.strip().strip("\"'")  # Remove quotes
-                                    arguments[key] = value
-                        else:
-                            # Single value argument - try to map to appropriate parameter name
-                            value = args_str.strip("\"'") if args_str else ""
-                            # Handle common single-parameter functions
-                            if func_name == "check_weather":
-                                arguments = {"location": value}
-                            else:
-                                # Generic fallback
-                                arguments = {"value": value}
-                    except Exception as e:
-                        self.logger.warning(f"Failed to parse Action arguments: {args_str} - {e}")
-                        arguments = {"value": args_str}
+                arguments = self._parse_tool_arguments(func_name, args_str)
 
                 tool_calls.append(
                     {
@@ -690,32 +762,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             func_name, args_str = direct_call_match.groups()
             func_name = func_name.strip()
             args_str = args_str.strip()
-
-            # Parse arguments
-            arguments = {}
-            if args_str:
-                try:
-                    # Handle key=value format like location="London"
-                    if "=" in args_str:
-                        # Split by comma, then by = for each part
-                        for arg_part in args_str.split(","):
-                            if "=" in arg_part:
-                                key, value = arg_part.split("=", 1)
-                                key = key.strip()
-                                value = value.strip().strip("\"'")  # Remove quotes
-                                arguments[key] = value
-                    else:
-                        # Single value argument - try to map to appropriate parameter name
-                        value = args_str.strip("\"'") if args_str else ""
-                        # Handle common single-parameter functions
-                        if func_name == "check_weather":
-                            arguments = {"location": value}
-                        else:
-                            # Generic fallback
-                            arguments = {"value": value}
-                except Exception as e:
-                    self.logger.warning(f"Failed to parse direct call arguments: {args_str} - {e}")
-                    arguments = {"value": args_str}
+            arguments = self._parse_tool_arguments(func_name, args_str)
 
             return [
                 {
@@ -970,12 +1017,19 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             if isinstance(content, str):
                 bedrock_message["content"].append({"text": content})
             elif isinstance(content, list):
+                # CRITICAL: For assistant messages, text blocks MUST come before toolUse blocks
+                # Bedrock rejects messages where toolUse comes before text
+                text_blocks = []
+                tool_use_blocks = []
+                tool_result_blocks = []
+                other_blocks = []
+                
                 for item in content:
                     item_type = item.get("type")
                     if item_type == "text":
-                        bedrock_message["content"].append({"text": item.get("text", "")})
+                        text_blocks.append({"text": item.get("text", "")})
                     elif item_type == "tool_use":
-                        bedrock_message["content"].append(
+                        tool_use_blocks.append(
                             {
                                 "toolUse": {
                                     "toolUseId": item.get("id", ""),
@@ -992,15 +1046,13 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                         bedrock_content_list = []
                         if raw_content:
                             for part in raw_content:
-                                # FIX: The content parts are dicts, not TextContent objects.
                                 if isinstance(part, dict) and "text" in part:
                                     bedrock_content_list.append({"text": part.get("text", "")})
 
-                        # Bedrock requires content for error statuses.
                         if not bedrock_content_list and status == "error":
                             bedrock_content_list.append({"text": "Tool call failed with an error."})
 
-                        bedrock_message["content"].append(
+                        tool_result_blocks.append(
                             {
                                 "toolResult": {
                                     "toolUseId": tool_use_id,
@@ -1009,6 +1061,12 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                                 }
                             }
                         )
+                    else:
+                        # Handle any other content types
+                        other_blocks.append(item)
+                
+                # Order: text first, then toolUse, then toolResult, then others
+                bedrock_message["content"] = text_blocks + tool_use_blocks + tool_result_blocks + other_blocks
 
             # Only add the message if it has content
             if bedrock_message["content"]:
@@ -1331,6 +1389,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
 
             # Build tools representation for this schema
             tools_payload: Union[list[dict[str, Any]], str, None] = None
+            tool_name_mapping: dict[str, str] | None = None
             # Get tool name policy (needed even when no tools for cache logic)
             name_policy = (
                 self.capabilities.get(model) or ModelCapabilities()
@@ -1438,22 +1497,139 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             # Tools wiring
             # Always include toolConfig if we have tools OR if there are tool results in the conversation
             has_tool_results = False
+            has_tool_use = False
             for msg in bedrock_messages:
                 if isinstance(msg, dict) and msg.get("content"):
                     for content in msg["content"]:
-                        if isinstance(content, dict) and "toolResult" in content:
-                            has_tool_results = True
+                        if isinstance(content, dict):
+                            if "toolResult" in content:
+                                has_tool_results = True
+                            if "toolUse" in content:
+                                has_tool_use = True
+                        if has_tool_results and has_tool_use:
                             break
-                    if has_tool_results:
+                    if has_tool_results and has_tool_use:
                         break
 
-            if (
-                schema_choice in (ToolSchemaType.ANTHROPIC, ToolSchemaType.DEFAULT)
-                and isinstance(tools_payload, list)
-                and tools_payload
-            ):
-                # Include tools only when we have actual tools to provide
-                converse_args["toolConfig"] = {"tools": tools_payload}
+            # Reconstruct missing assistant messages when tool results exist without corresponding tool use blocks
+            # This ensures Bedrock API receives properly paired toolUse/toolResult blocks
+            if has_tool_results and not has_tool_use:
+                self.logger.warning(
+                    "Detected tool results without corresponding tool use blocks - "
+                    "reconstructing missing assistant message with tool calls"
+                )
+
+                # Group tool results by message index
+                tool_results_by_msg: dict[int, list[dict[str, Any]]] = {}
+                for msg_idx, msg in enumerate(bedrock_messages):
+                    if isinstance(msg, dict) and msg.get("role") == "user" and msg.get("content"):
+                        for content in msg["content"]:
+                            if isinstance(content, dict) and "toolResult" in content:
+                                tool_result = content["toolResult"]
+                                tool_use_id = tool_result.get("toolUseId") or tool_result.get("tool_use_id")
+                                if tool_use_id:
+                                    if msg_idx not in tool_results_by_msg:
+                                        tool_results_by_msg[msg_idx] = []
+                                    tool_results_by_msg[msg_idx].append({
+                                        "tool_use_id": tool_use_id,
+                                        "tool_result": tool_result
+                                    })
+
+                # For each message with tool results, insert ONE assistant message with ALL toolUse blocks
+                # Process in reverse order to maintain correct indices
+                for msg_idx in sorted(tool_results_by_msg.keys(), reverse=True):
+                    tool_results = tool_results_by_msg[msg_idx]
+
+                    # Create toolUse blocks for all tool results in this message
+                    tool_use_blocks = []
+                    for tr_info in tool_results:
+                        tool_use_id = tr_info["tool_use_id"]
+
+                        tool_name = self._resolve_tool_use_name(
+                            tool_use_id, tool_list, tool_name_mapping
+                        )
+
+                        tool_use_blocks.append({
+                            "toolUse": {
+                                "toolUseId": tool_use_id,
+                                "name": tool_name,
+                                "input": {}  # We don't have the original input
+                            }
+                        })
+
+                    # Create single assistant message with all toolUse blocks
+                    assistant_msg = {
+                        "role": "assistant",
+                        "content": tool_use_blocks
+                    }
+
+                    # Insert before the user message with tool results
+                    converse_args["messages"].insert(msg_idx, assistant_msg)
+                    self.logger.debug(
+                        f"Inserted reconstructed assistant message with {len(tool_use_blocks)} toolUse blocks before message {msg_idx}"
+                    )
+
+            # Handle orphaned toolUse blocks without corresponding toolResult
+            # This happens in Agents-As-Tools pattern when child agent history gets corrupted
+            if has_tool_use:
+                messages = converse_args["messages"]
+                for msg_idx, msg in enumerate(messages):
+                    if isinstance(msg, dict) and msg.get("role") == "assistant" and msg.get("content"):
+                        tool_use_ids = [
+                            content["toolUse"].get("toolUseId") or content["toolUse"].get("tool_use_id")
+                            for content in msg["content"]
+                            if isinstance(content, dict) and "toolUse" in content
+                        ]
+                        if not tool_use_ids:
+                            continue
+                        # Check if next message has matching toolResults
+                        next_msg = messages[msg_idx + 1] if msg_idx + 1 < len(messages) else None
+                        if next_msg and next_msg.get("role") == "user":
+                            existing_result_ids = {
+                                content["toolResult"].get("toolUseId") or content["toolResult"].get("tool_use_id")
+                                for content in next_msg.get("content", [])
+                                if isinstance(content, dict) and "toolResult" in content
+                            }
+                            missing_ids = [tid for tid in tool_use_ids if tid not in existing_result_ids]
+                        else:
+                            missing_ids = tool_use_ids
+                        # Add placeholder toolResults for orphaned toolUse blocks
+                        if missing_ids:
+                            self.logger.warning(
+                                f"Detected {len(missing_ids)} orphaned toolUse blocks without toolResult - "
+                                "injecting placeholder toolResult messages"
+                            )
+                            placeholder_content = [
+                                {"toolResult": {"toolUseId": tid, "status": "error", "content": [{"text": "Tool was interrupted."}]}}
+                                for tid in missing_ids
+                            ]
+                            if next_msg and next_msg.get("role") == "user":
+                                next_msg["content"].extend(placeholder_content)
+                            else:
+                                messages.insert(msg_idx + 1, {"role": "user", "content": placeholder_content})
+
+            # Noop tool spec for when we need toolConfig but have no actual tools
+            # Bedrock requires at least one tool in toolConfig, so we use a placeholder
+            noop_tool_spec = {
+                "toolSpec": {
+                    "name": "noop",
+                    "description": "This is a placeholder tool that should be ignored.",
+                    "inputSchema": {"json": {"type": "object", "properties": {}}}
+                }
+            }
+
+            # Include toolConfig when we have tools OR when conversation has tool results/use blocks
+            # Bedrock requires toolConfig when toolUse/toolResult blocks are in the conversation
+            # This applies to ALL schema types, not just ANTHROPIC/DEFAULT
+            if schema_choice in (ToolSchemaType.ANTHROPIC, ToolSchemaType.DEFAULT):
+                if isinstance(tools_payload, list) and tools_payload:
+                    converse_args["toolConfig"] = {"tools": tools_payload}
+                elif has_tool_results or has_tool_use:
+                    # Use noop tool since Bedrock requires at least one tool
+                    converse_args["toolConfig"] = {"tools": [noop_tool_spec]}
+            elif has_tool_results or has_tool_use:
+                # For other schemas (like SYSTEM_PROMPT), still need toolConfig if tool blocks exist
+                converse_args["toolConfig"] = {"tools": [noop_tool_spec]}
 
             # Inference configuration and overrides
             inference_config: dict[str, Any] = {}
@@ -1463,19 +1639,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                 inference_config["stopSequences"] = params.stopSequences
 
             # Check if reasoning should be enabled
-            reasoning_budget = 0
-            if self._reasoning_effort and self._reasoning_effort != ReasoningEffort.MINIMAL:
-                # Convert string to enum if needed
-                if isinstance(self._reasoning_effort, str):
-                    try:
-                        effort_enum = ReasoningEffort(self._reasoning_effort)
-                    except ValueError:
-                        effort_enum = ReasoningEffort.MINIMAL
-                else:
-                    effort_enum = self._reasoning_effort
-
-                if effort_enum != ReasoningEffort.MINIMAL:
-                    reasoning_budget = REASONING_EFFORT_BUDGETS.get(effort_enum, 0)
+            reasoning_budget = self._resolve_reasoning_budget()
 
             # Handle temperature and reasoning configuration
             # AWS docs: "Thinking isn't compatible with temperature, top_p, or top_k modifications"
@@ -1692,14 +1856,57 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                                     f"System: {system_text}\n\nUser: {original_text}"
                                 )
 
-                        # Re-add tools
+                        # Re-add tools or noop toolConfig if conversation has tool blocks
+                        noop_tool_spec = {
+                            "toolSpec": {
+                                "name": "noop",
+                                "description": "This is a placeholder tool that should be ignored.",
+                                "inputSchema": {"json": {"type": "object", "properties": {}}}
+                            }
+                        }
                         if (
                             schema_choice
                             in (ToolSchemaType.ANTHROPIC.value, ToolSchemaType.DEFAULT.value)
-                            and isinstance(tools_payload, list)
-                            and tools_payload
                         ):
-                            converse_args["toolConfig"] = {"tools": tools_payload}
+                            if isinstance(tools_payload, list) and tools_payload:
+                                converse_args["toolConfig"] = {"tools": tools_payload}
+                            elif has_tool_results or has_tool_use:
+                                converse_args["toolConfig"] = {"tools": [noop_tool_spec]}
+                        elif has_tool_results or has_tool_use:
+                            # For other schemas, still need toolConfig if tool blocks exist
+                            converse_args["toolConfig"] = {"tools": [noop_tool_spec]}
+
+                        # Handle orphaned toolUse blocks without corresponding toolResult (retry path)
+                        if has_tool_use:
+                            retry_messages = converse_args["messages"]
+                            for msg_idx, msg in enumerate(retry_messages):
+                                if isinstance(msg, dict) and msg.get("role") == "assistant" and msg.get("content"):
+                                    tool_use_ids = [
+                                        content["toolUse"].get("toolUseId") or content["toolUse"].get("tool_use_id")
+                                        for content in msg["content"]
+                                        if isinstance(content, dict) and "toolUse" in content
+                                    ]
+                                    if not tool_use_ids:
+                                        continue
+                                    next_msg = retry_messages[msg_idx + 1] if msg_idx + 1 < len(retry_messages) else None
+                                    if next_msg and next_msg.get("role") == "user":
+                                        existing_result_ids = {
+                                            content["toolResult"].get("toolUseId") or content["toolResult"].get("tool_use_id")
+                                            for content in next_msg.get("content", [])
+                                            if isinstance(content, dict) and "toolResult" in content
+                                        }
+                                        missing_ids = [tid for tid in tool_use_ids if tid not in existing_result_ids]
+                                    else:
+                                        missing_ids = tool_use_ids
+                                    if missing_ids:
+                                        placeholder_content = [
+                                            {"toolResult": {"toolUseId": tid, "status": "error", "content": [{"text": "Tool was interrupted."}]}}
+                                            for tid in missing_ids
+                                        ]
+                                        if next_msg and next_msg.get("role") == "user":
+                                            next_msg["content"].extend(placeholder_content)
+                                        else:
+                                            retry_messages.insert(msg_idx + 1, {"role": "user", "content": placeholder_content})
 
                         # Same streaming decision using cache
                         has_tools = bool(tools_payload) and bool(
@@ -1994,8 +2201,8 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
 
         # For structured outputs: disable reasoning entirely and set temperature=0 for deterministic JSON
         # This avoids conflicts between reasoning (requires temperature=1) and structured output (wants temperature=0)
-        original_reasoning_effort = self._reasoning_effort
-        self._reasoning_effort = ReasoningEffort.MINIMAL  # Temporarily disable reasoning
+        original_reasoning_effort = self.reasoning_effort
+        self.set_reasoning_effort(ReasoningEffortSetting(kind="toggle", value=False))
 
         # Override temperature for structured outputs
         if request_params:
@@ -2086,7 +2293,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                 return self._structured_from_multipart(retry_result, model)
         finally:
             # Restore original reasoning effort
-            self._reasoning_effort = original_reasoning_effort
+            self.set_reasoning_effort(original_reasoning_effort)
 
     def _clean_json_response(self, text: str) -> str:
         """Clean up JSON response by removing text before first { and after last }.

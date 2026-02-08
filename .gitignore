@@ -189,15 +189,29 @@ tests/integration/workflow/router/fastagent.jsonl
 tests/e2e/smoke/weather_location.txt
 tests/integration/resources/fastagent.jsonl
 tests/integration/workflow/orchestrator/fastagent.jsonl
-fastagent.jsonl
+/fastagent.jsonl
 tests/integration/resources/fastagent.jsonl
-fastagent.jsonl
+/fastagent.jsonl
 tests/e2e/workflow/weather_location.txt
 tests/integration/prompt-state/multipart.json
 tests/integration/prompt-state/history.json
 !tests/integration/api/fastagent.secrets.yaml
-fastagent.jsonl
+/fastagent.jsonl
 
 tests/e2e/smoke/base/weather_location.txt
 tests/integration/roots/fastagent.jsonl
-.fast-agent/
+
+
+# Runtime session data
+sessions/
+
+# Auth configuration (local/secrets)
+auths.md
+
+# Local development repos / directories
+.dev
+upskill
+.demo
+.fast-agent
+
+/fastagent.config.yaml

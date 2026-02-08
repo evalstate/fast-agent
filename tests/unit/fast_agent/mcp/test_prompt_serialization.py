@@ -2,12 +2,15 @@
 Tests for serializing PromptMessageExtended objects to delimited format.
 """
 
+import pytest
 from mcp.types import EmbeddedResource, ImageContent, TextContent, TextResourceContents
 from pydantic import AnyUrl
 
+from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompt_serialization import (
     from_json,
+    load_messages,
     multipart_messages_to_delimited_format,
     to_get_prompt_result_json,
 )
@@ -194,3 +197,12 @@ class TestPromptSerialization:
         assert delimited[3] == "Hello!\n\nCan you help me?"
         assert delimited[4] == "---ASSISTANT"
         assert delimited[5] == "I'd be happy to help.\n\nWhat can I assist you with today?"
+
+    def test_invalid_json_prompt_raises_agent_config_error(self, tmp_path):
+        bad_path = tmp_path / "bad.json"
+        bad_path.write_text('{"messages": ["bad\x00"]}', encoding="utf-8")
+
+        with pytest.raises(AgentConfigError) as exc_info:
+            load_messages(str(bad_path))
+
+        assert "Failed to parse JSON prompt file" in str(exc_info.value)

@@ -1,7 +1,4 @@
 import asyncio
-import json
-import os
-from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -26,70 +23,44 @@ from openai.types.chat import (
 from openai.types.chat.chat_completion_message_tool_call import Function
 from pydantic_core import from_json
 
-from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, REASONING
+from fast_agent.constants import REASONING
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
 from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.fastagent_llm import FastAgentLLM, RequestParams
 from fast_agent.llm.model_database import ModelDatabase
+from fast_agent.llm.provider.error_utils import build_stream_failure_response
+from fast_agent.llm.provider.openai._stream_capture import (
+    save_stream_chunk as _save_stream_chunk,
+)
+from fast_agent.llm.provider.openai._stream_capture import (
+    save_stream_request as _save_stream_request,
+)
+from fast_agent.llm.provider.openai._stream_capture import (
+    stream_capture_filename as _stream_capture_filename,
+)
 from fast_agent.llm.provider.openai.multipart_converter_openai import OpenAIConverter
+from fast_agent.llm.provider.openai.tool_notifications import OpenAIToolNotificationMixin
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.reasoning_effort import format_reasoning_setting, parse_reasoning_setting
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.usage_tracking import TurnUsage
-from fast_agent.mcp.helpers.content_helpers import get_text, text_content
+from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types import LlmStopReason, PromptMessageExtended
 
 _logger = get_logger(__name__)
 
+
+class EmptyStreamError(RuntimeError):
+    """Raised when a streaming response yields no chunks."""
+
 DEFAULT_OPENAI_MODEL = "gpt-5-mini"
 DEFAULT_REASONING_EFFORT = "low"
 
-# Stream capture mode - when enabled, saves all streaming chunks to files for debugging
-# Set FAST_AGENT_LLM_TRACE=1 (or any non-empty value) to enable
-STREAM_CAPTURE_ENABLED = bool(os.environ.get("FAST_AGENT_LLM_TRACE"))
-STREAM_CAPTURE_DIR = Path("stream-debug")
-
-
-def _stream_capture_filename(turn: int) -> Path | None:
-    """Generate filename for stream capture. Returns None if capture is disabled."""
-    if not STREAM_CAPTURE_ENABLED:
-        return None
-    STREAM_CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return STREAM_CAPTURE_DIR / f"{timestamp}_turn{turn}"
-
-
-def _save_stream_request(filename_base: Path | None, arguments: dict[str, Any]) -> None:
-    """Save the request arguments to a _request.json file."""
-    if not filename_base:
-        return
-    try:
-        request_file = filename_base.with_name(f"{filename_base.name}_request.json")
-        with open(request_file, "w") as f:
-            json.dump(arguments, f, indent=2, default=str)
-    except Exception as e:
-        _logger.debug(f"Failed to save stream request: {e}")
-
-
-def _save_stream_chunk(filename_base: Path | None, chunk: Any) -> None:
-    """Save a streaming chunk to file when capture mode is enabled."""
-    if not filename_base:
-        return
-    try:
-        chunk_file = filename_base.with_name(f"{filename_base.name}.jsonl")
-        try:
-            payload: Any = chunk.model_dump()
-        except Exception:
-            payload = str(chunk)
-
-        with open(chunk_file, "a") as f:
-            f.write(json.dumps(payload) + "\n")
-    except Exception as e:
-        _logger.debug(f"Failed to save stream chunk: {e}")
-
-
-class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage]):
+class OpenAILLM(
+    OpenAIToolNotificationMixin, FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage]
+):
     # Config section name override (falls back to provider value)
     config_section: str | None = None
     # OpenAI-specific parameter exclusions
@@ -114,12 +85,29 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         self.logger = get_logger(f"{__name__}.{self.name}" if self.name else __name__)
 
         # Set up reasoning-related attributes
-        self._reasoning_effort = kwargs.get("reasoning_effort", None)
+        raw_setting = kwargs.get("reasoning_effort", None)
         if self.context and self.context.config and self.context.config.openai:
-            if self._reasoning_effort is None and hasattr(
-                self.context.config.openai, "reasoning_effort"
-            ):
-                self._reasoning_effort = self.context.config.openai.reasoning_effort
+            config = self.context.config.openai
+            if raw_setting is None:
+                raw_setting = config.reasoning
+                if raw_setting is None and hasattr(config, "reasoning_effort"):
+                    raw_setting = config.reasoning_effort
+                    if (
+                        raw_setting is not None
+                        and "reasoning_effort" in config.model_fields_set
+                        and config.reasoning_effort
+                        != config.model_fields["reasoning_effort"].default
+                    ):
+                        self.logger.warning(
+                            "OpenAI config 'reasoning_effort' is deprecated; use 'reasoning'."
+                        )
+
+        setting = parse_reasoning_setting(raw_setting)
+        if setting is not None:
+            try:
+                self.set_reasoning_effort(setting)
+            except ValueError as exc:
+                self.logger.warning(f"Invalid reasoning setting: {exc}")
 
         # Determine reasoning mode for the selected model
         chosen_model = self.default_request_params.model if self.default_request_params else None
@@ -128,8 +116,21 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         if self._reasoning_mode:
             self.logger.info(
                 f"Using reasoning model '{chosen_model}' (mode='{self._reasoning_mode}') with "
-                f"'{self._reasoning_effort}' reasoning effort"
+                f"'{format_reasoning_setting(self.reasoning_effort)}' reasoning effort"
             )
+
+    def _resolve_reasoning_effort(self) -> str | None:
+        setting = self.reasoning_effort
+        if setting is None:
+            return DEFAULT_REASONING_EFFORT
+        if setting.kind == "effort":
+            return str(setting.value)
+        if setting.kind == "toggle":
+            return None if setting.value is False else DEFAULT_REASONING_EFFORT
+        if setting.kind == "budget":
+            self.logger.warning("Ignoring budget reasoning setting for OpenAI models.")
+            return DEFAULT_REASONING_EFFORT
+        return DEFAULT_REASONING_EFFORT
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize OpenAI-specific default parameters"""
@@ -225,37 +226,11 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             if not tool_use_id:
                 tool_use_id = f"tool-{index}"
 
-            payload = {
-                "tool_name": tool_name,
-                "tool_use_id": tool_use_id,
-                "index": index,
-            }
-
-            self._notify_tool_stream_listeners("start", payload)
-            self.logger.info(
-                "Model emitted fallback tool notification",
-                data={
-                    "progress_action": ProgressAction.CALLING_TOOL,
-                    "agent_name": self.name,
-                    "model": model,
-                    "tool_name": tool_name,
-                    "tool_use_id": tool_use_id,
-                    "tool_event": "start",
-                    "fallback": True,
-                },
-            )
-            self._notify_tool_stream_listeners("stop", payload)
-            self.logger.info(
-                "Model emitted fallback tool notification",
-                data={
-                    "progress_action": ProgressAction.CALLING_TOOL,
-                    "agent_name": self.name,
-                    "model": model,
-                    "tool_name": tool_name,
-                    "tool_use_id": tool_use_id,
-                    "tool_event": "stop",
-                    "fallback": True,
-                },
+            self._emit_fallback_tool_notification_event(
+                tool_name=tool_name,
+                tool_use_id=tool_use_id,
+                index=index,
+                model=model,
             )
 
     def _handle_reasoning_delta(
@@ -372,6 +347,70 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                         "chunk": tool_call.function.arguments,
                     },
                 )
+
+
+    def _process_stream_chunk_common(
+        self,
+        chunk: Any,
+        *,
+        reasoning_mode: Any,
+        reasoning_active: bool,
+        reasoning_segments: list[str],
+        tool_call_started: dict[int, dict[str, Any]],
+        model: str,
+        notified_tool_indices: set[int],
+        cumulative_content: str,
+        estimated_tokens: int,
+    ) -> tuple[str, int, bool, str | None]:
+        """Process common streaming chunk logic shared by multiple stream processing methods.
+        
+        Returns:
+            Tuple of (cumulative_content, estimated_tokens, reasoning_active, incremental_content)
+        """
+        incremental: str | None = None
+        if chunk.choices:
+            choice = chunk.choices[0]
+            delta = choice.delta
+            reasoning_text = self._extract_reasoning_text(
+                reasoning=getattr(delta, "reasoning", None),
+                reasoning_content=getattr(delta, "reasoning_content", None),
+            )
+            reasoning_active = self._handle_reasoning_delta(
+                reasoning_mode=reasoning_mode,
+                reasoning_text=reasoning_text,
+                reasoning_active=reasoning_active,
+                reasoning_segments=reasoning_segments,
+            )
+
+            # Handle tool call streaming
+            if delta.tool_calls:
+                self._handle_tool_delta(
+                    delta_tool_calls=delta.tool_calls,
+                    tool_call_started=tool_call_started,
+                    model=model,
+                    notified_tool_indices=notified_tool_indices,
+                )
+
+            # Handle text content streaming
+            cumulative_content, estimated_tokens, reasoning_active, incremental = (
+                self._apply_content_delta(
+                    delta_content=delta.content,
+                    cumulative_content=cumulative_content,
+                    model=model,
+                    estimated_tokens=estimated_tokens,
+                    reasoning_active=reasoning_active,
+                )
+            )
+
+            # Fire "stop" event when tool calls complete
+            if choice.finish_reason == "tool_calls":
+                self._finalize_tool_calls_on_stop(
+                    tool_call_started=tool_call_started,
+                    model=model,
+                    notified_tool_indices=notified_tool_indices,
+                )
+        
+        return cumulative_content, estimated_tokens, reasoning_active, incremental
 
     def _finalize_tool_calls_on_stop(
         self,
@@ -492,6 +531,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         # Use ChatCompletionStreamState helper for accumulation (OpenAI only)
         state = ChatCompletionStreamState()
         cumulative_content = ""
+        chunk_count = 0
 
         # Track tool call state for stream events
         tool_call_started: dict[int, dict[str, Any]] = {}
@@ -500,52 +540,45 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         # Process the stream chunks
         # Cancellation is handled via asyncio.Task.cancel() which raises CancelledError
         async for chunk in stream:
+            chunk_count += 1
             # Save chunk if stream capture is enabled
             _save_stream_chunk(capture_filename, chunk)
             # Handle chunk accumulation
             state.handle_chunk(chunk)
             # Process streaming events for tool calls
-            if chunk.choices:
-                choice = chunk.choices[0]
-                delta = choice.delta
-                reasoning_text = self._extract_reasoning_text(
-                    reasoning=getattr(delta, "reasoning", None),
-                    reasoning_content=getattr(delta, "reasoning_content", None),
-                )
-                reasoning_active = self._handle_reasoning_delta(
+            cumulative_content, estimated_tokens, reasoning_active, _ = (
+                self._process_stream_chunk_common(
+                    chunk,
                     reasoning_mode=reasoning_mode,
-                    reasoning_text=reasoning_text,
                     reasoning_active=reasoning_active,
                     reasoning_segments=reasoning_segments,
+                    tool_call_started=tool_call_started,
+                    model=model,
+                    notified_tool_indices=notified_tool_indices,
+                    cumulative_content=cumulative_content,
+                    estimated_tokens=estimated_tokens,
                 )
+            )
 
-                # Handle tool call streaming
-                if delta.tool_calls:
-                    self._handle_tool_delta(
-                        delta_tool_calls=delta.tool_calls,
-                        tool_call_started=tool_call_started,
-                        model=model,
-                        notified_tool_indices=notified_tool_indices,
-                    )
+        if tool_call_started:
+            incomplete_tools = [
+                f"{info.get('tool_name', 'unknown')}:{info.get('tool_use_id', 'unknown')}"
+                for info in tool_call_started.values()
+            ]
+            self.logger.error(
+                "Tool call streaming incomplete - started but never finished",
+                data={
+                    "incomplete_tools": incomplete_tools,
+                    "tool_count": len(tool_call_started),
+                },
+            )
+            raise RuntimeError(
+                "Streaming completed but tool call(s) never finished: "
+                f"{', '.join(incomplete_tools)}"
+            )
 
-                # Handle text content streaming
-                cumulative_content, estimated_tokens, reasoning_active, _ = (
-                    self._apply_content_delta(
-                        delta_content=delta.content,
-                        cumulative_content=cumulative_content,
-                        model=model,
-                        estimated_tokens=estimated_tokens,
-                        reasoning_active=reasoning_active,
-                    )
-                )
-
-                # Fire "stop" event when tool calls complete
-                if choice.finish_reason == "tool_calls":
-                    self._finalize_tool_calls_on_stop(
-                        tool_call_started=tool_call_started,
-                        model=model,
-                        notified_tool_indices=notified_tool_indices,
-                    )
+        if chunk_count == 0:
+            raise EmptyStreamError("OpenAI streaming response yielded no chunks")
 
         # Check if we hit the length limit to avoid LengthFinishReasonError
         current_snapshot = state.current_completion_snapshot
@@ -655,50 +688,21 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             # Save chunk if stream capture is enabled
             _save_stream_chunk(capture_filename, chunk)
             # Process streaming events for tool calls
-            if chunk.choices:
-                choice = chunk.choices[0]
-                delta = choice.delta
-
-                reasoning_text = self._extract_reasoning_text(
-                    reasoning=getattr(delta, "reasoning", None),
-                    reasoning_content=getattr(delta, "reasoning_content", None),
-                )
-                reasoning_active = self._handle_reasoning_delta(
+            cumulative_content, estimated_tokens, reasoning_active, incremental = (
+                self._process_stream_chunk_common(
+                    chunk,
                     reasoning_mode=reasoning_mode,
-                    reasoning_text=reasoning_text,
                     reasoning_active=reasoning_active,
                     reasoning_segments=reasoning_segments,
+                    tool_call_started=tool_call_started,
+                    model=model,
+                    notified_tool_indices=notified_tool_indices,
+                    cumulative_content=cumulative_content,
+                    estimated_tokens=estimated_tokens,
                 )
-
-                # Handle tool call streaming
-                if delta.tool_calls:
-                    self._handle_tool_delta(
-                        delta_tool_calls=delta.tool_calls,
-                        tool_call_started=tool_call_started,
-                        model=model,
-                        notified_tool_indices=notified_tool_indices,
-                    )
-
-                # Handle text content streaming
-                cumulative_content, estimated_tokens, reasoning_active, incremental = (
-                    self._apply_content_delta(
-                        delta_content=delta.content,
-                        cumulative_content=cumulative_content,
-                        model=model,
-                        estimated_tokens=estimated_tokens,
-                        reasoning_active=reasoning_active,
-                    )
-                )
-                if incremental:
-                    accumulated_content += incremental
-
-                # Fire "stop" event when tool calls complete
-                if choice.finish_reason == "tool_calls":
-                    self._finalize_tool_calls_on_stop(
-                        tool_call_started=tool_call_started,
-                        model=model,
-                        notified_tool_indices=notified_tool_indices,
-                    )
+            )
+            if incremental:
+                accumulated_content += incremental
 
             # Extract other fields from the chunk
             if chunk.choices:
@@ -743,6 +747,23 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             # Extract usage data if available
             if hasattr(chunk, "usage") and chunk.usage:
                 usage_data = chunk.usage
+
+        if tool_call_started:
+            incomplete_tools = [
+                f"{info.get('tool_name', 'unknown')}:{info.get('tool_use_id', 'unknown')}"
+                for info in tool_call_started.values()
+            ]
+            self.logger.error(
+                "Tool call streaming incomplete - started but never finished",
+                data={
+                    "incomplete_tools": incomplete_tools,
+                    "tool_count": len(tool_call_started),
+                },
+            )
+            raise RuntimeError(
+                "Streaming completed but tool call(s) never finished: "
+                f"{', '.join(incomplete_tools)}"
+            )
 
         # Convert accumulated tool calls to proper format.
         tool_calls = None
@@ -826,7 +847,9 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         request_params = self.get_request_params(request_params=request_params)
 
         response_content_blocks: list[ContentBlock] = []
-        model_name = self.default_request_params.model or DEFAULT_OPENAI_MODEL
+        model_name = (
+            request_params.model or self.default_request_params.model or DEFAULT_OPENAI_MODEL
+        )
 
         # TODO -- move this in to agent context management / agent group handling
         messages: list[ChatCompletionMessageParam] = []
@@ -868,8 +891,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
         self.logger.debug(f"OpenAI completion requested for: {arguments}")
 
-        self._log_chat_progress(self.chat_turn(), model=self.default_request_params.model)
-        model_name = self.default_request_params.model or DEFAULT_OPENAI_MODEL
+        self._log_chat_progress(self.chat_turn(), model=model_name)
 
         # Generate stream capture filename once (before streaming starts)
         capture_filename = _stream_capture_filename(self.chat_turn())
@@ -880,9 +902,53 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             async with self._openai_client() as client:
                 stream = await client.chat.completions.create(**arguments)
                 # Process the stream
-                response, streamed_reasoning = await self._process_stream(
-                    stream, model_name, capture_filename
-                )
+                timeout = request_params.streaming_timeout
+                if timeout is None:
+                    try:
+                        response, streamed_reasoning = await self._process_stream(
+                            stream, model_name, capture_filename
+                        )
+                    except EmptyStreamError as exc:
+                        self.logger.error(
+                            "OpenAI stream returned no chunks; retrying without streaming",
+                            data={
+                                "model": model_name,
+                                "error": str(exc),
+                            },
+                        )
+                        response = await client.chat.completions.create(
+                            **self._prepare_non_streaming_request(arguments)
+                        )
+                        streamed_reasoning = []
+                else:
+                    try:
+                        response, streamed_reasoning = await asyncio.wait_for(
+                            self._process_stream(stream, model_name, capture_filename),
+                            timeout=timeout,
+                        )
+                    except EmptyStreamError as exc:
+                        self.logger.error(
+                            "OpenAI stream returned no chunks; retrying without streaming",
+                            data={
+                                "model": model_name,
+                                "error": str(exc),
+                            },
+                        )
+                        response = await client.chat.completions.create(
+                            **self._prepare_non_streaming_request(arguments)
+                        )
+                        streamed_reasoning = []
+                    except asyncio.TimeoutError as exc:
+                        self.logger.error(
+                            "Streaming timeout while waiting for OpenAI completion",
+                            data={
+                                "model": model_name,
+                                "timeout_seconds": timeout,
+                            },
+                        )
+                        raise TimeoutError(
+                            f"Streaming did not complete within {timeout} seconds."
+                        ) from exc
         except asyncio.CancelledError as e:
             reason = str(e) if e.args else "cancelled"
             self.logger.info(f"OpenAI completion cancelled: {reason}")
@@ -981,7 +1047,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         # This provides a snapshot of what was sent to the provider for debugging
         self.history.set(messages)
 
-        self._log_chat_finished(model=self.default_request_params.model)
+        self._log_chat_finished(model=model_name)
 
         reasoning_blocks: list[ContentBlock] | None = None
         if streamed_reasoning:
@@ -995,58 +1061,11 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             stop_reason=stop_reason,
         )
 
-    def _stream_failure_response(self, error: APIError, model_name: str) -> PromptMessageExtended:
-        """Convert streaming API errors into a graceful assistant reply."""
-
-        provider_label = (
-            self.provider.value if isinstance(self.provider, Provider) else str(self.provider)
-        )
-        detail = getattr(error, "message", None) or str(error)
-        detail = detail.strip() if isinstance(detail, str) else ""
-
-        parts: list[str] = [f"{provider_label} request failed"]
-        if model_name:
-            parts.append(f"for model '{model_name}'")
-        code = getattr(error, "code", None)
-        if code:
-            parts.append(f"(code: {code})")
-        status = getattr(error, "status_code", None)
-        if status:
-            parts.append(f"(status={status})")
-
-        message = " ".join(parts)
-        if detail:
-            message = f"{message}: {detail}"
-
-        user_summary = " ".join(message.split()) if message else ""
-        if user_summary and len(user_summary) > 280:
-            user_summary = user_summary[:277].rstrip() + "..."
-
-        if user_summary:
-            assistant_text = f"I hit an internal error while calling the model: {user_summary}"
-            if not assistant_text.endswith((".", "!", "?")):
-                assistant_text += "."
-            assistant_text += " See fast-agent-error for additional details."
-        else:
-            assistant_text = (
-                "I hit an internal error while calling the model; see fast-agent-error for details."
-            )
-
-        assistant_block = text_content(assistant_text)
-        error_block = text_content(message)
-
-        return PromptMessageExtended(
-            role="assistant",
-            content=[assistant_block],
-            channels={FAST_AGENT_ERROR_CHANNEL: [error_block]},
-            stop_reason=LlmStopReason.ERROR,
-        )
-
     def _handle_retry_failure(self, error: Exception) -> PromptMessageExtended | None:
         """Return the legacy error-channel response when retries are exhausted."""
         if isinstance(error, APIError):
             model_name = self.default_request_params.model or DEFAULT_OPENAI_MODEL
-            return self._stream_failure_response(error, model_name)
+            return build_stream_failure_response(self.provider, error, model_name)
         return None
 
     async def _is_tool_stop_reason(self, finish_reason: str) -> bool:
@@ -1087,9 +1106,10 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
     ) -> dict[str, Any]:
         # Create base arguments dictionary
 
-        # overriding model via request params not supported (intentional)
         base_args = {
-            "model": self.default_request_params.model,
+            "model": request_params.model
+            or self.default_request_params.model
+            or DEFAULT_OPENAI_MODEL,
             "messages": messages,
             "tools": tools,
             "stream": True,  # Enable basic streaming
@@ -1097,10 +1117,11 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         }
 
         if self._reasoning:
+            effort = self._resolve_reasoning_effort()
             base_args.update(
                 {
                     "max_completion_tokens": request_params.maxTokens,
-                    "reasoning_effort": self._reasoning_effort,
+                    **({"reasoning_effort": effort} if effort else {}),
                 }
             )
         else:
@@ -1112,6 +1133,13 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             base_args, request_params, self.OPENAI_EXCLUDE_FIELDS.union(self.BASE_EXCLUDE_FIELDS)
         )
         return arguments
+
+    @staticmethod
+    def _prepare_non_streaming_request(arguments: dict[str, Any]) -> dict[str, Any]:
+        non_stream_args = dict(arguments)
+        non_stream_args["stream"] = False
+        non_stream_args.pop("stream_options", None)
+        return non_stream_args
 
     @staticmethod
     def _extract_reasoning_text(reasoning: Any = None, reasoning_content: Any | None = None) -> str:

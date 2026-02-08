@@ -6,13 +6,13 @@ from typing import Any, Callable, Dict, List, Sequence
 from mcp.server.fastmcp.tools.base import Tool as FastMCPTool
 from mcp.types import CallToolResult, ListToolsResult, Tool
 
-from fast_agent.agents.agent_types import AgentConfig
+from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.agents.tool_runner import ToolRunner, ToolRunnerHooks, _ToolLoopAgent
 from fast_agent.constants import (
     FAST_AGENT_ERROR_CHANNEL,
-    FORCE_SEQUENTIAL_TOOL_CALLS,
     HUMAN_INPUT_TOOL_NAME,
+    should_parallelize_tool_calls,
 )
 from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
@@ -102,10 +102,12 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         self._execution_tools: dict[str, FastMCPTool] = {}
         self._tool_schemas: list[Tool] = []
         self._agent_tools: dict[str, LlmAgent] = {}
+        self._card_tool_names: set[str] = set()
         self.tool_runner_hooks: ToolRunnerHooks | None = None
 
         # Build a working list of tools and auto-inject human-input tool if missing
         working_tools: list[FastMCPTool | Callable] = list(tools) if tools else []
+        card_tool_source_ids = {id(tool) for tool in working_tools}
         # Only auto-inject if enabled via AgentConfig
         if self.config.human_input:
             existing_names = {
@@ -128,6 +130,8 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 continue
 
             self._execution_tools[fast_tool.name] = fast_tool
+            if id(tool) in card_tool_source_ids:
+                self._card_tool_names.add(fast_tool.name)
             # Create MCP Tool schema for the LLM interface
             self._tool_schemas.append(
                 Tool(
@@ -157,6 +161,81 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 description=tool.description,
                 inputSchema=tool.parameters,
             )
+        )
+
+    @property
+    def has_external_hooks(self) -> bool:
+        """Return True if external (user-configured) hooks are present."""
+        return self.tool_runner_hooks is not None
+
+    @property
+    def has_before_llm_call_hook(self) -> bool:
+        """Return True if a before_llm_call hook is configured."""
+        return (
+            self.tool_runner_hooks is not None
+            and self.tool_runner_hooks.before_llm_call is not None
+        )
+
+    @property
+    def has_after_llm_call_hook(self) -> bool:
+        """Return True if an after_llm_call hook is configured."""
+        return (
+            self.tool_runner_hooks is not None
+            and self.tool_runner_hooks.after_llm_call is not None
+        )
+
+    @property
+    def has_before_tool_call_hook(self) -> bool:
+        """Return True if a before_tool_call hook is configured."""
+        return (
+            self.tool_runner_hooks is not None
+            and self.tool_runner_hooks.before_tool_call is not None
+        )
+
+    @property
+    def has_after_tool_call_hook(self) -> bool:
+        """Return True if an after_tool_call hook is configured."""
+        return (
+            self.tool_runner_hooks is not None
+            and self.tool_runner_hooks.after_tool_call is not None
+        )
+
+    @property
+    def has_after_turn_complete_hook(self) -> bool:
+        """Return True if an after_turn_complete hook is configured."""
+        return (
+            self.tool_runner_hooks is not None
+            and self.tool_runner_hooks.after_turn_complete is not None
+        )
+
+    def _card_tools_label(self) -> str | None:
+        if not self._card_tool_names:
+            return None
+        return "card_tools"
+
+    def _card_tools_used(self, message: PromptMessageExtended) -> bool:
+        if not self._card_tool_names or not message.tool_calls:
+            return False
+        return any(
+            tool_request.params.name in self._card_tool_names
+            for tool_request in message.tool_calls.values()
+        )
+
+    def _count_agent_tool_calls(self, tool_call_items: list[tuple[str, Any]]) -> int:
+        if not tool_call_items:
+            return 0
+        agent_tool_names = set(self._agent_tools.keys())
+        agent_type = getattr(self, "agent_type", None)
+        if not isinstance(agent_type, AgentType):
+            agent_type = getattr(self.config, "agent_type", None)
+        if agent_type == AgentType.SMART:
+            agent_tool_names.add("smart")
+        if not agent_tool_names:
+            return 0
+        return sum(
+            1
+            for _, tool_request in tool_call_items
+            if tool_request.params.name in agent_tool_names
         )
 
     def add_agent_tool(
@@ -217,6 +296,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 before_tool_call = existing_hooks.before_tool_call if existing_hooks else None
                 after_llm_call = existing_hooks.after_llm_call if existing_hooks else None
                 after_tool_call = existing_hooks.after_tool_call if existing_hooks else None
+                after_turn_complete = existing_hooks.after_turn_complete if existing_hooks else None
 
                 async def handle_before_llm_call(runner, messages):
                     if before_llm_call:
@@ -233,6 +313,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                     after_llm_call=after_llm_call,
                     before_tool_call=handle_before_tool_call,
                     after_tool_call=after_tool_call,
+                    after_turn_complete=after_turn_complete,
                 )
                 hooks_set = True
 
@@ -270,6 +351,33 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         Generate a response using the LLM, and handle tool calls if necessary.
         Messages are already normalized to List[PromptMessageExtended].
         """
+        use_history = request_params.use_history if request_params is not None else True
+        has_tool_results = any(message.tool_results for message in messages)
+        if use_history and not has_tool_results:
+            history = self.message_history
+            if history:
+                last_msg = history[-1]
+                if (
+                    last_msg.role == "assistant"
+                    and last_msg.tool_calls
+                    and last_msg.stop_reason == LlmStopReason.TOOL_USE
+                ):
+                    tool_call_ids = list(last_msg.tool_calls.keys())
+                    logger.error(
+                        "History ends with unanswered tool call - session may have been "
+                        "interrupted mid-turn. Cannot proceed with LLM call.",
+                        data={
+                            "tool_calls": tool_call_ids,
+                            "history_length": len(history),
+                        },
+                    )
+                    raise ValueError(
+                        "Invalid conversation history: assistant message has pending tool "
+                        f"calls {tool_call_ids} but no user message with tool results follows. "
+                        "The session may have been interrupted. Please clear the history or "
+                        "remove the incomplete tool call before continuing."
+                    )
+
         if tools is None:
             tools = (await self.list_tools()).tools
 
@@ -374,6 +482,9 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             after_llm_call=merge(base.after_llm_call, extra.after_llm_call),
             before_tool_call=merge(base.before_tool_call, extra.before_tool_call),
             after_tool_call=merge(base.after_tool_call, extra.after_tool_call),
+            after_turn_complete=merge(
+                base.after_turn_complete, extra.after_turn_complete
+            ),
         )
 
     async def _tool_runner_llm_step(
@@ -383,6 +494,9 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         tools: list[Tool] | None = None,
     ) -> PromptMessageExtended:
         return await super().generate_impl(messages, request_params=request_params, tools=tools)
+
+    def _should_display_user_message(self, message: PromptMessageExtended) -> bool:
+        return not message.tool_results
 
     # we take care of tool results, so skip displaying them
     def show_user_message(self, message: PromptMessageExtended) -> None:
@@ -407,7 +521,20 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         available_tools = [t.name for t in tool_schemas]
 
         tool_call_items = list(request.tool_calls.items())
-        should_parallel = (not FORCE_SEQUENTIAL_TOOL_CALLS) and len(tool_call_items) > 1
+        should_parallel = should_parallelize_tool_calls(len(tool_call_items))
+        if should_parallel and tool_call_items:
+            subagent_calls = self._count_agent_tool_calls(tool_call_items)
+            if subagent_calls > 1:
+                did_close = self.close_active_streaming_display(
+                    reason="parallel subagent tool calls"
+                )
+                if did_close:
+                    logger.info(
+                        "Closing streaming display due to parallel subagent tool calls",
+                        agent_name=self.name,
+                        tool_call_count=len(tool_call_items),
+                        subagent_call_count=subagent_calls,
+                    )
 
         planned_calls: list[tuple[str, str, dict[str, Any]]] = []
         for correlation_id, tool_request in tool_call_items:
@@ -421,6 +548,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                     correlation_id=correlation_id,
                     error_message=error_message,
                     tool_results=tool_results,
+                    tool_call_id=correlation_id if should_parallel else None,
                 )
                 break
             planned_calls.append((correlation_id, tool_name, tool_args))
@@ -440,6 +568,8 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                     tool_name=tool_name,
                     highlight_index=highlight_index,
                     max_item_length=12,
+                    tool_call_id=correlation_id,
+                    show_hook_indicator=self.has_before_tool_call_hook,
                 )
 
             async def run_one(
@@ -471,7 +601,12 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                     transport_channel=None,
                 )
                 self.display.show_tool_result(
-                    name=self.name, result=result, tool_name=tool_name, timing_ms=duration_ms
+                    name=self.name,
+                    result=result,
+                    tool_name=tool_name,
+                    timing_ms=duration_ms,
+                    tool_call_id=correlation_id,
+                    show_hook_indicator=self.has_after_tool_call_hook,
                 )
 
             return self._finalize_tool_results(
@@ -494,6 +629,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 tool_name=tool_name,
                 highlight_index=highlight_index,
                 max_item_length=12,
+                show_hook_indicator=self.has_before_tool_call_hook,
             )
 
             # Track timing for tool execution
@@ -511,7 +647,11 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 transport_channel=None,
             )
             self.display.show_tool_result(
-                name=self.name, result=result, tool_name=tool_name, timing_ms=duration_ms
+                name=self.name,
+                result=result,
+                tool_name=tool_name,
+                timing_ms=duration_ms,
+                show_hook_indicator=self.has_after_tool_call_hook,
             )
 
         return self._finalize_tool_results(
@@ -524,13 +664,19 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         correlation_id: str,
         error_message: str,
         tool_results: dict[str, CallToolResult],
+        tool_call_id: str | None = None,
     ) -> str:
         error_result = CallToolResult(
             content=[text_content(error_message)],
             isError=True,
         )
         tool_results[correlation_id] = error_result
-        self.display.show_tool_result(name=self.name, result=error_result)
+        self.display.show_tool_result(
+            name=self.name,
+            result=error_result,
+            tool_call_id=tool_call_id,
+            show_hook_indicator=self.has_after_tool_call_hook,
+        )
         return error_message
 
     def _finalize_tool_results(
