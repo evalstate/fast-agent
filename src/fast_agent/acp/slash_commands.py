@@ -209,6 +209,7 @@ class SlashCommandHandler:
         reload_callback: Callable[[], Awaitable[bool]] | None = None,
         set_current_mode_callback: Callable[[str], Awaitable[None] | None] | None = None,
         instruction_resolver: Callable[[str], Awaitable[str | None]] | None = None,
+        noenv: bool = False,
     ):
         """
         Initialize the slash command handler.
@@ -245,6 +246,7 @@ class SlashCommandHandler:
         self._reload_callback = reload_callback
         self._set_current_mode_callback = set_current_mode_callback
         self._instruction_resolver = instruction_resolver
+        self._noenv = noenv
         self._acp_context: ACPContext | None = None
 
         # Session-level commands (always available, operate on current agent)
@@ -441,6 +443,7 @@ class SlashCommandHandler:
             current_agent_name=self.current_agent_name,
             io=ACPCommandIO(),
             settings=settings,
+            noenv=self._noenv,
         )
 
     def _format_outcome_as_markdown(
@@ -459,6 +462,8 @@ class SlashCommandHandler:
 
     async def _send_session_info_update(self) -> None:
         if self._acp_context is None:
+            return
+        if self._noenv:
             return
         from fast_agent.session import extract_session_title, get_session_manager
 
@@ -617,6 +622,7 @@ class SlashCommandHandler:
             agent_provider=_SimpleAgentProvider(self.instance.agents),
             current_agent_name=self.current_agent_name,
             io=io,
+            noenv=self._noenv,
         )
         if return_value == "verbosity":
             outcome = await model_handlers.handle_model_verbosity(
@@ -634,6 +640,15 @@ class SlashCommandHandler:
 
     async def _handle_session(self, arguments: str | None = None) -> str:
         """Handle the /session command."""
+        if self._noenv:
+            return "\n".join(
+                [
+                    "# session",
+                    "",
+                    "Session commands are disabled in --noenv mode.",
+                ]
+            )
+
         remainder = (arguments or "").strip()
         if not remainder:
             return self._render_session_list()
@@ -755,6 +770,14 @@ class SlashCommandHandler:
 
     def _render_session_list(self) -> str:
         """Render a list of recent sessions."""
+        if self._noenv:
+            return "\n".join(
+                [
+                    "# sessions",
+                    "",
+                    "Session commands are disabled in --noenv mode.",
+                ]
+            )
         summary = build_session_list_summary()
         return render_session_list_markdown(summary, heading="sessions")
 

@@ -49,6 +49,7 @@ GO_SPECIFIC_OPTIONS = {
 KNOWN_SUBCOMMANDS = {
     "go",
     "serve",
+    "acp",
     "setup",
     "check",
     "auth",

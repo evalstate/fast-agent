@@ -25,6 +25,8 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.paths import resolve_environment_paths
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.types import PromptMessageExtended
 
@@ -120,6 +122,36 @@ def get_session_history_window() -> int:
         return int(value)
     except Exception:
         return 20
+
+
+def apply_session_window(
+    sessions: "Sequence[SessionInfo]",
+    limit: int | None = None,
+) -> list["SessionInfo"]:
+    """Apply the session list window while preserving pinned overflow entries.
+
+    The primary list remains the newest ``limit`` sessions by ``last_activity``. Any
+    pinned sessions that would otherwise fall outside the window are appended at the
+    bottom so they remain visible/selectable.
+    """
+    session_list = list(sessions)
+    if not session_list:
+        return []
+
+    if limit is None:
+        limit = get_session_history_window()
+
+    if limit <= 0:
+        return session_list
+
+    visible = list(session_list[:limit])
+    visible_names = {session.name for session in visible}
+    overflow_pinned = [
+        session
+        for session in session_list[limit:]
+        if is_session_pinned(session) and session.name not in visible_names
+    ]
+    return visible + overflow_pinned
 
 
 def summarize_session_histories(session: "Session") -> dict[str, int]:
@@ -817,10 +849,7 @@ class SessionManager:
         if session_name.isdigit():
             ordinal = int(session_name)
             if ordinal > 0:
-                sessions = self.list_sessions()
-                limit = get_session_history_window()
-                if limit > 0:
-                    sessions = sessions[:limit]
+                sessions = apply_session_window(self.list_sessions())
                 if ordinal <= len(sessions):
                     return sessions[ordinal - 1].name
         sessions = self.list_sessions()

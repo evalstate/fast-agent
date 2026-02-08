@@ -19,6 +19,15 @@ if TYPE_CHECKING:
     from fast_agent.session import SessionEntrySummary
 
 
+NOENV_SESSION_MESSAGE = "Session commands are disabled in --noenv mode."
+
+
+def _noenv_outcome() -> CommandOutcome:
+    outcome = CommandOutcome()
+    outcome.add_message(NOENV_SESSION_MESSAGE, channel="warning", right_info="session")
+    return outcome
+
+
 def _append_session_metadata(line: Text, items: list[tuple[str, str]]) -> None:
     for value, style in items:
         line.append(" \u2022 ", style="dim")
@@ -114,6 +123,9 @@ async def handle_create_session(
     *,
     session_name: str | None,
 ) -> CommandOutcome:
+    if ctx.noenv:
+        return _noenv_outcome()
+
     outcome = CommandOutcome()
     from fast_agent.session import get_session_manager
 
@@ -129,6 +141,9 @@ async def handle_list_sessions(
     *,
     show_help: bool = False,
 ) -> CommandOutcome:
+    if ctx.noenv:
+        return _noenv_outcome()
+
     outcome = CommandOutcome()
     summary = build_session_list_summary(show_help=show_help)
     if not summary.entries:
@@ -150,6 +165,9 @@ async def handle_pin_session(
     value: str | None,
     target: str | None,
 ) -> CommandOutcome:
+    if ctx.noenv:
+        return _noenv_outcome()
+
     outcome = CommandOutcome()
     from fast_agent.session import get_session_manager, is_session_pinned
 
@@ -205,8 +223,11 @@ async def handle_clear_sessions(
     *,
     target: str | None,
 ) -> CommandOutcome:
+    if ctx.noenv:
+        return _noenv_outcome()
+
     outcome = CommandOutcome()
-    from fast_agent.session import get_session_history_window, get_session_manager
+    from fast_agent.session import apply_session_window, get_session_manager
 
     if not target:
         outcome.add_message(
@@ -233,10 +254,7 @@ async def handle_clear_sessions(
         )
         return outcome
 
-    sessions = manager.list_sessions()
-    limit = get_session_history_window()
-    if limit > 0:
-        sessions = sessions[:limit]
+    sessions = apply_session_window(manager.list_sessions())
     target_name = target
     if target.isdigit():
         ordinal = int(target)
@@ -258,6 +276,9 @@ async def handle_resume_session(
     agent_name: str,
     session_id: str | None,
 ) -> CommandOutcome:
+    if ctx.noenv:
+        return _noenv_outcome()
+
     outcome = CommandOutcome()
     from fast_agent.session import (
         format_history_summary,
@@ -357,6 +378,9 @@ async def handle_title_session(
     title: str | None,
     session_id: str | None = None,
 ) -> CommandOutcome:
+    if ctx.noenv:
+        return _noenv_outcome()
+
     outcome = CommandOutcome()
     if not title:
         outcome.add_message("Usage: /session title <text>", channel="error")
@@ -382,6 +406,9 @@ async def handle_fork_session(
     *,
     title: str | None,
 ) -> CommandOutcome:
+    if ctx.noenv:
+        return _noenv_outcome()
+
     outcome = CommandOutcome()
     from fast_agent.session import get_session_manager
 

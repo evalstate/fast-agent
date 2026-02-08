@@ -517,6 +517,27 @@ async def test_slash_command_session_list_no_sessions(tmp_path, monkeypatch) -> 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_slash_command_session_disabled_in_noenv(tmp_path: Path) -> None:
+    """Test /session in noenv mode avoids session storage side effects."""
+    old_settings = get_settings()
+    env_dir = tmp_path / "env"
+    override = old_settings.model_copy(update={"environment_dir": str(env_dir)})
+    update_global_settings(override)
+    reset_session_manager()
+
+    try:
+        handler = _handler(StubAgentInstance(), noenv=True)
+        response = await handler.execute_command("session", "list")
+
+        assert "disabled in --noenv mode" in response.lower()
+        assert not (env_dir / "sessions").exists()
+    finally:
+        update_global_settings(old_settings)
+        reset_session_manager()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_slash_command_session_pin_sets_metadata(tmp_path: Path) -> None:
     """Test /session pin marks the session as pinned."""
     old_settings = get_settings()
