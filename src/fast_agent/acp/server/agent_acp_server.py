@@ -35,6 +35,8 @@ from acp.helpers import (
 from acp.schema import (
     AgentCapabilities,
     AgentMessageChunk,
+    AuthenticateResponse,
+    AuthMethod,
     AvailableCommandsUpdate,
     ClientCapabilities,
     HttpMcpServer,
@@ -447,11 +449,27 @@ class AgentACPServer(ACPAgent):
                 version=self.server_version,
             )
 
+            # Minimal "agent auth" hint for ACP clients.
+            #
+            # Per ACP RFD auth-methods, the default type is "agent" when no type is provided.
+            # We keep this strictly within the current AuthMethod schema (id/name/description)
+            # to avoid requiring client/SDK support for typed auth metadata yet.
+            auth_methods = [
+                AuthMethod(
+                    id="fast-agent-ai-secrets",
+                    name="Configure fast-agent",
+                    description=(
+                        "Set provider keys in fastagent.secrets.yaml or env vars. "
+                        "See docs: [Configuration Reference](https://fast-agent.ai/ref/config_file/)"
+                    ),
+                )
+            ]
+
             response = InitializeResponse(
                 protocol_version=protocol_version,  # Echo back the client's version
                 agent_capabilities=agent_capabilities,
                 agent_info=agent_info,
-                auth_methods=[],  # No authentication for now
+                auth_methods=auth_methods,
             )
 
             logger.info(
@@ -465,6 +483,22 @@ class AgentACPServer(ACPAgent):
             logger.error(f"Error in initialize: {e}", name="acp_initialize_error", exc_info=True)
             print(f"ERROR in initialize: {e}", file=__import__("sys").stderr)
             raise
+
+    async def authenticate(self, method_id: str, **kwargs: Any) -> AuthenticateResponse | None:
+        # ACP clients use this hook to trigger a login/setup flow. Our initial implementation
+        # is intentionally conservative: we validate the method id and acknowledge the request.
+        #
+        # The actual credentials (LLM provider keys, MCP server auth, etc.) are configured via
+        # fast-agent config/secrets and existing CLI commands; see the advertised method text.
+        if method_id != "fast-agent-ai-secrets":
+            raise RequestError.invalid_params(
+                {
+                    "methodId": method_id,
+                    "supported": ["fast-agent-ai-secrets"],
+                }
+            )
+
+        return AuthenticateResponse()
 
     def _extract_fs_capabilities(self, fs_caps: Any) -> dict[str, bool]:
         """Normalize filesystem capabilities for status reporting."""
