@@ -14,6 +14,7 @@ def normalize_resume_flag_args(args: list[str], *, start_index: int = 0) -> None
                 index += 1
         index += 1
 
+
 # Options that should automatically route to the 'go' command
 GO_SPECIFIC_OPTIONS = {
     "--npx",
@@ -29,7 +30,7 @@ GO_SPECIFIC_OPTIONS = {
     "-m",
     "--prompt-file",
     "-p",
-    "--result",
+    "--results",
     "--servers",
     "--auth",
     "--name",

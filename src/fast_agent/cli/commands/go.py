@@ -262,10 +262,10 @@ def go(
         "-p",
         help="Path to a prompt file to use (either text or JSON)",
     ),
-    result: str | None = typer.Option(
+    results: str | None = typer.Option(
         None,
-        "--result",
-        help="Write resulting history to file (single model) or per-model suffixed files",
+        "--results",
+        help=("Write resulting history to file (single model) or per-model suffixed files "),
     ),
     resume: str | None = typer.Option(
         None,
@@ -309,7 +309,7 @@ def go(
         model=model,
         message=message,
         prompt_file=prompt_file,
-        result_file=result,
+        result_file=results,
         resume=resume,
         npx=npx,
         uvx=uvx,
