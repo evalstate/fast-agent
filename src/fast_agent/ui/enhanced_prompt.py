@@ -594,10 +594,12 @@ class AgentCompleter(Completer):
         is_human_input: bool = False,
         current_agent: str | None = None,
         agent_provider: "AgentApp | None" = None,
+        noenv_mode: bool = False,
     ) -> None:
         self.agents = agents
         self.current_agent = current_agent
         self.agent_provider = agent_provider
+        self.noenv_mode = noenv_mode
         # Map commands to their descriptions for better completion hints
         self.commands = {
             "mcp": "Show MCP server status",
@@ -837,17 +839,17 @@ class AgentCompleter(Completer):
 
     def _complete_session_ids(self, partial: str, *, start_position: int | None = None):
         """Generate completions for recent session ids."""
+        if self.noenv_mode:
+            return
+
         from fast_agent.session import (
+            apply_session_window,
             display_session_name,
-            get_session_history_window,
             get_session_manager,
         )
 
         manager = get_session_manager()
-        sessions = manager.list_sessions()
-        limit = get_session_history_window()
-        if limit > 0:
-            sessions = sessions[:limit]
+        sessions = apply_session_window(manager.list_sessions())
         partial_lower = partial.lower()
         for session_info in sessions:
             session_id = session_info.name
@@ -1992,6 +1994,7 @@ async def get_enhanced_input(
     is_human_input: bool = False,
     toolbar_color: str = "ansiblue",
     agent_provider: "AgentApp | None" = None,
+    noenv_mode: bool = False,
     pre_populate_buffer: str = "",
 ) -> str | CommandPayload:
     """
@@ -2008,6 +2011,7 @@ async def get_enhanced_input(
         is_human_input: Whether this is a human input request (disables agent selection features)
         toolbar_color: Color to use for the agent name in the toolbar (default: "ansiblue")
         agent_provider: Optional AgentApp for displaying agent info
+        noenv_mode: Whether session operations should be disabled for --noenv mode
         pre_populate_buffer: Text to pre-populate in the input buffer for editing (one-off)
 
     Returns:
@@ -2316,6 +2320,7 @@ async def get_enhanced_input(
             is_human_input=is_human_input,
             current_agent=agent_name,
             agent_provider=agent_provider,
+            noenv_mode=noenv_mode,
         ),
         lexer=ShellPrefixLexer(),
         complete_while_typing=True,

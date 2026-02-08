@@ -100,6 +100,7 @@ class CommandContext:
     current_agent_name: str
     io: CommandIO
     settings: Settings | None = None
+    noenv: bool = False
 
     def resolve_settings(self) -> Settings:
         return self.settings or get_settings()

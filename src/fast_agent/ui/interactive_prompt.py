@@ -119,6 +119,7 @@ class InteractivePrompt:
         self, prompt_provider: "AgentApp", agent_name: str
     ) -> CommandContext:
         settings = get_settings()
+        noenv_mode = bool(getattr(prompt_provider, "_noenv_mode", False))
         io = TuiCommandIO(
             prompt_provider=cast("AgentProvider", prompt_provider),
             agent_name=agent_name,
@@ -129,6 +130,7 @@ class InteractivePrompt:
             current_agent_name=agent_name,
             io=io,
             settings=settings,
+            noenv=noenv_mode,
         )
 
     async def _emit_command_outcome(self, context: CommandContext, outcome: CommandOutcome) -> None:
@@ -153,6 +155,7 @@ class InteractivePrompt:
         default_agent: str,
         available_agents: list[str],
         prompt_provider: "AgentApp",
+        pinned_agent: str | None = None,
         default: str = "",
     ) -> str:
         """
@@ -163,11 +166,23 @@ class InteractivePrompt:
             default_agent: Name of the default agent to use
             available_agents: List of available agent names
             prompt_provider: AgentApp instance for accessing agents and prompts
+            pinned_agent: Explicitly targeted agent name to preserve across refreshes
             default: Default message to use when user presses enter
 
         Returns:
             The result of the interactive session
         """
+        def _merge_pinned_agents(agent_names: list[str]) -> list[str]:
+            if not pinned_agent or pinned_agent in agent_names:
+                return agent_names
+            try:
+                agent_types = prompt_provider.agent_types()
+            except Exception:
+                return agent_names
+            if pinned_agent in agent_types:
+                return [pinned_agent, *agent_names]
+            return agent_names
+
         agent = default_agent
         if not agent:
             if available_agents:
@@ -175,6 +190,7 @@ class InteractivePrompt:
             else:
                 raise ValueError("No default agent available")
 
+        available_agents = _merge_pinned_agents(list(available_agents))
         if agent not in available_agents:
             raise ValueError(f"No agent named '{agent}'")
 
@@ -211,7 +227,7 @@ class InteractivePrompt:
                 )
 
             if refreshed:
-                available_agents = list(prompt_provider.agent_names())
+                available_agents = _merge_pinned_agents(list(prompt_provider.agent_names()))
                 available_agents_set = set(available_agents)
                 self.agent_types = prompt_provider.agent_types()
                 enhanced_prompt.available_agents = set(available_agents)
@@ -225,7 +241,7 @@ class InteractivePrompt:
 
                 rich_print("[green]AgentCards reloaded.[/green]")
 
-            current_agents = list(prompt_provider.agent_names())
+            current_agents = _merge_pinned_agents(list(prompt_provider.agent_names()))
             if current_agents and set(current_agents) != available_agents_set:
                 available_agents = current_agents
                 available_agents_set = set(available_agents)
@@ -238,6 +254,7 @@ class InteractivePrompt:
                     return result
 
             # Use the enhanced input method with advanced features
+            noenv_mode = bool(getattr(prompt_provider, "_noenv_mode", False))
             user_input = await get_enhanced_input(
                 agent_name=agent,
                 default=default,
@@ -247,6 +264,7 @@ class InteractivePrompt:
                 available_agent_names=available_agents,
                 agent_types=self.agent_types,  # Pass agent types for display
                 agent_provider=prompt_provider,  # Pass agent provider for info display
+                noenv_mode=noenv_mode,
                 pre_populate_buffer=buffer_prefill,  # One-off buffer content
             )
             buffer_prefill = ""  # Clear after use - it's one-off
@@ -259,7 +277,7 @@ class InteractivePrompt:
             if not skip_refresh:
                 refreshed = await prompt_provider.refresh_if_needed()
                 if refreshed:
-                    available_agents = list(prompt_provider.agent_names())
+                    available_agents = _merge_pinned_agents(list(prompt_provider.agent_names()))
                     available_agents_set = set(available_agents)
                     self.agent_types = prompt_provider.agent_types()
                     enhanced_prompt.available_agents = set(available_agents)
@@ -583,7 +601,9 @@ class InteractivePrompt:
                         await self._emit_command_outcome(context, outcome)
 
                         if outcome.requires_refresh:
-                            available_agents = list(prompt_provider.agent_names())
+                            available_agents = _merge_pinned_agents(
+                                list(prompt_provider.agent_names())
+                            )
                             available_agents_set = set(available_agents)
                             self.agent_types = prompt_provider.agent_types()
 
@@ -626,7 +646,9 @@ class InteractivePrompt:
                         await self._emit_command_outcome(context, outcome)
 
                         if outcome.requires_refresh:
-                            available_agents = list(prompt_provider.agent_names())
+                            available_agents = _merge_pinned_agents(
+                                list(prompt_provider.agent_names())
+                            )
                             available_agents_set = set(available_agents)
                             self.agent_types = prompt_provider.agent_types()
 

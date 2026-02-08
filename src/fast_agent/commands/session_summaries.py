@@ -6,9 +6,9 @@ from dataclasses import dataclass
 
 from fast_agent.session import (
     SessionEntrySummary,
+    apply_session_window,
     build_session_entry_summaries,
     format_session_entries,
-    get_session_history_window,
     get_session_manager,
 )
 
@@ -30,10 +30,7 @@ FULL_SESSION_USAGE = (
 
 def build_session_list_summary(*, show_help: bool = False) -> SessionListSummary:
     manager = get_session_manager()
-    sessions = manager.list_sessions()
-    limit = get_session_history_window()
-    if limit > 0:
-        sessions = sessions[:limit]
+    sessions = apply_session_window(manager.list_sessions())
 
     current = manager.current_session
     current_name = current.info.name if current else None
