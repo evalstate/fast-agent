@@ -147,7 +147,7 @@ class ModelFactory:
         "deepseek31": "hf.deepseek-ai/DeepSeek-V3.1",
         "kimithink": "hf.moonshotai/Kimi-K2-Thinking:together",
         "deepseek32": "hf.deepseek-ai/DeepSeek-V3.2:fireworks-ai",
-        "kimi25": "hf.moonshotai/Kimi-K2.5:novita",
+        "kimi25": "hf.moonshotai/Kimi-K2.5:fireworks-ai",
     }
 
     @staticmethod
