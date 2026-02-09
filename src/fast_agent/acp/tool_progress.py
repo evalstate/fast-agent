@@ -37,6 +37,7 @@ from mcp.types import (
     ContentBlock as MCPContentBlock,
 )
 
+from fast_agent.acp.tool_call_context import get_acp_tool_call_meta
 from fast_agent.acp.tool_titles import build_tool_title
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.common import get_resource_name, get_server_name, is_namespaced_name
@@ -45,6 +46,53 @@ if TYPE_CHECKING:
     from acp import AgentSideConnection
 
 logger = get_logger(__name__)
+
+
+def _merge_meta(
+    existing: dict[str, Any] | None, incoming: dict[str, Any] | None
+) -> dict[str, Any] | None:
+    """Merge ACP `_meta` dictionaries.
+
+    ACP reserves `_meta` for extensibility; clients must treat keys as opaque.
+    We merge ours over any existing meta (if present).
+    """
+
+    if not existing and not incoming:
+        return None
+    merged: dict[str, Any] = {}
+    if existing:
+        merged.update(existing)
+    if incoming:
+        merged.update(incoming)
+    return merged or None
+
+
+def _attach_acp_meta(update: Any) -> None:
+    """Attach contextual `_meta` (if any) to an ACP update model in-place."""
+
+    meta = get_acp_tool_call_meta()
+    if not meta:
+        return
+
+    # Avoid creating self-referential parent links (common when we scope an entire
+    # subagent run under its own tool call id for nesting). Clients can treat
+    # `parentToolCallId` as a tree edge; self edges are useless and can break UIs.
+    tool_call_id = getattr(update, "tool_call_id", None)
+    parent = meta.get("parentToolCallId")
+    if tool_call_id and parent and tool_call_id == parent:
+        meta = {k: v for k, v in meta.items() if k != "parentToolCallId"}
+        if not meta:
+            return
+
+    # ACP python SDK uses `field_meta` as the internal attribute name for `_meta`.
+    existing = getattr(update, "field_meta", None)
+    merged = _merge_meta(existing, meta)
+    if merged is not None:
+        try:
+            setattr(update, "field_meta", merged)
+        except Exception:
+            # Meta should never break tool call updates.
+            return
 
 
 class ACPToolProgressManager:
@@ -84,6 +132,14 @@ class ACPToolProgressManager:
         self._simple_titles: dict[str, str] = {}
         # Map tool_call_id → full title (with args) for completion
         self._full_titles: dict[str, str] = {}
+        # Persist tool call inputs across lifecycle updates.
+        #
+        # ACP ToolCallTracker does not automatically carry `rawInput` into later
+        # tool_call_update notifications unless it is explicitly passed on each
+        # progress() call. Keep the last known raw input so completion updates can
+        # include it (ensures clients can always show Input, even if they missed
+        # the early in_progress update).
+        self._raw_inputs: dict[str, Any] = {}
         # Track tool_use_id that are currently streaming arguments/content.
         # This is intentionally separate from _tool_use_id_to_external_id so that
         # late/duplicate stream deltas do not mutate a tool call after execution begins.
@@ -186,9 +242,11 @@ class ACPToolProgressManager:
             # Store titles for later updates
             self._simple_titles[tool_call_start.tool_call_id] = title
             self._full_titles[tool_call_start.tool_call_id] = title
+            self._raw_inputs[tool_call_start.tool_call_id] = arguments
 
         # Send the notification
         try:
+            _attach_acp_meta(tool_call_start)
             await self._connection.session_update(
                 session_id=self._session_id, update=tool_call_start
             )
@@ -322,6 +380,7 @@ class ACPToolProgressManager:
                 self._stream_chunk_counts[tool_use_id] = 0
 
             # Send initial notification
+            _attach_acp_meta(tool_call_start)
             await self._connection.session_update(
                 session_id=self._session_id, update=tool_call_start
             )
@@ -384,6 +443,7 @@ class ACPToolProgressManager:
                 return
 
             # Send notification outside the lock
+            _attach_acp_meta(update)
             await self._connection.session_update(session_id=self._session_id, update=update)
 
         except Exception as e:
@@ -558,11 +618,17 @@ class ACPToolProgressManager:
         # Infer tool kind
         kind = self._infer_tool_kind(tool_name, arguments)
 
-        # Create title
+        # Create title.
+        #
+        # For agent-as-tool "task" tool calls we keep titles compact: the tool call
+        # already represents an execution scope, so the raw args (often long prompt text)
+        # add noise.
+        include_args = server_name != "agent"
         title = build_tool_title(
             tool_name=tool_name,
             server_name=server_name,
             arguments=arguments,
+            include_args=include_args,
         )
 
         # Use SDK tracker to create or update the tool call notification
@@ -592,6 +658,7 @@ class ACPToolProgressManager:
                 )
                 # Store full title (with args) for completion
                 self._full_titles[tool_call_id] = title
+                self._raw_inputs[tool_call_id] = arguments
 
                 # Clean up streaming state since we're now in execution
                 if tool_use_id:
@@ -636,6 +703,7 @@ class ACPToolProgressManager:
                 )
                 # Store full title (with args) for completion
                 self._full_titles[tool_call_id] = title
+                self._raw_inputs[tool_call_id] = arguments
 
                 logger.debug(
                     f"Started tool call tracking: {tool_call_id}",
@@ -648,6 +716,7 @@ class ACPToolProgressManager:
 
         # Send notification (either new start or update)
         try:
+            _attach_acp_meta(tool_call_update)
             await self._connection.session_update(
                 session_id=self._session_id, update=tool_call_update
             )
@@ -713,6 +782,7 @@ class ACPToolProgressManager:
 
         # Send the failure notification
         try:
+            _attach_acp_meta(update_data)
             await self._connection.session_update(session_id=self._session_id, update=update_data)
         except Exception as e:  # noqa: BLE001
             logger.error(
@@ -770,13 +840,24 @@ class ACPToolProgressManager:
             simple_title = self._simple_titles.get(tool_call_id, "Tool")
             title_parts = [simple_title]
 
-            # Add progress indicator
+            # Add progress indicator.
+            #
+            # For agent-as-tool titles (`agent/<name>`), we already use `[i]` for the
+            # instance suffix, so we avoid another bracketed counter which is easy to
+            # confuse with the instance index. Use "step N" instead.
+            is_agent_task = simple_title.startswith("agent/")
             if total is not None and total > 0:
-                # Show progress/total format (e.g., [50/100])
-                title_parts.append(f"[{progress:.0f}/{total:.0f}]")
+                if is_agent_task:
+                    title_parts.append(f"step {progress:.0f}/{total:.0f}")
+                else:
+                    # Show progress/total format (e.g., [50/100])
+                    title_parts.append(f"[{progress:.0f}/{total:.0f}]")
             else:
-                # Show just progress value (e.g., [50])
-                title_parts.append(f"[{progress:.0f}]")
+                if is_agent_task:
+                    title_parts.append(f"step {progress:.0f}")
+                else:
+                    # Show just progress value (e.g., [50])
+                    title_parts.append(f"[{progress:.0f}]")
 
             # Add message if present
             if message:
@@ -802,6 +883,7 @@ class ACPToolProgressManager:
 
         # Send progress update
         try:
+            _attach_acp_meta(update_data)
             await self._connection.session_update(session_id=self._session_id, update=update_data)
 
             logger.debug(
@@ -880,12 +962,14 @@ class ACPToolProgressManager:
             async with self._lock:
                 # Restore full title with parameters for completion
                 full_title = self._full_titles.get(tool_call_id)
+                raw_input = self._raw_inputs.get(tool_call_id)
                 update_data = self._tracker.progress(
                     external_id=external_id,
                     status=status,
                     title=full_title,  # Restore original title with args
                     content=content_blocks,
                     raw_output=raw_output,
+                    raw_input=raw_input,
                 )
         except Exception as e:
             logger.error(
@@ -897,6 +981,7 @@ class ACPToolProgressManager:
 
         # Send completion notification
         try:
+            _attach_acp_meta(update_data)
             await self._connection.session_update(session_id=self._session_id, update=update_data)
 
             logger.info(
@@ -918,6 +1003,7 @@ class ACPToolProgressManager:
                 self._tool_call_id_to_external_id.pop(tool_call_id, None)
                 self._simple_titles.pop(tool_call_id, None)
                 self._full_titles.pop(tool_call_id, None)
+                self._raw_inputs.pop(tool_call_id, None)
                 tool_use_id = self._external_id_to_tool_use_id.pop(external_id, None)
                 if tool_use_id:
                     self._tool_use_id_to_external_id.pop(tool_use_id, None)
@@ -944,6 +1030,7 @@ class ACPToolProgressManager:
             self._tool_call_id_to_external_id.clear()
             self._simple_titles.clear()
             self._full_titles.clear()
+            self._raw_inputs.clear()
             self._tool_use_id_to_external_id.clear()
             self._external_id_to_tool_use_id.clear()
             self._stream_tool_use_ids.clear()

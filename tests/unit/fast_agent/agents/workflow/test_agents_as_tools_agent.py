@@ -33,17 +33,25 @@ async def cleanup_logging():
     await LoggingConfig.shutdown()
     bus = AsyncEventBus._instance
     if bus is not None:
+        bus_task = getattr(bus, "_task", None)
         await bus.stop()
+        # bus.stop() is best-effort (it may swallow cancellation/timeouts). Ensure
+        # the underlying processing task is fully awaited so pytest doesn't warn.
+        if bus_task is not None and hasattr(bus_task, "done") and not bus_task.done():
+            bus_task.cancel()
+            await asyncio.gather(bus_task, return_exceptions=True)
     AsyncEventBus.reset()
-    pending = [
-        task
-        for task in asyncio.all_tasks()
-        if task is not asyncio.current_task()
-        and getattr(task.get_coro(), "__qualname__", "") == "AsyncEventBus._process_events"
-    ]
+    pending = []
+    for task in asyncio.all_tasks():
+        if task is asyncio.current_task():
+            continue
+        qn = getattr(task.get_coro(), "__qualname__", "")
+        if "AsyncEventBus._process_events" in qn and not task.done():
+            pending.append(task)
     for task in pending:
         task.cancel()
     if pending:
+        await asyncio.sleep(0)
         await asyncio.gather(*pending, return_exceptions=True)
 
 
@@ -332,12 +340,10 @@ async def test_run_tools_emits_progress_for_child_agent():
     result_message = await agent.run_tools(request, request_params=request_params)
     assert result_message.tool_results is not None
 
-    assert handler.starts == [("child", "agent", {"message": "hi"}, "tool-use-1")]
+    assert handler.starts == [("child[1]", "agent", {"message": "hi"}, "tool-use-1")]
     assert handler.progress
-    assert any(
-        update[0] == "tool-call-1" and update[3] and "llm" in update[3]
-        for update in handler.progress
-    )
+    # Progress updates are intentionally minimal; title already includes the agent instance.
+    assert any(update[0] == "tool-call-1" for update in handler.progress)
     assert handler.completes
     tool_call_id, success, content, error = handler.completes[0]
     assert tool_call_id == "tool-call-1"
