@@ -423,6 +423,26 @@ class McpAgent(ABC, ToolAgent):
             output_byte_limit = calculate_terminal_output_limit_for_model(model_name)
         return timeout_seconds, warning_interval_seconds, output_byte_limit
 
+    def _shell_output_limit_overridden(self) -> bool:
+        """Return True when shell output byte limit is explicitly configured."""
+        if not self._context or not self._context.config:
+            return False
+        shell_config = getattr(self._context.config, "shell_execution", None)
+        if shell_config is None:
+            return False
+        return getattr(shell_config, "output_byte_limit", None) is not None
+
+    def _on_llm_attached(self, llm: FastAgentLLMProtocol) -> None:
+        super()._on_llm_attached(llm)
+        if self._shell_runtime is None:
+            return
+        if self._shell_output_limit_overridden():
+            return
+
+        self._shell_runtime.set_output_byte_limit(
+            calculate_terminal_output_limit_for_model(llm.model_name)
+        )
+
     def _activate_shell_runtime(
         self,
         activation_reason: str | None,

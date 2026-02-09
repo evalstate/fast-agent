@@ -48,7 +48,9 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-def _merge_meta(existing: dict[str, Any] | None, incoming: dict[str, Any] | None) -> dict[str, Any] | None:
+def _merge_meta(
+    existing: dict[str, Any] | None, incoming: dict[str, Any] | None
+) -> dict[str, Any] | None:
     """Merge ACP `_meta` dictionaries.
 
     ACP reserves `_meta` for extensibility; clients must treat keys as opaque.

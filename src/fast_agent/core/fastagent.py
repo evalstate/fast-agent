@@ -128,8 +128,8 @@ class FastAgent(DecoratorMixin):
             )
             parser.add_argument(
                 "--agent",
-                default="default",
-                help="Specify the agent to send a message to (used with --message)",
+                default=None,
+                help="Agent name for --message/--prompt-file (defaults to the app default agent)",
             )
             parser.add_argument(
                 "-m",
@@ -326,6 +326,9 @@ class FastAgent(DecoratorMixin):
             # Create settings and update global settings so resolve_skill_directories() works
             instance_settings = config.Settings(**self.config) if hasattr(self, "config") else None
             if instance_settings is not None:
+                instance_settings._config_file = getattr(self, "_loaded_config_file", None)
+                instance_settings._secrets_file = getattr(self, "_loaded_secrets_file", None)
+            if instance_settings is not None:
                 config.update_global_settings(instance_settings)
 
             # Create the app with our local settings
@@ -391,28 +394,31 @@ class FastAgent(DecoratorMixin):
     def _normalize_environment_dir(value: str | Path | None) -> Path | None:
         if value is None:
             return None
-        return Path(value).expanduser()
+        env_dir = Path(value).expanduser()
+        if not env_dir.is_absolute():
+            return (Path.cwd() / env_dir).resolve()
+        return env_dir.resolve()
 
     def _load_config(self) -> None:
         """Load configuration from YAML file including secrets using get_settings
         but without relying on the global cache."""
 
-        # Import but make a local copy to avoid affecting the global state
-        from fast_agent.config import _settings, get_settings
+        import fast_agent.config as _config_module
 
         # Temporarily clear the global settings to ensure a fresh load
-        old_settings = _settings
-        _settings = None
+        old_settings = _config_module._settings
+        _config_module._settings = None
 
         try:
             # Use get_settings to load config - this handles all paths and secrets merging
-            settings = get_settings(self.config_path)
-
+            settings = _config_module.get_settings(self.config_path)
+            self._loaded_config_file = settings._config_file if settings else None
+            self._loaded_secrets_file = settings._secrets_file if settings else None
             # Convert to dict for backward compatibility
             self.config = settings.model_dump() if settings else {}
         finally:
             # Restore the original global settings
-            _settings = old_settings
+            _config_module._settings = old_settings
 
     @property
     def context(self) -> Context:
@@ -1062,6 +1068,8 @@ class FastAgent(DecoratorMixin):
         if config:
             config.model_source = model_source  # type: ignore[attr-defined]
             config.cli_model_override = cli_model_override  # type: ignore[attr-defined]
+            if getattr(self.args, "noenv", False):
+                config.session_history = False
 
         tracer = trace.get_tracer(__name__)
         with tracer.start_as_current_span(self.name):
@@ -1179,6 +1187,7 @@ class FastAgent(DecoratorMixin):
                                     card_collision_warnings=self._card_collision_warnings,
                                 )
                                 app = app_override
+                            setattr(app, "_noenv_mode", bool(getattr(self.args, "noenv", False)))
                             instance = AgentInstance(
                                 app,
                                 agents_map,
@@ -1590,10 +1599,10 @@ class FastAgent(DecoratorMixin):
 
                     # Handle direct message sending if  --message is provided
                     if hasattr(self.args, "message") and self.args.message:
-                        agent_name = self.args.agent
+                        agent_name = getattr(self.args, "agent", None)
                         message = self.args.message
 
-                        if agent_name not in active_agents:
+                        if agent_name and agent_name not in active_agents:
                             available_agents = ", ".join(active_agents.keys())
                             print(
                                 f"\n\nError: Agent '{agent_name}' not found. Available agents: {available_agents}"
@@ -1602,7 +1611,8 @@ class FastAgent(DecoratorMixin):
 
                         try:
                             # Get response from the agent
-                            agent = active_agents[agent_name]
+                            # If agent_name is omitted, resolve the app default agent (config.default=True)
+                            agent = wrapper._agent(agent_name)
                             response = await agent.send(message)
 
                             # In quiet mode, just print the raw response
@@ -1612,15 +1622,16 @@ class FastAgent(DecoratorMixin):
 
                             raise SystemExit(0)
                         except Exception as e:
-                            print(f"\n\nError sending message to agent '{agent_name}': {str(e)}")
+                            display_agent = agent_name or "<default>"
+                            print(f"\n\nError sending message to agent '{display_agent}': {str(e)}")
                             raise SystemExit(1)
 
                     if hasattr(self.args, "prompt_file") and self.args.prompt_file:
-                        agent_name = self.args.agent
+                        agent_name = getattr(self.args, "agent", None)
                         prompt: list[PromptMessageExtended] = load_prompt(
                             Path(self.args.prompt_file)
                         )
-                        if agent_name not in active_agents:
+                        if agent_name and agent_name not in active_agents:
                             available_agents = ", ".join(active_agents.keys())
                             print(
                                 f"\n\nError: Agent '{agent_name}' not found. Available agents: {available_agents}"
@@ -1629,7 +1640,8 @@ class FastAgent(DecoratorMixin):
 
                         try:
                             # Get response from the agent
-                            agent = active_agents[agent_name]
+                            # If agent_name is omitted, resolve the app default agent (config.default=True)
+                            agent = wrapper._agent(agent_name)
                             prompt_result = await agent.generate(prompt)
 
                             # In quiet mode, just print the raw response
@@ -1639,7 +1651,8 @@ class FastAgent(DecoratorMixin):
 
                             raise SystemExit(0)
                         except Exception as e:
-                            print(f"\n\nError sending message to agent '{agent_name}': {str(e)}")
+                            display_agent = agent_name or "<default>"
+                            print(f"\n\nError sending message to agent '{display_agent}': {str(e)}")
                             raise SystemExit(1)
 
                     yield wrapper

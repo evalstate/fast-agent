@@ -25,6 +25,8 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.paths import resolve_environment_paths
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.types import PromptMessageExtended
 
@@ -41,6 +43,24 @@ SESSION_LOCK_STALE_SECONDS = 300
 HISTORY_PREFIX = "history_"
 HISTORY_SUFFIX = ".json"
 HISTORY_PREVIOUS_SUFFIX = "_previous.json"
+
+
+def _normalized_environment_override(cwd: pathlib.Path) -> str | None:
+    """Return ENVIRONMENT_DIR as an absolute path string when set."""
+    override = os.getenv("ENVIRONMENT_DIR")
+    if not override:
+        return None
+
+    path = pathlib.Path(override).expanduser()
+    if not path.is_absolute():
+        path = (cwd / path).resolve()
+    else:
+        path = path.resolve()
+
+    normalized = str(path)
+    if normalized != override:
+        os.environ["ENVIRONMENT_DIR"] = normalized
+    return normalized
 
 
 def display_session_name(name: str) -> str:
@@ -102,6 +122,36 @@ def get_session_history_window() -> int:
         return int(value)
     except Exception:
         return 20
+
+
+def apply_session_window(
+    sessions: "Sequence[SessionInfo]",
+    limit: int | None = None,
+) -> list["SessionInfo"]:
+    """Apply the session list window while preserving pinned overflow entries.
+
+    The primary list remains the newest ``limit`` sessions by ``last_activity``. Any
+    pinned sessions that would otherwise fall outside the window are appended at the
+    bottom so they remain visible/selectable.
+    """
+    session_list = list(sessions)
+    if not session_list:
+        return []
+
+    if limit is None:
+        limit = get_session_history_window()
+
+    if limit <= 0:
+        return session_list
+
+    visible = list(session_list[:limit])
+    visible_names = {session.name for session in visible}
+    overflow_pinned = [
+        session
+        for session in session_list[limit:]
+        if is_session_pinned(session) and session.name not in visible_names
+    ]
+    return visible + overflow_pinned
 
 
 def summarize_session_histories(session: "Session") -> dict[str, int]:
@@ -444,8 +494,8 @@ class SessionManager:
 
     def __init__(self, *, cwd: pathlib.Path | None = None) -> None:
         """Initialize session manager."""
-        base = cwd or pathlib.Path.cwd()
-        env_override = os.getenv("ENVIRONMENT_DIR")
+        base = (cwd or pathlib.Path.cwd()).resolve()
+        env_override = _normalized_environment_override(base)
         env_paths = resolve_environment_paths(cwd=base, override=env_override)
         self.base_dir = env_paths.sessions
         self.base_dir.mkdir(parents=True, exist_ok=True)
@@ -599,9 +649,29 @@ class SessionManager:
         self, agent: AgentProtocol, filename: str | None = None
     ) -> str | None:
         """Save history to the current session."""
+        if self._current_session and not self._current_session.directory.exists():
+            logger.warning(
+                "Current session directory is missing; creating a replacement session",
+                data={"session": self._current_session.info.name},
+            )
+            self._current_session = None
+
         if not self._current_session:
             # Auto-create a session if none exists
-            self.create_session()
+            agent_name = getattr(agent, "name", None)
+            metadata: dict[str, Any] = {}
+            if agent_name:
+                metadata["agent_name"] = agent_name
+            agent_config = getattr(agent, "config", None)
+            model_name = getattr(agent_config, "model", None) if agent_config else None
+            if model_name:
+                metadata["model"] = model_name
+            self.create_session(metadata=metadata or None)
+            logger.warning(
+                "save_current_session created a fallback session; "
+                "the session hook should have created one earlier",
+                data={"agent_name": agent_name},
+            )
 
         assert self._current_session is not None
         return await self._current_session.save_history(agent, filename)
@@ -779,10 +849,7 @@ class SessionManager:
         if session_name.isdigit():
             ordinal = int(session_name)
             if ordinal > 0:
-                sessions = self.list_sessions()
-                limit = get_session_history_window()
-                if limit > 0:
-                    sessions = sessions[:limit]
+                sessions = apply_session_window(self.list_sessions())
                 if ordinal <= len(sessions):
                     return sessions[ordinal - 1].name
         sessions = self.list_sessions()
@@ -852,12 +919,12 @@ def reset_session_manager() -> None:
 def get_session_manager(*, cwd: pathlib.Path | None = None) -> SessionManager:
     """Get or create the global session manager."""
     global _session_manager
-    env_override = os.getenv("ENVIRONMENT_DIR")
+    resolved_cwd = cwd.resolve() if cwd is not None else pathlib.Path.cwd().resolve()
+    env_override = _normalized_environment_override(resolved_cwd)
+    expected_paths = resolve_environment_paths(cwd=resolved_cwd, override=env_override)
     if _session_manager is None:
         _session_manager = SessionManager(cwd=cwd)
         return _session_manager
-    if cwd is not None:
-        env_paths = resolve_environment_paths(cwd=cwd, override=env_override)
-        if _session_manager.base_dir != env_paths.sessions:
-            _session_manager = SessionManager(cwd=cwd)
+    if _session_manager.base_dir != expected_paths.sessions:
+        _session_manager = SessionManager(cwd=cwd)
     return _session_manager

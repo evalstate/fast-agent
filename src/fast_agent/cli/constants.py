@@ -14,6 +14,7 @@ def normalize_resume_flag_args(args: list[str], *, start_index: int = 0) -> None
                 index += 1
         index += 1
 
+
 # Options that should automatically route to the 'go' command
 GO_SPECIFIC_OPTIONS = {
     "--npx",
@@ -22,12 +23,14 @@ GO_SPECIFIC_OPTIONS = {
     "--url",
     "--model",
     "--models",
+    "--agent",
     "--instruction",
     "-i",
     "--message",
     "-m",
     "--prompt-file",
     "-p",
+    "--results",
     "--servers",
     "--auth",
     "--name",
@@ -40,6 +43,8 @@ GO_SPECIFIC_OPTIONS = {
     "--agent-cards",
     "--card",
     "--env",
+    "--noenv",
+    "--no-env",
     "--watch",
     "--reload",
     "--resume",
@@ -49,6 +54,7 @@ GO_SPECIFIC_OPTIONS = {
 KNOWN_SUBCOMMANDS = {
     "go",
     "serve",
+    "acp",
     "setup",
     "check",
     "auth",

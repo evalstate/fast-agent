@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import json
 import os
 from copy import deepcopy
@@ -16,6 +17,12 @@ from mcp.types import (
     ContentBlock,
     TextContent,
 )
+from opentelemetry import trace
+from opentelemetry.semconv._incubating.attributes import (
+    gen_ai_attributes as GenAIAttributes,
+)
+from opentelemetry.semconv_ai import LLMRequestTypeValues, SpanAttributes
+from opentelemetry.trace import Span, Status, StatusCode
 
 from fast_agent.constants import ANTHROPIC_THINKING_BLOCKS, REASONING
 from fast_agent.core.exceptions import ProviderKeyError
@@ -53,7 +60,12 @@ from fast_agent.llm.provider.anthropic.multipart_converter_anthropic import (
 )
 from fast_agent.llm.provider.error_utils import build_stream_failure_response
 from fast_agent.llm.provider_types import Provider
-from fast_agent.llm.reasoning_effort import parse_reasoning_setting
+from fast_agent.llm.reasoning_effort import (
+    AUTO_REASONING,
+    format_reasoning_setting,
+    is_auto_reasoning,
+    parse_reasoning_setting,
+)
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.structured_output_mode import StructuredOutputMode
 from fast_agent.llm.usage_tracking import TurnUsage
@@ -65,6 +77,9 @@ STRUCTURED_OUTPUT_TOOL_NAME = "return_structured_output"
 STRUCTURED_OUTPUT_BETA = "structured-outputs-2025-11-13"
 INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14"
 
+# TODO: Remove beta header once Anthropic promotes 1M context to GA.
+LONG_CONTEXT_BETA = "context-1m-2025-08-07"
+
 # Stream capture mode - when enabled, saves all streaming chunks to files for debugging
 # Set FAST_AGENT_LLM_TRACE=1 (or any non-empty value) to enable
 STREAM_CAPTURE_ENABLED = bool(os.environ.get("FAST_AGENT_LLM_TRACE"))
@@ -74,6 +89,8 @@ STREAM_CAPTURE_DIR = Path("stream-debug")
 SystemParam = Union[str, list[TextBlockParam]]
 
 logger = get_logger(__name__)
+
+_OTEL_STREAM_WRAPPER_WARNED = False
 
 
 def _stream_capture_filename(turn: int) -> Path | None:
@@ -118,6 +135,97 @@ def _save_stream_request(filename_base: Path | None, arguments: dict[str, Any]) 
             json.dump(payload, f, indent=2, sort_keys=True)
     except Exception as e:
         logger.debug(f"Failed to save stream request: {e}")
+
+
+def _start_fallback_stream_span(model: str) -> Span:
+    tracer = trace.get_tracer(__name__)
+    span = tracer.start_span("anthropic.chat")
+    if span.is_recording():
+        span.set_attribute(GenAIAttributes.GEN_AI_SYSTEM, "Anthropic")
+        span.set_attribute(GenAIAttributes.GEN_AI_REQUEST_MODEL, model)
+        span.set_attribute(
+            SpanAttributes.LLM_REQUEST_TYPE,
+            LLMRequestTypeValues.COMPLETION.value,
+        )
+    return span
+
+
+def _finalize_fallback_stream_span(
+    span: Span,
+    response: Message | None,
+    had_error: bool,
+) -> None:
+    if not span.is_recording():
+        span.end()
+        return
+    if response is not None:
+        span.set_attribute(GenAIAttributes.GEN_AI_RESPONSE_ID, response.id)
+        span.set_attribute(GenAIAttributes.GEN_AI_RESPONSE_MODEL, response.model)
+        if response.usage:
+            input_tokens = response.usage.input_tokens or 0
+            cache_read_tokens = response.usage.cache_read_input_tokens or 0
+            cache_creation_tokens = response.usage.cache_creation_input_tokens or 0
+            input_total = input_tokens + cache_read_tokens + cache_creation_tokens
+            output_tokens = response.usage.output_tokens or 0
+            span.set_attribute(GenAIAttributes.GEN_AI_USAGE_INPUT_TOKENS, input_total)
+            span.set_attribute(GenAIAttributes.GEN_AI_USAGE_OUTPUT_TOKENS, output_tokens)
+            span.set_attribute(
+                SpanAttributes.LLM_USAGE_TOTAL_TOKENS, input_total + output_tokens
+            )
+    if not had_error:
+        span.set_status(Status(StatusCode.OK))
+    span.end()
+
+
+def _otel_stream_wrapper_uses_awrap(wrapper: Any) -> bool:
+    closure = getattr(wrapper, "__closure__", None)
+    if not isinstance(closure, tuple):
+        return False
+    for cell in closure:
+        candidate = cell.cell_contents
+        module_name = getattr(candidate, "__module__", None)
+        if (
+            getattr(candidate, "__name__", None) == "_awrap"
+            and isinstance(module_name, str)
+            and module_name.startswith("opentelemetry.instrumentation.anthropic")
+        ):
+            return True
+    return False
+
+
+def _maybe_unwrap_otel_beta_stream(stream_method: Any) -> Any:
+    """Bypass a broken OTel anthropic wrapper for beta async streaming.
+
+    The opentelemetry-instrumentation-anthropic wrapper uses an async wrapper
+    that awaits the sync beta stream method, which raises
+    `TypeError: object BetaAsyncMessageStreamManager can't be used in 'await' expression`.
+    If detected, fall back to the original stream method to avoid the error.
+    """
+
+    wrapper = getattr(stream_method, "_self_wrapper", None)
+    if wrapper is None:
+        return stream_method
+    wrapper_module = getattr(wrapper, "__module__", None)
+    if not isinstance(wrapper_module, str):
+        return stream_method
+    if wrapper_module != "opentelemetry.instrumentation.anthropic":
+        return stream_method
+
+    wrapped = getattr(stream_method, "__wrapped__", None)
+    if wrapped is None or inspect.iscoroutinefunction(wrapped):
+        return stream_method
+    if not _otel_stream_wrapper_uses_awrap(wrapper):
+        return stream_method
+
+    global _OTEL_STREAM_WRAPPER_WARNED
+    if not _OTEL_STREAM_WRAPPER_WARNED:
+        logger.warning(
+            "Detected OpenTelemetry anthropic beta stream wrapper that awaits a sync "
+            "method. Falling back to the unwrapped stream call to avoid runtime errors."
+        )
+        _OTEL_STREAM_WRAPPER_WARNED = True
+
+    return wrapped
 
 
 def _save_stream_chunk(filename_base: Path | None, chunk: Any) -> None:
@@ -192,35 +300,44 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         # Initialize logger - keep it simple without name reference
         kwargs.pop("provider", None)
         structured_override = kwargs.pop("structured_output_mode", None)
+        long_context_requested = kwargs.pop("long_context", False)
         super().__init__(provider=Provider.ANTHROPIC, **kwargs)
         self._structured_output_mode_override: StructuredOutputMode | None = (
             structured_override
         )
 
         raw_setting = kwargs.get("reasoning_effort", None)
+        reasoning_source: str | None = None
+        if raw_setting is not None:
+            reasoning_source = "llm_kwargs"
         config = self.context.config.anthropic if self.context and self.context.config else None
+        model_name = self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
         if raw_setting is None and config:
             raw_setting = config.reasoning
-            if raw_setting is None:
-                if config.thinking_enabled:
-                    raw_setting = config.thinking_budget_tokens
-                else:
-                    raw_setting = False
-                if (
-                    "thinking_enabled" in config.model_fields_set
-                    or "thinking_budget_tokens" in config.model_fields_set
-                ):
-                    self.logger.warning(
-                        "Anthropic config 'thinking_enabled'/'thinking_budget_tokens' is deprecated; "
-                        "use 'reasoning'."
-                    )
+            if raw_setting is not None:
+                reasoning_source = "config_reasoning"
 
-        if raw_setting is None:
-            from fast_agent.llm.model_database import ModelDatabase
+        from fast_agent.llm.model_database import ModelDatabase
 
-            model_name = self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
-            if ModelDatabase.get_reasoning(model_name) == "anthropic_thinking":
-                raw_setting = 1024
+        reasoning_mode = ModelDatabase.get_reasoning(model_name)
+        spec = ModelDatabase.get_reasoning_effort_spec(model_name)
+
+        if raw_setting is not None and reasoning_mode != "anthropic_thinking":
+            self.logger.warning(
+                "Reasoning setting ignored for model without Anthropic thinking support."
+            )
+            raw_setting = None
+            reasoning_source = None
+
+        if raw_setting is None and reasoning_mode == "anthropic_thinking":
+            if spec and spec.kind == "effort" and spec.allow_auto:
+                # Adaptive-thinking model: use "auto" so the API omits the
+                # effort parameter and lets the provider choose automatically.
+                raw_setting = AUTO_REASONING
+            else:
+                raw_setting = spec.default if spec and spec.default else 1024
+            if raw_setting is not None:
+                reasoning_source = "model_default"
 
         setting = parse_reasoning_setting(raw_setting)
         if setting is not None:
@@ -228,6 +345,62 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                 self.set_reasoning_effort(setting)
             except ValueError as exc:
                 self.logger.warning(f"Invalid reasoning setting: {exc}")
+                if spec and spec.default:
+                    self.set_reasoning_effort(spec.default)
+                    reasoning_source = "model_default"
+                else:
+                    self.set_reasoning_effort(None)
+        else:
+            self.set_reasoning_effort(None)
+
+        if ModelDatabase.get_reasoning(model_name) == "anthropic_thinking":
+            resolved_setting = self.reasoning_effort
+            thinking_enabled = self._is_thinking_enabled(model_name)
+            payload = {
+                "model": model_name,
+                "setting": format_reasoning_setting(resolved_setting),
+                "reasoning_source": reasoning_source or "unknown",
+                "thinking_enabled": thinking_enabled,
+                "config_path": (
+                    self.context.config._config_file if self.context and self.context.config else None
+                ),
+            }
+            if thinking_enabled:
+                self.logger.event(
+                    "info",
+                    "anthropic_reasoning",
+                    "Anthropic reasoning resolved",
+                    None,
+                    payload,
+                )
+            else:
+                self.logger.event(
+                    "warning",
+                    "anthropic_reasoning",
+                    "Anthropic reasoning disabled",
+                    None,
+                    payload,
+                )
+
+        # Long context (1M) setup
+        self._long_context = False
+        if long_context_requested:
+            model_name = self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
+            long_context_window = ModelDatabase.get_long_context_window(model_name)
+            if long_context_window is not None:
+                self._long_context = True
+                self._context_window_override = long_context_window
+                self._usage_accumulator.set_context_window_override(long_context_window)
+                self.logger.info(
+                    f"Long context ({long_context_window:,}) enabled for model '{model_name}'"
+                )
+            else:
+                supported = ", ".join(self._list_supported_long_context_models())
+                self.logger.warning(
+                    f"Long context (context=1m) is not supported for model "
+                    f"'{model_name}'. Ignoring. Supported models: "
+                    f"{supported}"
+                )
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize Anthropic-specific default parameters"""
@@ -239,6 +412,12 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         base_params.model = chosen_model
 
         return base_params
+
+    def _list_supported_long_context_models(self) -> list[str]:
+        """Return models that support explicit long-context overrides."""
+        from fast_agent.llm.model_database import ModelDatabase
+
+        return ModelDatabase.list_long_context_models()
 
     def _base_url(self) -> str | None:
         assert self.context.config
@@ -267,6 +446,15 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             cache_ttl = self.context.config.anthropic.cache_ttl
         return cache_ttl
 
+    def _supports_adaptive_thinking(self, model: str) -> bool:
+        """Return True when model uses adaptive thinking instead of manual budgets."""
+        from fast_agent.llm.model_database import ModelDatabase
+
+        if ModelDatabase.get_reasoning(model) != "anthropic_thinking":
+            return False
+        spec = ModelDatabase.get_reasoning_effort_spec(model)
+        return bool(spec and spec.kind == "effort")
+
     def _is_thinking_enabled(self, model: str) -> bool:
         """Check if extended thinking should be enabled for this request."""
         from fast_agent.llm.model_database import ModelDatabase
@@ -276,14 +464,31 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         setting = self.reasoning_effort
         if setting is None:
             return False
+        if is_auto_reasoning(setting):
+            return self._supports_adaptive_thinking(model)
         if setting.kind == "toggle":
             return bool(setting.value)
         if setting.kind == "budget":
             return bool(setting.value)
         if setting.kind == "effort":
-            self.logger.warning("Anthropic reasoning expects budget tokens; using default budget.")
-            return True
+            if str(setting.value).lower() == "none":
+                return False
+            return self._supports_adaptive_thinking(model)
         return False
+
+    def _resolve_adaptive_effort(self) -> str | None:
+        """Resolve adaptive effort for Anthropic output_config."""
+        setting = self.reasoning_effort
+        if setting is None or setting.kind != "effort":
+            return None
+        if is_auto_reasoning(setting):
+            return None
+        effort = str(setting.value).lower()
+        if effort == "xhigh":
+            return "max"
+        if effort == "none":
+            return None
+        return effort
 
     def _get_thinking_budget(self) -> int:
         """Get the thinking budget tokens (minimum 1024)."""
@@ -291,6 +496,47 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         if setting and setting.kind == "budget" and isinstance(setting.value, int):
             return max(1024, setting.value)
         return 1024
+
+    def _resolve_thinking_arguments(
+        self,
+        model: str,
+        max_tokens: int | None,
+        structured_mode: StructuredOutputMode | None,
+    ) -> tuple[dict[str, Any], bool]:
+        """Build Anthropic thinking/output_config arguments for this request."""
+        args: dict[str, Any] = {}
+        thinking_enabled = self._is_thinking_enabled(model)
+        adaptive_supported = self._supports_adaptive_thinking(model)
+
+        if thinking_enabled and structured_mode == "tool_use":
+            if max_tokens is not None:
+                args["max_tokens"] = max_tokens
+            return args, False
+
+        if not thinking_enabled:
+            if max_tokens is not None:
+                args["max_tokens"] = max_tokens
+            return args, False
+
+        if adaptive_supported:
+            args["thinking"] = {"type": "adaptive"}
+            effort = self._resolve_adaptive_effort()
+            if effort:
+                args["output_config"] = {"effort": effort}
+            args["max_tokens"] = max_tokens if max_tokens is not None else 16000
+            return args, True
+
+        thinking_budget = self._get_thinking_budget()
+        args["thinking"] = {
+            "type": "enabled",
+            "budget_tokens": thinking_budget,
+        }
+        current_max = max_tokens if max_tokens is not None else 16000
+        if current_max <= thinking_budget:
+            args["max_tokens"] = thinking_budget + 8192
+        else:
+            args["max_tokens"] = current_max
+        return args, True
 
     def _resolve_structured_output_mode(
         self, model: str, structured_model: Type[ModelT] | None
@@ -752,29 +998,21 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             if structured_mode == "json" and structured_model:
                 base_args["output_format"] = self._build_output_format(structured_model)
 
-        thinking_enabled = self._is_thinking_enabled(model)
-        if thinking_enabled and structured_mode == "tool_use":
-            thinking_enabled = False
-
-        if thinking_enabled:
-            thinking_budget = self._get_thinking_budget()
-            base_args["thinking"] = {
-                "type": "enabled",
-                "budget_tokens": thinking_budget,
-            }
-            current_max = params.maxTokens or 16000
-            if current_max <= thinking_budget:
-                base_args["max_tokens"] = thinking_budget + 8192
-            else:
-                base_args["max_tokens"] = current_max
-        elif params.maxTokens is not None:
-            base_args["max_tokens"] = params.maxTokens
+        thinking_args, thinking_enabled = self._resolve_thinking_arguments(
+            model=model,
+            max_tokens=params.maxTokens,
+            structured_mode=structured_mode,
+        )
+        base_args.update(thinking_args)
 
         beta_flags: list[str] = []
+        adaptive_thinking = self._supports_adaptive_thinking(model)
         if structured_mode:
             beta_flags.append(STRUCTURED_OUTPUT_BETA)
-        if thinking_enabled and available_tools:
+        if thinking_enabled and available_tools and not adaptive_thinking:
             beta_flags.append(INTERLEAVED_THINKING_BETA)
+        if self._long_context:
+            beta_flags.append(LONG_CONTEXT_BETA)
         if beta_flags:
             base_args["betas"] = beta_flags
 
@@ -814,12 +1052,39 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         _save_stream_request(capture_filename, arguments)
 
         # Use streaming API with helper
+        otel_span: Span | None = None
+        otel_span_error = False
+        response: Message | None = None
         try:
-            async with anthropic.beta.messages.stream(**arguments) as stream:
-                # Process the stream
-                response, thinking_segments = await self._process_stream(
-                    stream, model, capture_filename
-                )
+            # OpenTelemetry instrumentation wraps the stream() call and returns a coroutine
+            # that must be awaited before using as context manager. When the wrapper is
+            # known-broken for beta streams, we bypass it to avoid await errors.
+            stream_method = _maybe_unwrap_otel_beta_stream(anthropic.beta.messages.stream)
+            otel_wrapper_bypassed = stream_method is not anthropic.beta.messages.stream
+            if otel_wrapper_bypassed:
+                otel_span = _start_fallback_stream_span(model)
+
+            stream_call = stream_method(**arguments)
+            # Check if it's a coroutine (OpenTelemetry is installed)
+            if asyncio.iscoroutine(stream_call):
+                stream_manager = await stream_call
+            else:
+                stream_manager = stream_call
+            # Type annotation: stream_manager is BetaAsyncMessageStream ats runtime
+            stream_manager = cast("BetaAsyncMessageStream", stream_manager)
+            if otel_span is not None:
+                with trace.use_span(otel_span, end_on_exit=False):
+                    async with stream_manager as stream:
+                        # Process the stream
+                        response, thinking_segments = await self._process_stream(
+                            stream, model, capture_filename
+                        )
+            else:
+                async with stream_manager as stream:
+                    # Process the stream
+                    response, thinking_segments = await self._process_stream(
+                        stream, model, capture_filename
+                    )
         except asyncio.CancelledError as e:
             reason = str(e) if e.args else "cancelled"
             logger.info(f"Anthropic completion cancelled: {reason}")
@@ -829,8 +1094,21 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                 stop_reason=LlmStopReason.CANCELLED,
             )
         except APIError as error:
+            if otel_span is not None and otel_span.is_recording():
+                otel_span.record_exception(error)
+                otel_span.set_status(Status(StatusCode.ERROR))
+                otel_span_error = True
             logger.error("Streaming APIError during Anthropic completion", exc_info=error)
             raise error
+        except Exception as error:
+            if otel_span is not None and otel_span.is_recording():
+                otel_span.record_exception(error)
+                otel_span.set_status(Status(StatusCode.ERROR))
+                otel_span_error = True
+            raise
+        finally:
+            if otel_span is not None:
+                _finalize_fallback_stream_span(otel_span, response, otel_span_error)
 
         # Track usage if response is valid and has usage data
         if (

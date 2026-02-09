@@ -6,7 +6,11 @@ from rich.text import Text
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
+from fast_agent.config import Settings, ShellSettings
+from fast_agent.constants import DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
 from fast_agent.context import Context
+from fast_agent.llm.request_params import RequestParams
+from fast_agent.llm.terminal_output_limits import calculate_terminal_output_limit_for_model
 from fast_agent.skills.registry import SkillRegistry
 from fast_agent.types import PromptMessageExtended
 from fast_agent.ui.console_display import ConsoleDisplay
@@ -52,6 +56,20 @@ def _create_skill(directory, name: str, description: str = "desc") -> None:
         f"---\nname: {name}\ndescription: {description}\n---\n",
         encoding="utf-8",
     )
+
+
+class StubLLM:
+    def __init__(self, model_name: str) -> None:
+        self.model_name = model_name
+        self.instruction = ""
+        self.default_request_params = RequestParams()
+
+
+def _stub_llm_factory(model_name: str):
+    def _factory(**_: object) -> StubLLM:
+        return StubLLM(model_name)
+
+    return _factory
 
 
 @pytest.mark.asyncio
@@ -176,5 +194,40 @@ async def test_skills_tool_listed_and_highlighted(tmp_path) -> None:
     assert call["bottom_items"] is not None
     assert "skill" in call["bottom_items"]
     assert call["highlight_index"] == call["bottom_items"].index("skill")
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_shell_output_limit_refreshes_after_llm_attach() -> None:
+    config = AgentConfig(name="test", instruction="Instruction", servers=[], shell=True)
+    agent = McpAgent(config=config, context=Context())
+
+    shell_runtime = agent.shell_runtime
+    assert shell_runtime is not None
+    assert shell_runtime.output_byte_limit == DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+
+    await agent.attach_llm(_stub_llm_factory("claude-opus-4-6"), model="opus")
+
+    assert shell_runtime.output_byte_limit == calculate_terminal_output_limit_for_model(
+        "claude-opus-4-6"
+    )
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_shell_output_limit_override_is_preserved_after_llm_attach() -> None:
+    settings = Settings(shell_execution=ShellSettings(output_byte_limit=9000))
+    config = AgentConfig(name="test", instruction="Instruction", servers=[], shell=True)
+    agent = McpAgent(config=config, context=Context(config=settings))
+
+    shell_runtime = agent.shell_runtime
+    assert shell_runtime is not None
+    assert shell_runtime.output_byte_limit == 9000
+
+    await agent.attach_llm(_stub_llm_factory("claude-opus-4-6"), model="opus")
+
+    assert shell_runtime.output_byte_limit == 9000
 
     await agent._aggregator.close()

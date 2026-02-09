@@ -10,6 +10,7 @@ import typer.main
 from typer.core import TyperGroup
 
 from fast_agent.cli.constants import normalize_resume_flag_args
+from fast_agent.cli.env_helpers import resolve_environment_dir_option
 from fast_agent.cli.terminal import Application
 from fast_agent.constants import FAST_AGENT_SHELL_CHILD_ENV
 from fast_agent.ui.console import console as shared_console
@@ -139,8 +140,7 @@ def main(
         )
         raise typer.Exit(1)
 
-    if env is not None:
-        os.environ["ENVIRONMENT_DIR"] = str(env)
+    resolve_environment_dir_option(ctx, env)
 
     application.verbosity = 1 if verbose else 0 if not quiet else -1
     if not color:

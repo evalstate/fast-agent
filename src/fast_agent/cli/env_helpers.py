@@ -11,6 +11,8 @@ if TYPE_CHECKING:
 def resolve_environment_dir_option(
     ctx: typer.Context | None,
     env_dir: Path | None,
+    *,
+    set_env_var: bool = True,
 ) -> Path | None:
     resolved = env_dir
     if resolved is not None and not isinstance(resolved, (Path, str)):
@@ -30,7 +32,12 @@ def resolve_environment_dir_option(
 
     if isinstance(resolved, Path):
         resolved = resolved.expanduser()
-        os.environ["ENVIRONMENT_DIR"] = str(resolved)
+        if not resolved.is_absolute():
+            resolved = (Path.cwd() / resolved).resolve()
+        else:
+            resolved = resolved.resolve()
+        if set_env_var:
+            os.environ["ENVIRONMENT_DIR"] = str(resolved)
         return resolved
 
     return None

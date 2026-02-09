@@ -60,7 +60,10 @@ async def save_session_history(ctx: "HookContext") -> None:
     try:
         await manager.save_current_session(cast("AgentProtocol", ctx.agent))
     except Exception as exc:
-        logger.warning("Failed to save session history", exc_info=exc)
+        logger.warning(
+            "Failed to save session history",
+            data={"error": str(exc), "error_type": type(exc).__name__},
+        )
         return
 
     if acp_context is None or session is None:
@@ -76,4 +79,7 @@ async def save_session_history(ctx: "HookContext") -> None:
             updated_at=session.info.last_activity.isoformat(),
         )
     except Exception as exc:
-        logger.warning("Failed to send ACP session info update", exc_info=exc)
+        logger.warning(
+            "Failed to send ACP session info update",
+            data={"error": str(exc), "error_type": type(exc).__name__},
+        )
