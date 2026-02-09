@@ -29,6 +29,7 @@ from fast_agent.commands.context import CommandContext
 from fast_agent.commands.handlers import agent_cards as agent_card_handlers
 from fast_agent.commands.handlers import display as display_handlers
 from fast_agent.commands.handlers import history as history_handlers
+from fast_agent.commands.handlers import mcp_runtime as mcp_runtime_handlers
 from fast_agent.commands.handlers import model as model_handlers
 from fast_agent.commands.handlers import prompts as prompt_handlers
 from fast_agent.commands.handlers import sessions as sessions_handlers
@@ -57,6 +58,9 @@ from fast_agent.ui.command_payloads import (
     ListToolsCommand,
     LoadAgentCardCommand,
     LoadPromptCommand,
+    McpConnectCommand,
+    McpDisconnectCommand,
+    McpListCommand,
     ModelReasoningCommand,
     ModelVerbosityCommand,
     PinSessionCommand,
@@ -75,6 +79,7 @@ from fast_agent.ui.command_payloads import (
     UnknownCommand,
     is_command_payload,
 )
+from fast_agent.ui.console import console
 from fast_agent.ui.enhanced_prompt import (
     _display_agent_info_helper,
     get_enhanced_input,
@@ -489,6 +494,67 @@ class InteractivePrompt:
                         outcome = await display_handlers.handle_show_mcp_status(
                             context,
                             agent_name=agent,
+                        )
+                        await self._emit_command_outcome(context, outcome)
+                        continue
+                    case McpListCommand():
+                        context = self._build_command_context(prompt_provider, agent)
+                        outcome = await mcp_runtime_handlers.handle_mcp_list(
+                            context,
+                            manager=prompt_provider,
+                            agent_name=agent,
+                        )
+                        await self._emit_command_outcome(context, outcome)
+                        continue
+                    case McpConnectCommand(
+                        target_text=target_text,
+                        server_name=server_name,
+                        timeout_seconds=timeout_seconds,
+                        trigger_oauth=trigger_oauth,
+                        reconnect_on_disconnect=reconnect_on_disconnect,
+                        force_reconnect=force_reconnect,
+                        error=error,
+                    ):
+                        context = self._build_command_context(prompt_provider, agent)
+                        if error:
+                            rich_print(f"[red]{error}[/red]")
+                            continue
+                        runtime_target = target_text
+                        if server_name:
+                            runtime_target += f" --name {server_name}"
+                        if timeout_seconds is not None:
+                            runtime_target += f" --timeout {timeout_seconds}"
+                        if trigger_oauth is True:
+                            runtime_target += " --oauth"
+                        elif trigger_oauth is False:
+                            runtime_target += " --no-oauth"
+                        if reconnect_on_disconnect is False:
+                            runtime_target += " --no-reconnect"
+                        if force_reconnect:
+                            runtime_target += " --reconnect"
+                        label = server_name or target_text.split(maxsplit=1)[0]
+                        with console.status(
+                            f"[yellow]Starting MCP server '{label}'...[/yellow]",
+                            spinner="dots",
+                        ):
+                            outcome = await mcp_runtime_handlers.handle_mcp_connect(
+                                context,
+                                manager=prompt_provider,
+                                agent_name=agent,
+                                target_text=runtime_target,
+                            )
+                        await self._emit_command_outcome(context, outcome)
+                        continue
+                    case McpDisconnectCommand(server_name=server_name, error=error):
+                        context = self._build_command_context(prompt_provider, agent)
+                        if error or not server_name:
+                            rich_print(f"[red]{error or 'Server name is required'}[/red]")
+                            continue
+                        outcome = await mcp_runtime_handlers.handle_mcp_disconnect(
+                            context,
+                            manager=prompt_provider,
+                            agent_name=agent,
+                            server_name=server_name,
                         )
                         await self._emit_command_outcome(context, outcome)
                         continue

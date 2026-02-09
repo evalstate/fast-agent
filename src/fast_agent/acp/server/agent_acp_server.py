@@ -81,6 +81,7 @@ from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
 from fast_agent.acp.tool_permission_adapter import ACPToolPermissionAdapter
 from fast_agent.acp.tool_progress import ACPToolProgressManager
 from fast_agent.agents.tool_runner import ToolRunnerHooks
+from fast_agent.config import MCPServerSettings
 from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
 )
@@ -100,6 +101,7 @@ from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.terminal_output_limits import calculate_terminal_output_limit_for_model
 from fast_agent.llm.usage_tracking import last_turn_usage
 from fast_agent.mcp.helpers.content_helpers import is_text_content
+from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
 from fast_agent.mcp.tool_execution_handler import NoOpToolExecutionHandler
 from fast_agent.mcp.tool_permission_handler import NoOpToolPermissionHandler
 from fast_agent.mcp.types import McpAgentProtocol
@@ -236,6 +238,15 @@ class AgentACPServer(ACPAgent):
         | None = None,
         detach_agent_tools_callback: Callable[[str, Sequence[str]], Awaitable[list[str]]]
         | None = None,
+        attach_mcp_server_callback: Callable[
+            [str, str, MCPServerSettings | None, MCPAttachOptions | None],
+            Awaitable[MCPAttachResult],
+        ]
+        | None = None,
+        detach_mcp_server_callback: Callable[[str, str], Awaitable[MCPDetachResult]] | None = None,
+        list_attached_mcp_servers_callback: Callable[[str], Awaitable[list[str]]] | None = None,
+        list_configured_detached_mcp_servers_callback: Callable[[str], Awaitable[list[str]]]
+        | None = None,
         dump_agent_card_callback: Callable[[str], Awaitable[str]] | None = None,
         reload_callback: Callable[[], Awaitable[bool]] | None = None,
     ) -> None:
@@ -254,6 +265,11 @@ class AgentACPServer(ACPAgent):
             load_card_callback: Optional callback to load AgentCards at runtime
             attach_agent_tools_callback: Optional callback to attach agent tools at runtime
             detach_agent_tools_callback: Optional callback to detach agent tools at runtime
+            attach_mcp_server_callback: Optional callback to attach MCP servers at runtime
+            detach_mcp_server_callback: Optional callback to detach MCP servers at runtime
+            list_attached_mcp_servers_callback: Optional callback to list attached MCP servers
+            list_configured_detached_mcp_servers_callback: Optional callback to list configured
+                detached MCP servers
             dump_agent_card_callback: Optional callback to dump AgentCards at runtime
             reload_callback: Optional callback to reload AgentCards
         """
@@ -267,6 +283,12 @@ class AgentACPServer(ACPAgent):
         self._load_card_callback = load_card_callback
         self._attach_agent_tools_callback = attach_agent_tools_callback
         self._detach_agent_tools_callback = detach_agent_tools_callback
+        self._attach_mcp_server_callback = attach_mcp_server_callback
+        self._detach_mcp_server_callback = detach_mcp_server_callback
+        self._list_attached_mcp_servers_callback = list_attached_mcp_servers_callback
+        self._list_configured_detached_mcp_servers_callback = (
+            list_configured_detached_mcp_servers_callback
+        )
         self._dump_agent_card_callback = dump_agent_card_callback
         self._reload_callback = reload_callback
         self._primary_registry_version = getattr(primary_instance, "registry_version", 0)
@@ -859,6 +881,62 @@ class AgentACPServer(ACPAgent):
                 session_state, parent_name, child_names
             )
 
+        async def attach_mcp_server(
+            agent_name: str,
+            server_name: str,
+            server_config: MCPServerSettings | None = None,
+            options: MCPAttachOptions | None = None,
+        ) -> MCPAttachResult:
+            if not self._attach_mcp_server_callback:
+                raise RuntimeError("Runtime MCP server attachment is not available.")
+            result = await self._attach_mcp_server_callback(
+                agent_name,
+                server_name,
+                server_config,
+                options,
+            )
+
+            if session_state.acp_context:
+                resolved_instruction = None
+                agent = instance.agents.get(agent_name)
+                if isinstance(agent, InstructionContextCapable):
+                    resolved_instruction = agent.instruction
+                await session_state.acp_context.invalidate_instruction_cache(
+                    agent_name,
+                    resolved_instruction,
+                )
+                await session_state.acp_context.send_available_commands_update()
+
+            return result
+
+        async def detach_mcp_server(agent_name: str, server_name: str) -> MCPDetachResult:
+            if not self._detach_mcp_server_callback:
+                raise RuntimeError("Runtime MCP server detachment is not available.")
+            result = await self._detach_mcp_server_callback(agent_name, server_name)
+
+            if session_state.acp_context:
+                resolved_instruction = None
+                agent = instance.agents.get(agent_name)
+                if isinstance(agent, InstructionContextCapable):
+                    resolved_instruction = agent.instruction
+                await session_state.acp_context.invalidate_instruction_cache(
+                    agent_name,
+                    resolved_instruction,
+                )
+                await session_state.acp_context.send_available_commands_update()
+
+            return result
+
+        async def list_attached_mcp_servers(agent_name: str) -> list[str]:
+            if not self._list_attached_mcp_servers_callback:
+                raise RuntimeError("Runtime MCP server listing is not available.")
+            return await self._list_attached_mcp_servers_callback(agent_name)
+
+        async def list_configured_detached_mcp_servers(agent_name: str) -> list[str]:
+            if not self._list_configured_detached_mcp_servers_callback:
+                raise RuntimeError("Configured MCP server listing is not available.")
+            return await self._list_configured_detached_mcp_servers_callback(agent_name)
+
         async def dump_agent_card(agent_name: str) -> str:
             if not self._dump_agent_card_callback:
                 raise RuntimeError("AgentCard dumping is not available.")
@@ -900,6 +978,20 @@ class AgentACPServer(ACPAgent):
             ),
             detach_agent_callback=(
                 detach_agent_tools if self._detach_agent_tools_callback else None
+            ),
+            attach_mcp_server_callback=(
+                attach_mcp_server if self._attach_mcp_server_callback else None
+            ),
+            detach_mcp_server_callback=(
+                detach_mcp_server if self._detach_mcp_server_callback else None
+            ),
+            list_attached_mcp_servers_callback=(
+                list_attached_mcp_servers if self._list_attached_mcp_servers_callback else None
+            ),
+            list_configured_detached_mcp_servers_callback=(
+                list_configured_detached_mcp_servers
+                if self._list_configured_detached_mcp_servers_callback
+                else None
             ),
             dump_agent_callback=(dump_agent_card if self._dump_agent_card_callback else None),
             reload_callback=reload_cards if self._reload_callback else None,

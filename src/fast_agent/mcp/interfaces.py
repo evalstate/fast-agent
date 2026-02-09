@@ -5,6 +5,7 @@ This module defines protocols (interfaces) that can be used to break circular de
 
 from datetime import timedelta
 from typing import (
+    TYPE_CHECKING,
     AsyncContextManager,
     Callable,
     Protocol,
@@ -22,6 +23,9 @@ from fast_agent.interfaces import (
     ModelFactoryFunctionProtocol,
     ModelT,
 )
+
+if TYPE_CHECKING:
+    from fast_agent.config import MCPServerSettings
 
 __all__ = [
     "MCPConnectionManagerProtocol",
@@ -65,6 +69,9 @@ class ServerRegistryProtocol(Protocol):
     """Protocol defining the minimal interface of ServerRegistry needed by gen_client."""
 
     @property
+    def registry(self) -> dict[str, "MCPServerSettings"]: ...
+
+    @property
     def connection_manager(self) -> MCPConnectionManagerProtocol: ...
 
     def initialize_server(
@@ -83,6 +90,8 @@ class ServerRegistryProtocol(Protocol):
     ) -> AsyncContextManager[ClientSession]:
         """Initialize a server and yield a client session."""
         ...
+
+    def get_server_config(self, server_name: str) -> "MCPServerSettings | None": ...
 
 
 class ServerConnection(Protocol):

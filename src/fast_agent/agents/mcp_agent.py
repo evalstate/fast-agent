@@ -38,6 +38,7 @@ from pydantic import BaseModel
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_agent import DEFAULT_CAPABILITIES
 from fast_agent.agents.tool_agent import ToolAgent
+from fast_agent.config import MCPServerSettings
 from fast_agent.constants import (
     HUMAN_INPUT_TOOL_NAME,
     SHELL_NOTICE_PREFIX,
@@ -52,7 +53,14 @@ from fast_agent.mcp.common import (
     get_server_name,
     is_namespaced_name,
 )
-from fast_agent.mcp.mcp_aggregator import MCPAggregator, NamespacedTool, ServerStatus
+from fast_agent.mcp.mcp_aggregator import (
+    MCPAggregator,
+    MCPAttachOptions,
+    MCPAttachResult,
+    MCPDetachResult,
+    NamespacedTool,
+    ServerStatus,
+)
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest
 from fast_agent.skills.registry import SkillRegistry
 from fast_agent.tools.elicitation import (
@@ -307,6 +315,25 @@ class McpAgent(ABC, ToolAgent):
         if not self._aggregator:
             return {}
         return await self._aggregator.collect_server_status()
+
+    async def attach_mcp_server(
+        self,
+        *,
+        server_name: str,
+        server_config: MCPServerSettings | None = None,
+        options: MCPAttachOptions | None = None,
+    ) -> MCPAttachResult:
+        return await self._aggregator.attach_server(
+            server_name=server_name,
+            server_config=server_config,
+            options=options,
+        )
+
+    async def detach_mcp_server(self, server_name: str) -> MCPDetachResult:
+        return await self._aggregator.detach_server(server_name)
+
+    def list_attached_mcp_servers(self) -> list[str]:
+        return self._aggregator.list_attached_servers()
 
     @property
     def aggregator(self) -> MCPAggregator:

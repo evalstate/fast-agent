@@ -7,8 +7,14 @@ from fast_agent.interfaces import AgentProtocol
 if TYPE_CHECKING:
     from rich.text import Text
 
+    from fast_agent.config import MCPServerSettings
     from fast_agent.context import Context
-    from fast_agent.mcp.mcp_aggregator import MCPAggregator
+    from fast_agent.mcp.mcp_aggregator import (
+        MCPAggregator,
+        MCPAttachOptions,
+        MCPAttachResult,
+        MCPDetachResult,
+    )
     from fast_agent.skills import SkillManifest
     from fast_agent.skills.registry import SkillRegistry
     from fast_agent.tools.shell_runtime import ShellRuntime
@@ -21,6 +27,18 @@ class McpAgentProtocol(AgentProtocol, Protocol):
 
     @property
     def aggregator(self) -> MCPAggregator: ...
+
+    async def attach_mcp_server(
+        self,
+        *,
+        server_name: str,
+        server_config: "MCPServerSettings | None" = None,
+        options: "MCPAttachOptions | None" = None,
+    ) -> "MCPAttachResult": ...
+
+    async def detach_mcp_server(self, server_name: str) -> "MCPDetachResult": ...
+
+    def list_attached_mcp_servers(self) -> list[str]: ...
 
     @property
     def display(self) -> "ConsoleDisplay": ...

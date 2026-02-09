@@ -71,6 +71,8 @@ def _add_none_to_context(context_manager):
 
 def _prepare_headers_and_auth(
     server_config: MCPServerSettings,
+    *,
+    trigger_oauth: bool = True,
 ) -> tuple[dict[str, str], Union["OAuthClientProvider", None], set[str]]:
     """
     Prepare request headers and determine if OAuth authentication should be used.
@@ -84,7 +86,11 @@ def _prepare_headers_and_auth(
 
     # OAuth is only relevant for SSE/HTTP transports and should be skipped when the
     # user has already supplied explicit Authorization headers.
-    if server_config.transport not in ("sse", "http") or user_provided_auth_keys:
+    if (
+        not trigger_oauth
+        or server_config.transport not in ("sse", "http")
+        or user_provided_auth_keys
+    ):
         return headers, None, user_provided_auth_keys
 
     oauth_auth = build_oauth_provider(server_config)
@@ -565,6 +571,9 @@ class MCPConnectionManager(ContextDependent):
             [MemoryObjectReceiveStream, MemoryObjectSendStream, timedelta | None],
             ClientSession,
         ],
+        *,
+        startup_timeout_seconds: float | None = None,
+        trigger_oauth: bool = True,
     ) -> ServerConnection:
         """
         Connect to a server and return a RunningServer instance that will persist
@@ -636,7 +645,10 @@ class MCPConnectionManager(ContextDependent):
                     )
                 # Suppress MCP library error spam
                 self._suppress_mcp_sse_errors()
-                headers, oauth_auth, user_auth_keys = _prepare_headers_and_auth(config)
+                headers, oauth_auth, user_auth_keys = _prepare_headers_and_auth(
+                    config,
+                    trigger_oauth=trigger_oauth,
+                )
                 if user_auth_keys:
                     logger.debug(
                         f"{server_name}: Using user-specified auth header(s); skipping OAuth provider.",
@@ -667,7 +679,10 @@ class MCPConnectionManager(ContextDependent):
                     raise ValueError(
                         f"Server '{server_name}' uses http transport but no url is specified"
                     )
-                headers, oauth_auth, user_auth_keys = _prepare_headers_and_auth(config)
+                headers, oauth_auth, user_auth_keys = _prepare_headers_and_auth(
+                    config,
+                    trigger_oauth=trigger_oauth,
+                )
                 if user_auth_keys:
                     logger.debug(
                         f"{server_name}: Using user-specified auth header(s); skipping OAuth provider.",
@@ -725,6 +740,8 @@ class MCPConnectionManager(ContextDependent):
                 return self.running_servers[server_name]
 
             self.running_servers[server_name] = server_conn
+            if startup_timeout_seconds is not None and startup_timeout_seconds <= 0:
+                raise ValueError("startup_timeout_seconds must be > 0 when provided")
             assert self._tg is not None
             self._tg.start_soon(_server_lifecycle_task, server_conn)
 
@@ -735,6 +752,9 @@ class MCPConnectionManager(ContextDependent):
         self,
         server_name: str,
         client_session_factory: Callable,
+        *,
+        startup_timeout_seconds: float | None = None,
+        trigger_oauth: bool = True,
     ) -> ServerConnection:
         """
         Get a running server instance, launching it if needed.
@@ -755,10 +775,28 @@ class MCPConnectionManager(ContextDependent):
         server_conn = await self.launch_server(
             server_name=server_name,
             client_session_factory=client_session_factory,
+            startup_timeout_seconds=startup_timeout_seconds,
+            trigger_oauth=trigger_oauth,
         )
 
         # Wait until it's fully initialized, or an error occurs
-        await server_conn.wait_for_initialized()
+        try:
+            if startup_timeout_seconds is None:
+                await server_conn.wait_for_initialized()
+            else:
+                await asyncio.wait_for(
+                    server_conn.wait_for_initialized(),
+                    timeout=startup_timeout_seconds,
+                )
+        except TimeoutError as exc:
+            server_conn.request_shutdown()
+            raise ServerInitializationError(
+                (
+                    f"MCP Server: '{server_name}': Startup timed out after "
+                    f"{startup_timeout_seconds:.1f}s"
+                ),
+                "Try increasing --timeout or verify server startup/authentication.",
+            ) from exc
 
         # Check if the server is healthy after initialization
         if not server_conn.is_healthy():
@@ -803,6 +841,9 @@ class MCPConnectionManager(ContextDependent):
         self,
         server_name: str,
         client_session_factory: Callable,
+        *,
+        startup_timeout_seconds: float | None = None,
+        trigger_oauth: bool = True,
     ) -> "ServerConnection":
         """
         Force reconnection to a server by disconnecting and re-establishing the connection.
@@ -829,10 +870,28 @@ class MCPConnectionManager(ContextDependent):
         server_conn = await self.launch_server(
             server_name=server_name,
             client_session_factory=client_session_factory,
+            startup_timeout_seconds=startup_timeout_seconds,
+            trigger_oauth=trigger_oauth,
         )
 
         # Wait for initialization
-        await server_conn.wait_for_initialized()
+        try:
+            if startup_timeout_seconds is None:
+                await server_conn.wait_for_initialized()
+            else:
+                await asyncio.wait_for(
+                    server_conn.wait_for_initialized(),
+                    timeout=startup_timeout_seconds,
+                )
+        except TimeoutError as exc:
+            server_conn.request_shutdown()
+            raise ServerInitializationError(
+                (
+                    f"MCP Server: '{server_name}': Reconnect timed out after "
+                    f"{startup_timeout_seconds:.1f}s"
+                ),
+                "Try increasing --timeout or verify server startup/authentication.",
+            ) from exc
 
         # Check if the reconnection was successful
         if not server_conn.is_healthy():

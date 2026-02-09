@@ -26,6 +26,34 @@ class ShowMcpStatusCommand(CommandBase):
     kind: Literal["show_mcp_status"] = "show_mcp_status"
 
 
+McpConnectMode = Literal["url", "npx", "uvx", "stdio"]
+
+
+@dataclass(frozen=True, slots=True)
+class McpListCommand(CommandBase):
+    kind: Literal["mcp_list"] = "mcp_list"
+
+
+@dataclass(frozen=True, slots=True)
+class McpConnectCommand(CommandBase):
+    target_text: str
+    parsed_mode: McpConnectMode
+    server_name: str | None
+    timeout_seconds: float | None
+    trigger_oauth: bool | None
+    reconnect_on_disconnect: bool | None
+    force_reconnect: bool
+    error: str | None
+    kind: Literal["mcp_connect"] = "mcp_connect"
+
+
+@dataclass(frozen=True, slots=True)
+class McpDisconnectCommand(CommandBase):
+    server_name: str | None
+    error: str | None
+    kind: Literal["mcp_disconnect"] = "mcp_disconnect"
+
+
 @dataclass(frozen=True, slots=True)
 class ListToolsCommand(CommandBase):
     kind: Literal["list_tools"] = "list_tools"
@@ -226,6 +254,9 @@ CommandPayload = (
     | ShowSystemCommand
     | ShowMarkdownCommand
     | ShowMcpStatusCommand
+    | McpListCommand
+    | McpConnectCommand
+    | McpDisconnectCommand
     | ListToolsCommand
     | ListPromptsCommand
     | ListSkillsCommand

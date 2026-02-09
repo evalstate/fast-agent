@@ -3,6 +3,7 @@
 import os
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
@@ -11,6 +12,26 @@ import fast_agent.config as config_module
 from fast_agent.config import Settings, SkillsSettings, get_settings, update_global_settings
 from fast_agent.session import get_session_manager, reset_session_manager
 from fast_agent.ui.enhanced_prompt import AgentCompleter
+
+if TYPE_CHECKING:
+    from fast_agent.core.agent_app import AgentApp
+
+
+class _McpAgentStub:
+    def __init__(self, attached: list[str]) -> None:
+        self.aggregator = self
+        self._attached = attached
+
+    def list_attached_servers(self) -> list[str]:
+        return list(self._attached)
+
+
+class _ProviderStub:
+    def __init__(self, agent: object) -> None:
+        self._agent_obj = agent
+
+    def _agent(self, _name: str) -> object:
+        return self._agent_obj
 
 
 def test_complete_history_files_finds_json_and_md():
@@ -257,6 +278,33 @@ def test_get_completions_for_skills_subcommands():
     assert "add" in names
     assert "remove" in names
     assert "registry" in names
+
+
+def test_get_completions_for_mcp_subcommands() -> None:
+    completer = AgentCompleter(agents=["agent1"])
+
+    doc = Document("/mcp ", cursor_position=len("/mcp "))
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert "list" in names
+    assert "connect" in names
+    assert "disconnect" in names
+
+
+def test_get_completions_for_mcp_disconnect_servers() -> None:
+    provider = _ProviderStub(_McpAgentStub(["local", "docs"]))
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", provider),
+    )
+
+    doc = Document("/mcp disconnect d", cursor_position=len("/mcp disconnect d"))
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert "docs" in names
 
 
 def test_get_completions_for_skills_remove(monkeypatch):

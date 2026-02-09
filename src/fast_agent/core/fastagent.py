@@ -65,11 +65,13 @@ from fast_agent.ui.console import configure_console_stream
 from fast_agent.ui.usage_display import display_usage_report
 
 if TYPE_CHECKING:
-
+    from fast_agent.config import MCPServerSettings
     from fast_agent.context import Context
     from fast_agent.core.agent_card_loader import LoadedAgentCard
     from fast_agent.core.agent_card_types import AgentCardData
     from fast_agent.interfaces import AgentProtocol
+    from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
+    from fast_agent.mcp.types import McpAgentProtocol
     from fast_agent.types import PromptMessageExtended
 
 F = TypeVar("F", bound=Callable[..., Any])  # For decorated functions
@@ -1421,6 +1423,61 @@ class FastAgent(DecoratorMixin):
                     ) -> list[str]:
                         return self.attach_agent_tools(parent_name, child_names)
 
+                    async def detach_agent_tools_source(
+                        parent_name: str, child_names: Sequence[str]
+                    ) -> list[str]:
+                        return self.detach_agent_tools(parent_name, child_names)
+
+                    def _resolve_runtime_mcp_agent(agent_name: str) -> "McpAgentProtocol":
+                        from fast_agent.mcp.types import McpAgentProtocol
+
+                        target_agent = active_agents.get(agent_name)
+                        if target_agent is None:
+                            raise RuntimeError(f"Agent '{agent_name}' was not found")
+                        if not isinstance(target_agent, McpAgentProtocol):
+                            raise RuntimeError(
+                                f"Agent '{agent_name}' does not support MCP server management"
+                            )
+                        return target_agent
+
+                    async def attach_mcp_server_and_refresh(
+                        agent_name: str,
+                        server_name: str,
+                        server_config: "MCPServerSettings | None" = None,
+                        options: "MCPAttachOptions | None" = None,
+                    ) -> "MCPAttachResult":
+                        from fast_agent.core.instruction_refresh import rebuild_agent_instruction
+
+                        target_agent = _resolve_runtime_mcp_agent(agent_name)
+                        result = await target_agent.attach_mcp_server(
+                            server_name=server_name,
+                            server_config=server_config,
+                            options=options,
+                        )
+                        await rebuild_agent_instruction(target_agent)
+                        return result
+
+                    async def detach_mcp_server_and_refresh(
+                        agent_name: str,
+                        server_name: str,
+                    ) -> "MCPDetachResult":
+                        from fast_agent.core.instruction_refresh import rebuild_agent_instruction
+
+                        target_agent = _resolve_runtime_mcp_agent(agent_name)
+                        result = await target_agent.detach_mcp_server(server_name)
+                        await rebuild_agent_instruction(target_agent)
+                        return result
+
+                    async def list_attached_mcp_servers_source(agent_name: str) -> list[str]:
+                        target_agent = _resolve_runtime_mcp_agent(agent_name)
+                        return target_agent.list_attached_mcp_servers()
+
+                    async def list_configured_detached_mcp_servers_source(
+                        agent_name: str,
+                    ) -> list[str]:
+                        target_agent = _resolve_runtime_mcp_agent(agent_name)
+                        return target_agent.aggregator.list_configured_detached_servers()
+
                     async def dump_agent_card(name: str) -> str:
                         return self.dump_agent_card_text(name)
 
@@ -1436,6 +1493,14 @@ class FastAgent(DecoratorMixin):
                     wrapper.set_attach_agent_tools_callback(attach_agent_tools_and_refresh)
                     wrapper.set_detach_agent_tools_callback(detach_agent_tools_and_refresh)
                     wrapper.set_dump_agent_callback(dump_agent_card)
+                    wrapper.set_attach_mcp_server_callback(attach_mcp_server_and_refresh)
+                    wrapper.set_detach_mcp_server_callback(detach_mcp_server_and_refresh)
+                    wrapper.set_list_attached_mcp_servers_callback(
+                        list_attached_mcp_servers_source
+                    )
+                    wrapper.set_list_configured_detached_mcp_servers_callback(
+                        list_configured_detached_mcp_servers_source
+                    )
                     self._agent_card_watch_reload = reload_and_refresh if reload_enabled else None
 
                     if getattr(self.args, "watch", False) and self._agent_card_roots:
@@ -1543,6 +1608,15 @@ class FastAgent(DecoratorMixin):
                                     permissions_enabled=permissions_enabled,
                                     load_card_callback=load_card_source,
                                     attach_agent_tools_callback=attach_agent_tools_source,
+                                    detach_agent_tools_callback=detach_agent_tools_source,
+                                    attach_mcp_server_callback=attach_mcp_server_and_refresh,
+                                    detach_mcp_server_callback=detach_mcp_server_and_refresh,
+                                    list_attached_mcp_servers_callback=(
+                                        list_attached_mcp_servers_source
+                                    ),
+                                    list_configured_detached_mcp_servers_callback=(
+                                        list_configured_detached_mcp_servers_source
+                                    ),
                                     dump_agent_card_callback=dump_agent_card,
                                     reload_callback=reload_callback,
                                 )

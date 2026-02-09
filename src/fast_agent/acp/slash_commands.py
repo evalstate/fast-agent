@@ -39,6 +39,7 @@ from fast_agent.acp.command_io import ACPCommandIO
 from fast_agent.commands.context import CommandContext
 from fast_agent.commands.handlers import agent_cards as agent_card_handlers
 from fast_agent.commands.handlers import history as history_handlers
+from fast_agent.commands.handlers import mcp_runtime as mcp_runtime_handlers
 from fast_agent.commands.handlers import model as model_handlers
 from fast_agent.commands.handlers import sessions as sessions_handlers
 from fast_agent.commands.handlers import skills as skills_handlers
@@ -96,7 +97,9 @@ if TYPE_CHECKING:
     from fast_agent.acp.acp_context import ACPContext
     from fast_agent.commands.context import AgentProvider
     from fast_agent.commands.results import CommandOutcome
+    from fast_agent.config import MCPServerSettings
     from fast_agent.core.fastagent import AgentInstance
+    from fast_agent.mcp.mcp_aggregator import MCPAttachOptions
 
 
 class _SimpleAgentProvider:
@@ -205,6 +208,15 @@ class SlashCommandHandler:
             [str, Sequence[str]], Awaitable[tuple["AgentInstance", list[str]]]
         ]
         | None = None,
+        attach_mcp_server_callback: Callable[
+            [str, str, MCPServerSettings | None, MCPAttachOptions | None],
+            Awaitable[object],
+        ]
+        | None = None,
+        detach_mcp_server_callback: Callable[[str, str], Awaitable[object]] | None = None,
+        list_attached_mcp_servers_callback: Callable[[str], Awaitable[list[str]]] | None = None,
+        list_configured_detached_mcp_servers_callback: Callable[[str], Awaitable[list[str]]]
+        | None = None,
         dump_agent_callback: Callable[[str], Awaitable[str]] | None = None,
         reload_callback: Callable[[], Awaitable[bool]] | None = None,
         set_current_mode_callback: Callable[[str], Awaitable[None] | None] | None = None,
@@ -242,6 +254,12 @@ class SlashCommandHandler:
         self._card_loader = card_loader
         self._attach_agent_callback = attach_agent_callback
         self._detach_agent_callback = detach_agent_callback
+        self._attach_mcp_server_callback = attach_mcp_server_callback
+        self._detach_mcp_server_callback = detach_mcp_server_callback
+        self._list_attached_mcp_servers_callback = list_attached_mcp_servers_callback
+        self._list_configured_detached_mcp_servers_callback = (
+            list_configured_detached_mcp_servers_callback
+        )
         self._dump_agent_callback = dump_agent_callback
         self._reload_callback = reload_callback
         self._set_current_mode_callback = set_current_mode_callback
@@ -310,6 +328,15 @@ class SlashCommandHandler:
                 description="Attach an agent as a tool or dump its AgentCard",
                 input=AvailableCommandInput(
                     root=UnstructuredCommandInput(hint="<@name> [--tool [remove]|--dump]")
+                ),
+            ),
+            "mcp": AvailableCommand(
+                name="mcp",
+                description="Manage runtime MCP servers (list/connect/disconnect)",
+                input=AvailableCommandInput(
+                    root=UnstructuredCommandInput(
+                        hint="list | connect <target> [--name <server>] [--timeout <seconds>] | disconnect <server>"
+                    )
                 ),
             ),
         }
@@ -547,6 +574,8 @@ class SlashCommandHandler:
                 return await self._handle_card(arguments)
             if command_name == "agent":
                 return await self._handle_agent(arguments)
+            if command_name == "mcp":
+                return await self._handle_mcp(arguments)
             if command_name == "reload":
                 return await self._handle_reload()
 
@@ -1457,6 +1486,88 @@ class SlashCommandHandler:
             dump=dump,
         )
         return self._format_outcome_as_markdown(outcome, "agent", io=io)
+
+    async def _handle_mcp(self, arguments: str | None = None) -> str:
+        heading = "mcp"
+        args = (arguments or "").strip()
+        if not args:
+            args = "list"
+
+        try:
+            tokens = shlex.split(args)
+        except ValueError as exc:
+            return f"{heading}\n\nInvalid arguments: {exc}"
+
+        if not tokens:
+            tokens = ["list"]
+        subcmd = tokens[0].lower()
+
+        ctx = self._build_command_context()
+        io = cast("ACPCommandIO", ctx.io)
+        manager = cast("mcp_runtime_handlers.McpRuntimeManager", self.instance.app)
+
+        if subcmd == "list":
+            if self._list_attached_mcp_servers_callback is None:
+                return "mcp\n\nRuntime MCP server listing is not available."
+            outcome = await mcp_runtime_handlers.handle_mcp_list(
+                ctx,
+                manager=manager,
+                agent_name=self.current_agent_name,
+            )
+            return self._format_outcome_as_markdown(outcome, heading, io=io)
+
+        if subcmd == "connect":
+            if self._attach_mcp_server_callback is None:
+                return "mcp\n\nRuntime MCP server attachment is not available."
+            if len(tokens) < 2:
+                return (
+                    f"{heading}\n\n"
+                    "Usage: /mcp connect <target> [--name <server>] [--timeout <seconds>] "
+                    "[--oauth|--no-oauth]"
+                )
+            target_text = " ".join(tokens[1:])
+            outcome = await mcp_runtime_handlers.handle_mcp_connect(
+                ctx,
+                manager=manager,
+                agent_name=self.current_agent_name,
+                target_text=target_text,
+            )
+            if self._acp_context:
+                agent = self._get_current_agent()
+                await self._acp_context.invalidate_instruction_cache(
+                    self.current_agent_name,
+                    getattr(agent, "instruction", None) if agent else None,
+                )
+                await self._acp_context.send_available_commands_update()
+            return self._format_outcome_as_markdown(outcome, heading, io=io)
+
+        if subcmd == "disconnect":
+            if self._detach_mcp_server_callback is None:
+                return "mcp\n\nRuntime MCP server detachment is not available."
+            if len(tokens) < 2:
+                return f"{heading}\n\nUsage: /mcp disconnect <server_name>"
+            outcome = await mcp_runtime_handlers.handle_mcp_disconnect(
+                ctx,
+                manager=manager,
+                agent_name=self.current_agent_name,
+                server_name=tokens[1],
+            )
+            if self._acp_context:
+                agent = self._get_current_agent()
+                await self._acp_context.invalidate_instruction_cache(
+                    self.current_agent_name,
+                    getattr(agent, "instruction", None) if agent else None,
+                )
+                await self._acp_context.send_available_commands_update()
+            return self._format_outcome_as_markdown(outcome, heading, io=io)
+
+        return (
+            f"{heading}\n\n"
+            "Usage:\n"
+            "- /mcp list\n"
+            "- /mcp connect <target> [--name <server>] [--timeout <seconds>] [--oauth|--no-oauth]\n"
+            "- /mcp disconnect <server_name>"
+        )
 
     async def _handle_reload(self) -> str:
         ctx = self._build_command_context()
