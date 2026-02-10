@@ -1653,6 +1653,13 @@ class SlashCommandHandler:
                 )
                 raise
 
+            if self._acp_context is not None and oauth_authorization_url:
+                outcome.messages = [
+                    message
+                    for message in outcome.messages
+                    if not str(message.text).startswith("OAuth authorization link:")
+                ]
+
             has_error = any(msg.channel == "error" for msg in outcome.messages)
             failure_details = None
             completion_details = None

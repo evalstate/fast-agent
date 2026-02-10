@@ -154,7 +154,6 @@ async def test_slash_command_mcp_connect_sends_acp_progress_updates() -> None:
 
     connected = await handler.execute_command("mcp", "connect npx demo-server --name demo")
     assert "Connected MCP server 'demo'" in connected
-    assert "OAuth authorization link:" in connected
     assert len(acp_context.updates) >= 2
     assert any("auth.example.com" in str(update) for update in acp_context.updates)
     assert any(isinstance(update, ToolCallStart) for update in acp_context.updates)
