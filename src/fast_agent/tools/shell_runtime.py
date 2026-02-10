@@ -289,7 +289,7 @@ class ShellRuntime:
                                     self._output_byte_limit / TERMINAL_BYTES_PER_TOKEN
                                 )
                                 message = Text(
-                                    "▶ Agent output truncated (> ~", style="black on red"
+                                    "▶ Shell to agent output truncated (> ~", style="black on red"
                                 )
                                 message.append(str(estimated_tokens))
                                 message.append(" tokens)", style="black on red")

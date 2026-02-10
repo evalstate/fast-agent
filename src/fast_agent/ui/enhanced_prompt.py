@@ -57,6 +57,10 @@ from fast_agent.ui.command_payloads import (
     LoadAgentCardCommand,
     LoadHistoryCommand,
     LoadPromptCommand,
+    McpConnectCommand,
+    McpConnectMode,
+    McpDisconnectCommand,
+    McpListCommand,
     ModelReasoningCommand,
     ModelVerbosityCommand,
     PinSessionCommand,
@@ -132,6 +136,39 @@ def _show_markdown_cmd() -> ShowMarkdownCommand:
 
 def _show_mcp_status_cmd() -> ShowMcpStatusCommand:
     return ShowMcpStatusCommand()
+
+
+def _mcp_list_cmd() -> McpListCommand:
+    return McpListCommand()
+
+
+def _mcp_connect_cmd(
+    target_text: str,
+    *,
+    parsed_mode: McpConnectMode,
+    server_name: str | None,
+    auth_token: str | None,
+    timeout_seconds: float | None,
+    trigger_oauth: bool | None,
+    reconnect_on_disconnect: bool | None,
+    force_reconnect: bool,
+    error: str | None,
+) -> McpConnectCommand:
+    return McpConnectCommand(
+        target_text=target_text,
+        parsed_mode=parsed_mode,
+        server_name=server_name,
+        auth_token=auth_token,
+        timeout_seconds=timeout_seconds,
+        trigger_oauth=trigger_oauth,
+        reconnect_on_disconnect=reconnect_on_disconnect,
+        force_reconnect=force_reconnect,
+        error=error,
+    )
+
+
+def _mcp_disconnect_cmd(server_name: str | None, error: str | None) -> McpDisconnectCommand:
+    return McpDisconnectCommand(server_name=server_name, error=error)
 
 
 def _list_tools_cmd() -> ListToolsCommand:
@@ -233,6 +270,33 @@ def _select_prompt_cmd(prompt_index: int | None, prompt_name: str | None) -> Sel
 
 def _skills_cmd(action: str, argument: str | None) -> SkillsCommand:
     return SkillsCommand(action=action, argument=argument)
+
+
+def _infer_mcp_connect_mode(target_text: str) -> McpConnectMode:
+    stripped = target_text.strip()
+    if stripped.startswith(("http://", "https://")):
+        return "url"
+    if stripped.startswith("@"):
+        return "npx"
+    if stripped.startswith("npx "):
+        return "npx"
+    if stripped.startswith("uvx "):
+        return "uvx"
+    return "stdio"
+
+
+def _rebuild_mcp_target_text(tokens: list[str]) -> str:
+    """Rebuild target text while preserving whitespace-grouped arguments."""
+    if not tokens:
+        return ""
+
+    rebuilt_parts: list[str] = []
+    for token in tokens:
+        if token == "" or any(char.isspace() for char in token):
+            rebuilt_parts.append(shlex.quote(token))
+        else:
+            rebuilt_parts.append(token)
+    return " ".join(rebuilt_parts)
 
 
 def _extract_alert_flags_from_meta(blocks) -> set[str]:
@@ -602,7 +666,8 @@ class AgentCompleter(Completer):
         self.noenv_mode = noenv_mode
         # Map commands to their descriptions for better completion hints
         self.commands = {
-            "mcp": "Show MCP server status",
+            "mcp": "Manage MCP runtime servers (/mcp list|connect|disconnect)",
+            "connect": "Alias for /mcp connect with target auto-detection",
             "history": "Show conversation history overview (or /history save|load|clear|rewind|review|fix)",
             "tools": "List tools",
             "model": "Update model settings (/model reasoning <value> | /model verbosity <value>)",
@@ -1286,6 +1351,39 @@ class AgentCompleter(Completer):
 
             return
 
+        if text_lower.startswith("/mcp disconnect "):
+            partial = text[len("/mcp disconnect ") :]
+            attached: list[str] = []
+            if self.agent_provider is not None and self.current_agent:
+                try:
+                    agent = self.agent_provider._agent(self.current_agent)
+                    aggregator = getattr(agent, "aggregator", None)
+                    list_attached = getattr(aggregator, "list_attached_servers", None)
+                    if callable(list_attached):
+                        attached = list_attached()
+                except Exception:
+                    attached = []
+            for server in attached:
+                if server.lower().startswith(partial.lower()):
+                    yield Completion(
+                        server,
+                        start_position=-len(partial),
+                        display=server,
+                        display_meta="attached mcp server",
+                    )
+            return
+
+        if text_lower.startswith("/mcp "):
+            remainder = text[len("/mcp ") :]
+            parts = remainder.split(maxsplit=1) if remainder else []
+            subcommands = {
+                "list": "List currently attached MCP servers",
+                "connect": "Connect a new MCP server",
+                "disconnect": "Disconnect an attached MCP server",
+            }
+            yield from self._complete_subcommands(parts, remainder, subcommands)
+            return
+
         if text_lower.startswith("/history "):
             partial = text[len("/history ") :]
             subcommands = {
@@ -1903,8 +2001,144 @@ def parse_special_input(text: str) -> str | CommandPayload:
             return _agent_cmd(agent_name, add_tool, remove_tool, dump, None)
         if cmd == "reload":
             return _reload_agents_cmd()
-        if cmd in ("mcpstatus", "mcp"):
+        if cmd == "mcpstatus":
             return _show_mcp_status_cmd()
+        if cmd == "mcp":
+            remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
+            if not remainder:
+                return _show_mcp_status_cmd()
+            try:
+                tokens = shlex.split(remainder)
+            except ValueError as exc:
+                return _mcp_connect_cmd(
+                    "",
+                    parsed_mode="stdio",
+                    server_name=None,
+                    auth_token=None,
+                    timeout_seconds=None,
+                    trigger_oauth=None,
+                    reconnect_on_disconnect=None,
+                    force_reconnect=False,
+                    error=f"Invalid arguments: {exc}",
+                )
+
+            subcmd = tokens[0].lower() if tokens else ""
+            if subcmd == "list":
+                return _mcp_list_cmd()
+            if subcmd == "disconnect":
+                name = tokens[1] if len(tokens) > 1 else None
+                error = None if name else "Usage: /mcp disconnect <server_name>"
+                return _mcp_disconnect_cmd(name, error)
+            if subcmd == "connect":
+                if len(tokens) < 2:
+                    return _mcp_connect_cmd(
+                        "",
+                        parsed_mode="stdio",
+                        server_name=None,
+                        auth_token=None,
+                        timeout_seconds=None,
+                        trigger_oauth=None,
+                        reconnect_on_disconnect=None,
+                        force_reconnect=False,
+                        error=(
+                            "Usage: /mcp connect <target> [--name <server>] [--auth <token>] [--timeout <seconds>] "
+                            "[--oauth|--no-oauth] [--reconnect|--no-reconnect]"
+                        ),
+                    )
+                connect_args = tokens[1:]
+                target_tokens: list[str] = []
+                server_name: str | None = None
+                auth_token: str | None = None
+                timeout_seconds: float | None = None
+                trigger_oauth: bool | None = None
+                reconnect_on_disconnect: bool | None = None
+                force_reconnect = False
+                parse_error: str | None = None
+                idx = 0
+                while idx < len(connect_args):
+                    token = connect_args[idx]
+                    if token in {"--name", "-n"}:
+                        idx += 1
+                        if idx >= len(connect_args):
+                            parse_error = "Missing value for --name"
+                            break
+                        server_name = connect_args[idx]
+                    elif token == "--timeout":
+                        idx += 1
+                        if idx >= len(connect_args):
+                            parse_error = "Missing value for --timeout"
+                            break
+                        try:
+                            timeout_seconds = float(connect_args[idx])
+                        except ValueError:
+                            parse_error = "--timeout must be a number"
+                            break
+                    elif token == "--auth":
+                        idx += 1
+                        if idx >= len(connect_args):
+                            parse_error = "Missing value for --auth"
+                            break
+                        auth_token = connect_args[idx]
+                    elif token.startswith("--auth="):
+                        auth_token = token.split("=", 1)[1]
+                        if not auth_token:
+                            parse_error = "Missing value for --auth"
+                            break
+                    elif token == "--oauth":
+                        trigger_oauth = True
+                    elif token == "--no-oauth":
+                        trigger_oauth = False
+                    elif token == "--reconnect":
+                        force_reconnect = True
+                    elif token == "--no-reconnect":
+                        reconnect_on_disconnect = False
+                    else:
+                        target_tokens.append(token)
+                    idx += 1
+
+                target_text = _rebuild_mcp_target_text(target_tokens).strip()
+                parsed_mode = _infer_mcp_connect_mode(target_text)
+                if not parse_error and not target_text:
+                    parse_error = "Connection target is required"
+
+                return _mcp_connect_cmd(
+                    target_text,
+                    parsed_mode=parsed_mode,
+                    server_name=server_name,
+                    auth_token=auth_token,
+                    timeout_seconds=timeout_seconds,
+                    trigger_oauth=trigger_oauth,
+                    reconnect_on_disconnect=reconnect_on_disconnect,
+                    force_reconnect=force_reconnect,
+                    error=parse_error,
+                )
+            return UnknownCommand(command=cmd)
+        if cmd == "connect":
+            remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
+            parsed_mode = _infer_mcp_connect_mode(remainder)
+            if not remainder:
+                return _mcp_connect_cmd(
+                    "",
+                    parsed_mode="stdio",
+                    server_name=None,
+                    auth_token=None,
+                    timeout_seconds=None,
+                    trigger_oauth=None,
+                    reconnect_on_disconnect=None,
+                    force_reconnect=False,
+                    error="Usage: /connect <target>",
+                )
+            return _mcp_connect_cmd(
+                remainder,
+                parsed_mode=parsed_mode,
+                server_name=None,
+                auth_token=None,
+                timeout_seconds=None,
+                trigger_oauth=None,
+                reconnect_on_disconnect=None,
+                force_reconnect=False,
+                error=None,
+            )
         if cmd == "prompt":
             remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
             if not remainder:
@@ -2743,6 +2977,11 @@ async def handle_special_commands(
         )
         rich_print("  /markdown      - Show last assistant message without markdown formatting")
         rich_print("  /mcpstatus     - Show MCP server status summary for the active agent")
+        rich_print("  /mcp list      - List attached runtime MCP servers")
+        rich_print("  /mcp connect <target> - Connect MCP server at runtime")
+        rich_print("      [dim]flags: --name --auth --timeout --oauth/--no-oauth --reconnect[/dim]")
+        rich_print("  /mcp disconnect <name> - Disconnect attached MCP server")
+        rich_print("  /connect <target> - Alias for /mcp connect")
         rich_print("  /history save [filename] - Save current chat history to a file")
         rich_print(
             "      [dim]Tip: Use a .json extension for MCP-compatible JSON; any other extension saves Markdown.[/dim]"

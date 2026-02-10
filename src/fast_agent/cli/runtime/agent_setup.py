@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -205,6 +206,22 @@ async def _export_result_histories(
 async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -> None:
     from fast_agent.mcp.prompts.prompt_load import load_prompt
 
+    async def _run_interactive_with_interrupt_recovery() -> None:
+        while True:
+            try:
+                await agent_app.interactive(agent_name=request.target_agent_name)
+                return
+            except asyncio.CancelledError:
+                task = asyncio.current_task()
+                if task is not None:
+                    while task.uncancel() > 0:
+                        pass
+                await asyncio.sleep(0)
+                continue
+            except KeyboardInterrupt:
+                typer.echo("Interrupted operation; returning to fast-agent prompt.", err=True)
+                continue
+
     await _resume_session_if_requested(agent_app, request)
     if request.message:
         response = await agent_app.send(
@@ -220,9 +237,9 @@ async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -
             "\nLoaded "
             f"{len(prompt)} messages from prompt file '{request.prompt_file}'"
         )
-        await agent_app.interactive(agent_name=request.target_agent_name)
+        await _run_interactive_with_interrupt_recovery()
     else:
-        await agent_app.interactive(agent_name=request.target_agent_name)
+        await _run_interactive_with_interrupt_recovery()
 
     await _export_result_histories(agent_app, request)
 

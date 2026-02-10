@@ -1,12 +1,19 @@
 """Tests for Client ID Metadata Document (CIMD) support."""
 
 import socket
+import threading
 
 import pytest
 from pydantic import ValidationError
 
 from fast_agent.config import MCPServerAuthSettings, MCPServerSettings
-from fast_agent.mcp.oauth_client import _CallbackServer, build_oauth_provider
+from fast_agent.mcp.oauth_client import (
+    OAuthFlowCancelledError,
+    _CallbackServer,
+    _print_authorization_link,
+    _read_callback_url_with_abort,
+    build_oauth_provider,
+)
 
 
 class TestCIMDConfigValidation:
@@ -226,6 +233,36 @@ class TestCIMDOAuthProvider:
         # Should include default port 3030
         assert any(":3030/" in uri for uri in redirect_uris)
 
+    def test_build_oauth_provider_uses_selected_primary_redirect_port(self, monkeypatch):
+        """Primary redirect URI should use the pre-selected callback port."""
+        captured_kwargs = {}
+
+        class MockOAuthClientProvider:
+            def __init__(self, **kwargs):
+                captured_kwargs.update(kwargs)
+
+        monkeypatch.setattr(
+            "fast_agent.mcp.oauth_client.OAuthClientProvider",
+            MockOAuthClientProvider,
+        )
+        monkeypatch.setattr(
+            "fast_agent.mcp.oauth_client._select_preferred_redirect_port",
+            lambda _preferred: 31337,
+        )
+
+        config = MCPServerSettings(
+            name="test",
+            transport="http",
+            url="https://example.com/mcp",
+        )
+
+        build_oauth_provider(config)
+
+        client_metadata = captured_kwargs.get("client_metadata")
+        assert client_metadata is not None
+        redirect_uris = [str(uri) for uri in client_metadata.redirect_uris]
+        assert redirect_uris[0].startswith("http://127.0.0.1:31337/")
+
 
 class TestCallbackServerPortFallback:
     """Test RFC 8252 compliant port fallback in _CallbackServer."""
@@ -292,3 +329,135 @@ class TestCallbackServerPortFallback:
         server = _CallbackServer(port=3030, path="/callback")
         with pytest.raises(RuntimeError, match="Server not started"):
             server.get_redirect_uri()
+
+
+def test_callback_server_wait_respects_abort_event() -> None:
+    server = _CallbackServer(port=0, path="/callback")
+    abort_event = threading.Event()
+    abort_event.set()
+
+    with pytest.raises(OAuthFlowCancelledError):
+        server.wait(timeout_seconds=300, abort_event=abort_event)
+
+
+@pytest.mark.asyncio
+async def test_print_authorization_link_falls_back_when_console_write_blocks(monkeypatch) -> None:
+    fallback_lines: list[str] = []
+
+    def _blocked_print(*_args, **_kwargs) -> None:
+        raise BlockingIOError(11, "would block")
+
+    def _capture_stderr(text: str) -> None:
+        fallback_lines.append(text)
+
+    monkeypatch.setattr("fast_agent.mcp.oauth_client.console.ensure_blocking_console", lambda: None)
+    monkeypatch.setattr("fast_agent.mcp.oauth_client.console.console.print", _blocked_print)
+    monkeypatch.setattr("fast_agent.mcp.oauth_client._safe_stderr_write", _capture_stderr)
+
+    await _print_authorization_link("https://example.com/oauth")
+
+    assert any("Open this link to authorize" in line for line in fallback_lines)
+    assert any("https://example.com/oauth" in line for line in fallback_lines)
+
+
+def test_read_callback_url_with_abort_event() -> None:
+    abort_event = threading.Event()
+    abort_event.set()
+
+    with pytest.raises(OAuthFlowCancelledError):
+        _read_callback_url_with_abort("Callback URL:", abort_event)
+
+
+@pytest.mark.asyncio
+async def test_callback_handler_does_not_fallback_to_paste_flow_on_cancel(monkeypatch) -> None:
+    captured_kwargs: dict[str, object] = {}
+
+    class MockOAuthClientProvider:
+        def __init__(self, **kwargs):
+            captured_kwargs.update(kwargs)
+
+    monkeypatch.setattr(
+        "fast_agent.mcp.oauth_client.OAuthClientProvider",
+        MockOAuthClientProvider,
+    )
+
+    config = MCPServerSettings(
+        name="test",
+        transport="http",
+        url="https://example.com/mcp",
+    )
+    provider = build_oauth_provider(config)
+    assert provider is not None
+
+    monkeypatch.setattr("fast_agent.mcp.oauth_client._safe_console_print", lambda *_, **__: None)
+    monkeypatch.setattr("fast_agent.mcp.oauth_client._safe_stderr_write", lambda *_: None)
+
+    monkeypatch.setattr("fast_agent.mcp.oauth_client._CallbackServer.start", lambda _self: None)
+    monkeypatch.setattr("fast_agent.mcp.oauth_client._CallbackServer.stop", lambda _self: None)
+
+    def _cancel_wait(*_args, **_kwargs):
+        raise OAuthFlowCancelledError("cancelled")
+
+    monkeypatch.setattr("fast_agent.mcp.oauth_client._CallbackServer.wait", _cancel_wait)
+
+    def _unexpected_paste_flow(*_args, **_kwargs):
+        raise AssertionError("paste fallback should not run on cancellation")
+
+    monkeypatch.setattr(
+        "fast_agent.mcp.oauth_client._read_callback_url_with_abort",
+        _unexpected_paste_flow,
+    )
+
+    callback_handler = captured_kwargs.get("callback_handler")
+    assert callback_handler is not None
+
+    with pytest.raises(OAuthFlowCancelledError):
+        await callback_handler()
+
+
+@pytest.mark.asyncio
+async def test_callback_handler_disables_paste_fallback_when_configured(monkeypatch) -> None:
+    captured_kwargs: dict[str, object] = {}
+
+    class MockOAuthClientProvider:
+        def __init__(self, **kwargs):
+            captured_kwargs.update(kwargs)
+
+    monkeypatch.setattr(
+        "fast_agent.mcp.oauth_client.OAuthClientProvider",
+        MockOAuthClientProvider,
+    )
+
+    config = MCPServerSettings(
+        name="test",
+        transport="http",
+        url="https://example.com/mcp",
+    )
+    provider = build_oauth_provider(config, allow_paste_fallback=False)
+    assert provider is not None
+
+    monkeypatch.setattr(
+        "fast_agent.mcp.oauth_client._CallbackServer.start",
+        lambda _self: (_ for _ in ()).throw(RuntimeError("bind failed")),
+    )
+    monkeypatch.setattr("fast_agent.mcp.oauth_client._safe_console_print", lambda *_, **__: None)
+    monkeypatch.setattr("fast_agent.mcp.oauth_client._safe_stderr_write", lambda *_: None)
+
+    called = {"paste": False}
+
+    def _unexpected_paste(*_args, **_kwargs):
+        called["paste"] = True
+        return ""
+
+    monkeypatch.setattr(
+        "fast_agent.mcp.oauth_client._read_callback_url_with_abort",
+        _unexpected_paste,
+    )
+
+    callback_handler = captured_kwargs.get("callback_handler")
+    assert callback_handler is not None
+
+    with pytest.raises(RuntimeError, match="paste fallback is disabled"):
+        await callback_handler()
+
+    assert called["paste"] is False

@@ -4,7 +4,7 @@ Direct AgentApp implementation for interacting with agents without proxies.
 
 import time
 from datetime import datetime
-from typing import Awaitable, Callable, Mapping, Sequence, Union
+from typing import TYPE_CHECKING, Awaitable, Callable, Mapping, Sequence, Union
 
 from deprecated import deprecated
 from mcp.types import GetPromptResult, PromptMessage
@@ -21,6 +21,10 @@ from fast_agent.llm.usage_tracking import last_turn_usage
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.ui.interactive_prompt import InteractivePrompt
 from fast_agent.ui.progress_display import progress_display
+
+if TYPE_CHECKING:
+    from fast_agent.config import MCPServerSettings
+    from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
 
 logger = get_logger(__name__)
 
@@ -50,6 +54,16 @@ class AgentApp:
         detach_agent_tools_callback: Callable[[str, Sequence[str]], Awaitable[list[str]]]
         | None = None,
         dump_agent_callback: Callable[[str], Awaitable[str]] | None = None,
+        attach_mcp_server_callback: Callable[
+            [str, str, "MCPServerSettings | None", "MCPAttachOptions | None"],
+            Awaitable["MCPAttachResult"],
+        ]
+        | None = None,
+        detach_mcp_server_callback: Callable[[str, str], Awaitable["MCPDetachResult"]]
+        | None = None,
+        list_attached_mcp_servers_callback: Callable[[str], Awaitable[list[str]]] | None = None,
+        list_configured_detached_mcp_servers_callback: Callable[[str], Awaitable[list[str]]]
+        | None = None,
         tool_only_agents: set[str] | None = None,
         card_collision_warnings: list[str] | None = None,
     ) -> None:
@@ -76,6 +90,12 @@ class AgentApp:
         self._attach_agent_tools_callback = attach_agent_tools_callback
         self._detach_agent_tools_callback = detach_agent_tools_callback
         self._dump_agent_callback = dump_agent_callback
+        self._attach_mcp_server_callback = attach_mcp_server_callback
+        self._detach_mcp_server_callback = detach_mcp_server_callback
+        self._list_attached_mcp_servers_callback = list_attached_mcp_servers_callback
+        self._list_configured_detached_mcp_servers_callback = (
+            list_configured_detached_mcp_servers_callback
+        )
         self._tool_only_agents: set[str] = tool_only_agents or set()
         self._card_collision_warnings: list[str] = card_collision_warnings or []
         self._apply_agent_registry()
@@ -329,6 +349,14 @@ class AgentApp:
         """Return True if agent card dumping is available."""
         return self._dump_agent_callback is not None
 
+    def can_attach_mcp_servers(self) -> bool:
+        """Return True if runtime MCP attachment is available."""
+        return self._attach_mcp_server_callback is not None
+
+    def can_detach_mcp_servers(self) -> bool:
+        """Return True if runtime MCP detachment is available."""
+        return self._detach_mcp_server_callback is not None
+
     async def load_agent_card(
         self, source: str, parent_agent: str | None = None
     ) -> tuple[list[str], list[str]]:
@@ -354,6 +382,36 @@ class AgentApp:
         if not self._dump_agent_callback:
             raise RuntimeError("Agent card dumping is not available.")
         return await self._dump_agent_callback(agent_name)
+
+    async def attach_mcp_server(
+        self,
+        agent_name: str,
+        server_name: str,
+        server_config: "MCPServerSettings | None" = None,
+        options: "MCPAttachOptions | None" = None,
+    ) -> "MCPAttachResult":
+        """Attach an MCP server to a running MCP agent."""
+        if not self._attach_mcp_server_callback:
+            raise RuntimeError("Runtime MCP server attachment is not available.")
+        return await self._attach_mcp_server_callback(agent_name, server_name, server_config, options)
+
+    async def detach_mcp_server(self, agent_name: str, server_name: str) -> "MCPDetachResult":
+        """Detach an MCP server from a running MCP agent."""
+        if not self._detach_mcp_server_callback:
+            raise RuntimeError("Runtime MCP server detachment is not available.")
+        return await self._detach_mcp_server_callback(agent_name, server_name)
+
+    async def list_attached_mcp_servers(self, agent_name: str) -> list[str]:
+        """List MCP servers attached to a running MCP agent."""
+        if not self._list_attached_mcp_servers_callback:
+            raise RuntimeError("Runtime MCP server listing is not available.")
+        return await self._list_attached_mcp_servers_callback(agent_name)
+
+    async def list_configured_detached_mcp_servers(self, agent_name: str) -> list[str]:
+        """List configured MCP servers that are not currently attached."""
+        if not self._list_configured_detached_mcp_servers_callback:
+            raise RuntimeError("Configured MCP server listing is not available.")
+        return await self._list_configured_detached_mcp_servers_callback(agent_name)
 
     def set_agents(
         self,
@@ -406,6 +464,38 @@ class AgentApp:
     def set_dump_agent_callback(self, callback: Callable[[str], Awaitable[str]] | None) -> None:
         """Update the callback for dumping agent cards."""
         self._dump_agent_callback = callback
+
+    def set_attach_mcp_server_callback(
+        self,
+        callback: Callable[
+            [str, str, "MCPServerSettings | None", "MCPAttachOptions | None"],
+            Awaitable["MCPAttachResult"],
+        ]
+        | None,
+    ) -> None:
+        """Update callback for attaching MCP servers at runtime."""
+        self._attach_mcp_server_callback = callback
+
+    def set_detach_mcp_server_callback(
+        self,
+        callback: Callable[[str, str], Awaitable["MCPDetachResult"]] | None,
+    ) -> None:
+        """Update callback for detaching MCP servers at runtime."""
+        self._detach_mcp_server_callback = callback
+
+    def set_list_attached_mcp_servers_callback(
+        self,
+        callback: Callable[[str], Awaitable[list[str]]] | None,
+    ) -> None:
+        """Update callback for listing attached MCP servers."""
+        self._list_attached_mcp_servers_callback = callback
+
+    def set_list_configured_detached_mcp_servers_callback(
+        self,
+        callback: Callable[[str], Awaitable[list[str]]] | None,
+    ) -> None:
+        """Update callback for listing configured detached MCP servers."""
+        self._list_configured_detached_mcp_servers_callback = callback
 
     def agent_names(self) -> list[str]:
         """Return available agent names (excluding tool_only agents)."""

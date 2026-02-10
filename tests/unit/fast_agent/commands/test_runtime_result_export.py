@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,7 @@ from fast_agent.cli.runtime.agent_setup import (
     _build_fan_out_result_paths,
     _build_result_file_with_suffix,
     _export_result_histories,
+    _run_single_agent_cli_flow,
     _sanitize_result_suffix,
 )
 from fast_agent.cli.runtime.run_request import AgentRunRequest
@@ -30,8 +32,21 @@ class _DummyAgentApp:
             return self._agents[self._default_agent]
         return self._agents[agent_name]
 
+    async def interactive(self, agent_name: str | None = None) -> None:
+        del agent_name
 
-def _make_request(*, result_file: str | None, target_agent_name: str | None = None) -> AgentRunRequest:
+    async def send(self, message: str, agent_name: str | None = None) -> str:
+        del agent_name
+        return message
+
+
+def _make_request(
+    *,
+    result_file: str | None,
+    target_agent_name: str | None = None,
+    message: str | None = "hello",
+    prompt_file: str | None = None,
+) -> AgentRunRequest:
     return AgentRunRequest(
         name="test",
         instruction="instruction",
@@ -40,8 +55,8 @@ def _make_request(*, result_file: str | None, target_agent_name: str | None = No
         agent_cards=None,
         card_tools=None,
         model=None,
-        message="hello",
-        prompt_file=None,
+        message=message,
+        prompt_file=prompt_file,
         result_file=result_file,
         resume=None,
         url_servers=None,
@@ -145,3 +160,53 @@ async def test_export_result_histories_exits_nonzero_on_write_error(
     assert exc_info.value.exit_code == 1
     captured = capsys.readouterr()
     assert "Error exporting result file" in captured.err
+
+
+@pytest.mark.asyncio
+async def test_run_single_agent_cli_flow_retries_interactive_after_keyboard_interrupt(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class _InterruptingAgentApp(_DummyAgentApp):
+        def __init__(self) -> None:
+            super().__init__(["agent"])
+            self.interactive_calls = 0
+
+        async def interactive(self, agent_name: str | None = None) -> None:
+            del agent_name
+            self.interactive_calls += 1
+            if self.interactive_calls == 1:
+                raise KeyboardInterrupt()
+
+    app = _InterruptingAgentApp()
+    request = _make_request(result_file=None, message=None)
+
+    await _run_single_agent_cli_flow(app, request)
+
+    captured = capsys.readouterr()
+    assert app.interactive_calls == 2
+    assert "Interrupted operation; returning to fast-agent prompt." in captured.err
+
+
+@pytest.mark.asyncio
+async def test_run_single_agent_cli_flow_retries_interactive_after_cancelled_error(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class _CancelledAgentApp(_DummyAgentApp):
+        def __init__(self) -> None:
+            super().__init__(["agent"])
+            self.interactive_calls = 0
+
+        async def interactive(self, agent_name: str | None = None) -> None:
+            del agent_name
+            self.interactive_calls += 1
+            if self.interactive_calls == 1:
+                raise asyncio.CancelledError()
+
+    app = _CancelledAgentApp()
+    request = _make_request(result_file=None, message=None)
+
+    await _run_single_agent_cli_flow(app, request)
+
+    captured = capsys.readouterr()
+    assert app.interactive_calls == 2
+    assert "Interrupted operation; returning to fast-agent prompt." not in captured.err

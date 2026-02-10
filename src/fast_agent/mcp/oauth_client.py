@@ -8,11 +8,16 @@ passed to SSE/HTTP transports as the `auth` parameter.
 
 from __future__ import annotations
 
+import asyncio
+import os
+import socket
+import sys
 import threading
 import time
-from dataclasses import dataclass
+from contextlib import suppress
+from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal
 from urllib.parse import parse_qs, urlparse
 
 from mcp.client.auth import OAuthClientProvider, TokenStorage
@@ -30,6 +35,56 @@ if TYPE_CHECKING:
     from fast_agent.config import MCPServerSettings
 
 logger = get_logger(__name__)
+
+OAuthEventType = Literal[
+    "authorization_url",
+    "wait_start",
+    "wait_end",
+    "callback_received",
+    "oauth_error",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class OAuthEvent:
+    """Lifecycle event emitted by runtime OAuth integration."""
+
+    event_type: OAuthEventType
+    server_name: str
+    url: str | None = None
+    message: str | None = None
+    is_timeout: bool = False
+    occurred_at: float = field(default_factory=time.time)
+
+
+OAuthEventHandler = Callable[[OAuthEvent], Awaitable[None]]
+
+
+class OAuthCallbackTimeoutError(TimeoutError):
+    """Raised when OAuth authorization callback does not arrive in time."""
+
+
+class OAuthFlowCancelledError(RuntimeError):
+    """Raised when an in-flight OAuth flow is cancelled by the caller."""
+
+
+async def _emit_oauth_event(
+    event_handler: OAuthEventHandler | None,
+    event: OAuthEvent,
+) -> None:
+    """Emit OAuth lifecycle events without allowing callback failures to break auth flow."""
+    if event_handler is None:
+        return
+
+    try:
+        await event_handler(event)
+    except Exception:
+        logger.debug(
+            "OAuth event callback failed",
+            event_type=event.event_type,
+            server_name=event.server_name,
+            exc_info=True,
+        )
 
 
 class InMemoryTokenStorage(TokenStorage):
@@ -124,9 +179,16 @@ class _CallbackServer:
     # Fallback ports to try if preferred port is unavailable
     FALLBACK_PORTS = [3030, 3031, 3032, 8080, 0]  # 0 = ephemeral port
 
-    def __init__(self, port: int, path: str) -> None:
+    def __init__(
+        self,
+        port: int,
+        path: str,
+        *,
+        fallback_ports: list[int] | None = None,
+    ) -> None:
         self._preferred_port = port
         self._path = path.rstrip("/") or "/callback"
+        self._fallback_ports = list(self.FALLBACK_PORTS if fallback_ports is None else fallback_ports)
         self._result = _CallbackResult()
         self._server: HTTPServer | None = None
         self._thread: threading.Thread | None = None
@@ -161,7 +223,7 @@ class _CallbackServer:
         """Start the callback server, trying fallback ports if preferred is unavailable."""
         # Build list of ports to try: preferred first, then fallbacks
         ports_to_try = [self._preferred_port]
-        for p in self.FALLBACK_PORTS:
+        for p in self._fallback_ports:
             if p not in ports_to_try:
                 ports_to_try.append(p)
 
@@ -197,9 +259,15 @@ class _CallbackServer:
         if self._thread:
             self._thread.join(timeout=1)
 
-    def wait(self, timeout_seconds: int = 300) -> tuple[str, str | None]:
+    def wait(
+        self,
+        timeout_seconds: int = 300,
+        abort_event: threading.Event | None = None,
+    ) -> tuple[str, str | None]:
         start = time.time()
         while time.time() - start < timeout_seconds:
+            if abort_event is not None and abort_event.is_set():
+                raise OAuthFlowCancelledError("OAuth callback wait cancelled")
             if self._result.authorization_code:
                 return self._result.authorization_code, self._result.state
             if self._result.error:
@@ -212,6 +280,37 @@ class _CallbackServer:
         if self._actual_port is None:
             raise RuntimeError("Server not started; cannot determine redirect URI")
         return f"http://127.0.0.1:{self._actual_port}{self._path}"
+
+
+def _select_preferred_redirect_port(preferred_port: int) -> int:
+    """Pick a redirect port likely to be bindable for this OAuth attempt.
+
+    The MCP OAuth client currently uses the first redirect URI in metadata for the
+    authorization and token exchange. We therefore probe ports ahead of time and
+    choose a concrete primary port to keep redirect URI and callback listener aligned.
+    """
+
+    ports_to_try = [preferred_port]
+    for port in _CallbackServer.FALLBACK_PORTS:
+        if port not in ports_to_try:
+            ports_to_try.append(port)
+
+    for port in ports_to_try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind(("127.0.0.1", port))
+            return int(sock.getsockname()[1])
+        except OSError:
+            continue
+        finally:
+            with suppress(OSError):
+                sock.close()
+
+    raise OSError(
+        f"Could not reserve any redirect port. Tried: {ports_to_try}. "
+        "All ports may be in use."
+    )
 
 
 def _derive_base_server_url(url: str | None) -> str | None:
@@ -279,8 +378,14 @@ async def _print_authorization_link(auth_url: str, warn_if_no_keyring: bool = Fa
     If warn_if_no_keyring is True and the OS keyring backend is unavailable,
     print a warning to indicate tokens won't be persisted.
     """
-    console.console.print("[bold]Open this link to authorize:[/bold]", markup=True)
-    console.console.print(f"[link={auth_url}]{auth_url}[/link]")
+    _safe_console_print(
+        "[bold]Open this link to authorize:[/bold]",
+        fallback="Open this link to authorize:",
+    )
+    _safe_console_print(
+        f"[link={auth_url}]{auth_url}[/link]",
+        fallback=auth_url,
+    )
     if warn_if_no_keyring:
         from fast_agent.core.keyring_utils import get_keyring_status
 
@@ -291,10 +396,83 @@ async def _print_authorization_link(auth_url: str, warn_if_no_keyring: bool = Fa
                 if not status.available
                 else f"Keyring backend '{status.name}' not writable"
             )
-            console.console.print(
-                f"[yellow]Warning:[/yellow] {backend_note} — tokens will not be persisted."
+            _safe_console_print(
+                f"[yellow]Warning:[/yellow] {backend_note} — tokens will not be persisted.",
+                fallback=f"Warning: {backend_note} — tokens will not be persisted.",
             )
     logger.info("OAuth authorization URL emitted to console")
+
+
+def _safe_stderr_write(text: str) -> None:
+    line = text if text.endswith("\n") else f"{text}\n"
+    try:
+        sys.stderr.write(line)
+        sys.stderr.flush()
+        return
+    except Exception:
+        pass
+
+    try:
+        fd = os.open("/dev/tty", os.O_WRONLY | os.O_NOCTTY)
+    except Exception:
+        return
+
+    try:
+        os.set_blocking(fd, True)
+    except Exception:
+        pass
+
+    try:
+        with os.fdopen(fd, "w", buffering=1, encoding="utf-8", errors="replace") as tty:
+            tty.write(line)
+            tty.flush()
+    except Exception:
+        with suppress(OSError):
+            os.close(fd)
+
+
+def _safe_console_print(
+    message: str,
+    *,
+    markup: bool = True,
+    fallback: str | None = None,
+) -> None:
+    for _ in range(2):
+        try:
+            console.ensure_blocking_console()
+            console.console.print(message, markup=markup)
+            return
+        except BlockingIOError:
+            continue
+        except Exception:
+            break
+
+    _safe_stderr_write(fallback if fallback is not None else message)
+
+
+def _read_callback_url_with_abort(
+    prompt: str,
+    abort_event: threading.Event | None,
+    *,
+    poll_seconds: float = 0.2,
+) -> str:
+    """Read a callback URL from stdin while allowing cooperative cancellation."""
+    import select
+
+    _safe_stderr_write(prompt)
+
+    while True:
+        if abort_event is not None and abort_event.is_set():
+            raise OAuthFlowCancelledError("OAuth callback input cancelled")
+
+        ready, _, _ = select.select([sys.stdin], [], [], poll_seconds)
+        if not ready:
+            continue
+
+        line = sys.stdin.readline()
+        if line == "":
+            raise RuntimeError("No callback URL received (stdin closed)")
+        return line
 
 
 class KeyringTokenStorage(TokenStorage):
@@ -450,7 +628,14 @@ def clear_keyring_token(identity: str, service: str = "fast-agent-mcp") -> bool:
     return removed
 
 
-def build_oauth_provider(server_config: MCPServerSettings) -> OAuthClientProvider | None:
+def build_oauth_provider(
+    server_config: MCPServerSettings,
+    *,
+    event_handler: OAuthEventHandler | None = None,
+    emit_console_output: bool = True,
+    abort_event: threading.Event | None = None,
+    allow_paste_fallback: bool = True,
+) -> OAuthClientProvider | None:
     """
     Build an OAuthClientProvider for the given server config if applicable.
 
@@ -491,6 +676,15 @@ def build_oauth_provider(server_config: MCPServerSettings) -> OAuthClientProvide
         # No usable URL -> cannot build provider
         return None
 
+    server_name = server_config.name or "default"
+
+    try:
+        selected_redirect_port = _select_preferred_redirect_port(redirect_port)
+    except OSError:
+        # Defer bind failures to callback handling where we can provide richer
+        # OAuth diagnostics for the active connection mode.
+        selected_redirect_port = redirect_port
+
     # Construct client metadata with minimal defaults.
     # Use 127.0.0.1 (loopback IP) for RFC 8252 compliance. Per RFC 8252 Section 7.3,
     # authorization servers MUST allow any port for loopback IP redirect URIs.
@@ -498,7 +692,9 @@ def build_oauth_provider(server_config: MCPServerSettings) -> OAuthClientProvide
     # don't fully implement RFC 8252's dynamic port matching.
     redirect_uris: list[AnyUrl] = []
     # Build list of ports: preferred first, then fallbacks
-    ports_for_registration = [redirect_port]
+    ports_for_registration = [selected_redirect_port]
+    if redirect_port not in ports_for_registration:
+        ports_for_registration.append(redirect_port)
     for p in _CallbackServer.FALLBACK_PORTS:
         if p != 0 and p not in ports_for_registration:  # Skip ephemeral port (0)
             ports_for_registration.append(p)
@@ -518,38 +714,218 @@ def build_oauth_provider(server_config: MCPServerSettings) -> OAuthClientProvide
 
     # Local callback server handler
     async def _redirect_handler(authorization_url: str) -> None:
-        # Warn if persisting to keyring but no backend is available
-        await _print_authorization_link(
-            authorization_url,
-            warn_if_no_keyring=(persist_mode == "keyring"),
+        await _emit_oauth_event(
+            event_handler,
+            OAuthEvent(
+                event_type="authorization_url",
+                server_name=server_name,
+                url=authorization_url,
+                message="Open this link to authorize",
+            ),
         )
+
+        if emit_console_output:
+            # Warn if persisting to keyring but no backend is available
+            await _print_authorization_link(
+                authorization_url,
+                warn_if_no_keyring=(persist_mode == "keyring"),
+            )
 
     async def _callback_handler() -> tuple[str, str | None]:
         # Try local HTTP capture first
         try:
-            server = _CallbackServer(port=redirect_port, path=redirect_path)
+            # MCP python-sdk currently uses the first redirect URI from client metadata
+            # for both authorization and token exchange. To keep callback handling aligned
+            # with that fixed redirect URI, bind only the selected primary redirect port here.
+            # If a race makes it unavailable, we fail into the existing fallback/error paths.
+            server = _CallbackServer(
+                port=selected_redirect_port,
+                path=redirect_path,
+                fallback_ports=[],
+            )
             server.start()
+
             try:
-                code, state = server.wait(timeout_seconds=300)
+                callback_uri = server.get_redirect_uri()
+            except Exception:
+                callback_uri = f"http://127.0.0.1:{selected_redirect_port}{redirect_path}"
+            wait_start_message = (
+                "Waiting for OAuth callback "
+                f"at {callback_uri} (startup timer paused)…"
+            )
+            await _emit_oauth_event(
+                event_handler,
+                OAuthEvent(
+                    event_type="wait_start",
+                    server_name=server_name,
+                    message=wait_start_message,
+                ),
+            )
+            if emit_console_output:
+                _safe_console_print(wait_start_message, markup=False)
+                _safe_console_print(
+                    "[dim]Press Ctrl+C to cancel and return to prompt.[/dim]",
+                    fallback="Press Ctrl+C to cancel and return to prompt.",
+                )
+
+            try:
+                code, state = await asyncio.to_thread(
+                    server.wait,
+                    timeout_seconds=300,
+                    abort_event=abort_event,
+                )
+                await _emit_oauth_event(
+                    event_handler,
+                    OAuthEvent(
+                        event_type="callback_received",
+                        server_name=server_name,
+                        message="OAuth callback received. Completing token exchange…",
+                    ),
+                )
                 return code, state
+            except OAuthFlowCancelledError as exc:
+                await _emit_oauth_event(
+                    event_handler,
+                    OAuthEvent(
+                        event_type="oauth_error",
+                        server_name=server_name,
+                        message="OAuth authorization cancelled.",
+                    ),
+                )
+                raise OAuthFlowCancelledError("OAuth authorization cancelled") from exc
+            except TimeoutError as exc:
+                timeout_message = "OAuth authorization was not completed in time."
+                await _emit_oauth_event(
+                    event_handler,
+                    OAuthEvent(
+                        event_type="oauth_error",
+                        server_name=server_name,
+                        message=timeout_message,
+                        is_timeout=True,
+                    ),
+                )
+                raise OAuthCallbackTimeoutError(timeout_message) from exc
             finally:
+                await _emit_oauth_event(
+                    event_handler,
+                    OAuthEvent(
+                        event_type="wait_end",
+                        server_name=server_name,
+                        message="OAuth callback wait ended.",
+                    ),
+                )
                 server.stop()
+        except (OAuthCallbackTimeoutError, OAuthFlowCancelledError):
+            raise
         except Exception as e:
+            if abort_event is not None and abort_event.is_set():
+                raise OAuthFlowCancelledError("OAuth authorization cancelled") from e
+
+            if not allow_paste_fallback:
+                message = (
+                    "OAuth local callback server unavailable and paste fallback is disabled "
+                    "for this connection mode."
+                )
+                await _emit_oauth_event(
+                    event_handler,
+                    OAuthEvent(
+                        event_type="oauth_error",
+                        server_name=server_name,
+                        message=message,
+                    ),
+                )
+                raise RuntimeError(message) from e
+
             # Fallback to paste-URL flow
             logger.info(f"OAuth local callback server unavailable, fallback to paste flow: {e}")
-            try:
-                import sys
+            await _emit_oauth_event(
+                event_handler,
+                OAuthEvent(
+                    event_type="oauth_error",
+                    server_name=server_name,
+                    message=f"OAuth local callback server unavailable, using paste URL fallback: {e}",
+                ),
+            )
+            wait_start_message = "Waiting for pasted OAuth callback URL (startup timer paused)…"
+            await _emit_oauth_event(
+                event_handler,
+                OAuthEvent(
+                    event_type="wait_start",
+                    server_name=server_name,
+                    message=wait_start_message,
+                ),
+            )
+            if emit_console_output:
+                _safe_console_print(wait_start_message, markup=False)
+                _safe_console_print(
+                    "[dim]Press Ctrl+C to cancel and return to prompt.[/dim]",
+                    fallback="Press Ctrl+C to cancel and return to prompt.",
+                )
 
-                print("Paste the full callback URL after authorization:", file=sys.stderr)
-                callback_url = input("Callback URL: ").strip()
+            if abort_event is not None and abort_event.is_set():
+                raise OAuthFlowCancelledError("OAuth authorization cancelled")
+
+            try:
+                if emit_console_output:
+                    _safe_stderr_write("Paste the full callback URL after authorization:")
+                callback_url = (
+                    await asyncio.to_thread(
+                        _read_callback_url_with_abort,
+                        "Callback URL:",
+                        abort_event,
+                    )
+                ).strip()
+            except OAuthFlowCancelledError:
+                await _emit_oauth_event(
+                    event_handler,
+                    OAuthEvent(
+                        event_type="oauth_error",
+                        server_name=server_name,
+                        message="OAuth authorization cancelled.",
+                    ),
+                )
+                raise
             except Exception as ee:
+                await _emit_oauth_event(
+                    event_handler,
+                    OAuthEvent(
+                        event_type="oauth_error",
+                        server_name=server_name,
+                        message=f"Failed to read callback URL from user: {ee}",
+                    ),
+                )
                 raise RuntimeError(f"Failed to read callback URL from user: {ee}")
+            finally:
+                await _emit_oauth_event(
+                    event_handler,
+                    OAuthEvent(
+                        event_type="wait_end",
+                        server_name=server_name,
+                        message="OAuth callback wait ended.",
+                    ),
+                )
 
             params = parse_qs(urlparse(callback_url).query)
             code = params.get("code", [None])[0]
             state = params.get("state", [None])[0]
             if not code:
+                await _emit_oauth_event(
+                    event_handler,
+                    OAuthEvent(
+                        event_type="oauth_error",
+                        server_name=server_name,
+                        message="Callback URL missing authorization code",
+                    ),
+                )
                 raise RuntimeError("Callback URL missing authorization code")
+            await _emit_oauth_event(
+                event_handler,
+                OAuthEvent(
+                    event_type="callback_received",
+                    server_name=server_name,
+                    message="OAuth callback received. Completing token exchange…",
+                ),
+            )
             return code, state
 
     # Choose storage

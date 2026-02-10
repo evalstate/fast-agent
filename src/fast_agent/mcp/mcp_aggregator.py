@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import (
     TYPE_CHECKING,
     Any,
+    Awaitable,
     Callable,
     Mapping,
     TypeVar,
@@ -26,6 +27,7 @@ from mcp.types import (
 from opentelemetry import trace
 from pydantic import AnyUrl, BaseModel, ConfigDict, Field
 
+from fast_agent.config import MCPServerSettings
 from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.exceptions import ServerSessionTerminatedError
 from fast_agent.core.logging.logger import get_logger
@@ -49,6 +51,7 @@ from fast_agent.utils.async_utils import gather_with_cancel
 
 if TYPE_CHECKING:
     from fast_agent.context import Context
+    from fast_agent.mcp.oauth_client import OAuthEvent
     from fast_agent.mcp_server_registry import ServerRegistry
 
 
@@ -130,6 +133,35 @@ class ServerStatus(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
+@dataclass(frozen=True, slots=True)
+class MCPAttachOptions:
+    startup_timeout_seconds: float = 10.0
+    trigger_oauth: bool = True
+    force_reconnect: bool = False
+    reconnect_on_disconnect: bool | None = None
+    oauth_event_handler: Callable[["OAuthEvent"], Awaitable[None]] | None = None
+    allow_oauth_paste_fallback: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class MCPAttachResult:
+    server_name: str
+    transport: str
+    attached: bool
+    already_attached: bool
+    tools_added: list[str]
+    prompts_added: list[str]
+    warnings: list[str]
+
+
+@dataclass(frozen=True, slots=True)
+class MCPDetachResult:
+    server_name: str
+    detached: bool
+    tools_removed: list[str]
+    prompts_removed: list[str]
+
+
 class MCPAggregator(ContextDependent):
     """
     Aggregates multiple MCP servers. When a developer calls, e.g. call_tool(...),
@@ -202,7 +234,9 @@ class MCPAggregator(ContextDependent):
             **kwargs,
         )
 
-        self.server_names = server_names
+        self._configured_server_names = list(server_names)
+        self.server_names = list(server_names)
+        self._attached_server_names: list[str] = []
         self.connection_persistence = connection_persistence
         self.agent_name = name
         self.config = config  # Store the config for access in session factory
@@ -429,19 +463,14 @@ class MCPAggregator(ContextDependent):
             logger.debug("MCPAggregator already initialized.")
             return
 
-        async with self._tool_map_lock:
-            self._namespaced_tool_map.clear()
-            self._server_to_tool_map.clear()
+        await self._reset_runtime_indexes()
 
-        async with self._prompt_cache_lock:
-            self._prompt_cache.clear()
-
-        self._skybridge_configs.clear()
-
-        servers_to_load: list[str] = []
         skipped_servers: list[str] = []
+        attached_results: list[MCPAttachResult] = []
 
-        for server_name in self.server_names:
+        servers_to_load = list(self._configured_server_names)
+
+        for server_name in servers_to_load:
             # Check if server should be loaded on start
             server_registry = self.context.server_registry if self.context else None
             if server_registry is not None:
@@ -455,32 +484,11 @@ class MCPAggregator(ContextDependent):
                     skipped_servers.append(server_name)
                     continue
 
-            servers_to_load.append(server_name)
-
-            if self.connection_persistence:
-                logger.info(
-                    f"Creating persistent connection to server: {server_name}",
-                    data={
-                        "progress_action": ProgressAction.STARTING,
-                        "server_name": server_name,
-                        "agent_name": self.agent_name,
-                    },
+            attached_results.append(
+                await self.attach_server(
+                    server_name=server_name,
+                    options=MCPAttachOptions(),
                 )
-
-                manager = self._require_connection_manager()
-                await manager.get_server(
-                    server_name, client_session_factory=self._create_session_factory(server_name)
-                )
-
-                # Record the initialize call that happened during connection setup
-                await self._record_server_call(server_name, "initialize", True)
-
-            logger.info(
-                f"MCP Servers initialized for agent '{self.agent_name}'",
-                data={
-                    "progress_action": ProgressAction.INITIALIZED,
-                    "agent_name": self.agent_name,
-                },
             )
 
         if skipped_servers:
@@ -492,74 +500,158 @@ class MCPAggregator(ContextDependent):
                 },
             )
 
-        async def fetch_tools(server_name: str) -> list[Tool]:
-            # Only fetch tools if the server supports them
-            if not await self.server_supports_feature(server_name, "tools"):
-                logger.debug(f"Server '{server_name}' does not support tools")
-                return []
-
-            try:
-                result: ListToolsResult = await self._execute_on_server(
-                    server_name=server_name,
-                    operation_type="tools/list",
-                    operation_name="",
-                    method_name="list_tools",
-                    method_args={},
-                )
-                return result.tools or []
-            except Exception as e:
-                logger.error(f"Error loading tools from server '{server_name}'", data=e)
-                return []
-
-        async def fetch_prompts(server_name: str) -> list[Prompt]:
-            # Only fetch prompts if the server supports them
-            if not await self.server_supports_feature(server_name, "prompts"):
-                logger.debug(f"Server '{server_name}' does not support prompts")
-                return []
-
-            try:
-                result = await self._execute_on_server(
-                    server_name=server_name,
-                    operation_type="prompts/list",
-                    operation_name="",
-                    method_name="list_prompts",
-                    method_args={},
-                )
-                return getattr(result, "prompts", [])
-            except Exception as e:
-                logger.debug(f"Error loading prompts from server '{server_name}': {e}")
-                return []
-
-        async def load_server_data(server_name: str):
-            tools: list[Tool] = []
-            prompts: list[Prompt] = []
-
-            # Use _execute_on_server for consistent tracking regardless of connection mode
-            tools = await fetch_tools(server_name)
-            prompts = await fetch_prompts(server_name)
-
-            return server_name, tools, prompts
-
-        if not servers_to_load:
+        if not attached_results:
             self.initialized = True
             return
 
-        # Gather data from all servers concurrently
-        results = await gather_with_cancel(
-            load_server_data(server_name) for server_name in servers_to_load
-        )
+        total_tool_count = sum(len(result.tools_added) for result in attached_results)
+        total_prompt_count = sum(len(result.prompts_added) for result in attached_results)
 
-        total_tool_count = 0
-        total_prompt_count = 0
+        self._display_startup_state(total_tool_count, total_prompt_count)
 
-        for result in results:
-            if isinstance(result, BaseException):
-                logger.error(f"Error loading server data: {result}")
-                continue
+        self.initialized = True
 
-            server_name, tools, prompts = result
+    async def _reset_runtime_indexes(self) -> None:
+        async with self._tool_map_lock:
+            self._namespaced_tool_map.clear()
+            self._server_to_tool_map.clear()
 
-            # Process tools
+        async with self._prompt_cache_lock:
+            self._prompt_cache.clear()
+
+        self._skybridge_configs.clear()
+        self._attached_server_names = []
+
+    async def _fetch_server_tools(self, server_name: str) -> list[Tool]:
+        supports_tools = await self.server_supports_feature(server_name, "tools")
+        if not supports_tools:
+            logger.debug(
+                f"Server '{server_name}' did not advertise tools; attempting optimistic list_tools call"
+            )
+
+        try:
+            result: ListToolsResult = await self._execute_on_server(
+                server_name=server_name,
+                operation_type="tools/list",
+                operation_name="",
+                method_name="list_tools",
+                method_args={},
+            )
+            return result.tools or []
+        except Exception as e:
+            if supports_tools:
+                logger.error(f"Error loading tools from server '{server_name}'", data=e)
+            else:
+                logger.debug(
+                    f"Server '{server_name}' does not provide tools (list_tools failed): {e}"
+                )
+            return []
+
+    async def _fetch_server_prompts(self, server_name: str) -> list[Prompt]:
+        if not await self.server_supports_feature(server_name, "prompts"):
+            logger.debug(f"Server '{server_name}' does not support prompts")
+            return []
+
+        try:
+            result = await self._execute_on_server(
+                server_name=server_name,
+                operation_type="prompts/list",
+                operation_name="",
+                method_name="list_prompts",
+                method_args={},
+            )
+            return getattr(result, "prompts", [])
+        except Exception as e:
+            logger.debug(f"Error loading prompts from server '{server_name}': {e}")
+            return []
+
+    async def attach_server(
+        self,
+        *,
+        server_name: str,
+        server_config: MCPServerSettings | None = None,
+        options: MCPAttachOptions | None = None,
+    ) -> MCPAttachResult:
+        attach_options = options or MCPAttachOptions()
+        server_registry = self._require_server_registry()
+
+        if server_config is not None:
+            server_registry.registry[server_name] = server_config
+            if server_name not in self._configured_server_names:
+                self._configured_server_names.append(server_name)
+
+        resolved_config = server_registry.get_server_config(server_name)
+        if resolved_config is None:
+            raise ValueError(f"Server '{server_name}' not found in registry")
+
+        if attach_options.reconnect_on_disconnect is not None:
+            resolved_config = resolved_config.model_copy(
+                update={"reconnect_on_disconnect": attach_options.reconnect_on_disconnect}
+            )
+            server_registry.registry[server_name] = resolved_config
+
+        already_attached = server_name in self._attached_server_names
+        if already_attached and not attach_options.force_reconnect:
+            return MCPAttachResult(
+                server_name=server_name,
+                transport=resolved_config.transport,
+                attached=True,
+                already_attached=True,
+                tools_added=[],
+                prompts_added=[],
+                warnings=[],
+            )
+
+        existing_tool_names = {
+            tool.namespaced_tool_name for tool in self._server_to_tool_map.get(server_name, [])
+        }
+        existing_prompt_names = {
+            prompt.name for prompt in self._prompt_cache.get(server_name, [])
+        }
+
+        if self.connection_persistence:
+            logger.info(
+                f"Creating persistent connection to server: {server_name}",
+                data={
+                    "progress_action": ProgressAction.STARTING,
+                    "server_name": server_name,
+                    "agent_name": self.agent_name,
+                },
+            )
+
+            manager = self._require_connection_manager()
+            if attach_options.force_reconnect:
+                await manager.reconnect_server(
+                    server_name,
+                    client_session_factory=self._create_session_factory(server_name),
+                    startup_timeout_seconds=attach_options.startup_timeout_seconds,
+                    trigger_oauth=attach_options.trigger_oauth,
+                    oauth_event_handler=attach_options.oauth_event_handler,
+                    allow_oauth_paste_fallback=attach_options.allow_oauth_paste_fallback,
+                )
+            else:
+                await manager.get_server(
+                    server_name,
+                    client_session_factory=self._create_session_factory(server_name),
+                    startup_timeout_seconds=attach_options.startup_timeout_seconds,
+                    trigger_oauth=attach_options.trigger_oauth,
+                    oauth_event_handler=attach_options.oauth_event_handler,
+                    allow_oauth_paste_fallback=attach_options.allow_oauth_paste_fallback,
+                )
+
+            await self._record_server_call(server_name, "initialize", True)
+
+        # Ensure capability-gated discovery can validate newly attached or reattached servers.
+        if server_name not in self.server_names:
+            self.server_names.append(server_name)
+
+        tools = await self._fetch_server_tools(server_name)
+        prompts = await self._fetch_server_prompts(server_name)
+
+        async with self._tool_map_lock:
+            for namespaced in self._server_to_tool_map.get(server_name, []):
+                self._namespaced_tool_map.pop(namespaced.namespaced_tool_name, None)
+
             self._server_to_tool_map[server_name] = []
             for tool in tools:
                 namespaced_tool_name = create_namespaced_name(server_name, tool.name)
@@ -568,34 +660,89 @@ class MCPAggregator(ContextDependent):
                     server_name=server_name,
                     namespaced_tool_name=namespaced_tool_name,
                 )
-
                 self._namespaced_tool_map[namespaced_tool_name] = namespaced_tool
                 self._server_to_tool_map[server_name].append(namespaced_tool)
 
-            total_tool_count += len(tools)
+        async with self._prompt_cache_lock:
+            self._prompt_cache[server_name] = prompts
 
-            # Process prompts
-            async with self._prompt_cache_lock:
-                self._prompt_cache[server_name] = prompts
+        skybridge_result = await self._evaluate_skybridge_for_server(server_name)
+        _, skybridge_config = skybridge_result
+        self._skybridge_configs[server_name] = skybridge_config
 
-            total_prompt_count += len(prompts)
+        if server_name not in self._attached_server_names:
+            self._attached_server_names.append(server_name)
 
-            logger.debug(
-                f"MCP Aggregator initialized for server '{server_name}'",
-                data={
-                    "progress_action": ProgressAction.INITIALIZED,
-                    "server_name": server_name,
-                    "agent_name": self.agent_name,
-                    "tool_count": len(tools),
-                    "prompt_count": len(prompts),
-                },
+        tool_names = {
+            tool.namespaced_tool_name for tool in self._server_to_tool_map.get(server_name, [])
+        }
+        prompt_names = {prompt.name for prompt in self._prompt_cache.get(server_name, [])}
+
+        logger.info(
+            f"MCP Servers initialized for agent '{self.agent_name}'",
+            data={
+                "progress_action": ProgressAction.INITIALIZED,
+                "agent_name": self.agent_name,
+            },
+        )
+
+        return MCPAttachResult(
+            server_name=server_name,
+            transport=resolved_config.transport,
+            attached=True,
+            already_attached=already_attached,
+            tools_added=sorted(tool_names - existing_tool_names),
+            prompts_added=sorted(prompt_names - existing_prompt_names),
+            warnings=list(skybridge_config.warnings),
+        )
+
+    async def detach_server(self, server_name: str) -> MCPDetachResult:
+        existing_tools = self._server_to_tool_map.get(server_name, [])
+        existing_prompts = self._prompt_cache.get(server_name, [])
+        tools_removed = sorted(tool.namespaced_tool_name for tool in existing_tools)
+        prompts_removed = sorted(prompt.name for prompt in existing_prompts)
+
+        if server_name not in self._attached_server_names:
+            return MCPDetachResult(
+                server_name=server_name,
+                detached=False,
+                tools_removed=[],
+                prompts_removed=[],
             )
 
-        await self._initialize_skybridge_configs(servers_to_load)
+        if self.connection_persistence and self._persistent_connection_manager is not None:
+            await self._persistent_connection_manager.disconnect_server(server_name)
 
-        self._display_startup_state(total_tool_count, total_prompt_count)
+        async with self._tool_map_lock:
+            for namespaced_tool in self._server_to_tool_map.pop(server_name, []):
+                self._namespaced_tool_map.pop(namespaced_tool.namespaced_tool_name, None)
 
-        self.initialized = True
+        async with self._prompt_cache_lock:
+            self._prompt_cache.pop(server_name, None)
+
+        self._skybridge_configs.pop(server_name, None)
+        self._attached_server_names = [
+            name for name in self._attached_server_names if name != server_name
+        ]
+        self.server_names = [name for name in self.server_names if name != server_name]
+
+        return MCPDetachResult(
+            server_name=server_name,
+            detached=True,
+            tools_removed=tools_removed,
+            prompts_removed=prompts_removed,
+        )
+
+    def list_attached_servers(self) -> list[str]:
+        return list(self._attached_server_names)
+
+    def list_configured_detached_servers(self) -> list[str]:
+        configured = set(self._configured_server_names)
+        server_registry = self.context.server_registry if self.context else None
+        registry_data = getattr(server_registry, "registry", None)
+        if isinstance(registry_data, dict):
+            configured.update(registry_data.keys())
+        return sorted(configured - set(self._attached_server_names))
 
     async def _initialize_skybridge_configs(self, server_names: list[str] | None = None) -> None:
         """Discover Skybridge resources across servers."""

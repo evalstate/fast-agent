@@ -81,6 +81,7 @@ from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
 from fast_agent.acp.tool_permission_adapter import ACPToolPermissionAdapter
 from fast_agent.acp.tool_progress import ACPToolProgressManager
 from fast_agent.agents.tool_runner import ToolRunnerHooks
+from fast_agent.config import MCPServerSettings
 from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
 )
@@ -100,6 +101,7 @@ from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.terminal_output_limits import calculate_terminal_output_limit_for_model
 from fast_agent.llm.usage_tracking import last_turn_usage
 from fast_agent.mcp.helpers.content_helpers import is_text_content
+from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
 from fast_agent.mcp.tool_execution_handler import NoOpToolExecutionHandler
 from fast_agent.mcp.tool_permission_handler import NoOpToolPermissionHandler
 from fast_agent.mcp.types import McpAgentProtocol
@@ -236,6 +238,15 @@ class AgentACPServer(ACPAgent):
         | None = None,
         detach_agent_tools_callback: Callable[[str, Sequence[str]], Awaitable[list[str]]]
         | None = None,
+        attach_mcp_server_callback: Callable[
+            [str, str, MCPServerSettings | None, MCPAttachOptions | None],
+            Awaitable[MCPAttachResult],
+        ]
+        | None = None,
+        detach_mcp_server_callback: Callable[[str, str], Awaitable[MCPDetachResult]] | None = None,
+        list_attached_mcp_servers_callback: Callable[[str], Awaitable[list[str]]] | None = None,
+        list_configured_detached_mcp_servers_callback: Callable[[str], Awaitable[list[str]]]
+        | None = None,
         dump_agent_card_callback: Callable[[str], Awaitable[str]] | None = None,
         reload_callback: Callable[[], Awaitable[bool]] | None = None,
     ) -> None:
@@ -254,6 +265,11 @@ class AgentACPServer(ACPAgent):
             load_card_callback: Optional callback to load AgentCards at runtime
             attach_agent_tools_callback: Optional callback to attach agent tools at runtime
             detach_agent_tools_callback: Optional callback to detach agent tools at runtime
+            attach_mcp_server_callback: Optional callback to attach MCP servers at runtime
+            detach_mcp_server_callback: Optional callback to detach MCP servers at runtime
+            list_attached_mcp_servers_callback: Optional callback to list attached MCP servers
+            list_configured_detached_mcp_servers_callback: Optional callback to list configured
+                detached MCP servers
             dump_agent_card_callback: Optional callback to dump AgentCards at runtime
             reload_callback: Optional callback to reload AgentCards
         """
@@ -267,6 +283,12 @@ class AgentACPServer(ACPAgent):
         self._load_card_callback = load_card_callback
         self._attach_agent_tools_callback = attach_agent_tools_callback
         self._detach_agent_tools_callback = detach_agent_tools_callback
+        self._attach_mcp_server_callback = attach_mcp_server_callback
+        self._detach_mcp_server_callback = detach_mcp_server_callback
+        self._list_attached_mcp_servers_callback = list_attached_mcp_servers_callback
+        self._list_configured_detached_mcp_servers_callback = (
+            list_configured_detached_mcp_servers_callback
+        )
         self._dump_agent_card_callback = dump_agent_card_callback
         self._reload_callback = reload_callback
         self._primary_registry_version = getattr(primary_instance, "registry_version", 0)
@@ -838,6 +860,36 @@ class AgentACPServer(ACPAgent):
             for agent in instance.agents.values():
                 await rebuild_agent_instruction(agent)
 
+        slash_handler = self._create_slash_handler(session_state, instance)
+        session_state.slash_handler = slash_handler
+
+        current_agent = session_state.current_agent_name
+        if not current_agent or current_agent not in instance.agents:
+            current_agent = self.primary_agent_name or next(iter(instance.agents.keys()), None)
+            session_state.current_agent_name = current_agent
+        if current_agent and session_state.slash_handler:
+            session_state.slash_handler.set_current_agent(current_agent)
+
+        session_modes = self._build_session_modes(instance, session_state)
+        if current_agent and current_agent in instance.agents:
+            session_modes = SessionModeState(
+                available_modes=session_modes.available_modes,
+                current_mode_id=current_agent,
+            )
+
+        if session_state.acp_context:
+            slash_handler.set_acp_context(session_state.acp_context)
+            session_state.acp_context.set_slash_handler(slash_handler)
+            session_state.acp_context.set_resolved_instructions(resolved_for_session)
+            session_state.acp_context.set_available_modes(session_modes.available_modes)
+            if current_agent:
+                session_state.acp_context.set_current_mode(current_agent)
+
+    def _create_slash_handler(
+        self,
+        session_state: ACPSessionState,
+        instance: AgentInstance,
+    ) -> SlashCommandHandler:
         async def load_card(
             source: str, parent_name: str | None
         ) -> tuple[AgentInstance, list[str], list[str]]:
@@ -858,6 +910,62 @@ class AgentACPServer(ACPAgent):
             return await self._detach_agent_tools_for_session(
                 session_state, parent_name, child_names
             )
+
+        async def attach_mcp_server(
+            agent_name: str,
+            server_name: str,
+            server_config: MCPServerSettings | None = None,
+            options: MCPAttachOptions | None = None,
+        ) -> MCPAttachResult:
+            if not self._attach_mcp_server_callback:
+                raise RuntimeError("Runtime MCP server attachment is not available.")
+            result = await self._attach_mcp_server_callback(
+                agent_name,
+                server_name,
+                server_config,
+                options,
+            )
+
+            if session_state.acp_context:
+                resolved_instruction = None
+                agent = instance.agents.get(agent_name)
+                if isinstance(agent, InstructionContextCapable):
+                    resolved_instruction = agent.instruction
+                await session_state.acp_context.invalidate_instruction_cache(
+                    agent_name,
+                    resolved_instruction,
+                )
+                await session_state.acp_context.send_available_commands_update()
+
+            return result
+
+        async def detach_mcp_server(agent_name: str, server_name: str) -> MCPDetachResult:
+            if not self._detach_mcp_server_callback:
+                raise RuntimeError("Runtime MCP server detachment is not available.")
+            result = await self._detach_mcp_server_callback(agent_name, server_name)
+
+            if session_state.acp_context:
+                resolved_instruction = None
+                agent = instance.agents.get(agent_name)
+                if isinstance(agent, InstructionContextCapable):
+                    resolved_instruction = agent.instruction
+                await session_state.acp_context.invalidate_instruction_cache(
+                    agent_name,
+                    resolved_instruction,
+                )
+                await session_state.acp_context.send_available_commands_update()
+
+            return result
+
+        async def list_attached_mcp_servers(agent_name: str) -> list[str]:
+            if not self._list_attached_mcp_servers_callback:
+                raise RuntimeError("Runtime MCP server listing is not available.")
+            return await self._list_attached_mcp_servers_callback(agent_name)
+
+        async def list_configured_detached_mcp_servers(agent_name: str) -> list[str]:
+            if not self._list_configured_detached_mcp_servers_callback:
+                raise RuntimeError("Configured MCP server listing is not available.")
+            return await self._list_configured_detached_mcp_servers_callback(agent_name)
 
         async def dump_agent_card(agent_name: str) -> str:
             if not self._dump_agent_card_callback:
@@ -884,7 +992,7 @@ class AgentACPServer(ACPAgent):
                 session_state.resolved_instructions[agent_name] = resolved
             return resolved
 
-        slash_handler = SlashCommandHandler(
+        return SlashCommandHandler(
             session_state.session_id,
             instance,
             self.primary_agent_name or "default",
@@ -892,7 +1000,7 @@ class AgentACPServer(ACPAgent):
             client_info=self._client_info,
             client_capabilities=self._client_capabilities,
             protocol_version=self._protocol_version,
-            session_instructions=resolved_for_session,
+            session_instructions=session_state.resolved_instructions,
             instruction_resolver=resolve_instruction_for_system,
             card_loader=load_card if self._load_card_callback else None,
             attach_agent_callback=(
@@ -901,33 +1009,24 @@ class AgentACPServer(ACPAgent):
             detach_agent_callback=(
                 detach_agent_tools if self._detach_agent_tools_callback else None
             ),
+            attach_mcp_server_callback=(
+                attach_mcp_server if self._attach_mcp_server_callback else None
+            ),
+            detach_mcp_server_callback=(
+                detach_mcp_server if self._detach_mcp_server_callback else None
+            ),
+            list_attached_mcp_servers_callback=(
+                list_attached_mcp_servers if self._list_attached_mcp_servers_callback else None
+            ),
+            list_configured_detached_mcp_servers_callback=(
+                list_configured_detached_mcp_servers
+                if self._list_configured_detached_mcp_servers_callback
+                else None
+            ),
             dump_agent_callback=(dump_agent_card if self._dump_agent_card_callback else None),
             reload_callback=reload_cards if self._reload_callback else None,
             set_current_mode_callback=set_current_mode,
         )
-        session_state.slash_handler = slash_handler
-
-        current_agent = session_state.current_agent_name
-        if not current_agent or current_agent not in instance.agents:
-            current_agent = self.primary_agent_name or next(iter(instance.agents.keys()), None)
-            session_state.current_agent_name = current_agent
-        if current_agent and session_state.slash_handler:
-            session_state.slash_handler.set_current_agent(current_agent)
-
-        session_modes = self._build_session_modes(instance, session_state)
-        if current_agent and current_agent in instance.agents:
-            session_modes = SessionModeState(
-                available_modes=session_modes.available_modes,
-                current_mode_id=current_agent,
-            )
-
-        if session_state.acp_context:
-            slash_handler.set_acp_context(session_state.acp_context)
-            session_state.acp_context.set_slash_handler(slash_handler)
-            session_state.acp_context.set_resolved_instructions(resolved_for_session)
-            session_state.acp_context.set_available_modes(session_modes.available_modes)
-            if current_agent:
-                session_state.acp_context.set_current_mode(current_agent)
 
     async def _load_agent_card_for_session(
         self,
@@ -1380,65 +1479,7 @@ class AgentACPServer(ACPAgent):
                     logger.warning(f"Failed to set instruction context on agent {agent_name}: {e}")
 
         # Create slash command handler for this session
-        resolved_prompts = session_state.resolved_instructions
-
-        async def load_card(
-            source: str, parent_name: str | None
-        ) -> tuple[AgentInstance, list[str], list[str]]:
-            return await self._load_agent_card_for_session(
-                session_state, source, attach_to=parent_name
-            )
-
-        async def attach_agent_tools(
-            parent_name: str, child_names: Sequence[str]
-        ) -> tuple[AgentInstance, list[str]]:
-            return await self._attach_agent_tools_for_session(
-                session_state, parent_name, child_names
-            )
-
-        async def dump_agent_card(agent_name: str) -> str:
-            if not self._dump_agent_card_callback:
-                raise RuntimeError("AgentCard dumping is not available.")
-            return await self._dump_agent_card_callback(agent_name)
-
-        async def reload_cards() -> bool:
-            return await self._reload_agent_cards_for_session(session_id)
-
-        async def set_current_mode(agent_name: str) -> None:
-            session_state.current_agent_name = agent_name
-            if session_state.acp_context:
-                await session_state.acp_context.switch_mode(agent_name)
-
-        async def resolve_instruction_for_system(agent_name: str) -> str | None:
-            agent = instance.agents.get(agent_name)
-            if agent is None:
-                return None
-            context = session_state.prompt_context or {}
-            if not context:
-                return None
-            resolved = await self._resolve_instruction_for_session(agent, context)
-            if resolved:
-                session_state.resolved_instructions[agent_name] = resolved
-            return resolved
-
-        slash_handler = SlashCommandHandler(
-            session_id,
-            instance,
-            self.primary_agent_name or "default",
-            noenv=bool(getattr(instance.app, "_noenv_mode", False)),
-            client_info=self._client_info,
-            client_capabilities=self._client_capabilities,
-            protocol_version=self._protocol_version,
-            session_instructions=resolved_prompts,
-            instruction_resolver=resolve_instruction_for_system,
-            card_loader=load_card if self._load_card_callback else None,
-            attach_agent_callback=(
-                attach_agent_tools if self._attach_agent_tools_callback else None
-            ),
-            dump_agent_callback=(dump_agent_card if self._dump_agent_card_callback else None),
-            reload_callback=reload_cards if self._reload_callback else None,
-            set_current_mode_callback=set_current_mode,
-        )
+        slash_handler = self._create_slash_handler(session_state, instance)
         session_state.slash_handler = slash_handler
 
         # Create ACPContext for this session - centralizes all ACP state
