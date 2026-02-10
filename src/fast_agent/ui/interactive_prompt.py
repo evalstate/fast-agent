@@ -14,6 +14,7 @@ Usage:
     )
 """
 
+import shlex
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Union, cast
 
 from mcp.types import PromptMessage
@@ -509,6 +510,7 @@ class InteractivePrompt:
                     case McpConnectCommand(
                         target_text=target_text,
                         server_name=server_name,
+                        auth_token=auth_token,
                         timeout_seconds=timeout_seconds,
                         trigger_oauth=trigger_oauth,
                         reconnect_on_disconnect=reconnect_on_disconnect,
@@ -522,6 +524,8 @@ class InteractivePrompt:
                         runtime_target = target_text
                         if server_name:
                             runtime_target += f" --name {server_name}"
+                        if auth_token:
+                            runtime_target += f" --auth {shlex.quote(auth_token)}"
                         if timeout_seconds is not None:
                             runtime_target += f" --timeout {timeout_seconds}"
                         if trigger_oauth is True:

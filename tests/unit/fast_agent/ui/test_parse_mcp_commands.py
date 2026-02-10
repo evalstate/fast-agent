@@ -26,10 +26,11 @@ def test_parse_connect_alias_detects_url_mode() -> None:
 
 def test_parse_mcp_connect_extracts_flags() -> None:
     result = parse_special_input(
-        "/mcp connect --name docs --timeout 7 --no-oauth --no-reconnect npx my-server"
+        "/mcp connect --name docs --auth secret-token --timeout 7 --no-oauth --no-reconnect npx my-server"
     )
     assert isinstance(result, McpConnectCommand)
     assert result.server_name == "docs"
+    assert result.auth_token == "secret-token"
     assert result.timeout_seconds == 7.0
     assert result.trigger_oauth is False
     assert result.reconnect_on_disconnect is False

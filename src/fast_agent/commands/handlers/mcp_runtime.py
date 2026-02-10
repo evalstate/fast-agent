@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Protocol
 from urllib.parse import urlparse
 
+from fast_agent.cli.commands.url_parser import parse_server_urls
 from fast_agent.commands.results import CommandOutcome
 from fast_agent.config import MCPServerSettings
 from fast_agent.mcp.mcp_aggregator import MCPAttachOptions
@@ -37,6 +38,7 @@ class ParsedMcpConnectInput:
     trigger_oauth: bool | None
     reconnect_on_disconnect: bool | None
     force_reconnect: bool
+    auth_token: str | None
 
 
 def infer_connect_mode(target_text: str) -> str:
@@ -89,6 +91,7 @@ def parse_connect_input(target_text: str) -> ParsedMcpConnectInput:
     trigger_oauth: bool | None = None
     reconnect_on_disconnect: bool | None = None
     force_reconnect = False
+    auth_token: str | None = None
 
     idx = 0
     while idx < len(tokens):
@@ -111,6 +114,15 @@ def parse_connect_input(target_text: str) -> ParsedMcpConnectInput:
             force_reconnect = True
         elif token == "--no-reconnect":
             reconnect_on_disconnect = False
+        elif token == "--auth":
+            idx += 1
+            if idx >= len(tokens):
+                raise ValueError("Missing value for --auth")
+            auth_token = tokens[idx]
+        elif token.startswith("--auth="):
+            auth_token = token.split("=", 1)[1]
+            if not auth_token:
+                raise ValueError("Missing value for --auth")
         else:
             target_tokens.append(token)
         idx += 1
@@ -126,27 +138,43 @@ def parse_connect_input(target_text: str) -> ParsedMcpConnectInput:
         trigger_oauth=trigger_oauth,
         reconnect_on_disconnect=reconnect_on_disconnect,
         force_reconnect=force_reconnect,
+        auth_token=auth_token,
     )
 
 
-def _build_server_config(target_text: str, server_name: str) -> MCPServerSettings:
+def _build_server_config(
+    target_text: str,
+    server_name: str,
+    *,
+    auth_token: str | None = None,
+) -> tuple[str, MCPServerSettings]:
     mode = infer_connect_mode(target_text)
     if mode == "url":
-        return MCPServerSettings(name=server_name, transport="http", url=target_text)
+        parsed_urls = parse_server_urls(target_text, auth_token=auth_token)
+        if not parsed_urls:
+            raise ValueError("Connection target is required")
+        parsed_name, transport, parsed_url, headers = parsed_urls[0]
+        final_name = server_name or parsed_name
+        return final_name, MCPServerSettings(
+            name=final_name,
+            transport=transport,
+            url=parsed_url,
+            headers=headers,
+        )
 
     tokens = shlex.split(target_text)
     if not tokens:
         raise ValueError("Connection target is required")
 
     if mode == "npx" and tokens[0].startswith("@"):
-        return MCPServerSettings(
+        return server_name, MCPServerSettings(
             name=server_name,
             transport="stdio",
             command="npx",
             args=tokens,
         )
 
-    return MCPServerSettings(
+    return server_name, MCPServerSettings(
         name=server_name,
         transport="stdio",
         command=tokens[0],
@@ -202,7 +230,11 @@ async def handle_mcp_connect(
     server_name = parsed.server_name or _infer_server_name(parsed.target_text, mode)
 
     try:
-        config = _build_server_config(parsed.target_text, server_name)
+        server_name, config = _build_server_config(
+            parsed.target_text,
+            server_name,
+            auth_token=parsed.auth_token,
+        )
         attach_options = MCPAttachOptions(
             startup_timeout_seconds=parsed.timeout_seconds or 10.0,
             trigger_oauth=True if parsed.trigger_oauth is None else parsed.trigger_oauth,

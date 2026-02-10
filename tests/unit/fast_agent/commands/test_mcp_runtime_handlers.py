@@ -198,3 +198,42 @@ async def test_handle_mcp_connect_reports_already_attached() -> None:
 
     message_text = "\n".join(str(msg.text) for msg in outcome.messages)
     assert "already attached" in message_text.lower()
+
+
+@pytest.mark.asyncio
+async def test_handle_mcp_connect_url_uses_cli_url_parsing_for_auth_headers() -> None:
+    manager = _Manager()
+    ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())
+
+    outcome = await mcp_runtime.handle_mcp_connect(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        target_text="https://example.com/api --auth token123",
+    )
+
+    assert any("Connected MCP server" in str(msg.text) for msg in outcome.messages)
+    assert manager.last_config is not None
+    assert manager.last_config.transport == "http"
+    assert manager.last_config.url == "https://example.com/api/mcp"
+    assert manager.last_config.headers == {"Authorization": "Bearer token123"}
+
+
+@pytest.mark.asyncio
+async def test_handle_mcp_connect_hf_url_adds_hf_auth_from_env(monkeypatch) -> None:
+    manager = _Manager()
+    ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())
+
+    monkeypatch.setenv("HF_TOKEN", "hf_test_token")
+    outcome = await mcp_runtime.handle_mcp_connect(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        target_text="https://demo.hf.space",
+    )
+
+    assert any("Connected MCP server" in str(msg.text) for msg in outcome.messages)
+    assert manager.last_config is not None
+    assert manager.last_config.headers is not None
+    assert manager.last_config.headers.get("Authorization") == "Bearer hf_test_token"
+    assert manager.last_config.headers.get("X-HF-Authorization") == "Bearer hf_test_token"

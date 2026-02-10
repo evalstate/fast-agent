@@ -147,6 +147,7 @@ def _mcp_connect_cmd(
     *,
     parsed_mode: McpConnectMode,
     server_name: str | None,
+    auth_token: str | None,
     timeout_seconds: float | None,
     trigger_oauth: bool | None,
     reconnect_on_disconnect: bool | None,
@@ -157,6 +158,7 @@ def _mcp_connect_cmd(
         target_text=target_text,
         parsed_mode=parsed_mode,
         server_name=server_name,
+        auth_token=auth_token,
         timeout_seconds=timeout_seconds,
         trigger_oauth=trigger_oauth,
         reconnect_on_disconnect=reconnect_on_disconnect,
@@ -1998,6 +2000,7 @@ def parse_special_input(text: str) -> str | CommandPayload:
                     "",
                     parsed_mode="stdio",
                     server_name=None,
+                    auth_token=None,
                     timeout_seconds=None,
                     trigger_oauth=None,
                     reconnect_on_disconnect=None,
@@ -2018,18 +2021,20 @@ def parse_special_input(text: str) -> str | CommandPayload:
                         "",
                         parsed_mode="stdio",
                         server_name=None,
+                        auth_token=None,
                         timeout_seconds=None,
                         trigger_oauth=None,
                         reconnect_on_disconnect=None,
                         force_reconnect=False,
                         error=(
-                            "Usage: /mcp connect <target> [--name <server>] [--timeout <seconds>] "
+                            "Usage: /mcp connect <target> [--name <server>] [--auth <token>] [--timeout <seconds>] "
                             "[--oauth|--no-oauth] [--reconnect|--no-reconnect]"
                         ),
                     )
                 connect_args = tokens[1:]
                 target_tokens: list[str] = []
                 server_name: str | None = None
+                auth_token: str | None = None
                 timeout_seconds: float | None = None
                 trigger_oauth: bool | None = None
                 reconnect_on_disconnect: bool | None = None
@@ -2054,6 +2059,17 @@ def parse_special_input(text: str) -> str | CommandPayload:
                         except ValueError:
                             parse_error = "--timeout must be a number"
                             break
+                    elif token == "--auth":
+                        idx += 1
+                        if idx >= len(connect_args):
+                            parse_error = "Missing value for --auth"
+                            break
+                        auth_token = connect_args[idx]
+                    elif token.startswith("--auth="):
+                        auth_token = token.split("=", 1)[1]
+                        if not auth_token:
+                            parse_error = "Missing value for --auth"
+                            break
                     elif token == "--oauth":
                         trigger_oauth = True
                     elif token == "--no-oauth":
@@ -2075,6 +2091,7 @@ def parse_special_input(text: str) -> str | CommandPayload:
                     target_text,
                     parsed_mode=parsed_mode,
                     server_name=server_name,
+                    auth_token=auth_token,
                     timeout_seconds=timeout_seconds,
                     trigger_oauth=trigger_oauth,
                     reconnect_on_disconnect=reconnect_on_disconnect,
@@ -2090,6 +2107,7 @@ def parse_special_input(text: str) -> str | CommandPayload:
                     "",
                     parsed_mode="stdio",
                     server_name=None,
+                    auth_token=None,
                     timeout_seconds=None,
                     trigger_oauth=None,
                     reconnect_on_disconnect=None,
@@ -2100,6 +2118,7 @@ def parse_special_input(text: str) -> str | CommandPayload:
                 remainder,
                 parsed_mode=parsed_mode,
                 server_name=None,
+                auth_token=None,
                 timeout_seconds=None,
                 trigger_oauth=None,
                 reconnect_on_disconnect=None,
@@ -2946,6 +2965,7 @@ async def handle_special_commands(
         rich_print("  /mcpstatus     - Show MCP server status summary for the active agent")
         rich_print("  /mcp list      - List attached runtime MCP servers")
         rich_print("  /mcp connect <target> - Connect MCP server at runtime")
+        rich_print("      [dim]flags: --name --auth --timeout --oauth/--no-oauth --reconnect[/dim]")
         rich_print("  /mcp disconnect <name> - Disconnect attached MCP server")
         rich_print("  /connect <target> - Alias for /mcp connect")
         rich_print("  /history save [filename] - Save current chat history to a file")

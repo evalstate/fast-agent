@@ -518,6 +518,7 @@ class MCPConnectionManager(ContextDependent):
         self._task_group = None
         self._task_group_active = False
         self._mcp_sse_filter_added = False
+        self._mcp_streamable_http_filter_added = False
 
     async def __aenter__(self):
         # Create a task group that isn't tied to a specific task
@@ -563,6 +564,25 @@ class MCPConnectionManager(ContextDependent):
         mcp_sse_logger = logging.getLogger("mcp.client.sse")
         mcp_sse_logger.addFilter(MCPSSEErrorFilter())
         self._mcp_sse_filter_added = True
+
+    def _suppress_mcp_streamable_http_errors(self) -> None:
+        """Suppress noisy MCP streamable_http post-writer tracebacks for transient network loss."""
+        if self._mcp_streamable_http_filter_added:
+            return
+
+        import logging
+
+        class MCPStreamableHTTPErrorFilter(logging.Filter):
+            def filter(self, record):
+                message = record.getMessage()
+                return not (
+                    record.name == "mcp.client.streamable_http"
+                    and "Error in post_writer" in message
+                )
+
+        mcp_http_logger = logging.getLogger("mcp.client.streamable_http")
+        mcp_http_logger.addFilter(MCPStreamableHTTPErrorFilter())
+        self._mcp_streamable_http_filter_added = True
 
     async def launch_server(
         self,
@@ -679,6 +699,7 @@ class MCPConnectionManager(ContextDependent):
                     raise ValueError(
                         f"Server '{server_name}' uses http transport but no url is specified"
                     )
+                self._suppress_mcp_streamable_http_errors()
                 headers, oauth_auth, user_auth_keys = _prepare_headers_and_auth(
                     config,
                     trigger_oauth=trigger_oauth,

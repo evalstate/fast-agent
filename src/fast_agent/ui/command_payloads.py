@@ -39,6 +39,7 @@ class McpConnectCommand(CommandBase):
     target_text: str
     parsed_mode: McpConnectMode
     server_name: str | None
+    auth_token: str | None
     timeout_seconds: float | None
     trigger_oauth: bool | None
     reconnect_on_disconnect: bool | None

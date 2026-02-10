@@ -335,7 +335,7 @@ class SlashCommandHandler:
                 description="Manage runtime MCP servers (list/connect/disconnect)",
                 input=AvailableCommandInput(
                     root=UnstructuredCommandInput(
-                        hint="list | connect <target> [--name <server>] [--timeout <seconds>] | disconnect <server>"
+                        hint="list | connect <target> [--name <server>] [--auth <token>] [--timeout <seconds>] | disconnect <server>"
                     )
                 ),
             ),
@@ -1522,7 +1522,7 @@ class SlashCommandHandler:
             if len(tokens) < 2:
                 return (
                     f"{heading}\n\n"
-                    "Usage: /mcp connect <target> [--name <server>] [--timeout <seconds>] "
+                    "Usage: /mcp connect <target> [--name <server>] [--auth <token>] [--timeout <seconds>] "
                     "[--oauth|--no-oauth]"
                 )
             target_text = " ".join(tokens[1:])
@@ -1565,7 +1565,7 @@ class SlashCommandHandler:
             f"{heading}\n\n"
             "Usage:\n"
             "- /mcp list\n"
-            "- /mcp connect <target> [--name <server>] [--timeout <seconds>] [--oauth|--no-oauth]\n"
+            "- /mcp connect <target> [--name <server>] [--auth <token>] [--timeout <seconds>] [--oauth|--no-oauth]\n"
             "- /mcp disconnect <server_name>"
         )
 
