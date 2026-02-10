@@ -86,6 +86,20 @@ def _infer_server_name(target_text: str, mode: str) -> str:
     return "mcp-server"
 
 
+def _rebuild_target_text(tokens: list[str]) -> str:
+    """Rebuild target text while preserving whitespace grouping for later shlex parsing."""
+    if not tokens:
+        return ""
+
+    rebuilt_parts: list[str] = []
+    for token in tokens:
+        if token == "" or any(char.isspace() for char in token):
+            rebuilt_parts.append(shlex.quote(token))
+        else:
+            rebuilt_parts.append(token)
+    return " ".join(rebuilt_parts)
+
+
 def parse_connect_input(target_text: str) -> ParsedMcpConnectInput:
     tokens = shlex.split(target_text)
     target_tokens: list[str] = []
@@ -130,7 +144,7 @@ def parse_connect_input(target_text: str) -> ParsedMcpConnectInput:
             target_tokens.append(token)
         idx += 1
 
-    normalized_target = " ".join(target_tokens).strip()
+    normalized_target = _rebuild_target_text(target_tokens).strip()
     if not normalized_target:
         raise ValueError("Connection target is required")
 

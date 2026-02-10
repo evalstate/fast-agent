@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 from mcp.types import ListToolsResult, Tool
 
@@ -5,6 +7,7 @@ from fast_agent.config import MCPServerSettings
 from fast_agent.context import Context
 from fast_agent.mcp.mcp_aggregator import (
     MCPAggregator,
+    MCPAttachOptions,
     MCPAttachResult,
     NamespacedTool,
 )
@@ -159,3 +162,61 @@ async def test_fetch_server_tools_optimistic_fallback_when_capability_missing() 
 
     tools = await aggregator._fetch_server_tools("alpha")
     assert [tool.name for tool in tools] == ["echo"]
+
+
+@pytest.mark.asyncio
+async def test_attach_server_registers_runtime_server_before_prompt_discovery() -> None:
+    context = _build_context({})
+
+    class _CapabilityAwareAggregator(MCPAggregator):
+        async def get_capabilities(self, server_name: str):  # type: ignore[override]
+            del server_name
+            return SimpleNamespace(tools=True, prompts=True, resources=False)
+
+        async def _execute_on_server(
+            self,
+            server_name: str,
+            operation_type: str,
+            operation_name: str,
+            method_name: str,
+            method_args=None,
+            error_factory=None,
+            progress_callback=None,
+        ):
+            del (
+                server_name,
+                operation_type,
+                operation_name,
+                method_args,
+                error_factory,
+                progress_callback,
+            )
+            if method_name == "list_tools":
+                return ListToolsResult(
+                    tools=[Tool(name="echo", inputSchema={"type": "object"})]
+                )
+            if method_name == "list_prompts":
+                return SimpleNamespace(prompts=[SimpleNamespace(name="demo-prompt")])
+            raise AssertionError(f"Unexpected MCP method: {method_name}")
+
+        async def _evaluate_skybridge_for_server(
+            self, server_name: str
+        ) -> tuple[str, SkybridgeServerConfig]:
+            return server_name, SkybridgeServerConfig(server_name=server_name)
+
+    aggregator = _CapabilityAwareAggregator(
+        server_names=[],
+        connection_persistence=False,
+        context=context,
+    )
+
+    result = await aggregator.attach_server(
+        server_name="runtime",
+        server_config=MCPServerSettings(name="runtime", transport="stdio", command="echo"),
+        options=MCPAttachOptions(),
+    )
+
+    assert len(result.tools_added) == 1
+    assert result.tools_added[0].endswith("echo")
+    assert result.prompts_added == ["demo-prompt"]
+    assert aggregator.server_names == ["runtime"]

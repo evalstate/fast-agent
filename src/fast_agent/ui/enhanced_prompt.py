@@ -285,6 +285,20 @@ def _infer_mcp_connect_mode(target_text: str) -> McpConnectMode:
     return "stdio"
 
 
+def _rebuild_mcp_target_text(tokens: list[str]) -> str:
+    """Rebuild target text while preserving whitespace-grouped arguments."""
+    if not tokens:
+        return ""
+
+    rebuilt_parts: list[str] = []
+    for token in tokens:
+        if token == "" or any(char.isspace() for char in token):
+            rebuilt_parts.append(shlex.quote(token))
+        else:
+            rebuilt_parts.append(token)
+    return " ".join(rebuilt_parts)
+
+
 def _extract_alert_flags_from_meta(blocks) -> set[str]:
     flags: set[str] = set()
     for block in blocks or []:
@@ -2082,7 +2096,7 @@ def parse_special_input(text: str) -> str | CommandPayload:
                         target_tokens.append(token)
                     idx += 1
 
-                target_text = " ".join(target_tokens).strip()
+                target_text = _rebuild_mcp_target_text(target_tokens).strip()
                 parsed_mode = _infer_mcp_connect_mode(target_text)
                 if not parse_error and not target_text:
                     parse_error = "Connection target is required"

@@ -641,6 +641,10 @@ class MCPAggregator(ContextDependent):
 
             await self._record_server_call(server_name, "initialize", True)
 
+        # Ensure capability-gated discovery can validate newly attached or reattached servers.
+        if server_name not in self.server_names:
+            self.server_names.append(server_name)
+
         tools = await self._fetch_server_tools(server_name)
         prompts = await self._fetch_server_prompts(server_name)
 
@@ -668,8 +672,6 @@ class MCPAggregator(ContextDependent):
 
         if server_name not in self._attached_server_names:
             self._attached_server_names.append(server_name)
-        if server_name not in self.server_names:
-            self.server_names.append(server_name)
 
         tool_names = {
             tool.namespaced_tool_name for tool in self._server_to_tool_map.get(server_name, [])

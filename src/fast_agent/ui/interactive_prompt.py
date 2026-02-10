@@ -559,6 +559,13 @@ class InteractivePrompt:
                         if force_reconnect:
                             runtime_target += " --reconnect"
                         label = server_name or target_text.split(maxsplit=1)[0]
+                        attached_before_connect: set[str] = set()
+                        try:
+                            attached_before_connect = set(
+                                await prompt_provider.list_attached_mcp_servers(agent)
+                            )
+                        except Exception:
+                            attached_before_connect = set()
 
                         async def _handle_mcp_connect_cancel() -> None:
                             nonlocal suppress_stop_budget
@@ -581,7 +588,10 @@ class InteractivePrompt:
                                 except Exception:
                                     cancel_server_name = None
 
-                            if cancel_server_name:
+                            should_detach_on_cancel = bool(cancel_server_name) and (
+                                cancel_server_name not in attached_before_connect
+                            )
+                            if should_detach_on_cancel and cancel_server_name:
                                 try:
                                     await prompt_provider.detach_mcp_server(
                                         agent,

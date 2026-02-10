@@ -111,6 +111,10 @@ class _DetachCancelledAgentApp(_FakeAgentApp):
         raise asyncio.CancelledError()
 
 
+class _PreAttachedMcpAgentApp(_FakeAgentApp):
+    async def list_attached_mcp_servers(self, _agent_name: str) -> list[str]:
+        return ["demo"]
+
 
 def _patch_input(monkeypatch, inputs: list[str]) -> None:
     iterator = iter(inputs)
@@ -404,6 +408,39 @@ async def test_mcp_connect_cancel_survives_detach_cancelled_error(
     output = capsys.readouterr().out
     assert "MCP connect cancelled; returned to prompt" in output
     assert "demo" in agent_app.detached
+
+
+@pytest.mark.asyncio
+async def test_mcp_connect_cancel_does_not_detach_previously_attached_server(
+    monkeypatch, capsys: Any
+) -> None:
+    _patch_input(monkeypatch, ["/mcp connect npx demo-server --name demo --reconnect", "STOP"])
+
+    async def fake_send(*_args: Any, **_kwargs: Any) -> str:
+        return ""
+
+    async def fake_handle_mcp_connect(*_args: Any, **_kwargs: Any):
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(
+        interactive_prompt.mcp_runtime_handlers,
+        "handle_mcp_connect",
+        fake_handle_mcp_connect,
+    )
+
+    prompt_ui = InteractivePrompt()
+    agent_app = _PreAttachedMcpAgentApp(["vertex-rag"])
+
+    await prompt_ui.prompt_loop(
+        send_func=fake_send,
+        default_agent="vertex-rag",
+        available_agents=["vertex-rag"],
+        prompt_provider=cast("AgentApp", agent_app),
+    )
+
+    output = capsys.readouterr().out
+    assert "MCP connect cancelled; returned to prompt" in output
+    assert "demo" not in agent_app.detached
 
 
 @pytest.mark.asyncio

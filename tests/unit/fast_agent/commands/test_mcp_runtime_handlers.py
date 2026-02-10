@@ -228,6 +228,24 @@ async def test_handle_mcp_connect_scoped_package_with_args_infers_server_name() 
 
 
 @pytest.mark.asyncio
+async def test_handle_mcp_connect_preserves_quoted_target_arguments() -> None:
+    manager = _Manager()
+    ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())
+
+    outcome = await mcp_runtime.handle_mcp_connect(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        target_text='demo-server --root "My Folder" --name demo',
+    )
+
+    assert any("Connected MCP server" in str(msg.text) for msg in outcome.messages)
+    assert manager.last_config is not None
+    assert manager.last_config.command == "demo-server"
+    assert manager.last_config.args == ["--root", "My Folder"]
+
+
+@pytest.mark.asyncio
 async def test_handle_mcp_connect_reports_already_attached() -> None:
     manager = _AlreadyAttachedManager()
     ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())

@@ -1,3 +1,5 @@
+import shlex
+
 from fast_agent.ui.command_payloads import (
     McpConnectCommand,
     McpDisconnectCommand,
@@ -36,6 +38,13 @@ def test_parse_mcp_connect_extracts_flags() -> None:
     assert result.reconnect_on_disconnect is False
     assert result.parsed_mode == "npx"
     assert result.error is None
+
+
+def test_parse_mcp_connect_preserves_quoted_target_arguments() -> None:
+    result = parse_special_input('/mcp connect demo-server --root "My Folder" --name docs')
+    assert isinstance(result, McpConnectCommand)
+    assert shlex.split(result.target_text) == ["demo-server", "--root", "My Folder"]
+    assert result.server_name == "docs"
 
 
 def test_parse_mcp_disconnect() -> None:
