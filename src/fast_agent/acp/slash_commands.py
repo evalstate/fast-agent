@@ -26,7 +26,7 @@ from typing import (
     cast,
 )
 
-from acp.helpers import text_block, tool_content
+from acp.helpers import text_block, tool_content, update_agent_message_text
 from acp.schema import (
     AvailableCommand,
     AvailableCommandInput,
@@ -511,6 +511,18 @@ class SlashCommandHandler:
         except Exception as exc:
             self._logger.debug(
                 "Failed to send ACP session info update",
+                session_id=self.session_id,
+                error=str(exc),
+            )
+
+    async def _send_progress_update(self, message: str) -> None:
+        if self._acp_context is None:
+            return
+        try:
+            await self._acp_context.send_session_update(update_agent_message_text(message))
+        except Exception as exc:
+            self._logger.debug(
+                "Failed to send ACP progress update",
                 session_id=self.session_id,
                 error=str(exc),
             )
@@ -1531,6 +1543,7 @@ class SlashCommandHandler:
                 manager=manager,
                 agent_name=self.current_agent_name,
                 target_text=target_text,
+                on_progress=self._send_progress_update,
             )
             if self._acp_context:
                 agent = self._get_current_agent()

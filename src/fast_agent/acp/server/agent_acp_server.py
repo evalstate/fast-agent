@@ -860,6 +860,36 @@ class AgentACPServer(ACPAgent):
             for agent in instance.agents.values():
                 await rebuild_agent_instruction(agent)
 
+        slash_handler = self._create_slash_handler(session_state, instance)
+        session_state.slash_handler = slash_handler
+
+        current_agent = session_state.current_agent_name
+        if not current_agent or current_agent not in instance.agents:
+            current_agent = self.primary_agent_name or next(iter(instance.agents.keys()), None)
+            session_state.current_agent_name = current_agent
+        if current_agent and session_state.slash_handler:
+            session_state.slash_handler.set_current_agent(current_agent)
+
+        session_modes = self._build_session_modes(instance, session_state)
+        if current_agent and current_agent in instance.agents:
+            session_modes = SessionModeState(
+                available_modes=session_modes.available_modes,
+                current_mode_id=current_agent,
+            )
+
+        if session_state.acp_context:
+            slash_handler.set_acp_context(session_state.acp_context)
+            session_state.acp_context.set_slash_handler(slash_handler)
+            session_state.acp_context.set_resolved_instructions(resolved_for_session)
+            session_state.acp_context.set_available_modes(session_modes.available_modes)
+            if current_agent:
+                session_state.acp_context.set_current_mode(current_agent)
+
+    def _create_slash_handler(
+        self,
+        session_state: ACPSessionState,
+        instance: AgentInstance,
+    ) -> SlashCommandHandler:
         async def load_card(
             source: str, parent_name: str | None
         ) -> tuple[AgentInstance, list[str], list[str]]:
@@ -962,7 +992,7 @@ class AgentACPServer(ACPAgent):
                 session_state.resolved_instructions[agent_name] = resolved
             return resolved
 
-        slash_handler = SlashCommandHandler(
+        return SlashCommandHandler(
             session_state.session_id,
             instance,
             self.primary_agent_name or "default",
@@ -970,7 +1000,7 @@ class AgentACPServer(ACPAgent):
             client_info=self._client_info,
             client_capabilities=self._client_capabilities,
             protocol_version=self._protocol_version,
-            session_instructions=resolved_for_session,
+            session_instructions=session_state.resolved_instructions,
             instruction_resolver=resolve_instruction_for_system,
             card_loader=load_card if self._load_card_callback else None,
             attach_agent_callback=(
@@ -997,29 +1027,6 @@ class AgentACPServer(ACPAgent):
             reload_callback=reload_cards if self._reload_callback else None,
             set_current_mode_callback=set_current_mode,
         )
-        session_state.slash_handler = slash_handler
-
-        current_agent = session_state.current_agent_name
-        if not current_agent or current_agent not in instance.agents:
-            current_agent = self.primary_agent_name or next(iter(instance.agents.keys()), None)
-            session_state.current_agent_name = current_agent
-        if current_agent and session_state.slash_handler:
-            session_state.slash_handler.set_current_agent(current_agent)
-
-        session_modes = self._build_session_modes(instance, session_state)
-        if current_agent and current_agent in instance.agents:
-            session_modes = SessionModeState(
-                available_modes=session_modes.available_modes,
-                current_mode_id=current_agent,
-            )
-
-        if session_state.acp_context:
-            slash_handler.set_acp_context(session_state.acp_context)
-            session_state.acp_context.set_slash_handler(slash_handler)
-            session_state.acp_context.set_resolved_instructions(resolved_for_session)
-            session_state.acp_context.set_available_modes(session_modes.available_modes)
-            if current_agent:
-                session_state.acp_context.set_current_mode(current_agent)
 
     async def _load_agent_card_for_session(
         self,
@@ -1472,65 +1479,7 @@ class AgentACPServer(ACPAgent):
                     logger.warning(f"Failed to set instruction context on agent {agent_name}: {e}")
 
         # Create slash command handler for this session
-        resolved_prompts = session_state.resolved_instructions
-
-        async def load_card(
-            source: str, parent_name: str | None
-        ) -> tuple[AgentInstance, list[str], list[str]]:
-            return await self._load_agent_card_for_session(
-                session_state, source, attach_to=parent_name
-            )
-
-        async def attach_agent_tools(
-            parent_name: str, child_names: Sequence[str]
-        ) -> tuple[AgentInstance, list[str]]:
-            return await self._attach_agent_tools_for_session(
-                session_state, parent_name, child_names
-            )
-
-        async def dump_agent_card(agent_name: str) -> str:
-            if not self._dump_agent_card_callback:
-                raise RuntimeError("AgentCard dumping is not available.")
-            return await self._dump_agent_card_callback(agent_name)
-
-        async def reload_cards() -> bool:
-            return await self._reload_agent_cards_for_session(session_id)
-
-        async def set_current_mode(agent_name: str) -> None:
-            session_state.current_agent_name = agent_name
-            if session_state.acp_context:
-                await session_state.acp_context.switch_mode(agent_name)
-
-        async def resolve_instruction_for_system(agent_name: str) -> str | None:
-            agent = instance.agents.get(agent_name)
-            if agent is None:
-                return None
-            context = session_state.prompt_context or {}
-            if not context:
-                return None
-            resolved = await self._resolve_instruction_for_session(agent, context)
-            if resolved:
-                session_state.resolved_instructions[agent_name] = resolved
-            return resolved
-
-        slash_handler = SlashCommandHandler(
-            session_id,
-            instance,
-            self.primary_agent_name or "default",
-            noenv=bool(getattr(instance.app, "_noenv_mode", False)),
-            client_info=self._client_info,
-            client_capabilities=self._client_capabilities,
-            protocol_version=self._protocol_version,
-            session_instructions=resolved_prompts,
-            instruction_resolver=resolve_instruction_for_system,
-            card_loader=load_card if self._load_card_callback else None,
-            attach_agent_callback=(
-                attach_agent_tools if self._attach_agent_tools_callback else None
-            ),
-            dump_agent_callback=(dump_agent_card if self._dump_agent_card_callback else None),
-            reload_callback=reload_cards if self._reload_callback else None,
-            set_current_mode_callback=set_current_mode,
-        )
+        slash_handler = self._create_slash_handler(session_state, instance)
         session_state.slash_handler = slash_handler
 
         # Create ACPContext for this session - centralizes all ACP state

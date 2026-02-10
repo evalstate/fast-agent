@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import shlex
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Awaitable, Callable, Protocol
 from urllib.parse import urlparse
 
 from fast_agent.cli.commands.url_parser import parse_server_urls
@@ -217,9 +217,21 @@ async def handle_mcp_connect(
     manager: McpRuntimeManager,
     agent_name: str,
     target_text: str,
+    on_progress: Callable[[str], Awaitable[None]] | None = None,
 ) -> CommandOutcome:
     del ctx
     outcome = CommandOutcome()
+
+    async def emit_progress(message: str) -> None:
+        if on_progress is None:
+            return
+        try:
+            await on_progress(message)
+        except Exception:
+            return
+
+    await emit_progress("Preparing MCP connection…")
+
     try:
         parsed = parse_connect_input(target_text)
     except ValueError as exc:
@@ -228,6 +240,7 @@ async def handle_mcp_connect(
 
     mode = infer_connect_mode(parsed.target_text)
     server_name = parsed.server_name or _infer_server_name(parsed.target_text, mode)
+    await emit_progress(f"Connecting MCP server '{server_name}' via {mode}…")
 
     try:
         server_name, config = _build_server_config(
@@ -248,6 +261,7 @@ async def handle_mcp_connect(
             options=attach_options,
         )
     except Exception as exc:
+        await emit_progress(f"Failed to connect MCP server '{server_name}'.")
         outcome.add_message(f"Failed to connect MCP server: {exc}", channel="error")
         return outcome
 
@@ -266,12 +280,14 @@ async def handle_mcp_connect(
             right_info="mcp",
             agent_name=agent_name,
         )
+        await emit_progress(f"MCP server '{server_name}' is already connected.")
     else:
         outcome.add_message(
             f"Connected MCP server '{server_name}' ({mode}).",
             right_info="mcp",
             agent_name=agent_name,
         )
+        await emit_progress(f"Connected MCP server '{server_name}'.")
     if tools_added:
         outcome.add_message(
             "Tools added: " + ", ".join(tools_added),

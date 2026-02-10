@@ -7,6 +7,7 @@ from fast_agent.core.fastagent import AgentInstance
 from fast_agent.mcp.mcp_aggregator import MCPAttachResult, MCPDetachResult
 
 if TYPE_CHECKING:
+    from fast_agent.acp.acp_context import ACPContext
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.interfaces import AgentProtocol
 
@@ -65,6 +66,22 @@ class _App:
         )
 
 
+class _FakeACPContext:
+    def __init__(self) -> None:
+        self.updates: list[object] = []
+
+    async def send_session_update(self, update: object) -> None:
+        self.updates.append(update)
+
+    async def invalidate_instruction_cache(
+        self, agent_name: str | None, new_instruction: str | None
+    ) -> None:
+        del agent_name, new_instruction
+
+    async def send_available_commands_update(self) -> None:
+        return None
+
+
 @pytest.mark.asyncio
 async def test_slash_command_mcp_list_connect_disconnect() -> None:
     app = _App()
@@ -91,3 +108,28 @@ async def test_slash_command_mcp_list_connect_disconnect() -> None:
 
     disconnected = await handler.execute_command("mcp", "disconnect demo")
     assert "Disconnected MCP server 'demo'" in disconnected
+
+
+@pytest.mark.asyncio
+async def test_slash_command_mcp_connect_sends_acp_progress_updates() -> None:
+    app = _App()
+    instance = AgentInstance(
+        app=cast("AgentApp", app),
+        agents={"main": cast("AgentProtocol", _Agent())},
+        registry_version=0,
+    )
+    handler = SlashCommandHandler(
+        session_id="s1",
+        instance=instance,
+        primary_agent_name="main",
+        attach_mcp_server_callback=app.attach_mcp_server,
+        detach_mcp_server_callback=app.detach_mcp_server,
+        list_attached_mcp_servers_callback=app.list_attached_mcp_servers,
+        list_configured_detached_mcp_servers_callback=app.list_configured_detached_mcp_servers,
+    )
+    acp_context = _FakeACPContext()
+    handler.set_acp_context(cast("ACPContext", acp_context))
+
+    connected = await handler.execute_command("mcp", "connect npx demo-server --name demo")
+    assert "Connected MCP server 'demo'" in connected
+    assert len(acp_context.updates) >= 2
