@@ -233,6 +233,36 @@ class TestCIMDOAuthProvider:
         # Should include default port 3030
         assert any(":3030/" in uri for uri in redirect_uris)
 
+    def test_build_oauth_provider_uses_selected_primary_redirect_port(self, monkeypatch):
+        """Primary redirect URI should use the pre-selected callback port."""
+        captured_kwargs = {}
+
+        class MockOAuthClientProvider:
+            def __init__(self, **kwargs):
+                captured_kwargs.update(kwargs)
+
+        monkeypatch.setattr(
+            "fast_agent.mcp.oauth_client.OAuthClientProvider",
+            MockOAuthClientProvider,
+        )
+        monkeypatch.setattr(
+            "fast_agent.mcp.oauth_client._select_preferred_redirect_port",
+            lambda _preferred: 31337,
+        )
+
+        config = MCPServerSettings(
+            name="test",
+            transport="http",
+            url="https://example.com/mcp",
+        )
+
+        build_oauth_provider(config)
+
+        client_metadata = captured_kwargs.get("client_metadata")
+        assert client_metadata is not None
+        redirect_uris = [str(uri) for uri in client_metadata.redirect_uris]
+        assert redirect_uris[0].startswith("http://127.0.0.1:31337/")
+
 
 class TestCallbackServerPortFallback:
     """Test RFC 8252 compliant port fallback in _CallbackServer."""

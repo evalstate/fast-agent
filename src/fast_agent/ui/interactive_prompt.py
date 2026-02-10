@@ -600,12 +600,22 @@ class InteractivePrompt:
                             f"[yellow]Starting MCP server '{label}'...[/yellow]",
                             spinner="dots",
                         ):
+                            async def _emit_mcp_progress(message: str) -> None:
+                                if message.startswith("Open this link to authorize:"):
+                                    auth_url = message.split(":", 1)[1].strip()
+                                    if auth_url:
+                                        rich_print("[bold]Open this link to authorize:[/bold]")
+                                        rich_print(f"[link={auth_url}]{auth_url}[/link]")
+                                        return
+                                rich_print(message)
+
                             connect_task = asyncio.create_task(
                                 mcp_runtime_handlers.handle_mcp_connect(
                                     context,
                                     manager=prompt_provider,
                                     agent_name=agent,
                                     target_text=runtime_target,
+                                    on_progress=_emit_mcp_progress,
                                 )
                             )
 

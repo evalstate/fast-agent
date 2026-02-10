@@ -345,3 +345,35 @@ async def test_handle_mcp_connect_oauth_failure_adds_noninteractive_recovery_gui
     assert "fast-agent auth login" in message_text
     assert "Stop/Cancel" in message_text
     assert any("Failed to connect MCP server" in item for item in progress_updates)
+
+
+@pytest.mark.asyncio
+async def test_handle_mcp_connect_defaults_url_oauth_timeout_to_30_seconds() -> None:
+    manager = _Manager()
+    ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())
+
+    await mcp_runtime.handle_mcp_connect(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        target_text="https://example.com",
+    )
+
+    assert manager.last_options is not None
+    assert manager.last_options.startup_timeout_seconds == 30.0
+
+
+@pytest.mark.asyncio
+async def test_handle_mcp_connect_defaults_url_no_oauth_timeout_to_10_seconds() -> None:
+    manager = _Manager()
+    ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())
+
+    await mcp_runtime.handle_mcp_connect(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        target_text="https://example.com --no-oauth",
+    )
+
+    assert manager.last_options is not None
+    assert manager.last_options.startup_timeout_seconds == 10.0

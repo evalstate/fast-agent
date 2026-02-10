@@ -262,6 +262,10 @@ async def handle_mcp_connect(
             await emit_progress(event.message or "OAuth callback wait complete.")
             return
 
+        if event.event_type == "callback_received":
+            await emit_progress(event.message or "OAuth callback received. Completing token exchange…")
+            return
+
         if event.event_type == "oauth_error" and event.message:
             await emit_progress(f"OAuth status: {event.message}")
 
@@ -275,6 +279,13 @@ async def handle_mcp_connect(
     server_name = parsed.server_name or _infer_server_name(parsed.target_text, mode)
     await emit_progress(f"Connecting MCP server '{server_name}' via {mode}…")
 
+    trigger_oauth = True if parsed.trigger_oauth is None else parsed.trigger_oauth
+    startup_timeout_seconds = parsed.timeout_seconds
+    if startup_timeout_seconds is None:
+        # OAuth-backed URL servers often need additional non-callback time for
+        # metadata discovery and token exchange after the browser callback.
+        startup_timeout_seconds = 30.0 if (mode == "url" and trigger_oauth) else 10.0
+
     try:
         server_name, config = _build_server_config(
             parsed.target_text,
@@ -282,8 +293,8 @@ async def handle_mcp_connect(
             auth_token=parsed.auth_token,
         )
         attach_options = MCPAttachOptions(
-            startup_timeout_seconds=parsed.timeout_seconds or 10.0,
-            trigger_oauth=True if parsed.trigger_oauth is None else parsed.trigger_oauth,
+            startup_timeout_seconds=startup_timeout_seconds,
+            trigger_oauth=trigger_oauth,
             force_reconnect=parsed.force_reconnect,
             reconnect_on_disconnect=parsed.reconnect_on_disconnect,
             oauth_event_handler=emit_oauth_event

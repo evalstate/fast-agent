@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import socket
 import sys
 import threading
 import time
@@ -35,7 +36,13 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-OAuthEventType = Literal["authorization_url", "wait_start", "wait_end", "oauth_error"]
+OAuthEventType = Literal[
+    "authorization_url",
+    "wait_start",
+    "wait_end",
+    "callback_received",
+    "oauth_error",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -273,6 +280,37 @@ class _CallbackServer:
         if self._actual_port is None:
             raise RuntimeError("Server not started; cannot determine redirect URI")
         return f"http://127.0.0.1:{self._actual_port}{self._path}"
+
+
+def _select_preferred_redirect_port(preferred_port: int) -> int:
+    """Pick a redirect port likely to be bindable for this OAuth attempt.
+
+    The MCP OAuth client currently uses the first redirect URI in metadata for the
+    authorization and token exchange. We therefore probe ports ahead of time and
+    choose a concrete primary port to keep redirect URI and callback listener aligned.
+    """
+
+    ports_to_try = [preferred_port]
+    for port in _CallbackServer.FALLBACK_PORTS:
+        if port not in ports_to_try:
+            ports_to_try.append(port)
+
+    for port in ports_to_try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind(("127.0.0.1", port))
+            return int(sock.getsockname()[1])
+        except OSError:
+            continue
+        finally:
+            with suppress(OSError):
+                sock.close()
+
+    raise OSError(
+        f"Could not reserve any redirect port. Tried: {ports_to_try}. "
+        "All ports may be in use."
+    )
 
 
 def _derive_base_server_url(url: str | None) -> str | None:
@@ -640,6 +678,13 @@ def build_oauth_provider(
 
     server_name = server_config.name or "default"
 
+    try:
+        selected_redirect_port = _select_preferred_redirect_port(redirect_port)
+    except OSError:
+        # Defer bind failures to callback handling where we can provide richer
+        # OAuth diagnostics for the active connection mode.
+        selected_redirect_port = redirect_port
+
     # Construct client metadata with minimal defaults.
     # Use 127.0.0.1 (loopback IP) for RFC 8252 compliance. Per RFC 8252 Section 7.3,
     # authorization servers MUST allow any port for loopback IP redirect URIs.
@@ -647,7 +692,9 @@ def build_oauth_provider(
     # don't fully implement RFC 8252's dynamic port matching.
     redirect_uris: list[AnyUrl] = []
     # Build list of ports: preferred first, then fallbacks
-    ports_for_registration = [redirect_port]
+    ports_for_registration = [selected_redirect_port]
+    if redirect_port not in ports_for_registration:
+        ports_for_registration.append(redirect_port)
     for p in _CallbackServer.FALLBACK_PORTS:
         if p != 0 and p not in ports_for_registration:  # Skip ephemeral port (0)
             ports_for_registration.append(p)
@@ -689,10 +736,10 @@ def build_oauth_provider(
         try:
             # MCP python-sdk currently uses the first redirect URI from client metadata
             # for both authorization and token exchange. To keep callback handling aligned
-            # with that fixed redirect URI, bind only the configured redirect port here.
-            # If it's unavailable, we fail into the existing fallback/error paths.
+            # with that fixed redirect URI, bind only the selected primary redirect port here.
+            # If a race makes it unavailable, we fail into the existing fallback/error paths.
             server = _CallbackServer(
-                port=redirect_port,
+                port=selected_redirect_port,
                 path=redirect_path,
                 fallback_ports=[],
             )
@@ -701,7 +748,7 @@ def build_oauth_provider(
             try:
                 callback_uri = server.get_redirect_uri()
             except Exception:
-                callback_uri = f"http://127.0.0.1:{redirect_port}{redirect_path}"
+                callback_uri = f"http://127.0.0.1:{selected_redirect_port}{redirect_path}"
             wait_start_message = (
                 "Waiting for OAuth callback "
                 f"at {callback_uri} (startup timer paused)…"
@@ -726,6 +773,14 @@ def build_oauth_provider(
                     server.wait,
                     timeout_seconds=300,
                     abort_event=abort_event,
+                )
+                await _emit_oauth_event(
+                    event_handler,
+                    OAuthEvent(
+                        event_type="callback_received",
+                        server_name=server_name,
+                        message="OAuth callback received. Completing token exchange…",
+                    ),
                 )
                 return code, state
             except OAuthFlowCancelledError as exc:
@@ -863,6 +918,14 @@ def build_oauth_provider(
                     ),
                 )
                 raise RuntimeError("Callback URL missing authorization code")
+            await _emit_oauth_event(
+                event_handler,
+                OAuthEvent(
+                    event_type="callback_received",
+                    server_name=server_name,
+                    message="OAuth callback received. Completing token exchange…",
+                ),
+            )
             return code, state
 
     # Choose storage
