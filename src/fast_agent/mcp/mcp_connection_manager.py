@@ -3,6 +3,8 @@ Manages the lifecycle of multiple MCP server connections.
 """
 
 import asyncio
+import threading
+import time
 import traceback
 from collections import deque
 from contextlib import AbstractAsyncContextManager, suppress
@@ -33,7 +35,12 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.mcp.logger_textio import get_stderr_handler
 from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
-from fast_agent.mcp.oauth_client import build_oauth_provider
+from fast_agent.mcp.oauth_client import (
+    OAuthEvent,
+    OAuthEventHandler,
+    OAuthFlowCancelledError,
+    build_oauth_provider,
+)
 from fast_agent.mcp.sse_tracking import tracking_sse_client
 from fast_agent.mcp.stdio_tracking_simple import tracking_stdio_client
 from fast_agent.mcp.streamable_http_tracking import tracking_streamablehttp_client
@@ -73,6 +80,10 @@ def _prepare_headers_and_auth(
     server_config: MCPServerSettings,
     *,
     trigger_oauth: bool = True,
+    oauth_event_handler: OAuthEventHandler | None = None,
+    emit_oauth_console_output: bool = True,
+    oauth_abort_event: threading.Event | None = None,
+    allow_oauth_paste_fallback: bool = True,
 ) -> tuple[dict[str, str], Union["OAuthClientProvider", None], set[str]]:
     """
     Prepare request headers and determine if OAuth authentication should be used.
@@ -93,7 +104,13 @@ def _prepare_headers_and_auth(
     ):
         return headers, None, user_provided_auth_keys
 
-    oauth_auth = build_oauth_provider(server_config)
+    oauth_auth = build_oauth_provider(
+        server_config,
+        event_handler=oauth_event_handler,
+        emit_console_output=emit_oauth_console_output,
+        abort_event=oauth_abort_event,
+        allow_paste_fallback=allow_oauth_paste_fallback,
+    )
     if oauth_auth is not None:
         # Scrub Authorization headers so OAuth-managed credentials are the only ones sent.
         for header_name in (
@@ -164,6 +181,13 @@ class ServerConnection:
         self._ping_last_fail_at: datetime | None = None
         self._ping_last_error: str | None = None
         self._ping_history: deque[tuple[datetime, str]] = deque(maxlen=200)
+        self._oauth_wait_active = False
+        self._oauth_wait_started_at: float | None = None
+        self._oauth_wait_accumulated_seconds = 0.0
+        self._oauth_callback_timed_out = False
+        self._last_oauth_error: str | None = None
+        self._last_oauth_authorization_url: str | None = None
+        self._oauth_abort_event = threading.Event()
 
     def is_healthy(self) -> bool:
         """Check if the server connection is healthy and ready to use."""
@@ -178,6 +202,7 @@ class ServerConnection:
         """
         Request the server to shut down. Signals the server lifecycle task to exit.
         """
+        self._oauth_abort_event.set()
         self._shutdown_event.set()
 
     async def wait_for_shutdown_request(self) -> None:
@@ -229,6 +254,35 @@ class ServerConnection:
         Wait until the session is fully initialized.
         """
         await self._initialized_event.wait()
+
+    def is_initialized(self) -> bool:
+        """Return True once initialization (success or failure) has completed."""
+        return self._initialized_event.is_set()
+
+    def mark_oauth_wait_start(self, now: float | None = None) -> None:
+        if self._oauth_wait_active:
+            return
+        self._oauth_wait_active = True
+        self._oauth_wait_started_at = now if now is not None else time.monotonic()
+
+    def mark_oauth_wait_end(self, now: float | None = None) -> None:
+        if not self._oauth_wait_active:
+            return
+        end_time = now if now is not None else time.monotonic()
+        if self._oauth_wait_started_at is not None:
+            self._oauth_wait_accumulated_seconds += max(
+                0.0,
+                end_time - self._oauth_wait_started_at,
+            )
+        self._oauth_wait_started_at = None
+        self._oauth_wait_active = False
+
+    def oauth_wait_accumulated_seconds(self, now: float | None = None) -> float:
+        total = self._oauth_wait_accumulated_seconds
+        if self._oauth_wait_active and self._oauth_wait_started_at is not None:
+            current_time = now if now is not None else time.monotonic()
+            total += max(0.0, current_time - self._oauth_wait_started_at)
+        return total
 
     def record_ping_event(self, state: str) -> None:
         self._ping_history.append((datetime.now(timezone.utc), state))
@@ -450,6 +504,15 @@ async def _server_lifecycle_task(server_conn: ServerConnection) -> None:
         # No raise - let get_server handle it with a friendly message
 
     except Exception as exc:
+        if server_conn._shutdown_event.is_set() and _is_oauth_cancelled_message(str(exc)):
+            logger.debug(
+                f"{server_name}: OAuth authorization cancelled during shutdown",
+            )
+            server_conn._error_occurred = True
+            server_conn._error_message = str(exc)
+            server_conn._initialized_event.set()
+            return
+
         logger.error(
             f"{server_name}: Lifecycle task encountered an error: {exc}",
             exc_info=True,
@@ -501,6 +564,60 @@ async def _server_lifecycle_task(server_conn: ServerConnection) -> None:
         # No raise - allow graceful exit
 
 
+def _is_oauth_timeout_message(message: str | None) -> bool:
+    if not message:
+        return False
+    normalized = message.lower()
+    if "oauth" not in normalized:
+        return False
+
+    timeout_markers = (
+        "timed out",
+        "timeout",
+        "not completed in time",
+    )
+    return any(marker in normalized for marker in timeout_markers)
+
+
+def _is_oauth_cancelled_message(message: str | None) -> bool:
+    if not message:
+        return False
+    normalized = message.lower()
+    return "oauth" in normalized and "cancel" in normalized
+
+
+async def _wait_for_initialized_with_startup_budget(
+    server_conn: ServerConnection,
+    startup_timeout_seconds: float | None,
+    *,
+    poll_interval_seconds: float = 0.1,
+) -> None:
+    """Wait for server initialization while excluding OAuth wait windows from startup timeout."""
+
+    if startup_timeout_seconds is None:
+        await server_conn.wait_for_initialized()
+        return
+
+    if startup_timeout_seconds <= 0:
+        raise ValueError("startup_timeout_seconds must be > 0 when provided")
+
+    startup_clock = time.monotonic()
+    interval = max(0.01, poll_interval_seconds)
+
+    while not server_conn.is_initialized():
+        now = time.monotonic()
+        wall_elapsed = now - startup_clock
+        oauth_wait_elapsed = server_conn.oauth_wait_accumulated_seconds(now=now)
+        machine_elapsed = max(0.0, wall_elapsed - oauth_wait_elapsed)
+
+        if machine_elapsed >= startup_timeout_seconds:
+            raise TimeoutError("MCP server startup timed out (non-OAuth budget exhausted)")
+
+        await asyncio.sleep(interval)
+
+    await server_conn.wait_for_initialized()
+
+
 class MCPConnectionManager(ContextDependent):
     """
     Manages the lifecycle of multiple MCP server connections.
@@ -519,6 +636,7 @@ class MCPConnectionManager(ContextDependent):
         self._task_group_active = False
         self._mcp_sse_filter_added = False
         self._mcp_streamable_http_filter_added = False
+        self._mcp_oauth_cancel_filter_added = False
 
     async def __aenter__(self):
         # Create a task group that isn't tied to a specific task
@@ -584,6 +702,63 @@ class MCPConnectionManager(ContextDependent):
         mcp_http_logger.addFilter(MCPStreamableHTTPErrorFilter())
         self._mcp_streamable_http_filter_added = True
 
+    def _suppress_mcp_oauth_cancel_errors(self) -> None:
+        """Suppress expected OAuth cancellation tracebacks from MCP OAuth internals."""
+        if self._mcp_oauth_cancel_filter_added:
+            return
+
+        import logging
+
+        class MCPOAuthCancellationFilter(logging.Filter):
+            def filter(self, record):
+                if record.name != "mcp.client.auth.oauth2":
+                    return True
+                if "OAuth flow error" not in record.getMessage():
+                    return True
+                exc_info = getattr(record, "exc_info", None)
+                if not exc_info:
+                    return True
+                try:
+                    _exc_type, exc_value, _exc_tb = exc_info
+                except Exception:
+                    return True
+                return not isinstance(exc_value, OAuthFlowCancelledError)
+
+        oauth_logger = logging.getLogger("mcp.client.auth.oauth2")
+        oauth_logger.addFilter(MCPOAuthCancellationFilter())
+        self._mcp_oauth_cancel_filter_added = True
+
+    def _build_oauth_event_handler(
+        self,
+        server_conn: ServerConnection,
+        user_event_handler: OAuthEventHandler | None,
+    ) -> OAuthEventHandler:
+        async def handle_event(event: OAuthEvent) -> None:
+            if event.event_type == "authorization_url" and event.url:
+                server_conn._last_oauth_authorization_url = event.url
+            elif event.event_type == "wait_start":
+                server_conn.mark_oauth_wait_start()
+            elif event.event_type == "wait_end":
+                server_conn.mark_oauth_wait_end()
+            elif event.event_type == "oauth_error":
+                server_conn._last_oauth_error = event.message
+                if event.is_timeout or _is_oauth_timeout_message(event.message):
+                    server_conn._oauth_callback_timed_out = True
+
+            if user_event_handler is None:
+                return
+
+            try:
+                await user_event_handler(event)
+            except Exception:
+                logger.debug(
+                    f"{server_conn.server_name}: OAuth event callback failed",
+                    event_type=event.event_type,
+                    exc_info=True,
+                )
+
+        return handle_event
+
     async def launch_server(
         self,
         server_name: str,
@@ -594,6 +769,8 @@ class MCPConnectionManager(ContextDependent):
         *,
         startup_timeout_seconds: float | None = None,
         trigger_oauth: bool = True,
+        oauth_event_handler: OAuthEventHandler | None = None,
+        allow_oauth_paste_fallback: bool = True,
     ) -> ServerConnection:
         """
         Connect to a server and return a RunningServer instance that will persist
@@ -635,7 +812,10 @@ class MCPConnectionManager(ContextDependent):
             else None
         )
 
+        server_conn: ServerConnection | None = None
+
         def transport_context_factory():
+            assert server_conn is not None
             if config.transport == "stdio":
                 if not config.command:
                     raise ValueError(
@@ -665,9 +845,17 @@ class MCPConnectionManager(ContextDependent):
                     )
                 # Suppress MCP library error spam
                 self._suppress_mcp_sse_errors()
+                self._suppress_mcp_oauth_cancel_errors()
                 headers, oauth_auth, user_auth_keys = _prepare_headers_and_auth(
                     config,
                     trigger_oauth=trigger_oauth,
+                    oauth_event_handler=self._build_oauth_event_handler(
+                        server_conn,
+                        oauth_event_handler,
+                    ),
+                    emit_oauth_console_output=oauth_event_handler is None,
+                    oauth_abort_event=server_conn._oauth_abort_event,
+                    allow_oauth_paste_fallback=allow_oauth_paste_fallback,
                 )
                 if user_auth_keys:
                     logger.debug(
@@ -700,9 +888,17 @@ class MCPConnectionManager(ContextDependent):
                         f"Server '{server_name}' uses http transport but no url is specified"
                     )
                 self._suppress_mcp_streamable_http_errors()
+                self._suppress_mcp_oauth_cancel_errors()
                 headers, oauth_auth, user_auth_keys = _prepare_headers_and_auth(
                     config,
                     trigger_oauth=trigger_oauth,
+                    oauth_event_handler=self._build_oauth_event_handler(
+                        server_conn,
+                        oauth_event_handler,
+                    ),
+                    emit_oauth_console_output=oauth_event_handler is None,
+                    oauth_abort_event=server_conn._oauth_abort_event,
+                    allow_oauth_paste_fallback=allow_oauth_paste_fallback,
                 )
                 if user_auth_keys:
                     logger.debug(
@@ -776,6 +972,8 @@ class MCPConnectionManager(ContextDependent):
         *,
         startup_timeout_seconds: float | None = None,
         trigger_oauth: bool = True,
+        oauth_event_handler: OAuthEventHandler | None = None,
+        allow_oauth_paste_fallback: bool = True,
     ) -> ServerConnection:
         """
         Get a running server instance, launching it if needed.
@@ -798,30 +996,48 @@ class MCPConnectionManager(ContextDependent):
             client_session_factory=client_session_factory,
             startup_timeout_seconds=startup_timeout_seconds,
             trigger_oauth=trigger_oauth,
+            oauth_event_handler=oauth_event_handler,
+            allow_oauth_paste_fallback=allow_oauth_paste_fallback,
         )
 
         # Wait until it's fully initialized, or an error occurs
         try:
-            if startup_timeout_seconds is None:
-                await server_conn.wait_for_initialized()
-            else:
-                await asyncio.wait_for(
-                    server_conn.wait_for_initialized(),
-                    timeout=startup_timeout_seconds,
-                )
+            await _wait_for_initialized_with_startup_budget(server_conn, startup_timeout_seconds)
+        except asyncio.CancelledError:
+            server_conn.request_shutdown()
+            async with self._lock:
+                current = self.running_servers.get(server_name)
+                if current is server_conn:
+                    self.running_servers.pop(server_name, None)
+            raise
         except TimeoutError as exc:
             server_conn.request_shutdown()
+            async with self._lock:
+                current = self.running_servers.get(server_name)
+                if current is server_conn:
+                    self.running_servers.pop(server_name, None)
             raise ServerInitializationError(
                 (
                     f"MCP Server: '{server_name}': Startup timed out after "
-                    f"{startup_timeout_seconds:.1f}s"
+                    f"{startup_timeout_seconds:.1f}s (non-OAuth startup budget)"
                 ),
-                "Try increasing --timeout or verify server startup/authentication.",
+                "Try increasing --timeout or verify server/network startup.",
             ) from exc
 
         # Check if the server is healthy after initialization
         if not server_conn.is_healthy():
             error_msg = server_conn._error_message or "Unknown error"
+
+            if isinstance(error_msg, list):
+                oauth_error_text = "\n".join(str(line) for line in error_msg)
+            else:
+                oauth_error_text = str(error_msg)
+
+            if server_conn._oauth_callback_timed_out or _is_oauth_timeout_message(oauth_error_text):
+                raise ServerInitializationError(
+                    f"MCP Server: '{server_name}': OAuth authorization timed out.",
+                    "Authorization was not completed in time; retry /mcp connect.",
+                )
 
             # Format the error message for better display
             if isinstance(error_msg, list):
@@ -865,6 +1081,8 @@ class MCPConnectionManager(ContextDependent):
         *,
         startup_timeout_seconds: float | None = None,
         trigger_oauth: bool = True,
+        oauth_event_handler: OAuthEventHandler | None = None,
+        allow_oauth_paste_fallback: bool = True,
     ) -> "ServerConnection":
         """
         Force reconnection to a server by disconnecting and re-establishing the connection.
@@ -893,30 +1111,48 @@ class MCPConnectionManager(ContextDependent):
             client_session_factory=client_session_factory,
             startup_timeout_seconds=startup_timeout_seconds,
             trigger_oauth=trigger_oauth,
+            oauth_event_handler=oauth_event_handler,
+            allow_oauth_paste_fallback=allow_oauth_paste_fallback,
         )
 
         # Wait for initialization
         try:
-            if startup_timeout_seconds is None:
-                await server_conn.wait_for_initialized()
-            else:
-                await asyncio.wait_for(
-                    server_conn.wait_for_initialized(),
-                    timeout=startup_timeout_seconds,
-                )
+            await _wait_for_initialized_with_startup_budget(server_conn, startup_timeout_seconds)
+        except asyncio.CancelledError:
+            server_conn.request_shutdown()
+            async with self._lock:
+                current = self.running_servers.get(server_name)
+                if current is server_conn:
+                    self.running_servers.pop(server_name, None)
+            raise
         except TimeoutError as exc:
             server_conn.request_shutdown()
+            async with self._lock:
+                current = self.running_servers.get(server_name)
+                if current is server_conn:
+                    self.running_servers.pop(server_name, None)
             raise ServerInitializationError(
                 (
                     f"MCP Server: '{server_name}': Reconnect timed out after "
-                    f"{startup_timeout_seconds:.1f}s"
+                    f"{startup_timeout_seconds:.1f}s (non-OAuth startup budget)"
                 ),
-                "Try increasing --timeout or verify server startup/authentication.",
+                "Try increasing --timeout or verify server/network startup.",
             ) from exc
 
         # Check if the reconnection was successful
         if not server_conn.is_healthy():
             error_msg = server_conn._error_message or "Unknown error during reconnection"
+
+            if isinstance(error_msg, list):
+                oauth_error_text = "\n".join(str(line) for line in error_msg)
+            else:
+                oauth_error_text = str(error_msg)
+
+            if server_conn._oauth_callback_timed_out or _is_oauth_timeout_message(oauth_error_text):
+                raise ServerInitializationError(
+                    f"MCP Server: '{server_name}': OAuth authorization timed out during reconnect.",
+                    "Authorization was not completed in time; retry /mcp connect.",
+                )
             if isinstance(error_msg, list):
                 formatted_error = "\n".join(error_msg)
             else:

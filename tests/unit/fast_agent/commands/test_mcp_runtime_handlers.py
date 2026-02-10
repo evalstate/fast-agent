@@ -6,6 +6,7 @@ from fast_agent.commands.context import CommandContext
 from fast_agent.commands.handlers import mcp_runtime
 from fast_agent.commands.results import CommandMessage
 from fast_agent.mcp.mcp_aggregator import MCPAttachResult, MCPDetachResult
+from fast_agent.mcp.oauth_client import OAuthEvent
 
 
 class _IO:
@@ -54,10 +55,12 @@ class _Manager:
     def __init__(self) -> None:
         self.attached = ["local"]
         self.last_config = None
+        self.last_options = None
 
     async def attach_mcp_server(self, agent_name, server_name, server_config=None, options=None):
-        del agent_name, options
+        del agent_name
         self.last_config = server_config
+        self.last_options = options
         self.attached.append(server_name)
         return MCPAttachResult(
             server_name=server_name,
@@ -97,8 +100,9 @@ class _Manager:
 
 class _AlreadyAttachedManager(_Manager):
     async def attach_mcp_server(self, agent_name, server_name, server_config=None, options=None):
-        del agent_name, options
+        del agent_name
         self.last_config = server_config
+        self.last_options = options
         return MCPAttachResult(
             server_name=server_name,
             transport="stdio",
@@ -107,6 +111,45 @@ class _AlreadyAttachedManager(_Manager):
             tools_added=[],
             prompts_added=[],
             warnings=[],
+        )
+
+
+class _OAuthEventManager(_Manager):
+    async def attach_mcp_server(self, agent_name, server_name, server_config=None, options=None):
+        if options and options.oauth_event_handler is not None:
+            await options.oauth_event_handler(
+                OAuthEvent(
+                    event_type="authorization_url",
+                    server_name=server_name,
+                    url="https://auth.example.com/authorize?code=demo",
+                )
+            )
+            await options.oauth_event_handler(
+                OAuthEvent(
+                    event_type="wait_start",
+                    server_name=server_name,
+                )
+            )
+            await options.oauth_event_handler(
+                OAuthEvent(
+                    event_type="wait_end",
+                    server_name=server_name,
+                )
+            )
+        return await super().attach_mcp_server(
+            agent_name,
+            server_name,
+            server_config=server_config,
+            options=options,
+        )
+
+
+class _OAuthFailureManager(_Manager):
+    async def attach_mcp_server(self, agent_name, server_name, server_config=None, options=None):
+        del agent_name, server_name, server_config, options
+        raise RuntimeError(
+            "OAuth local callback server unavailable and paste fallback is disabled "
+            "for this connection mode."
         )
 
 @pytest.mark.asyncio
@@ -237,3 +280,68 @@ async def test_handle_mcp_connect_hf_url_adds_hf_auth_from_env(monkeypatch) -> N
     assert manager.last_config.headers is not None
     assert manager.last_config.headers.get("Authorization") == "Bearer hf_test_token"
     assert manager.last_config.headers.get("X-HF-Authorization") == "Bearer hf_test_token"
+
+
+@pytest.mark.asyncio
+async def test_handle_mcp_connect_emits_oauth_progress_and_final_link() -> None:
+    manager = _OAuthEventManager()
+    ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())
+    progress: list[str] = []
+
+    async def _capture_progress(message: str) -> None:
+        progress.append(message)
+
+    outcome = await mcp_runtime.handle_mcp_connect(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        target_text="npx demo-server --name demo",
+        on_progress=_capture_progress,
+    )
+
+    assert any("Open this link to authorize:" in item for item in progress)
+    assert any("startup timer paused" in item.lower() for item in progress)
+    assert any("OAuth authorization link:" in str(msg.text) for msg in outcome.messages)
+    assert manager.last_options is not None
+    assert manager.last_options.allow_oauth_paste_fallback is False
+
+
+@pytest.mark.asyncio
+async def test_handle_mcp_connect_enables_oauth_paste_fallback_without_progress_hooks() -> None:
+    manager = _Manager()
+    ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())
+
+    await mcp_runtime.handle_mcp_connect(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        target_text="npx demo-server --name demo",
+    )
+
+    assert manager.last_options is not None
+    assert manager.last_options.allow_oauth_paste_fallback is True
+
+
+@pytest.mark.asyncio
+async def test_handle_mcp_connect_oauth_failure_adds_noninteractive_recovery_guidance() -> None:
+    manager = _OAuthFailureManager()
+    ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())
+
+    progress_updates: list[str] = []
+
+    async def _capture_progress(message: str) -> None:
+        progress_updates.append(message)
+
+    outcome = await mcp_runtime.handle_mcp_connect(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        target_text="https://example.com",
+        on_progress=_capture_progress,
+    )
+
+    message_text = "\n".join(str(msg.text) for msg in outcome.messages)
+    assert "Failed to connect MCP server" in message_text
+    assert "fast-agent auth login" in message_text
+    assert "Stop/Cancel" in message_text
+    assert any("Failed to connect MCP server" in item for item in progress_updates)

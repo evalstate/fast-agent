@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import (
     TYPE_CHECKING,
     Any,
+    Awaitable,
     Callable,
     Mapping,
     TypeVar,
@@ -50,6 +51,7 @@ from fast_agent.utils.async_utils import gather_with_cancel
 
 if TYPE_CHECKING:
     from fast_agent.context import Context
+    from fast_agent.mcp.oauth_client import OAuthEvent
     from fast_agent.mcp_server_registry import ServerRegistry
 
 
@@ -137,6 +139,8 @@ class MCPAttachOptions:
     trigger_oauth: bool = True
     force_reconnect: bool = False
     reconnect_on_disconnect: bool | None = None
+    oauth_event_handler: Callable[["OAuthEvent"], Awaitable[None]] | None = None
+    allow_oauth_paste_fallback: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -622,6 +626,8 @@ class MCPAggregator(ContextDependent):
                     client_session_factory=self._create_session_factory(server_name),
                     startup_timeout_seconds=attach_options.startup_timeout_seconds,
                     trigger_oauth=attach_options.trigger_oauth,
+                    oauth_event_handler=attach_options.oauth_event_handler,
+                    allow_oauth_paste_fallback=attach_options.allow_oauth_paste_fallback,
                 )
             else:
                 await manager.get_server(
@@ -629,6 +635,8 @@ class MCPAggregator(ContextDependent):
                     client_session_factory=self._create_session_factory(server_name),
                     startup_timeout_seconds=attach_options.startup_timeout_seconds,
                     trigger_oauth=attach_options.trigger_oauth,
+                    oauth_event_handler=attach_options.oauth_event_handler,
+                    allow_oauth_paste_fallback=attach_options.allow_oauth_paste_fallback,
                 )
 
             await self._record_server_call(server_name, "initialize", True)

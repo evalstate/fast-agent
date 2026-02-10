@@ -11,6 +11,7 @@ ACPAwareProtocol.
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import shlex
 import time
@@ -1538,13 +1539,164 @@ class SlashCommandHandler:
                     "[--oauth|--no-oauth]"
                 )
             target_text = " ".join(tokens[1:])
-            outcome = await mcp_runtime_handlers.handle_mcp_connect(
-                ctx,
-                manager=manager,
-                agent_name=self.current_agent_name,
-                target_text=target_text,
-                on_progress=self._send_progress_update,
+            tool_call_id = self._build_tool_call_id()
+            oauth_authorization_url: str | None = None
+
+            connect_label = "MCP server"
+            try:
+                parsed_connect = mcp_runtime_handlers.parse_connect_input(target_text)
+                if parsed_connect.server_name:
+                    connect_label = f"MCP server '{parsed_connect.server_name}'"
+                elif parsed_connect.target_text:
+                    first_target_token = parsed_connect.target_text.split()[0]
+                    connect_label = f"MCP target '{first_target_token}'"
+            except Exception:
+                pass
+            tool_call_title = f"Connect {connect_label}"
+
+            async def _send_connect_tool_update(
+                *,
+                title: str,
+                status: str,
+                message: str | None = None,
+            ) -> None:
+                if self._acp_context is None:
+                    return
+                try:
+                    content = [tool_content(text_block(message))] if message else None
+                    await self._acp_context.send_session_update(
+                        ToolCallProgress(
+                            tool_call_id=tool_call_id,
+                            title=title,
+                            status=status,  # type: ignore[arg-type]
+                            content=content,
+                            session_update="tool_call_update",
+                        )
+                    )
+                except Exception:
+                    return
+
+            async def _send_connect_progress(message: str) -> None:
+                nonlocal oauth_authorization_url
+
+                if message.startswith("Open this link to authorize:"):
+                    oauth_authorization_url = message.split(":", 1)[1].strip() or None
+
+                if (
+                    oauth_authorization_url
+                    and (
+                        "Waiting for OAuth callback" in message
+                        or "Waiting for pasted OAuth callback URL" in message
+                    )
+                    and "OAuth authorization link:" not in message
+                ):
+                    message = f"{message}\nOAuth authorization link: {oauth_authorization_url}"
+
+                if self._acp_context is not None and "Waiting for OAuth callback" in message:
+                    if "Stop/Cancel" not in message:
+                        message = (
+                            f"{message}\n"
+                            "To cancel, use your ACP client's Stop/Cancel action."
+                        )
+                    if "fast-agent auth login" not in message:
+                        message = (
+                            f"{message}\n"
+                            "If the browser cannot reach the callback host, run "
+                            "`fast-agent auth login <server-name-or-identity>` on the "
+                            "fast-agent host, then retry `/mcp connect ...`."
+                        )
+
+                if self._acp_context is None:
+                    await self._send_progress_update(message)
+                    return
+                await _send_connect_tool_update(
+                    title=tool_call_title,
+                    status="in_progress",
+                    message=message,
+                )
+
+            if self._acp_context is not None:
+                try:
+                    await self._acp_context.send_session_update(
+                        ToolCallStart(
+                            tool_call_id=tool_call_id,
+                            title=f"{tool_call_title} (open for details)",
+                            kind="fetch",
+                            status="in_progress",
+                            session_update="tool_call",
+                        )
+                    )
+                    await _send_connect_tool_update(
+                        title=tool_call_title,
+                        status="in_progress",
+                        message=(
+                            f"{target_text}\n"
+                            "Open this tool call to view OAuth links and live connection status."
+                        ),
+                    )
+                except Exception:
+                    pass
+
+            try:
+                outcome = await mcp_runtime_handlers.handle_mcp_connect(
+                    ctx,
+                    manager=manager,
+                    agent_name=self.current_agent_name,
+                    target_text=target_text,
+                    on_progress=_send_connect_progress,
+                )
+            except asyncio.CancelledError:
+                await _send_connect_tool_update(
+                    title="Connection cancelled",
+                    status="failed",
+                    message="Connection cancelled by client.",
+                )
+                raise
+
+            has_error = any(msg.channel == "error" for msg in outcome.messages)
+            failure_details = None
+            completion_details = None
+            if has_error:
+                first_error = next((msg for msg in outcome.messages if msg.channel == "error"), None)
+                if first_error is not None:
+                    failure_details = str(first_error.text)
+            else:
+                success_message = next(
+                    (
+                        str(msg.text)
+                        for msg in outcome.messages
+                        if (
+                            "Connected MCP server" in str(msg.text)
+                            or "already attached" in str(msg.text).lower()
+                        )
+                    ),
+                    "MCP connection complete.",
+                )
+                oauth_link_message = next(
+                    (
+                        str(msg.text)
+                        for msg in outcome.messages
+                        if str(msg.text).startswith("OAuth authorization link:")
+                    ),
+                    None,
+                )
+                completion_details = (
+                    f"{success_message}\n{oauth_link_message}"
+                    if oauth_link_message
+                    else success_message
+                )
+            await _send_connect_tool_update(
+                title=tool_call_title,
+                status="failed" if has_error else "completed",
+                message=failure_details if has_error else completion_details,
             )
+
+            if has_error:
+                if failure_details:
+                    await self._send_progress_update(f"❌ {failure_details}")
+            elif completion_details:
+                await self._send_progress_update(f"✅ {completion_details}")
+
             if self._acp_context:
                 agent = self._get_current_agent()
                 await self._acp_context.invalidate_instruction_cache(

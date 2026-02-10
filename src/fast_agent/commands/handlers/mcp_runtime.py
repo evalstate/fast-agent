@@ -5,13 +5,16 @@ from __future__ import annotations
 import re
 import shlex
 from dataclasses import dataclass
-from typing import Awaitable, Callable, Protocol
+from typing import TYPE_CHECKING, Awaitable, Callable, Protocol
 from urllib.parse import urlparse
 
 from fast_agent.cli.commands.url_parser import parse_server_urls
 from fast_agent.commands.results import CommandOutcome
 from fast_agent.config import MCPServerSettings
 from fast_agent.mcp.mcp_aggregator import MCPAttachOptions
+
+if TYPE_CHECKING:
+    from fast_agent.mcp.oauth_client import OAuthEvent
 
 
 class McpRuntimeManager(Protocol):
@@ -218,6 +221,7 @@ async def handle_mcp_connect(
     agent_name: str,
     target_text: str,
     on_progress: Callable[[str], Awaitable[None]] | None = None,
+    on_oauth_event: Callable[[OAuthEvent], Awaitable[None]] | None = None,
 ) -> CommandOutcome:
     del ctx
     outcome = CommandOutcome()
@@ -231,6 +235,35 @@ async def handle_mcp_connect(
             return
 
     await emit_progress("Preparing MCP connection…")
+
+    oauth_links_seen: set[str] = set()
+    oauth_links_ordered: list[str] = []
+    oauth_paste_fallback_enabled = on_progress is None and on_oauth_event is None
+
+    async def emit_oauth_event(event: OAuthEvent) -> None:
+        if on_oauth_event is not None:
+            try:
+                await on_oauth_event(event)
+            except Exception:
+                pass
+
+        if event.event_type == "authorization_url" and event.url:
+            if event.url not in oauth_links_seen:
+                oauth_links_seen.add(event.url)
+                oauth_links_ordered.append(event.url)
+                await emit_progress(f"Open this link to authorize: {event.url}")
+            return
+
+        if event.event_type == "wait_start":
+            await emit_progress(event.message or "Waiting for OAuth callback (startup timer paused)…")
+            return
+
+        if event.event_type == "wait_end":
+            await emit_progress(event.message or "OAuth callback wait complete.")
+            return
+
+        if event.event_type == "oauth_error" and event.message:
+            await emit_progress(f"OAuth status: {event.message}")
 
     try:
         parsed = parse_connect_input(target_text)
@@ -253,6 +286,10 @@ async def handle_mcp_connect(
             trigger_oauth=True if parsed.trigger_oauth is None else parsed.trigger_oauth,
             force_reconnect=parsed.force_reconnect,
             reconnect_on_disconnect=parsed.reconnect_on_disconnect,
+            oauth_event_handler=emit_oauth_event
+            if (on_progress is not None or on_oauth_event is not None)
+            else None,
+            allow_oauth_paste_fallback=oauth_paste_fallback_enabled,
         )
         result = await manager.attach_mcp_server(
             agent_name,
@@ -262,7 +299,38 @@ async def handle_mcp_connect(
         )
     except Exception as exc:
         await emit_progress(f"Failed to connect MCP server '{server_name}'.")
-        outcome.add_message(f"Failed to connect MCP server: {exc}", channel="error")
+        error_text = str(exc)
+        outcome.add_message(f"Failed to connect MCP server: {error_text}", channel="error")
+
+        normalized_error = error_text.lower()
+        oauth_related = "oauth" in normalized_error
+        fallback_disabled = (
+            "paste fallback is disabled" in normalized_error
+            or "non-interactive connection mode" in normalized_error
+        )
+        oauth_timeout = "oauth" in normalized_error and "time" in normalized_error
+
+        if oauth_related and (fallback_disabled or oauth_timeout or not oauth_paste_fallback_enabled):
+            outcome.add_message(
+                (
+                    "OAuth could not be completed in this connection mode. "
+                    "Run `fast-agent auth login <server-name-or-identity>` on the fast-agent host, "
+                    "then retry `/mcp connect ...`."
+                ),
+                channel="warning",
+                right_info="mcp",
+                agent_name=agent_name,
+            )
+            outcome.add_message(
+                (
+                    "To cancel an in-flight ACP connection, use your client's Stop/Cancel control "
+                    "(ACP `session/cancel`)."
+                ),
+                channel="info",
+                right_info="mcp",
+                agent_name=agent_name,
+            )
+
         return outcome
 
     tools_added = getattr(result, "tools_added", [])
@@ -304,6 +372,14 @@ async def handle_mcp_connect(
         )
     for warning in warnings:
         outcome.add_message(warning, channel="warning", right_info="mcp", agent_name=agent_name)
+
+    if oauth_links_ordered:
+        outcome.add_message(
+            f"OAuth authorization link: {oauth_links_ordered[-1]}",
+            channel="info",
+            right_info="mcp",
+            agent_name=agent_name,
+        )
 
     detached = await manager.list_configured_detached_mcp_servers(agent_name)
     if detached:

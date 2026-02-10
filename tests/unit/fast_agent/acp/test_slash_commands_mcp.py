@@ -1,10 +1,12 @@
 from typing import TYPE_CHECKING, cast
 
 import pytest
+from acp.schema import ToolCallProgress, ToolCallStart
 
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.mcp.mcp_aggregator import MCPAttachResult, MCPDetachResult
+from fast_agent.mcp.oauth_client import OAuthEvent
 
 if TYPE_CHECKING:
     from fast_agent.acp.acp_context import ACPContext
@@ -37,7 +39,27 @@ class _App:
         return ["docs"]
 
     async def attach_mcp_server(self, _agent_name, server_name, server_config=None, options=None):
-        del server_config, options
+        del server_config
+        if options and options.oauth_event_handler is not None:
+            await options.oauth_event_handler(
+                OAuthEvent(
+                    event_type="authorization_url",
+                    server_name=server_name,
+                    url="https://auth.example.com/authorize?session=1",
+                )
+            )
+            await options.oauth_event_handler(
+                OAuthEvent(
+                    event_type="wait_start",
+                    server_name=server_name,
+                )
+            )
+            await options.oauth_event_handler(
+                OAuthEvent(
+                    event_type="wait_end",
+                    server_name=server_name,
+                )
+            )
         self._attached.append(server_name)
         return MCPAttachResult(
             server_name=server_name,
@@ -132,4 +154,19 @@ async def test_slash_command_mcp_connect_sends_acp_progress_updates() -> None:
 
     connected = await handler.execute_command("mcp", "connect npx demo-server --name demo")
     assert "Connected MCP server 'demo'" in connected
+    assert "OAuth authorization link:" in connected
     assert len(acp_context.updates) >= 2
+    assert any("auth.example.com" in str(update) for update in acp_context.updates)
+    assert any(isinstance(update, ToolCallStart) for update in acp_context.updates)
+    assert any(isinstance(update, ToolCallProgress) for update in acp_context.updates)
+    assert any(
+        "Waiting for OAuth callback" in str(update) and "auth.example.com" in str(update)
+        for update in acp_context.updates
+    )
+    assert any("Stop/Cancel" in str(update) for update in acp_context.updates)
+    assert any("fast-agent auth login" in str(update) for update in acp_context.updates)
+    assert any(
+        isinstance(update, ToolCallProgress) and getattr(update, "status", None) == "completed"
+        for update in acp_context.updates
+    )
+    assert any("Connected MCP server 'demo'" in str(update) for update in acp_context.updates)

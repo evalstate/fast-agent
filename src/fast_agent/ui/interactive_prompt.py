@@ -14,7 +14,11 @@ Usage:
     )
 """
 
+import asyncio
 import shlex
+import signal
+import threading
+from contextlib import suppress
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Union, cast
 
 from mcp.types import PromptMessage
@@ -40,6 +44,7 @@ from fast_agent.commands.handlers.shared import clear_agent_histories
 from fast_agent.commands.results import CommandOutcome
 from fast_agent.config import get_settings
 from fast_agent.types import PromptMessageExtended
+from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui import enhanced_prompt
 from fast_agent.ui.adapters import TuiCommandIO
 from fast_agent.ui.command_payloads import (
@@ -209,6 +214,7 @@ class InteractivePrompt:
 
         result = ""
         buffer_prefill = ""  # One-off buffer content for # command results
+        suppress_stop_budget = 0
         while True:
             # Variables for hash command - sent after input handling
             hash_send_target: str | None = None
@@ -218,7 +224,12 @@ class InteractivePrompt:
 
             progress_display.pause()
 
-            refreshed = await prompt_provider.refresh_if_needed()
+            try:
+                refreshed = await prompt_provider.refresh_if_needed()
+            except KeyboardInterrupt:
+                rich_print("[yellow]Interrupted operation; returning to prompt.[/yellow]")
+                suppress_stop_budget = 1
+                continue
             try:
                 agent_obj = prompt_provider._agent(agent)
             except Exception:
@@ -227,6 +238,7 @@ class InteractivePrompt:
             if agent_obj is not None and getattr(agent_obj, "_last_turn_cancelled", False):
                 reason = getattr(agent_obj, "_last_turn_cancel_reason", "cancelled")
                 setattr(agent_obj, "_last_turn_cancelled", False)
+                suppress_stop_budget = max(suppress_stop_budget, 1)
                 rich_print(
                     "[yellow]Previous turn was {reason}. If the session now shows a pending tool call, "
                     "run /history fix or /history clear all.[/yellow]".format(reason=reason)
@@ -261,18 +273,23 @@ class InteractivePrompt:
 
             # Use the enhanced input method with advanced features
             noenv_mode = bool(getattr(prompt_provider, "_noenv_mode", False))
-            user_input = await get_enhanced_input(
-                agent_name=agent,
-                default=default,
-                show_default=(default != ""),
-                show_stop_hint=True,
-                multiline=False,  # Default to single-line mode
-                available_agent_names=available_agents,
-                agent_types=self.agent_types,  # Pass agent types for display
-                agent_provider=prompt_provider,  # Pass agent provider for info display
-                noenv_mode=noenv_mode,
-                pre_populate_buffer=buffer_prefill,  # One-off buffer content
-            )
+            try:
+                user_input = await get_enhanced_input(
+                    agent_name=agent,
+                    default=default,
+                    show_default=(default != ""),
+                    show_stop_hint=True,
+                    multiline=False,  # Default to single-line mode
+                    available_agent_names=available_agents,
+                    agent_types=self.agent_types,  # Pass agent types for display
+                    agent_provider=prompt_provider,  # Pass agent provider for info display
+                    noenv_mode=noenv_mode,
+                    pre_populate_buffer=buffer_prefill,  # One-off buffer content
+                )
+            except KeyboardInterrupt:
+                rich_print("[yellow]Interrupted operation; returning to prompt.[/yellow]")
+                suppress_stop_budget = 1
+                continue
             buffer_prefill = ""  # Clear after use - it's one-off
 
             if isinstance(user_input, str):
@@ -281,7 +298,12 @@ class InteractivePrompt:
             # Avoid blocking quick shell commands on agent refresh.
             skip_refresh = isinstance(user_input, ShellCommand)
             if not skip_refresh:
-                refreshed = await prompt_provider.refresh_if_needed()
+                try:
+                    refreshed = await prompt_provider.refresh_if_needed()
+                except KeyboardInterrupt:
+                    rich_print("[yellow]Interrupted operation; returning to prompt.[/yellow]")
+                    suppress_stop_budget = 1
+                    continue
                 if refreshed:
                     available_agents = _merge_pinned_agents(list(prompt_provider.agent_names()))
                     available_agents_set = set(available_agents)
@@ -537,16 +559,82 @@ class InteractivePrompt:
                         if force_reconnect:
                             runtime_target += " --reconnect"
                         label = server_name or target_text.split(maxsplit=1)[0]
+
+                        async def _handle_mcp_connect_cancel() -> None:
+                            nonlocal suppress_stop_budget
+
+                            cancel_server_name = server_name
+                            if not cancel_server_name:
+                                try:
+                                    parsed_runtime = mcp_runtime_handlers.parse_connect_input(
+                                        runtime_target
+                                    )
+                                    cancel_server_name = parsed_runtime.server_name
+                                    if not cancel_server_name:
+                                        mode = mcp_runtime_handlers.infer_connect_mode(
+                                            parsed_runtime.target_text
+                                        )
+                                        cancel_server_name = mcp_runtime_handlers._infer_server_name(
+                                            parsed_runtime.target_text,
+                                            mode,
+                                        )
+                                except Exception:
+                                    cancel_server_name = None
+
+                            if cancel_server_name:
+                                try:
+                                    await prompt_provider.detach_mcp_server(
+                                        agent,
+                                        cancel_server_name,
+                                    )
+                                except (Exception, asyncio.CancelledError):
+                                    pass
+
+                            rich_print()
+                            rich_print(
+                                "[yellow]MCP connect cancelled; returned to prompt.[/yellow]"
+                            )
+                            suppress_stop_budget = 0
+
                         with console.status(
                             f"[yellow]Starting MCP server '{label}'...[/yellow]",
                             spinner="dots",
                         ):
-                            outcome = await mcp_runtime_handlers.handle_mcp_connect(
-                                context,
-                                manager=prompt_provider,
-                                agent_name=agent,
-                                target_text=runtime_target,
+                            connect_task = asyncio.create_task(
+                                mcp_runtime_handlers.handle_mcp_connect(
+                                    context,
+                                    manager=prompt_provider,
+                                    agent_name=agent,
+                                    target_text=runtime_target,
+                                )
                             )
+
+                            previous_sigint_handler: Any | None = None
+                            sigint_handler_installed = False
+
+                            if threading.current_thread() is threading.main_thread():
+                                previous_sigint_handler = signal.getsignal(signal.SIGINT)
+
+                                def _sigint_cancel_connect(_signum: int, _frame: Any) -> None:
+                                    if not connect_task.done():
+                                        connect_task.cancel()
+
+                                signal.signal(signal.SIGINT, _sigint_cancel_connect)
+                                sigint_handler_installed = True
+
+                            try:
+                                outcome = await connect_task
+                            except (KeyboardInterrupt, asyncio.CancelledError):
+                                if not connect_task.done():
+                                    connect_task.cancel()
+                                    with suppress(asyncio.CancelledError, asyncio.TimeoutError):
+                                        await asyncio.wait_for(connect_task, timeout=1.0)
+
+                                await _handle_mcp_connect_cancel()
+                                continue
+                            finally:
+                                if sigint_handler_installed and previous_sigint_handler is not None:
+                                    signal.signal(signal.SIGINT, previous_sigint_handler)
                         await self._emit_command_outcome(context, outcome)
                         continue
                     case McpDisconnectCommand(server_name=server_name, error=error):
@@ -753,7 +841,13 @@ class InteractivePrompt:
                     continue
 
                 if user_input.upper() == "STOP":
+                    if suppress_stop_budget > 0:
+                        suppress_stop_budget -= 1
+                        continue
                     return result
+
+                if suppress_stop_budget > 0:
+                    suppress_stop_budget = 0
                 if user_input == "":
                     continue
 
@@ -813,6 +907,24 @@ class InteractivePrompt:
             if result and result.startswith("▲ **System Error:**"):
                 # rich_print(result)
                 print(result)
+
+            try:
+                agent_after_send = prompt_provider._agent(agent)
+            except Exception:
+                agent_after_send = None
+
+            if agent_after_send is not None:
+                try:
+                    history = getattr(agent_after_send, "message_history", [])
+                    last_message = history[-1] if history else None
+                    if (
+                        last_message is not None
+                        and getattr(last_message, "role", None) == "assistant"
+                        and getattr(last_message, "stop_reason", None) == LlmStopReason.CANCELLED
+                    ):
+                        suppress_stop_budget = max(suppress_stop_budget, 1)
+                except Exception:
+                    pass
 
             # Update last copyable output with assistant response for Ctrl+Y
             if result:
