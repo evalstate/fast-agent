@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Awaitable, Callable, Protocol
 from urllib.parse import urlparse
 
+from rich.text import Text
+
 from fast_agent.cli.commands.url_parser import parse_server_urls
 from fast_agent.commands.results import CommandOutcome
 from fast_agent.config import MCPServerSettings
@@ -204,6 +206,19 @@ def _build_server_config(
     )
 
 
+def _format_added_summary(tools_added_count: int, prompts_added_count: int) -> Text:
+    tool_word = "tool" if tools_added_count == 1 else "tools"
+    prompt_word = "prompt" if prompts_added_count == 1 else "prompts"
+
+    summary = Text()
+    summary.append("Added ", style="dim")
+    summary.append(str(tools_added_count), style="bold bright_cyan")
+    summary.append(f" {tool_word} and ", style="dim")
+    summary.append(str(prompts_added_count), style="bold bright_cyan")
+    summary.append(f" {prompt_word}.", style="dim")
+    return summary
+
+
 async def handle_mcp_list(ctx, *, manager: McpRuntimeManager, agent_name: str) -> CommandOutcome:
     outcome = CommandOutcome()
     attached = await manager.list_attached_mcp_servers(agent_name)
@@ -385,36 +400,21 @@ async def handle_mcp_connect(
             right_info="mcp",
             agent_name=agent_name,
         )
+        outcome.add_message(
+            _format_added_summary(
+                tools_added_count=len(tools_added),
+                prompts_added_count=len(prompts_added),
+            ),
+            right_info="mcp",
+            agent_name=agent_name,
+        )
         await emit_progress(f"Connected MCP server '{server_name}'.")
-    if tools_added:
-        outcome.add_message(
-            "Tools added: " + ", ".join(tools_added),
-            channel="info",
-            right_info="mcp",
-            agent_name=agent_name,
-        )
-    if prompts_added:
-        outcome.add_message(
-            "Prompts added: " + ", ".join(prompts_added),
-            channel="info",
-            right_info="mcp",
-            agent_name=agent_name,
-        )
     for warning in warnings:
         outcome.add_message(warning, channel="warning", right_info="mcp", agent_name=agent_name)
 
     if oauth_links_ordered:
         outcome.add_message(
             f"OAuth authorization link: {oauth_links_ordered[-1]}",
-            channel="info",
-            right_info="mcp",
-            agent_name=agent_name,
-        )
-
-    detached = await manager.list_configured_detached_mcp_servers(agent_name)
-    if detached:
-        outcome.add_message(
-            "Configured but detached: " + ", ".join(detached),
             channel="info",
             right_info="mcp",
             agent_name=agent_name,

@@ -172,7 +172,11 @@ async def test_handle_mcp_connect_and_disconnect() -> None:
         agent_name="main",
         target_text="npx demo-server --name demo",
     )
-    assert any("Connected MCP server" in str(msg.text) for msg in connect_outcome.messages)
+    connect_text = "\n".join(str(message.text) for message in connect_outcome.messages)
+    assert "Connected MCP server" in connect_text
+    assert "Added 1 tool and 1 prompt." in connect_text
+    assert "demo.echo" not in connect_text
+    assert "demo.prompt" not in connect_text
 
     disconnect_outcome = await mcp_runtime.handle_mcp_disconnect(
         ctx,

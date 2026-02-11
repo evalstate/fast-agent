@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, Union, cast
 
 from mcp.types import PromptMessage
 from rich import print as rich_print
+from rich.text import Text
 
 if TYPE_CHECKING:
     from fast_agent.commands.context import AgentProvider
@@ -609,7 +610,7 @@ class InteractivePrompt:
                         with console.status(
                             f"[yellow]Starting MCP server '{label}'...[/yellow]",
                             spinner="dots",
-                        ):
+                        ) as mcp_connect_status:
                             async def _emit_mcp_progress(message: str) -> None:
                                 if message.startswith("Open this link to authorize:"):
                                     auth_url = message.split(":", 1)[1].strip()
@@ -617,7 +618,7 @@ class InteractivePrompt:
                                         rich_print("[bold]Open this link to authorize:[/bold]")
                                         rich_print(f"[link={auth_url}]{auth_url}[/link]")
                                         return
-                                rich_print(message)
+                                mcp_connect_status.update(status=Text(message, style="yellow"))
 
                             connect_task = asyncio.create_task(
                                 mcp_runtime_handlers.handle_mcp_connect(

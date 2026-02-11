@@ -48,6 +48,7 @@ from pydantic import BaseModel
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.constants import (
     CONTROL_MESSAGE_SAVE_HISTORY,
+    FAST_AGENT_ALERT_CHANNEL,
     FAST_AGENT_ERROR_CHANNEL,
     FAST_AGENT_REMOVED_METADATA_CHANNEL,
 )
@@ -812,10 +813,15 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
         summary = self._build_removed_summary(removed_blocks)
         if summary:
-            # Attach metadata to the last user message for downstream UI usage
+            # Attach compact persisted alert flags and detailed metadata for UI usage.
             for msg in reversed(sanitized_messages):
                 if msg.role == "user":
                     channels = dict(msg.channels or {})
+
+                    alert_entries = list(channels.get(FAST_AGENT_ALERT_CHANNEL, []))
+                    alert_entries.extend(self._build_alert_entries(summary))
+                    channels[FAST_AGENT_ALERT_CHANNEL] = alert_entries
+
                     meta_entries = list(channels.get(FAST_AGENT_REMOVED_METADATA_CHANNEL, []))
                     meta_entries.extend(self._build_metadata_entries(removed_blocks))
                     channels[FAST_AGENT_REMOVED_METADATA_CHANNEL] = meta_entries
@@ -1006,6 +1012,16 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             )
             entries.append(metadata_text)
         return entries
+
+    def _build_alert_entries(self, summary: RemovedContentSummary) -> list[ContentBlock]:
+        """Create compact persisted alert entries for toolbar classification."""
+        payload = {
+            "type": "unsupported_content_removed",
+            "flags": sorted(summary.alert_flags),
+            "categories": sorted(summary.counts),
+            "handled": True,
+        }
+        return [text_content(json.dumps(payload))]
 
     def _build_removed_summary(self, removed: list[_RemovedBlock]) -> RemovedContentSummary | None:
         if not removed:
