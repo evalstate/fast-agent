@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 import shlex
 from dataclasses import dataclass
@@ -123,6 +124,10 @@ def parse_connect_input(target_text: str) -> ParsedMcpConnectInput:
             if idx >= len(tokens):
                 raise ValueError("Missing value for --timeout")
             timeout_seconds = float(tokens[idx])
+            if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+                raise ValueError(
+                    "Invalid value for --timeout: expected a finite number greater than 0"
+                )
         elif token == "--oauth":
             trigger_oauth = True
         elif token == "--no-oauth":
