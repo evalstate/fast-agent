@@ -4,7 +4,7 @@ It adds logging and supports sampling requests.
 """
 
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from mcp import ClientSession, ServerNotification
 from mcp.shared.context import RequestContext
@@ -23,17 +23,20 @@ from mcp.types import (
     GetPromptRequestParams,
     GetPromptResult,
     Implementation,
+    InitializeResult,
     ListRootsResult,
     PingRequest,
     ReadResourceRequest,
     ReadResourceRequestParams,
     ReadResourceResult,
+    RequestParams,
+    Result,
     Root,
     SamplingCapability,
     SamplingToolsCapability,
     ToolListChangedNotification,
 )
-from pydantic import AnyUrl, FileUrl
+from pydantic import AnyUrl, BaseModel, FileUrl
 
 from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.logging.logger import get_logger
@@ -45,6 +48,31 @@ if TYPE_CHECKING:
     from fast_agent.mcp.transport_tracking import TransportChannelMetrics
 
 logger = get_logger(__name__)
+
+
+_EXPERIMENTAL_SESSION_KEY = "session"
+_EXPERIMENTAL_SESSION_META_KEY = "mcp/session"
+_EXPERIMENTAL_SESSION_VERSION = 2
+
+
+class _SessionCreateHints(BaseModel):
+    label: str | None = None
+    data: dict[str, str] | None = None
+
+
+class _SessionCreateParams(RequestParams):
+    hints: _SessionCreateHints | None = None
+
+
+class _SessionCreateRequest(BaseModel):
+    method: Literal["session/create"] = "session/create"
+    params: _SessionCreateParams | None = None
+
+
+class _SessionCreateResult(Result):
+    id: str | None = None
+    expiry: str | None = None
+    data: dict[str, str] | None = None
 
 
 async def list_roots(context: RequestContext[ClientSession, None]) -> ListRootsResult:
@@ -104,6 +132,9 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         # Track the effective elicitation mode for diagnostics
         self.effective_elicitation_mode: str | None = "none"
         self._offline_notified = False
+        self._experimental_session_supported = False
+        self._experimental_session_features: tuple[str, ...] = ()
+        self._experimental_session_cookie: dict[str, Any] | None = None
 
         fast_agent_version = version("fast-agent-mcp") or "dev"
         fast_agent: Implementation = Implementation(name="fast-agent-mcp", version=fast_agent_version)
@@ -205,6 +236,48 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             elicitation_callback=elicitation_handler,
         )
 
+    @property
+    def experimental_session_supported(self) -> bool:
+        return self._experimental_session_supported
+
+    @property
+    def experimental_session_features(self) -> tuple[str, ...]:
+        return self._experimental_session_features
+
+    @property
+    def experimental_session_cookie(self) -> dict[str, Any] | None:
+        if self._experimental_session_cookie is None:
+            return None
+        return dict(self._experimental_session_cookie)
+
+    @property
+    def experimental_session_id(self) -> str | None:
+        cookie = self._experimental_session_cookie
+        if not cookie:
+            return None
+        session_id = cookie.get("id")
+        return session_id if isinstance(session_id, str) and session_id else None
+
+    @property
+    def experimental_session_title(self) -> str | None:
+        cookie = self._experimental_session_cookie
+        if not cookie:
+            return None
+        data = cookie.get("data")
+        if isinstance(data, dict):
+            title = data.get("title") or data.get("label")
+            if isinstance(title, str) and title.strip():
+                return title.strip()
+        return None
+
+    async def initialize(self) -> InitializeResult:
+        result = await super().initialize()
+        capabilities = getattr(result, "capabilities", None)
+        experimental = getattr(capabilities, "experimental", None)
+        self._capture_experimental_session_capability(experimental)
+        await self._maybe_establish_experimental_session()
+        return result
+
     def _should_enable_auto_sampling(self) -> bool:
         """Check if auto_sampling is enabled at the application level."""
         try:
@@ -216,6 +289,108 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         except Exception:
             pass
         return True  # Default to True if can't access config
+
+    def _capture_experimental_session_capability(
+        self,
+        experimental: dict[str, dict[str, Any]] | None,
+    ) -> None:
+        self._experimental_session_supported = False
+        self._experimental_session_features = ()
+
+        if not isinstance(experimental, dict):
+            return
+
+        raw = experimental.get(_EXPERIMENTAL_SESSION_KEY)
+        if not isinstance(raw, dict):
+            return
+
+        version = raw.get("version")
+        if version is not None and version != _EXPERIMENTAL_SESSION_VERSION:
+            logger.info(
+                "Ignoring unsupported experimental session capability version",
+                server=self.session_server_name,
+                version=version,
+            )
+            return
+
+        features_raw = raw.get("features")
+        features: list[str] = []
+        if isinstance(features_raw, list):
+            for feature in features_raw:
+                if isinstance(feature, str):
+                    value = feature.strip()
+                    if value:
+                        features.append(value)
+
+        self._experimental_session_supported = True
+        self._experimental_session_features = tuple(sorted(set(features)))
+
+    async def _maybe_establish_experimental_session(self) -> None:
+        if not self._experimental_session_supported:
+            return
+        if self._experimental_session_cookie is not None:
+            return
+        if "create" not in self._experimental_session_features:
+            return
+
+        title = self._build_experimental_session_title()
+        hints_data = {"title": title}
+        request = _SessionCreateRequest(
+            params=_SessionCreateParams(
+                hints=_SessionCreateHints(label=title, data=hints_data),
+            )
+        )
+
+        try:
+            result = await self.send_request(
+                cast("ClientRequest", request),
+                _SessionCreateResult,
+            )
+        except Exception as exc:
+            logger.debug(
+                "Failed to establish experimental MCP session",
+                server=self.session_server_name,
+                error=str(exc),
+            )
+            return
+
+        # If a server returns a result payload without _meta, retain a minimal cookie.
+        if self._experimental_session_cookie is None and result.id:
+            cookie: dict[str, Any] = {"id": result.id}
+            if result.expiry:
+                cookie["expiry"] = result.expiry
+            if result.data:
+                cookie["data"] = dict(result.data)
+            self._experimental_session_cookie = cookie
+
+    def _build_experimental_session_title(self) -> str:
+        agent_name = (self.agent_name or "fast-agent").strip() or "fast-agent"
+        server_name = (self.session_server_name or "").strip()
+        if server_name and server_name != agent_name:
+            return f"{agent_name} · {server_name}"
+        return agent_name
+
+    def _merge_experimental_session_meta(
+        self, metadata: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
+        merged: dict[str, Any] = dict(metadata) if metadata else {}
+        if self._experimental_session_cookie and _EXPERIMENTAL_SESSION_META_KEY not in merged:
+            merged[_EXPERIMENTAL_SESSION_META_KEY] = dict(self._experimental_session_cookie)
+        return merged or None
+
+    def _update_experimental_session_cookie(self, metadata: dict[str, Any] | None) -> None:
+        if not isinstance(metadata, dict):
+            return
+        if _EXPERIMENTAL_SESSION_META_KEY not in metadata:
+            return
+
+        value = metadata.get(_EXPERIMENTAL_SESSION_META_KEY)
+        if value is None:
+            self._experimental_session_cookie = None
+            return
+
+        if isinstance(value, dict):
+            self._experimental_session_cookie = dict(value)
 
     async def send_request(
         self,
@@ -251,6 +426,9 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                 "send_request: response=",
                 data=result.model_dump() if result is not None else "no response returned",
             )
+            result_meta = getattr(result, "meta", None)
+            if isinstance(result_meta, dict):
+                self._update_experimental_session_cookie(result_meta)
             self._attach_transport_channel(request_id, result)
             if (
                 is_ping_request
@@ -385,13 +563,12 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         Always uses our overridden send_request to ensure session terminated errors
         are properly detected and converted to ServerSessionTerminatedError.
         """
-        from mcp.types import RequestParams
-
         # Always create request ourselves to ensure we go through our send_request override
         # This is critical for session terminated detection to work
+        merged_meta = self._merge_experimental_session_meta(meta)
         _meta: RequestParams.Meta | None = None
-        if meta is not None:
-            _meta = RequestParams.Meta(**meta)
+        if merged_meta is not None:
+            _meta = RequestParams.Meta(**merged_meta)
 
         # ty doesn't recognize _meta from pydantic alias - this matches SDK pattern
         params = CallToolRequestParams(name=name, arguments=arguments, _meta=_meta)  # ty: ignore[unknown-argument]
@@ -421,25 +598,24 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         Always uses our overridden send_request to ensure session terminated errors
         are properly detected and converted to ServerSessionTerminatedError.
         """
-        from mcp.types import RequestParams
-
         # Convert str to AnyUrl if needed
         uri_obj: AnyUrl = uri if isinstance(uri, AnyUrl) else AnyUrl(uri)
 
         # Always create request ourselves to ensure we go through our send_request override
         params = ReadResourceRequestParams(uri=uri_obj)
 
-        if _meta:
+        merged_meta = self._merge_experimental_session_meta(_meta)
+        if merged_meta:
             # Safe merge - preserve existing meta fields like progressToken
             existing_meta = kwargs.get("meta")
             if existing_meta:
                 meta_dict = (
                     existing_meta.model_dump() if hasattr(existing_meta, "model_dump") else {}
                 )
-                meta_dict.update(_meta)
+                meta_dict.update(merged_meta)
                 meta_obj = RequestParams.Meta(**meta_dict)
             else:
-                meta_obj = RequestParams.Meta(**_meta)
+                meta_obj = RequestParams.Meta(**merged_meta)
             params = ReadResourceRequestParams(uri=uri_obj, meta=meta_obj)
 
         request = ReadResourceRequest(method="resources/read", params=params)
@@ -453,22 +629,21 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         Always uses our overridden send_request to ensure session terminated errors
         are properly detected and converted to ServerSessionTerminatedError.
         """
-        from mcp.types import RequestParams
-
         # Always create request ourselves to ensure we go through our send_request override
         params = GetPromptRequestParams(name=name, arguments=arguments)
 
-        if _meta:
+        merged_meta = self._merge_experimental_session_meta(_meta)
+        if merged_meta:
             # Safe merge - preserve existing meta fields like progressToken
             existing_meta = kwargs.get("meta")
             if existing_meta:
                 meta_dict = (
                     existing_meta.model_dump() if hasattr(existing_meta, "model_dump") else {}
                 )
-                meta_dict.update(_meta)
+                meta_dict.update(merged_meta)
                 meta_obj = RequestParams.Meta(**meta_dict)
             else:
-                meta_obj = RequestParams.Meta(**_meta)
+                meta_obj = RequestParams.Meta(**merged_meta)
             params = GetPromptRequestParams(name=name, arguments=arguments, meta=meta_obj)
 
         request = GetPromptRequest(method="prompts/get", params=params)

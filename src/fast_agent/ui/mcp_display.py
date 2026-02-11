@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Iterable
 
@@ -159,6 +160,50 @@ def _format_session_id(session_id: str | None) -> Text:
         # Trim middle to preserve start and end
         value = f"{session_id[:10]}...{session_id[-10:]}"
     text.append(value, style="green")
+    return text
+
+
+def _format_experimental_session_status(status: ServerStatus) -> Text:
+    text = Text()
+    supported = status.experimental_session_supported
+    if supported is True:
+        text.append("enabled", style=Colours.TEXT_SUCCESS)
+        features = status.experimental_session_features or []
+        if features:
+            text.append(" (", style=Colours.TEXT_DIM)
+            text.append(", ".join(features), style=Colours.TEXT_DEFAULT)
+            text.append(")", style=Colours.TEXT_DIM)
+        if status.session_title:
+            text.append("  title=", style=Colours.TEXT_DIM)
+            text.append(status.session_title, style=Colours.TEXT_DEFAULT)
+        return text
+
+    if supported is False:
+        text.append("not advertised", style=Colours.TEXT_DIM)
+        return text
+
+    text.append("unknown", style=Colours.TEXT_DIM)
+    return text
+
+
+def _format_session_cookie(cookie: dict[str, object] | None) -> Text:
+    text = Text()
+    if not cookie:
+        text.append("none", style=Colours.TEXT_DIM)
+        return text
+
+    ordered: dict[str, object] = {}
+    if "id" in cookie:
+        ordered["id"] = cookie["id"]
+    for key in sorted(cookie):
+        if key == "id":
+            continue
+        ordered[key] = cookie[key]
+
+    raw = json.dumps(ordered, separators=(",", ":"), ensure_ascii=False)
+    if len(raw) > 120:
+        raw = raw[:117] + "..."
+    text.append(raw, style=Colours.TEXT_DEFAULT)
     return text
 
 
@@ -979,6 +1024,18 @@ async def render_mcp_status(agent, indent: str = "") -> None:
         session_text = _format_session_id(status.session_id)
         session_line.append_text(_build_aligned_field("session", session_text))
         console.console.print(session_line)
+
+        experimental_session_line = Text(indent + "  ")
+        experimental_session_text = _format_experimental_session_status(status)
+        experimental_session_line.append_text(
+            _build_aligned_field("exp sess", experimental_session_text)
+        )
+        console.console.print(experimental_session_line)
+
+        cookie_line = Text(indent + "  ")
+        cookie_text = _format_session_cookie(status.session_cookie)
+        cookie_line.append_text(_build_aligned_field("cookie", cookie_text))
+        console.console.print(cookie_line)
 
         health_text = _build_health_text(status)
         if health_text is not None:
