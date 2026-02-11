@@ -30,8 +30,8 @@ CURATED_MODELS: list[CuratedModel] = [
     ),
     CuratedModel(
         id="glm",
-        display_name="ZAI GLM 4.7",
-        description="ZAI GLM-4.7: Superior Agentic, Reasoning and Coding Capabilities",
+        display_name="ZAI GLM 5",
+        description="ZAI GLM-5: Superior Agentic, Reasoning and Coding Capabilities",
     ),
     CuratedModel(
         id="minimax",

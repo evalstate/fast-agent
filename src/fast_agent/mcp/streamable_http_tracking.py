@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import sys
 from contextlib import AsyncExitStack, asynccontextmanager
 from typing import TYPE_CHECKING, AsyncGenerator, Awaitable, Callable
 
@@ -19,7 +21,13 @@ from mcp.client.streamable_http import (
 )
 from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.message import SessionMessage
-from mcp.types import JSONRPCError, JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
+from mcp.types import (
+    JSONRPCError,
+    JSONRPCMessage,
+    JSONRPCRequest,
+    JSONRPCResponse,
+    ProgressNotification,
+)
 
 from fast_agent.mcp.transport_tracking import ChannelEvent, ChannelName
 
@@ -30,6 +38,17 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 ChannelHook = Callable[[ChannelEvent], None]
+
+
+def _progress_trace_enabled() -> bool:
+    value = os.environ.get("FAST_AGENT_TRACE_MCP_PROGRESS", "")
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _progress_trace(message: str) -> None:
+    if not _progress_trace_enabled():
+        return
+    print(f"[mcp-progress-trace] {message}", file=sys.stderr, flush=True)
 
 
 class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
@@ -111,6 +130,11 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
             self._emit_channel_event(channel, "keepalive", raw_event="priming")
             return False
 
+        if '"notifications/progress"' in sse.data:
+            _progress_trace(
+                f"inbound-sse channel={channel} event_id={sse.id or '-'} raw={sse.data}"
+            )
+
         try:
             message = JSONRPCMessage.model_validate_json(sse.data)
             if is_initialization:
@@ -120,6 +144,17 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
                 message.root, (JSONRPCResponse, JSONRPCError)
             ):
                 message.root.id = original_request_id
+
+            if isinstance(message.root, ProgressNotification):
+                params = message.root.params
+                _progress_trace(
+                    "parsed-progress "
+                    f"channel={channel} "
+                    f"token={params.progressToken!r} "
+                    f"progress={params.progress!r} "
+                    f"total={params.total!r} "
+                    f"message={params.message!r}"
+                )
 
             self._emit_channel_event(channel, "message", message=message)
             await read_stream_writer.send(SessionMessage(message))

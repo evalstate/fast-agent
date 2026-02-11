@@ -408,6 +408,16 @@ class ModelDatabase:
         stream_mode="manual",
     )
 
+    GLM_5 = ModelParameters(
+        context_window=202800,
+        max_output_tokens=131072,
+        tokenizes=TEXT_ONLY,
+        json_mode="object",
+        reasoning="reasoning_content",
+        reasoning_effort_spec=GLM_REASONING_TOGGLE_SPEC,
+        stream_mode="manual",
+    )
+
     MINIMAX_21 = ModelParameters(
         context_window=202752,
         max_output_tokens=131072,
@@ -554,6 +564,7 @@ class ModelDatabase:
         "openai/gpt-oss-20b": OPENAI_GPT_OSS_SERIES,  # tool/reasoning interleave guidance
         "zai-org/glm-4.6": GLM_46,
         "zai-org/glm-4.7": GLM_47,
+        "zai-org/glm-5": GLM_5,
         "minimaxai/minimax-m2": GLM_46,
         "minimaxai/minimax-m2.1": MINIMAX_21,
         "qwen/qwen3-next-80b-a3b-instruct": HF_PROVIDER_QWEN3_NEXT,

@@ -3,6 +3,8 @@ A derived client session for the MCP Agent framework.
 It adds logging and supports sampling requests.
 """
 
+import os
+import sys
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -45,6 +47,17 @@ if TYPE_CHECKING:
     from fast_agent.mcp.transport_tracking import TransportChannelMetrics
 
 logger = get_logger(__name__)
+
+
+def _progress_trace_enabled() -> bool:
+    value = os.environ.get("FAST_AGENT_TRACE_MCP_PROGRESS", "")
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _progress_trace(message: str) -> None:
+    if not _progress_trace_enabled():
+        return
+    print(f"[mcp-progress-trace] {message}", file=sys.stderr, flush=True)
 
 
 async def list_roots(context: RequestContext[ClientSession, None]) -> ListRootsResult:
@@ -228,6 +241,17 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         logger.debug("send_request: request=", data=request.model_dump())
         request_id = getattr(self, "_request_id", None)
         is_ping_request = self._is_ping_request(request)
+        request_method = getattr(getattr(request, "root", None), "method", "unknown")
+
+        if progress_callback is not None and request_id is not None:
+            _progress_trace(
+                "outbound-request "
+                f"server={self.session_server_name or 'unknown'} "
+                f"method={request_method} "
+                f"request_id={request_id!r} "
+                f"progress_token={request_id!r}"
+            )
+
         if (
             is_ping_request
             and request_id is not None
@@ -251,6 +275,15 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                 "send_request: response=",
                 data=result.model_dump() if result is not None else "no response returned",
             )
+
+            if progress_callback is not None and request_id is not None:
+                _progress_trace(
+                    "request-complete "
+                    f"server={self.session_server_name or 'unknown'} "
+                    f"method={request_method} "
+                    f"request_id={request_id!r}"
+                )
+
             self._attach_transport_channel(request_id, result)
             if (
                 is_ping_request
@@ -261,6 +294,15 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             self._offline_notified = False
             return result
         except Exception as e:
+            if progress_callback is not None and request_id is not None:
+                _progress_trace(
+                    "request-error "
+                    f"server={self.session_server_name or 'unknown'} "
+                    f"method={request_method} "
+                    f"request_id={request_id!r} "
+                    f"error={type(e).__name__}: {e}"
+                )
+
             if (
                 is_ping_request
                 and request_id is not None

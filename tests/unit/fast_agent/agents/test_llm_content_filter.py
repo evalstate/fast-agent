@@ -13,6 +13,7 @@ from pydantic import AnyUrl
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_decorator import LlmDecorator
 from fast_agent.constants import (
+    FAST_AGENT_ALERT_CHANNEL,
     FAST_AGENT_ERROR_CHANNEL,
     FAST_AGENT_REMOVED_METADATA_CHANNEL,
 )
@@ -98,6 +99,28 @@ def _parse_meta_categories(blocks) -> set[str]:
     return categories
 
 
+def _parse_alert_flags(blocks) -> set[str]:
+    flags: set[str] = set()
+    for block in blocks or []:
+        text = getattr(block, "text", None)
+        if not text:
+            continue
+        try:
+            payload = json.loads(text)
+        except (TypeError, ValueError):
+            continue
+        if payload.get("type") != "unsupported_content_removed":
+            continue
+        block_flags = payload.get("flags")
+        if isinstance(block_flags, str):
+            block_flags = [block_flags]
+        if isinstance(block_flags, list):
+            for flag in block_flags:
+                if flag in {"T", "D", "V"}:
+                    flags.add(flag)
+    return flags
+
+
 @pytest.mark.asyncio
 async def test_sanitizes_image_content_for_text_only_model():
     decorator, stub = make_decorator("passthrough")
@@ -133,6 +156,9 @@ async def test_sanitizes_image_content_for_text_only_model():
     meta_blocks = channels.get(FAST_AGENT_REMOVED_METADATA_CHANNEL, [])
     categories = _parse_meta_categories(meta_blocks)
     assert categories == {"vision"}
+
+    alert_blocks = channels.get(FAST_AGENT_ALERT_CHANNEL, [])
+    assert _parse_alert_flags(alert_blocks) == {"V"}
 
 
 @pytest.mark.asyncio
@@ -176,6 +202,9 @@ async def test_removes_unsupported_tool_result_content():
     categories = _parse_meta_categories(meta_blocks)
     assert categories == {"document"}
 
+    alert_blocks = channels.get(FAST_AGENT_ALERT_CHANNEL, [])
+    assert _parse_alert_flags(alert_blocks) == {"D"}
+
 
 @pytest.mark.asyncio
 async def test_metadata_clears_when_supported_content_only():
@@ -196,3 +225,20 @@ async def test_metadata_clears_when_supported_content_only():
         FAST_AGENT_REMOVED_METADATA_CHANNEL, []
     )
     assert not meta_blocks
+
+@pytest.mark.asyncio
+async def test_history_persists_alert_channel_but_strips_removed_metadata():
+    decorator, _ = make_decorator("passthrough")
+
+    image_block = ImageContent(type="image", data="AAA", mimeType="image/png")
+    message = PromptMessageExtended(role="user", content=[image_block])
+
+    await decorator.generate_impl([message])
+
+    assert decorator.message_history
+    persisted_user_message = decorator.message_history[0]
+    channels = persisted_user_message.channels or {}
+    assert FAST_AGENT_ALERT_CHANNEL in channels
+    assert _parse_alert_flags(channels[FAST_AGENT_ALERT_CHANNEL]) == {"V"}
+    assert FAST_AGENT_REMOVED_METADATA_CHANNEL not in channels
+
