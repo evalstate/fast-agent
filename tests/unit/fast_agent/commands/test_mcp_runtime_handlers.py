@@ -152,6 +152,15 @@ class _OAuthFailureManager(_Manager):
             "for this connection mode."
         )
 
+
+@pytest.mark.parametrize("raw_timeout", ["nan", "inf", "-inf", "0", "-1"])
+def test_parse_connect_input_rejects_non_finite_or_non_positive_timeout(
+    raw_timeout: str,
+) -> None:
+    with pytest.raises(ValueError, match="--timeout"):
+        mcp_runtime.parse_connect_input(f"npx demo-server --timeout {raw_timeout}")
+
+
 @pytest.mark.asyncio
 async def test_handle_mcp_connect_and_disconnect() -> None:
     manager = _Manager()
