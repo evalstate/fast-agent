@@ -1,3 +1,5 @@
+import os
+import sys
 from asyncio import Lock
 from collections import Counter
 from dataclasses import dataclass, field
@@ -56,6 +58,17 @@ if TYPE_CHECKING:
 
 
 logger = get_logger(__name__)  # This will be replaced per-instance when agent_name is available
+
+
+def _progress_trace_enabled() -> bool:
+    value = os.environ.get("FAST_AGENT_TRACE_MCP_PROGRESS", "")
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _progress_trace(message: str) -> None:
+    if not _progress_trace_enabled():
+        return
+    print(f"[mcp-progress-trace] {message}", file=sys.stderr, flush=True)
 
 # Define type variables for the generalized method
 T = TypeVar("T")
@@ -327,6 +340,16 @@ class MCPAggregator(ContextDependent):
             progress: float, total: float | None, message: str | None
         ) -> None:
             """Handle progress notifications from MCP tool execution."""
+            _progress_trace(
+                "callback-progress "
+                f"server={server_name} "
+                f"tool={tool_name} "
+                f"tool_call_id={tool_call_id} "
+                f"progress={progress!r} "
+                f"total={total!r} "
+                f"message={message!r}"
+            )
+
             logger.info(
                 "Tool progress update",
                 data={

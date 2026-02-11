@@ -152,6 +152,15 @@ class _OAuthFailureManager(_Manager):
             "for this connection mode."
         )
 
+
+@pytest.mark.parametrize("raw_timeout", ["nan", "inf", "-inf", "0", "-1"])
+def test_parse_connect_input_rejects_non_finite_or_non_positive_timeout(
+    raw_timeout: str,
+) -> None:
+    with pytest.raises(ValueError, match="--timeout"):
+        mcp_runtime.parse_connect_input(f"npx demo-server --timeout {raw_timeout}")
+
+
 @pytest.mark.asyncio
 async def test_handle_mcp_connect_and_disconnect() -> None:
     manager = _Manager()
@@ -163,7 +172,11 @@ async def test_handle_mcp_connect_and_disconnect() -> None:
         agent_name="main",
         target_text="npx demo-server --name demo",
     )
-    assert any("Connected MCP server" in str(msg.text) for msg in connect_outcome.messages)
+    connect_text = "\n".join(str(message.text) for message in connect_outcome.messages)
+    assert "Connected MCP server" in connect_text
+    assert "Added 1 tool and 1 prompt." in connect_text
+    assert "demo.echo" not in connect_text
+    assert "demo.prompt" not in connect_text
 
     disconnect_outcome = await mcp_runtime.handle_mcp_disconnect(
         ctx,

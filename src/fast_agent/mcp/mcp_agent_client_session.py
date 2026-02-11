@@ -3,6 +3,8 @@ A derived client session for the MCP Agent framework.
 It adds logging and supports sampling requests.
 """
 
+import os
+import sys
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Literal, cast
 
@@ -48,6 +50,17 @@ if TYPE_CHECKING:
     from fast_agent.mcp.transport_tracking import TransportChannelMetrics
 
 logger = get_logger(__name__)
+
+
+def _progress_trace_enabled() -> bool:
+    value = os.environ.get("FAST_AGENT_TRACE_MCP_PROGRESS", "")
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _progress_trace(message: str) -> None:
+    if not _progress_trace_enabled():
+        return
+    print(f"[mcp-progress-trace] {message}", file=sys.stderr, flush=True)
 
 
 _EXPERIMENTAL_SESSION_KEY = "session"
@@ -137,7 +150,9 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         self._experimental_session_cookie: dict[str, Any] | None = None
 
         fast_agent_version = version("fast-agent-mcp") or "dev"
-        fast_agent: Implementation = Implementation(name="fast-agent-mcp", version=fast_agent_version)
+        fast_agent: Implementation = Implementation(
+            name="fast-agent-mcp", version=fast_agent_version
+        )
         if self.server_config and self.server_config.implementation:
             fast_agent = self.server_config.implementation
 
@@ -220,9 +235,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         sampling_caps = None
         if sampling_cb is not None:
             # Advertise full sampling capability including tools support
-            sampling_caps = SamplingCapability(
-                tools=SamplingToolsCapability()
-            )
+            sampling_caps = SamplingCapability(tools=SamplingToolsCapability())
 
         super().__init__(
             read_stream,
@@ -403,11 +416,18 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         logger.debug("send_request: request=", data=request.model_dump())
         request_id = getattr(self, "_request_id", None)
         is_ping_request = self._is_ping_request(request)
-        if (
-            is_ping_request
-            and request_id is not None
-            and self._transport_metrics is not None
-        ):
+        request_method = getattr(getattr(request, "root", None), "method", "unknown")
+
+        if progress_callback is not None and request_id is not None:
+            _progress_trace(
+                "outbound-request "
+                f"server={self.session_server_name or 'unknown'} "
+                f"method={request_method} "
+                f"request_id={request_id!r} "
+                f"progress_token={request_id!r}"
+            )
+
+        if is_ping_request and request_id is not None and self._transport_metrics is not None:
             self._transport_metrics.register_ping_request(request_id)
         try:
             result = await super().send_request(
@@ -429,21 +449,31 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             result_meta = getattr(result, "meta", None)
             if isinstance(result_meta, dict):
                 self._update_experimental_session_cookie(result_meta)
+
+            if progress_callback is not None and request_id is not None:
+                _progress_trace(
+                    "request-complete "
+                    f"server={self.session_server_name or 'unknown'} "
+                    f"method={request_method} "
+                    f"request_id={request_id!r}"
+                )
+
             self._attach_transport_channel(request_id, result)
-            if (
-                is_ping_request
-                and request_id is not None
-                and self._transport_metrics is not None
-            ):
+            if is_ping_request and request_id is not None and self._transport_metrics is not None:
                 self._transport_metrics.discard_ping_request(request_id)
             self._offline_notified = False
             return result
         except Exception as e:
-            if (
-                is_ping_request
-                and request_id is not None
-                and self._transport_metrics is not None
-            ):
+            if progress_callback is not None and request_id is not None:
+                _progress_trace(
+                    "request-error "
+                    f"server={self.session_server_name or 'unknown'} "
+                    f"method={request_method} "
+                    f"request_id={request_id!r} "
+                    f"error={type(e).__name__}: {e}"
+                )
+
+            if is_ping_request and request_id is not None and self._transport_metrics is not None:
                 self._transport_metrics.discard_ping_request(request_id)
             from anyio import ClosedResourceError
 
@@ -477,7 +507,11 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         if not isinstance(method, str):
             return False
         method_lower = method.lower()
-        return method_lower == "ping" or method_lower.endswith("/ping") or method_lower.endswith(".ping")
+        return (
+            method_lower == "ping"
+            or method_lower.endswith("/ping")
+            or method_lower.endswith(".ping")
+        )
 
     def _is_session_terminated_error(self, exc: Exception) -> bool:
         """Check if exception is a session terminated error (code 32600 from 404)."""
