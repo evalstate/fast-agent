@@ -224,6 +224,7 @@ def update_mcp_server_load_on_start(server_name: str, load_on_start: bool) -> No
 
 
 DEFAULT_SKILL_REGISTRIES = [
+    "https://github.com/fast-agent-ai/skills",
     "https://github.com/huggingface/skills",
     "https://github.com/anthropics/skills",
 ]

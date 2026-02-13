@@ -72,5 +72,6 @@ mcp:
 # Skills configuration
 skills:
   marketplace_urls:
+    - "https://github.com/fast-agent-ai/skills"
     - "https://github.com/huggingface/skills"
     - "https://github.com/anthropics/skills"
