@@ -89,6 +89,27 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
         except Exception:  # pragma: no cover - hook errors must not break transport
             logger.exception("Channel hook raised an exception")
 
+    async def terminate_session(self, client: httpx.AsyncClient) -> None:
+        """Terminate the session by sending a DELETE request.
+
+        Some providers return ``202 Accepted`` to indicate asynchronous session
+        cleanup; treat that as successful termination.
+        """
+
+        if not self.session_id:
+            return
+
+        try:
+            headers = self._prepare_headers()
+            response = await client.delete(self.url, headers=headers)
+
+            if response.status_code == 405:
+                logger.debug("Server does not allow session termination")
+            elif response.status_code not in (200, 202, 204):
+                logger.warning("Session termination failed: %s", response.status_code)
+        except Exception as exc:
+            logger.warning("Session termination failed: %s", exc)
+
     async def _handle_json_response(  # type: ignore[override]
         self,
         response: httpx.Response,

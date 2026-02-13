@@ -86,7 +86,7 @@ from fast_agent.ui.command_payloads import (
     UnknownCommand,
     is_command_payload,
 )
-from fast_agent.ui.console import console
+from fast_agent.ui.console import console, ensure_blocking_console
 from fast_agent.ui.enhanced_prompt import (
     _display_agent_info_helper,
     get_enhanced_input,
@@ -611,12 +611,21 @@ class InteractivePrompt:
                             f"[yellow]Starting MCP server '{label}'...[/yellow]",
                             spinner="dots",
                         ) as mcp_connect_status:
+                            oauth_link_shown = False
+
                             async def _emit_mcp_progress(message: str) -> None:
+                                nonlocal oauth_link_shown
                                 if message.startswith("Open this link to authorize:"):
                                     auth_url = message.split(":", 1)[1].strip()
                                     if auth_url:
+                                        oauth_link_shown = True
                                         rich_print("[bold]Open this link to authorize:[/bold]")
-                                        rich_print(f"[link={auth_url}]{auth_url}[/link]")
+                                        ensure_blocking_console()
+                                        console.print(
+                                            f"[link={auth_url}]{auth_url}[/link]",
+                                            style="bright_cyan",
+                                            soft_wrap=True,
+                                        )
                                         return
                                 mcp_connect_status.update(status=Text(message, style="yellow"))
 
@@ -656,6 +665,12 @@ class InteractivePrompt:
                             finally:
                                 if sigint_handler_installed and previous_sigint_handler is not None:
                                     signal.signal(signal.SIGINT, previous_sigint_handler)
+                        if oauth_link_shown:
+                            outcome.messages = [
+                                message
+                                for message in outcome.messages
+                                if not str(message.text).startswith("OAuth authorization link:")
+                            ]
                         await self._emit_command_outcome(context, outcome)
                         continue
                     case McpDisconnectCommand(server_name=server_name, error=error):

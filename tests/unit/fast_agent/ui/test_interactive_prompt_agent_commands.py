@@ -8,6 +8,7 @@ from mcp import CallToolRequest
 from mcp.types import CallToolRequestParams
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.commands.results import CommandMessage, CommandOutcome
 from fast_agent.core.prompt import Prompt
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui import enhanced_prompt, interactive_prompt
@@ -485,6 +486,51 @@ async def test_mcp_connect_cancel_allows_stop_immediately(monkeypatch, capsys: A
     assert "MCP connect cancelled; returned to prompt" in output
     # STOP immediately exits after cancellation.
     assert input_calls["count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_mcp_connect_oauth_link_is_not_repeated_in_final_outcome(
+    monkeypatch,
+    capsys: Any,
+) -> None:
+    _patch_input(monkeypatch, ["/connect https://example.com/api", "STOP"])
+
+    async def fake_send(*_args: Any, **_kwargs: Any) -> str:
+        return ""
+
+    auth_url = "https://auth.example.com/authorize?state=abc"
+
+    async def fake_handle_mcp_connect(*_args: Any, **kwargs: Any):
+        progress_cb = kwargs.get("on_progress")
+        if progress_cb is not None:
+            await progress_cb(f"Open this link to authorize: {auth_url}")
+
+        return CommandOutcome(
+            messages=[
+                CommandMessage("Connected MCP server 'example-com' (url)."),
+                CommandMessage(f"OAuth authorization link: {auth_url}", channel="info"),
+            ]
+        )
+
+    monkeypatch.setattr(
+        interactive_prompt.mcp_runtime_handlers,
+        "handle_mcp_connect",
+        fake_handle_mcp_connect,
+    )
+
+    prompt_ui = InteractivePrompt()
+    agent_app = _FakeAgentApp(["vertex-rag"])
+
+    await prompt_ui.prompt_loop(
+        send_func=fake_send,
+        default_agent="vertex-rag",
+        available_agents=["vertex-rag"],
+        prompt_provider=cast("AgentApp", agent_app),
+    )
+
+    output = capsys.readouterr().out
+    assert output.count(auth_url) == 1
+    assert "OAuth authorization link:" not in output
 
 
 @pytest.mark.asyncio

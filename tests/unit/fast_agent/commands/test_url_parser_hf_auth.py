@@ -48,7 +48,7 @@ class TestParseServerUrlsHfAuth:
 
             assert server_name == "hf_co"
             assert transport_type == "http"
-            assert url == "https://hf.co/models/gpt2/mcp"
+            assert url == "https://hf.co/models/gpt2"
             assert headers is not None
             assert headers["Authorization"] == "Bearer hf_test_token"
         finally:
@@ -67,7 +67,7 @@ class TestParseServerUrlsHfAuth:
 
             assert server_name == "hf_co"
             assert transport_type == "http"
-            assert url == "https://hf.co/models/gpt2/mcp"
+            assert url == "https://hf.co/models/gpt2"
             assert headers is None
         finally:
             _restore_hf_token(original)
@@ -83,7 +83,7 @@ class TestParseServerUrlsHfAuth:
 
             assert server_name == "hf_co"
             assert transport_type == "http"
-            assert url == "https://hf.co/models/gpt2/mcp"
+            assert url == "https://hf.co/models/gpt2"
             assert headers is not None
             assert headers["Authorization"] == "Bearer user_token"
         finally:
@@ -100,7 +100,7 @@ class TestParseServerUrlsHfAuth:
 
             assert server_name == "example_com"
             assert transport_type == "http"
-            assert url == "https://example.com/api/mcp"
+            assert url == "https://example.com/api"
             assert headers is None
         finally:
             _restore_hf_token(original)
@@ -116,7 +116,7 @@ class TestParseServerUrlsHfAuth:
 
             assert server_name == "example_com"
             assert transport_type == "http"
-            assert url == "https://example.com/api/mcp"
+            assert url == "https://example.com/api"
             assert headers is not None
             assert headers["Authorization"] == "Bearer user_token"
         finally:

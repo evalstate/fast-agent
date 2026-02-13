@@ -103,6 +103,28 @@ def _rebuild_target_text(tokens: list[str]) -> str:
     return " ".join(rebuilt_parts)
 
 
+def _is_http_not_found_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "404" in message and ("not found" in message or "http error" in message)
+
+
+def _is_mcp_suffix_retry_eligible(url: str) -> bool:
+    parsed = urlparse(url)
+    if parsed.query:
+        # Query strings are treated as fully-formed endpoint URLs.
+        return False
+
+    normalized_path = (parsed.path or "").rstrip("/")
+    return not (normalized_path.endswith("/mcp") or normalized_path.endswith("/sse"))
+
+
+def _append_mcp_suffix(url: str) -> str:
+    parsed = urlparse(url)
+    normalized_path = (parsed.path or "").rstrip("/")
+    fallback_path = "/mcp" if not normalized_path else f"{normalized_path}/mcp"
+    return parsed._replace(path=fallback_path).geturl()
+
+
 def parse_connect_input(target_text: str) -> ParsedMcpConnectInput:
     tokens = shlex.split(target_text)
     target_tokens: list[str] = []
@@ -336,12 +358,39 @@ async def handle_mcp_connect(
             else None,
             allow_oauth_paste_fallback=oauth_paste_fallback_enabled,
         )
-        result = await manager.attach_mcp_server(
-            agent_name,
-            server_name,
-            server_config=config,
-            options=attach_options,
+        retry_with_mcp_suffix = (
+            mode == "url"
+            and config.transport == "http"
+            and bool(config.url)
+            and _is_mcp_suffix_retry_eligible(config.url or "")
         )
+
+        try:
+            result = await manager.attach_mcp_server(
+                agent_name,
+                server_name,
+                server_config=config,
+                options=attach_options,
+            )
+        except Exception as exc:
+            if retry_with_mcp_suffix and _is_http_not_found_error(exc):
+                assert config.url is not None
+                fallback_url = _append_mcp_suffix(config.url)
+                await emit_progress(
+                    (
+                        f"MCP endpoint not found at {config.url}; "
+                        f"retrying with {fallback_url}…"
+                    )
+                )
+                config = config.model_copy(update={"url": fallback_url})
+                result = await manager.attach_mcp_server(
+                    agent_name,
+                    server_name,
+                    server_config=config,
+                    options=attach_options,
+                )
+            else:
+                raise
     except Exception as exc:
         await emit_progress(f"Failed to connect MCP server '{server_name}'.")
         error_text = str(exc)

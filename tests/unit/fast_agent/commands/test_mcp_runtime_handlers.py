@@ -153,6 +153,41 @@ class _OAuthFailureManager(_Manager):
         )
 
 
+class _Retry404Manager(_Manager):
+    def __init__(self) -> None:
+        super().__init__()
+        self.url_attempts: list[str] = []
+
+    async def attach_mcp_server(self, agent_name, server_name, server_config=None, options=None):
+        self.last_config = server_config
+        self.last_options = options
+
+        if server_config is not None and getattr(server_config, "url", None):
+            self.url_attempts.append(server_config.url)
+            if len(self.url_attempts) == 1:
+                raise RuntimeError(f"HTTP Error: 404 Not Found for URL: {server_config.url}")
+
+        return await super().attach_mcp_server(
+            agent_name,
+            server_name,
+            server_config=server_config,
+            options=options,
+        )
+
+
+class _Always404Manager(_Manager):
+    def __init__(self) -> None:
+        super().__init__()
+        self.url_attempts: list[str] = []
+
+    async def attach_mcp_server(self, agent_name, server_name, server_config=None, options=None):
+        del agent_name, server_name, options
+        if server_config is not None and getattr(server_config, "url", None):
+            self.url_attempts.append(server_config.url)
+            raise RuntimeError(f"HTTP Error: 404 Not Found for URL: {server_config.url}")
+        raise RuntimeError("expected URL server config")
+
+
 @pytest.mark.parametrize("raw_timeout", ["nan", "inf", "-inf", "0", "-1"])
 def test_parse_connect_input_rejects_non_finite_or_non_positive_timeout(
     raw_timeout: str,
@@ -289,8 +324,42 @@ async def test_handle_mcp_connect_url_uses_cli_url_parsing_for_auth_headers() ->
     assert any("Connected MCP server" in str(msg.text) for msg in outcome.messages)
     assert manager.last_config is not None
     assert manager.last_config.transport == "http"
-    assert manager.last_config.url == "https://example.com/api/mcp"
+    assert manager.last_config.url == "https://example.com/api"
     assert manager.last_config.headers == {"Authorization": "Bearer token123"}
+
+
+@pytest.mark.asyncio
+async def test_handle_mcp_connect_url_retries_with_mcp_suffix_on_404() -> None:
+    manager = _Retry404Manager()
+    ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())
+
+    outcome = await mcp_runtime.handle_mcp_connect(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        target_text="https://example.com/api",
+    )
+
+    assert any("Connected MCP server" in str(msg.text) for msg in outcome.messages)
+    assert manager.url_attempts == ["https://example.com/api", "https://example.com/api/mcp"]
+    assert manager.last_config is not None
+    assert manager.last_config.url == "https://example.com/api/mcp"
+
+
+@pytest.mark.asyncio
+async def test_handle_mcp_connect_url_with_query_does_not_retry_with_mcp_suffix() -> None:
+    manager = _Always404Manager()
+    ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())
+
+    outcome = await mcp_runtime.handle_mcp_connect(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        target_text="https://example.com/api?version=1",
+    )
+
+    assert any(msg.channel == "error" for msg in outcome.messages)
+    assert manager.url_attempts == ["https://example.com/api?version=1"]
 
 
 @pytest.mark.asyncio

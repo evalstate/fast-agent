@@ -50,9 +50,6 @@ def parse_server_url(
     normalized_path = path.rstrip("/")
     if normalized_path.endswith("/sse"):
         transport_type = "sse"
-    elif not normalized_path.endswith("/mcp"):
-        # If path doesn't end with /mcp or /sse (handling trailing slash), append /mcp once
-        url = f"{url.rstrip('/')}" + "/mcp"
 
     # Generate a server name based on hostname and port
     server_name = generate_server_name(url)
