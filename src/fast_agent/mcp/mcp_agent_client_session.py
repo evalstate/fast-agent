@@ -5,6 +5,7 @@ It adds logging and supports sampling requests.
 
 import os
 import sys
+from contextvars import ContextVar
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -43,6 +44,7 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.helpers.server_config_helpers import get_server_config
 from fast_agent.mcp.sampling import sample
 from fast_agent.mcp.url_elicitation_required import (
+    URLElicitationDisplayItem,
     URLElicitationRequiredDisplayPayload,
     build_url_elicitation_required_display_payload,
 )
@@ -95,6 +97,10 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
     Developers can extend this class to add more custom functionality as needed
     """
 
+    _pending_url_elicitations_by_request: dict[int, list[URLElicitationDisplayItem]]
+    _next_url_elicitation_request_tracking_id: int
+    _active_url_elicitation_request_id: ContextVar[int | None]
+
     def __init__(self, read_stream, write_stream, read_timeout=None, **kwargs) -> None:
         # Extract server_name if provided in kwargs
         from importlib.metadata import version
@@ -122,6 +128,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         # Track the effective elicitation mode for diagnostics
         self.effective_elicitation_mode: str | None = "none"
         self._offline_notified = False
+        self._ensure_url_elicitation_tracking_state()
 
         fast_agent_version = version("fast-agent-mcp") or "dev"
         fast_agent: Implementation = Implementation(name="fast-agent-mcp", version=fast_agent_version)
@@ -244,9 +251,12 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         progress_callback: ProgressFnT | None = None,
     ) -> ReceiveResultT:
         logger.debug("send_request: request=", data=request.model_dump())
+        self._ensure_url_elicitation_tracking_state()
         request_id = getattr(self, "_request_id", None)
         is_ping_request = self._is_ping_request(request)
         request_method = getattr(getattr(request, "root", None), "method", "unknown")
+        request_tracking_id = self._reserve_url_elicitation_request_tracking_id()
+        active_request_token = self._active_url_elicitation_request_id.set(request_tracking_id)
 
         if progress_callback is not None and request_id is not None:
             _progress_trace(
@@ -264,84 +274,94 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         ):
             self._transport_metrics.register_ping_request(request_id)
         try:
-            result = await super().send_request(
-                # NOTE: request must be positional due to an upstream bug in
-                # opentelemetry-instrumentation-mcp (seen in 0.52.1) where the
-                # wrapper expects args[0] and can return None when request is
-                # only provided via kwargs.
-                # TODO: revert to keyword argument once upstream handles kwargs.
-                request,
-                result_type=result_type,
-                request_read_timeout_seconds=request_read_timeout_seconds,
-                metadata=metadata,
-                progress_callback=progress_callback,
-            )
-            logger.debug(
-                "send_request: response=",
-                data=result.model_dump() if result is not None else "no response returned",
-            )
-
-            if progress_callback is not None and request_id is not None:
-                _progress_trace(
-                    "request-complete "
-                    f"server={self.session_server_name or 'unknown'} "
-                    f"method={request_method} "
-                    f"request_id={request_id!r}"
+            try:
+                result = await super().send_request(
+                    # NOTE: request must be positional due to an upstream bug in
+                    # opentelemetry-instrumentation-mcp (seen in 0.52.1) where the
+                    # wrapper expects args[0] and can return None when request is
+                    # only provided via kwargs.
+                    # TODO: revert to keyword argument once upstream handles kwargs.
+                    request,
+                    result_type=result_type,
+                    request_read_timeout_seconds=request_read_timeout_seconds,
+                    metadata=metadata,
+                    progress_callback=progress_callback,
+                )
+                logger.debug(
+                    "send_request: response=",
+                    data=result.model_dump() if result is not None else "no response returned",
                 )
 
-            self._attach_transport_channel(request_id, result)
-            if (
-                is_ping_request
-                and request_id is not None
-                and self._transport_metrics is not None
-            ):
-                self._transport_metrics.discard_ping_request(request_id)
-            self._offline_notified = False
-            return result
-        except Exception as e:
-            if progress_callback is not None and request_id is not None:
-                _progress_trace(
-                    "request-error "
-                    f"server={self.session_server_name or 'unknown'} "
-                    f"method={request_method} "
-                    f"request_id={request_id!r} "
-                    f"error={type(e).__name__}: {e}"
-                )
-
-            if (
-                is_ping_request
-                and request_id is not None
-                and self._transport_metrics is not None
-            ):
-                self._transport_metrics.discard_ping_request(request_id)
-            from anyio import ClosedResourceError
-
-            from fast_agent.core.exceptions import ServerSessionTerminatedError
-
-            # Check for session terminated error (404 from server)
-            if self._is_session_terminated_error(e):
-                raise ServerSessionTerminatedError(
-                    server_name=self.session_server_name or "unknown",
-                    details="Server returned 404 - session may have expired due to server restart",
-                ) from e
-
-            # URL elicitation required error from MCP server
-            if self._is_url_elicitation_required_error(e):
-                self._attach_url_elicitation_required_payload(e, request_method)
-
-            # Handle connection closure errors (transport closed)
-            if isinstance(e, ClosedResourceError):
-                if not self._offline_notified:
-                    from fast_agent.ui import console
-
-                    console.console.print(
-                        f"[dim red]MCP server {self.session_server_name} offline[/dim red]"
+                if progress_callback is not None and request_id is not None:
+                    _progress_trace(
+                        "request-complete "
+                        f"server={self.session_server_name or 'unknown'} "
+                        f"method={request_method} "
+                        f"request_id={request_id!r}"
                     )
-                    self._offline_notified = True
-                raise ConnectionError(f"MCP server {self.session_server_name} offline") from e
 
-            logger.error(f"send_request failed: {str(e)}")
-            raise
+                self._attach_transport_channel(request_id, result)
+                self._attach_deferred_url_elicitation_payload_for_active_request(
+                    result,
+                    request_method=request_method,
+                )
+                if (
+                    is_ping_request
+                    and request_id is not None
+                    and self._transport_metrics is not None
+                ):
+                    self._transport_metrics.discard_ping_request(request_id)
+                self._offline_notified = False
+                return result
+            except Exception as e:
+                if progress_callback is not None and request_id is not None:
+                    _progress_trace(
+                        "request-error "
+                        f"server={self.session_server_name or 'unknown'} "
+                        f"method={request_method} "
+                        f"request_id={request_id!r} "
+                        f"error={type(e).__name__}: {e}"
+                    )
+
+                self._discard_deferred_url_elicitation_payload_for_active_request()
+
+                if (
+                    is_ping_request
+                    and request_id is not None
+                    and self._transport_metrics is not None
+                ):
+                    self._transport_metrics.discard_ping_request(request_id)
+                from anyio import ClosedResourceError
+
+                from fast_agent.core.exceptions import ServerSessionTerminatedError
+
+                # Check for session terminated error (404 from server)
+                if self._is_session_terminated_error(e):
+                    raise ServerSessionTerminatedError(
+                        server_name=self.session_server_name or "unknown",
+                        details="Server returned 404 - session may have expired due to server restart",
+                    ) from e
+
+                # URL elicitation required error from MCP server
+                if self._is_url_elicitation_required_error(e):
+                    self._attach_url_elicitation_required_payload(e, request_method)
+
+                # Handle connection closure errors (transport closed)
+                if isinstance(e, ClosedResourceError):
+                    if not self._offline_notified:
+                        from fast_agent.ui import console
+
+                        console.console.print(
+                            f"[dim red]MCP server {self.session_server_name} offline[/dim red]"
+                        )
+                        self._offline_notified = True
+                    raise ConnectionError(f"MCP server {self.session_server_name} offline") from e
+
+                logger.error(f"send_request failed: {str(e)}")
+                raise
+        finally:
+            self._active_url_elicitation_request_id.reset(active_request_token)
+            self._pending_url_elicitations_by_request.pop(request_tracking_id, None)
 
     @staticmethod
     def _is_ping_request(request: ClientRequest) -> bool:
@@ -398,9 +418,93 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         )
         setattr(exc, "_fast_agent_url_elicitation_required", payload)
 
+    def _ensure_url_elicitation_tracking_state(self) -> None:
+        if not hasattr(self, "_pending_url_elicitations_by_request"):
+            self._pending_url_elicitations_by_request: dict[int, list[URLElicitationDisplayItem]] = {}
+        if not hasattr(self, "_next_url_elicitation_request_tracking_id"):
+            self._next_url_elicitation_request_tracking_id = 0
+        if not hasattr(self, "_active_url_elicitation_request_id"):
+            self._active_url_elicitation_request_id = ContextVar[int | None](
+                "fast_agent_active_url_elicitation_request_id",
+                default=None,
+            )
+
+    def _reserve_url_elicitation_request_tracking_id(self) -> int:
+        self._ensure_url_elicitation_tracking_state()
+        request_tracking_id = self._next_url_elicitation_request_tracking_id
+        self._next_url_elicitation_request_tracking_id += 1
+        return request_tracking_id
+
+    def queue_url_elicitation_for_active_request(
+        self,
+        *,
+        message: str,
+        url: str,
+        elicitation_id: str | None,
+    ) -> bool:
+        """Queue URL elicitation to display after the active request finishes."""
+        self._ensure_url_elicitation_tracking_state()
+        request_tracking_id = self._active_url_elicitation_request_id.get()
+        if request_tracking_id is None:
+            return False
+
+        queued_items = self._pending_url_elicitations_by_request.setdefault(request_tracking_id, [])
+        queued_items.append(
+            URLElicitationDisplayItem(
+                message=message,
+                url=url,
+                elicitation_id=elicitation_id or "",
+            )
+        )
+        return True
+
+    def _attach_deferred_url_elicitation_payload_for_active_request(
+        self,
+        result: object,
+        *,
+        request_method: str,
+    ) -> None:
+        payload = self._consume_deferred_url_elicitation_payload_for_active_request(
+            request_method=request_method
+        )
+        if payload is None:
+            return
+        try:
+            setattr(result, "_fast_agent_url_elicitation_required", payload)
+        except Exception:
+            pass
+
+    def _consume_deferred_url_elicitation_payload_for_active_request(
+        self,
+        *,
+        request_method: str,
+    ) -> URLElicitationRequiredDisplayPayload | None:
+        self._ensure_url_elicitation_tracking_state()
+        request_tracking_id = self._active_url_elicitation_request_id.get()
+        if request_tracking_id is None:
+            return None
+
+        queued_items = self._pending_url_elicitations_by_request.pop(request_tracking_id, None)
+        if not queued_items:
+            return None
+
+        return URLElicitationRequiredDisplayPayload(
+            server_name=self.session_server_name or "unknown",
+            request_method=request_method,
+            elicitations=queued_items,
+            issues=[],
+        )
+
+    def _discard_deferred_url_elicitation_payload_for_active_request(self) -> None:
+        self._ensure_url_elicitation_tracking_state()
+        request_tracking_id = self._active_url_elicitation_request_id.get()
+        if request_tracking_id is None:
+            return
+        self._pending_url_elicitations_by_request.pop(request_tracking_id, None)
+
     @staticmethod
     def get_url_elicitation_required_payload(
-        exc: Exception,
+        exc: object,
     ) -> URLElicitationRequiredDisplayPayload | None:
         """Return deferred URL elicitation display payload when present."""
         payload = getattr(exc, "_fast_agent_url_elicitation_required", None)
