@@ -70,6 +70,7 @@ def _progress_trace(message: str) -> None:
         return
     print(f"[mcp-progress-trace] {message}", file=sys.stderr, flush=True)
 
+
 # Define type variables for the generalized method
 T = TypeVar("T")
 R = TypeVar("R")
@@ -361,9 +362,7 @@ class MCPAggregator(ContextDependent):
 
             # Forward progress to tool handler (e.g., for ACP notifications)
             try:
-                await handler_for_request.on_tool_progress(
-                    tool_call_id, progress, total, message
-                )
+                await handler_for_request.on_tool_progress(tool_call_id, progress, total, message)
             except Exception as e:
                 logger.error(f"Error in tool progress handler: {e}", exc_info=True)
 
@@ -441,9 +440,7 @@ class MCPAggregator(ContextDependent):
             if self.config:
                 cli_model_override = None
                 if self.context and getattr(self.context, "config", None):
-                    cli_model_override = getattr(
-                        self.context.config, "cli_model_override", None
-                    )
+                    cli_model_override = getattr(self.context.config, "cli_model_override", None)
                 agent_model, model_source = resolve_model_spec(
                     self.context,
                     model=self.config.model,
@@ -628,9 +625,7 @@ class MCPAggregator(ContextDependent):
         existing_tool_names = {
             tool.namespaced_tool_name for tool in self._server_to_tool_map.get(server_name, [])
         }
-        existing_prompt_names = {
-            prompt.name for prompt in self._prompt_cache.get(server_name, [])
-        }
+        existing_prompt_names = {prompt.name for prompt in self._prompt_cache.get(server_name, [])}
 
         if self.connection_persistence:
             logger.info(
@@ -773,9 +768,7 @@ class MCPAggregator(ContextDependent):
         if not target_servers:
             return
 
-        tasks = [
-            self._evaluate_skybridge_for_server(server_name) for server_name in target_servers
-        ]
+        tasks = [self._evaluate_skybridge_for_server(server_name) for server_name in target_servers]
         results = await gather_with_cancel(tasks)
 
         for result in results:
@@ -1478,9 +1471,7 @@ class MCPAggregator(ContextDependent):
                     },
                 )
                 server_registry = self._require_server_registry()
-                async with gen_client(
-                    server_name, server_registry=server_registry
-                ) as client:
+                async with gen_client(server_name, server_registry=server_registry) as client:
                     result = await try_execute(client)
                     logger.debug(
                         f"Closing temporary connection to server: {server_name}",
@@ -1509,9 +1500,7 @@ class MCPAggregator(ContextDependent):
                 await self._record_server_call(server_name, operation_type, success_flag)
 
         if result is None:
-            error_msg = (
-                f"Failed to {method_name} '{operation_name}' on server '{server_name}'"
-            )
+            error_msg = f"Failed to {method_name} '{operation_name}' on server '{server_name}'"
             if error_factory:
                 return error_factory(error_msg)
             raise RuntimeError(error_msg)
@@ -1543,9 +1532,7 @@ class MCPAggregator(ContextDependent):
             else:
                 # For non-persistent connections, just try again
                 server_registry = self._require_server_registry()
-                async with gen_client(
-                    server_name, server_registry=server_registry
-                ) as client:
+                async with gen_client(server_name, server_registry=server_registry) as client:
                     result = await try_execute(client)
 
             # Success!
@@ -1629,9 +1616,7 @@ class MCPAggregator(ContextDependent):
             else:
                 # For non-persistent connections, just try again
                 server_registry = self._require_server_registry()
-                async with gen_client(
-                    server_name, server_registry=server_registry
-                ) as client:
+                async with gen_client(server_name, server_registry=server_registry) as client:
                     result = await try_execute(client)
 
             # Success! Record the reconnection
@@ -1668,9 +1653,7 @@ class MCPAggregator(ContextDependent):
             else:
                 raise Exception(error_msg)
 
-    async def _parse_resource_name(
-        self, name: str, resource_type: str
-    ) -> tuple[str | None, str]:
+    async def _parse_resource_name(self, name: str, resource_type: str) -> tuple[str | None, str]:
         """
         Parse a possibly namespaced resource name into server name and local resource name.
 
@@ -1879,9 +1862,7 @@ class MCPAggregator(ContextDependent):
             except Exception as e:
                 # Notify tool handler of error
                 try:
-                    await active_tool_handler.on_tool_complete(
-                        tool_call_id, False, None, str(e)
-                    )
+                    await active_tool_handler.on_tool_complete(tool_call_id, False, None, str(e))
                 except Exception as handler_error:
                     logger.error(f"Error in tool complete handler: {handler_error}", exc_info=True)
                 raise

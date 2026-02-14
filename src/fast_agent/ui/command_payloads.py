@@ -245,6 +245,13 @@ class ModelVerbosityCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class InterruptCommand(CommandBase):
+    """Represents a Ctrl+C user interrupt captured by the prompt layer."""
+
+    kind: Literal["interrupt"] = "interrupt"
+
+
+@dataclass(frozen=True, slots=True)
 class UnknownCommand(CommandBase):
     command: str
     kind: Literal["unknown_command"] = "unknown_command"
@@ -287,6 +294,7 @@ CommandPayload = (
     | ShellCommand
     | ModelReasoningCommand
     | ModelVerbosityCommand
+    | InterruptCommand
     | UnknownCommand
 )
 

@@ -188,6 +188,31 @@ async def test_run_single_agent_cli_flow_retries_interactive_after_keyboard_inte
 
 
 @pytest.mark.asyncio
+async def test_run_single_agent_cli_flow_exits_after_double_keyboard_interrupt(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class _InterruptingAgentApp(_DummyAgentApp):
+        def __init__(self) -> None:
+            super().__init__(["agent"])
+            self.interactive_calls = 0
+
+        async def interactive(self, agent_name: str | None = None) -> None:
+            del agent_name
+            self.interactive_calls += 1
+            raise KeyboardInterrupt()
+
+    app = _InterruptingAgentApp()
+    request = _make_request(result_file=None, message=None)
+
+    with pytest.raises(KeyboardInterrupt):
+        await _run_single_agent_cli_flow(app, request)
+
+    captured = capsys.readouterr()
+    assert app.interactive_calls == 2
+    assert "Second Ctrl+C received; exiting fast-agent." in captured.err
+
+
+@pytest.mark.asyncio
 async def test_run_single_agent_cli_flow_retries_interactive_after_cancelled_error(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

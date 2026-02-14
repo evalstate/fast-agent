@@ -53,6 +53,7 @@ from fast_agent.ui.command_payloads import (
     HistoryFixCommand,
     HistoryReviewCommand,
     HistoryRewindCommand,
+    InterruptCommand,
     ListSessionsCommand,
     ListToolsCommand,
     LoadAgentCardCommand,
@@ -1768,6 +1769,16 @@ def create_keybindings(
         """Ctrl+U: Clear the input buffer."""
         event.current_buffer.text = ""
 
+    @kb.add("c-c")
+    def _(event) -> None:
+        """Ctrl+C: interrupt prompt input (handled by caller policy)."""
+        event.app.exit(exception=KeyboardInterrupt())
+
+    @kb.add("c-d")
+    def _(event) -> None:
+        """Ctrl+D: signal EOF (mapped to STOP by prompt input handler)."""
+        event.app.exit(exception=EOFError())
+
     @kb.add("c-e")
     async def _(event) -> None:
         """Ctrl+E: Edit current buffer in $EDITOR."""
@@ -2700,7 +2711,7 @@ async def get_enhanced_input(
     # Only show hints at startup if requested
     if show_stop_hint:
         if default == "STOP":
-            rich_print("Enter a prompt, [red]STOP[/red] to finish")
+            rich_print("Enter a prompt, [red]STOP[/red] or [red]Ctrl+D[/red] to finish")
             if default:
                 rich_print(f"Press <ENTER> to use the default prompt:\n[cyan]{default}[/cyan]")
 
@@ -2878,8 +2889,9 @@ async def get_enhanced_input(
     except KeyboardInterrupt:
         if prompt_mark_started:
             emit_prompt_mark("B")
-        # Handle Ctrl+C gracefully
-        return "STOP"
+        # Keep Ctrl+C distinct from STOP/Ctrl+D so the caller can implement
+        # interrupt/retry/exit policy consistently.
+        return InterruptCommand()
     except EOFError:
         if prompt_mark_started:
             emit_prompt_mark("B")
@@ -3083,6 +3095,8 @@ async def handle_special_commands(
         rich_print("  Ctrl+Y         - Copy last assistant response to clipboard")
         rich_print("  Ctrl+L         - Redraw the screen")
         rich_print("  Ctrl+U         - Clear input")
+        rich_print("  Ctrl+C         - Cancel current operation (press twice quickly to exit)")
+        rich_print("  Ctrl+D         - End prompt session (same as STOP)")
         rich_print("  Up/Down        - Navigate history")
         return True
 
