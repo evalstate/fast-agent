@@ -277,6 +277,7 @@ def test_get_completions_for_skills_subcommands():
     assert "list" in names
     assert "add" in names
     assert "remove" in names
+    assert "update" in names
     assert "registry" in names
 
 

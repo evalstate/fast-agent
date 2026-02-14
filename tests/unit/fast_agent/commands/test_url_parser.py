@@ -31,10 +31,10 @@ class TestUrlParser:
         assert transport == "sse"
         assert url == "https://api.test.com/sse"
 
-        # URL without /mcp or /sse should be preserved as-is
+        # URL without /mcp or /sse gets /mcp by default
         server_name, transport, url = parse_server_url("http://localhost:8080/api")
         assert transport == "http"
-        assert url == "http://localhost:8080/api"
+        assert url == "http://localhost:8080/api/mcp"
 
         # Query-string endpoints are considered fully formed
         server_name, transport, url = parse_server_url("https://example.com/api?version=1")
@@ -101,7 +101,7 @@ class TestUrlParser:
 
         # Third URL
         assert result[2][1] == "http"
-        assert result[2][2] == "http://localhost:8080/api"
+        assert result[2][2] == "http://localhost:8080/api/mcp"
         assert result[2][3] is None  # No auth headers
 
         # Empty input

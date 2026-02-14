@@ -1448,7 +1448,14 @@ class MCPAggregator(ContextDependent):
                 )
                 logger.error(error_msg)
                 if error_factory:
-                    return error_factory(error_msg)
+                    error_result = error_factory(error_msg)
+                    payload = MCPAgentClientSession.get_url_elicitation_required_payload(e)
+                    if payload is not None:
+                        try:
+                            setattr(error_result, "_fast_agent_url_elicitation_required", payload)
+                        except Exception:
+                            pass
+                    return error_result
                 else:
                     # Re-raise the original exception to propagate it
                     raise e

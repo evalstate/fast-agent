@@ -746,7 +746,7 @@ class AgentCompleter(Completer):
             "history": "Show conversation history overview (or /history save|load|clear|rewind|review|fix)",
             "tools": "List tools",
             "model": "Update model settings (/model reasoning <value> | /model verbosity <value>)",
-            "skills": "Manage skills (/skills, /skills add, /skills remove, /skills registry)",
+            "skills": "Manage skills (/skills, /skills add, /skills remove, /skills update, /skills registry)",
             "prompt": "Load a Prompt File or use MCP Prompt",
             "system": "Show the current system prompt",
             "usage": "Show current usage statistics",
@@ -1368,6 +1368,7 @@ class AgentCompleter(Completer):
                 "list": "List local skills",
                 "add": "Install a skill",
                 "remove": "Remove a local skill",
+                "update": "Check or apply skill updates",
                 "registry": "Set skills registry",
             }
             yield from self._complete_subcommands(parts, remainder, subcommands)
@@ -1377,6 +1378,30 @@ class AgentCompleter(Completer):
             subcmd = parts[0].lower()
             argument = parts[1] if len(parts) > 1 else ""
             if subcmd in {"remove", "rm", "delete", "uninstall"}:
+                yield from self._complete_local_skill_names(argument)
+                return
+            if subcmd in {"update", "refresh", "upgrade"}:
+                if "all".startswith(argument.lower()):
+                    yield Completion(
+                        "all",
+                        start_position=-len(argument),
+                        display="all",
+                        display_meta="update all managed skills",
+                    )
+                if "--force".startswith(argument.lower()):
+                    yield Completion(
+                        "--force",
+                        start_position=-len(argument),
+                        display="--force",
+                        display_meta="overwrite local modifications",
+                    )
+                if "--yes".startswith(argument.lower()):
+                    yield Completion(
+                        "--yes",
+                        start_position=-len(argument),
+                        display="--yes",
+                        display_meta="confirm multi-skill apply",
+                    )
                 yield from self._complete_local_skill_names(argument)
                 return
             if subcmd in {"registry", "marketplace", "source"}:
@@ -3028,6 +3053,7 @@ async def handle_special_commands(
         rich_print("  /skills        - List local skills for the manager directory")
         rich_print("  /skills add    - Install a skill from the marketplace")
         rich_print("  /skills remove - Remove a skill from the manager directory")
+        rich_print("  /skills update - Check/apply updates for managed installed skills")
         rich_print(
             "  /model reasoning <value> - Set reasoning effort (off/low/medium/high/max/xhigh or budgets like 0/1024/16000/32000)"
         )

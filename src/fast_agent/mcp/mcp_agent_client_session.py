@@ -16,6 +16,7 @@ from mcp.shared.session import (
     ReceiveResultT,
 )
 from mcp.types import (
+    URL_ELICITATION_REQUIRED,
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
@@ -41,6 +42,10 @@ from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.helpers.server_config_helpers import get_server_config
 from fast_agent.mcp.sampling import sample
+from fast_agent.mcp.url_elicitation_required import (
+    URLElicitationRequiredDisplayPayload,
+    build_url_elicitation_required_display_payload,
+)
 
 if TYPE_CHECKING:
     from fast_agent.config import MCPServerSettings
@@ -320,6 +325,10 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                     details="Server returned 404 - session may have expired due to server restart",
                 ) from e
 
+            # URL elicitation required error from MCP server
+            if self._is_url_elicitation_required_error(e):
+                self._attach_url_elicitation_required_payload(e, request_method)
+
             # Handle connection closure errors (transport closed)
             if isinstance(e, ClosedResourceError):
                 if not self._offline_notified:
@@ -356,6 +365,48 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                 if code == ServerSessionTerminatedError.SESSION_TERMINATED_CODE:
                     return True
         return False
+
+    def _is_url_elicitation_required_error(self, exc: Exception) -> bool:
+        """Check if exception is URL elicitation required error (-32042)."""
+        from mcp.shared.exceptions import McpError
+
+        if not isinstance(exc, McpError):
+            return False
+
+        error_data = getattr(exc, "error", None)
+        if error_data is None:
+            return False
+
+        return getattr(error_data, "code", None) == URL_ELICITATION_REQUIRED
+
+    def _attach_url_elicitation_required_payload(self, exc: Exception, request_method: str) -> None:
+        """Attach parsed URL elicitation data to exception for deferred display."""
+        from mcp.shared.exceptions import McpError
+
+        if not isinstance(exc, McpError):
+            return
+
+        error_data = getattr(exc, "error", None)
+        if error_data is None:
+            return
+
+        server_name = self.session_server_name or "unknown"
+        payload = build_url_elicitation_required_display_payload(
+            error_data.data,
+            server_name=server_name,
+            request_method=request_method,
+        )
+        setattr(exc, "_fast_agent_url_elicitation_required", payload)
+
+    @staticmethod
+    def get_url_elicitation_required_payload(
+        exc: Exception,
+    ) -> URLElicitationRequiredDisplayPayload | None:
+        """Return deferred URL elicitation display payload when present."""
+        payload = getattr(exc, "_fast_agent_url_elicitation_required", None)
+        if isinstance(payload, URLElicitationRequiredDisplayPayload):
+            return payload
+        return None
 
     def _attach_transport_channel(self, request_id, result) -> None:
         if self._transport_metrics is None or request_id is None or result is None:

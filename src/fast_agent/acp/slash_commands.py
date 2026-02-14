@@ -85,6 +85,7 @@ from fast_agent.skills.manager import (
     get_manager_directory,
     get_marketplace_url,
     list_local_skills,
+    order_skill_directories_for_display,
     reload_skill_manifests,
     resolve_skill_directories,
 )
@@ -284,9 +285,11 @@ class SlashCommandHandler:
             ),
             "skills": AvailableCommand(
                 name="skills",
-                description="List or manage local skills (add/remove/registry)",
+                description="List or manage local skills (add/remove/update/registry)",
                 input=AvailableCommandInput(
-                    root=UnstructuredCommandInput(hint="[add|remove|registry] [name|number|url]")
+                    root=UnstructuredCommandInput(
+                        hint="[add|remove|update|registry] [name|number|all|url] [--force] [--yes]"
+                    )
                 ),
             ),
             "model": AvailableCommand(
@@ -1026,7 +1029,7 @@ class SlashCommandHandler:
         return render_tools_markdown(summaries, heading=heading)
 
     async def _handle_skills(self, arguments: str | None = None) -> str:
-        """Manage local skills (list/add/remove)."""
+        """Manage local skills (list/add/remove/update)."""
         tokens = (arguments or "").strip().split(maxsplit=1)
         action = tokens[0].lower() if tokens else "list"
         remainder = tokens[1] if len(tokens) > 1 else ""
@@ -1039,8 +1042,13 @@ class SlashCommandHandler:
             return await self._handle_skills_registry(remainder)
         if action in {"remove", "rm", "delete", "uninstall"}:
             return await self._handle_skills_remove(remainder)
+        if action in {"update", "refresh", "upgrade"}:
+            return await self._handle_skills_update(remainder)
 
-        return "Unknown /skills action. Use `/skills`, `/skills add`, or `/skills remove`."
+        return (
+            "Unknown /skills action. "
+            "Use `/skills`, `/skills add`, `/skills remove`, or `/skills update`."
+        )
 
     async def _handle_skills_registry(self, argument: str) -> str:
         heading = "# skills registry"
@@ -1129,7 +1137,11 @@ class SlashCommandHandler:
         return "\n".join(response_lines)
 
     def _handle_skills_list(self) -> str:
-        directories = resolve_skill_directories()
+        settings = get_settings()
+        directories = order_skill_directories_for_display(
+            resolve_skill_directories(settings),
+            settings=settings,
+        )
         all_manifests: dict[Path, list[SkillManifest]] = {}
         for directory in directories:
             all_manifests[directory] = list_local_skills(directory) if directory.exists() else []
@@ -1289,6 +1301,20 @@ class SlashCommandHandler:
             return f"# skills remove\n\nFailed to remove skill: {exc}"
 
         return self._format_outcome_as_markdown(outcome, "skills remove", io=io)
+
+    async def _handle_skills_update(self, argument: str) -> str:
+        ctx = self._build_command_context()
+        io = cast("ACPCommandIO", ctx.io)
+        try:
+            outcome = await skills_handlers.handle_update_skill(
+                ctx,
+                agent_name=self.current_agent_name,
+                argument=argument.strip() or None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            return f"# skills update\n\nFailed to update skills: {exc}"
+
+        return self._format_outcome_as_markdown(outcome, "skills update", io=io)
 
     async def _refresh_agent_skills(self, agent: AgentProtocol) -> None:
         override_dirs = resolve_skill_directories(get_settings())
