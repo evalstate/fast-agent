@@ -31,6 +31,7 @@ from rich import print as rich_print
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.agents.workflow.router_agent import RouterAgent
+from fast_agent.config import get_settings
 from fast_agent.constants import (
     FAST_AGENT_ALERT_CHANNEL,
     FAST_AGENT_ERROR_CHANNEL,
@@ -1228,6 +1229,114 @@ class AgentCompleter(Completer):
                         display_meta=description,
                     )
 
+    def _list_configured_mcp_servers(self) -> list[str]:
+        configured: set[str] = set()
+        attached: set[str] = set()
+
+        # Prefer the runtime aggregator when available so completions include
+        # both config-backed entries and runtime-attached server names.
+        if self.agent_provider is not None and self.current_agent:
+            try:
+                agent = self.agent_provider._agent(self.current_agent)
+                aggregator = getattr(agent, "aggregator", None)
+                list_attached = getattr(aggregator, "list_attached_servers", None)
+                if callable(list_attached):
+                    attached.update(list_attached())
+
+                list_detached = getattr(aggregator, "list_configured_detached_servers", None)
+                if callable(list_detached):
+                    configured.update(list_detached())
+
+                context = getattr(aggregator, "context", None)
+                server_registry = getattr(context, "server_registry", None)
+                registry_data = getattr(server_registry, "registry", None)
+                if isinstance(registry_data, dict):
+                    configured.update(str(name) for name in registry_data)
+            except Exception:
+                pass
+
+        # Fall back to global settings so completion still works before agent
+        # startup wiring is fully available.
+        try:
+            settings = get_settings()
+            mcp_settings = getattr(settings, "mcp", None)
+            server_map = getattr(mcp_settings, "servers", None)
+            if isinstance(server_map, dict):
+                configured.update(str(name) for name in server_map)
+        except Exception:
+            pass
+
+        if attached:
+            configured.difference_update(attached)
+
+        return sorted(configured)
+
+    def _complete_configured_mcp_servers(self, partial: str):
+        partial_lower = partial.lower()
+        for server_name in self._list_configured_mcp_servers():
+            if partial and not server_name.lower().startswith(partial_lower):
+                continue
+            yield Completion(
+                server_name,
+                start_position=-len(partial),
+                display=server_name,
+                display_meta="configured mcp server",
+            )
+
+    def _mcp_connect_target_hint(self, partial: str) -> Completion:
+        return Completion(
+            partial,
+            start_position=-len(partial),
+            display="[url|npx|uvx]",
+            display_meta="enter url or npx/uvx cmd",
+        )
+
+    @staticmethod
+    def _mcp_connect_context(remainder: str) -> tuple[str, int, str]:
+        """Classify completion context for `/mcp connect ...`.
+
+        Returns (context, target_count, partial) where:
+          - context: one of "target", "flag", "flag_value", "new_token"
+          - target_count: number of fully-formed target tokens before `partial`
+          - partial: token currently being edited (or "" when cursor is after whitespace)
+        """
+
+        takes_value = {"--name", "-n", "--timeout", "--auth"}
+        switch_only = {"--oauth", "--no-oauth", "--reconnect", "--no-reconnect"}
+
+        raw_tokens = remainder.split()
+        trailing_space = remainder.endswith(" ")
+        partial = "" if trailing_space else (raw_tokens[-1] if raw_tokens else "")
+        complete_tokens = raw_tokens if trailing_space else raw_tokens[:-1]
+
+        target_count = 0
+        waiting_for_flag_value = False
+        for token in complete_tokens:
+            if waiting_for_flag_value:
+                waiting_for_flag_value = False
+                continue
+            if token in takes_value:
+                waiting_for_flag_value = True
+                continue
+            if token.startswith("--auth="):
+                continue
+            if token in switch_only:
+                continue
+            target_count += 1
+
+        if trailing_space:
+            return (
+                "flag_value" if waiting_for_flag_value else "new_token",
+                target_count,
+                partial,
+            )
+
+        if waiting_for_flag_value:
+            return "flag_value", target_count, partial
+        if partial in takes_value or partial in switch_only or partial.startswith("--"):
+            return "flag", target_count, partial
+        return "target", target_count, partial
+
     def get_completions(self, document, complete_event):
         """Synchronous completions method - this is what prompt_toolkit expects by default"""
         text = document.text_before_cursor
@@ -1473,6 +1582,46 @@ class AgentCompleter(Completer):
                         display_meta="attached mcp server",
                     )
             return
+
+        if text_lower.startswith("/mcp connect "):
+            remainder = text[len("/mcp connect ") :]
+            connect_flags = {
+                "--name": "set attached server name",
+                "--auth": "set bearer token for URL servers",
+                "--timeout": "set startup timeout in seconds",
+                "--oauth": "enable oauth flow",
+                "--no-oauth": "disable oauth flow",
+                "--reconnect": "force reconnect and refresh tools",
+                "--no-reconnect": "disable reconnect-on-disconnect",
+            }
+
+            context, target_count, partial = self._mcp_connect_context(remainder)
+
+            if context in {"target", "new_token"} and target_count == 0:
+                yield self._mcp_connect_target_hint(partial)
+                yield from self._complete_configured_mcp_servers(partial)
+                return
+
+            if context == "new_token" and target_count > 0:
+                for flag, description in connect_flags.items():
+                    yield Completion(
+                        flag,
+                        start_position=0,
+                        display=flag,
+                        display_meta=description,
+                    )
+                return
+
+            if context == "flag" and target_count > 0:
+                for flag, description in connect_flags.items():
+                    if flag.startswith(partial.lower()):
+                        yield Completion(
+                            flag,
+                            start_position=-len(partial),
+                            display=flag,
+                            display_meta=description,
+                        )
+                return
 
         if text_lower.startswith("/mcp "):
             remainder = text[len("/mcp ") :]
@@ -2885,6 +3034,7 @@ async def get_enhanced_input(
         result = await session.prompt_async(
             _resolve_prompt_text,
             default=buffer_default,
+            set_exception_handler=False,
         )
         prompt_returned_at = time.perf_counter()
         emit_prompt_mark("B")
@@ -2964,7 +3114,11 @@ async def get_selection_input(
 
         try:
             # Get user input
-            selection = await prompt_session.prompt_async(prompt_text, default=default or "")
+            selection = await prompt_session.prompt_async(
+                prompt_text,
+                default=default or "",
+                set_exception_handler=False,
+            )
 
             # Handle cancellation
             if allow_cancel and not selection.strip():
@@ -3014,7 +3168,10 @@ async def get_argument_input(
 
     try:
         # Get user input
-        arg_value = await prompt_session.prompt_async(prompt_text)
+        arg_value = await prompt_session.prompt_async(
+            prompt_text,
+            set_exception_handler=False,
+        )
 
         # For optional arguments, empty input means skip
         if not required and not arg_value:

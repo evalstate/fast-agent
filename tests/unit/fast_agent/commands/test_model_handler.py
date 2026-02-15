@@ -44,6 +44,8 @@ class _StubLLM:
             default=ReasoningEffortSetting(kind="effort", value="auto"),
         )
         self.reasoning_effort = None
+        self.configured_transport = "sse"
+        self.active_transport = None
 
 
 class _StubShellRuntime:
@@ -87,7 +89,7 @@ async def test_model_reasoning_includes_shell_budget_details() -> None:
     text_messages = [str(m.text) for m in outcome.messages]
 
     assert "Resolved model: claude-opus-4-6." in text_messages
-    assert "Model max output tokens: 32000." in text_messages
+    assert "Model max output tokens: 128000." in text_messages
     assert "Shell output budget: 21120 bytes (~6400 tokens, active runtime)." in text_messages
 
 
@@ -106,3 +108,26 @@ async def test_model_reasoning_includes_config_override_budget_when_runtime_miss
     text_messages = [str(m.text) for m in outcome.messages]
 
     assert "Shell output budget: 9000 bytes (~2727 tokens, config override)." in text_messages
+
+
+@pytest.mark.asyncio
+async def test_model_reasoning_includes_transport_details_for_configurable_models() -> None:
+    llm = _StubLLM("gpt-5.3-codex")
+    llm.configured_transport = "websocket"
+    llm.active_transport = "sse"
+    provider = _StubAgentProvider(_StubAgent(llm, shell_limit=None))
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+    )
+
+    outcome = await handle_model_reasoning(ctx, agent_name="test", value=None)
+    text_messages = [str(m.text) for m in outcome.messages]
+
+    assert "Model transports: sse, websocket." in text_messages
+    assert "Configured transport: websocket." in text_messages
+    assert (
+        "Active transport: sse (websocket fallback was used for this turn)." in text_messages
+    )

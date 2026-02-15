@@ -239,6 +239,22 @@ async def test_handle_mcp_connect_scoped_package_uses_npx_command() -> None:
 
 
 @pytest.mark.asyncio
+async def test_handle_mcp_connect_configured_name_uses_existing_registry_entry() -> None:
+    manager = _Manager()
+    ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())
+
+    outcome = await mcp_runtime.handle_mcp_connect(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        target_text="docs",
+    )
+
+    assert any("Connected MCP server 'docs' (configured)." in str(msg.text) for msg in outcome.messages)
+    assert manager.last_config is None
+
+
+@pytest.mark.asyncio
 async def test_handle_mcp_connect_scoped_package_with_args_infers_server_name() -> None:
     manager = _Manager()
     ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())
@@ -289,6 +305,23 @@ async def test_handle_mcp_connect_reports_already_attached() -> None:
 
     message_text = "\n".join(str(msg.text) for msg in outcome.messages)
     assert "already attached" in message_text.lower()
+
+
+@pytest.mark.asyncio
+async def test_handle_mcp_connect_with_reconnect_reports_reconnected() -> None:
+    manager = _AlreadyAttachedManager()
+    ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())
+
+    outcome = await mcp_runtime.handle_mcp_connect(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        target_text="@modelcontextprotocol/server-filesystem . --reconnect",
+    )
+
+    message_text = "\n".join(str(msg.text) for msg in outcome.messages)
+    assert "reconnected mcp server" in message_text.lower()
+    assert "already attached" not in message_text.lower()
 
 
 @pytest.mark.asyncio

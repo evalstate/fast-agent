@@ -206,6 +206,48 @@ def _build_server_config(
     )
 
 
+async def _resolve_configured_server_alias(
+    *,
+    manager: McpRuntimeManager,
+    agent_name: str,
+    target_text: str,
+    explicit_server_name: str | None,
+    auth_token: str | None,
+) -> str | None:
+    """Return configured server name when target text is an alias.
+
+    We treat a single stdio token as a server alias only when no explicit
+    --name override or URL auth token is provided.
+    """
+
+    if explicit_server_name is not None or auth_token is not None:
+        return None
+
+    if infer_connect_mode(target_text) != "stdio":
+        return None
+
+    tokens = shlex.split(target_text)
+    if len(tokens) != 1:
+        return None
+
+    candidate = tokens[0]
+    if not candidate or candidate.startswith("-"):
+        return None
+
+    configured_names: set[str] = set()
+    try:
+        configured_names.update(await manager.list_configured_detached_mcp_servers(agent_name))
+    except Exception:
+        pass
+
+    try:
+        configured_names.update(await manager.list_attached_mcp_servers(agent_name))
+    except Exception:
+        pass
+
+    return candidate if candidate in configured_names else None
+
+
 def _format_added_summary(tools_added_count: int, prompts_added_count: int) -> Text:
     tool_word = "tool" if tools_added_count == 1 else "tools"
     prompt_word = "prompt" if prompts_added_count == 1 else "prompts"
@@ -322,8 +364,16 @@ async def handle_mcp_connect(
         outcome.add_message(f"Invalid MCP connect arguments: {exc}", channel="error")
         return outcome
 
-    mode = infer_connect_mode(parsed.target_text)
-    server_name = parsed.server_name or _infer_server_name(parsed.target_text, mode)
+    configured_alias = await _resolve_configured_server_alias(
+        manager=manager,
+        agent_name=agent_name,
+        target_text=parsed.target_text,
+        explicit_server_name=parsed.server_name,
+        auth_token=parsed.auth_token,
+    )
+
+    mode = "configured" if configured_alias is not None else infer_connect_mode(parsed.target_text)
+    server_name = configured_alias or parsed.server_name or _infer_server_name(parsed.target_text, mode)
     await emit_progress(f"Connecting MCP server '{server_name}' via {mode}…")
 
     trigger_oauth = True if parsed.trigger_oauth is None else parsed.trigger_oauth
@@ -334,11 +384,15 @@ async def handle_mcp_connect(
         startup_timeout_seconds = 30.0 if (mode == "url" and trigger_oauth) else 10.0
 
     try:
-        server_name, config = _build_server_config(
-            parsed.target_text,
-            server_name,
-            auth_token=parsed.auth_token,
-        )
+        config: MCPServerSettings | None
+        if configured_alias is not None:
+            config = None
+        else:
+            server_name, config = _build_server_config(
+                parsed.target_text,
+                server_name,
+                auth_token=parsed.auth_token,
+            )
         attach_options = MCPAttachOptions(
             startup_timeout_seconds=startup_timeout_seconds,
             trigger_oauth=trigger_oauth,
@@ -396,7 +450,7 @@ async def handle_mcp_connect(
     warnings = getattr(result, "warnings", [])
     already_attached = bool(getattr(result, "already_attached", False))
 
-    if already_attached:
+    if already_attached and not parsed.force_reconnect:
         outcome.add_message(
             (
                 f"MCP server '{server_name}' is already attached. "
@@ -408,8 +462,9 @@ async def handle_mcp_connect(
         )
         await emit_progress(f"MCP server '{server_name}' is already connected.")
     else:
+        action = "Reconnected" if already_attached and parsed.force_reconnect else "Connected"
         outcome.add_message(
-            f"Connected MCP server '{server_name}' ({mode}).",
+            f"{action} MCP server '{server_name}' ({mode}).",
             right_info="mcp",
             agent_name=agent_name,
         )
@@ -421,7 +476,7 @@ async def handle_mcp_connect(
             right_info="mcp",
             agent_name=agent_name,
         )
-        await emit_progress(f"Connected MCP server '{server_name}'.")
+        await emit_progress(f"{action} MCP server '{server_name}'.")
     for warning in warnings:
         outcome.add_message(warning, channel="warning", right_info="mcp", agent_name=agent_name)
 

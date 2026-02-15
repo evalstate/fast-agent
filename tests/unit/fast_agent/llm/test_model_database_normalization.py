@@ -23,6 +23,9 @@ def test_model_database_normalizes_aliases() -> None:
     assert ModelDatabase.get_max_output_tokens("sonnet") == ModelDatabase.get_max_output_tokens(
         "claude-sonnet-4-5"
     )
+    assert ModelDatabase.get_max_output_tokens("codexspark") == ModelDatabase.get_max_output_tokens(
+        "gpt-5.3-codex-spark"
+    )
 
 
 def test_model_database_strips_hf_routing_suffix() -> None:

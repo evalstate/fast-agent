@@ -307,7 +307,6 @@ class LlmAgent(LlmDecorator):
         from fast_agent.ui import console
 
         server_name = str(payload.get("server_name", "unknown"))
-        request_method = str(payload.get("request_method", "request"))
         raw_elicitations = payload.get("elicitations")
         raw_issues = payload.get("issues")
 
@@ -320,13 +319,6 @@ class LlmAgent(LlmDecorator):
 
         if elicitations:
             count = len(elicitations)
-            plural = "s" if count != 1 else ""
-            console.console.print(
-                "[dim]"
-                f"MCP server {server_name} requires URL elicitation for "
-                f"{request_method} ({count} required elicitation{plural})"
-                "[/dim]"
-            )
             for index, elicitation in enumerate(elicitations, start=1):
                 message = str(elicitation.get("message", "Authorization required."))
                 if count > 1:
@@ -339,9 +331,8 @@ class LlmAgent(LlmDecorator):
                     url=url,
                     server_name=server_name,
                     agent_name=agent_name,
+                    elicitation_id=elicitation_id,
                 )
-                if elicitation_id:
-                    console.console.print(f"[dim]  elicitationId: {elicitation_id}[/dim]")
 
         if issues:
             if elicitations:

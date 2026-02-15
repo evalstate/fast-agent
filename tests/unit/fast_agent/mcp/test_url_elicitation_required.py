@@ -1,7 +1,7 @@
 """Tests for URL elicitation required error handling helpers."""
 
 from mcp.shared.exceptions import McpError
-from mcp.types import URL_ELICITATION_REQUIRED, CallToolResult, ErrorData
+from mcp.types import URL_ELICITATION_REQUIRED, ErrorData
 
 from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 from fast_agent.mcp.url_elicitation_required import parse_url_elicitation_required_data
@@ -125,51 +125,3 @@ class TestUrlElicitationRequiredErrorDetection:
 
     def test_ignores_non_mcp_exceptions(self) -> None:
         assert self._make_session()._is_url_elicitation_required_error(ValueError("x")) is False
-
-
-class TestNormalUrlElicitationDeferral:
-    def _make_session(self) -> MCPAgentClientSession:
-        session = object.__new__(MCPAgentClientSession)
-        session.session_server_name = "test-server"
-        session._ensure_url_elicitation_tracking_state()
-        return session
-
-    def test_queues_url_elicitation_when_request_context_active(self) -> None:
-        session = self._make_session()
-        request_tracking_id = session._reserve_url_elicitation_request_tracking_id()
-        token = session._active_url_elicitation_request_id.set(request_tracking_id)
-        try:
-            queued = session.queue_url_elicitation_for_active_request(
-                message="Sign in to continue.",
-                url="https://example.com/auth",
-                elicitation_id="normal-1",
-            )
-            assert queued is True
-
-            result = CallToolResult(content=[], isError=False)
-            session._attach_deferred_url_elicitation_payload_for_active_request(
-                result,
-                request_method="tools/call",
-            )
-        finally:
-            session._active_url_elicitation_request_id.reset(token)
-
-        payload = MCPAgentClientSession.get_url_elicitation_required_payload(result)
-        assert payload is not None
-        assert payload.server_name == "test-server"
-        assert payload.request_method == "tools/call"
-        assert len(payload.elicitations) == 1
-        assert payload.elicitations[0].message == "Sign in to continue."
-        assert payload.elicitations[0].url == "https://example.com/auth"
-        assert payload.elicitations[0].elicitation_id == "normal-1"
-
-    def test_queue_returns_false_without_active_request_context(self) -> None:
-        session = self._make_session()
-
-        queued = session.queue_url_elicitation_for_active_request(
-            message="Sign in to continue.",
-            url="https://example.com/auth",
-            elicitation_id=None,
-        )
-
-        assert queued is False

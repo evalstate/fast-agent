@@ -339,7 +339,11 @@ class SlashCommandHandler:
                 description="Manage runtime MCP servers (list/connect/disconnect)",
                 input=AvailableCommandInput(
                     root=UnstructuredCommandInput(
-                        hint="list | connect <target> [--name <server>] [--auth <token>] [--timeout <seconds>] | disconnect <server>"
+                        hint=(
+                            "list | connect <target> [--name <server>] [--auth <token>] "
+                            "[--timeout <seconds>] [--oauth|--no-oauth] "
+                            "[--reconnect|--no-reconnect] | disconnect <server>"
+                        )
                     )
                 ),
             ),
@@ -1562,7 +1566,7 @@ class SlashCommandHandler:
                 return (
                     f"{heading}\n\n"
                     "Usage: /mcp connect <target> [--name <server>] [--auth <token>] [--timeout <seconds>] "
-                    "[--oauth|--no-oauth]"
+                    "[--oauth|--no-oauth] [--reconnect|--no-reconnect]"
                 )
             target_text = " ".join(tokens[1:])
             tool_call_id = self._build_tool_call_id()
@@ -1700,6 +1704,7 @@ class SlashCommandHandler:
                         for msg in outcome.messages
                         if (
                             "Connected MCP server" in str(msg.text)
+                            or "Reconnected MCP server" in str(msg.text)
                             or "already attached" in str(msg.text).lower()
                         )
                     ),
@@ -1763,7 +1768,8 @@ class SlashCommandHandler:
             f"{heading}\n\n"
             "Usage:\n"
             "- /mcp list\n"
-            "- /mcp connect <target> [--name <server>] [--auth <token>] [--timeout <seconds>] [--oauth|--no-oauth]\n"
+            "- /mcp connect <target> [--name <server>] [--auth <token>] [--timeout <seconds>] "
+            "[--oauth|--no-oauth] [--reconnect|--no-reconnect]\n"
             "- /mcp disconnect <server_name>"
         )
 

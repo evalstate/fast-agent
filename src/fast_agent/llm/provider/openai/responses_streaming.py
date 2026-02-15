@@ -51,13 +51,19 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
 
         async for event in stream:
             _save_stream_chunk(capture_filename, event)
-            if isinstance(event, ResponseReasoningSummaryTextDeltaEvent):
-                if event.delta:
-                    reasoning_segments.append(event.delta)
+            event_type = getattr(event, "type", None)
+
+            if isinstance(event, ResponseReasoningSummaryTextDeltaEvent) or event_type in {
+                "response.reasoning_summary_text.delta",
+                "response.reasoning_summary.delta",
+            }:
+                delta = getattr(event, "delta", None)
+                if delta:
+                    reasoning_segments.append(delta)
                     self._notify_stream_listeners(
-                        StreamChunk(text=event.delta, is_reasoning=True)
+                        StreamChunk(text=delta, is_reasoning=True)
                     )
-                    reasoning_chars += len(event.delta)
+                    reasoning_chars += len(delta)
                     await self._emit_streaming_progress(
                         model=f"{model} (summary)",
                         new_total=reasoning_chars,
@@ -65,24 +71,27 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                     )
                 continue
 
-            if isinstance(event, ResponseTextDeltaEvent):
-                if event.delta:
+            if isinstance(event, ResponseTextDeltaEvent) or event_type in {
+                "response.output_text.delta",
+                "response.text.delta",
+            }:
+                delta = getattr(event, "delta", None)
+                if delta:
                     self._notify_stream_listeners(
-                        StreamChunk(text=event.delta, is_reasoning=False)
+                        StreamChunk(text=delta, is_reasoning=False)
                     )
                     estimated_tokens = self._update_streaming_progress(
-                        event.delta, model, estimated_tokens
+                        delta, model, estimated_tokens
                     )
                     self._notify_tool_stream_listeners(
                         "text",
                         {
-                            "chunk": event.delta,
+                            "chunk": delta,
                         },
                     )
                 continue
 
-            event_type = getattr(event, "type", None)
-            if event_type in {"response.completed", "response.incomplete"}:
+            if event_type in {"response.completed", "response.incomplete", "response.done"}:
                 final_response = getattr(event, "response", None) or final_response
                 continue
             if event_type == "response.output_item.added":

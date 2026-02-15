@@ -1,12 +1,12 @@
 import asyncio
-from typing import Any
+from typing import Any, Literal
 
 from mcp import Tool
 from mcp.types import ContentBlock, TextContent
 from openai import APIError, AsyncOpenAI, AuthenticationError, DefaultAioHttpClient
 
 from fast_agent.constants import OPENAI_REASONING_ENCRYPTED, REASONING
-from fast_agent.core.exceptions import ProviderKeyError
+from fast_agent.core.exceptions import ModelConfigError, ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
 from fast_agent.llm.fastagent_llm import FastAgentLLM
@@ -22,6 +22,16 @@ from fast_agent.llm.provider.openai.responses_content import ResponsesContentMix
 from fast_agent.llm.provider.openai.responses_files import ResponsesFileMixin
 from fast_agent.llm.provider.openai.responses_output import ResponsesOutputMixin
 from fast_agent.llm.provider.openai.responses_streaming import ResponsesStreamingMixin
+from fast_agent.llm.provider.openai.responses_websocket import (
+    ManagedWebSocketConnection,
+    ResponsesWebSocketError,
+    WebSocketConnectionManager,
+    WebSocketResponsesStream,
+    build_ws_headers,
+    connect_websocket,
+    resolve_responses_ws_url,
+    send_response_create,
+)
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import format_reasoning_setting, parse_reasoning_setting
 from fast_agent.llm.request_params import RequestParams
@@ -34,6 +44,9 @@ _logger = get_logger(__name__)
 DEFAULT_RESPONSES_MODEL = "gpt-5-mini"
 DEFAULT_REASONING_EFFORT = "medium"
 MIN_RESPONSES_MAX_TOKENS = 16
+DEFAULT_RESPONSES_BASE_URL = "https://api.openai.com/v1"
+
+ResponsesTransport = Literal["sse", "websocket", "auto"]
 
 
 class ResponsesLLM(
@@ -67,6 +80,9 @@ class ResponsesLLM(
         self.logger = get_logger(f"{__name__}.{self.name}" if self.name else __name__)
         self._tool_call_id_map: dict[str, str] = {}
         self._file_id_cache: dict[str, str] = {}
+        self._transport: ResponsesTransport = "sse"
+        self._last_transport_used: Literal["sse", "websocket"] | None = None
+        self._ws_connections = WebSocketConnectionManager(idle_timeout_seconds=300.0)
 
         raw_setting = kwargs.get("reasoning_effort", None)
         settings = self._get_provider_config()
@@ -114,6 +130,111 @@ class ResponsesLLM(
                 f"Using Responses model '{chosen_model}' (mode='{self._reasoning_mode}') with "
                 f"'{format_reasoning_setting(self.reasoning_effort)}' reasoning effort"
             )
+
+        self._transport = self._resolve_transport_setting(kwargs.get("transport"), settings)
+        self._validate_transport_support(chosen_model, self._transport)
+
+    @property
+    def active_transport(self) -> Literal["sse", "websocket"] | None:
+        """Return the transport used by the most recent completion call."""
+        return self._last_transport_used
+
+    @property
+    def configured_transport(self) -> ResponsesTransport:
+        """Return configured transport preference for this LLM instance."""
+        return self._transport
+
+    def _resolve_transport_setting(self, raw_value: Any, settings: Any) -> ResponsesTransport:
+        value = raw_value
+        if value is None and settings is not None:
+            value = getattr(settings, "transport", None)
+        if value is None:
+            return "sse"
+
+        normalized = str(value).strip().lower()
+        transport_aliases: dict[str, ResponsesTransport] = {
+            "ws": "websocket",
+            "sse": "sse",
+            "websocket": "websocket",
+            "auto": "auto",
+        }
+        normalized_transport = transport_aliases.get(normalized)
+        if normalized_transport is not None:
+            return normalized_transport
+
+        self.logger.warning(
+            "Invalid Responses transport setting; defaulting to SSE",
+            data={"transport": value},
+        )
+        return "sse"
+
+    def _supports_websocket_transport(self) -> bool:
+        """Provider-level websocket support flag (opt-in while experimental)."""
+        return False
+
+    def _validate_transport_support(
+        self,
+        model_name: str | None,
+        transport: ResponsesTransport,
+    ) -> None:
+        if transport not in {"websocket", "auto"}:
+            return
+
+        model_to_check = model_name or self.default_request_params.model
+        if not model_to_check:
+            raise ModelConfigError("WebSocket transport requires a resolved model name.")
+
+        response_transports = ModelDatabase.get_response_transports(model_to_check)
+        if not response_transports or "websocket" not in response_transports:
+            raise ModelConfigError(
+                f"Transport '{transport}' is not supported for model '{model_to_check}'."
+            )
+        if not self._supports_websocket_transport():
+            raise ModelConfigError(
+                "WebSocket transport is experimental and not enabled for this provider."
+            )
+
+    def _effective_transport(self) -> ResponsesTransport:
+        return self._transport
+
+    def _base_responses_url(self) -> str:
+        return self._base_url() or DEFAULT_RESPONSES_BASE_URL
+
+    def _build_websocket_headers(self) -> dict[str, str]:
+        return build_ws_headers(api_key=self._api_key(), default_headers=self._default_headers())
+
+    async def _create_websocket_connection(
+        self,
+        url: str,
+        headers: dict[str, str],
+        timeout_seconds: float | None,
+    ) -> ManagedWebSocketConnection:
+        return await connect_websocket(url=url, headers=headers, timeout_seconds=timeout_seconds)
+
+    def _websocket_retry_diagnostics(
+        self,
+        connection: ManagedWebSocketConnection,
+        error: ResponsesWebSocketError,
+    ) -> dict[str, Any]:
+        now = asyncio.get_running_loop().time()
+        idle_age_seconds: float | None = None
+        if connection.last_used_monotonic > 0.0:
+            idle_age_seconds = max(0.0, now - connection.last_used_monotonic)
+
+        websocket = connection.websocket
+        close_code = getattr(websocket, "close_code", None)
+        exception_obj = websocket.exception()
+
+        diagnostics: dict[str, Any] = {
+            "stream_started": error.stream_started,
+            "session_closed": connection.session.closed,
+            "websocket_closed": websocket.closed,
+            "websocket_close_code": close_code,
+            "websocket_exception": str(exception_obj) if exception_obj else None,
+        }
+        if idle_age_seconds is not None:
+            diagnostics["idle_age_seconds"] = round(idle_age_seconds, 3)
+        return diagnostics
 
     def _resolve_reasoning_effort(self) -> str | None:
         setting = self.reasoning_effort
@@ -277,51 +398,61 @@ class ResponsesLLM(
         request_params: RequestParams,
         tools: list[Tool] | None = None,
     ) -> PromptMessageExtended:
-        response_content_blocks: list[ContentBlock] = []
         model_name = request_params.model or self.default_request_params.model or DEFAULT_RESPONSES_MODEL
+        transport = self._effective_transport()
+        self._validate_transport_support(model_name, transport)
 
-        self._log_chat_progress(self.chat_turn(), model=model_name)
+        display_model = model_name
+        if transport in {"websocket", "auto"}:
+            display_model = f"{model_name} [ws]"
+
+        self._log_chat_progress(self.chat_turn(), model=display_model)
 
         try:
-            async with self._responses_client() as client:
-                input_items = await self._normalize_input_files(client, input_items)
-                arguments = self._build_response_args(input_items, request_params, tools)
-                self.logger.debug("Responses request", data=arguments)
-                capture_filename = _stream_capture_filename(self.chat_turn())
-                _save_stream_request(capture_filename, arguments)
-                async with client.responses.stream(**arguments) as stream:
-                    timeout = request_params.streaming_timeout
-                    if timeout is None:
-                        response, streamed_summary = await self._process_stream(
-                            stream, model_name, capture_filename
+            if transport == "sse":
+                response, streamed_summary, input_items = await self._responses_completion_sse(
+                    input_items=input_items,
+                    request_params=request_params,
+                    tools=tools,
+                    model_name=model_name,
+                )
+                self._last_transport_used = "sse"
+            else:
+                response, streamed_summary, input_items = await self._responses_completion_ws(
+                    input_items=input_items,
+                    request_params=request_params,
+                    tools=tools,
+                    model_name=model_name,
+                )
+                self._last_transport_used = "websocket"
+        except ResponsesWebSocketError as error:
+            should_fallback_to_sse = transport in {"auto", "websocket"} and not error.stream_started
+            if should_fallback_to_sse:
+                self.logger.warning(
+                    "WebSocket transport failed before stream start; falling back to SSE "
+                    "(experimental transport safeguard)",
+                    data={"model": model_name, "requested_transport": transport, "error": str(error)},
+                )
+                try:
+                    from rich.text import Text
+
+                    self.display.show_status_message(
+                        Text.from_markup(
+                            "[yellow]⚠ WebSocket transport unavailable for this turn; using SSE fallback.[/yellow]"
                         )
-                    else:
-                        try:
-                            response, streamed_summary = await asyncio.wait_for(
-                                self._process_stream(stream, model_name, capture_filename),
-                                timeout=timeout,
-                            )
-                        except asyncio.TimeoutError as exc:
-                            self.logger.error(
-                                "Streaming timeout while waiting for Responses",
-                                data={
-                                    "model": model_name,
-                                    "timeout_seconds": timeout,
-                                },
-                            )
-                            raise TimeoutError(
-                                "Streaming did not complete within "
-                                f"{timeout} seconds."
-                            ) from exc
-        except AuthenticationError as e:
-            raise ProviderKeyError(
-                "Invalid OpenAI API key",
-                "The configured OpenAI API key was rejected.\n"
-                "Please check that your API key is valid and not expired.",
-            ) from e
-        except APIError as error:
-            self.logger.error("Streaming APIError during Responses completion", exc_info=error)
-            raise
+                    )
+                except Exception:
+                    # UI status notification should never affect completion flow.
+                    pass
+                response, streamed_summary, input_items = await self._responses_completion_sse(
+                    input_items=input_items,
+                    request_params=request_params,
+                    tools=tools,
+                    model_name=model_name,
+                )
+                self._last_transport_used = "sse"
+            else:
+                raise
         except asyncio.CancelledError:
             return Prompt.assistant(
                 TextContent(type="text", text=""),
@@ -333,6 +464,7 @@ class ResponsesLLM(
 
         self._log_chat_finished(model=model_name)
 
+        response_content_blocks: list[ContentBlock] = []
         channels: dict[str, list[ContentBlock]] | None = None
         reasoning_blocks = self._extract_reasoning_summary(response, streamed_summary)
         encrypted_blocks = self._extract_encrypted_reasoning(response)
@@ -374,6 +506,182 @@ class ResponsesLLM(
             tool_calls=tool_calls,
             channels=channels,
             stop_reason=stop_reason,
+        )
+
+    async def _responses_completion_sse(
+        self,
+        *,
+        input_items: list[dict[str, Any]],
+        request_params: RequestParams,
+        tools: list[Tool] | None,
+        model_name: str,
+    ) -> tuple[Any, list[str], list[dict[str, Any]]]:
+        try:
+            async with self._responses_client() as client:
+                normalized_input = await self._normalize_input_files(client, input_items)
+                arguments = self._build_response_args(normalized_input, request_params, tools)
+                self.logger.debug("Responses request", data=arguments)
+                capture_filename = _stream_capture_filename(self.chat_turn())
+                _save_stream_request(capture_filename, arguments)
+                async with client.responses.stream(**arguments) as stream:
+                    timeout = request_params.streaming_timeout
+                    if timeout is None:
+                        response, streamed_summary = await self._process_stream(
+                            stream, model_name, capture_filename
+                        )
+                    else:
+                        try:
+                            response, streamed_summary = await asyncio.wait_for(
+                                self._process_stream(stream, model_name, capture_filename),
+                                timeout=timeout,
+                            )
+                        except asyncio.TimeoutError as exc:
+                            self.logger.error(
+                                "Streaming timeout while waiting for Responses",
+                                data={
+                                    "model": model_name,
+                                    "timeout_seconds": timeout,
+                                },
+                            )
+                            raise TimeoutError(
+                                "Streaming did not complete within "
+                                f"{timeout} seconds."
+                            ) from exc
+                return response, streamed_summary, normalized_input
+        except AuthenticationError as e:
+            raise ProviderKeyError(
+                "Invalid OpenAI API key",
+                "The configured OpenAI API key was rejected.\n"
+                "Please check that your API key is valid and not expired.",
+            ) from e
+        except APIError as error:
+            self.logger.error("Streaming APIError during Responses completion", exc_info=error)
+            raise
+
+    async def _responses_completion_ws(
+        self,
+        *,
+        input_items: list[dict[str, Any]],
+        request_params: RequestParams,
+        tools: list[Tool] | None,
+        model_name: str,
+    ) -> tuple[Any, list[str], list[dict[str, Any]]]:
+        async with self._responses_client() as client:
+            normalized_input = await self._normalize_input_files(client, input_items)
+
+        arguments = self._build_response_args(normalized_input, request_params, tools)
+        self.logger.debug("Responses websocket request", data=arguments)
+        capture_filename = _stream_capture_filename(self.chat_turn())
+        _save_stream_request(capture_filename, arguments)
+
+        ws_url = resolve_responses_ws_url(self._base_responses_url())
+        ws_headers = self._build_websocket_headers()
+        timeout = request_params.streaming_timeout
+
+        async def _create_connection() -> ManagedWebSocketConnection:
+            return await self._create_websocket_connection(ws_url, ws_headers, timeout)
+
+        last_error: ResponsesWebSocketError | None = None
+        reconnected = False
+        for attempt in range(2):
+            connection, is_reusable = await self._ws_connections.acquire(_create_connection)
+            reused_existing_connection = is_reusable and connection.last_used_monotonic > 0.0
+            keep_connection = False
+            stream: WebSocketResponsesStream | None = None
+            retry_after_release = False
+            reconnect_diagnostics: dict[str, Any] | None = None
+
+            try:
+                self.logger.info(
+                    "Using Responses websocket transport",
+                    data={"model": model_name, "url": ws_url},
+                )
+                await send_response_create(connection.websocket, arguments)
+                stream = WebSocketResponsesStream(connection.websocket)
+                response, streamed_summary = await self._process_stream(
+                    stream, model_name, capture_filename
+                )
+                keep_connection = True
+                if reconnected:
+                    try:
+                        from rich.text import Text
+
+                        self.display.show_status_message(
+                            Text.from_markup("[dim]WebSocket reconnected[/dim]")
+                        )
+                    except Exception:
+                        # UI status notification should never affect completion flow.
+                        pass
+                elif reused_existing_connection:
+                    try:
+                        from rich.text import Text
+
+                        self.display.show_status_message(
+                            Text.from_markup("[dim]WebSocket reused[/dim]")
+                        )
+                    except Exception:
+                        # UI status notification should never affect completion flow.
+                        pass
+                return response, streamed_summary, normalized_input
+            except ResponsesWebSocketError as error:
+                last_error = error
+                retry_after_release = (
+                    attempt == 0
+                    and reused_existing_connection
+                    and not error.stream_started
+                )
+                if retry_after_release:
+                    reconnect_diagnostics = self._websocket_retry_diagnostics(connection, error)
+                if not retry_after_release:
+                    raise
+            except Exception as exc:
+                stream_started = stream.stream_started if stream is not None else False
+                wrapped_error = ResponsesWebSocketError(
+                    str(exc),
+                    stream_started=stream_started,
+                )
+                last_error = wrapped_error
+                retry_after_release = (
+                    attempt == 0
+                    and reused_existing_connection
+                    and not stream_started
+                )
+                if retry_after_release:
+                    reconnect_diagnostics = self._websocket_retry_diagnostics(
+                        connection,
+                        wrapped_error,
+                    )
+                if not retry_after_release:
+                    raise wrapped_error from exc
+            finally:
+                await self._ws_connections.release(
+                    connection,
+                    reusable=is_reusable,
+                    keep=keep_connection,
+                )
+
+            if retry_after_release:
+                reconnected = True
+                retry_data: dict[str, Any] = {
+                    "model": model_name,
+                    "url": ws_url,
+                    "attempt": attempt + 1,
+                    "error": str(last_error) if last_error else None,
+                }
+                if reconnect_diagnostics is not None:
+                    retry_data.update(reconnect_diagnostics)
+                self.logger.info(
+                    "Reusable Responses websocket connection unavailable; re-establishing connection",
+                    data=retry_data,
+                )
+                continue
+
+        if last_error is not None:
+            raise last_error
+
+        raise ResponsesWebSocketError(
+            "WebSocket transport failed without an explicit error.",
+            stream_started=False,
         )
 
     def _handle_retry_failure(self, error: Exception) -> PromptMessageExtended | None:

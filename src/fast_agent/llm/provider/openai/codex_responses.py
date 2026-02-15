@@ -81,6 +81,28 @@ class CodexResponsesLLM(ResponsesLLM):
                 "Run `fast-agent auth codex-login` to reauthenticate.",
             ) from e
 
+    def _supports_websocket_transport(self) -> bool:
+        return True
+
+    def _build_websocket_headers(self) -> dict[str, str]:
+        token = self._api_key()
+        account_id = parse_chatgpt_account_id(token)
+        if not account_id:
+            raise ProviderKeyError(
+                "Codex OAuth token invalid",
+                "The Codex access token did not contain a chatgpt_account_id. "
+                "Run `fast-agent auth codex-login` to refresh your token.",
+            )
+        default_headers = dict(self._default_headers() or {})
+        default_headers["chatgpt-account-id"] = account_id
+        default_headers.setdefault("originator", "fast-agent")
+        try:
+            app_version = version("fast-agent-mcp")
+        except Exception:
+            app_version = "unknown"
+        default_headers.setdefault("User-Agent", f"fast-agent/{app_version}")
+        return default_headers | super()._build_websocket_headers()
+
     def _build_response_args(
         self,
         input_items: list[dict[str, Any]],

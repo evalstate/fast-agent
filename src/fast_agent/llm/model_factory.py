@@ -1,4 +1,4 @@
-from typing import Type, Union
+from typing import Literal, Type, Union
 from urllib.parse import parse_qs
 
 from pydantic import BaseModel
@@ -9,6 +9,7 @@ from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.internal.playback import PlaybackLLM
 from fast_agent.llm.internal.silent import SilentLLM
 from fast_agent.llm.internal.slow import SlowLLM
+from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, parse_reasoning_setting
 from fast_agent.llm.structured_output_mode import (
@@ -31,6 +32,7 @@ class ModelConfig(BaseModel):
     text_verbosity: TextVerbosityLevel | None = None
     structured_output_mode: StructuredOutputMode | None = None
     long_context: bool = False
+    transport: Literal["sse", "websocket", "auto"] | None = None
 
 
 class ModelFactory:
@@ -59,6 +61,7 @@ class ModelFactory:
         "gpt-5.1-codex": Provider.RESPONSES,
         "gpt-5.2-codex": Provider.RESPONSES,
         "gpt-5.3-codex": Provider.RESPONSES,
+        "gpt-5.3-codex-spark": Provider.CODEX_RESPONSES,
         "o1-mini": Provider.RESPONSES,
         "o1": Provider.RESPONSES,
         "o1-preview": Provider.RESPONSES,
@@ -112,6 +115,7 @@ class ModelFactory:
         "codex": "responses.gpt-5.2-codex",
         "codexplan": "codexresponses.gpt-5.3-codex",
         "codexplan52": "codexresponses.gpt-5.2-codex",
+        "codexspark": "codexresponses.gpt-5.3-codex-spark",
         "sonnet": "claude-sonnet-4-5",
         "sonnet4": "claude-sonnet-4-0",
         "sonnet45": "claude-sonnet-4-5",
@@ -194,6 +198,7 @@ class ModelFactory:
         query_text_verbosity: TextVerbosityLevel | None = None
         query_instant: bool | None = None
         query_long_context: bool = False
+        query_transport: Literal["sse", "websocket", "auto"] | None = None
         if "?" in model_string:
             model_string, _, query = model_string.partition("?")
             query_params = parse_qs(query)
@@ -239,6 +244,21 @@ class ModelFactory:
                     raise ModelConfigError(
                         f"Invalid context query value: '{raw_value}' \u2014 only '1m' is supported"
                     )
+            if "transport" in query_params:
+                values = query_params.get("transport") or []
+                raw_value = (values[-1] if values else "").strip().lower()
+                transport_aliases: dict[str, Literal["sse", "websocket", "auto"]] = {
+                    "ws": "websocket",
+                    "websocket": "websocket",
+                    "sse": "sse",
+                    "auto": "auto",
+                }
+                normalized_transport = transport_aliases.get(raw_value)
+                if normalized_transport is None:
+                    raise ModelConfigError(
+                        f"Invalid transport query value: '{raw_value}' in '{model_string}'"
+                    )
+                query_transport = normalized_transport
 
         suffix: str | None = None
         if ":" in model_string:
@@ -337,6 +357,18 @@ class ModelFactory:
                 )
             reasoning_effort = ReasoningEffortSetting(kind="toggle", value=not query_instant)
 
+        if query_transport in {"websocket", "auto"}:
+            response_transports = ModelDatabase.get_response_transports(model_name_str)
+            if not response_transports or "websocket" not in response_transports:
+                raise ModelConfigError(
+                    f"Transport '{query_transport}' is not supported for model '{model_name_str}'."
+                )
+            if provider != Provider.CODEX_RESPONSES:
+                raise ModelConfigError(
+                    "WebSocket transport is experimental and currently supported only for "
+                    "the codexresponses provider."
+                )
+
         return ModelConfig(
             provider=provider,
             model_name=model_name_str,
@@ -344,6 +376,7 @@ class ModelFactory:
             text_verbosity=query_text_verbosity,
             structured_output_mode=query_structured,
             long_context=query_long_context,
+            transport=query_transport,
         )
 
     @classmethod
@@ -387,6 +420,8 @@ class ModelFactory:
                 kwargs["structured_output_mode"] = config.structured_output_mode
             if config.long_context:
                 kwargs["long_context"] = True
+            if config.transport:
+                kwargs["transport"] = config.transport
             llm_args = {
                 "model": config.model_name,
                 "request_params": request_params,

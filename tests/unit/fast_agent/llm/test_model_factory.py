@@ -8,6 +8,7 @@ from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
 from fast_agent.llm.provider.openai.llm_generic import GenericLLM
 from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
+from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
 
 # Test aliases - decoupled from production MODEL_ALIASES
@@ -119,6 +120,52 @@ def test_model_query_text_verbosity():
     assert config.text_verbosity == "medium"
 
 
+def test_model_query_transport_websocket_alias():
+    config = ModelFactory.parse_model_string("codexplan?transport=ws")
+    assert config.provider == Provider.CODEX_RESPONSES
+    assert config.model_name == "gpt-5.3-codex"
+    assert config.transport == "websocket"
+
+
+def test_model_query_transport_auto():
+    config = ModelFactory.parse_model_string("codexplan52?transport=auto")
+    assert config.transport == "auto"
+
+
+def test_model_query_transport_sse():
+    config = ModelFactory.parse_model_string("codexplan?transport=sse")
+    assert config.transport == "sse"
+
+
+def test_invalid_transport_query():
+    with pytest.raises(ModelConfigError):
+        ModelFactory.parse_model_string("codexplan?transport=websock")
+
+
+def test_transport_query_rejects_unsupported_model():
+    with pytest.raises(ModelConfigError):
+        ModelFactory.parse_model_string("gpt-5?transport=ws")
+
+
+def test_transport_query_rejects_unsupported_provider():
+    with pytest.raises(ModelConfigError):
+        ModelFactory.parse_model_string("responses.gpt-5.3-codex?transport=ws")
+
+
+def test_transport_query_composes_with_reasoning_and_verbosity():
+    config = ModelFactory.parse_model_string("codexplan?transport=ws&reasoning=high&verbosity=low")
+    assert config.transport == "websocket"
+    assert config.reasoning_effort == ReasoningEffortSetting(kind="effort", value="high")
+    assert config.text_verbosity == "low"
+
+
+def test_factory_passes_transport_to_responses_llm():
+    factory = ModelFactory.create_factory("codexplan?transport=ws")
+    llm = factory(LlmAgent(AgentConfig(name="Test Agent")))
+    assert isinstance(llm, ResponsesLLM)
+    assert llm._transport == "websocket"
+
+
 def test_invalid_inputs():
     """Test handling of invalid inputs"""
     invalid_cases = [
@@ -199,6 +246,10 @@ def test_codexplan_aliases_use_codex_oauth_provider():
     config = ModelFactory.parse_model_string("codexplan52")
     assert config.provider == Provider.CODEX_RESPONSES
     assert config.model_name == "gpt-5.2-codex"
+
+    config = ModelFactory.parse_model_string("codexspark")
+    assert config.provider == Provider.CODEX_RESPONSES
+    assert config.model_name == "gpt-5.3-codex-spark"
 
 
 def test_huggingface_alias_with_default_provider():

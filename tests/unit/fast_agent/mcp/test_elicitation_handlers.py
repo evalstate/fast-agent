@@ -14,34 +14,31 @@ class _ContextWithSession:
 
 
 @pytest.mark.asyncio
-async def test_forms_handler_defers_url_elicitation_when_request_context_active(capsys) -> None:
+async def test_forms_handler_defers_url_elicitation_to_result_payload(capsys) -> None:
     session = object.__new__(MCPAgentClientSession)
     session.session_server_name = "session-server"
     session.server_config = None
     session.agent_name = "test-agent"
-    session._ensure_url_elicitation_tracking_state()
 
-    request_tracking_id = session._reserve_url_elicitation_request_tracking_id()
-    token = session._active_url_elicitation_request_id.set(request_tracking_id)
-    try:
-        context: Any = _ContextWithSession(session=session)
-        params = ElicitRequestURLParams(
-            mode="url",
-            message="Open browser to continue",
-            url="https://example.com/continue",
-            elicitationId="form-url-1",
-        )
+    context: Any = _ContextWithSession(session=session)
+    params = ElicitRequestURLParams(
+        mode="url",
+        message="Open browser to continue",
+        url="https://example.com/continue",
+        elicitationId="form-url-1",
+    )
 
-        result = await forms_elicitation_handler(cast("Any", context), cast("Any", params))
-        assert result.action == "accept"
+    result = await forms_elicitation_handler(cast("Any", context), cast("Any", params))
+    assert result.action == "accept"
 
-        tool_result = CallToolResult(content=[], isError=False)
-        session._attach_deferred_url_elicitation_payload_for_active_request(
-            tool_result,
-            request_method="tools/call",
-        )
-    finally:
-        session._active_url_elicitation_request_id.reset(token)
+    captured = capsys.readouterr()
+    assert captured.out.strip() == ""
+
+    tool_result = CallToolResult(content=[], isError=False)
+    session._attach_pending_url_elicitation_payload_for_request(
+        tool_result,
+        request_method="tools/call",
+    )
 
     payload = MCPAgentClientSession.get_url_elicitation_required_payload(tool_result)
     assert payload is not None
@@ -51,6 +48,3 @@ async def test_forms_handler_defers_url_elicitation_when_request_context_active(
     assert payload.elicitations[0].message == "Open browser to continue"
     assert payload.elicitations[0].url == "https://example.com/continue"
     assert payload.elicitations[0].elicitation_id == "form-url-1"
-
-    captured = capsys.readouterr()
-    assert captured.out.strip() == ""

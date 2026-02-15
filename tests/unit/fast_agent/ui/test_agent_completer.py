@@ -9,7 +9,14 @@ from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
 
 import fast_agent.config as config_module
-from fast_agent.config import Settings, SkillsSettings, get_settings, update_global_settings
+from fast_agent.config import (
+    MCPServerSettings,
+    MCPSettings,
+    Settings,
+    SkillsSettings,
+    get_settings,
+    update_global_settings,
+)
 from fast_agent.session import get_session_manager, reset_session_manager
 from fast_agent.ui.enhanced_prompt import AgentCompleter
 
@@ -306,6 +313,66 @@ def test_get_completions_for_mcp_disconnect_servers() -> None:
     names = [c.text for c in completions]
 
     assert "docs" in names
+
+
+def test_get_completions_for_mcp_connect_flags() -> None:
+    completer = AgentCompleter(agents=["agent1"])
+
+    doc = Document("/mcp connect npx demo-server --re", cursor_position=len("/mcp connect npx demo-server --re"))
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert "--reconnect" in names
+
+
+def test_get_completions_for_mcp_connect_hides_flags_before_target() -> None:
+    completer = AgentCompleter(agents=["agent1"])
+
+    doc = Document("/mcp connect --re", cursor_position=len("/mcp connect --re"))
+    completions = list(completer.get_completions(doc, None))
+
+    assert completions == []
+
+
+def test_get_completions_for_mcp_connect_configured_servers(monkeypatch) -> None:
+    settings = Settings(
+        mcp=MCPSettings(
+            servers={
+                "docs": MCPServerSettings(name="docs", transport="stdio", command="echo"),
+                "local": MCPServerSettings(name="local", transport="stdio", command="echo"),
+            }
+        )
+    )
+    monkeypatch.setattr(config_module, "_settings", settings)
+
+    completer = AgentCompleter(agents=["agent1"])
+
+    doc = Document("/mcp connect d", cursor_position=len("/mcp connect d"))
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert "docs" in names
+    assert "--name" not in names
+
+
+def test_get_completions_for_mcp_connect_shows_target_hint_first(monkeypatch) -> None:
+    settings = Settings(
+        mcp=MCPSettings(
+            servers={
+                "docs": MCPServerSettings(name="docs", transport="stdio", command="echo"),
+            }
+        )
+    )
+    monkeypatch.setattr(config_module, "_settings", settings)
+
+    completer = AgentCompleter(agents=["agent1"])
+
+    doc = Document("/mcp connect d", cursor_position=len("/mcp connect d"))
+    completions = list(completer.get_completions(doc, None))
+
+    assert completions
+    assert completions[0].display_text == "[url|npx|uvx]"
+    assert completions[0].display_meta_text == "enter url or npx/uvx cmd"
 
 
 def test_get_completions_for_skills_remove(monkeypatch):
