@@ -50,14 +50,20 @@ def parse_server_url(
     normalized_path = path.rstrip("/")
     if normalized_path.endswith("/sse"):
         transport_type = "sse"
-    elif not normalized_path.endswith("/mcp"):
-        # If path doesn't end with /mcp or /sse (handling trailing slash), append /mcp once
-        url = f"{url.rstrip('/')}" + "/mcp"
+
+    parsed_url_text = url
+    if (
+        transport_type == "http"
+        and not parsed_url.query
+        and not normalized_path.endswith("/mcp")
+    ):
+        fallback_path = "/mcp" if not normalized_path else f"{normalized_path}/mcp"
+        parsed_url_text = parsed_url._replace(path=fallback_path).geturl()
 
     # Generate a server name based on hostname and port
-    server_name = generate_server_name(url)
+    server_name = generate_server_name(parsed_url_text)
 
-    return server_name, transport_type, url
+    return server_name, transport_type, parsed_url_text
 
 
 def generate_server_name(url: str) -> str:

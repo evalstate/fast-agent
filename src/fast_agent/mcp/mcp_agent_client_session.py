@@ -16,6 +16,7 @@ from mcp.shared.session import (
     ReceiveResultT,
 )
 from mcp.types import (
+    URL_ELICITATION_REQUIRED,
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
@@ -41,6 +42,11 @@ from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.helpers.server_config_helpers import get_server_config
 from fast_agent.mcp.sampling import sample
+from fast_agent.mcp.url_elicitation_required import (
+    URLElicitationDisplayItem,
+    URLElicitationRequiredDisplayPayload,
+    build_url_elicitation_required_display_payload,
+)
 
 if TYPE_CHECKING:
     from fast_agent.config import MCPServerSettings
@@ -90,6 +96,8 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
     Developers can extend this class to add more custom functionality as needed
     """
 
+    _pending_url_elicitations: list[URLElicitationDisplayItem]
+
     def __init__(self, read_stream, write_stream, read_timeout=None, **kwargs) -> None:
         # Extract server_name if provided in kwargs
         from importlib.metadata import version
@@ -117,6 +125,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         # Track the effective elicitation mode for diagnostics
         self.effective_elicitation_mode: str | None = "none"
         self._offline_notified = False
+        self._pending_url_elicitations = []
 
         fast_agent_version = version("fast-agent-mcp") or "dev"
         fast_agent: Implementation = Implementation(name="fast-agent-mcp", version=fast_agent_version)
@@ -285,6 +294,10 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                 )
 
             self._attach_transport_channel(request_id, result)
+            self._attach_pending_url_elicitation_payload_for_request(
+                result,
+                request_method=request_method,
+            )
             if (
                 is_ping_request
                 and request_id is not None
@@ -294,6 +307,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             self._offline_notified = False
             return result
         except Exception as e:
+            self._discard_pending_url_elicitation_payload()
             if progress_callback is not None and request_id is not None:
                 _progress_trace(
                     "request-error "
@@ -319,6 +333,10 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                     server_name=self.session_server_name or "unknown",
                     details="Server returned 404 - session may have expired due to server restart",
                 ) from e
+
+            # URL elicitation required error from MCP server
+            if self._is_url_elicitation_required_error(e):
+                self._attach_url_elicitation_required_payload(e, request_method)
 
             # Handle connection closure errors (transport closed)
             if isinstance(e, ClosedResourceError):
@@ -356,6 +374,106 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                 if code == ServerSessionTerminatedError.SESSION_TERMINATED_CODE:
                     return True
         return False
+
+    def _is_url_elicitation_required_error(self, exc: Exception) -> bool:
+        """Check if exception is URL elicitation required error (-32042)."""
+        from mcp.shared.exceptions import McpError
+
+        if not isinstance(exc, McpError):
+            return False
+
+        error_data = getattr(exc, "error", None)
+        if error_data is None:
+            return False
+
+        return getattr(error_data, "code", None) == URL_ELICITATION_REQUIRED
+
+    def _attach_url_elicitation_required_payload(self, exc: Exception, request_method: str) -> None:
+        """Attach parsed URL elicitation data to exception for deferred display."""
+        from mcp.shared.exceptions import McpError
+
+        if not isinstance(exc, McpError):
+            return
+
+        error_data = getattr(exc, "error", None)
+        if error_data is None:
+            return
+
+        server_name = self.session_server_name or "unknown"
+        payload = build_url_elicitation_required_display_payload(
+            error_data.data,
+            server_name=server_name,
+            request_method=request_method,
+        )
+        setattr(exc, "_fast_agent_url_elicitation_required", payload)
+
+    def _ensure_pending_url_elicitation_state(self) -> None:
+        if not hasattr(self, "_pending_url_elicitations"):
+            self._pending_url_elicitations = []
+
+    def queue_url_elicitation_for_active_request(
+        self,
+        *,
+        message: str,
+        url: str,
+        elicitation_id: str | None,
+    ) -> bool:
+        """Queue URL elicitation for the next successful request result."""
+        self._ensure_pending_url_elicitation_state()
+        self._pending_url_elicitations.append(
+            URLElicitationDisplayItem(
+                message=message,
+                url=url,
+                elicitation_id=elicitation_id or "",
+            )
+        )
+        return True
+
+    def _attach_pending_url_elicitation_payload_for_request(
+        self,
+        result: object,
+        *,
+        request_method: str,
+    ) -> None:
+        payload = self._consume_pending_url_elicitation_payload(request_method=request_method)
+        if payload is None:
+            return
+        try:
+            setattr(result, "_fast_agent_url_elicitation_required", payload)
+        except Exception:
+            pass
+
+    def _consume_pending_url_elicitation_payload(
+        self,
+        *,
+        request_method: str,
+    ) -> URLElicitationRequiredDisplayPayload | None:
+        self._ensure_pending_url_elicitation_state()
+        if not self._pending_url_elicitations:
+            return None
+
+        items = self._pending_url_elicitations
+        self._pending_url_elicitations = []
+        return URLElicitationRequiredDisplayPayload(
+            server_name=self.session_server_name or "unknown",
+            request_method=request_method,
+            elicitations=items,
+            issues=[],
+        )
+
+    def _discard_pending_url_elicitation_payload(self) -> None:
+        self._ensure_pending_url_elicitation_state()
+        self._pending_url_elicitations = []
+
+    @staticmethod
+    def get_url_elicitation_required_payload(
+        exc: object,
+    ) -> URLElicitationRequiredDisplayPayload | None:
+        """Return deferred URL elicitation display payload when present."""
+        payload = getattr(exc, "_fast_agent_url_elicitation_required", None)
+        if isinstance(payload, URLElicitationRequiredDisplayPayload):
+            return payload
+        return None
 
     def _attach_transport_channel(self, request_id, result) -> None:
         if self._transport_metrics is None or request_id is None or result is None:

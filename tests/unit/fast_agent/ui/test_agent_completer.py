@@ -9,8 +9,16 @@ from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
 
 import fast_agent.config as config_module
-from fast_agent.config import Settings, SkillsSettings, get_settings, update_global_settings
+from fast_agent.config import (
+    MCPServerSettings,
+    MCPSettings,
+    Settings,
+    SkillsSettings,
+    get_settings,
+    update_global_settings,
+)
 from fast_agent.session import get_session_manager, reset_session_manager
+from fast_agent.skills.manager import InstalledSkillSource, write_installed_skill_source
 from fast_agent.ui.enhanced_prompt import AgentCompleter
 
 if TYPE_CHECKING:
@@ -266,6 +274,27 @@ def _write_skill(skill_root: Path, name: str) -> None:
     )
 
 
+def _mark_skill_managed(skill_root: Path, name: str) -> None:
+    skill_dir = skill_root / name
+    write_installed_skill_source(
+        skill_dir,
+        InstalledSkillSource(
+            schema_version=1,
+            installed_via="marketplace",
+            source_origin="remote",
+            repo_url="https://github.com/example/skills",
+            repo_ref="main",
+            repo_path=f"skills/{name}",
+            source_url="https://raw.githubusercontent.com/example/skills/main/marketplace.json",
+            installed_commit="abcdef1234567890",
+            installed_path_oid="def456",
+            installed_revision="abcdef1234567890",
+            installed_at="2026-02-15T00:00:00Z",
+            content_fingerprint="sha256:deadbeef",
+        ),
+    )
+
+
 def test_get_completions_for_skills_subcommands():
     """Test get_completions suggests /skills subcommands."""
     completer = AgentCompleter(agents=["agent1"])
@@ -277,6 +306,7 @@ def test_get_completions_for_skills_subcommands():
     assert "list" in names
     assert "add" in names
     assert "remove" in names
+    assert "update" in names
     assert "registry" in names
 
 
@@ -305,6 +335,66 @@ def test_get_completions_for_mcp_disconnect_servers() -> None:
     names = [c.text for c in completions]
 
     assert "docs" in names
+
+
+def test_get_completions_for_mcp_connect_flags() -> None:
+    completer = AgentCompleter(agents=["agent1"])
+
+    doc = Document("/mcp connect npx demo-server --re", cursor_position=len("/mcp connect npx demo-server --re"))
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert "--reconnect" in names
+
+
+def test_get_completions_for_mcp_connect_hides_flags_before_target() -> None:
+    completer = AgentCompleter(agents=["agent1"])
+
+    doc = Document("/mcp connect --re", cursor_position=len("/mcp connect --re"))
+    completions = list(completer.get_completions(doc, None))
+
+    assert completions == []
+
+
+def test_get_completions_for_mcp_connect_configured_servers(monkeypatch) -> None:
+    settings = Settings(
+        mcp=MCPSettings(
+            servers={
+                "docs": MCPServerSettings(name="docs", transport="stdio", command="echo"),
+                "local": MCPServerSettings(name="local", transport="stdio", command="echo"),
+            }
+        )
+    )
+    monkeypatch.setattr(config_module, "_settings", settings)
+
+    completer = AgentCompleter(agents=["agent1"])
+
+    doc = Document("/mcp connect d", cursor_position=len("/mcp connect d"))
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert "docs" in names
+    assert "--name" not in names
+
+
+def test_get_completions_for_mcp_connect_shows_target_hint_first(monkeypatch) -> None:
+    settings = Settings(
+        mcp=MCPSettings(
+            servers={
+                "docs": MCPServerSettings(name="docs", transport="stdio", command="echo"),
+            }
+        )
+    )
+    monkeypatch.setattr(config_module, "_settings", settings)
+
+    completer = AgentCompleter(agents=["agent1"])
+
+    doc = Document("/mcp connect d", cursor_position=len("/mcp connect d"))
+    completions = list(completer.get_completions(doc, None))
+
+    assert completions
+    assert completions[0].display_text == "[url|npx|uvx]"
+    assert completions[0].display_meta_text == "enter url or npx/uvx cmd"
 
 
 def test_get_completions_for_skills_remove(monkeypatch):
@@ -345,6 +435,34 @@ def test_get_completions_for_skills_registry(monkeypatch):
 
     assert "1" in names
     assert "2" in names
+
+
+def test_get_completions_for_skills_update_only_managed():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        skills_root = Path(tmpdir) / "skills"
+        _write_skill(skills_root, "alpha")
+        _write_skill(skills_root, "beta")
+        _write_skill(skills_root, "gamma")
+        _mark_skill_managed(skills_root, "beta")
+        _mark_skill_managed(skills_root, "gamma")
+
+        old_settings = get_settings()
+        override = old_settings.model_copy(update={"skills": SkillsSettings(directories=[str(skills_root)])})
+        update_global_settings(override)
+        try:
+            completer = AgentCompleter(agents=["agent1"])
+            doc = Document("/skills update ", cursor_position=len("/skills update "))
+            completions = list(completer.get_completions(doc, None))
+            names = [c.text for c in completions]
+
+            assert "alpha" not in names
+            assert "beta" in names
+            assert "gamma" in names
+            assert "1" not in names
+            assert "2" not in names
+            assert "3" not in names
+        finally:
+            update_global_settings(old_settings)
 
 
 def test_complete_agent_card_files_finds_md_and_yaml():

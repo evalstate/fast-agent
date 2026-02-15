@@ -8,6 +8,7 @@ This class extends LlmDecorator with LLM-specific interaction behaviors includin
 - Chat display integration
 """
 
+import json
 from typing import TYPE_CHECKING, Callable, List, Optional, Tuple
 
 from a2a.types import AgentCapabilities
@@ -16,7 +17,7 @@ from rich.text import Text
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_decorator import LlmDecorator, ModelT
-from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
+from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, FAST_AGENT_URL_ELICITATION_CHANNEL
 from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.helpers.content_helpers import get_text
@@ -255,6 +256,113 @@ class LlmAgent(LlmDecorator):
             render_markdown=render_markdown,
             show_hook_indicator=hook_indicator,
         )
+        self._display_url_elicitations_from_history(display_name)
+
+    def _display_url_elicitations_from_history(self, agent_name: str | None) -> None:
+        """Display deferred URL elicitations from the previous tool-result turn."""
+        channels = self._get_previous_user_channels()
+        if not channels:
+            return
+
+        payload_blocks = channels.get(FAST_AGENT_URL_ELICITATION_CHANNEL, [])
+        if not payload_blocks:
+            return
+
+        payload_entries: list[dict[str, object]] = []
+        for block in payload_blocks:
+            raw_text = get_text(block)
+            if not raw_text:
+                continue
+            try:
+                decoded = json.loads(raw_text)
+            except Exception:
+                continue
+
+            if isinstance(decoded, list):
+                payload_entries.extend(item for item in decoded if isinstance(item, dict))
+            elif isinstance(decoded, dict):
+                payload_entries.append(decoded)
+
+        for payload in payload_entries:
+            self._display_single_url_elicitation_payload(payload, agent_name)
+
+    def _get_previous_user_channels(self) -> dict[str, list]:
+        try:
+            history = self.message_history
+            if history and len(history) >= 2:
+                prev = history[-2]
+                if prev and prev.role == "user":
+                    channels = prev.channels or {}
+                    if isinstance(channels, dict):
+                        return channels
+        except Exception:
+            pass
+        return {}
+
+    def _display_single_url_elicitation_payload(
+        self,
+        payload: dict[str, object],
+        agent_name: str | None,
+    ) -> None:
+        from fast_agent.ui import console
+
+        server_name = str(payload.get("server_name", "unknown"))
+        raw_elicitations = payload.get("elicitations")
+        raw_issues = payload.get("issues")
+
+        elicitations = (
+            [item for item in raw_elicitations if isinstance(item, dict)]
+            if isinstance(raw_elicitations, list)
+            else []
+        )
+        issues = [str(item) for item in raw_issues] if isinstance(raw_issues, list) else []
+
+        if elicitations:
+            count = len(elicitations)
+            for index, elicitation in enumerate(elicitations, start=1):
+                message = str(elicitation.get("message", "Authorization required."))
+                if count > 1:
+                    message = f"[{index}/{count}] {message}"
+                url = str(elicitation.get("url", ""))
+                elicitation_id = str(elicitation.get("elicitation_id", ""))
+
+                self.display.show_url_elicitation(
+                    message=message,
+                    url=url,
+                    server_name=server_name,
+                    agent_name=agent_name,
+                    elicitation_id=elicitation_id,
+                )
+
+        if issues:
+            if elicitations:
+                console.console.print(
+                    "[yellow]"
+                    f"MCP server {server_name} returned non-compliant URL elicitation payload:"
+                    "[/yellow]"
+                )
+            else:
+                console.console.print(
+                    "[yellow]"
+                    f"MCP server {server_name} returned malformed URL elicitation error.data:"
+                    "[/yellow]"
+                )
+
+            for issue in issues[:3]:
+                console.console.print(f"[dim yellow]  - {issue}[/dim yellow]")
+
+            hidden_issue_count = len(issues) - 3
+            if hidden_issue_count > 0:
+                console.console.print(
+                    f"[dim yellow]  - ... and {hidden_issue_count} more issue(s)[/dim yellow]"
+                )
+
+            if not elicitations:
+                console.console.print(
+                    "[dim yellow]"
+                    "No valid URL elicitations could be extracted from error.data."
+                    "[/dim yellow]"
+                )
 
     def _display_user_messages(
         self,

@@ -181,14 +181,28 @@ def test_model_database_stream_modes():
     assert ModelDatabase.get_stream_mode("unknown-model") == "openai"
 
 
+def test_model_database_response_transports():
+    """Codex models should expose websocket transport metadata."""
+    assert ModelDatabase.get_response_transports("gpt-5.3-codex") == ("sse", "websocket")
+    assert ModelDatabase.get_response_transports("gpt-5.3-codex-spark") == ("sse", "websocket")
+    assert ModelDatabase.get_response_transports("gpt-4o") is None
+
+
 def test_model_database_reasoning_modes():
     """Ensure reasoning types are tracked per model."""
     assert ModelDatabase.get_reasoning("o1") == "openai"
     assert ModelDatabase.get_reasoning("o3-mini") == "openai"
     assert ModelDatabase.get_reasoning("gpt-5") == "openai"
+    assert ModelDatabase.get_reasoning("gpt-5.3-codex-spark") is None
     assert ModelDatabase.get_reasoning("claude-opus-4-6") == "anthropic_thinking"
     assert ModelDatabase.get_reasoning("zai-org/glm-4.6") == "reasoning_content"
     assert ModelDatabase.get_reasoning("gpt-4o") is None
+
+
+def test_model_database_codex_spark_is_text_only() -> None:
+    assert ModelDatabase.supports_mime("gpt-5.3-codex-spark", "text/plain")
+    assert not ModelDatabase.supports_mime("gpt-5.3-codex-spark", "application/pdf")
+    assert not ModelDatabase.supports_mime("gpt-5.3-codex-spark", "image/png")
 
 
 def test_model_database_opus_46_reasoning_spec():

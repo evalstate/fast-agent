@@ -855,7 +855,12 @@ class ConsoleDisplay:
         console.console.print(content, markup=self._markup)
 
     def show_url_elicitation(
-        self, message: str, url: str, server_name: str, agent_name: str | None = None
+        self,
+        message: str,
+        url: str,
+        server_name: str,
+        agent_name: str | None = None,
+        elicitation_id: str | None = None,
     ) -> None:
         """Display URL elicitation request with clickable link.
 
@@ -867,6 +872,7 @@ class ConsoleDisplay:
             url: The URL the server wants the user to navigate to
             server_name: Name of the MCP server making the request
             agent_name: Optional name of the agent (for future use)
+            elicitation_id: Optional URL elicitation ID
         """
         if self.config and not self.config.logger.show_chat:
             return
@@ -877,15 +883,29 @@ class ConsoleDisplay:
         parsed = urlparse(url)
         domain = parsed.netloc or url  # Fallback to full URL if no domain
 
-        # Line 1: bullet + type + [server] + message (all inline)
+        console.console.print()
+
+        # Line 1: prominent requirement indicator
         header = Text()
-        header.append("● ", style="dim")
-        header.append("url-elicitation ", style="dim")
-        header.append(f"[{server_name}] ", style="cyan")
-        header.append(message, style="default")
+        header.append("● ", style="bright_yellow bold")
+        header.append("URL elicitation required", style="bright_yellow bold")
         console.console.print(header, markup=self._markup)
 
-        # Line 2: domain (highlighted) + full URL (dim)
+        # Line 2: server + message
+        message_line = Text()
+        message_line.append("  ", style="dim")
+        message_line.append(f"[{server_name}] ", style="cyan bold")
+        message_line.append(message, style="bold")
+        console.console.print(message_line, markup=self._markup)
+
+        # Line 3: elicitation ID (if present)
+        if elicitation_id:
+            id_line = Text()
+            id_line.append("  ", style="dim")
+            id_line.append(f"elicitationId: {elicitation_id}", style="dim")
+            console.console.print(id_line, markup=self._markup)
+
+        # Line 4: domain (highlighted) + full URL (dim)
         url_line = Text()
         url_line.append("  ", style="dim")
         url_line.append(domain, style="yellow bold")
@@ -893,7 +913,7 @@ class ConsoleDisplay:
         url_line.append(url, style="dim")
         console.console.print(url_line, markup=self._markup)
 
-        # Line 3: clickable link
+        # Line 5: clickable link
         link_line = Text()
         link_line.append("  ", style="dim")
         link_line.append("Open URL", style=f"bright_blue link {url}")

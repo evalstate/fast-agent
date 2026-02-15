@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import shlex
 import textwrap
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -13,18 +15,26 @@ from fast_agent.core.instruction_refresh import rebuild_agent_instruction
 from fast_agent.skills import SKILLS_DEFAULT
 from fast_agent.skills.manager import (
     DEFAULT_SKILL_REGISTRIES,
+    SkillUpdateInfo,
+    apply_skill_updates,
+    check_skill_updates,
     fetch_marketplace_skills,
     fetch_marketplace_skills_with_source,
+    format_installed_at_display,
     format_marketplace_display_url,
+    format_revision_short,
+    format_skill_provenance_details,
     get_manager_directory,
     get_marketplace_url,
     install_marketplace_skill,
     list_local_skills,
+    order_skill_directories_for_display,
     reload_skill_manifests,
     remove_local_skill,
     resolve_skill_directories,
     select_manifest_by_name_or_index,
     select_skill_by_name_or_index,
+    select_skill_updates,
 )
 from fast_agent.skills.registry import SkillManifest, format_skills_for_prompt
 
@@ -65,7 +75,16 @@ def _append_manifest_entry(content: Text, manifest: SkillManifest, index: int) -
         source_display = source_path
     content.append("     ", style="dim")
     content.append(f"source: {source_display}", style="dim green")
-    content.append("\n\n")
+    content.append("\n")
+    provenance_text, installed_text = format_skill_provenance_details(source_path)
+    content.append("     ", style="dim")
+    content.append(f"provenance: {provenance_text}", style="dim")
+    content.append("\n")
+    if installed_text:
+        content.append("     ", style="dim")
+        content.append(f"installed: {installed_text}", style="dim")
+        content.append("\n")
+    content.append("\n")
 
 
 def _append_registry_entry(
@@ -192,6 +211,134 @@ def _format_install_result(skill_name: str, install_path: Path) -> Text:
     return content
 
 
+def _parse_update_argument(
+    argument: str | None,
+) -> tuple[str | None, bool, bool, str | None]:
+    if argument is None:
+        return None, False, False, None
+
+    try:
+        tokens = shlex.split(argument)
+    except ValueError as exc:
+        return None, False, False, f"Invalid update arguments: {exc}"
+
+    selector: str | None = None
+    force = False
+    yes = False
+    for token in tokens:
+        if token == "--force":
+            force = True
+            continue
+        if token == "--yes":
+            yes = True
+            continue
+        if token.startswith("--"):
+            return None, False, False, f"Unknown option: {token}"
+        if selector is not None:
+            return None, False, False, "Only one selector is allowed."
+        selector = token
+
+    return selector, force, yes, None
+
+
+def _format_update_results(updates: Sequence[SkillUpdateInfo], *, title: str) -> Text:
+    content = Text()
+    _append_heading(content, title)
+    if not updates:
+        content.append_text(Text("No managed skills found.", style="yellow"))
+        return content
+
+    status_labels: dict[str, str] = {
+        "up_to_date": "already up to date",
+        "update_available": "update available",
+        "updated": "updated",
+        "unmanaged": "unmanaged",
+        "invalid_metadata": "invalid metadata",
+        "invalid_local_skill": "invalid local skill",
+        "unknown_revision": "unknown revision",
+        "source_unreachable": "source unreachable",
+        "source_ref_missing": "source ref missing",
+        "source_path_missing": "source path missing",
+        "skipped_dirty": "skipped (local modifications)",
+    }
+    status_detail_channels = {
+        "invalid_metadata",
+        "invalid_local_skill",
+        "unknown_revision",
+        "source_unreachable",
+        "source_ref_missing",
+        "source_path_missing",
+        "skipped_dirty",
+    }
+
+    for update in updates:
+        row = Text()
+        row.append(f"[{update.index:2}] ", style="dim cyan")
+        row.append(update.name, style="bright_blue bold")
+        content.append_text(row)
+        content.append("\n")
+
+        source_path = update.skill_dir
+        try:
+            source_display = source_path.relative_to(Path.cwd())
+        except ValueError:
+            source_display = source_path
+        content.append("     ", style="dim")
+        content.append(f"source: {source_display}", style="dim green")
+        content.append("\n")
+
+        if update.managed_source is not None:
+            source = update.managed_source
+            ref_label = f"@{source.repo_ref}" if source.repo_ref else ""
+            provenance_text = f"{source.repo_url}{ref_label} ({source.repo_path})"
+            installed_text = (
+                f"{format_installed_at_display(source.installed_at)} "
+                f"revision: {format_revision_short(source.installed_revision)}"
+            )
+        else:
+            provenance_text, installed_text = format_skill_provenance_details(update.skill_dir)
+
+        content.append("     ", style="dim")
+        content.append(f"provenance: {provenance_text}", style="dim")
+        content.append("\n")
+        if installed_text:
+            content.append("     ", style="dim")
+            content.append(f"installed: {installed_text}", style="dim")
+            content.append("\n")
+
+        if update.current_revision or update.available_revision:
+            installed_revision = format_revision_short(update.current_revision)
+            current_revision = format_revision_short(update.available_revision)
+            content.append("     ", style="dim")
+            content.append(f"revision: {installed_revision} -> {current_revision}", style="dim")
+            content.append("\n")
+
+        if update.status != "unmanaged":
+            status_text = status_labels.get(update.status, update.status.replace("_", " "))
+            if update.status in status_detail_channels and update.detail:
+                status_text = f"{status_text}: {update.detail}"
+
+            status_style: str | None = None
+            if update.status in {"up_to_date", "updated"}:
+                status_style = "green"
+            elif update.status == "update_available":
+                status_style = "bold bright_yellow"
+            elif update.status not in {"unmanaged"}:
+                status_style = "yellow"
+
+            content.append("     ", style="dim")
+            content.append("status: ", style="dim")
+            if status_style is None:
+                content.append(status_text)
+            else:
+                content.append(status_text, style=status_style)
+            content.append("\n")
+
+        content.append("\n")
+
+    return content
+
+
 def _get_agent_skill_override_sources(manifests: list[SkillManifest]) -> list[str]:
     sources: list[str] = []
     for manifest in manifests:
@@ -229,7 +376,11 @@ async def _refresh_agent_skills(ctx: CommandContext, agent_name: str) -> None:
 async def handle_list_skills(ctx: CommandContext, *, agent_name: str) -> CommandOutcome:
     outcome = CommandOutcome()
 
-    directories = resolve_skill_directories(ctx.resolve_settings())
+    settings = ctx.resolve_settings()
+    directories = order_skill_directories_for_display(
+        resolve_skill_directories(settings),
+        settings=settings,
+    )
     manifests_by_dir: dict[Path, list[SkillManifest]] = {}
     for directory in directories:
         manifests_by_dir[directory] = list_local_skills(directory) if directory.exists() else []
@@ -490,6 +641,68 @@ async def handle_remove_skill(
     return outcome
 
 
+async def handle_update_skill(
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+    argument: str | None,
+) -> CommandOutcome:
+    outcome = CommandOutcome()
+
+    selector, force, yes, parse_error = _parse_update_argument(argument)
+    if parse_error:
+        outcome.add_message(parse_error, channel="error")
+        return outcome
+
+    manager_dir = get_manager_directory()
+    updates = check_skill_updates(destination_root=manager_dir)
+
+    if selector is None:
+        outcome.add_message(
+            _format_update_results(updates, title="Skill update check:"),
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        outcome.add_message(
+            "Apply with `/skills update <number|name|all> [--force] [--yes]`.",
+            channel="info",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    selected = select_skill_updates(updates, selector)
+    if not selected:
+        outcome.add_message(f"Skill not found: {selector}", channel="error")
+        return outcome
+
+    if len(selected) > 1 and not yes:
+        outcome.add_message(
+            _format_update_results(selected, title="Update plan:"),
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        outcome.add_message(
+            "Multiple skills selected. Re-run with `--yes` to apply updates.",
+            channel="warning",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    applied = await asyncio.to_thread(apply_skill_updates, selected, force=force)
+    outcome.add_message(
+        _format_update_results(applied, title="Skill update results:"),
+        right_info="skills",
+        agent_name=agent_name,
+    )
+
+    if any(result.status == "updated" for result in applied):
+        await _refresh_agent_skills(ctx, agent_name)
+
+    return outcome
+
+
 async def handle_skills_command(
     ctx: CommandContext,
     *,
@@ -507,7 +720,12 @@ async def handle_skills_command(
         return await handle_set_skills_registry(ctx, argument=argument)
     if normalized in {"remove", "rm", "delete", "uninstall"}:
         return await handle_remove_skill(ctx, agent_name=agent_name, argument=argument)
+    if normalized in {"update", "refresh", "upgrade"}:
+        return await handle_update_skill(ctx, agent_name=agent_name, argument=argument)
 
     outcome = CommandOutcome()
-    outcome.add_message(f"Unknown /skills action: {normalized}", channel="warning")
+    outcome.add_message(
+        f"Unknown /skills action: {normalized}. Use list/add/remove/update/registry.",
+        channel="warning",
+    )
     return outcome

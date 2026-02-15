@@ -153,6 +153,19 @@ class _OAuthFailureManager(_Manager):
         )
 
 
+class _Always404Manager(_Manager):
+    def __init__(self) -> None:
+        super().__init__()
+        self.url_attempts: list[str] = []
+
+    async def attach_mcp_server(self, agent_name, server_name, server_config=None, options=None):
+        del agent_name, server_name, options
+        if server_config is not None and getattr(server_config, "url", None):
+            self.url_attempts.append(server_config.url)
+            raise RuntimeError(f"HTTP Error: 404 Not Found for URL: {server_config.url}")
+        raise RuntimeError("expected URL server config")
+
+
 @pytest.mark.parametrize("raw_timeout", ["nan", "inf", "-inf", "0", "-1"])
 def test_parse_connect_input_rejects_non_finite_or_non_positive_timeout(
     raw_timeout: str,
@@ -184,7 +197,11 @@ async def test_handle_mcp_connect_and_disconnect() -> None:
         agent_name="main",
         server_name="demo",
     )
-    assert any("Disconnected MCP server" in str(msg.text) for msg in disconnect_outcome.messages)
+    disconnect_text = "\n".join(str(message.text) for message in disconnect_outcome.messages)
+    assert "Disconnected MCP server" in disconnect_text
+    assert "Removed 1 tool and 1 prompt." in disconnect_text
+    assert "demo.echo" not in disconnect_text
+    assert "demo.prompt" not in disconnect_text
 
 
 @pytest.mark.asyncio
@@ -219,6 +236,22 @@ async def test_handle_mcp_connect_scoped_package_uses_npx_command() -> None:
     assert manager.last_config is not None
     assert manager.last_config.command == "npx"
     assert manager.last_config.args == ["@modelcontextprotocol/server-everything"]
+
+
+@pytest.mark.asyncio
+async def test_handle_mcp_connect_configured_name_uses_existing_registry_entry() -> None:
+    manager = _Manager()
+    ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())
+
+    outcome = await mcp_runtime.handle_mcp_connect(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        target_text="docs",
+    )
+
+    assert any("Connected MCP server 'docs' (configured)." in str(msg.text) for msg in outcome.messages)
+    assert manager.last_config is None
 
 
 @pytest.mark.asyncio
@@ -275,6 +308,23 @@ async def test_handle_mcp_connect_reports_already_attached() -> None:
 
 
 @pytest.mark.asyncio
+async def test_handle_mcp_connect_with_reconnect_reports_reconnected() -> None:
+    manager = _AlreadyAttachedManager()
+    ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())
+
+    outcome = await mcp_runtime.handle_mcp_connect(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        target_text="@modelcontextprotocol/server-filesystem . --reconnect",
+    )
+
+    message_text = "\n".join(str(msg.text) for msg in outcome.messages)
+    assert "reconnected mcp server" in message_text.lower()
+    assert "already attached" not in message_text.lower()
+
+
+@pytest.mark.asyncio
 async def test_handle_mcp_connect_url_uses_cli_url_parsing_for_auth_headers() -> None:
     manager = _Manager()
     ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())
@@ -291,6 +341,39 @@ async def test_handle_mcp_connect_url_uses_cli_url_parsing_for_auth_headers() ->
     assert manager.last_config.transport == "http"
     assert manager.last_config.url == "https://example.com/api/mcp"
     assert manager.last_config.headers == {"Authorization": "Bearer token123"}
+
+
+@pytest.mark.asyncio
+async def test_handle_mcp_connect_url_auto_appends_mcp_suffix() -> None:
+    manager = _Manager()
+    ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())
+
+    outcome = await mcp_runtime.handle_mcp_connect(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        target_text="https://example.com/api",
+    )
+
+    assert any("Connected MCP server" in str(msg.text) for msg in outcome.messages)
+    assert manager.last_config is not None
+    assert manager.last_config.url == "https://example.com/api/mcp"
+
+
+@pytest.mark.asyncio
+async def test_handle_mcp_connect_url_with_query_preserves_explicit_endpoint() -> None:
+    manager = _Always404Manager()
+    ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())
+
+    outcome = await mcp_runtime.handle_mcp_connect(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        target_text="https://example.com/api?version=1",
+    )
+
+    assert any(msg.channel == "error" for msg in outcome.messages)
+    assert manager.url_attempts == ["https://example.com/api?version=1"]
 
 
 @pytest.mark.asyncio

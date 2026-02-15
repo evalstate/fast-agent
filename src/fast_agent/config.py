@@ -416,6 +416,10 @@ class OpenAISettings(BaseModel):
         default=None,
         description="Custom headers for all API requests",
     )
+    transport: Literal["sse", "websocket", "auto"] = Field(
+        default="sse",
+        description="Responses transport mode: sse (default), websocket, or auto fallback.",
+    )
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
@@ -437,6 +441,10 @@ class OpenResponsesSettings(BaseModel):
         default=None,
         description="Custom headers for all API requests",
     )
+    transport: Literal["sse", "websocket", "auto"] = Field(
+        default="sse",
+        description="Responses transport mode: sse (default), websocket, or auto fallback.",
+    )
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
@@ -453,6 +461,10 @@ class CodexResponsesSettings(BaseModel):
     default_headers: dict[str, str] | None = Field(
         default=None,
         description="Custom headers for all API requests",
+    )
+    transport: Literal["sse", "websocket", "auto"] = Field(
+        default="sse",
+        description="Responses transport mode: sse (default), websocket, or auto fallback.",
     )
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)

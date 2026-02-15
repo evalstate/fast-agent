@@ -63,3 +63,11 @@ mcp:
       args: ["run", "elicitation_test_server_advanced.py"]
       elicitation:
         mode: "auto-cancel"
+
+    url_elicitation_required:
+      command: "uv"
+      args: ["run", "url_elicitation_required_server.py"]
+      transport: "stdio"
+      cwd: "."
+      elicitation:
+        mode: "forms"

@@ -72,3 +72,10 @@ def test_unknown_model_defaults_to_text_only() -> None:
     info = ModelInfo.from_name("unknown-model-id")
     assert info is not None
     assert info.tdv_flags == (True, False, False)
+
+
+def test_codexspark_alias_is_text_only() -> None:
+    info = ModelInfo.from_name("codexspark")
+    assert info is not None
+    assert info.name == "codexresponses.gpt-5.3-codex-spark"
+    assert info.tdv_flags == (True, False, False)

@@ -53,6 +53,9 @@ class ModelParameters(BaseModel):
     long_context_window: int | None = None
     """Optional extended context window when explicitly requested by query params."""
 
+    response_transports: tuple[Literal["sse", "websocket"], ...] | None = None
+    """Supported transports for Responses APIs, if the model exposes alternatives."""
+
 
 class ModelDatabase:
     """Centralized model configuration database"""
@@ -267,6 +270,15 @@ class ModelDatabase:
         reasoning="openai",
         reasoning_effort_spec=OPENAI_GPT_5_CODEX_CLASS_REASONING,
         text_verbosity_spec=OPENAI_TEXT_VERBOSITY_SPEC,
+        response_transports=("sse", "websocket"),
+    )
+
+    OPENAI_GPT_CODEX_SPARK = ModelParameters(
+        context_window=128000,
+        max_output_tokens=128000,
+        tokenizes=TEXT_ONLY,
+        # Spark does not support reasoning effort or text verbosity controls.
+        response_transports=("sse", "websocket"),
     )
 
     ANTHROPIC_OPUS_4_VERSIONED = ModelParameters(
@@ -279,7 +291,7 @@ class ModelDatabase:
     )
     ANTHROPIC_OPUS_46 = ModelParameters(
         context_window=200000,
-        max_output_tokens=32000,
+        max_output_tokens=128000,
         tokenizes=ANTHROPIC_MULTIMODAL,
         reasoning="anthropic_thinking",
         reasoning_effort_spec=ANTHROPIC_ADAPTIVE_THINKING_EFFORT_SPEC,
@@ -491,6 +503,7 @@ class ModelDatabase:
         "gpt-5.1-codex": OPENAI_GPT_CODEX,
         "gpt-5.2-codex": OPENAI_GPT_CODEX,
         "gpt-5.3-codex": OPENAI_GPT_CODEX,
+        "gpt-5.3-codex-spark": OPENAI_GPT_CODEX_SPARK,
         "gpt-5.2": OPENAI_GPT_5,
         # Anthropic Models
         "claude-3-haiku": ANTHROPIC_35_SERIES,
@@ -742,6 +755,12 @@ class ModelDatabase:
         """Get optional long-context override window for a model."""
         params = cls.get_model_params(model)
         return params.long_context_window if params else None
+
+    @classmethod
+    def get_response_transports(cls, model: str) -> tuple[Literal["sse", "websocket"], ...] | None:
+        """Get supported Responses transports for a model, if explicitly defined."""
+        params = cls.get_model_params(model)
+        return params.response_transports if params else None
 
     @classmethod
     def list_long_context_models(cls) -> list[str]:

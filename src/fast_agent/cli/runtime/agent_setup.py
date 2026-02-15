@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -207,6 +208,9 @@ async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -
     from fast_agent.mcp.prompts.prompt_load import load_prompt
 
     async def _run_interactive_with_interrupt_recovery() -> None:
+        ctrl_c_exit_window_seconds = 2.0
+        ctrl_c_deadline: float | None = None
+
         while True:
             try:
                 await agent_app.interactive(agent_name=request.target_agent_name)
@@ -219,7 +223,17 @@ async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -
                 await asyncio.sleep(0)
                 continue
             except KeyboardInterrupt:
-                typer.echo("Interrupted operation; returning to fast-agent prompt.", err=True)
+                now = time.monotonic()
+                if ctrl_c_deadline is not None and now <= ctrl_c_deadline:
+                    typer.echo("Second Ctrl+C received; exiting fast-agent.", err=True)
+                    raise
+
+                ctrl_c_deadline = now + ctrl_c_exit_window_seconds
+                typer.echo(
+                    "Interrupted operation; returning to fast-agent prompt. "
+                    "Press Ctrl+C again within 2 seconds to exit.",
+                    err=True,
+                )
                 continue
 
     await _resume_session_if_requested(agent_app, request)

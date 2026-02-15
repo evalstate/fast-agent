@@ -18,6 +18,7 @@ import asyncio
 import shlex
 import signal
 import threading
+import time
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Union, cast
 
@@ -44,6 +45,7 @@ from fast_agent.commands.handlers import tools as tools_handlers
 from fast_agent.commands.handlers.shared import clear_agent_histories
 from fast_agent.commands.results import CommandOutcome
 from fast_agent.config import get_settings
+from fast_agent.core.exceptions import PromptExitError
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui import enhanced_prompt
@@ -59,6 +61,7 @@ from fast_agent.ui.command_payloads import (
     HistoryFixCommand,
     HistoryReviewCommand,
     HistoryRewindCommand,
+    InterruptCommand,
     ListPromptsCommand,
     ListSessionsCommand,
     ListSkillsCommand,
@@ -86,7 +89,7 @@ from fast_agent.ui.command_payloads import (
     UnknownCommand,
     is_command_payload,
 )
-from fast_agent.ui.console import console
+from fast_agent.ui.console import console, ensure_blocking_console
 from fast_agent.ui.enhanced_prompt import (
     _display_agent_info_helper,
     get_enhanced_input,
@@ -215,7 +218,63 @@ class InteractivePrompt:
 
         result = ""
         buffer_prefill = ""  # One-off buffer content for # command results
-        suppress_stop_budget = 0
+        ctrl_c_exit_window_seconds = 2.0
+        ctrl_c_deadline: float | None = None
+
+        def _handle_ctrl_c_interrupt() -> None:
+            nonlocal ctrl_c_deadline
+
+            now = time.monotonic()
+            if ctrl_c_deadline is not None and now <= ctrl_c_deadline:
+                rich_print("[red]Second Ctrl+C received; exiting fast-agent session.[/red]")
+                raise PromptExitError("User requested to exit fast-agent session")
+
+            ctrl_c_deadline = now + ctrl_c_exit_window_seconds
+            rich_print(
+                "[yellow]Interrupted operation; returning to prompt. "
+                "Press Ctrl+C again within 2 seconds to exit.[/yellow]"
+            )
+
+        def _clear_ctrl_c_interrupt() -> None:
+            nonlocal ctrl_c_deadline
+
+            ctrl_c_deadline = None
+
+        def _handle_inflight_cancel() -> None:
+            """Handle Ctrl+C/Cancel while generation or tool calling is active."""
+            nonlocal ctrl_c_deadline
+
+            ctrl_c_deadline = None
+            rich_print("[yellow]Generation cancelled by user.[/yellow]")
+
+        def _auto_fix_pending_tool_call(agent_obj: Any) -> bool:
+            """Remove a dangling assistant TOOL_USE message at end of history."""
+            history = getattr(agent_obj, "message_history", None)
+            if not isinstance(history, list) or not history:
+                return False
+
+            last_message = history[-1]
+            if not (
+                getattr(last_message, "role", None) == "assistant"
+                and getattr(last_message, "tool_calls", None)
+                and getattr(last_message, "stop_reason", None) == LlmStopReason.TOOL_USE
+            ):
+                return False
+
+            trimmed_history = history[:-1]
+            load_history = getattr(agent_obj, "load_message_history", None)
+            if callable(load_history):
+                load_history(trimmed_history)
+                return True
+
+            existing_history = getattr(agent_obj, "message_history", None)
+            if isinstance(existing_history, list):
+                existing_history.clear()
+                existing_history.extend(trimmed_history)
+                return True
+
+            return False
+
         while True:
             # Variables for hash command - sent after input handling
             hash_send_target: str | None = None
@@ -228,8 +287,7 @@ class InteractivePrompt:
             try:
                 refreshed = await prompt_provider.refresh_if_needed()
             except KeyboardInterrupt:
-                rich_print("[yellow]Interrupted operation; returning to prompt.[/yellow]")
-                suppress_stop_budget = 1
+                _handle_ctrl_c_interrupt()
                 continue
             try:
                 agent_obj = prompt_provider._agent(agent)
@@ -239,11 +297,20 @@ class InteractivePrompt:
             if agent_obj is not None and getattr(agent_obj, "_last_turn_cancelled", False):
                 reason = getattr(agent_obj, "_last_turn_cancel_reason", "cancelled")
                 setattr(agent_obj, "_last_turn_cancelled", False)
-                suppress_stop_budget = max(suppress_stop_budget, 1)
-                rich_print(
-                    "[yellow]Previous turn was {reason}. If the session now shows a pending tool call, "
-                    "run /history fix or /history clear all.[/yellow]".format(reason=reason)
-                )
+                pending_tool_call_removed = False
+                try:
+                    pending_tool_call_removed = _auto_fix_pending_tool_call(agent_obj)
+                except Exception:
+                    pending_tool_call_removed = False
+
+                if pending_tool_call_removed:
+                    rich_print(
+                        "[yellow]Previous turn was {reason}. Removed pending tool call from history.[/yellow]".format(
+                            reason=reason
+                        )
+                    )
+                else:
+                    rich_print("[yellow]Previous turn was {reason}.[/yellow]".format(reason=reason))
 
             if refreshed:
                 available_agents = _merge_pinned_agents(list(prompt_provider.agent_names()))
@@ -288,13 +355,15 @@ class InteractivePrompt:
                     pre_populate_buffer=buffer_prefill,  # One-off buffer content
                 )
             except KeyboardInterrupt:
-                rich_print("[yellow]Interrupted operation; returning to prompt.[/yellow]")
-                suppress_stop_budget = 1
+                _handle_ctrl_c_interrupt()
                 continue
             buffer_prefill = ""  # Clear after use - it's one-off
 
             if isinstance(user_input, str):
                 user_input = parse_special_input(user_input)
+
+            if not isinstance(user_input, InterruptCommand):
+                _clear_ctrl_c_interrupt()
 
             # Avoid blocking quick shell commands on agent refresh.
             skip_refresh = isinstance(user_input, ShellCommand)
@@ -302,8 +371,7 @@ class InteractivePrompt:
                 try:
                     refreshed = await prompt_provider.refresh_if_needed()
                 except KeyboardInterrupt:
-                    rich_print("[yellow]Interrupted operation; returning to prompt.[/yellow]")
-                    suppress_stop_budget = 1
+                    _handle_ctrl_c_interrupt()
                     continue
                 if refreshed:
                     available_agents = _merge_pinned_agents(list(prompt_provider.agent_names()))
@@ -327,6 +395,9 @@ class InteractivePrompt:
             if is_command_payload(command_result):
                 command_payload: CommandPayload = cast("CommandPayload", command_result)
                 match command_payload:
+                    case InterruptCommand():
+                        _handle_ctrl_c_interrupt()
+                        continue
                     case SwitchAgentCommand(agent_name=new_agent):
                         if new_agent in available_agents_set:
                             agent = new_agent
@@ -569,7 +640,7 @@ class InteractivePrompt:
                             attached_before_connect = set()
 
                         async def _handle_mcp_connect_cancel() -> None:
-                            nonlocal suppress_stop_budget
+                            nonlocal ctrl_c_deadline
 
                             cancel_server_name = server_name
                             if not cancel_server_name:
@@ -605,18 +676,27 @@ class InteractivePrompt:
                             rich_print(
                                 "[yellow]MCP connect cancelled; returned to prompt.[/yellow]"
                             )
-                            suppress_stop_budget = 0
+                            ctrl_c_deadline = None
 
                         with console.status(
                             f"[yellow]Starting MCP server '{label}'...[/yellow]",
                             spinner="dots",
                         ) as mcp_connect_status:
+                            oauth_link_shown = False
+
                             async def _emit_mcp_progress(message: str) -> None:
+                                nonlocal oauth_link_shown
                                 if message.startswith("Open this link to authorize:"):
                                     auth_url = message.split(":", 1)[1].strip()
                                     if auth_url:
+                                        oauth_link_shown = True
                                         rich_print("[bold]Open this link to authorize:[/bold]")
-                                        rich_print(f"[link={auth_url}]{auth_url}[/link]")
+                                        ensure_blocking_console()
+                                        console.print(
+                                            f"[link={auth_url}]{auth_url}[/link]",
+                                            style="bright_cyan",
+                                            soft_wrap=True,
+                                        )
                                         return
                                 mcp_connect_status.update(status=Text(message, style="yellow"))
 
@@ -656,6 +736,12 @@ class InteractivePrompt:
                             finally:
                                 if sigint_handler_installed and previous_sigint_handler is not None:
                                     signal.signal(signal.SIGINT, previous_sigint_handler)
+                        if oauth_link_shown:
+                            outcome.messages = [
+                                message
+                                for message in outcome.messages
+                                if not str(message.text).startswith("OAuth authorization link:")
+                            ]
                         await self._emit_command_outcome(context, outcome)
                         continue
                     case McpDisconnectCommand(server_name=server_name, error=error):
@@ -861,14 +947,9 @@ class InteractivePrompt:
                 if not isinstance(user_input, str):
                     continue
 
-                if user_input.upper() == "STOP":
-                    if suppress_stop_budget > 0:
-                        suppress_stop_budget -= 1
-                        continue
+                if user_input.strip().upper() == "STOP":
                     return result
 
-                if suppress_stop_budget > 0:
-                    suppress_stop_budget = 0
                 if user_input == "":
                     continue
 
@@ -882,6 +963,9 @@ class InteractivePrompt:
                     emit_prompt_mark("C")
                     progress_display.resume()
                     response_text = await send_func(hash_send_message, hash_send_target)
+                except (KeyboardInterrupt, asyncio.CancelledError):
+                    _handle_inflight_cancel()
+                    continue
                 except Exception as exc:
                     rich_print(f"[red]Error asking {hash_send_target}: {exc}[/red]")
                     continue
@@ -921,6 +1005,9 @@ class InteractivePrompt:
             progress_display.resume()
             try:
                 result = await send_func(user_input, agent)
+            except (KeyboardInterrupt, asyncio.CancelledError):
+                _handle_inflight_cancel()
+                continue
             finally:
                 progress_display.pause()
                 emit_prompt_mark("D")
@@ -943,7 +1030,7 @@ class InteractivePrompt:
                         and getattr(last_message, "role", None) == "assistant"
                         and getattr(last_message, "stop_reason", None) == LlmStopReason.CANCELLED
                     ):
-                        suppress_stop_budget = max(suppress_stop_budget, 1)
+                        ctrl_c_deadline = None
                 except Exception:
                     pass
 

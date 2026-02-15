@@ -174,9 +174,9 @@ def run_interactive_shell_command(
                         input_data = os.read(tty_in_fd, 1024)
                     except OSError:
                         input_data = b""
-                    if b"" in input_data and proc is not None:
-                        os.killpg(proc.pid, signal.SIGINT)
-                        input_data = input_data.replace(b"", b"")
+                    # Forward terminal bytes unchanged (including Ctrl+C) through
+                    # the PTY so the foreground job in an interactive shell receives
+                    # SIGINT via normal TTY line discipline semantics.
                     if input_data:
                         os.write(master_fd, input_data)
 

@@ -31,6 +31,7 @@ from rich import print as rich_print
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.agents.workflow.router_agent import RouterAgent
+from fast_agent.config import get_settings
 from fast_agent.constants import (
     FAST_AGENT_ALERT_CHANNEL,
     FAST_AGENT_ERROR_CHANNEL,
@@ -53,6 +54,7 @@ from fast_agent.ui.command_payloads import (
     HistoryFixCommand,
     HistoryReviewCommand,
     HistoryRewindCommand,
+    InterruptCommand,
     ListSessionsCommand,
     ListToolsCommand,
     LoadAgentCardCommand,
@@ -746,7 +748,7 @@ class AgentCompleter(Completer):
             "history": "Show conversation history overview (or /history save|load|clear|rewind|review|fix)",
             "tools": "List tools",
             "model": "Update model settings (/model reasoning <value> | /model verbosity <value>)",
-            "skills": "Manage skills (/skills, /skills add, /skills remove, /skills registry)",
+            "skills": "Manage skills (/skills, /skills add, /skills remove, /skills update, /skills registry)",
             "prompt": "Load a Prompt File or use MCP Prompt",
             "system": "Show the current system prompt",
             "usage": "Show current usage statistics",
@@ -1037,9 +1039,15 @@ class AgentCompleter(Completer):
             include_hidden_dirs=True,
         )
 
-    def _complete_local_skill_names(self, partial: str):
+    def _complete_local_skill_names(
+        self,
+        partial: str,
+        *,
+        managed_only: bool = False,
+        include_indices: bool = True,
+    ):
         """Generate completions for local skill names and indices."""
-        from fast_agent.skills.manager import get_manager_directory
+        from fast_agent.skills.manager import get_manager_directory, read_installed_skill_source
         from fast_agent.skills.registry import SkillRegistry
 
         manager_dir = get_manager_directory()
@@ -1048,15 +1056,20 @@ class AgentCompleter(Completer):
             return
 
         partial_lower = partial.lower()
-        include_numbers = not partial or partial.isdigit()
+        include_numbers = include_indices and (not partial or partial.isdigit())
         for index, manifest in enumerate(manifests, 1):
+            if managed_only:
+                source, _ = read_installed_skill_source(Path(manifest.path).parent)
+                if source is None:
+                    continue
+
             name = manifest.name
             if name and (not partial or name.lower().startswith(partial_lower)):
                 yield Completion(
                     name,
                     start_position=-len(partial),
                     display=name,
-                    display_meta="local skill",
+                    display_meta="managed skill" if managed_only else "local skill",
                 )
             if include_numbers:
                 index_text = str(index)
@@ -1227,6 +1240,114 @@ class AgentCompleter(Completer):
                         display_meta=description,
                     )
 
+    def _list_configured_mcp_servers(self) -> list[str]:
+        configured: set[str] = set()
+        attached: set[str] = set()
+
+        # Prefer the runtime aggregator when available so completions include
+        # both config-backed entries and runtime-attached server names.
+        if self.agent_provider is not None and self.current_agent:
+            try:
+                agent = self.agent_provider._agent(self.current_agent)
+                aggregator = getattr(agent, "aggregator", None)
+                list_attached = getattr(aggregator, "list_attached_servers", None)
+                if callable(list_attached):
+                    attached.update(list_attached())
+
+                list_detached = getattr(aggregator, "list_configured_detached_servers", None)
+                if callable(list_detached):
+                    configured.update(list_detached())
+
+                context = getattr(aggregator, "context", None)
+                server_registry = getattr(context, "server_registry", None)
+                registry_data = getattr(server_registry, "registry", None)
+                if isinstance(registry_data, dict):
+                    configured.update(str(name) for name in registry_data)
+            except Exception:
+                pass
+
+        # Fall back to global settings so completion still works before agent
+        # startup wiring is fully available.
+        try:
+            settings = get_settings()
+            mcp_settings = getattr(settings, "mcp", None)
+            server_map = getattr(mcp_settings, "servers", None)
+            if isinstance(server_map, dict):
+                configured.update(str(name) for name in server_map)
+        except Exception:
+            pass
+
+        if attached:
+            configured.difference_update(attached)
+
+        return sorted(configured)
+
+    def _complete_configured_mcp_servers(self, partial: str):
+        partial_lower = partial.lower()
+        for server_name in self._list_configured_mcp_servers():
+            if partial and not server_name.lower().startswith(partial_lower):
+                continue
+            yield Completion(
+                server_name,
+                start_position=-len(partial),
+                display=server_name,
+                display_meta="configured mcp server",
+            )
+
+    def _mcp_connect_target_hint(self, partial: str) -> Completion:
+        return Completion(
+            partial,
+            start_position=-len(partial),
+            display="[url|npx|uvx]",
+            display_meta="enter url or npx/uvx cmd",
+        )
+
+    @staticmethod
+    def _mcp_connect_context(remainder: str) -> tuple[str, int, str]:
+        """Classify completion context for `/mcp connect ...`.
+
+        Returns (context, target_count, partial) where:
+          - context: one of "target", "flag", "flag_value", "new_token"
+          - target_count: number of fully-formed target tokens before `partial`
+          - partial: token currently being edited (or "" when cursor is after whitespace)
+        """
+
+        takes_value = {"--name", "-n", "--timeout", "--auth"}
+        switch_only = {"--oauth", "--no-oauth", "--reconnect", "--no-reconnect"}
+
+        raw_tokens = remainder.split()
+        trailing_space = remainder.endswith(" ")
+        partial = "" if trailing_space else (raw_tokens[-1] if raw_tokens else "")
+        complete_tokens = raw_tokens if trailing_space else raw_tokens[:-1]
+
+        target_count = 0
+        waiting_for_flag_value = False
+        for token in complete_tokens:
+            if waiting_for_flag_value:
+                waiting_for_flag_value = False
+                continue
+            if token in takes_value:
+                waiting_for_flag_value = True
+                continue
+            if token.startswith("--auth="):
+                continue
+            if token in switch_only:
+                continue
+            target_count += 1
+
+        if trailing_space:
+            return (
+                "flag_value" if waiting_for_flag_value else "new_token",
+                target_count,
+                partial,
+            )
+
+        if waiting_for_flag_value:
+            return "flag_value", target_count, partial
+        if partial in takes_value or partial in switch_only or partial.startswith("--"):
+            return "flag", target_count, partial
+        return "target", target_count, partial
+
     def get_completions(self, document, complete_event):
         """Synchronous completions method - this is what prompt_toolkit expects by default"""
         text = document.text_before_cursor
@@ -1368,6 +1489,7 @@ class AgentCompleter(Completer):
                 "list": "List local skills",
                 "add": "Install a skill",
                 "remove": "Remove a local skill",
+                "update": "Check or apply skill updates",
                 "registry": "Set skills registry",
             }
             yield from self._complete_subcommands(parts, remainder, subcommands)
@@ -1378,6 +1500,34 @@ class AgentCompleter(Completer):
             argument = parts[1] if len(parts) > 1 else ""
             if subcmd in {"remove", "rm", "delete", "uninstall"}:
                 yield from self._complete_local_skill_names(argument)
+                return
+            if subcmd in {"update", "refresh", "upgrade"}:
+                if "all".startswith(argument.lower()):
+                    yield Completion(
+                        "all",
+                        start_position=-len(argument),
+                        display="all",
+                        display_meta="update all managed skills",
+                    )
+                if "--force".startswith(argument.lower()):
+                    yield Completion(
+                        "--force",
+                        start_position=-len(argument),
+                        display="--force",
+                        display_meta="overwrite local modifications",
+                    )
+                if "--yes".startswith(argument.lower()):
+                    yield Completion(
+                        "--yes",
+                        start_position=-len(argument),
+                        display="--yes",
+                        display_meta="confirm multi-skill apply",
+                    )
+                yield from self._complete_local_skill_names(
+                    argument,
+                    managed_only=True,
+                    include_indices=False,
+                )
                 return
             if subcmd in {"registry", "marketplace", "source"}:
                 yield from self._complete_skill_registries(argument)
@@ -1447,6 +1597,46 @@ class AgentCompleter(Completer):
                         display_meta="attached mcp server",
                     )
             return
+
+        if text_lower.startswith("/mcp connect "):
+            remainder = text[len("/mcp connect ") :]
+            connect_flags = {
+                "--name": "set attached server name",
+                "--auth": "set bearer token for URL servers",
+                "--timeout": "set startup timeout in seconds",
+                "--oauth": "enable oauth flow",
+                "--no-oauth": "disable oauth flow",
+                "--reconnect": "force reconnect and refresh tools",
+                "--no-reconnect": "disable reconnect-on-disconnect",
+            }
+
+            context, target_count, partial = self._mcp_connect_context(remainder)
+
+            if context in {"target", "new_token"} and target_count == 0:
+                yield self._mcp_connect_target_hint(partial)
+                yield from self._complete_configured_mcp_servers(partial)
+                return
+
+            if context == "new_token" and target_count > 0:
+                for flag, description in connect_flags.items():
+                    yield Completion(
+                        flag,
+                        start_position=0,
+                        display=flag,
+                        display_meta=description,
+                    )
+                return
+
+            if context == "flag" and target_count > 0:
+                for flag, description in connect_flags.items():
+                    if flag.startswith(partial.lower()):
+                        yield Completion(
+                            flag,
+                            start_position=-len(partial),
+                            display=flag,
+                            display_meta=description,
+                        )
+                return
 
         if text_lower.startswith("/mcp "):
             remainder = text[len("/mcp ") :]
@@ -1767,6 +1957,16 @@ def create_keybindings(
     def _(event) -> None:
         """Ctrl+U: Clear the input buffer."""
         event.current_buffer.text = ""
+
+    @kb.add("c-c")
+    def _(event) -> None:
+        """Ctrl+C: interrupt prompt input (handled by caller policy)."""
+        event.app.exit(exception=KeyboardInterrupt())
+
+    @kb.add("c-d")
+    def _(event) -> None:
+        """Ctrl+D: signal EOF (mapped to STOP by prompt input handler)."""
+        event.app.exit(exception=EOFError())
 
     @kb.add("c-e")
     async def _(event) -> None:
@@ -2700,7 +2900,7 @@ async def get_enhanced_input(
     # Only show hints at startup if requested
     if show_stop_hint:
         if default == "STOP":
-            rich_print("Enter a prompt, [red]STOP[/red] to finish")
+            rich_print("Enter a prompt, [red]STOP[/red] or [red]Ctrl+D[/red] to finish")
             if default:
                 rich_print(f"Press <ENTER> to use the default prompt:\n[cyan]{default}[/cyan]")
 
@@ -2849,6 +3049,7 @@ async def get_enhanced_input(
         result = await session.prompt_async(
             _resolve_prompt_text,
             default=buffer_default,
+            set_exception_handler=False,
         )
         prompt_returned_at = time.perf_counter()
         emit_prompt_mark("B")
@@ -2878,8 +3079,9 @@ async def get_enhanced_input(
     except KeyboardInterrupt:
         if prompt_mark_started:
             emit_prompt_mark("B")
-        # Handle Ctrl+C gracefully
-        return "STOP"
+        # Keep Ctrl+C distinct from STOP/Ctrl+D so the caller can implement
+        # interrupt/retry/exit policy consistently.
+        return InterruptCommand()
     except EOFError:
         if prompt_mark_started:
             emit_prompt_mark("B")
@@ -2927,7 +3129,11 @@ async def get_selection_input(
 
         try:
             # Get user input
-            selection = await prompt_session.prompt_async(prompt_text, default=default or "")
+            selection = await prompt_session.prompt_async(
+                prompt_text,
+                default=default or "",
+                set_exception_handler=False,
+            )
 
             # Handle cancellation
             if allow_cancel and not selection.strip():
@@ -2977,7 +3183,10 @@ async def get_argument_input(
 
     try:
         # Get user input
-        arg_value = await prompt_session.prompt_async(prompt_text)
+        arg_value = await prompt_session.prompt_async(
+            prompt_text,
+            set_exception_handler=False,
+        )
 
         # For optional arguments, empty input means skip
         if not required and not arg_value:
@@ -3028,6 +3237,7 @@ async def handle_special_commands(
         rich_print("  /skills        - List local skills for the manager directory")
         rich_print("  /skills add    - Install a skill from the marketplace")
         rich_print("  /skills remove - Remove a skill from the manager directory")
+        rich_print("  /skills update - Check/apply updates for managed installed skills")
         rich_print(
             "  /model reasoning <value> - Set reasoning effort (off/low/medium/high/max/xhigh or budgets like 0/1024/16000/32000)"
         )
@@ -3083,6 +3293,8 @@ async def handle_special_commands(
         rich_print("  Ctrl+Y         - Copy last assistant response to clipboard")
         rich_print("  Ctrl+L         - Redraw the screen")
         rich_print("  Ctrl+U         - Clear input")
+        rich_print("  Ctrl+C         - Cancel current operation (press twice quickly to exit)")
+        rich_print("  Ctrl+D         - End prompt session (same as STOP)")
         rich_print("  Up/Down        - Navigate history")
         return True
 

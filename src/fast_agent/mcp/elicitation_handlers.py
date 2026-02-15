@@ -76,16 +76,25 @@ async def forms_elicitation_handler(
             f"URL elicitation from {server_name}: {url} (elicitationId={elicitation_id})"
         )
 
-        # Display the URL to the user
-        from fast_agent.ui.console_display import ConsoleDisplay
+        queued = False
+        if hasattr(context, "session") and isinstance(context.session, MCPAgentClientSession):
+            queued = context.session.queue_url_elicitation_for_active_request(
+                message=message,
+                url=url,
+                elicitation_id=(str(elicitation_id) if elicitation_id is not None else None),
+            )
 
-        display = ConsoleDisplay()
-        display.show_url_elicitation(
-            message=message,
-            url=url,
-            server_name=server_name or "Unknown Server",
-            agent_name=agent_name,
-        )
+        if not queued:
+            from fast_agent.ui.console_display import ConsoleDisplay
+
+            display = ConsoleDisplay()
+            display.show_url_elicitation(
+                message=message,
+                url=url,
+                server_name=server_name or "Unknown Server",
+                agent_name=agent_name,
+                elicitation_id=(str(elicitation_id) if elicitation_id is not None else None),
+            )
 
         # Per MCP spec: return accept to indicate user has been shown the URL
         # The actual interaction (OAuth, payment, etc.) happens out-of-band
