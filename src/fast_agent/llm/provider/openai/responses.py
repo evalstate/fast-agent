@@ -598,9 +598,28 @@ class ResponsesLLM(
                 )
                 await send_response_create(connection.websocket, arguments)
                 stream = WebSocketResponsesStream(connection.websocket)
-                response, streamed_summary = await self._process_stream(
-                    stream, model_name, capture_filename
-                )
+                if timeout is None:
+                    response, streamed_summary = await self._process_stream(
+                        stream, model_name, capture_filename
+                    )
+                else:
+                    try:
+                        response, streamed_summary = await asyncio.wait_for(
+                            self._process_stream(stream, model_name, capture_filename),
+                            timeout=timeout,
+                        )
+                    except asyncio.TimeoutError as exc:
+                        self.logger.error(
+                            "Streaming timeout while waiting for Responses websocket",
+                            data={
+                                "model": model_name,
+                                "timeout_seconds": timeout,
+                            },
+                        )
+                        raise TimeoutError(
+                            "Streaming did not complete within "
+                            f"{timeout} seconds."
+                        ) from exc
                 keep_connection = True
                 if reconnected:
                     try:
@@ -634,6 +653,8 @@ class ResponsesLLM(
                     reconnect_diagnostics = self._websocket_retry_diagnostics(connection, error)
                 if not retry_after_release:
                     raise
+            except TimeoutError:
+                raise
             except Exception as exc:
                 stream_started = stream.stream_started if stream is not None else False
                 wrapped_error = ResponsesWebSocketError(

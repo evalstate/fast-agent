@@ -277,9 +277,7 @@ class ModelDatabase:
         context_window=128000,
         max_output_tokens=128000,
         tokenizes=TEXT_ONLY,
-        #        reasoning="openai",
-        #        reasoning_effort_spec=OPENAI_GPT_5_CODEX_CLASS_REASONING,
-        #        text_verbosity_spec=OPENAI_TEXT_VERBOSITY_SPEC,
+        # Spark does not support reasoning effort or text verbosity controls.
         response_transports=("sse", "websocket"),
     )
 

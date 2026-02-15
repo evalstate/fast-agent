@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass
 from types import SimpleNamespace
@@ -422,6 +423,18 @@ class _ConnectionLifecycleHarness(ResponsesLLM):
         return response, []
 
 
+class _TimeoutLifecycleHarness(_ConnectionLifecycleHarness):
+    async def _process_stream(
+        self,
+        stream: Any,
+        model: str,
+        capture_filename: Any,
+    ) -> tuple[Any, list[str]]:
+        del stream, model, capture_filename
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+
 @pytest.mark.asyncio
 async def test_auto_transport_falls_back_to_sse_before_stream_start() -> None:
     harness = _TransportHarness(name="transport-harness", transport="auto")
@@ -555,6 +568,29 @@ async def test_websocket_success_keeps_connection_for_reuse() -> None:
     assert streamed_summary == []
     assert normalized_input == input_items
     assert harness._release_manager.release_keep_values == [True]
+
+
+@pytest.mark.asyncio
+async def test_websocket_streaming_timeout_releases_reusable_connection() -> None:
+    harness = _TimeoutLifecycleHarness()
+    params = RequestParams(model="gpt-5.3-codex", streaming_timeout=0.01)
+    input_items = [
+        {
+            "type": "message",
+            "role": "user",
+            "content": [{"type": "input_text", "text": "hello"}],
+        }
+    ]
+
+    with pytest.raises(TimeoutError, match="Streaming did not complete within"):
+        await harness._responses_completion_ws(
+            input_items=input_items,
+            request_params=params,
+            tools=None,
+            model_name="gpt-5.3-codex",
+        )
+
+    assert harness._release_manager.release_keep_values == [False]
 
 
 @pytest.mark.asyncio

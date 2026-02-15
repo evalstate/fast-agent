@@ -193,7 +193,7 @@ def test_model_database_reasoning_modes():
     assert ModelDatabase.get_reasoning("o1") == "openai"
     assert ModelDatabase.get_reasoning("o3-mini") == "openai"
     assert ModelDatabase.get_reasoning("gpt-5") == "openai"
-    assert ModelDatabase.get_reasoning("gpt-5.3-codex-spark") == "openai"
+    assert ModelDatabase.get_reasoning("gpt-5.3-codex-spark") is None
     assert ModelDatabase.get_reasoning("claude-opus-4-6") == "anthropic_thinking"
     assert ModelDatabase.get_reasoning("zai-org/glm-4.6") == "reasoning_content"
     assert ModelDatabase.get_reasoning("gpt-4o") is None
