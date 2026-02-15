@@ -4,6 +4,7 @@ import os
 
 import pytest
 
+import fast_agent.config as config_module
 from fast_agent.session import reset_session_manager
 
 
@@ -17,14 +18,18 @@ def isolate_environment_dir(tmp_path):
     """
 
     original_environment_dir = os.environ.get("ENVIRONMENT_DIR")
+    original_settings = getattr(config_module, "_settings", None)
     isolated_environment_dir = tmp_path / ".fast-agent-test-env"
     os.environ["ENVIRONMENT_DIR"] = str(isolated_environment_dir)
+    # Ensure cached global settings never leak across tests.
+    config_module._settings = None
     reset_session_manager()
 
     try:
         yield
     finally:
         reset_session_manager()
+        config_module._settings = original_settings
         if original_environment_dir is None:
             os.environ.pop("ENVIRONMENT_DIR", None)
         else:

@@ -1039,9 +1039,15 @@ class AgentCompleter(Completer):
             include_hidden_dirs=True,
         )
 
-    def _complete_local_skill_names(self, partial: str):
+    def _complete_local_skill_names(
+        self,
+        partial: str,
+        *,
+        managed_only: bool = False,
+        include_indices: bool = True,
+    ):
         """Generate completions for local skill names and indices."""
-        from fast_agent.skills.manager import get_manager_directory
+        from fast_agent.skills.manager import get_manager_directory, read_installed_skill_source
         from fast_agent.skills.registry import SkillRegistry
 
         manager_dir = get_manager_directory()
@@ -1050,15 +1056,20 @@ class AgentCompleter(Completer):
             return
 
         partial_lower = partial.lower()
-        include_numbers = not partial or partial.isdigit()
+        include_numbers = include_indices and (not partial or partial.isdigit())
         for index, manifest in enumerate(manifests, 1):
+            if managed_only:
+                source, _ = read_installed_skill_source(Path(manifest.path).parent)
+                if source is None:
+                    continue
+
             name = manifest.name
             if name and (not partial or name.lower().startswith(partial_lower)):
                 yield Completion(
                     name,
                     start_position=-len(partial),
                     display=name,
-                    display_meta="local skill",
+                    display_meta="managed skill" if managed_only else "local skill",
                 )
             if include_numbers:
                 index_text = str(index)
@@ -1512,7 +1523,11 @@ class AgentCompleter(Completer):
                         display="--yes",
                         display_meta="confirm multi-skill apply",
                     )
-                yield from self._complete_local_skill_names(argument)
+                yield from self._complete_local_skill_names(
+                    argument,
+                    managed_only=True,
+                    include_indices=False,
+                )
                 return
             if subcmd in {"registry", "marketplace", "source"}:
                 yield from self._complete_skill_registries(argument)
