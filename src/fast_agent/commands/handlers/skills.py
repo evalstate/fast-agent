@@ -322,7 +322,7 @@ def _format_update_results(updates: Sequence[SkillUpdateInfo], *, title: str) ->
             if update.status in {"up_to_date", "updated"}:
                 status_style = "green"
             elif update.status == "update_available":
-                status_style = "bold bright_cyan"
+                status_style = "bold bright_yellow"
             elif update.status not in {"unmanaged"}:
                 status_style = "yellow"
 
@@ -725,8 +725,7 @@ async def handle_skills_command(
 
     outcome = CommandOutcome()
     outcome.add_message(
-        f"Unknown /skills action: {normalized}. "
-        "Use list/add/remove/update/registry.",
+        f"Unknown /skills action: {normalized}. Use list/add/remove/update/registry.",
         channel="warning",
     )
     return outcome
