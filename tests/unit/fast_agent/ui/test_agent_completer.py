@@ -214,6 +214,27 @@ def test_get_completions_for_history_subcommands():
     assert "show" in names
     assert "save" in names
     assert "load" in names
+    assert "webclear" not in names
+
+
+def test_get_completions_for_history_subcommands_includes_webclear_when_enabled() -> None:
+    class _LlmStub:
+        web_tools_enabled = (True, False)
+
+    class _AgentStub:
+        llm = _LlmStub()
+
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(_AgentStub())),
+    )
+
+    doc = Document("/history ", cursor_position=9)
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert "webclear" in names
 
 
 def test_get_completions_for_session_pin(tmp_path: Path) -> None:

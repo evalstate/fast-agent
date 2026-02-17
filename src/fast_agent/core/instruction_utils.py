@@ -10,6 +10,8 @@ from fast_agent.core.instruction_refresh import McpInstructionCapable, build_ins
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
+INTERNAL_AGENT_CARD_SENTINEL = "(internal)"
+
 
 def _normalize_agent_type_value(value: object) -> str:
     if value is None:
@@ -26,7 +28,7 @@ def _resolve_agent_card_paths(agent: object) -> tuple[str, str]:
     config = getattr(agent, "config", None)
     source_path = getattr(config, "source_path", None) if config is not None else None
     if source_path is None:
-        return "", ""
+        return INTERNAL_AGENT_CARD_SENTINEL, INTERNAL_AGENT_CARD_SENTINEL
 
     path = source_path if isinstance(source_path, Path) else Path(str(source_path))
     expanded = path.expanduser()

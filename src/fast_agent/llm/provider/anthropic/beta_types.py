@@ -25,6 +25,12 @@ from anthropic.types.beta import (
     BetaRedactedThinkingBlock as RedactedThinkingBlock,
 )
 from anthropic.types.beta import (
+    BetaServerToolUseBlock as ServerToolUseBlock,
+)
+from anthropic.types.beta import (
+    BetaServerToolUseBlockParam as ServerToolUseBlockParam,
+)
+from anthropic.types.beta import (
     BetaSignatureDelta as SignatureDelta,
 )
 from anthropic.types.beta import (
@@ -54,6 +60,30 @@ from anthropic.types.beta import (
 from anthropic.types.beta import (
     BetaUsage as Usage,
 )
+from anthropic.types.beta import (
+    BetaWebFetchTool20250910Param as WebFetchTool20250910Param,
+)
+from anthropic.types.beta import (
+    BetaWebFetchTool20260209Param as WebFetchTool20260209Param,
+)
+from anthropic.types.beta import (
+    BetaWebFetchToolResultBlock as WebFetchToolResultBlock,
+)
+from anthropic.types.beta import (
+    BetaWebFetchToolResultBlockParam as WebFetchToolResultBlockParam,
+)
+from anthropic.types.beta import (
+    BetaWebSearchTool20250305Param as WebSearchTool20250305Param,
+)
+from anthropic.types.beta import (
+    BetaWebSearchTool20260209Param as WebSearchTool20260209Param,
+)
+from anthropic.types.beta import (
+    BetaWebSearchToolResultBlock as WebSearchToolResultBlock,
+)
+from anthropic.types.beta import (
+    BetaWebSearchToolResultBlockParam as WebSearchToolResultBlockParam,
+)
 
 __all__ = [
     "InputJSONDelta",
@@ -64,6 +94,8 @@ __all__ = [
     "RawContentBlockStopEvent",
     "RawMessageDeltaEvent",
     "RedactedThinkingBlock",
+    "ServerToolUseBlock",
+    "ServerToolUseBlockParam",
     "SignatureDelta",
     "TextBlock",
     "TextBlockParam",
@@ -74,4 +106,12 @@ __all__ = [
     "ToolUseBlock",
     "ToolUseBlockParam",
     "Usage",
+    "WebFetchTool20250910Param",
+    "WebFetchTool20260209Param",
+    "WebFetchToolResultBlock",
+    "WebFetchToolResultBlockParam",
+    "WebSearchTool20250305Param",
+    "WebSearchTool20260209Param",
+    "WebSearchToolResultBlock",
+    "WebSearchToolResultBlockParam",
 ]

@@ -227,6 +227,17 @@ class TestInstructionBuilderInternalPatterns:
 
         assert "You are a helpful AI Agent." in result
         assert "{{internal:smart_prompt}}" not in result
+        assert "{{internal:smart_agent_cards}}" not in result
+
+    @pytest.mark.asyncio
+    async def test_internal_partial_resolution_for_smart_agent_cards(self):
+        """{{internal:smart_agent_cards}} should resolve the AgentCard guidance partial."""
+        builder = InstructionBuilder("{{internal:smart_agent_cards}}")
+        result = await builder.build()
+
+        assert "<AgentCards>" in result
+        assert "Agent Card (type: `agent`)" in result
+        assert "{{internal:smart_agent_cards}}" not in result
 
     @pytest.mark.asyncio
     async def test_smart_agent_instruction_uses_internal_resource(self):

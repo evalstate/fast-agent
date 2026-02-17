@@ -61,6 +61,7 @@ from fast_agent.ui.command_payloads import (
     HistoryFixCommand,
     HistoryReviewCommand,
     HistoryRewindCommand,
+    HistoryWebClearCommand,
     InterruptCommand,
     ListPromptsCommand,
     ListSessionsCommand,
@@ -534,6 +535,20 @@ class InteractivePrompt:
                             continue
                         context = self._build_command_context(prompt_provider, agent)
                         outcome = await history_handlers.handle_history_fix(
+                            context,
+                            agent_name=agent,
+                            target_agent=target_agent,
+                        )
+                        await self._emit_command_outcome(context, outcome)
+                        continue
+                    case HistoryWebClearCommand(agent=target_agent):
+                        if (
+                            target_agent
+                            and self._get_agent_or_warn(prompt_provider, target_agent) is None
+                        ):
+                            continue
+                        context = self._build_command_context(prompt_provider, agent)
+                        outcome = await history_handlers.handle_history_webclear(
                             context,
                             agent_name=agent,
                             target_agent=target_agent,

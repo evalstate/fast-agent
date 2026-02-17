@@ -289,12 +289,26 @@ class InstructionBuilder:
         """Resolve {{internal:resource_id}} patterns from packaged resources."""
         internal_pattern = re.compile(r"\{\{internal:([^}]+)\}\}")
 
-        def replace_internal(match: re.Match) -> str:
-            resource_id = match.group(1)
-            internal_text = _load_internal_resource(resource_id)
-            return protect_escaped_braces(internal_text)
+        # Allow internal resources to include other internal resources while guarding
+        # against accidental recursion loops.
+        max_internal_include_depth = 10
+        result = text
 
-        return internal_pattern.sub(replace_internal, text)
+        for _ in range(max_internal_include_depth):
+            if not internal_pattern.search(result):
+                return result
+
+            def replace_internal(match: re.Match) -> str:
+                resource_id = match.group(1)
+                internal_text = _load_internal_resource(resource_id)
+                return protect_escaped_braces(internal_text)
+
+            result = internal_pattern.sub(replace_internal, result)
+
+        raise AgentConfigError(
+            "Internal resource include depth exceeded",
+            "Detected recursive or excessively deep {{internal:...}} include chain",
+        )
 
     def _resolve_url_patterns(self, text: str) -> str:
         """Resolve {{url:https://...}} patterns by fetching content."""

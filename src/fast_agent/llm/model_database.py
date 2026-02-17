@@ -56,6 +56,15 @@ class ModelParameters(BaseModel):
     response_transports: tuple[Literal["sse", "websocket"], ...] | None = None
     """Supported transports for Responses APIs, if the model exposes alternatives."""
 
+    anthropic_web_search_version: str | None = None
+    """Anthropic built-in web_search tool version, if supported by the model."""
+
+    anthropic_web_fetch_version: str | None = None
+    """Anthropic built-in web_fetch tool version, if supported by the model."""
+
+    anthropic_required_betas: tuple[str, ...] | None = None
+    """Anthropic beta headers required for model-specific server tool support."""
+
 
 class ModelDatabase:
     """Centralized model configuration database"""
@@ -155,6 +164,12 @@ class ModelDatabase:
         default=ReasoningEffortSetting(kind="effort", value=AUTO_REASONING),
     )
 
+    ANTHROPIC_WEB_SEARCH_LEGACY = "web_search_20250305"
+    ANTHROPIC_WEB_FETCH_LEGACY = "web_fetch_20250910"
+    ANTHROPIC_WEB_SEARCH_46 = "web_search_20260209"
+    ANTHROPIC_WEB_FETCH_46 = "web_fetch_20260209"
+    ANTHROPIC_WEB_TOOLS_BETA_46 = "code-execution-web-tools-2026-02-09"
+
     # Common parameter configurations
     OPENAI_STANDARD = ModelParameters(
         context_window=128000, max_output_tokens=16384, tokenizes=OPENAI_MULTIMODAL
@@ -178,6 +193,8 @@ class ModelDatabase:
         tokenizes=ANTHROPIC_MULTIMODAL,
         json_mode=None,
         cache_ttl="5m",
+        anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_LEGACY,
+        anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_LEGACY,
     )
 
     ANTHROPIC_35_SERIES = ModelParameters(
@@ -186,6 +203,8 @@ class ModelDatabase:
         tokenizes=ANTHROPIC_MULTIMODAL,
         json_mode=None,
         cache_ttl="5m",
+        anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_LEGACY,
+        anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_LEGACY,
     )
 
     # TODO--- TO USE 64,000 NEED TO SUPPORT STREAMING
@@ -195,6 +214,8 @@ class ModelDatabase:
         tokenizes=ANTHROPIC_MULTIMODAL,
         json_mode=None,
         cache_ttl="5m",
+        anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_LEGACY,
+        anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_LEGACY,
     )
 
     QWEN_STANDARD = ModelParameters(
@@ -288,6 +309,8 @@ class ModelDatabase:
         reasoning="anthropic_thinking",
         reasoning_effort_spec=ANTHROPIC_THINKING_EFFORT_SPEC,
         cache_ttl="5m",
+        anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_LEGACY,
+        anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_LEGACY,
     )
     ANTHROPIC_OPUS_46 = ModelParameters(
         context_window=200000,
@@ -296,6 +319,9 @@ class ModelDatabase:
         reasoning="anthropic_thinking",
         reasoning_effort_spec=ANTHROPIC_ADAPTIVE_THINKING_EFFORT_SPEC,
         cache_ttl="5m",
+        anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_46,
+        anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_46,
+        anthropic_required_betas=(ANTHROPIC_WEB_TOOLS_BETA_46,),
     )
     ANTHROPIC_OPUS_4_LEGACY = ModelParameters(
         context_window=200000,
@@ -305,6 +331,8 @@ class ModelDatabase:
         reasoning_effort_spec=ANTHROPIC_THINKING_EFFORT_SPEC,
         json_mode=None,
         cache_ttl="5m",
+        anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_LEGACY,
+        anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_LEGACY,
     )
     ANTHROPIC_SONNET_4_VERSIONED = ModelParameters(
         context_window=200000,
@@ -313,6 +341,8 @@ class ModelDatabase:
         reasoning="anthropic_thinking",
         reasoning_effort_spec=ANTHROPIC_THINKING_EFFORT_SPEC,
         cache_ttl="5m",
+        anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_LEGACY,
+        anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_LEGACY,
     )
     ANTHROPIC_SONNET_46 = ModelParameters(
         context_window=200000,
@@ -321,6 +351,9 @@ class ModelDatabase:
         reasoning="anthropic_thinking",
         reasoning_effort_spec=ANTHROPIC_ADAPTIVE_THINKING_EFFORT_SPEC,
         cache_ttl="5m",
+        anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_46,
+        anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_46,
+        anthropic_required_betas=(ANTHROPIC_WEB_TOOLS_BETA_46,),
     )
 
     ANTHROPIC_SONNET_4_LEGACY = ModelParameters(
@@ -331,6 +364,8 @@ class ModelDatabase:
         reasoning_effort_spec=ANTHROPIC_THINKING_EFFORT_SPEC,
         json_mode=None,
         cache_ttl="5m",
+        anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_LEGACY,
+        anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_LEGACY,
     )
     # Claude 3.7 Sonnet supports extended thinking (deprecated but still available)
     ANTHROPIC_37_SERIES_THINKING = ModelParameters(
@@ -341,6 +376,8 @@ class ModelDatabase:
         reasoning_effort_spec=ANTHROPIC_THINKING_EFFORT_SPEC,
         json_mode=None,
         cache_ttl="5m",
+        anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_LEGACY,
+        anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_LEGACY,
     )
 
     DEEPSEEK_CHAT_STANDARD = ModelParameters(
@@ -773,6 +810,24 @@ class ModelDatabase:
         """Get supported Responses transports for a model, if explicitly defined."""
         params = cls.get_model_params(model)
         return params.response_transports if params else None
+
+    @classmethod
+    def get_anthropic_web_search_version(cls, model: str) -> str | None:
+        """Get Anthropic web_search tool version for a model, if available."""
+        params = cls.get_model_params(model)
+        return params.anthropic_web_search_version if params else None
+
+    @classmethod
+    def get_anthropic_web_fetch_version(cls, model: str) -> str | None:
+        """Get Anthropic web_fetch tool version for a model, if available."""
+        params = cls.get_model_params(model)
+        return params.anthropic_web_fetch_version if params else None
+
+    @classmethod
+    def get_anthropic_required_betas(cls, model: str) -> tuple[str, ...] | None:
+        """Get Anthropic beta headers required for model-specific capabilities."""
+        params = cls.get_model_params(model)
+        return params.anthropic_required_betas if params else None
 
     @classmethod
     def list_long_context_models(cls) -> list[str]:

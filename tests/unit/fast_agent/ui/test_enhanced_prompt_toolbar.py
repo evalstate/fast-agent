@@ -1,10 +1,12 @@
 from pathlib import Path
 
+from fast_agent.agents.agent_types import AgentType
 from fast_agent.ui.enhanced_prompt import (
     _can_fit_shell_path_and_version,
     _fit_shell_identity_for_toolbar,
     _fit_shell_path_for_toolbar,
     _format_parent_current_path,
+    _format_toolbar_agent_identity,
     _left_truncate_with_ellipsis,
 )
 
@@ -91,3 +93,22 @@ def test_can_fit_shell_path_and_version_false_when_no_combination_fits() -> None
     version = "fast-agent 1.2.3"
 
     assert not _can_fit_shell_path_and_version(path, version, 12)
+
+
+class _StubAgent:
+    def __init__(self, agent_type: AgentType) -> None:
+        self.agent_type = agent_type
+
+
+def test_format_toolbar_agent_identity_includes_smart_badge() -> None:
+    identity = _format_toolbar_agent_identity("agent", "ansiblue", _StubAgent(AgentType.SMART))
+
+    assert "[S]" in identity
+    assert "agent[S]" in identity
+
+
+def test_format_toolbar_agent_identity_omits_badge_for_basic_agent() -> None:
+    identity = _format_toolbar_agent_identity("agent", "ansiblue", _StubAgent(AgentType.BASIC))
+
+    assert "[S]" not in identity
+    assert "agent " in identity

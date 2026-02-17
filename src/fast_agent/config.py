@@ -364,6 +364,110 @@ class MCPSettings(BaseModel):
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
+_DOMAIN_LABEL_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+
+
+def _validate_domain_list(domains: list[str] | None) -> list[str] | None:
+    if domains is None:
+        return None
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for raw_domain in domains:
+        domain = (raw_domain or "").strip().lower()
+        if not domain:
+            raise ValueError("Domain entries must be non-empty strings.")
+        if "://" in domain:
+            raise ValueError("Domain entries must not include URL schemes.")
+        if any(char in domain for char in ("/", "?", "#", "@", " ")):
+            raise ValueError("Domain entries must be hostnames without paths or credentials.")
+
+        wildcard = False
+        if domain.startswith("*."):
+            wildcard = True
+            domain = domain[2:]
+
+        labels = [label for label in domain.split(".") if label]
+        if len(labels) < 2:
+            raise ValueError("Domain entries must include a TLD (e.g., example.com).")
+        if not all(_DOMAIN_LABEL_RE.match(label) for label in labels):
+            raise ValueError(f"Invalid domain entry: '{raw_domain}'.")
+
+        normalized_domain = f"*.{domain}" if wildcard else domain
+        if normalized_domain not in seen:
+            seen.add(normalized_domain)
+            normalized.append(normalized_domain)
+
+    return normalized
+
+
+class AnthropicUserLocationSettings(BaseModel):
+    """Approximate user location for Anthropic web search tool requests."""
+
+    type: Literal["approximate"] = "approximate"
+    city: str | None = None
+    country: str | None = None
+    region: str | None = None
+    timezone: str | None = None
+
+
+class AnthropicWebSearchSettings(BaseModel):
+    """Anthropic built-in web_search server tool settings."""
+
+    enabled: bool = False
+    max_uses: int | None = None
+    allowed_domains: list[str] | None = None
+    blocked_domains: list[str] | None = None
+    user_location: AnthropicUserLocationSettings | None = None
+
+    @field_validator("max_uses")
+    @classmethod
+    def _validate_max_uses(cls, value: int | None) -> int | None:
+        if value is not None and value <= 0:
+            raise ValueError("max_uses must be greater than zero when provided.")
+        return value
+
+    @field_validator("allowed_domains", "blocked_domains")
+    @classmethod
+    def _validate_domains(cls, value: list[str] | None) -> list[str] | None:
+        return _validate_domain_list(value)
+
+    @model_validator(mode="after")
+    def _validate_domain_xor(self) -> "AnthropicWebSearchSettings":
+        if self.allowed_domains and self.blocked_domains:
+            raise ValueError("allowed_domains and blocked_domains are mutually exclusive.")
+        return self
+
+
+class AnthropicWebFetchSettings(BaseModel):
+    """Anthropic built-in web_fetch server tool settings."""
+
+    enabled: bool = False
+    max_uses: int | None = None
+    allowed_domains: list[str] | None = None
+    blocked_domains: list[str] | None = None
+    citations_enabled: bool = False
+    max_content_tokens: int | None = None
+
+    @field_validator("max_uses", "max_content_tokens")
+    @classmethod
+    def _validate_positive_limits(cls, value: int | None) -> int | None:
+        if value is not None and value <= 0:
+            raise ValueError("Tool limits must be greater than zero when provided.")
+        return value
+
+    @field_validator("allowed_domains", "blocked_domains")
+    @classmethod
+    def _validate_domains(cls, value: list[str] | None) -> list[str] | None:
+        return _validate_domain_list(value)
+
+    @model_validator(mode="after")
+    def _validate_domain_xor(self) -> "AnthropicWebFetchSettings":
+        if self.allowed_domains and self.blocked_domains:
+            raise ValueError("allowed_domains and blocked_domains are mutually exclusive.")
+        return self
+
+
 class AnthropicSettings(BaseModel):
     """Settings for using Anthropic models in the fast-agent application."""
 
@@ -391,6 +495,8 @@ class AnthropicSettings(BaseModel):
         default="auto",
         description="Structured output mode: auto, json, or tool_use",
     )
+    web_search: AnthropicWebSearchSettings = Field(default_factory=AnthropicWebSearchSettings)
+    web_fetch: AnthropicWebFetchSettings = Field(default_factory=AnthropicWebFetchSettings)
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 

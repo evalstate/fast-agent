@@ -5,12 +5,14 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from mcp import CallToolRequest
-from mcp.types import CallToolRequestParams
+from mcp.types import CallToolRequestParams, TextContent
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.commands.results import CommandMessage, CommandOutcome
+from fast_agent.constants import ANTHROPIC_CITATIONS_CHANNEL, ANTHROPIC_SERVER_TOOLS_CHANNEL
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.core.prompt import Prompt
+from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui import enhanced_prompt, interactive_prompt
 from fast_agent.ui.command_payloads import InterruptCommand
@@ -303,6 +305,70 @@ async def test_history_fix_notice_on_cancelled_turn(monkeypatch, capsys: Any) ->
 
     output = capsys.readouterr().out
     assert "Previous turn was cancelled" in output
+
+
+@pytest.mark.asyncio
+async def test_history_webclear_removes_web_channels(monkeypatch, capsys: Any) -> None:
+    _patch_input(monkeypatch, ["/history webclear", "STOP"])
+
+    class _HistoryAgent(_FakeAgent):
+        def __init__(self) -> None:
+            class _LlmStub:
+                web_tools_enabled = (True, False)
+
+            self.llm = _LlmStub()
+            self._message_history = [
+                PromptMessageExtended(
+                    role="assistant",
+                    content=[TextContent(type="text", text="done")],
+                    channels={
+                        ANTHROPIC_SERVER_TOOLS_CHANNEL: [
+                            TextContent(type="text", text='{"type":"server_tool_use"}')
+                        ],
+                        ANTHROPIC_CITATIONS_CHANNEL: [
+                            TextContent(
+                                type="text",
+                                text='{"type":"web_search_result_location","url":"https://example.com"}',
+                            )
+                        ],
+                    },
+                )
+            ]
+
+        @property
+        def message_history(self):
+            return self._message_history
+
+        def load_message_history(self, history):
+            self._message_history = list(history)
+
+    class _HistoryAgentApp(_FakeAgentApp):
+        def __init__(self):
+            super().__init__(["test"])
+            self._agents["test"] = _HistoryAgent()
+
+        def _agent(self, agent_name: str | None):
+            if agent_name is None:
+                return self._agents["test"]
+            return self._agents[agent_name]
+
+    async def fake_send(*_args: Any, **_kwargs: Any) -> str:
+        return ""
+
+    prompt_ui = InteractivePrompt()
+    agent_app = _HistoryAgentApp()
+
+    await prompt_ui.prompt_loop(
+        send_func=fake_send,
+        default_agent="test",
+        available_agents=["test"],
+        prompt_provider=cast("AgentApp", agent_app),
+    )
+
+    output = capsys.readouterr().out
+    assert "Removed 2 web metadata block(s)" in output
+    channels = agent_app._agent("test").message_history[0].channels
+    assert channels is None
 
 
 @pytest.mark.asyncio

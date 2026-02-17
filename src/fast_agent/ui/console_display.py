@@ -734,7 +734,9 @@ class ConsoleDisplay:
         pre_content: Text | Group | None = None
 
         if isinstance(message_text, PromptMessageExtended):
-            display_text = message_text.last_text() or ""
+            # Prefer full assistant text so streamed/finalized multi-block responses
+            # (e.g., provider-side web tool turns) are preserved after live refresh.
+            display_text = message_text.all_text() or message_text.last_text() or ""
             pre_content = self._extract_reasoning_content(message_text)
         else:
             display_text = message_text

@@ -3,6 +3,7 @@ import inspect
 import json
 import os
 import time
+import traceback
 from abc import abstractmethod
 from contextvars import ContextVar
 from typing import (
@@ -317,6 +318,14 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
                 last_error = e
                 if attempt < retries:
                     wait_time = self.retry_backoff_seconds * (attempt + 1)
+
+                    if os.environ.get("FAST_AGENT_WEBDEBUG"):
+                        print(
+                            "[webdebug] provider call failed "
+                            f"attempt={attempt + 1}/{retries + 1} "
+                            f"error_type={type(e).__name__}"
+                        )
+                        traceback.print_exception(type(e), e, e.__traceback__)
 
                     # Try to import progress_display safely
                     try:

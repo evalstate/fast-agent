@@ -338,7 +338,10 @@ class StreamSegmentAssembler:
         return self._handle_reasoning_segments(segments)
 
     def handle_tool_event(self, event_type: str, info: dict[str, Any] | None) -> bool:
-        tool_name = str(info.get("tool_name") or "tool") if info else "tool"
+        if info:
+            tool_name = str(info.get("tool_display_name") or info.get("tool_name") or "tool")
+        else:
+            tool_name = "tool"
         tool_use_id = str(info.get("tool_use_id")) if info and info.get("tool_use_id") else ""
 
         if not tool_use_id:

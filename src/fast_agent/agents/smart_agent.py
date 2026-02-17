@@ -208,7 +208,10 @@ def _enable_smart_tooling(agent: Any) -> None:
     smart_tool = FastMCPTool.from_function(
         agent.smart,
         name="smart",
-        description="Load AgentCards from a path and send a message to the default agent.",
+        description=(
+            "Load AgentCards from a path and send a message to the resolved default card agent "
+            "(default:true, otherwise first non-tool_only)."
+        ),
     )
     validate_tool = FastMCPTool.from_function(
         agent.validate,

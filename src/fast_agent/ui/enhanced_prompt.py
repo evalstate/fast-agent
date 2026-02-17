@@ -34,6 +34,7 @@ from rich import print as rich_print
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.agents.workflow.router_agent import RouterAgent
+from fast_agent.commands.handlers import history as history_handlers
 from fast_agent.config import get_settings
 from fast_agent.constants import (
     FAST_AGENT_ALERT_CHANNEL,
@@ -57,6 +58,7 @@ from fast_agent.ui.command_payloads import (
     HistoryFixCommand,
     HistoryReviewCommand,
     HistoryRewindCommand,
+    HistoryWebClearCommand,
     InterruptCommand,
     ListSessionsCommand,
     ListToolsCommand,
@@ -310,6 +312,25 @@ def _resolve_toolbar_width() -> int:
     return max(1, shutil.get_terminal_size((80, 20)).columns)
 
 
+def _is_smart_agent(agent: object | None) -> bool:
+    """Return True when the provided agent instance is a smart agent."""
+    if agent is None:
+        return False
+    agent_type = getattr(agent, "agent_type", None)
+    normalized = getattr(agent_type, "value", agent_type)
+    if isinstance(normalized, str):
+        return normalized.lower() == AgentType.SMART.value
+    return normalized == AgentType.SMART
+
+
+def _format_toolbar_agent_identity(
+    agent_name: str, toolbar_color: str, agent: object | None
+) -> str:
+    """Render toolbar agent identity, suffixing [S] for smart agents."""
+    label = f"{agent_name}[S]" if _is_smart_agent(agent) else agent_name
+    return f"<style fg='{toolbar_color}' bg='ansiblack'> {label} </style>"
+
+
 def _show_history_cmd(target_agent: str | None) -> ShowHistoryCommand:
     return ShowHistoryCommand(agent=target_agent)
 
@@ -344,6 +365,10 @@ def _history_review_cmd(turn_index: int | None, error: str | None) -> HistoryRev
 
 def _history_fix_cmd(target_agent: str | None) -> HistoryFixCommand:
     return HistoryFixCommand(agent=target_agent)
+
+
+def _history_webclear_cmd(target_agent: str | None) -> HistoryWebClearCommand:
+    return HistoryWebClearCommand(agent=target_agent)
 
 
 def _load_agent_card_cmd(
@@ -872,6 +897,15 @@ class AgentCompleter(Completer):
             self.commands.pop("tools", None)  # Remove tools command in human input mode
             self.commands.pop("usage", None)  # Remove usage command in human input mode
         self.agent_types = agent_types or {}
+
+    def _current_agent_has_web_tools_enabled(self) -> bool:
+        if self.agent_provider is None or not self.current_agent:
+            return False
+        try:
+            agent_obj = self.agent_provider._agent(self.current_agent)
+        except Exception:
+            return False
+        return history_handlers.web_tools_enabled_for_agent(agent_obj)
 
     @dataclass(frozen=True)
     class _CompletionSearch:
@@ -1519,6 +1553,22 @@ class AgentCompleter(Completer):
                     )
             return
 
+        if text_lower.startswith("/history webclear "):
+            if not self._current_agent_has_web_tools_enabled():
+                return
+            partial = text[len("/history webclear ") :].strip()
+            partial_lower = partial.lower()
+            for name in sorted(available_agents):
+                if partial and not name.lower().startswith(partial_lower):
+                    continue
+                yield Completion(
+                    name,
+                    start_position=-len(partial),
+                    display=name,
+                    display_meta="Strip web metadata channels for this agent",
+                )
+            return
+
         if text_lower.startswith("/resume "):
             partial = text[len("/resume ") :]
             yield from self._complete_session_ids(partial)
@@ -1763,7 +1813,10 @@ class AgentCompleter(Completer):
                 "clear": "Clear history (all or last)",
                 "rewind": "Rewind to a previous user turn",
                 "review": "Review a previous user turn in full",
+                "fix": "Remove the last pending tool call",
             }
+            if self._current_agent_has_web_tools_enabled():
+                subcommands["webclear"] = "Strip web tool/citation metadata channels"
             for subcmd, description in subcommands.items():
                 if subcmd.startswith(partial.lower()):
                     yield Completion(
@@ -2195,6 +2248,8 @@ def parse_special_input(text: str) -> str | CommandPayload:
                 return _history_review_cmd(turn_index, None)
             if subcmd == "fix":
                 return _history_fix_cmd(argument or None)
+            if subcmd == "webclear":
+                return _history_webclear_cmd(argument or None)
             if subcmd == "rewind":
                 if not argument:
                     return _history_rewind_cmd(None, "Turn number required for /history rewind")
@@ -2731,6 +2786,7 @@ async def get_enhanced_input(
             codex_suffix = ""
             reasoning_gauge = None
             verbosity_gauge = None
+            model_suffix = ""
             if model_name:
                 display_name = format_model_display(model_name) or model_name
                 if llm and getattr(llm, "provider", None) == Provider.CODEX_RESPONSES:
@@ -2745,9 +2801,14 @@ async def get_enhanced_input(
                             llm.text_verbosity,
                             llm.text_verbosity_spec,
                         )
+                        if getattr(llm, "provider", None) == Provider.ANTHROPIC:
+                            search_on, fetch_on = getattr(llm, "web_tools_enabled", (False, False))
+                            if search_on or fetch_on:
+                                model_suffix = "⊕"  # ◉ # 🌐
                     except Exception:
                         reasoning_gauge = None
                         verbosity_gauge = None
+                        model_suffix = ""
                 max_len = 25
                 model_display = (
                     display_name[: max_len - 1] + "…"
@@ -2831,25 +2892,28 @@ async def get_enhanced_input(
             model_display = None
             tdv_segment = None
 
+        agent_identity_segment = _format_toolbar_agent_identity(agent_name, toolbar_color, agent)
+
         # Build dynamic middle segments: model (in green), turn counter, and optional shortcuts
         middle_segments = []
         if model_display:
             # Model chip + inline TDV flags
+            model_label = f"{model_display}{model_suffix}"
             if tdv_segment:
                 gauge_segment = ""
                 if reasoning_gauge or verbosity_gauge:
-                    gauges = "".join(gauge for gauge in (reasoning_gauge, verbosity_gauge) if gauge)
+                    gauges = "".join(g for g in (reasoning_gauge, verbosity_gauge) if g)
                     gauge_segment = f" {gauges}"
                 middle_segments.append(
-                    f"{tdv_segment}{gauge_segment} <style bg='ansigreen'>{model_display}</style>{codex_suffix}"
+                    f"{tdv_segment}{gauge_segment} <style bg='ansigreen'>{model_label}</style>{codex_suffix}"
                 )
             else:
                 gauge_segment = ""
                 if reasoning_gauge or verbosity_gauge:
-                    gauges = "".join(gauge for gauge in (reasoning_gauge, verbosity_gauge) if gauge)
+                    gauges = "".join(g for g in (reasoning_gauge, verbosity_gauge) if g)
                     gauge_segment = f" {gauges}"
                 middle_segments.append(
-                    f"{gauge_segment} <style bg='ansigreen'>{model_display}</style>{codex_suffix}"
+                    f"{gauge_segment} <style bg='ansigreen'>{model_label}</style>{codex_suffix}"
                 )
 
         # Add turn counter (formatted as 3 digits)
@@ -2903,12 +2967,12 @@ async def get_enhanced_input(
 
             if middle:
                 left_prefix = (
-                    f" <style fg='{toolbar_color}' bg='ansiblack'> {agent_name} </style> "
+                    f" {agent_identity_segment} "
                     f" {middle} | <style fg='{mode_style}' bg='ansiblack'> {mode_text} </style> | "
                 )
             else:
                 left_prefix = (
-                    f" <style fg='{toolbar_color}' bg='ansiblack'> {agent_name} </style> "
+                    f" {agent_identity_segment} "
                     f"Mode: <style fg='{mode_style}' bg='ansiblack'> {mode_text} </style> | "
                 )
 
@@ -2941,13 +3005,13 @@ async def get_enhanced_input(
 
         if middle:
             return HTML(
-                f" <style fg='{toolbar_color}' bg='ansiblack'> {agent_name} </style> "
+                f" {agent_identity_segment} "
                 f" {middle} | <style fg='{mode_style}' bg='ansiblack'> {mode_text} </style> | "
                 f"{toolbar_identity_segment}{notification_segment}{copy_notice}"
             )
         else:
             return HTML(
-                f" <style fg='{toolbar_color}' bg='ansiblack'> {agent_name} </style> "
+                f" {agent_identity_segment} "
                 f"Mode: <style fg='{mode_style}' bg='ansiblack'> {mode_text} </style> | "
                 f"{toolbar_identity_segment}{notification_segment}{copy_notice}"
             )
@@ -3400,6 +3464,17 @@ async def handle_special_commands(
 
     # Check for special string commands
     if command == "HELP":
+        show_webclear_help = False
+        if agent_app and agent_app is not True:
+            for agent_name in sorted(available_agents):
+                try:
+                    agent_obj = agent_app._agent(agent_name)
+                except Exception:
+                    continue
+                if history_handlers.web_tools_enabled_for_agent(agent_obj):
+                    show_webclear_help = True
+                    break
+
         rich_print("\n[bold]Available Commands:[/bold]")
         rich_print("  /help          - Show this help")
         rich_print("  /system        - Show the current system prompt")
@@ -3438,6 +3513,10 @@ async def handle_special_commands(
         rich_print("  /history rewind <turn> - Rewind to a prior user turn")
         rich_print("  /history review <turn> - Review a prior user turn in full")
         rich_print("  /history fix [agent_name] - Remove the last pending tool call")
+        if show_webclear_help:
+            rich_print(
+                "  /history webclear [agent_name] - Strip web tool/citation metadata from history"
+            )
         rich_print("  /resume [id|number] - Resume the last or specified session")
         rich_print("  /session list - List recent sessions")
         rich_print("  /session new [title] - Create a new session")

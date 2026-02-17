@@ -41,6 +41,41 @@ def test_model_database_long_context_model_listing():
     assert "claude-haiku-4-5" not in models
 
 
+def test_model_database_anthropic_web_tool_versions_for_46_models():
+    assert ModelDatabase.get_anthropic_web_search_version("claude-opus-4-6") == "web_search_20260209"
+    assert ModelDatabase.get_anthropic_web_fetch_version("claude-opus-4-6") == "web_fetch_20260209"
+    assert ModelDatabase.get_anthropic_required_betas("claude-opus-4-6") == (
+        "code-execution-web-tools-2026-02-09",
+    )
+
+    assert (
+        ModelDatabase.get_anthropic_web_search_version("claude-sonnet-4-6")
+        == "web_search_20260209"
+    )
+    assert (
+        ModelDatabase.get_anthropic_web_fetch_version("claude-sonnet-4-6")
+        == "web_fetch_20260209"
+    )
+
+
+def test_model_database_anthropic_web_tool_versions_for_non_46_models():
+    assert (
+        ModelDatabase.get_anthropic_web_search_version("claude-sonnet-4-5")
+        == "web_search_20250305"
+    )
+    assert (
+        ModelDatabase.get_anthropic_web_fetch_version("claude-sonnet-4-5")
+        == "web_fetch_20250910"
+    )
+    assert ModelDatabase.get_anthropic_required_betas("claude-sonnet-4-5") is None
+
+
+def test_model_database_anthropic_web_tool_versions_unknown_model():
+    assert ModelDatabase.get_anthropic_web_search_version("unknown-model") is None
+    assert ModelDatabase.get_anthropic_web_fetch_version("unknown-model") is None
+    assert ModelDatabase.get_anthropic_required_betas("unknown-model") is None
+
+
 def test_model_database_max_tokens():
     """Test that ModelDatabase returns expected max tokens"""
     # Test known models with different max_output_tokens (no cap)

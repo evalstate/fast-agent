@@ -121,6 +121,23 @@ def test_build_agent_instruction_context_includes_agent_metadata(tmp_path: Path)
     assert context["agentCardDir"] == str(card_path.parent.resolve())
 
 
+def test_build_agent_instruction_context_uses_internal_when_no_card_path() -> None:
+    agent = StubAgent(
+        name="agent",
+        instruction_template="Hello",
+        source_path=None,
+        agent_type=AgentType.SMART,
+    )
+
+    context = build_agent_instruction_context(agent, {"workspaceRoot": "/workspace"})
+
+    assert context["workspaceRoot"] == "/workspace"
+    assert context["agentName"] == "agent"
+    assert context["agentType"] == AgentType.SMART.value
+    assert context["agentCardPath"] == "(internal)"
+    assert context["agentCardDir"] == "(internal)"
+
+
 def test_apply_instruction_context_resolves_agent_metadata_placeholders(tmp_path: Path) -> None:
     card_path = tmp_path / "agents" / "reviewer.md"
     agent = StubAgent(
