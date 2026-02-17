@@ -13,3 +13,7 @@ def test_go_specific_options_include_agent_and_noenv() -> None:
     assert "--agent" in GO_SPECIFIC_OPTIONS
     assert "--noenv" in GO_SPECIFIC_OPTIONS
     assert "--no-env" in GO_SPECIFIC_OPTIONS
+
+
+def test_go_specific_options_include_smart() -> None:
+    assert "--smart" in GO_SPECIFIC_OPTIONS

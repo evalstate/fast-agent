@@ -314,6 +314,15 @@ class ModelDatabase:
         reasoning_effort_spec=ANTHROPIC_THINKING_EFFORT_SPEC,
         cache_ttl="5m",
     )
+    ANTHROPIC_SONNET_46 = ModelParameters(
+        context_window=200000,
+        max_output_tokens=64000,
+        tokenizes=ANTHROPIC_MULTIMODAL,
+        reasoning="anthropic_thinking",
+        reasoning_effort_spec=ANTHROPIC_ADAPTIVE_THINKING_EFFORT_SPEC,
+        cache_ttl="5m",
+    )
+
     ANTHROPIC_SONNET_4_LEGACY = ModelParameters(
         context_window=200000,
         max_output_tokens=64000,
@@ -533,6 +542,9 @@ class ModelDatabase:
             update={"long_context_window": ANTHROPIC_LONG_CONTEXT_WINDOW}
         ),
         "claude-sonnet-4-5-20250929": ANTHROPIC_SONNET_4_VERSIONED.model_copy(
+            update={"long_context_window": ANTHROPIC_LONG_CONTEXT_WINDOW}
+        ),
+        "claude-sonnet-4-6": ANTHROPIC_SONNET_46.model_copy(
             update={"long_context_window": ANTHROPIC_LONG_CONTEXT_WINDOW}
         ),
         "claude-opus-4-0": ANTHROPIC_OPUS_4_LEGACY,
