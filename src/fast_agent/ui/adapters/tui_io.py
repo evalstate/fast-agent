@@ -11,6 +11,7 @@ from fast_agent.commands.context import CommandIO
 from fast_agent.config import Settings, get_settings
 from fast_agent.ui.enhanced_prompt import get_argument_input, get_selection_input
 from fast_agent.ui.history_actions import display_history_turn
+from fast_agent.ui.message_primitives import MessageType
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -53,8 +54,50 @@ class TuiCommandIO(CommandIO):
 
         return ConsoleDisplay(config=config)
 
+    @staticmethod
+    def _apply_channel_style(content: Text, channel: str) -> None:
+        if channel == "error":
+            content.stylize("red")
+        elif channel == "warning":
+            content.stylize("yellow")
+        elif channel == "info":
+            content.stylize("cyan")
+
+    async def _emit_markdown_message(self, display: object, message: CommandMessage) -> None:
+        content = message.text
+        markdown_text = content.plain if isinstance(content, Text) else str(content)
+
+        if message.title:
+            title = Text(message.title, style="bold")
+            self._apply_channel_style(title, message.channel)
+            show_status_message = getattr(display, "show_status_message", None)
+            if callable(show_status_message):
+                show_status_message(title)
+
+        display_message = getattr(display, "display_message", None)
+        if callable(display_message):
+            display_message(
+                content=markdown_text,
+                message_type=MessageType.ASSISTANT,
+                name=message.agent_name or self.agent_name,
+                right_info=message.right_info or "",
+                truncate_content=False,
+                render_markdown=True,
+            )
+            return
+
+        fallback = Text(markdown_text)
+        self._apply_channel_style(fallback, message.channel)
+        show_status_message = getattr(display, "show_status_message", None)
+        if callable(show_status_message):
+            show_status_message(fallback)
+
     async def emit(self, message: CommandMessage) -> None:
         display = self._resolve_display(message.agent_name or self.agent_name)
+        if message.render_markdown:
+            await self._emit_markdown_message(display, message)
+            return
+
         content = message.text
 
         if not isinstance(content, Text):
@@ -70,12 +113,7 @@ class TuiCommandIO(CommandIO):
                 header.append_text(content)
             content = header
 
-        if message.channel == "error":
-            content.stylize("red")
-        elif message.channel == "warning":
-            content.stylize("yellow")
-        elif message.channel == "info":
-            content.stylize("cyan")
+        self._apply_channel_style(content, message.channel)
 
         display.show_status_message(content)
 

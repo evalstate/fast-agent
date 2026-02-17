@@ -202,6 +202,43 @@ async def _run_validate_call(
     return _format_validation_results(results)
 
 
+def _enable_smart_tooling(agent: Any) -> None:
+    """Register smart tool endpoints on a smart-capable agent."""
+    setattr(agent, "_parallel_smart_tool_calls", False)
+    smart_tool = FastMCPTool.from_function(
+        agent.smart,
+        name="smart",
+        description="Load AgentCards from a path and send a message to the default agent.",
+    )
+    validate_tool = FastMCPTool.from_function(
+        agent.validate,
+        name="validate",
+        description="Validate AgentCard files using the same checks as fast-agent check.",
+    )
+    agent.add_tool(smart_tool)
+    agent.add_tool(validate_tool)
+
+
+async def _dispatch_smart_tool(
+    agent: Any,
+    agent_card_path: str,
+    message: str,
+) -> str:
+    disable_streaming = bool(getattr(agent, "_parallel_smart_tool_calls", False))
+    context = getattr(agent, "context", None)
+    return await _run_smart_call(
+        context,
+        agent_card_path,
+        message,
+        disable_streaming=disable_streaming,
+    )
+
+
+async def _dispatch_validate_tool(agent: Any, agent_card_path: str) -> str:
+    context = getattr(agent, "context", None)
+    return await _run_validate_call(context, agent_card_path)
+
+
 class SmartAgent(McpAgent):
     """Smart agent with built-in tools for AgentCard execution and validation."""
 
@@ -212,40 +249,19 @@ class SmartAgent(McpAgent):
         **kwargs: Any,
     ) -> None:
         super().__init__(config=config, context=context, **kwargs)
-        self._parallel_smart_tool_calls = False
-        self._register_smart_tools()
+        _enable_smart_tooling(self)
 
     @property
     def agent_type(self) -> AgentType:
         return AgentType.SMART
 
-    def _register_smart_tools(self) -> None:
-        smart_tool = FastMCPTool.from_function(
-            self.smart,
-            name="smart",
-            description="Load AgentCards from a path and send a message to the default agent.",
-        )
-        validate_tool = FastMCPTool.from_function(
-            self.validate,
-            name="validate",
-            description="Validate AgentCard files using the same checks as fast-agent check.",
-        )
-        self.add_tool(smart_tool)
-        self.add_tool(validate_tool)
-
     async def smart(self, agent_card_path: str, message: str) -> str:
         """Load AgentCards and send a message to the default agent."""
-        disable_streaming = bool(getattr(self, "_parallel_smart_tool_calls", False))
-        return await _run_smart_call(
-            self.context,
-            agent_card_path,
-            message,
-            disable_streaming=disable_streaming,
-        )
+        return await _dispatch_smart_tool(self, agent_card_path, message)
 
     async def validate(self, agent_card_path: str) -> str:
         """Validate AgentCard files for the provided path."""
-        return await _run_validate_call(self.context, agent_card_path)
+        return await _dispatch_validate_tool(self, agent_card_path)
 
 
 class SmartAgentsAsToolsAgent(AgentsAsToolsAgent):
@@ -268,38 +284,17 @@ class SmartAgentsAsToolsAgent(AgentsAsToolsAgent):
             child_message_files=child_message_files,
             **kwargs,
         )
-        self._parallel_smart_tool_calls = False
-        self._register_smart_tools()
+        _enable_smart_tooling(self)
 
     @property
     def agent_type(self) -> AgentType:
         return AgentType.SMART
 
-    def _register_smart_tools(self) -> None:
-        smart_tool = FastMCPTool.from_function(
-            self.smart,
-            name="smart",
-            description="Load AgentCards from a path and send a message to the default agent.",
-        )
-        validate_tool = FastMCPTool.from_function(
-            self.validate,
-            name="validate",
-            description="Validate AgentCard files using the same checks as fast-agent check.",
-        )
-        self.add_tool(smart_tool)
-        self.add_tool(validate_tool)
-
     async def smart(self, agent_card_path: str, message: str) -> str:
-        disable_streaming = bool(getattr(self, "_parallel_smart_tool_calls", False))
-        return await _run_smart_call(
-            self.context,
-            agent_card_path,
-            message,
-            disable_streaming=disable_streaming,
-        )
+        return await _dispatch_smart_tool(self, agent_card_path, message)
 
     async def validate(self, agent_card_path: str) -> str:
-        return await _run_validate_call(self.context, agent_card_path)
+        return await _dispatch_validate_tool(self, agent_card_path)
 
 
 class SmartAgentWithUI(McpUIMixin, SmartAgent):

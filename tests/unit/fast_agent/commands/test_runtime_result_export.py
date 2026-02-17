@@ -69,6 +69,7 @@ def _make_request(
         skills_directory=None,
         environment_dir=None,
         noenv=False,
+        force_smart=False,
         shell_runtime=False,
         mode="interactive",
         transport="http",

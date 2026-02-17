@@ -24,7 +24,12 @@ class MessageStyle(Protocol):
 
     def metadata_line(self, content: Text, width: int) -> Text: ...
 
-    def shell_exit_line(self, exit_code: int, width: int) -> Text: ...
+    def shell_exit_line(
+        self,
+        exit_code: int,
+        width: int,
+        detail: str | None = None,
+    ) -> Text: ...
 
     def tool_update_line(self, width: int) -> Text: ...
 
@@ -314,7 +319,12 @@ class A3MessageStyle:
         line.append_text(metadata_text)
         return line
 
-    def shell_exit_line(self, exit_code: int, width: int) -> Text:  # noqa: ARG002
+    def shell_exit_line(
+        self,
+        exit_code: int,
+        width: int,
+        detail: str | None = None,
+    ) -> Text:  # noqa: ARG002
         if exit_code == 0:
             exit_code_style = "white reverse dim"
         elif exit_code == 1:
@@ -326,6 +336,8 @@ class A3MessageStyle:
         line = Text()
         line.append("▎• ", style="dim")
         line.append(exit_code_text, style=exit_code_style)
+        if detail:
+            line.append(detail, style="dim")
         return line
 
     def tool_update_line(self, width: int) -> Text:  # noqa: ARG002
@@ -419,7 +431,12 @@ class ClassicMessageStyle:
     def tool_update_line(self, width: int) -> Text:
         return Text("─" * width, style="dim")
 
-    def shell_exit_line(self, exit_code: int, width: int) -> Text:
+    def shell_exit_line(
+        self,
+        exit_code: int,
+        width: int,
+        detail: str | None = None,
+    ) -> Text:
         if exit_code == 0:
             exit_code_style = "white reverse dim"
         elif exit_code == 1:
@@ -429,4 +446,6 @@ class ClassicMessageStyle:
 
         exit_code_text = f" exit code {exit_code} "
         exit_text = Text(exit_code_text, style=exit_code_style)
+        if detail:
+            exit_text.append(detail, style="dim")
         return self.metadata_line(exit_text, width)

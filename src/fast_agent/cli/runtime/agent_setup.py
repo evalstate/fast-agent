@@ -15,7 +15,7 @@ from fast_agent.cli.commands.server_helpers import add_servers_to_config
 from fast_agent.cli.constants import RESUME_LATEST_SENTINEL
 from fast_agent.core.exceptions import AgentConfigError
 
-from .request_builders import resolve_default_instruction, use_smart_agent
+from .request_builders import resolve_default_instruction, resolve_smart_agent_enabled
 
 if TYPE_CHECKING:
     from .run_request import AgentRunRequest
@@ -295,9 +295,21 @@ async def run_agent_request(request: AgentRunRequest) -> None:
 
     instruction = request.instruction
     if instruction is None:
-        instruction = resolve_default_instruction(request.model, request.mode)
+        instruction = resolve_default_instruction(
+            request.model,
+            request.mode,
+            force_smart=request.force_smart,
+        )
 
-    smart_agent_enabled = use_smart_agent(request.model, request.mode)
+    smart_agent_enabled = resolve_smart_agent_enabled(
+        request.model,
+        request.mode,
+        force_smart=request.force_smart,
+    )
+    smart_unavailable_warning = (
+        "Warning: --smart requested, but smart defaults are unavailable when using "
+        "multiple models. Continuing with non-smart defaults."
+    )
     if request.mode == "serve" and request.transport in ["stdio", "acp"]:
         from fast_agent.ui.console import configure_console_stream
 
@@ -354,11 +366,27 @@ async def run_agent_request(request: AgentRunRequest) -> None:
                         fast.load_agents(card_source)
 
             has_explicit_default = False
+            explicit_default_type: str | None = None
             for agent_data in fast.agents.values():
                 config = agent_data.get("config")
                 if config and getattr(config, "default", False):
                     has_explicit_default = True
+                    explicit_default_type = (
+                        str(agent_data.get("type")) if agent_data.get("type") is not None else None
+                    )
                     break
+
+            if has_explicit_default and request.force_smart:
+                from fast_agent.agents.agent_types import AgentType
+
+                if explicit_default_type != AgentType.SMART.value:
+                    typer.echo(
+                        "Warning: --smart requested, but loaded AgentCards already define a "
+                        "non-smart default agent. Keeping the card-defined default.",
+                        err=True,
+                    )
+            elif request.force_smart and not smart_agent_enabled:
+                typer.echo(smart_unavailable_warning, err=True)
 
             if not has_explicit_default:
                 agent_decorator = fast.smart if smart_agent_enabled else fast.agent
@@ -410,6 +438,9 @@ async def run_agent_request(request: AgentRunRequest) -> None:
                 await _run_single_agent_cli_flow(agent, request)
 
     elif request.model and "," in request.model:
+        if request.force_smart and not smart_agent_enabled:
+            typer.echo(smart_unavailable_warning, err=True)
+
         models = [m.strip() for m in request.model.split(",") if m.strip()]
 
         fan_out_agents: list[str] = []

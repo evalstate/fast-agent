@@ -7,10 +7,13 @@ from typing import TYPE_CHECKING, Any
 import pytest
 import pytest_asyncio
 from aiohttp import WSMsgType, web
+from mcp.types import TextContent
 
 from fast_agent.llm.provider.openai.codex_responses import CodexResponsesLLM
+from fast_agent.llm.provider.openai.responses import RESPONSES_DIAGNOSTICS_CHANNEL
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.request_params import RequestParams
+from fast_agent.types import LlmStopReason
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -51,6 +54,7 @@ class _LocalWsCodexResponsesLLM(CodexResponsesLLM):
 class _LocalWebSocketState:
     handshake_count: int = 0
     received_request_types: list[str] = field(default_factory=list)
+    scripted_responses: list[dict[str, Any]] = field(default_factory=list)
 
 
 @pytest_asyncio.fixture
@@ -72,22 +76,31 @@ async def local_responses_ws_server(
             if isinstance(request_type, str):
                 state.received_request_types.append(request_type)
 
-            response_text = f"turn-{len(state.received_request_types)}"
-            await ws.send_json({"type": "response.output_text.delta", "delta": response_text})
+            response_index = len(state.received_request_types) - 1
+            if response_index < len(state.scripted_responses):
+                response_payload = state.scripted_responses[response_index]
+            else:
+                response_text = f"turn-{len(state.received_request_types)}"
+                response_payload = {
+                    "status": "completed",
+                    "output_text": response_text,
+                    "output": [
+                        {
+                            "type": "message",
+                            "content": [{"type": "output_text", "text": response_text}],
+                        }
+                    ],
+                    "usage": None,
+                }
+
+            output_text = response_payload.get("output_text")
+            if isinstance(output_text, str) and output_text:
+                await ws.send_json({"type": "response.output_text.delta", "delta": output_text})
+
             await ws.send_json(
                 {
                     "type": "response.completed",
-                    "response": {
-                        "status": "completed",
-                        "output_text": response_text,
-                        "output": [
-                            {
-                                "type": "message",
-                                "content": [{"type": "output_text", "text": response_text}],
-                            }
-                        ],
-                        "usage": None,
-                    },
+                    "response": response_payload,
                 }
             )
 
@@ -142,5 +155,90 @@ async def test_local_websocket_two_turns_reuse_connection_and_append(
 
     assert getattr(first_response, "output_text", None) == "turn-1"
     assert getattr(second_response, "output_text", None) == "turn-2"
+    assert state.handshake_count == 1
+    assert state.received_request_types[:2] == ["response.create", "response.append"]
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_local_websocket_append_filters_duplicate_tool_calls(
+    local_responses_ws_server: tuple[str, _LocalWebSocketState],
+) -> None:
+    base_url, state = local_responses_ws_server
+    state.scripted_responses = [
+        {
+            "status": "completed",
+            "output_text": "",
+            "output": [
+                {
+                    "type": "function_call",
+                    "id": "fc_1",
+                    "call_id": "call_1",
+                    "name": "lookup",
+                    "arguments": "{}",
+                }
+            ],
+            "usage": None,
+        },
+        {
+            "status": "completed",
+            "output_text": "",
+            "output": [
+                {
+                    "type": "function_call",
+                    "id": "fc_1",
+                    "call_id": "call_1",
+                    "name": "lookup",
+                    "arguments": "{}",
+                },
+                {
+                    "type": "function_call",
+                    "id": "fc_2",
+                    "call_id": "call_2",
+                    "name": "lookup",
+                    "arguments": "{}",
+                },
+            ],
+            "usage": None,
+        },
+    ]
+
+    llm = _LocalWsCodexResponsesLLM(base_url)
+    params = RequestParams(model="gpt-5.3-codex")
+
+    try:
+        first = await llm._responses_completion(
+            input_items=[_input_message("first")],
+            request_params=params,
+            tools=None,
+        )
+        second = await llm._responses_completion(
+            input_items=[_input_message("first"), _input_message("second")],
+            request_params=params,
+            tools=None,
+        )
+    finally:
+        await llm._ws_connections.close()
+
+    assert first.stop_reason is LlmStopReason.TOOL_USE
+    assert first.tool_calls is not None
+    assert list(first.tool_calls.keys()) == ["call_1"]
+
+    assert second.stop_reason is LlmStopReason.TOOL_USE
+    assert second.tool_calls is not None
+    assert list(second.tool_calls.keys()) == ["call_2"]
+
+    diagnostics_channel = (second.channels or {}).get(RESPONSES_DIAGNOSTICS_CHANNEL)
+    assert diagnostics_channel is not None
+    diagnostics_block = diagnostics_channel[0]
+    assert isinstance(diagnostics_block, TextContent)
+    diagnostics = json.loads(diagnostics_block.text)
+    assert diagnostics["kind"] == "duplicate_tool_calls_filtered"
+    assert diagnostics["transport"] == "websocket"
+    assert diagnostics["websocket_request_type"] == "response.append"
+    assert diagnostics["raw_function_call_count"] == 2
+    assert diagnostics["new_function_call_count"] == 1
+    assert diagnostics["duplicate_count"] == 1
+
     assert state.handshake_count == 1
     assert state.received_request_types[:2] == ["response.create", "response.append"]

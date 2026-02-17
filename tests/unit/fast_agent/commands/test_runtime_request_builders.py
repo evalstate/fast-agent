@@ -7,7 +7,9 @@ from fast_agent.cli.runtime.request_builders import (
     build_agent_run_request,
     build_command_run_request,
     resolve_default_instruction,
+    resolve_smart_agent_enabled,
 )
+from fast_agent.constants import SMART_AGENT_INSTRUCTION
 
 
 def test_build_agent_run_request_merges_url_servers_after_explicit_servers() -> None:
@@ -120,6 +122,44 @@ def test_build_command_run_request_resolves_defaults() -> None:
     assert request.instruction == resolve_default_instruction(None, "serve")
     assert request.agent_name == "agent"
     assert request.result_file == "out.json"
+
+
+def test_build_command_run_request_smart_flag_uses_smart_instruction() -> None:
+    request = build_command_run_request(
+        name="cli",
+        instruction_option=None,
+        config_path=None,
+        servers=None,
+        urls=None,
+        auth=None,
+        agent_cards=None,
+        card_tools=None,
+        model=None,
+        message=None,
+        prompt_file=None,
+        result_file=None,
+        resume=None,
+        npx=None,
+        uvx=None,
+        stdio=None,
+        target_agent_name=None,
+        skills_directory=None,
+        environment_dir=None,
+        force_smart=True,
+        shell_enabled=False,
+        mode="interactive",
+    )
+
+    assert request.force_smart is True
+    assert request.instruction == SMART_AGENT_INSTRUCTION
+
+
+def test_resolve_smart_agent_enabled_disables_smart_for_multi_model_even_when_forced() -> None:
+    assert resolve_smart_agent_enabled(
+        "gpt-4.1,claude-sonnet-4-5",
+        "interactive",
+        force_smart=True,
+    ) is False
 
 
 def test_build_agent_run_request_noenv_keeps_explicit_cards_only() -> None:

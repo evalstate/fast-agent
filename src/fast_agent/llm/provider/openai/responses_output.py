@@ -19,10 +19,28 @@ class ResponsesOutputMixin:
 
         logger: Logger
         _tool_call_id_map: dict[str, str]
+        _seen_tool_call_ids: set[str]
+        _tool_call_diagnostics: dict[str, Any] | None
 
         def _finalize_turn_usage(self, usage: TurnUsage) -> None: ...
 
         def _normalize_tool_ids(self, tool_use_id: str | None) -> tuple[str, str]: ...
+
+    def _consume_tool_call_diagnostics(self) -> dict[str, Any] | None:
+        diagnostics = getattr(self, "_tool_call_diagnostics", None)
+        self._tool_call_diagnostics = None
+        return diagnostics
+
+    def _seen_tool_call_ids_state(self) -> set[str]:
+        seen = getattr(self, "_seen_tool_call_ids", None)
+        if seen is None:
+            seen = set()
+            self._seen_tool_call_ids = seen
+
+        if self._tool_call_id_map:
+            seen.update(call_id for call_id in self._tool_call_id_map.values() if call_id)
+
+        return seen
 
     def _record_usage(self, usage: Any, model_name: str) -> None:
         try:
@@ -55,9 +73,13 @@ class ResponsesOutputMixin:
 
     def _extract_tool_calls(self, response: Any) -> dict[str, CallToolRequest] | None:
         tool_calls: dict[str, CallToolRequest] = {}
+        duplicate_call_ids: list[str] = []
+        seen_tool_call_ids = self._seen_tool_call_ids_state()
+        raw_function_call_count = 0
         for item in getattr(response, "output", []) or []:
             if getattr(item, "type", None) != "function_call":
                 continue
+            raw_function_call_count += 1
             item_id = getattr(item, "id", None)
             call_id = getattr(item, "call_id", None)
             name = getattr(item, "name", None) or "tool"
@@ -79,11 +101,41 @@ class ResponsesOutputMixin:
             tool_use_id = call_id or item_id or f"fc_{len(tool_calls)}"
             if not call_id:
                 call_id = self._normalize_tool_ids(tool_use_id)[1]
+
+            if call_id in seen_tool_call_ids:
+                duplicate_call_ids.append(call_id)
+                continue
+
             self._tool_call_id_map[tool_use_id] = call_id
+            seen_tool_call_ids.add(call_id)
             tool_calls[tool_use_id] = CallToolRequest(
                 method="tools/call",
                 params=CallToolRequestParams(name=name, arguments=arguments),
             )
+
+        if duplicate_call_ids:
+            duplicate_ids = sorted(set(duplicate_call_ids))
+            self._tool_call_diagnostics = {
+                "kind": "duplicate_tool_calls_filtered",
+                "duplicate_count": len(duplicate_call_ids),
+                "duplicate_tool_call_ids": duplicate_ids,
+                "raw_function_call_count": raw_function_call_count,
+                "new_function_call_count": len(tool_calls),
+            }
+            logger = getattr(self, "logger", None)
+            if logger is not None:
+                logger.warning(
+                    "Filtered duplicate Responses tool calls",
+                    data={
+                        "duplicate_count": len(duplicate_call_ids),
+                        "duplicate_tool_call_ids": duplicate_ids,
+                        "raw_function_call_count": raw_function_call_count,
+                        "new_function_call_count": len(tool_calls),
+                    },
+                )
+        else:
+            self._tool_call_diagnostics = None
+
         return tool_calls or None
 
     def _map_response_stop_reason(self, response: Any) -> LlmStopReason:

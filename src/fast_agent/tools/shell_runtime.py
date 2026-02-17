@@ -176,7 +176,14 @@ class ShellRuntime:
             "returns_exit_code": True,
         }
 
-    async def execute(self, arguments: dict[str, Any] | None = None) -> CallToolResult:
+    async def execute(
+        self,
+        arguments: dict[str, Any] | None = None,
+        tool_use_id: str | None = None,
+        *,
+        show_tool_call_id: bool = False,
+        defer_display_to_tool_result: bool = False,
+    ) -> CallToolResult:
         """Execute a shell command and stream output to the console with timeout detection."""
         command_value = (arguments or {}).get("command") if arguments else None
         if not isinstance(command_value, str) or not command_value.strip():
@@ -244,6 +251,10 @@ class ShellRuntime:
                 output_bytes = 0
                 output_truncated = False
                 truncation_notice_printed = False
+                had_stream_output = False
+                use_live_shell_display = (
+                    self._show_bash_output and not defer_display_to_tool_result
+                )
                 display_line_limit = self._output_display_lines
                 displayed_line_count = 0
                 display_ellipsis_printed = False
@@ -255,12 +266,14 @@ class ShellRuntime:
                 async def stream_output(stream, style: str | None, is_stderr: bool = False) -> None:
                     nonlocal output_bytes, output_truncated, truncation_notice_printed
                     nonlocal displayed_line_count, display_ellipsis_printed
+                    nonlocal had_stream_output
                     if not stream:
                         return
                     while True:
                         line = await stream.readline()
                         if not line:
                             break
+                        had_stream_output = True
                         text = line.decode(errors="replace")
                         output_text = text if not is_stderr else f"[stderr] {text}"
                         if not output_truncated:
@@ -282,7 +295,7 @@ class ShellRuntime:
                                 output_truncated = True
 
                         if output_truncated and not truncation_notice_printed:
-                            if self._show_bash_output and (
+                            if use_live_shell_display and (
                                 display_line_limit is None or display_line_limit > 0
                             ):
                                 estimated_tokens = int(
@@ -296,7 +309,7 @@ class ShellRuntime:
                                 console.console.print(message)
                             truncation_notice_printed = True
 
-                        if self._show_bash_output:
+                        if use_live_shell_display:
                             if display_line_limit is None:
                                 console.console.print(
                                     self._render_display_line(text, style),
@@ -339,7 +352,7 @@ class ShellRuntime:
                         time_since_warning = elapsed - last_warning_time
                         if time_since_warning >= self._warning_interval_seconds and remaining > 0:
                             self._logger.debug(f"Watchdog: warning at {int(remaining)}s remaining")
-                            if self._show_bash_output:
+                            if use_live_shell_display:
                                 console.console.print(
                                     f"▶ No output detected - terminating in {int(remaining)}s",
                                     style="black on red",
@@ -365,7 +378,7 @@ class ShellRuntime:
                             self._logger.debug(
                                 "Watchdog: timeout exceeded, terminating process group"
                             )
-                            if self._show_bash_output:
+                            if use_live_shell_display:
                                 console.console.print(
                                     "▶ Timeout exceeded - terminating process", style="black on red"
                                 )
@@ -487,10 +500,17 @@ class ShellRuntime:
                     )
 
                 # Display bottom separator with exit code
-                if self._show_bash_output:
-                    self._display.show_shell_exit_code(return_code)
+                if use_live_shell_display:
+                    self._display.show_shell_exit_code(
+                        return_code,
+                        no_output=not had_stream_output,
+                        tool_call_id=tool_use_id if show_tool_call_id else None,
+                    )
 
-                setattr(result, "_suppress_display", True)
+                suppress_display = True
+                if defer_display_to_tool_result and self._show_bash_output:
+                    suppress_display = False
+                setattr(result, "_suppress_display", suppress_display)
                 setattr(result, "exit_code", return_code)
                 return result
 

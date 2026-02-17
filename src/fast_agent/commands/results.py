@@ -21,6 +21,7 @@ class CommandMessage:
     title: str | None = None
     right_info: str | None = None
     agent_name: str | None = None
+    render_markdown: bool = False
 
 
 @dataclass(slots=True)
@@ -42,6 +43,7 @@ class CommandOutcome:
         title: str | None = None,
         right_info: str | None = None,
         agent_name: str | None = None,
+        render_markdown: bool = False,
     ) -> None:
         self.messages.append(
             CommandMessage(
@@ -50,5 +52,6 @@ class CommandOutcome:
                 title=title,
                 right_info=right_info,
                 agent_name=agent_name,
+                render_markdown=render_markdown,
             )
         )

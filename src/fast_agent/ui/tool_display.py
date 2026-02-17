@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any, Mapping
+import re
+from typing import TYPE_CHECKING, Any, Mapping, cast
 
 from rich.syntax import Syntax
 from rich.text import Text
@@ -115,6 +116,76 @@ class ToolDisplay:
         if candidate.startswith("[Exit code:") or candidate.startswith("process exit code was"):
             return lines[:index], candidate
         return lines, None
+
+    @staticmethod
+    def _parse_exit_code_value(exit_line: str | None) -> int | None:
+        if not exit_line:
+            return None
+
+        bracket_match = re.search(r"\[Exit code:\s*(-?\d+)", exit_line)
+        if bracket_match:
+            return int(bracket_match.group(1))
+
+        process_match = re.search(r"process exit code was\s+(-?\d+)", exit_line)
+        if process_match:
+            return int(process_match.group(1))
+
+        return None
+
+    def _shell_exit_detail(self, *, no_output: bool, tool_call_id: str | None) -> str | None:
+        detail = ""
+        if no_output:
+            detail += "(no output)"
+
+        formatted_id = self._format_tool_call_id(tool_call_id)
+        if formatted_id:
+            if detail:
+                detail += f" id: {formatted_id}"
+            else:
+                detail += f"id: {formatted_id}"
+
+        return detail or None
+
+    def _build_shell_exit_additional_message(
+        self,
+        *,
+        content,
+        tool_name: str | None,
+        tool_call_id: str | None,
+    ):
+        from mcp.types import TextContent
+
+        from fast_agent.mcp.helpers.content_helpers import get_text, is_text_content
+
+        if not tool_name:
+            return content, None
+        normalized_tool_name = self._normalize_tool_name(tool_name)
+        if normalized_tool_name not in {"execute", "bash", "shell"}:
+            return content, None
+
+        if not content or len(content) != 1 or not is_text_content(content[0]):
+            return content, None
+
+        text = get_text(content[0]) or ""
+        lines = cast("list[str]", text.splitlines())
+        lines_without_exit, exit_line = self._extract_exit_code_line(lines)
+        exit_code = self._parse_exit_code_value(exit_line)
+        if exit_code is None:
+            return content, None
+
+        no_output = not any(line.strip() for line in lines_without_exit)
+        detail = self._shell_exit_detail(no_output=no_output, tool_call_id=tool_call_id)
+        additional_message = self._display.style.shell_exit_line(
+            exit_code,
+            console.console.size.width,
+            detail,
+        )
+
+        if not lines_without_exit:
+            return "", additional_message
+
+        rendered_text = "\n".join(lines_without_exit)
+        return [TextContent(type="text", text=rendered_text)], additional_message
 
     def _limit_shell_output_text(self, text: str, line_limit: int) -> str:
         if line_limit < 0:
@@ -255,6 +326,12 @@ class ToolDisplay:
                 tool_call_id,
             )
 
+            display_content, shell_exit_additional_message = self._build_shell_exit_additional_message(
+                content=display_content,
+                tool_name=tool_name,
+                tool_call_id=tool_call_id,
+            )
+
             if has_structured:
                 config_map = MESSAGE_CONFIGS[MessageType.TOOL_RESULT]
                 block_color = "red" if result.isError else config_map["block_color"]
@@ -322,6 +399,7 @@ class ToolDisplay:
                     bottom_metadata=bottom_metadata,
                     is_error=result.isError,
                     truncate_content=truncate_content,
+                    additional_message=shell_exit_additional_message,
                     show_hook_indicator=show_hook_indicator,
                 )
         except Exception:

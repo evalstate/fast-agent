@@ -1,4 +1,5 @@
 import asyncio
+import json
 from typing import Any, Literal
 
 from mcp import Tool
@@ -47,6 +48,7 @@ DEFAULT_RESPONSES_MODEL = "gpt-5-mini"
 DEFAULT_REASONING_EFFORT = "medium"
 MIN_RESPONSES_MAX_TOKENS = 16
 DEFAULT_RESPONSES_BASE_URL = "https://api.openai.com/v1"
+RESPONSES_DIAGNOSTICS_CHANNEL = "fast-agent-provider-diagnostics"
 
 ResponsesTransport = Literal["sse", "websocket", "auto"]
 
@@ -81,6 +83,9 @@ class ResponsesLLM(
         super().__init__(provider=provider, **kwargs)
         self.logger = get_logger(f"{__name__}.{self.name}" if self.name else __name__)
         self._tool_call_id_map: dict[str, str] = {}
+        self._seen_tool_call_ids: set[str] = set()
+        self._tool_call_diagnostics: dict[str, Any] | None = None
+        self._last_ws_request_type: str | None = None
         self._file_id_cache: dict[str, str] = {}
         self._transport: ResponsesTransport = "sse"
         self._last_transport_used: Literal["sse", "websocket"] | None = None
@@ -412,6 +417,7 @@ class ResponsesLLM(
             display_model = f"{model_name} [ws]"
 
         self._log_chat_progress(self.chat_turn(), model=display_model)
+        self._last_ws_request_type = None
 
         try:
             if transport == "sse":
@@ -481,6 +487,17 @@ class ResponsesLLM(
                 channels[OPENAI_REASONING_ENCRYPTED] = encrypted_blocks
 
         tool_calls = self._extract_tool_calls(response)
+        tool_call_diagnostics = self._consume_tool_call_diagnostics()
+        if tool_call_diagnostics:
+            diagnostics_payload = dict(tool_call_diagnostics)
+            diagnostics_payload["transport"] = self._last_transport_used or "unknown"
+            if self._last_transport_used == "websocket" and self._last_ws_request_type:
+                diagnostics_payload["websocket_request_type"] = self._last_ws_request_type
+            if channels is None:
+                channels = {}
+            channels[RESPONSES_DIAGNOSTICS_CHANNEL] = [
+                TextContent(type="text", text=json.dumps(diagnostics_payload))
+            ]
         if tool_calls:
             stop_reason = LlmStopReason.TOOL_USE
         else:
@@ -606,6 +623,7 @@ class ResponsesLLM(
                     data={"model": model_name, "url": ws_url},
                 )
                 planned_request = planner.plan(arguments)
+                self._last_ws_request_type = planned_request.event_type
                 await send_response_request(connection.websocket, planned_request)
                 stream = WebSocketResponsesStream(connection.websocket)
                 if timeout is None:
@@ -731,3 +749,10 @@ class ResponsesLLM(
             model_name = self.default_request_params.model or DEFAULT_RESPONSES_MODEL
             return build_stream_failure_response(self.provider, error, model_name)
         return None
+
+    def clear(self, *, clear_prompts: bool = False) -> None:
+        super().clear(clear_prompts=clear_prompts)
+        self._tool_call_id_map.clear()
+        self._seen_tool_call_ids.clear()
+        self._tool_call_diagnostics = None
+        self._last_ws_request_type = None

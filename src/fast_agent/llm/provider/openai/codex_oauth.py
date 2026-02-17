@@ -22,7 +22,10 @@ import httpx
 from pydantic import BaseModel
 
 from fast_agent.core.exceptions import ProviderKeyError
-from fast_agent.core.keyring_utils import get_keyring_status
+from fast_agent.core.keyring_utils import (
+    get_keyring_status,
+    maybe_print_keyring_access_notice,
+)
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.oauth_client import add_identity_to_index, remove_identity_from_index
 from fast_agent.ui import console
@@ -283,6 +286,7 @@ def _delete_chunked_payload(keyring_module: _KeyringProtocol) -> None:
 
 def _keyring_payload_present() -> bool:
     try:
+        maybe_print_keyring_access_notice(purpose="checking Codex OAuth tokens")
         import keyring
 
         keyring_module = cast("_KeyringProtocol", keyring)
@@ -297,6 +301,7 @@ def _keyring_payload_present() -> bool:
 
 def _get_keyring_password() -> str | None:
     try:
+        maybe_print_keyring_access_notice(purpose="loading Codex OAuth tokens")
         import keyring
 
         keyring_module = cast("_KeyringProtocol", keyring)
@@ -309,6 +314,7 @@ def _get_keyring_password() -> str | None:
 
 
 def _set_keyring_password(payload: str) -> None:
+    maybe_print_keyring_access_notice(purpose="saving Codex OAuth tokens")
     import keyring
 
     keyring_module = cast("_KeyringProtocol", keyring)
@@ -341,6 +347,7 @@ def _set_keyring_password(payload: str) -> None:
 
 
 def _delete_keyring_password() -> None:
+    maybe_print_keyring_access_notice(purpose="clearing Codex OAuth tokens")
     import keyring
 
     keyring_module = cast("_KeyringProtocol", keyring)

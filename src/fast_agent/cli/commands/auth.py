@@ -9,6 +9,7 @@ import typer
 from rich.table import Table
 
 from fast_agent.config import Settings, get_settings
+from fast_agent.core.keyring_utils import maybe_print_keyring_access_notice
 from fast_agent.mcp.oauth_client import (
     _derive_base_server_url,
     clear_keyring_token,
@@ -29,6 +30,7 @@ app = typer.Typer(
 def _get_keyring_status() -> tuple[str, bool]:
     """Return (backend_name, usable) where usable=False for the fail backend or missing keyring."""
     try:
+        maybe_print_keyring_access_notice(purpose="checking keyring backend")
         import keyring
 
         kr = keyring.get_keyring()
@@ -52,6 +54,7 @@ def _get_keyring_backend_name() -> str:
 
 def _keyring_get_password(service: str, username: str) -> str | None:
     try:
+        maybe_print_keyring_access_notice(purpose="checking stored MCP OAuth tokens")
         import keyring
 
         return keyring.get_password(service, username)
@@ -61,6 +64,7 @@ def _keyring_get_password(service: str, username: str) -> str | None:
 
 def _keyring_delete_password(service: str, username: str) -> bool:
     try:
+        maybe_print_keyring_access_notice(purpose="clearing stored MCP OAuth tokens")
         import keyring
 
         keyring.delete_password(service, username)
@@ -143,6 +147,7 @@ def status(
         present = False
         if backend_usable:
             try:
+                maybe_print_keyring_access_notice(purpose="checking stored MCP OAuth tokens")
                 import keyring
 
                 present = (
@@ -212,6 +217,9 @@ def status(
             if persist == "keyring" and row["oauth"]:
                 if backend_usable:
                     try:
+                        maybe_print_keyring_access_notice(
+                            purpose="checking stored MCP OAuth tokens"
+                        )
                         import keyring
 
                         has_token = (

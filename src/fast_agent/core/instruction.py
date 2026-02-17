@@ -6,6 +6,7 @@ from templates with placeholder substitution. Sources can be static values
 or dynamic resolvers that are called at build time.
 
 Built-in placeholders (automatically resolved):
+    {{internal:resource_id}} - Loads packaged internal resource content
     {{currentDate}} - Current date in "17 December 2025" format
     {{hostPlatform}} - Platform info (e.g., "Linux-6.6.0-x86_64")
     {{pythonVer}} - Python version (e.g., "3.12.0")
@@ -36,6 +37,7 @@ from __future__ import annotations
 import platform
 import re
 from datetime import datetime
+from importlib.resources import files
 from pathlib import Path
 from typing import Awaitable, Callable
 
@@ -85,6 +87,40 @@ def _fetch_url_content(url: str) -> str:
     return response.text
 
 
+def _load_internal_resource(resource_id: str) -> str:
+    """Load a packaged internal resource by ID."""
+    normalized_id = resource_id.strip()
+    if not normalized_id:
+        raise AgentConfigError(
+            "Invalid internal resource placeholder",
+            "Resource ID must not be empty",
+        )
+
+    resource_path = (
+        files("fast_agent")
+        .joinpath("resources")
+        .joinpath("shared")
+        .joinpath(f"{normalized_id}.md")
+    )
+    if resource_path.is_file():
+        return resource_path.read_text(encoding="utf-8")
+
+    # Source checkout fallback for local development/testing.
+    source_resource_path = (
+        Path(__file__).resolve().parents[3]
+        / "resources"
+        / "shared"
+        / f"{normalized_id}.md"
+    )
+    if source_resource_path.is_file():
+        return source_resource_path.read_text(encoding="utf-8")
+
+    raise AgentConfigError(
+        "Unknown internal resource for template placeholder",
+        f"Placeholder: {{{{internal:{normalized_id}}}}}",
+    )
+
+
 class InstructionBuilder:
     """
     Builds instruction strings from templates with placeholder substitution.
@@ -99,6 +135,7 @@ class InstructionBuilder:
     - {{pythonVer}} - Python version
 
     Special patterns:
+    - {{internal:resource_id}} - Loads packaged internal resource content
     - {{url:https://...}} - Fetches content from URL (resolved at build time)
     - {{file:path}} - Reads file content relative to workspace (requires workspaceRoot)
     - {{file_silent:path}} - Like file: but returns empty string if missing
@@ -191,41 +228,45 @@ class InstructionBuilder:
         Build the instruction string by resolving all placeholders.
 
         Resolution order:
-        1. {{url:...}} patterns (fetch from URL)
-        2. {{file:...}} patterns (read from file, requires workspaceRoot set)
-        3. {{file_silent:...}} patterns (read from file, empty if missing)
-        4. Built-in values (currentDate, hostPlatform, pythonVer)
-        5. Static values (override built-ins if set)
-        6. Dynamic resolvers
+        1. {{internal:...}} patterns (load packaged internal resources)
+        2. {{url:...}} patterns (fetch from URL)
+        3. {{file:...}} patterns (read from file, requires workspaceRoot set)
+        4. {{file_silent:...}} patterns (read from file, empty if missing)
+        5. Built-in values (currentDate, hostPlatform, pythonVer)
+        6. Static values (override built-ins if set)
+        7. Dynamic resolvers
 
         Returns:
             The fully resolved instruction string
         """
         result = protect_escaped_braces(self._template)
 
-        # 1. Resolve {{url:...}} patterns
+        # 1. Resolve {{internal:...}} patterns
+        result = self._resolve_internal_patterns(result)
+
+        # 2. Resolve {{url:...}} patterns
         result = self._resolve_url_patterns(result)
 
-        # 2. Resolve {{file:...}} patterns (strict - errors if missing)
+        # 3. Resolve {{file:...}} patterns (strict - errors if missing)
         result = self._resolve_file_patterns(result, silent=False)
 
-        # 3. Resolve {{file_silent:...}} patterns (returns empty if missing)
+        # 4. Resolve {{file_silent:...}} patterns (returns empty if missing)
         result = self._resolve_file_patterns(result, silent=True)
 
-        # 4. Apply built-in values (can be overridden by static values)
+        # 5. Apply built-in values (can be overridden by static values)
         for placeholder, value_fn in self._BUILTINS.items():
             if placeholder not in self._static:  # Allow override
                 pattern = f"{{{{{placeholder}}}}}"
                 if pattern in result:
                     result = result.replace(pattern, value_fn())
 
-        # 5. Apply static values
+        # 6. Apply static values
         for placeholder, value in self._static.items():
             pattern = f"{{{{{placeholder}}}}}"
             if pattern in result:
                 result = result.replace(pattern, value)
 
-        # 6. Resolve dynamic values
+        # 7. Resolve dynamic values
         for placeholder, resolver in self._resolvers.items():
             pattern = f"{{{{{placeholder}}}}}"
             if pattern in result:
@@ -243,6 +284,17 @@ class InstructionBuilder:
                     result = result.replace(pattern, "")
 
         return restore_escaped_braces(result)
+
+    def _resolve_internal_patterns(self, text: str) -> str:
+        """Resolve {{internal:resource_id}} patterns from packaged resources."""
+        internal_pattern = re.compile(r"\{\{internal:([^}]+)\}\}")
+
+        def replace_internal(match: re.Match) -> str:
+            resource_id = match.group(1)
+            internal_text = _load_internal_resource(resource_id)
+            return protect_escaped_braces(internal_text)
+
+        return internal_pattern.sub(replace_internal, text)
 
     def _resolve_url_patterns(self, text: str) -> str:
         """Resolve {{url:https://...}} patterns by fetching content."""
@@ -328,8 +380,10 @@ class InstructionBuilder:
         Returns:
             Set of placeholder names (without braces)
         """
-        # Match {{name}} but not {{url:...}}, {{file:...}}, {{file_silent:...}}
-        pattern = re.compile(r"(?<!\\)\{\{(?!url:|file:|file_silent:)([^}]+)\}\}")
+        # Match {{name}} but not special patterns
+        pattern = re.compile(
+            r"(?<!\\)\{\{(?!url:|file:|file_silent:|internal:)([^}]+)\}\}"
+        )
         return set(pattern.findall(self._template))
 
     def get_unresolved_placeholders(self) -> Set[str]:

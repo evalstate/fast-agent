@@ -387,6 +387,8 @@ async def handle_resume_session(
             Text(assistant_text),
             title="Last assistant message",
             right_info="session",
+            agent_name=agent_obj.name,
+            render_markdown=True,
         )
     return outcome
 
