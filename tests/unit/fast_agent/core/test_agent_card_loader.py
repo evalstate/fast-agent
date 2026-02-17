@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from fast_agent.core.agent_card_loader import _resolve_name
+from fast_agent.core.agent_card_loader import _resolve_name, load_agent_cards
 from fast_agent.core.exceptions import AgentConfigError
 
 if TYPE_CHECKING:
@@ -63,3 +63,64 @@ class TestResolveName:
         dummy_path = tmp_path / "test.md"
         with pytest.raises(AgentConfigError):
             _resolve_name("   ", dummy_path)
+
+
+def test_load_agent_card_parses_mcp_connect_entries(tmp_path: Path) -> None:
+    card_path = tmp_path / "mcp_agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: mcp_agent",
+                "mcp_connect:",
+                '  - target: "https://demo.hf.space"',
+                '  - target: "@foo/bar"',
+                '    name: "foo_bar"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_agent_cards(card_path)
+    assert len(loaded) == 1
+
+    config = loaded[0].agent_data["config"]
+    assert len(config.mcp_connect) == 2
+    assert config.mcp_connect[0].target == "https://demo.hf.space"
+    assert config.mcp_connect[0].name is None
+    assert config.mcp_connect[1].target == "@foo/bar"
+    assert config.mcp_connect[1].name == "foo_bar"
+
+
+def test_load_agent_card_rejects_mcp_connect_unknown_keys(tmp_path: Path) -> None:
+    card_path = tmp_path / "bad_mcp.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: bad_mcp",
+                "mcp_connect:",
+                '  - target: "@foo/bar"',
+                '    alias: "foo"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AgentConfigError, match="mcp_connect\\[0\\]"):
+        load_agent_cards(card_path)
+
+
+def test_load_agent_card_rejects_mcp_connect_missing_target(tmp_path: Path) -> None:
+    card_path = tmp_path / "bad_mcp_target.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: bad_mcp",
+                "mcp_connect:",
+                "  - name: test",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(AgentConfigError, match="mcp_connect\\[0\\]\\.target"):
+        load_agent_cards(card_path)

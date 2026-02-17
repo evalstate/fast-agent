@@ -19,6 +19,7 @@ class AgentCardData(TypedDict, total=False):
     schema_version: str
     message_files: list[Path]
     child_agents: list[str]
+    mcp_connect: list[dict[str, str]]
     agents_as_tools_options: dict[str, Any]
     function_tools: list[str] | str | None
     sequence: list[str]

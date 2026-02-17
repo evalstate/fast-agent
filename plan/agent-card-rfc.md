@@ -7,6 +7,7 @@ A loader validates fields based on `type` and loads a single file or a directory
 optional/experimental and described in a separate spec.
 AgentCards now support an optional `description` field used for tool descriptions when
 agents are exposed as tools (MCP or agent-as-tool wiring).
+AgentCards may declare runtime MCP targets via `mcp_connect` (`target` + optional `name`).
 AgentCards may enable local shell execution via `shell: true` with optional `cwd`.
 AgentCards support `tool_only: true` to prevent exposure as first-class agents while
 still allowing use as tools (useful for helper agents in `.fast-agent/tool-cards/`).
@@ -115,6 +116,7 @@ Allowed fields:
 - `name`, `instruction`, `description`, `default`, `tool_only`
 - `agents` (agents-as-tools)
 - `servers`, `tools`, `resources`, `prompts`, `skills`
+- `mcp_connect` (runtime MCP targets; `target` required, `name` optional)
 - `model`, `use_history`, `request_params`, `human_input`, `api_key`
 - `history_source`, `history_merge_target`
 - `max_parallel`, `child_timeout_sec`, `max_display_instances`
