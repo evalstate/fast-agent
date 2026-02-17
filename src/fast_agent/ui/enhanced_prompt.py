@@ -5,6 +5,7 @@ Enhanced prompt functionality with advanced prompt_toolkit features.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import platform
@@ -19,9 +20,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from prompt_toolkit import PromptSession
+from prompt_toolkit.application.current import get_app_or_none
 from prompt_toolkit.completion import Completer, Completion, WordCompleter
 from prompt_toolkit.filters import Condition
-from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.formatted_text import HTML, to_formatted_text
+from prompt_toolkit.formatted_text.utils import fragment_list_width
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.lexers import Lexer
@@ -118,6 +121,9 @@ _last_copyable_output: str | None = None
 _copy_notice: str | None = None
 _copy_notice_until: float = 0.0
 
+_SHELL_PATH_SWITCH_DELAY_SECONDS = 8.0
+_ELLIPSIS = "…"
+
 
 def set_last_copyable_output(output: str) -> None:
     """Set the last copyable output for Ctrl+Y clipboard functionality."""
@@ -205,6 +211,103 @@ def _default_shell_command() -> str:
             return shell_path
 
     return "sh"
+
+
+def _left_truncate_with_ellipsis(text: str, max_length: int) -> str:
+    """Truncate text from the left using a single-character ellipsis."""
+    if max_length <= 0:
+        return ""
+    if len(text) <= max_length:
+        return text
+    if max_length == 1:
+        return _ELLIPSIS
+    return f"{_ELLIPSIS}{text[-(max_length - 1) :]}"
+
+
+def _format_parent_current_path(path: Path) -> str:
+    """Render a path as parent/current when both names are available."""
+    current = path.name or str(path)
+    parent = path.parent.name
+    if parent:
+        return f"{parent}/{current}"
+    return current
+
+
+def _fit_shell_path_for_toolbar(path: Path, max_length: int) -> str:
+    """Fit a shell path for toolbar display without spilling."""
+    if max_length <= 0:
+        return ""
+
+    parent_current = _format_parent_current_path(path)
+    if len(parent_current) <= max_length:
+        return parent_current
+
+    current = path.name or str(path)
+    if len(current) <= max_length:
+        return current
+
+    return _left_truncate_with_ellipsis(current, max_length)
+
+
+def _fit_shell_identity_for_toolbar(path: Path, version_segment: str, max_length: int) -> str:
+    """Fit shell path and optional version segment without spilling toolbar width.
+
+    Preference order after shell mode switches at startup:
+    1) parent/current | fast-agent X (if it fits)
+    2) current | fast-agent X (if it fits)
+    3) path-only fallback (with left truncation as needed)
+    """
+    if max_length <= 0:
+        return ""
+
+    parent_current = _format_parent_current_path(path)
+    current = path.name or str(path)
+
+    parent_current_with_version = f"{parent_current} | {version_segment}"
+    if len(parent_current_with_version) <= max_length:
+        return parent_current_with_version
+
+    current_with_version = f"{current} | {version_segment}"
+    if len(current_with_version) <= max_length:
+        return current_with_version
+
+    return _fit_shell_path_for_toolbar(path, max_length)
+
+
+def _can_fit_shell_path_and_version(path: Path, version_segment: str, max_length: int) -> bool:
+    """Return whether path + version can fit in the available toolbar width."""
+    if max_length <= 0:
+        return False
+
+    parent_current = _format_parent_current_path(path)
+    parent_current_with_version = f"{parent_current} | {version_segment}"
+    if len(parent_current_with_version) <= max_length:
+        return True
+
+    current = path.name or str(path)
+    current_with_version = f"{current} | {version_segment}"
+    return len(current_with_version) <= max_length
+
+
+def _toolbar_markup_width(markup: str) -> int:
+    """Compute visible width for a prompt_toolkit HTML markup fragment."""
+    if not markup:
+        return 0
+    try:
+        return fragment_list_width(to_formatted_text(HTML(markup)))
+    except Exception:
+        return len(markup)
+
+
+def _resolve_toolbar_width() -> int:
+    """Resolve current toolbar width from prompt-toolkit app or terminal fallback."""
+    app = get_app_or_none()
+    if app is not None:
+        try:
+            return max(1, app.output.get_size().columns)
+        except Exception:
+            pass
+    return max(1, shutil.get_terminal_size((80, 20)).columns)
 
 
 def _show_history_cmd(target_agent: str | None) -> ShowHistoryCommand:
@@ -370,7 +473,9 @@ def _extract_alert_flags_from_meta(blocks) -> set[str]:
     return flags
 
 
-def _resolve_alert_flags_from_history(message_history: "Sequence[PromptMessageExtended]") -> set[str]:
+def _resolve_alert_flags_from_history(
+    message_history: "Sequence[PromptMessageExtended]",
+) -> set[str]:
     """Resolve TDV alert flags from persisted conversation history."""
     alert_flags: set[str] = set()
     legacy_alert_flags: set[str] = set()
@@ -2548,16 +2653,26 @@ async def get_enhanced_input(
         if hasattr(session, "app") and session.app:
             session.app.invalidate()
 
+    shell_enabled = False
+    shell_access_modes: tuple[str, ...] = ()
+    shell_name: str | None = None
+    shell_runtime = None
+    shell_working_dir: Path | None = None
+    toolbar_started_at = time.monotonic()
+    show_shell_path_segment = False
+    toolbar_switch_task: asyncio.Task[None] | None = None
+
     # Define toolbar function that will update dynamically
     def get_toolbar():
         global _copy_notice
+        nonlocal show_shell_path_segment
         if in_multiline_mode:
             mode_style = "ansired"  # More noticeable for multiline mode
-            mode_text = "MULTILINE"
+            mode_text = "MLTI"
         #           toggle_text = "Normal"
         else:
             mode_style = "ansigreen"
-            mode_text = "NORMAL"
+            mode_text = "NRML"
         #            toggle_text = "Multiline"
 
         # No shortcut hints in the toolbar for now
@@ -2746,6 +2861,7 @@ async def get_enhanced_input(
 
         # Version/app label in green (dynamic version)
         version_segment = f"fast-agent {app_version}"
+        toolbar_identity_segment = version_segment
 
         # Add notifications - prioritize active events over completed ones
         from fast_agent.ui import notification_tracker
@@ -2782,17 +2898,58 @@ async def get_enhanced_input(
                 # Expire the notice once the timer elapses.
                 _copy_notice = None
 
+        if shell_enabled:
+            working_dir = shell_working_dir or Path.cwd()
+
+            if middle:
+                left_prefix = (
+                    f" <style fg='{toolbar_color}' bg='ansiblack'> {agent_name} </style> "
+                    f" {middle} | <style fg='{mode_style}' bg='ansiblack'> {mode_text} </style> | "
+                )
+            else:
+                left_prefix = (
+                    f" <style fg='{toolbar_color}' bg='ansiblack'> {agent_name} </style> "
+                    f"Mode: <style fg='{mode_style}' bg='ansiblack'> {mode_text} </style> | "
+                )
+
+            right_suffix = f"{notification_segment}{copy_notice}"
+            available_width = (
+                _resolve_toolbar_width()
+                - _toolbar_markup_width(left_prefix)
+                - _toolbar_markup_width(right_suffix)
+            )
+
+            if _can_fit_shell_path_and_version(working_dir, version_segment, available_width):
+                # If both can fit, show normal path+version behavior immediately.
+                toolbar_identity_segment = _fit_shell_identity_for_toolbar(
+                    working_dir,
+                    version_segment,
+                    available_width,
+                )
+                show_shell_path_segment = True
+            else:
+                if not show_shell_path_segment:
+                    elapsed = time.monotonic() - toolbar_started_at
+                    if elapsed >= _SHELL_PATH_SWITCH_DELAY_SECONDS:
+                        show_shell_path_segment = True
+
+                if show_shell_path_segment:
+                    toolbar_identity_segment = _fit_shell_path_for_toolbar(
+                        working_dir,
+                        available_width,
+                    )
+
         if middle:
             return HTML(
                 f" <style fg='{toolbar_color}' bg='ansiblack'> {agent_name} </style> "
                 f" {middle} | <style fg='{mode_style}' bg='ansiblack'> {mode_text} </style> | "
-                f"{version_segment}{notification_segment}{copy_notice}"
+                f"{toolbar_identity_segment}{notification_segment}{copy_notice}"
             )
         else:
             return HTML(
                 f" <style fg='{toolbar_color}' bg='ansiblack'> {agent_name} </style> "
                 f"Mode: <style fg='{mode_style}' bg='ansiblack'> {mode_text} </style> | "
-                f"{version_segment}{notification_segment}{copy_notice}"
+                f"{toolbar_identity_segment}{notification_segment}{copy_notice}"
             )
 
     # A more terminal-agnostic style that should work across themes
@@ -2840,10 +2997,6 @@ async def get_enhanced_input(
     session.app.key_bindings = bindings
 
     shell_agent = None
-    shell_enabled = False
-    shell_access_modes: tuple[str, ...] = ()
-    shell_name: str | None = None
-    shell_runtime = None
     if agent_provider:
         try:
             shell_agent = agent_provider._agent(agent_name)
@@ -2876,6 +3029,19 @@ async def get_enhanced_input(
         if shell_enabled and shell_runtime:
             runtime_info = shell_runtime.runtime_info()
             shell_name = runtime_info.get("name")
+            try:
+                shell_working_dir = shell_runtime.working_directory()
+            except Exception:
+                shell_working_dir = None
+
+    if shell_enabled:
+
+        async def _invalidate_toolbar_on_switch() -> None:
+            await asyncio.sleep(_SHELL_PATH_SWITCH_DELAY_SECONDS)
+            if session.app and not session.app.is_done:
+                session.app.invalidate()
+
+        toolbar_switch_task = asyncio.create_task(_invalidate_toolbar_on_switch())
 
     def _resolve_prompt_text() -> HTML:
         buffer_text = ""
@@ -3094,6 +3260,11 @@ async def get_enhanced_input(
         print(f"\nInput error: {type(e).__name__}: {e}")
         return "STOP"
     finally:
+        if toolbar_switch_task and not toolbar_switch_task.done():
+            toolbar_switch_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await toolbar_switch_task
+
         # Ensure the prompt session is properly cleaned up
         # This is especially important on Windows to prevent resource leaks
         if session.app.is_running:

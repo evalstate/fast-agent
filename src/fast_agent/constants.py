@@ -112,6 +112,10 @@ You can insert these in the **body** or `instruction:`.
 | `\\{{pythonVer}}` | Python version |
 | `\\{{workspaceRoot}}` | Workspace root path (if available) |
 | `\\{{env}}` | Environment summary (client, host, workspace) |
+| `\\{{agentName}}` | Current agent name |
+| `\\{{agentType}}` | Current agent type |
+| `\\{{agentCardPath}}` | Source AgentCard path (if loaded from card) |
+| `\\{{agentCardDir}}` | Directory containing the source AgentCard |
 | `\\{{serverInstructions}}` | MCP server instructions (if any) |
 | `\\{{agentSkills}}` | Formatted skill descriptions |
 
@@ -157,6 +161,12 @@ fast-agent environment paths:
 - Environment root: {{environmentDir}}
 - Agent cards: {{environmentAgentCardsDir}}
 - Tool cards: {{environmentToolCardsDir}}
+
+Current agent identity:
+- Name: {{agentName}}
+- Type: {{agentType}}
+- AgentCard path: {{agentCardPath}}
+- AgentCard directory: {{agentCardDir}}
 
 Use the smart tool to load AgentCards temporarily when you need extra agents.
 Use validate to check AgentCard files before running them.

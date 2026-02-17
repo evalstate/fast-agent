@@ -220,11 +220,18 @@ async def test_slash_command_session_resume_switches_current_mode(tmp_path: Path
         manager = get_session_manager()
         session = manager.create_session()
 
-        history_message = PromptMessageExtended(
+        user_message = PromptMessageExtended(
             role="user",
             content=[TextContent(type="text", text="resume me")],
         )
-        alpha_agent = StubAgent(name="alpha", message_history=[history_message])
+        assistant_message = PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="welcome back")],
+        )
+        alpha_agent = StubAgent(
+            name="alpha",
+            message_history=[user_message, assistant_message],
+        )
         await session.save_history(cast("AgentProtocol", alpha_agent))
 
         beta_agent = StubAgent(name="beta")
@@ -245,6 +252,8 @@ async def test_slash_command_session_resume_switches_current_mode(tmp_path: Path
         )
 
         assert "Switched to agent: alpha" in response
+        assert "Last assistant message" in response
+        assert "welcome back" in response
         assert handler.current_agent_name == "alpha"
         assert switched == ["alpha"]
     finally:

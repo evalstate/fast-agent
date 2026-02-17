@@ -25,12 +25,14 @@ from fast_agent.llm.provider.openai.responses_streaming import ResponsesStreamin
 from fast_agent.llm.provider.openai.responses_websocket import (
     ManagedWebSocketConnection,
     ResponsesWebSocketError,
+    ResponsesWsRequestPlanner,
+    StatelessResponsesWsPlanner,
     WebSocketConnectionManager,
     WebSocketResponsesStream,
     build_ws_headers,
     connect_websocket,
     resolve_responses_ws_url,
-    send_response_create,
+    send_response_request,
 )
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import format_reasoning_setting, parse_reasoning_setting
@@ -210,6 +212,9 @@ class ResponsesLLM(
         timeout_seconds: float | None,
     ) -> ManagedWebSocketConnection:
         return await connect_websocket(url=url, headers=headers, timeout_seconds=timeout_seconds)
+
+    def _new_ws_request_planner(self) -> ResponsesWsRequestPlanner:
+        return StatelessResponsesWsPlanner()
 
     def _websocket_retry_diagnostics(
         self,
@@ -586,6 +591,10 @@ class ResponsesLLM(
         for attempt in range(2):
             connection, is_reusable = await self._ws_connections.acquire(_create_connection)
             reused_existing_connection = is_reusable and connection.last_used_monotonic > 0.0
+            planner = connection.session_state.request_planner
+            if planner is None:
+                planner = self._new_ws_request_planner()
+                connection.session_state.request_planner = planner
             keep_connection = False
             stream: WebSocketResponsesStream | None = None
             retry_after_release = False
@@ -596,7 +605,8 @@ class ResponsesLLM(
                     "Using Responses websocket transport",
                     data={"model": model_name, "url": ws_url},
                 )
-                await send_response_create(connection.websocket, arguments)
+                planned_request = planner.plan(arguments)
+                await send_response_request(connection.websocket, planned_request)
                 stream = WebSocketResponsesStream(connection.websocket)
                 if timeout is None:
                     response, streamed_summary = await self._process_stream(
@@ -620,6 +630,7 @@ class ResponsesLLM(
                             "Streaming did not complete within "
                             f"{timeout} seconds."
                         ) from exc
+                planner.commit(arguments, planned_request)
                 keep_connection = True
                 if reconnected:
                     try:
@@ -643,6 +654,7 @@ class ResponsesLLM(
                         pass
                 return response, streamed_summary, normalized_input
             except ResponsesWebSocketError as error:
+                planner.rollback(error, stream_started=error.stream_started)
                 last_error = error
                 retry_after_release = (
                     attempt == 0
@@ -653,10 +665,15 @@ class ResponsesLLM(
                     reconnect_diagnostics = self._websocket_retry_diagnostics(connection, error)
                 if not retry_after_release:
                     raise
-            except TimeoutError:
+            except TimeoutError as error:
+                planner.rollback(
+                    error,
+                    stream_started=stream.stream_started if stream is not None else False,
+                )
                 raise
             except Exception as exc:
                 stream_started = stream.stream_started if stream is not None else False
+                planner.rollback(exc, stream_started=stream_started)
                 wrapped_error = ResponsesWebSocketError(
                     str(exc),
                     stream_started=stream_started,
@@ -675,6 +692,9 @@ class ResponsesLLM(
                 if not retry_after_release:
                     raise wrapped_error from exc
             finally:
+                if not (is_reusable and keep_connection):
+                    planner.reset()
+                    connection.session_state.request_planner = None
                 await self._ws_connections.release(
                     connection,
                     reusable=is_reusable,

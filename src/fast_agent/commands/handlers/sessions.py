@@ -17,6 +17,7 @@ from fast_agent.ui.shell_notice import format_shell_notice
 if TYPE_CHECKING:
     from fast_agent.commands.context import CommandContext
     from fast_agent.session import SessionEntrySummary
+    from fast_agent.types import PromptMessageExtended
 
 
 NOENV_SESSION_MESSAGE = "Session commands are disabled in --noenv mode."
@@ -65,6 +66,16 @@ def _resolve_pin_state(value: str | None, *, current: bool) -> tuple[bool | None
     if normalized in {"off", "false", "no", "disable", "disabled"}:
         return False, None
     return None, "Usage: /session pin [on|off|id|number]"
+
+
+def _find_last_assistant_text(history: list[PromptMessageExtended]) -> str | None:
+    for message in reversed(history):
+        if message.role != "assistant":
+            continue
+        text = message.last_text()
+        if text:
+            return text
+    return None
 
 
 def _build_session_entries(entries: list[SessionEntrySummary], *, usage: str) -> Text:
@@ -369,6 +380,14 @@ async def handle_resume_session(
 
     history = getattr(agent_obj, "message_history", [])
     await ctx.io.display_history_overview(agent_obj.name, list(history), usage)
+
+    assistant_text = _find_last_assistant_text(list(history))
+    if assistant_text:
+        outcome.add_message(
+            Text(assistant_text),
+            title="Last assistant message",
+            right_info="session",
+        )
     return outcome
 
 

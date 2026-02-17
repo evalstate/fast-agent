@@ -166,6 +166,8 @@ class MCPAttachResult:
     tools_added: list[str]
     prompts_added: list[str]
     warnings: list[str]
+    tools_total: int | None = None
+    prompts_total: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -610,6 +612,11 @@ class MCPAggregator(ContextDependent):
             )
             server_registry.registry[server_name] = resolved_config
 
+        existing_tool_names = {
+            tool.namespaced_tool_name for tool in self._server_to_tool_map.get(server_name, [])
+        }
+        existing_prompt_names = {prompt.name for prompt in self._prompt_cache.get(server_name, [])}
+
         already_attached = server_name in self._attached_server_names
         if already_attached and not attach_options.force_reconnect:
             return MCPAttachResult(
@@ -620,12 +627,9 @@ class MCPAggregator(ContextDependent):
                 tools_added=[],
                 prompts_added=[],
                 warnings=[],
+                tools_total=len(existing_tool_names),
+                prompts_total=len(existing_prompt_names),
             )
-
-        existing_tool_names = {
-            tool.namespaced_tool_name for tool in self._server_to_tool_map.get(server_name, [])
-        }
-        existing_prompt_names = {prompt.name for prompt in self._prompt_cache.get(server_name, [])}
 
         if self.connection_persistence:
             logger.info(
@@ -712,6 +716,8 @@ class MCPAggregator(ContextDependent):
             tools_added=sorted(tool_names - existing_tool_names),
             prompts_added=sorted(prompt_names - existing_prompt_names),
             warnings=list(skybridge_config.warnings),
+            tools_total=len(tool_names),
+            prompts_total=len(prompt_names),
         )
 
     async def detach_server(self, server_name: str) -> MCPDetachResult:

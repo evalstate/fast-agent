@@ -261,6 +261,28 @@ def _format_added_summary(tools_added_count: int, prompts_added_count: int) -> T
     return summary
 
 
+def _format_refreshed_summary(
+    *,
+    tools_refreshed_count: int,
+    prompts_refreshed_count: int,
+    tools_added_count: int,
+    prompts_added_count: int,
+) -> Text:
+    tool_word = "tool" if tools_refreshed_count == 1 else "tools"
+    prompt_word = "prompt" if prompts_refreshed_count == 1 else "prompts"
+    new_count = tools_added_count + prompts_added_count
+
+    summary = Text()
+    summary.append("Refreshed ", style="dim")
+    summary.append(str(tools_refreshed_count), style="bold bright_cyan")
+    summary.append(f" {tool_word} and ", style="dim")
+    summary.append(str(prompts_refreshed_count), style="bold bright_cyan")
+    summary.append(f" {prompt_word} (", style="dim")
+    summary.append(str(new_count), style="bold bright_cyan")
+    summary.append(" new).", style="dim")
+    return summary
+
+
 def _format_removed_summary(tools_removed_count: int, prompts_removed_count: int) -> Text:
     tool_word = "tool" if tools_removed_count == 1 else "tools"
     prompt_word = "prompt" if prompts_removed_count == 1 else "prompts"
@@ -447,8 +469,23 @@ async def handle_mcp_connect(
 
     tools_added = getattr(result, "tools_added", [])
     prompts_added = getattr(result, "prompts_added", [])
+    tools_total = getattr(result, "tools_total", None)
+    prompts_total = getattr(result, "prompts_total", None)
     warnings = getattr(result, "warnings", [])
     already_attached = bool(getattr(result, "already_attached", False))
+
+    tools_added_count = len(tools_added)
+    prompts_added_count = len(prompts_added)
+    tools_refreshed_count = (
+        tools_total
+        if isinstance(tools_total, int) and tools_total >= 0
+        else tools_added_count
+    )
+    prompts_refreshed_count = (
+        prompts_total
+        if isinstance(prompts_total, int) and prompts_total >= 0
+        else prompts_added_count
+    )
 
     if already_attached and not parsed.force_reconnect:
         outcome.add_message(
@@ -468,14 +505,26 @@ async def handle_mcp_connect(
             right_info="mcp",
             agent_name=agent_name,
         )
-        outcome.add_message(
-            _format_added_summary(
-                tools_added_count=len(tools_added),
-                prompts_added_count=len(prompts_added),
-            ),
-            right_info="mcp",
-            agent_name=agent_name,
-        )
+        if action == "Reconnected":
+            outcome.add_message(
+                _format_refreshed_summary(
+                    tools_refreshed_count=tools_refreshed_count,
+                    prompts_refreshed_count=prompts_refreshed_count,
+                    tools_added_count=tools_added_count,
+                    prompts_added_count=prompts_added_count,
+                ),
+                right_info="mcp",
+                agent_name=agent_name,
+            )
+        else:
+            outcome.add_message(
+                _format_added_summary(
+                    tools_added_count=tools_added_count,
+                    prompts_added_count=prompts_added_count,
+                ),
+                right_info="mcp",
+                agent_name=agent_name,
+            )
         await emit_progress(f"{action} MCP server '{server_name}'.")
     for warning in warnings:
         outcome.add_message(warning, channel="warning", right_info="mcp", agent_name=agent_name)

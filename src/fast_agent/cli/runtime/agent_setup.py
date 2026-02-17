@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import typer
+from rich.markup import escape as escape_markup
 
 from fast_agent.cli.commands.server_helpers import add_servers_to_config
 from fast_agent.cli.constants import RESUME_LATEST_SENTINEL
@@ -18,6 +19,18 @@ from .request_builders import resolve_default_instruction, use_smart_agent
 
 if TYPE_CHECKING:
     from .run_request import AgentRunRequest
+
+
+def _find_last_assistant_text(history: list[Any]) -> str | None:
+    for message in reversed(history):
+        if getattr(message, "role", None) != "assistant":
+            continue
+        text = getattr(message, "last_text", None)
+        if callable(text):
+            value = text()
+            if value:
+                return str(value)
+    return None
 
 
 async def _resume_session_if_requested(agent_app, request: AgentRunRequest) -> None:
@@ -86,6 +99,22 @@ async def _resume_session_if_requested(agent_app, request: AgentRunRequest) -> N
                 queue_startup_notice(summary_notice)
             else:
                 typer.echo(f"Available histories: {summary_text}", err=True)
+
+    preview_agent = default_agent
+    default_name = getattr(default_agent, "name", None)
+    if loaded and default_name not in loaded:
+        first_loaded_name = sorted(loaded.keys())[0]
+        preview_agent = agent_app._agents.get(first_loaded_name, default_agent)
+
+    preview_history = getattr(preview_agent, "message_history", [])
+    assistant_text = _find_last_assistant_text(list(preview_history))
+    if assistant_text:
+        if interactive_notice:
+            queue_startup_notice("[dim]Last assistant message:[/dim]")
+            queue_startup_notice(escape_markup(assistant_text))
+        else:
+            typer.echo("Last assistant message:", err=True)
+            typer.echo(assistant_text, err=True)
 
 
 def _validate_target_agent_name(fast, request: AgentRunRequest) -> None:

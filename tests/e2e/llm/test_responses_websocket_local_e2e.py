@@ -1,0 +1,146 @@
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
+
+import pytest
+import pytest_asyncio
+from aiohttp import WSMsgType, web
+
+from fast_agent.llm.provider.openai.codex_responses import CodexResponsesLLM
+from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.request_params import RequestParams
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+
+
+class _FakeResponsesClient:
+    async def __aenter__(self) -> _FakeResponsesClient:
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        del exc_type, exc, tb
+
+
+class _LocalWsCodexResponsesLLM(CodexResponsesLLM):
+    def __init__(self, base_url: str) -> None:
+        super().__init__(provider=Provider.CODEX_RESPONSES, model="gpt-5.3-codex", transport="websocket")
+        self._local_base_url = base_url
+
+    def _base_url(self) -> str | None:
+        return self._local_base_url
+
+    def _build_websocket_headers(self) -> dict[str, str]:
+        return {}
+
+    def _responses_client(self) -> Any:
+        return _FakeResponsesClient()
+
+    async def _normalize_input_files(
+        self,
+        client: Any,
+        input_items: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        del client
+        return input_items
+
+
+@dataclass
+class _LocalWebSocketState:
+    handshake_count: int = 0
+    received_request_types: list[str] = field(default_factory=list)
+
+
+@pytest_asyncio.fixture
+async def local_responses_ws_server(
+    unused_tcp_port: int,
+) -> AsyncGenerator[tuple[str, _LocalWebSocketState], None]:
+    state = _LocalWebSocketState()
+
+    async def _handler(request: web.Request) -> web.WebSocketResponse:
+        ws = web.WebSocketResponse(autoping=True)
+        await ws.prepare(request)
+        state.handshake_count += 1
+
+        async for message in ws:
+            if message.type != WSMsgType.TEXT:
+                continue
+            payload = json.loads(str(message.data))
+            request_type = payload.get("type")
+            if isinstance(request_type, str):
+                state.received_request_types.append(request_type)
+
+            response_text = f"turn-{len(state.received_request_types)}"
+            await ws.send_json({"type": "response.output_text.delta", "delta": response_text})
+            await ws.send_json(
+                {
+                    "type": "response.completed",
+                    "response": {
+                        "status": "completed",
+                        "output_text": response_text,
+                        "output": [
+                            {
+                                "type": "message",
+                                "content": [{"type": "output_text", "text": response_text}],
+                            }
+                        ],
+                        "usage": None,
+                    },
+                }
+            )
+
+        return ws
+
+    app = web.Application()
+    app.router.add_get("/v1/responses", _handler)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "127.0.0.1", unused_tcp_port)
+    await site.start()
+
+    base_url = f"http://127.0.0.1:{unused_tcp_port}/v1"
+    try:
+        yield base_url, state
+    finally:
+        await runner.cleanup()
+
+
+def _input_message(text: str) -> dict[str, Any]:
+    return {
+        "type": "message",
+        "role": "user",
+        "content": [{"type": "input_text", "text": text}],
+    }
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_local_websocket_two_turns_reuse_connection_and_append(
+    local_responses_ws_server: tuple[str, _LocalWebSocketState],
+) -> None:
+    base_url, state = local_responses_ws_server
+    llm = _LocalWsCodexResponsesLLM(base_url)
+    params = RequestParams(model="gpt-5.3-codex")
+
+    try:
+        first_response, _, _ = await llm._responses_completion_ws(
+            input_items=[_input_message("first")],
+            request_params=params,
+            tools=None,
+            model_name="gpt-5.3-codex",
+        )
+        second_response, _, _ = await llm._responses_completion_ws(
+            input_items=[_input_message("first"), _input_message("second")],
+            request_params=params,
+            tools=None,
+            model_name="gpt-5.3-codex",
+        )
+    finally:
+        await llm._ws_connections.close()
+
+    assert getattr(first_response, "output_text", None) == "turn-1"
+    assert getattr(second_response, "output_text", None) == "turn-2"
+    assert state.handshake_count == 1
+    assert state.received_request_types[:2] == ["response.create", "response.append"]

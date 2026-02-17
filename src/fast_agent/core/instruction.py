@@ -16,6 +16,10 @@ Built-in placeholders (automatically resolved):
 Context placeholders (set by caller):
     {{workspaceRoot}} - Working directory
     {{env}} - Environment description
+    {{agentName}} - Current agent name
+    {{agentType}} - Current agent type
+    {{agentCardPath}} - Source AgentCard path (if available)
+    {{agentCardDir}} - Source AgentCard directory (if available)
     {{serverInstructions}} - MCP server instructions
     {{agentSkills}} - Agent skill descriptions
 
