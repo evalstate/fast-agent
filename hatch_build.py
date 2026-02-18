@@ -26,6 +26,12 @@ class CustomBuildHook(BuildHookInterface):
             shutil.rmtree(resources_setup_dir)
             print("fast-agent build: Cleared existing resources/setup directory")
 
+        # Clear existing internal shared resources for clean build
+        resources_shared_dir = Path(self.root) / "src/fast_agent/resources/shared"
+        if resources_shared_dir.exists():
+            shutil.rmtree(resources_shared_dir)
+            print("fast-agent build: Cleared existing resources/shared directory")
+
         # Define source to target mappings
         # Examples:
         #  examples/workflows -> src/fast_agent/resources/examples/workflows
@@ -45,6 +51,12 @@ class CustomBuildHook(BuildHookInterface):
         setup_mappings = {
             # examples/setup -> src/fast_agent/resources/setup
             "examples/setup": "src/fast_agent/resources/setup",
+        }
+
+        # Define internal shared resource mapping
+        shared_mappings = {
+            # resources/shared -> src/fast_agent/resources/shared
+            "resources/shared": "src/fast_agent/resources/shared",
         }
 
         print("fast-agent build: Copying examples to resources...")
@@ -78,6 +90,18 @@ class CustomBuildHook(BuildHookInterface):
             else:
                 print(f"  Warning: Setup templates directory not found: {source_path}")
 
+        print("fast-agent build: Copying shared internal resources...")
+        for source_path, target_path in shared_mappings.items():
+            source_dir = Path(self.root) / source_path
+            target_dir = Path(self.root) / target_path
+
+            if source_dir.exists():
+                target_dir.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copytree(source_dir, target_dir)
+                print(f"  Copied {source_path} -> {target_path}")
+            else:
+                print(f"  Warning: Shared resources directory not found: {source_path}")
+
         # Generate manifest.txt with build metadata
         print("Fast-agent build: Generating manifest.txt...")
         package_version = self._get_package_version()
@@ -92,7 +116,11 @@ class CustomBuildHook(BuildHookInterface):
             build_data["artifacts"] = []
 
         # Add all copied files as artifacts
-        for target_path in list(example_mappings.values()) + list(setup_mappings.values()):
+        for target_path in (
+            list(example_mappings.values())
+            + list(setup_mappings.values())
+            + list(shared_mappings.values())
+        ):
             target_dir = Path(self.root) / target_path
             if target_dir.exists():
                 # Add all files in the target directory recursively

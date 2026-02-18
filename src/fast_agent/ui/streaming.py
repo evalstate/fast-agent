@@ -29,12 +29,12 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-MARKDOWN_STREAM_TARGET_RATIO = 0.9
+MARKDOWN_STREAM_TARGET_RATIO = 0.93
 MARKDOWN_STREAM_REFRESH_PER_SECOND = 4
-MARKDOWN_STREAM_HEIGHT_FUDGE = 2
-PLAIN_STREAM_TARGET_RATIO = 0.92
+MARKDOWN_STREAM_HEIGHT_FUDGE = 3
+PLAIN_STREAM_TARGET_RATIO = 0.95
 PLAIN_STREAM_REFRESH_PER_SECOND = 20
-PLAIN_STREAM_HEIGHT_FUDGE = 2
+PLAIN_STREAM_HEIGHT_FUDGE = 3
 STREAM_BATCH_PERIOD = 1 / 100
 STREAM_BATCH_MAX_DURATION = 1 / 60
 
@@ -379,8 +379,10 @@ class StreamingMessageHandle:
         except RuntimeError:
             current_loop = None
 
-        queued = chunk if isinstance(chunk, _QueuedItem) else _QueuedItem(
-            payload=chunk, enqueued_at=time.perf_counter()
+        queued = (
+            chunk
+            if isinstance(chunk, _QueuedItem)
+            else _QueuedItem(payload=chunk, enqueued_at=time.perf_counter())
         )
         if current_loop is self._loop:
             try:
@@ -433,9 +435,7 @@ class StreamingMessageHandle:
         if not window_segments:
             return
         is_truncated = len(window_segments) < len(segments) or (
-            bool(window_segments)
-            and bool(segments)
-            and window_segments[0] is not segments[0]
+            bool(window_segments) and bool(segments) and window_segments[0] is not segments[0]
         )
         self._display_truncated = is_truncated
         if is_truncated and not self._scrolling_started:
@@ -600,9 +600,7 @@ class StreamingMessageHandle:
                             break
                         try:
                             timeout = min(self._batch_period, self._batch_max_duration - elapsed)
-                            next_item = await asyncio.wait_for(
-                                self._queue.get(), timeout=timeout
-                            )
+                            next_item = await asyncio.wait_for(self._queue.get(), timeout=timeout)
                         except asyncio.TimeoutError:
                             break
                     if next_item is self._stop_sentinel:
