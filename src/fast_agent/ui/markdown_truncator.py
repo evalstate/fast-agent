@@ -27,7 +27,7 @@ class MarkdownTruncator:
         self._buffer = StreamBuffer(target_height_ratio=target_height_ratio)
         self._height_cache: OrderedDict[tuple[int, int, str, int, str], int] = OrderedDict()
         self._height_cache_limit = 128
-        self._truncate_cache: OrderedDict[tuple[int, int, int, int, str], str] = (
+        self._truncate_cache: OrderedDict[tuple[int, int, int, str, int, str], str] = (
             OrderedDict()
         )
         self._truncate_cache_limit = 32
@@ -99,15 +99,23 @@ class MarkdownTruncator:
         *,
         terminal_height: int,
         console: Console | None,
+        code_theme: str = "monokai",
     ) -> str:
         """Truncate markdown to a specific display height."""
         if not text:
             return text
         terminal_width = console.size.width if console else None
-        cache_key: tuple[int, int, int, int, str] | None = None
+        cache_key: tuple[int, int, int, str, int, str] | None = None
         if console and terminal_width:
             text_len, text_digest = self._fingerprint(text)
-            cache_key = (id(console), terminal_width, terminal_height, text_len, text_digest)
+            cache_key = (
+                id(console),
+                terminal_width,
+                terminal_height,
+                code_theme,
+                text_len,
+                text_digest,
+            )
             cached = self._truncate_cache.get(cache_key)
             if cached is not None:
                 self._truncate_cache.move_to_end(cache_key)
@@ -121,7 +129,7 @@ class MarkdownTruncator:
         )
         if not console or terminal_height <= 0:
             return truncated
-        if self.measure_rendered_height(truncated, console) <= terminal_height:
+        if self.measure_rendered_height(truncated, console, code_theme=code_theme) <= terminal_height:
             if cache_key:
                 self._truncate_cache[cache_key] = truncated
                 if len(self._truncate_cache) > self._truncate_cache_limit:
@@ -143,7 +151,11 @@ class MarkdownTruncator:
             if not candidate:
                 high = mid - 1
                 continue
-            candidate_height = self.measure_rendered_height(candidate, console)
+            candidate_height = self.measure_rendered_height(
+                candidate,
+                console,
+                code_theme=code_theme,
+            )
             if candidate_height <= terminal_height:
                 best = candidate
                 low = mid + 1

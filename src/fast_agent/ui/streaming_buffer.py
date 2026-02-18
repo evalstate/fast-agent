@@ -205,19 +205,20 @@ class StreamBuffer:
                 max_display_lines=desired_display_lines,
             )
 
-        # Parse markdown structures once
-        code_blocks = self._find_code_blocks(text)
-        tables = self._find_tables(text)
+        # Parse markdown structures only when we see markers that can affect
+        # context preservation, and only once per truncation pass.
+        if self._contains_context_markers(text):
+            code_blocks, tables = self._find_structures(text)
 
-        # Preserve code block context if needed
-        truncated_text = self._preserve_code_block_context(
-            text, truncated_text, truncation_pos, code_blocks
-        )
+            # Preserve code block context if needed
+            truncated_text = self._preserve_code_block_context(
+                text, truncated_text, truncation_pos, code_blocks
+            )
 
-        # Preserve table context if needed
-        truncated_text = self._preserve_table_context(
-            text, truncated_text, truncation_pos, tables
-        )
+            # Preserve table context if needed
+            truncated_text = self._preserve_table_context(
+                text, truncated_text, truncation_pos, tables
+            )
 
         # Add closing fence if code block is unclosed (display-only)
         if add_closing_fence:
@@ -225,7 +226,87 @@ class StreamBuffer:
 
         return truncated_text
 
-    def _find_code_blocks(self, text: str) -> list[CodeBlock]:
+    def _contains_context_markers(self, text: str) -> bool:
+        """Quick check for markdown structures that need context preservation."""
+        if "```" in text or "~~~" in text:
+            return True
+
+        # Tables are line-oriented and include pipe-delimited rows.
+        if "|" in text and "\n" in text:
+            if text.startswith("|") or "\n|" in text:
+                return True
+            if "|---" in text or "---|" in text:
+                return True
+            if self._contains_pipe_table_separator(text):
+                return True
+
+        # Indented code blocks can be expressed without fences.
+        if text.startswith("    ") or "\n    " in text:
+            return True
+        if text.startswith("\t") or "\n\t" in text:
+            return True
+
+        return False
+
+    def _contains_pipe_table_separator(self, text: str) -> bool:
+        """Detect GFM separator rows, including tables without leading pipes."""
+        for line in text.splitlines():
+            stripped = line.strip()
+            if "|" not in stripped:
+                continue
+            cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+            if len(cells) < 2:
+                continue
+            if all(self._is_table_separator_cell(cell) for cell in cells):
+                return True
+        return False
+
+    def _is_table_separator_cell(self, cell: str) -> bool:
+        """Return True when cell is a GFM separator token like ':---:'."""
+        if not cell:
+            return False
+        if cell.startswith(":"):
+            cell = cell[1:]
+        if cell.endswith(":"):
+            cell = cell[:-1]
+        return len(cell) >= 3 and all(ch == "-" for ch in cell)
+
+    def _line_start_offsets(self, lines: list[str]) -> list[int]:
+        """Return character offsets for each line start (plus EOF)."""
+        offsets = [0]
+        running = 0
+        for line in lines:
+            running += len(line) + 1
+            offsets.append(running)
+        return offsets
+
+    def _find_structures(self, text: str) -> tuple[list[CodeBlock], list[Table]]:
+        """Parse markdown once and return code blocks and tables."""
+        tokens = self._parser.parse(text)
+        lines = text.split("\n")
+        line_offsets = self._line_start_offsets(lines)
+        code_blocks = self._find_code_blocks(
+            text,
+            tokens=tokens,
+            lines=lines,
+            line_offsets=line_offsets,
+        )
+        tables = self._find_tables(
+            text,
+            tokens=tokens,
+            lines=lines,
+            line_offsets=line_offsets,
+        )
+        return code_blocks, tables
+
+    def _find_code_blocks(
+        self,
+        text: str,
+        *,
+        tokens: list[Token] | None = None,
+        lines: list[str] | None = None,
+        line_offsets: list[int] | None = None,
+    ) -> list[CodeBlock]:
         """Find all code blocks in text using markdown-it parser.
 
         Args:
@@ -234,16 +315,20 @@ class StreamBuffer:
         Returns:
             List of CodeBlock objects with position information
         """
-        tokens = self._parser.parse(text)
-        lines = text.split("\n")
+        if tokens is None:
+            tokens = self._parser.parse(text)
+        if lines is None:
+            lines = text.split("\n")
+        if line_offsets is None:
+            line_offsets = self._line_start_offsets(lines)
         blocks = []
 
         for token in self._flatten_tokens(tokens):
             if token.type in ("fence", "code_block") and token.map:
                 start_line = token.map[0]
                 end_line = token.map[1]
-                start_pos = sum(len(line) + 1 for line in lines[:start_line])
-                end_pos = sum(len(line) + 1 for line in lines[:end_line])
+                start_pos = line_offsets[start_line]
+                end_pos = line_offsets[end_line]
                 language = getattr(token, "info", "") or ""
 
                 blocks.append(
@@ -252,7 +337,14 @@ class StreamBuffer:
 
         return blocks
 
-    def _find_tables(self, text: str) -> list[Table]:
+    def _find_tables(
+        self,
+        text: str,
+        *,
+        tokens: list[Token] | None = None,
+        lines: list[str] | None = None,
+        line_offsets: list[int] | None = None,
+    ) -> list[Table]:
         """Find all tables in text using markdown-it parser.
 
         Args:
@@ -261,8 +353,12 @@ class StreamBuffer:
         Returns:
             List of Table objects with position and header information
         """
-        tokens = self._parser.parse(text)
-        lines = text.split("\n")
+        if tokens is None:
+            tokens = self._parser.parse(text)
+        if lines is None:
+            lines = text.split("\n")
+        if line_offsets is None:
+            line_offsets = self._line_start_offsets(lines)
         tables = []
 
         for i, token in enumerate(tokens):
@@ -285,8 +381,8 @@ class StreamBuffer:
                     table_end_line = token_map[1]
 
                     # Calculate positions
-                    start_pos = sum(len(line) + 1 for line in lines[:table_start_line])
-                    end_pos = sum(len(line) + 1 for line in lines[:table_end_line])
+                    start_pos = line_offsets[table_start_line]
+                    end_pos = line_offsets[table_end_line]
 
                     # Header lines = everything before tbody (header row + separator)
                     header_lines = lines[table_start_line:tbody_start_line]
@@ -405,6 +501,9 @@ class StreamBuffer:
         Returns:
             Text with closing fence added if needed
         """
+        if "```" not in text:
+            return text
+
         # Count opening vs closing fences
         import re
 

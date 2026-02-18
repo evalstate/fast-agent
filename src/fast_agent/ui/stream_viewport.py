@@ -33,9 +33,11 @@ class StreamViewport:
         *,
         markdown_truncator: MarkdownTruncator,
         plain_truncator: PlainTextTruncator,
+        code_theme: str = "monokai",
     ) -> None:
         self._markdown_truncator = markdown_truncator
         self._plain_truncator = plain_truncator
+        self._code_theme = code_theme
 
     def slice_segments(
         self,
@@ -45,13 +47,35 @@ class StreamViewport:
         console: Console,
         target_ratio: float,
     ) -> list[StreamSegment]:
+        window_segments, _ = self.slice_segments_with_heights(
+            segments,
+            terminal_height=terminal_height,
+            console=console,
+            target_ratio=target_ratio,
+        )
+        return window_segments
+
+    def slice_segments_with_heights(
+        self,
+        segments: Iterable[StreamSegment],
+        *,
+        terminal_height: int,
+        console: Console,
+        target_ratio: float,
+    ) -> tuple[list[StreamSegment], list[int]]:
         if terminal_height <= 0:
-            return list(segments)
+            segments_list = list(segments)
+            width = max(1, console.size.width)
+            heights = [
+                self._segment_height(segment, console=console, width=width)
+                for segment in segments_list
+            ]
+            return segments_list, heights
 
         width = max(1, console.size.width)
         segments_list = [segment for segment in segments if segment.text]
         if not segments_list:
-            return []
+            return [], []
 
         max_lines = max(1, int(terminal_height * target_ratio))
 
@@ -61,15 +85,17 @@ class StreamViewport:
         ]
         total_height = sum(heights)
         if total_height <= max_lines:
-            return segments_list
+            return segments_list, heights
 
         remaining = max_lines
         window: list[StreamSegment] = []
+        window_heights: list[int] = []
         for segment, height in zip(reversed(segments_list), reversed(heights)):
             if remaining <= 0:
                 break
             if height <= remaining:
                 window.append(segment)
+                window_heights.append(height)
                 remaining -= height
                 continue
 
@@ -81,15 +107,21 @@ class StreamViewport:
             )
             if trimmed.text:
                 window.append(trimmed)
+                window_heights.append(
+                    self._segment_height(trimmed, console=console, width=width)
+                )
             break
 
         window.reverse()
-        return window
+        window_heights.reverse()
+        return window, window_heights
 
     def _segment_height(self, segment: StreamSegment, *, console: Console, width: int) -> int:
         if segment.kind in ("markdown", "reasoning"):
             return self._markdown_truncator.measure_rendered_height(
-                segment.text, console, code_theme="monokai"
+                segment.text,
+                console,
+                code_theme=self._code_theme,
             )
         return estimate_plain_text_height(segment.text, width)
 
@@ -108,6 +140,7 @@ class StreamViewport:
                 segment.text,
                 terminal_height=terminal_height,
                 console=console,
+                code_theme=self._code_theme,
             )
         else:
             truncated = self._plain_truncator.truncate(

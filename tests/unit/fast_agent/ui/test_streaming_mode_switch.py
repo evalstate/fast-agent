@@ -3,6 +3,7 @@ from typing import Literal
 from fast_agent.config import Settings
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.ui import console
+from fast_agent.ui import streaming as streaming_module
 from fast_agent.ui.console_display import ConsoleDisplay, _StreamingMessageHandle
 from fast_agent.ui.stream_segments import StreamSegmentAssembler
 
@@ -77,3 +78,28 @@ def test_reasoning_stream_handles_multiple_blocks() -> None:
     assert "Answer1" in text
     assert "Think2" in text
     assert "Answer2" in text
+
+
+def test_sync_streaming_respects_render_interval(monkeypatch) -> None:
+    handle = _make_handle("markdown")
+    assert handle._async_mode is False
+    assert handle._min_render_interval is not None
+
+    render_calls: list[None] = []
+    monkeypatch.setattr(handle, "_render_current_buffer", lambda: render_calls.append(None))
+
+    interval = handle._min_render_interval or 0.25
+    monotonic_values = [0.0, 0.0, interval / 2, interval + 0.01, interval + 0.01]
+
+    def _fake_monotonic() -> float:
+        if monotonic_values:
+            return monotonic_values.pop(0)
+        return interval + 0.01
+
+    monkeypatch.setattr(streaming_module.time, "monotonic", _fake_monotonic)
+
+    handle.update("first")
+    handle.update("second")
+    handle.update("third")
+
+    assert len(render_calls) == 2
