@@ -17,7 +17,7 @@ from mcp.types import (
 )
 from pydantic import AnyUrl
 
-from fast_agent.constants import ANTHROPIC_THINKING_BLOCKS
+from fast_agent.constants import ANTHROPIC_SERVER_TOOLS_CHANNEL, ANTHROPIC_THINKING_BLOCKS
 from fast_agent.llm.provider.anthropic.multipart_converter_anthropic import (
     AnthropicConverter,
 )
@@ -799,6 +799,106 @@ class TestAnthropicAssistantConverter(unittest.TestCase):
         self.assertEqual(content_blocks(anthropic_msg)[1]["data"], "opaque")
         self.assertEqual(content_blocks(anthropic_msg)[2]["type"], "tool_use")
         self.assertEqual(content_blocks(anthropic_msg)[2]["name"], "test_tool")
+
+    def test_assistant_server_tool_blocks_deserialized_from_channel(self):
+        """Server-tool channel payloads should round-trip into Anthropic blocks."""
+        channels = {
+            ANTHROPIC_SERVER_TOOLS_CHANNEL: [
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "type": "server_tool_use",
+                            "id": "srv_1",
+                            "name": "web_search",
+                            "input": {"query": "status"},
+                        }
+                    ),
+                ),
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "type": "web_search_tool_result",
+                            "tool_use_id": "srv_1",
+                            "content": [],
+                        }
+                    ),
+                ),
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "type": "code_execution_tool_result",
+                            "tool_use_id": "srv_2",
+                            "content": {
+                                "type": "encrypted_code_execution_result",
+                                "content": [],
+                                "encrypted_stdout": "enc",
+                                "return_code": 0,
+                                "stderr": "",
+                            },
+                        }
+                    ),
+                ),
+            ]
+        }
+        multipart = PromptMessageExtended(role="assistant", content=[], channels=channels)
+
+        anthropic_msg = AnthropicConverter.convert_to_anthropic(multipart)
+        blocks = content_blocks(anthropic_msg)
+        self.assertEqual(anthropic_msg["role"], "assistant")
+        self.assertEqual(len(blocks), 3)
+        self.assertEqual(blocks[0]["type"], "server_tool_use")
+        self.assertEqual(blocks[0]["name"], "web_search")
+        self.assertEqual(blocks[1]["type"], "web_search_tool_result")
+        self.assertEqual(blocks[2]["type"], "code_execution_tool_result")
+
+    def test_assistant_server_tool_blocks_skip_invalid_payloads(self):
+        """Malformed server-tool payloads should be ignored instead of crashing conversion."""
+        channels = {
+            ANTHROPIC_SERVER_TOOLS_CHANNEL: [
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "type": "server_tool_use",
+                            "id": "srv_valid",
+                            "name": "web_fetch",
+                            "input": {"url": "https://example.com"},
+                        }
+                    ),
+                ),
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "type": "web_fetch_tool_result",
+                            "tool_use_id": "srv_valid",
+                            "content": {
+                                "type": "web_fetch_result",
+                                "url": "https://example.com",
+                                "content": {
+                                    "type": "document",
+                                    "source": {
+                                        "type": "text",
+                                        "media_type": "text/plain",
+                                        "data": None,
+                                    },
+                                },
+                            },
+                        }
+                    ),
+                ),
+            ]
+        }
+        multipart = PromptMessageExtended(role="assistant", content=[], channels=channels)
+
+        anthropic_msg = AnthropicConverter.convert_to_anthropic(multipart)
+        blocks = content_blocks(anthropic_msg)
+
+        self.assertEqual(len(blocks), 1)
+        self.assertEqual(blocks[0]["type"], "server_tool_use")
 
     def test_assistant_non_text_content_stripped(self):
         """Test that non-text content is stripped from assistant messages."""

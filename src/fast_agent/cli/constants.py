@@ -48,6 +48,7 @@ GO_SPECIFIC_OPTIONS = {
     "--watch",
     "--reload",
     "--resume",
+    "--smart",
 }
 
 # Known subcommands that should not trigger auto-routing

@@ -5,6 +5,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
+from rich.text import Text
+
+from fast_agent.ui.citation_display import (
+    render_sources_additional_text,
+    web_tool_badges,
+)
+
 if TYPE_CHECKING:
     from fast_agent.config import Settings
     from fast_agent.types import PromptMessageExtended
@@ -74,12 +81,33 @@ async def display_history_turn(
         if message.role == "assistant":
             last_text = message.last_text()
             additional_message = build_tool_use_additional_message(message, last_text)
-            message_payload: str | PromptMessageExtended = message
-            if last_text is None and additional_message is None:
+            display_message = message
+
+            badges = web_tool_badges(message)
+            if badges:
+                badge_text = Text(f"\n\nWeb activity: {', '.join(badges)}", style="bright_cyan")
+                additional_message = (
+                    badge_text
+                    if additional_message is None
+                    else Text.assemble(additional_message, badge_text)
+                )
+
+            sources_text = render_sources_additional_text(message)
+            if sources_text is not None:
+                additional_message = (
+                    sources_text
+                    if additional_message is None
+                    else Text.assemble(additional_message, sources_text)
+                )
+
+            message_payload: str | PromptMessageExtended = display_message
+            if last_text is None and additional_message is None and not badges:
                 message_payload = "<no text>"
             await display.show_assistant_message(
                 message_text=message_payload,
                 name=agent_name,
+                bottom_items=badges or None,
+                highlight_index=0 if badges else None,
                 additional_message=additional_message,
             )
 

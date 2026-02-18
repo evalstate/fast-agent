@@ -206,9 +206,30 @@ class ConsoleDisplay:
             return f"{elapsed:.1f}s"
         return format_duration(elapsed)
 
-    def show_shell_exit_code(self, exit_code: int) -> None:
+    def show_shell_exit_code(
+        self,
+        exit_code: int,
+        *,
+        no_output: bool = False,
+        tool_call_id: str | None = None,
+    ) -> None:
         """Display a shell-style exit code banner."""
-        line = self._style.shell_exit_line(exit_code, console.console.size.width)
+        detail = ""
+        if no_output:
+            detail += "(no output)"
+
+        formatted_id = ToolDisplay._format_tool_call_id(tool_call_id)
+        if formatted_id:
+            if detail:
+                detail += f" id: {formatted_id}"
+            else:
+                detail += f"id: {formatted_id}"
+
+        line = self._style.shell_exit_line(
+            exit_code,
+            console.console.size.width,
+            detail or None,
+        )
         console.console.print()
         console.console.print(line)
         for _ in range(self._style.shell_exit_spacing_after):
@@ -713,7 +734,9 @@ class ConsoleDisplay:
         pre_content: Text | Group | None = None
 
         if isinstance(message_text, PromptMessageExtended):
-            display_text = message_text.last_text() or ""
+            # Prefer full assistant text so streamed/finalized multi-block responses
+            # (e.g., provider-side web tool turns) are preserved after live refresh.
+            display_text = message_text.all_text() or message_text.last_text() or ""
             pre_content = self._extract_reasoning_content(message_text)
         else:
             display_text = message_text

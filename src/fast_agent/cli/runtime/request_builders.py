@@ -33,15 +33,35 @@ def is_multi_model(model: str | None) -> bool:
 
 
 def use_smart_agent(model: str | None, mode: Literal["interactive", "serve"]) -> bool:
+    return resolve_smart_agent_enabled(model, mode, force_smart=False)
+
+
+def resolve_smart_agent_enabled(
+    model: str | None,
+    mode: Literal["interactive", "serve"],
+    *,
+    force_smart: bool,
+) -> bool:
     if is_multi_model(model):
         return False
+    if force_smart:
+        return True
     if mode == "serve":
         return DEFAULT_SERVE_AGENT_TYPE == "smart"
     return DEFAULT_GO_AGENT_TYPE == "smart"
 
 
-def resolve_default_instruction(model: str | None, mode: Literal["interactive", "serve"]) -> str:
-    return SMART_AGENT_INSTRUCTION if use_smart_agent(model, mode) else DEFAULT_AGENT_INSTRUCTION
+def resolve_default_instruction(
+    model: str | None,
+    mode: Literal["interactive", "serve"],
+    *,
+    force_smart: bool = False,
+) -> str:
+    return (
+        SMART_AGENT_INSTRUCTION
+        if resolve_smart_agent_enabled(model, mode, force_smart=force_smart)
+        else DEFAULT_AGENT_INSTRUCTION
+    )
 
 
 def merge_card_sources(
@@ -104,9 +124,11 @@ def resolve_instruction_option(
     instruction: str | None,
     model: str | None,
     mode: Literal["interactive", "serve"],
+    *,
+    force_smart: bool = False,
 ) -> tuple[str, str]:
     """Resolve the instruction option (file or URL) to text and inferred agent name."""
-    resolved_instruction = resolve_default_instruction(model, mode)
+    resolved_instruction = resolve_default_instruction(model, mode, force_smart=force_smart)
     agent_name = "agent"
 
     if instruction:
@@ -261,6 +283,7 @@ def build_agent_run_request(
     permissions_enabled: bool,
     reload: bool,
     watch: bool,
+    force_smart: bool = False,
     noenv: bool = False,
 ) -> AgentRunRequest:
     """Build a normalized runtime request from legacy CLI kwargs."""
@@ -317,6 +340,7 @@ def build_agent_run_request(
         skills_directory=skills_directory,
         environment_dir=None if noenv else environment_dir,
         noenv=noenv,
+        force_smart=force_smart,
         shell_runtime=shell_enabled,
         mode=mode,
         transport=transport,
@@ -362,6 +386,7 @@ def build_run_agent_kwargs(
     permissions_enabled: bool,
     reload: bool,
     watch: bool,
+    force_smart: bool = False,
     noenv: bool = False,
 ) -> dict[str, Any]:
     request = build_agent_run_request(
@@ -384,6 +409,7 @@ def build_run_agent_kwargs(
         skills_directory=skills_directory,
         environment_dir=environment_dir,
         noenv=noenv,
+        force_smart=force_smart,
         shell_enabled=shell_enabled,
         mode=mode,
         transport=transport,
@@ -431,6 +457,7 @@ def build_command_run_request(
     permissions_enabled: bool = True,
     reload: bool = False,
     watch: bool = False,
+    force_smart: bool = False,
     noenv: bool = False,
 ) -> AgentRunRequest:
     """Build a normalized request directly from command option values."""
@@ -445,6 +472,7 @@ def build_command_run_request(
         instruction_option,
         model,
         mode,
+        force_smart=force_smart,
     )
 
     return build_agent_run_request(
@@ -467,6 +495,7 @@ def build_command_run_request(
         skills_directory=skills_directory,
         environment_dir=environment_dir,
         noenv=noenv,
+        force_smart=force_smart,
         shell_enabled=shell_enabled,
         mode=mode,
         transport=transport,

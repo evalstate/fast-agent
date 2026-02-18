@@ -111,6 +111,8 @@ class _AlreadyAttachedManager(_Manager):
             tools_added=[],
             prompts_added=[],
             warnings=[],
+            tools_total=2,
+            prompts_total=4,
         )
 
 
@@ -321,6 +323,7 @@ async def test_handle_mcp_connect_with_reconnect_reports_reconnected() -> None:
 
     message_text = "\n".join(str(msg.text) for msg in outcome.messages)
     assert "reconnected mcp server" in message_text.lower()
+    assert "refreshed 2 tools and 4 prompts (0 new)." in message_text.lower()
     assert "already attached" not in message_text.lower()
 
 

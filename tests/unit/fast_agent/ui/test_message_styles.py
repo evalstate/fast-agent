@@ -154,6 +154,18 @@ class TestA3MessageStyle:
         # Should contain the prefix and highlighted item
         assert "highlighted" in result.plain
 
+    def test_shell_exit_line_with_detail(self) -> None:
+        """A3 shell exit lines include optional compact detail text."""
+        style = A3MessageStyle()
+        result = style.shell_exit_line(
+            exit_code=0,
+            width=80,
+            detail="(no output) id: call_…123456",
+        )
+        assert "exit code 0" in result.plain
+        assert "(no output)" in result.plain
+        assert "id: call_…123456" in result.plain
+
 
 class TestClassicMessageStyle:
     """Tests for ClassicMessageStyle."""
@@ -171,3 +183,15 @@ class TestClassicMessageStyle:
         )
         assert result is not None
         assert "highlighted" in result.plain
+
+    def test_shell_exit_line_with_detail(self) -> None:
+        """Classic shell exit lines include optional compact detail text."""
+        style = ClassicMessageStyle()
+        result = style.shell_exit_line(
+            exit_code=0,
+            width=80,
+            detail="(no output) id: call_…123456",
+        )
+        assert "exit code 0" in result.plain
+        assert "(no output)" in result.plain
+        assert "id: call_…123456" in result.plain

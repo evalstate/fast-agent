@@ -219,4 +219,6 @@ async def test_attach_server_registers_runtime_server_before_prompt_discovery() 
     assert len(result.tools_added) == 1
     assert result.tools_added[0].endswith("echo")
     assert result.prompts_added == ["demo-prompt"]
+    assert result.tools_total == 1
+    assert result.prompts_total == 1
     assert aggregator.server_names == ["runtime"]

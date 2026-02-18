@@ -628,6 +628,7 @@ class SlashCommandHandler:
 
         subcmd = tokens[0].lower()
         argument = remainder[len(tokens[0]) :].strip()
+        webclear_enabled = history_handlers.web_tools_enabled_for_agent(self._get_current_agent())
 
         if subcmd in {"show", "list"}:
             return await self._render_history_overview()
@@ -635,13 +636,28 @@ class SlashCommandHandler:
             return await self._handle_save(argument)
         if subcmd == "load":
             return await self._handle_load(argument)
+        if subcmd == "webclear":
+            if not webclear_enabled:
+                return "\n".join(
+                    [
+                        "# history",
+                        "",
+                        "Unknown /history action: webclear",
+                        "Usage: /history [show|save|load] [args]",
+                    ]
+                )
+            return await self._handle_history_webclear()
 
         return "\n".join(
             [
                 "# history",
                 "",
                 f"Unknown /history action: {subcmd}",
-                "Usage: /history [show|save|load] [args]",
+                (
+                    "Usage: /history [show|save|load|webclear] [args]"
+                    if webclear_enabled
+                    else "Usage: /history [show|save|load] [args]"
+                ),
             ]
         )
 
@@ -1436,6 +1452,26 @@ class SlashCommandHandler:
             error=error_message,
         )
         return self._format_outcome_as_markdown(outcome, "load conversation", io=io)
+
+    async def _handle_history_webclear(self) -> str:
+        """Handle /history webclear by stripping web tool metadata channels."""
+        heading = "# history webclear"
+
+        _, error = self._get_current_agent_or_error(
+            heading,
+            missing_template=f"Unable to locate agent '{self.current_agent_name}' for this session.",
+        )
+        if error:
+            return error
+
+        ctx = self._build_command_context()
+        io = cast("ACPCommandIO", ctx.io)
+        outcome = await history_handlers.handle_history_webclear(
+            ctx,
+            agent_name=self.current_agent_name,
+            target_agent=None,
+        )
+        return self._format_outcome_as_markdown(outcome, "history webclear", io=io)
 
     async def _handle_card(self, arguments: str | None = None) -> str:
         """Handle the /card command by loading an AgentCard and refreshing agents."""

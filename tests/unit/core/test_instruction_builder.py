@@ -2,6 +2,7 @@
 
 import pytest
 
+from fast_agent.constants import SMART_AGENT_INSTRUCTION
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.instruction import InstructionBuilder
 
@@ -213,6 +214,54 @@ class TestInstructionBuilderFilePatterns:
         builder = InstructionBuilder("{{file:/etc/passwd}}")
         with pytest.raises(ValueError, match="must be relative"):
             await builder.build()
+
+
+class TestInstructionBuilderInternalPatterns:
+    """Tests for packaged internal resource pattern resolution."""
+
+    @pytest.mark.asyncio
+    async def test_internal_pattern_resolution(self):
+        """{{internal:...}} should load packaged markdown resources."""
+        builder = InstructionBuilder("{{internal:smart_prompt}}")
+        result = await builder.build()
+
+        assert "You are a helpful AI Agent." in result
+        assert "{{internal:smart_prompt}}" not in result
+        assert "{{internal:smart_agent_cards}}" not in result
+
+    @pytest.mark.asyncio
+    async def test_internal_partial_resolution_for_smart_agent_cards(self):
+        """{{internal:smart_agent_cards}} should resolve the AgentCard guidance partial."""
+        builder = InstructionBuilder("{{internal:smart_agent_cards}}")
+        result = await builder.build()
+
+        assert "<AgentCards>" in result
+        assert "Agent Card (type: `agent`)" in result
+        assert "{{internal:smart_agent_cards}}" not in result
+
+    @pytest.mark.asyncio
+    async def test_smart_agent_instruction_uses_internal_resource(self):
+        """SMART_AGENT_INSTRUCTION should resolve via packaged internal prompt."""
+        builder = InstructionBuilder(SMART_AGENT_INSTRUCTION)
+        result = await builder.build()
+
+        assert SMART_AGENT_INSTRUCTION == "{{internal:smart_prompt}}"
+        assert "Use the smart tool" in result
+
+    @pytest.mark.asyncio
+    async def test_internal_pattern_missing_resource_raises(self):
+        """Missing internal resources should raise AgentConfigError."""
+        builder = InstructionBuilder("{{internal:this_resource_does_not_exist}}")
+
+        with pytest.raises(AgentConfigError, match="Unknown internal resource"):
+            await builder.build()
+
+    def test_get_placeholders_ignores_internal_patterns(self):
+        """{{internal:...}} should be treated as a special pattern."""
+        builder = InstructionBuilder("{{name}} {{internal:smart_prompt}}")
+
+        placeholders = builder.get_placeholders()
+        assert placeholders == {"name"}
 
 
 class TestInstructionBuilderUrlPatterns:

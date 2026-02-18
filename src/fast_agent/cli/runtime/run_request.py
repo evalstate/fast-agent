@@ -49,6 +49,7 @@ class AgentRunRequest:
     skills_directory: Path | None
     environment_dir: Path | None
     noenv: bool
+    force_smart: bool
     shell_runtime: bool
     mode: Mode
     transport: str
@@ -98,6 +99,7 @@ class AgentRunRequest:
             "skills_directory": self.skills_directory,
             "environment_dir": self.environment_dir,
             "noenv": self.noenv,
+            "force_smart": self.force_smart,
             "shell_runtime": self.shell_runtime,
             "mode": self.mode,
             "transport": self.transport,

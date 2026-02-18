@@ -9,6 +9,10 @@ from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.llm.provider.openai.codex_oauth import parse_chatgpt_account_id
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
+from fast_agent.llm.provider.openai.responses_websocket import (
+    ResponsesWsRequestPlanner,
+    StatefulAppendResponsesWsPlanner,
+)
 from fast_agent.llm.provider_types import Provider
 
 if TYPE_CHECKING:
@@ -83,6 +87,9 @@ class CodexResponsesLLM(ResponsesLLM):
 
     def _supports_websocket_transport(self) -> bool:
         return True
+
+    def _new_ws_request_planner(self) -> ResponsesWsRequestPlanner:
+        return StatefulAppendResponsesWsPlanner()
 
     def _build_websocket_headers(self) -> dict[str, str]:
         token = self._api_key()

@@ -364,20 +364,26 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                     and last_msg.stop_reason == LlmStopReason.TOOL_USE
                 ):
                     tool_call_ids = list(last_msg.tool_calls.keys())
-                    logger.error(
-                        "History ends with unanswered tool call - session may have been "
-                        "interrupted mid-turn. Cannot proceed with LLM call.",
+                    removed = self.pop_last_message()
+                    logger.warning(
+                        "History ended with unanswered tool call; auto-healed by "
+                        "dropping trailing pending tool request.",
                         data={
                             "tool_calls": tool_call_ids,
                             "history_length": len(history),
+                            "auto_healed": removed is not None,
                         },
                     )
-                    raise ValueError(
-                        "Invalid conversation history: assistant message has pending tool "
-                        f"calls {tool_call_ids} but no user message with tool results follows. "
-                        "The session may have been interrupted. Please clear the history or "
-                        "remove the incomplete tool call before continuing."
-                    )
+                    if removed is None:
+                        logger.error(
+                            "Unable to auto-heal dangling tool call history because no "
+                            "message was removed."
+                        )
+                        raise ValueError(
+                            "Invalid conversation history: assistant message has pending "
+                            f"tool calls {tool_call_ids} but no user message with tool "
+                            "results follows. The session may have been interrupted."
+                        )
 
         if tools is None:
             tools = (await self.list_tools()).tools

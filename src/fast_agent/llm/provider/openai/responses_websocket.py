@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import time
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol, cast
 from urllib.parse import urlparse, urlunparse
 
@@ -14,6 +15,7 @@ from aiohttp import WSMsgType
 RESPONSES_WEBSOCKET_BETA_HEADER = "responses_websockets=2026-02-06"
 RESPONSES_WEBSOCKET_BETA_HEADER_NAME = "OpenAI-Beta"
 RESPONSES_CREATE_EVENT_TYPE = "response.create"
+RESPONSES_APPEND_EVENT_TYPE = "response.append"
 TERMINAL_RESPONSE_EVENT_TYPES = {
     "response.completed",
     "response.done",
@@ -156,6 +158,129 @@ class ClientSessionLike(Protocol):
     async def close(self) -> Any: ...
 
 
+@dataclass(frozen=True)
+class PlannedWsRequest:
+    """Planner-produced request envelope for websocket Responses events."""
+
+    event_type: str
+    arguments: dict[str, Any]
+
+
+class ResponsesWsRequestPlanner(Protocol):
+    """Policy object for choosing websocket request type/payload."""
+
+    def plan(self, full_arguments: Mapping[str, Any]) -> PlannedWsRequest: ...
+
+    def commit(
+        self,
+        full_arguments: Mapping[str, Any],
+        planned: PlannedWsRequest,
+    ) -> None: ...
+
+    def rollback(self, error: BaseException, *, stream_started: bool) -> None: ...
+
+    def reset(self) -> None: ...
+
+
+class StatelessResponsesWsPlanner:
+    """Always emits ``response.create`` and does not retain state."""
+
+    def plan(self, full_arguments: Mapping[str, Any]) -> PlannedWsRequest:
+        return PlannedWsRequest(
+            event_type=RESPONSES_CREATE_EVENT_TYPE,
+            arguments=_copy_arguments(full_arguments),
+        )
+
+    def commit(
+        self,
+        full_arguments: Mapping[str, Any],
+        planned: PlannedWsRequest,
+    ) -> None:
+        del full_arguments, planned
+
+    def rollback(self, error: BaseException, *, stream_started: bool) -> None:
+        del error, stream_started
+
+    def reset(self) -> None:
+        return None
+
+
+class StatefulAppendResponsesWsPlanner:
+    """Emit ``response.append`` when the request is a safe prefix extension."""
+
+    def __init__(self) -> None:
+        self._last_signature: dict[str, Any] | None = None
+        self._last_input_fingerprints: list[str] | None = None
+
+    def plan(self, full_arguments: Mapping[str, Any]) -> PlannedWsRequest:
+        signature = _sanitize_request_signature(full_arguments)
+        input_items = _extract_input_items(full_arguments)
+        input_fingerprints = _fingerprint_input_items(input_items)
+
+        if (
+            signature is None
+            or input_items is None
+            or input_fingerprints is None
+            or self._last_signature is None
+            or self._last_input_fingerprints is None
+        ):
+            return self._planned_create(full_arguments)
+
+        prior_input = self._last_input_fingerprints
+        if (
+            signature != self._last_signature
+            or len(input_fingerprints) <= len(prior_input)
+            or input_fingerprints[: len(prior_input)] != prior_input
+        ):
+            return self._planned_create(full_arguments)
+
+        incremental_items = copy.deepcopy(input_items[len(prior_input) :])
+        if not incremental_items:
+            return self._planned_create(full_arguments)
+
+        return PlannedWsRequest(
+            event_type=RESPONSES_APPEND_EVENT_TYPE,
+            arguments={"input": incremental_items},
+        )
+
+    def commit(
+        self,
+        full_arguments: Mapping[str, Any],
+        planned: PlannedWsRequest,
+    ) -> None:
+        del planned
+        signature = _sanitize_request_signature(full_arguments)
+        input_items = _extract_input_items(full_arguments)
+        input_fingerprints = _fingerprint_input_items(input_items)
+        if signature is None or input_fingerprints is None:
+            self.reset()
+            return
+        self._last_signature = signature
+        self._last_input_fingerprints = input_fingerprints
+
+    def rollback(self, error: BaseException, *, stream_started: bool) -> None:
+        del error, stream_started
+        self.reset()
+
+    def reset(self) -> None:
+        self._last_signature = None
+        self._last_input_fingerprints = None
+
+    @staticmethod
+    def _planned_create(full_arguments: Mapping[str, Any]) -> PlannedWsRequest:
+        return PlannedWsRequest(
+            event_type=RESPONSES_CREATE_EVENT_TYPE,
+            arguments=_copy_arguments(full_arguments),
+        )
+
+
+@dataclass
+class WebSocketSessionState:
+    """Connection-local state for websocket request planning."""
+
+    request_planner: ResponsesWsRequestPlanner | None = None
+
+
 @dataclass
 class ManagedWebSocketConnection:
     """A websocket + owning HTTP session."""
@@ -164,6 +289,7 @@ class ManagedWebSocketConnection:
     websocket: WebSocketLike
     busy: bool = False
     last_used_monotonic: float = 0.0
+    session_state: WebSocketSessionState = field(default_factory=WebSocketSessionState)
 
 
 async def connect_websocket(
@@ -199,10 +325,64 @@ async def send_response_create(
     websocket: WebSocketLike,
     arguments: Mapping[str, Any],
 ) -> None:
-    payload = dict(arguments)
+    await send_response_request(
+        websocket,
+        PlannedWsRequest(
+            event_type=RESPONSES_CREATE_EVENT_TYPE,
+            arguments=_copy_arguments(arguments),
+        ),
+    )
+
+
+async def send_response_request(
+    websocket: WebSocketLike,
+    planned_request: PlannedWsRequest,
+) -> None:
+    payload = _copy_arguments(planned_request.arguments)
     payload.setdefault("stream", True)
-    payload["type"] = RESPONSES_CREATE_EVENT_TYPE
+    payload["type"] = planned_request.event_type
     await websocket.send_str(json.dumps(payload))
+
+
+def _copy_arguments(arguments: Mapping[str, Any]) -> dict[str, Any]:
+    return copy.deepcopy(dict(arguments))
+
+
+def _sanitize_request_signature(arguments: Mapping[str, Any]) -> dict[str, Any] | None:
+    try:
+        comparable = _copy_arguments(arguments)
+    except Exception:
+        return None
+    comparable.pop("input", None)
+    comparable.pop("type", None)
+    comparable.pop("stream", None)
+    return comparable
+
+
+def _extract_input_items(arguments: Mapping[str, Any]) -> list[Any] | None:
+    input_items = arguments.get("input")
+    if not isinstance(input_items, list):
+        return None
+    return input_items
+
+
+def _fingerprint_input_items(input_items: list[Any] | None) -> list[str] | None:
+    if input_items is None:
+        return None
+    fingerprints: list[str] = []
+    for item in input_items:
+        try:
+            fingerprints.append(
+                json.dumps(
+                    item,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                )
+            )
+        except (TypeError, ValueError):
+            return None
+    return fingerprints
 
 
 class WebSocketResponsesStream:

@@ -148,6 +148,8 @@ class McpAgent(ABC, ToolAgent):
         self._shell_notice_emitted = False
         self._allow_shell_notice = False
         self._shell_runtime_enabled = False
+        self._show_shell_tool_call_id = False
+        self._defer_shell_display_to_tool_result = False
         self._shell_access_modes: tuple[str, ...] = ()
         self._bash_tool: Tool | None = None
         # Allow external runtime injection (e.g., for ACP terminal support)
@@ -749,7 +751,12 @@ class McpAgent(ABC, ToolAgent):
             and self._shell_runtime.tool
             and name == self._shell_runtime.tool.name
         ):
-            return await self._shell_runtime.execute(arguments)
+            return await self._shell_runtime.execute(
+                arguments,
+                tool_use_id,
+                show_tool_call_id=self._show_shell_tool_call_id,
+                defer_display_to_tool_result=self._defer_shell_display_to_tool_result,
+            )
 
         if name == HUMAN_INPUT_TOOL_NAME:
             # Call the elicitation-backed human input tool
@@ -1187,6 +1194,10 @@ class McpAgent(ABC, ToolAgent):
 
         if should_parallel and planned_calls:
             smart_parallel_active = smart_parallel_calls > 1
+            previous_shell_tool_call_id_setting = self._show_shell_tool_call_id
+            previous_shell_display_setting = self._defer_shell_display_to_tool_result
+            self._show_shell_tool_call_id = True
+            self._defer_shell_display_to_tool_result = True
             if smart_parallel_active:
                 setattr(self, "_parallel_smart_tool_calls", True)
                 self.logger.info(
@@ -1210,6 +1221,8 @@ class McpAgent(ABC, ToolAgent):
 
                 results = await gather_with_cancel(run_one(call) for call in planned_calls)
             finally:
+                self._show_shell_tool_call_id = previous_shell_tool_call_id_setting
+                self._defer_shell_display_to_tool_result = previous_shell_display_setting
                 if smart_parallel_active:
                     setattr(self, "_parallel_smart_tool_calls", False)
 

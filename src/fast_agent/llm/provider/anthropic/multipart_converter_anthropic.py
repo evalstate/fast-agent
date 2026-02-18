@@ -1,6 +1,7 @@
 import json
+import os
 import re
-from typing import Literal, Sequence, Union, cast
+from typing import Literal, Mapping, Sequence, Union, cast
 from urllib.parse import urlparse
 
 from anthropic.types.beta import (
@@ -14,6 +15,9 @@ from anthropic.types.beta import (
 )
 from anthropic.types.beta import (
     BetaImageBlockParam as ImageBlockParam,
+)
+from anthropic.types.beta import (
+    BetaMessage as Message,
 )
 from anthropic.types.beta import (
     BetaMessageParam as MessageParam,
@@ -61,9 +65,11 @@ from mcp.types import (
     TextContent,
     TextResourceContents,
 )
+from pydantic import TypeAdapter
 
-from fast_agent.constants import ANTHROPIC_THINKING_BLOCKS
+from fast_agent.constants import ANTHROPIC_SERVER_TOOLS_CHANNEL, ANTHROPIC_THINKING_BLOCKS
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.llm.provider.anthropic.web_tools import is_server_tool_trace_payload
 from fast_agent.mcp.helpers.content_helpers import (
     get_image_data,
     get_resource_uri,
@@ -80,6 +86,8 @@ from fast_agent.mcp.mime_utils import (
 from fast_agent.types import PromptMessageExtended
 
 _logger = get_logger("multipart_converter_anthropic")
+
+_ANTHROPIC_CONTENT_BLOCK_LIST_ADAPTER = TypeAdapter(Message.model_fields["content"].annotation)
 
 # List of image MIME types supported by Anthropic API
 SUPPORTED_IMAGE_MIME_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
@@ -160,6 +168,10 @@ class AnthropicConverter:
                                             data=payload.get("data", ""),
                                         )
                                     )
+                AnthropicConverter._append_server_tool_channel_blocks(
+                    multipart_msg.channels,
+                    all_content_blocks,
+                )
 
             for tool_use_id, req in multipart_msg.tool_calls.items():
                 sanitized_id = AnthropicConverter._sanitize_tool_id(tool_use_id)
@@ -186,6 +198,12 @@ class AnthropicConverter:
             tool_msg = AnthropicConverter.create_tool_results_message(tool_results_list)
             # Extract the content blocks from the tool results message
             all_content_blocks.extend(tool_msg["content"])
+
+        if role == "assistant" and multipart_msg.channels:
+            AnthropicConverter._append_server_tool_channel_blocks(
+                multipart_msg.channels,
+                all_content_blocks,
+            )
 
         # Then handle regular content blocks if present
         if multipart_msg.content:
@@ -215,6 +233,53 @@ class AnthropicConverter:
 
         # Create the Anthropic message
         return MessageParam(role=role, content=all_content_blocks)
+
+    @staticmethod
+    def _append_server_tool_channel_blocks(
+        channels: Mapping[str, Sequence[ContentBlock]] | None,
+        destination: list[ContentBlockParam],
+    ) -> None:
+        if not channels:
+            return
+        raw_blocks = channels.get(ANTHROPIC_SERVER_TOOLS_CHANNEL)
+        if not raw_blocks:
+            return
+
+        for block in raw_blocks:
+            if not isinstance(block, TextContent):
+                continue
+            raw_text = block.text
+            if not raw_text:
+                continue
+            try:
+                payload = json.loads(raw_text)
+            except Exception:
+                continue
+            if not isinstance(payload, dict):
+                continue
+            if not is_server_tool_trace_payload(payload):
+                continue
+
+            candidate = cast("ContentBlockParam", payload)
+            try:
+                _ANTHROPIC_CONTENT_BLOCK_LIST_ADAPTER.validate_python([candidate])
+            except Exception as error:
+                payload_type = payload.get("type")
+                _logger.warning(
+                    "Skipping invalid server-tool payload from assistant channel",
+                    data={
+                        "payload_type": payload_type,
+                        "error": str(error),
+                    },
+                )
+                if os.environ.get("FAST_AGENT_WEBDEBUG"):
+                    print(
+                        "[webdebug] skipped invalid server-tool channel payload "
+                        f"type={payload_type} error={type(error).__name__}: {error}"
+                    )
+                continue
+
+            destination.append(candidate)
 
     @staticmethod
     def convert_prompt_message_to_anthropic(message: PromptMessage) -> MessageParam:

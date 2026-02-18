@@ -152,6 +152,12 @@ class HistoryFixCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class HistoryWebClearCommand(CommandBase):
+    agent: str | None
+    kind: Literal["history_webclear"] = "history_webclear"
+
+
+@dataclass(frozen=True, slots=True)
 class LoadAgentCardCommand(CommandBase):
     filename: str | None
     add_tool: bool
@@ -280,6 +286,7 @@ CommandPayload = (
     | HistoryRewindCommand
     | HistoryReviewCommand
     | HistoryFixCommand
+    | HistoryWebClearCommand
     | LoadAgentCardCommand
     | ReloadAgentsCommand
     | AgentCommand

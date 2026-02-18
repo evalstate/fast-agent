@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 from fast_agent.commands.handlers.shared import (
@@ -9,7 +10,11 @@ from fast_agent.commands.handlers.shared import (
     replace_agent_history,
 )
 from fast_agent.commands.results import CommandOutcome
-from fast_agent.constants import CONTROL_MESSAGE_SAVE_HISTORY
+from fast_agent.constants import (
+    ANTHROPIC_CITATIONS_CHANNEL,
+    ANTHROPIC_SERVER_TOOLS_CHANNEL,
+    CONTROL_MESSAGE_SAVE_HISTORY,
+)
 from fast_agent.history.history_exporter import HistoryExporter
 from fast_agent.types import LlmStopReason, PromptMessageExtended
 
@@ -79,6 +84,41 @@ def _trim_history_for_rewind(
     if template_messages:
         return template_messages
     return history[:turn_start_index]
+
+
+def _strip_web_metadata_channels(
+    message: PromptMessageExtended,
+) -> tuple[PromptMessageExtended, int]:
+    channels = message.channels
+    if not isinstance(channels, Mapping) or not channels:
+        return message, 0
+
+    removed_blocks = 0
+    retained: dict[str, Sequence[Any]] = {}
+    for channel_name, blocks in channels.items():
+        if channel_name in {ANTHROPIC_SERVER_TOOLS_CHANNEL, ANTHROPIC_CITATIONS_CHANNEL}:
+            removed_blocks += len(blocks)
+            continue
+        retained[channel_name] = blocks
+
+    if removed_blocks == 0:
+        return message, 0
+
+    return message.model_copy(update={"channels": retained or None}), removed_blocks
+
+
+def web_tools_enabled_for_agent(agent_obj: object) -> bool:
+    """Return True when the agent's active LLM has web tools enabled."""
+    llm = getattr(agent_obj, "llm", None) or getattr(agent_obj, "_llm", None)
+    if llm is None:
+        return False
+
+    enabled = getattr(llm, "web_tools_enabled", None)
+    if isinstance(enabled, tuple) and len(enabled) >= 2:
+        return bool(enabled[0] or enabled[1])
+    if isinstance(enabled, bool):
+        return enabled
+    return False
 
 
 async def handle_show_history(
@@ -277,6 +317,68 @@ async def handle_history_fix(
             agent_name=target,
         )
 
+    return outcome
+
+
+async def handle_history_webclear(
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+    target_agent: str | None = None,
+) -> CommandOutcome:
+    """Strip Anthropic web-search/fetch metadata channels from history."""
+    outcome = CommandOutcome()
+    target = target_agent or agent_name
+
+    agent_obj = ctx.agent_provider._agent(target)
+    if not web_tools_enabled_for_agent(agent_obj):
+        outcome.add_message(
+            "Web metadata cleanup is only available when Anthropic web tools are enabled.",
+            channel="warning",
+            agent_name=target,
+        )
+        return outcome
+
+    history = list(getattr(agent_obj, "message_history", []))
+    if not history:
+        outcome.add_message("No history to clean.", channel="warning", agent_name=target)
+        return outcome
+
+    cleaned_history: list[PromptMessageExtended] = []
+    removed_blocks = 0
+    touched_messages = 0
+    for message in history:
+        cleaned_message, removed = _strip_web_metadata_channels(message)
+        cleaned_history.append(cleaned_message)
+        if removed > 0:
+            removed_blocks += removed
+            touched_messages += 1
+
+    if removed_blocks == 0:
+        outcome.add_message(
+            f"No web metadata channels found for agent '{target}'.",
+            channel="warning",
+            agent_name=target,
+        )
+        return outcome
+
+    load_history = getattr(agent_obj, "load_message_history", None)
+    if callable(load_history):
+        load_history(cleaned_history)
+    else:
+        existing_history = getattr(agent_obj, "message_history", None)
+        if isinstance(existing_history, list):
+            existing_history.clear()
+            existing_history.extend(cleaned_history)
+
+    outcome.add_message(
+        (
+            f"Removed {removed_blocks} web metadata block(s) from {touched_messages} "
+            f"message(s) for agent '{target}'."
+        ),
+        channel="info",
+        agent_name=target,
+    )
     return outcome
 
 

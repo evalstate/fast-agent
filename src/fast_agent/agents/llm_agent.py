@@ -9,6 +9,7 @@ This class extends LlmDecorator with LLM-specific interaction behaviors includin
 """
 
 import json
+import os
 from typing import TYPE_CHECKING, Callable, List, Optional, Tuple
 
 from a2a.types import AgentCapabilities
@@ -17,12 +18,22 @@ from rich.text import Text
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_decorator import LlmDecorator, ModelT
-from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, FAST_AGENT_URL_ELICITATION_CHANNEL
+from fast_agent.constants import (
+    ANTHROPIC_CITATIONS_CHANNEL,
+    ANTHROPIC_SERVER_TOOLS_CHANNEL,
+    FAST_AGENT_ERROR_CHANNEL,
+    FAST_AGENT_URL_ELICITATION_CHANNEL,
+)
 from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
+from fast_agent.ui.citation_display import (
+    collect_citation_sources,
+    render_sources_additional_text,
+    web_tool_badges,
+)
 from fast_agent.ui.console_display import ConsoleDisplay
 from fast_agent.ui.message_display_helpers import (
     build_tool_use_additional_message,
@@ -204,14 +215,49 @@ class LlmAgent(LlmDecorator):
                 else Text(str(additional_message))
             )
 
+        message_text = message
+
+        sources_text = render_sources_additional_text(message)
+        debug_web = bool(os.environ.get("FAST_AGENT_WEBDEBUG"))
+        if debug_web:
+            channels = message.channels or {}
+            channel_names = sorted(channels.keys()) if isinstance(channels, dict) else []
+            source_count = len(collect_citation_sources(message))
+            print(
+                "[webdebug]"
+                f" agent={self.name}"
+                f" channels={channel_names}"
+                f" server_tool_blocks={len(channels.get(ANTHROPIC_SERVER_TOOLS_CHANNEL, [])) if isinstance(channels, dict) else 0}"
+                f" citation_blocks={len(channels.get(ANTHROPIC_CITATIONS_CHANNEL, [])) if isinstance(channels, dict) else 0}"
+                f" source_count={source_count}"
+                f" sources_rendered={bool(sources_text)}"
+            )
+        if sources_text is not None:
+            additional_segments.append(sources_text)
+
+        badge_items = web_tool_badges(message)
+        if debug_web:
+            print(f"[webdebug] agent={self.name} badges={badge_items}")
+        if badge_items:
+            additional_segments.append(
+                Text(f"\n\nWeb activity: {', '.join(badge_items)}", style="bright_cyan")
+            )
+
+            merged_bottom = list(bottom_items or [])
+            for badge in badge_items:
+                if badge not in merged_bottom:
+                    merged_bottom.append(badge)
+            bottom_items = merged_bottom
+            if highlight_items is None:
+                # A3 style only renders bottom metadata when a highlight is provided.
+                highlight_items = badge_items[0]
+
         additional_message_text = None
         if additional_segments:
             combined = Text()
             for segment in additional_segments:
                 combined += segment
             additional_message_text = combined
-
-        message_text = message
 
         # Use provided name/model or fall back to defaults
         display_name = name if name is not None else self.name

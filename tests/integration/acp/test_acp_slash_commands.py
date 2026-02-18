@@ -16,7 +16,11 @@ from mcp.types import TextContent
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.config import get_settings, update_global_settings
-from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
+from fast_agent.constants import (
+    ANTHROPIC_CITATIONS_CHANNEL,
+    ANTHROPIC_SERVER_TOOLS_CHANNEL,
+    FAST_AGENT_ERROR_CHANNEL,
+)
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.session import display_session_name, get_session_manager, reset_session_manager
 from fast_agent.session import session_manager as session_manager_module
@@ -220,11 +224,18 @@ async def test_slash_command_session_resume_switches_current_mode(tmp_path: Path
         manager = get_session_manager()
         session = manager.create_session()
 
-        history_message = PromptMessageExtended(
+        user_message = PromptMessageExtended(
             role="user",
             content=[TextContent(type="text", text="resume me")],
         )
-        alpha_agent = StubAgent(name="alpha", message_history=[history_message])
+        assistant_message = PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="welcome back")],
+        )
+        alpha_agent = StubAgent(
+            name="alpha",
+            message_history=[user_message, assistant_message],
+        )
         await session.save_history(cast("AgentProtocol", alpha_agent))
 
         beta_agent = StubAgent(name="beta")
@@ -245,6 +256,8 @@ async def test_slash_command_session_resume_switches_current_mode(tmp_path: Path
         )
 
         assert "Switched to agent: alpha" in response
+        assert "Last assistant message" in response
+        assert "welcome back" in response
         assert handler.current_agent_name == "alpha"
         assert switched == ["alpha"]
     finally:
@@ -481,6 +494,56 @@ async def test_slash_command_history_load_without_agent() -> None:
 
     assert "load conversation" in response.lower()
     assert "Unable to locate agent" in response
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_history_webclear() -> None:
+    """Test that /history webclear strips web metadata channels."""
+    class _LlmStub:
+        web_tools_enabled = (True, False)
+
+    messages = [
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="done")],
+            channels={
+                ANTHROPIC_SERVER_TOOLS_CHANNEL: [
+                    TextContent(type="text", text='{"type":"server_tool_use"}')
+                ],
+                ANTHROPIC_CITATIONS_CHANNEL: [
+                    TextContent(
+                        type="text",
+                        text='{"type":"web_search_result_location","url":"https://example.com"}',
+                    )
+                ],
+            },
+        )
+    ]
+    stub_agent = StubAgent(message_history=messages)
+    stub_agent.llm = _LlmStub()
+    instance = StubAgentInstance(agents={"test-agent": stub_agent})
+
+    handler = _handler(instance)
+    response = await handler.execute_command("history", "webclear")
+
+    assert "history webclear" in response.lower()
+    assert "removed 2 web metadata block(s)" in response.lower()
+    assert stub_agent.message_history[0].channels is None
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_history_webclear_hidden_when_disabled() -> None:
+    """webclear should not be available when web tools are disabled."""
+    stub_agent = StubAgent(message_history=[])
+    instance = StubAgentInstance(agents={"test-agent": stub_agent})
+
+    handler = _handler(instance)
+    response = await handler.execute_command("history", "webclear")
+
+    assert "unknown /history action: webclear" in response.lower()
+    assert "usage: /history [show|save|load]" in response.lower()
 
 
 @pytest.mark.integration

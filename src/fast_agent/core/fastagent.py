@@ -59,6 +59,7 @@ from fast_agent.core.validation import (
     validate_server_references,
     validate_workflow_references,
 )
+from fast_agent.mcp.connect_targets import build_server_config_from_target
 from fast_agent.mcp.prompts.prompt_load import load_prompt
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest, SkillRegistry, SkillsDefault
 from fast_agent.ui.console import configure_console_stream
@@ -374,6 +375,10 @@ class FastAgent(DecoratorMixin):
         self._agent_card_last_changed: set[str] = set()
         self._agent_card_last_removed: set[str] = set()
         self._agent_card_last_dependents: set[str] = set()
+        self._agent_declared_servers: dict[str, list[str]] = {}
+        self._card_mcp_owned_servers: dict[str, set[str]] = {}
+        self._dynamic_mcp_server_names: set[str] = set()
+        self._base_mcp_servers: dict[str, MCPServerSettings] | None = None
         self._agent_registry_version: int = 0
         self._agent_card_watch_task: asyncio.Task[None] | None = None
         self._agent_card_reload_lock: asyncio.Lock | None = None
@@ -993,6 +998,149 @@ class FastAgent(DecoratorMixin):
             self._agent_card_last_removed.update(removed_names)
             self._agent_card_last_dependents.update(removed_dependents)
 
+    @staticmethod
+    def _settings_signature(settings: MCPServerSettings) -> dict[str, Any]:
+        return settings.model_dump(exclude_none=True)
+
+    @staticmethod
+    def _settings_equivalent(left: MCPServerSettings, right: MCPServerSettings) -> bool:
+        return FastAgent._settings_signature(left) == FastAgent._settings_signature(right)
+
+    @staticmethod
+    def _copy_server_settings(settings: MCPServerSettings, *, name: str) -> MCPServerSettings:
+        copied = settings.model_copy(deep=True)
+        copied.name = name
+        return copied
+
+    def _sync_agent_card_mcp_servers(self) -> None:
+        context = getattr(self.app, "context", None)
+        if context is None:
+            return
+
+        app_config = getattr(context, "config", None)
+        if app_config is None:
+            return
+
+        if app_config.mcp is None:
+            app_config.mcp = config.MCPSettings()
+
+        configured_servers = app_config.mcp.servers or {}
+        if self._base_mcp_servers is None:
+            self._base_mcp_servers = {
+                name: self._copy_server_settings(server, name=name)
+                for name, server in configured_servers.items()
+            }
+
+        registry = getattr(context, "server_registry", None)
+        existing_registry = getattr(registry, "registry", {}) if registry is not None else {}
+
+        preserved_runtime_servers: dict[str, MCPServerSettings] = {}
+        if isinstance(existing_registry, dict):
+            for name, server in existing_registry.items():
+                if name in self._dynamic_mcp_server_names:
+                    continue
+                if not isinstance(server, config.MCPServerSettings):
+                    continue
+                preserved_runtime_servers[name] = self._copy_server_settings(server, name=name)
+
+        effective_servers: dict[str, MCPServerSettings] = {
+            name: self._copy_server_settings(server, name=name)
+            for name, server in (self._base_mcp_servers or {}).items()
+        }
+
+        for name, server in preserved_runtime_servers.items():
+            if name in effective_servers:
+                continue
+            effective_servers[name] = server
+
+        resolved_servers_by_agent: dict[str, list[str]] = {}
+        card_owners: dict[str, set[str]] = {}
+        all_dynamic_server_names: set[str] = set()
+
+        for agent_name in sorted(self.agents.keys()):
+            agent_data = self.agents[agent_name]
+            config_obj = agent_data.get("config")
+            if config_obj is None:
+                continue
+
+            entries = list(getattr(config_obj, "mcp_connect", []) or [])
+            if not entries:
+                resolved_servers_by_agent[agent_name] = []
+                continue
+
+            owner = str(getattr(config_obj, "source_path", None) or f"agent:{agent_name}")
+            for index, entry in enumerate(entries):
+                target = getattr(entry, "target", None)
+                explicit_name = getattr(entry, "name", None)
+                if not isinstance(target, str) or not target.strip():
+                    raise AgentConfigError(
+                        f"Invalid mcp_connect entry for agent '{agent_name}'",
+                        f"Entry {index}: target must be a non-empty string",
+                    )
+
+                try:
+                    resolved_name, resolved_settings = build_server_config_from_target(
+                        target,
+                        server_name=explicit_name,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    raise AgentConfigError(
+                        f"Invalid mcp_connect entry for agent '{agent_name}'",
+                        f"Entry {index} target '{target}': {exc}",
+                    ) from exc
+
+                existing = effective_servers.get(resolved_name)
+                if existing is not None and not self._settings_equivalent(existing, resolved_settings):
+                    raise AgentConfigError(
+                        (
+                            f"Server name collision for '{resolved_name}' from mcp_connect "
+                            f"target '{target}'."
+                        ),
+                        "Set an explicit unique `name` or change target.",
+                    )
+
+                if existing is None:
+                    effective_servers[resolved_name] = self._copy_server_settings(
+                        resolved_settings,
+                        name=resolved_name,
+                    )
+
+                resolved_servers_by_agent.setdefault(agent_name, []).append(resolved_name)
+                card_owners.setdefault(owner, set()).add(resolved_name)
+                all_dynamic_server_names.add(resolved_name)
+
+        active_agent_names = set(self.agents.keys())
+        for name, agent_data in self.agents.items():
+            config_obj = agent_data.get("config")
+            if config_obj is None:
+                continue
+
+            current_declared = list(getattr(config_obj, "servers", []))
+            if name not in self._agent_declared_servers or name in self._agent_card_last_changed:
+                self._agent_declared_servers[name] = current_declared
+
+            base_servers = list(self._agent_declared_servers.get(name, []))
+            self._agent_declared_servers[name] = base_servers
+            merged_servers = list(dict.fromkeys(base_servers + resolved_servers_by_agent.get(name, [])))
+            config_obj.servers = merged_servers
+
+        for name in list(self._agent_declared_servers.keys()):
+            if name not in active_agent_names:
+                self._agent_declared_servers.pop(name, None)
+
+        app_config.mcp.servers = {
+            name: self._copy_server_settings(server, name=name)
+            for name, server in effective_servers.items()
+        }
+        if registry is not None:
+            registry.registry = {
+                name: self._copy_server_settings(server, name=name)
+                for name, server in effective_servers.items()
+            }
+
+        self._card_mcp_owned_servers = card_owners
+        self._dynamic_mcp_server_names = all_dynamic_server_names
+
     def _get_registry_version(self) -> int:
         return self._agent_registry_version
 
@@ -1122,6 +1270,7 @@ class FastAgent(DecoratorMixin):
                         raise AgentConfigError(
                             "No agents defined. Please define at least one agent."
                         )
+                    self._sync_agent_card_mcp_servers()
                     validate_server_references(self.context, self.agents)
                     validate_workflow_references(self.agents)
                     self._handle_dump_requests()
@@ -1217,6 +1366,7 @@ class FastAgent(DecoratorMixin):
                         nonlocal primary_instance, active_agents
                         if self._agent_registry_version <= primary_instance.registry_version:
                             return False
+                        self._sync_agent_card_mcp_servers()
                         changed_names = set(self._agent_card_last_changed)
                         removed_names = set(self._agent_card_last_removed)
                         dependent_names = set(self._agent_card_last_dependents)

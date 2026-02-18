@@ -57,13 +57,22 @@ def _seed_pending_tool_call(agent: ToolAgent) -> None:
 
 
 @pytest.mark.asyncio
-async def test_unanswered_tool_call_raises_on_new_turn():
+async def test_unanswered_tool_call_auto_heals_on_new_turn():
     agent = ToolAgent(AgentConfig("test-agent"))
     agent._llm = FakeLLM()
     _seed_pending_tool_call(agent)
 
-    with pytest.raises(ValueError, match="Invalid conversation history"):
-        await agent.generate_impl([Prompt.user("hello")], RequestParams())
+    result = await agent.generate_impl([Prompt.user("hello")], RequestParams())
+
+    assert result.role == "assistant"
+    assert all(
+        not (
+            msg.role == "assistant"
+            and msg.tool_calls
+            and msg.stop_reason == LlmStopReason.TOOL_USE
+        )
+        for msg in agent.message_history
+    )
 
 
 @pytest.mark.asyncio

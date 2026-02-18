@@ -137,6 +137,30 @@ def test_model_query_transport_sse():
     assert config.transport == "sse"
 
 
+def test_model_query_web_tool_flags():
+    config = ModelFactory.parse_model_string("claude-sonnet-4-6?web_search=on&web_fetch=off")
+    assert config.provider == Provider.ANTHROPIC
+    assert config.model_name == "claude-sonnet-4-6"
+    assert config.web_search is True
+    assert config.web_fetch is False
+
+
+def test_model_query_web_tool_flags_boolean_aliases():
+    config = ModelFactory.parse_model_string("sonnet?web_search=true&web_fetch=0")
+    assert config.provider == Provider.ANTHROPIC
+    assert config.model_name == "claude-sonnet-4-6"
+    assert config.web_search is True
+    assert config.web_fetch is False
+
+
+def test_invalid_web_tool_query_values():
+    with pytest.raises(ModelConfigError):
+        ModelFactory.parse_model_string("claude-sonnet-4-6?web_search=maybe")
+
+    with pytest.raises(ModelConfigError):
+        ModelFactory.parse_model_string("claude-sonnet-4-6?web_fetch=maybe")
+
+
 def test_invalid_transport_query():
     with pytest.raises(ModelConfigError):
         ModelFactory.parse_model_string("codexplan?transport=websock")
@@ -164,6 +188,14 @@ def test_factory_passes_transport_to_responses_llm():
     llm = factory(LlmAgent(AgentConfig(name="Test Agent")))
     assert isinstance(llm, ResponsesLLM)
     assert llm._transport == "websocket"
+
+
+def test_factory_passes_web_tool_overrides_to_anthropic_llm():
+    factory = ModelFactory.create_factory("claude-sonnet-4-6?web_search=on&web_fetch=off")
+    llm = factory(LlmAgent(AgentConfig(name="Test Agent")))
+    assert isinstance(llm, AnthropicLLM)
+    assert llm._web_search_override is True
+    assert llm._web_fetch_override is False
 
 
 def test_invalid_inputs():
@@ -232,6 +264,12 @@ def test_opus_aliases_resolve_to_opus_46():
     config = ModelFactory.parse_model_string("opus")
     assert config.provider == Provider.ANTHROPIC
     assert config.model_name == "claude-opus-4-6"
+
+
+def test_claude_alias_resolves_to_sonnet_46():
+    config = ModelFactory.parse_model_string("claude")
+    assert config.provider == Provider.ANTHROPIC
+    assert config.model_name == "claude-sonnet-4-6"
 
     config = ModelFactory.parse_model_string("opus46")
     assert config.provider == Provider.ANTHROPIC

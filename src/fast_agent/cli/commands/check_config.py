@@ -825,6 +825,7 @@ def show_check_summary(env_dir: Path | None = None) -> None:
 
         for entry in entries:
             error_messages = entry.errors
+            runtime_mcp_count = 0
             if entry.ignored_reason:
                 status = f"[dim]ignored - {entry.ignored_reason}[/dim]"
             elif error_messages:
@@ -845,6 +846,7 @@ def show_check_summary(env_dir: Path | None = None) -> None:
 
                 for card in cards:
                     config = card.agent_data.get("config")
+                    runtime_mcp_count += len(getattr(config, "mcp_connect", []) or []) if config else 0
                     if config and getattr(config, "default", False):
                         if card.name not in default_agent_seen:
                             default_agent_names.append(card.name)
@@ -866,6 +868,10 @@ def show_check_summary(env_dir: Path | None = None) -> None:
                             f"({provider.display_name}) but no API key configured."
                         )
                         warned_cards.add(card.name)
+
+            if runtime_mcp_count > 0 and not entry.errors and entry.ignored_reason is None:
+                plural = "entry" if runtime_mcp_count == 1 else "entries"
+                status = f"[green]ok[/green] [dim](mcp_connect: {runtime_mcp_count} {plural})[/dim]"
 
             cards_table.add_row(
                 entry.name,
