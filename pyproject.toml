@@ -79,6 +79,7 @@ build-backend = "hatchling.build"
 include = [
     "src/fast_agent/**/*.py",
     "src/fast_agent/resources/**/*",
+    "resources/shared/**/*",
     "src/fast_agent/py.typed",
     "examples/**/*",
 ]
