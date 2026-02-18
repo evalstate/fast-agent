@@ -153,6 +153,9 @@ class FastAgentLLMProtocol(Protocol):
     @property
     def text_verbosity_spec(self) -> TextVerbositySpec | None: ...
 
+    @property
+    def web_search_enabled(self) -> bool: ...
+
 
 @runtime_checkable
 class LlmAgentProtocol(Protocol):

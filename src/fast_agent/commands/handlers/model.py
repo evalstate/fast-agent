@@ -77,6 +77,22 @@ def _add_model_details(
     llm: object,
     include_shell_budget: bool,
 ) -> None:
+    provider = getattr(llm, "provider", None)
+    provider_label: str | None = None
+    if isinstance(provider, str) and provider.strip():
+        provider_label = provider.strip()
+    else:
+        provider_value = getattr(provider, "value", None)
+        if isinstance(provider_value, str) and provider_value.strip():
+            provider_label = provider_value.strip()
+
+    if provider_label:
+        outcome.add_message(
+            _styled_model_line("Provider", provider_label, emphasize_value=True),
+            channel="system",
+            right_info="model",
+        )
+
     model_name = getattr(llm, "model_name", None)
     if model_name:
         outcome.add_message(

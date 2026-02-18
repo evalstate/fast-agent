@@ -113,6 +113,10 @@ def web_tools_enabled_for_agent(agent_obj: object) -> bool:
     if llm is None:
         return False
 
+    web_search_enabled = getattr(llm, "web_search_enabled", None)
+    if isinstance(web_search_enabled, bool):
+        return web_search_enabled
+
     enabled = getattr(llm, "web_tools_enabled", None)
     if isinstance(enabled, tuple) and len(enabled) >= 2:
         return bool(enabled[0] or enabled[1])

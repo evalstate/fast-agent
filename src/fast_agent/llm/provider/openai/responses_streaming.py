@@ -18,6 +18,29 @@ from fast_agent.llm.stream_types import StreamChunk
 
 _logger = get_logger(__name__)
 
+_TOOL_START_EVENT_TYPES = {
+    "response.web_search_call.in_progress",
+    "response.web_search_call.searching",
+}
+_TOOL_STOP_EVENT_TYPES = {
+    "response.web_search_call.completed",
+    "response.web_search_call.failed",
+}
+_WEB_SEARCH_PROGRESS_LABEL = "Searching the web"
+
+
+def _web_search_status_chunk(status: str) -> str:
+    if status == "in_progress":
+        return "starting search..."
+    if status == "searching":
+        return "searching..."
+    if status == "completed":
+        return "search complete"
+    if status == "failed":
+        return "search failed"
+    return status
+
+
 class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
     if TYPE_CHECKING:
         from pathlib import Path
@@ -46,8 +69,82 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         reasoning_chars = 0
         reasoning_segments: list[str] = []
         tool_streams: dict[int, dict[str, Any]] = {}
+        tool_streams_by_id: dict[str, dict[str, Any]] = {}
         notified_tool_indices: set[int] = set()
+        closed_tool_ids: set[str] = set()
         final_response: Any | None = None
+
+        def _item_is_tool(item: Any) -> bool:
+            return getattr(item, "type", None) in {"function_call", "web_search_call"}
+
+        def _tool_name(item: Any) -> str:
+            item_type = getattr(item, "type", None)
+            if item_type == "web_search_call":
+                return "web_search"
+            return getattr(item, "name", None) or "tool"
+
+        def _tool_use_id(item: Any, index: int | None, item_id: str | None = None) -> str:
+            tool_use = (
+                getattr(item, "call_id", None)
+                or getattr(item, "id", None)
+                or item_id
+            )
+            if isinstance(tool_use, str) and tool_use:
+                return tool_use
+            suffix = str(index) if index is not None else "unknown"
+            item_type = getattr(item, "type", None) or "tool"
+            return f"{item_type}-{suffix}"
+
+        def _register_tool(
+            index: int,
+            tool_name: str,
+            tool_use_id: str,
+            *,
+            item_type: str,
+            notified: bool = False,
+        ) -> dict[str, Any]:
+            tool_info = {
+                "tool_name": tool_name,
+                "tool_use_id": tool_use_id,
+                "item_type": item_type,
+                "notified": notified,
+                "index": index,
+            }
+            tool_streams[index] = tool_info
+            tool_streams_by_id[tool_use_id] = tool_info
+            return tool_info
+
+        def _resolve_tool_for_event(
+            *,
+            event_index: int | None,
+            event_item_id: str | None,
+        ) -> tuple[int, dict[str, Any]]:
+            if event_index is not None and event_index in tool_streams:
+                return event_index, tool_streams[event_index]
+
+            if event_item_id and event_item_id in tool_streams_by_id:
+                tool_info = tool_streams_by_id[event_item_id]
+                info_index = tool_info.get("index")
+                if isinstance(info_index, int):
+                    return info_index, tool_info
+
+            fallback_index = event_index if event_index is not None else -1
+            fallback_id = event_item_id or f"web_search-{fallback_index}"
+            tool_info = _register_tool(
+                fallback_index,
+                "web_search",
+                fallback_id,
+                item_type="web_search_call",
+                notified=False,
+            )
+            return fallback_index, tool_info
+
+        def _close_tool(index: int, tool_use_id: str | None) -> None:
+            if index in tool_streams:
+                tool_streams.pop(index, None)
+            if tool_use_id:
+                tool_streams_by_id.pop(tool_use_id, None)
+                closed_tool_ids.add(tool_use_id)
 
         async for event in stream:
             _save_stream_chunk(capture_filename, event)
@@ -96,39 +193,45 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                 continue
             if event_type == "response.output_item.added":
                 item = getattr(event, "item", None)
-                if getattr(item, "type", None) == "function_call":
+                if _item_is_tool(item):
                     index = getattr(event, "output_index", None)
                     if index is None:
                         continue
-                    tool_info = {
-                        "tool_name": getattr(item, "name", None),
-                        "tool_use_id": getattr(item, "call_id", None)
-                        or getattr(item, "id", None),
-                        "notified": False,
+                    tool_name = _tool_name(item)
+                    item_type = getattr(item, "type", None) or "tool"
+                    item_id = getattr(event, "item_id", None)
+                    tool_use = _tool_use_id(item, index, item_id)
+                    tool_info = _register_tool(
+                        index,
+                        tool_name,
+                        tool_use,
+                        item_type=item_type,
+                    )
+                    payload = {
+                        "tool_name": tool_info["tool_name"],
+                        "tool_use_id": tool_info["tool_use_id"],
+                        "index": index,
                     }
-                    tool_streams[index] = tool_info
-                    if tool_info["tool_name"] and tool_info["tool_use_id"]:
-                        self._notify_tool_stream_listeners(
-                            "start",
-                            {
-                                "tool_name": tool_info["tool_name"],
-                                "tool_use_id": tool_info["tool_use_id"],
-                                "index": index,
-                            },
-                        )
-                        self.logger.info(
-                            "Model started streaming tool call",
-                            data={
-                                "progress_action": ProgressAction.CALLING_TOOL,
-                                "agent_name": self.name,
-                                "model": model,
-                                "tool_name": tool_info["tool_name"],
-                                "tool_use_id": tool_info["tool_use_id"],
-                                "tool_event": "start",
-                            },
-                        )
-                        tool_info["notified"] = True
-                        notified_tool_indices.add(index)
+                    if item_type == "web_search_call":
+                        payload["tool_display_name"] = _WEB_SEARCH_PROGRESS_LABEL
+                        payload["chunk"] = _web_search_status_chunk("in_progress")
+                    self._notify_tool_stream_listeners(
+                        "start",
+                        payload,
+                    )
+                    self.logger.info(
+                        "Model started streaming tool call",
+                        data={
+                            "progress_action": ProgressAction.CALLING_TOOL,
+                            "agent_name": self.name,
+                            "model": model,
+                            "tool_name": tool_info["tool_name"],
+                            "tool_use_id": tool_info["tool_use_id"],
+                            "tool_event": "start",
+                        },
+                    )
+                    tool_info["notified"] = True
+                    notified_tool_indices.add(index)
                 continue
 
             if event_type == "response.function_call_arguments.delta":
@@ -147,18 +250,54 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                 )
                 continue
 
+            if event_type in (_TOOL_START_EVENT_TYPES | _TOOL_STOP_EVENT_TYPES):
+                event_index = getattr(event, "output_index", None)
+                event_item_id = getattr(event, "item_id", None)
+                index, tool_info = _resolve_tool_for_event(
+                    event_index=event_index,
+                    event_item_id=event_item_id,
+                )
+                tool_use_id = tool_info.get("tool_use_id")
+                if isinstance(tool_use_id, str) and tool_use_id in closed_tool_ids:
+                    continue
+
+                payload = {
+                    "tool_name": tool_info.get("tool_name") or "web_search",
+                    "tool_use_id": tool_use_id,
+                    "index": index,
+                    "status": event_type.rsplit(".", 1)[-1],
+                }
+                status = payload["status"]
+                if tool_info.get("item_type") == "web_search_call":
+                    payload["tool_display_name"] = _WEB_SEARCH_PROGRESS_LABEL
+                    payload["chunk"] = _web_search_status_chunk(str(status))
+                self._notify_tool_stream_listeners("status", payload)
+
+                if event_type in _TOOL_START_EVENT_TYPES and not tool_info.get("notified"):
+                    self._notify_tool_stream_listeners("start", payload)
+                    tool_info["notified"] = True
+                    if index >= 0:
+                        notified_tool_indices.add(index)
+
+                if event_type in _TOOL_STOP_EVENT_TYPES:
+                    self._notify_tool_stream_listeners("stop", payload)
+                    _close_tool(index, tool_use_id if isinstance(tool_use_id, str) else None)
+                continue
+
             if event_type == "response.output_item.done":
                 item = getattr(event, "item", None)
-                if getattr(item, "type", None) != "function_call":
+                if not _item_is_tool(item):
                     continue
                 index = getattr(event, "output_index", None)
                 tool_info = tool_streams.pop(index, {}) if index is not None else {}
-                tool_name = getattr(item, "name", None) or tool_info.get("tool_name")
+                tool_name = _tool_name(item)
                 tool_use_id = (
                     getattr(item, "call_id", None)
                     or getattr(item, "id", None)
                     or tool_info.get("tool_use_id")
                 )
+                if isinstance(tool_use_id, str) and tool_use_id in closed_tool_ids:
+                    continue
                 if index is None:
                     index = -1
                 self._notify_tool_stream_listeners(
@@ -167,6 +306,11 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                         "tool_name": tool_name,
                         "tool_use_id": tool_use_id,
                         "index": index,
+                        "tool_display_name": (
+                            _WEB_SEARCH_PROGRESS_LABEL
+                            if getattr(item, "type", None) == "web_search_call"
+                            else None
+                        ),
                     },
                 )
                 self.logger.info(
@@ -182,6 +326,7 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                 )
                 if index >= 0:
                     notified_tool_indices.add(index)
+                _close_tool(index, tool_use_id if isinstance(tool_use_id, str) else None)
                 continue
 
         if tool_streams:
@@ -235,14 +380,19 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
             if index in notified_indices:
                 continue
             if getattr(item, "type", None) != "function_call":
-                continue
+                if getattr(item, "type", None) != "web_search_call":
+                    continue
 
-            tool_name = getattr(item, "name", None) or "tool"
-            tool_use_id = (
-                getattr(item, "call_id", None)
-                or getattr(item, "id", None)
-                or f"tool-{index}"
-            )
+            if getattr(item, "type", None) == "web_search_call":
+                tool_name = "web_search"
+                tool_use_id = getattr(item, "id", None) or f"tool-{index}"
+            else:
+                tool_name = getattr(item, "name", None) or "tool"
+                tool_use_id = (
+                    getattr(item, "call_id", None)
+                    or getattr(item, "id", None)
+                    or f"tool-{index}"
+                )
 
             self._emit_fallback_tool_notification_event(
                 tool_name=tool_name,

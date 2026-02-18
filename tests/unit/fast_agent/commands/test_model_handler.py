@@ -3,6 +3,7 @@ import pytest
 from fast_agent.commands.context import CommandContext
 from fast_agent.commands.handlers.model import handle_model_reasoning
 from fast_agent.config import Settings, ShellSettings
+from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, ReasoningEffortSpec
 
 
@@ -37,6 +38,7 @@ class _StubIO:
 class _StubLLM:
     def __init__(self, model_name: str) -> None:
         self.model_name = model_name
+        self.provider = Provider.RESPONSES
         self.reasoning_effort_spec = ReasoningEffortSpec(
             kind="effort",
             allowed_efforts=["low", "medium", "high", "max"],
@@ -88,6 +90,7 @@ async def test_model_reasoning_includes_shell_budget_details() -> None:
     outcome = await handle_model_reasoning(ctx, agent_name="test", value=None)
     text_messages = [str(m.text) for m in outcome.messages]
 
+    assert "Provider: responses." in text_messages
     assert "Resolved model: claude-opus-4-6." in text_messages
     assert "Model max output tokens: 128000." in text_messages
     assert "Shell output budget: 21120 bytes (~6400 tokens, active runtime)." in text_messages

@@ -153,6 +153,13 @@ def test_model_query_web_tool_flags_boolean_aliases():
     assert config.web_fetch is False
 
 
+def test_model_query_web_search_flag_for_responses_provider():
+    config = ModelFactory.parse_model_string("responses.gpt-5-mini?web_search=on")
+    assert config.provider == Provider.RESPONSES
+    assert config.model_name == "gpt-5-mini"
+    assert config.web_search is True
+
+
 def test_invalid_web_tool_query_values():
     with pytest.raises(ModelConfigError):
         ModelFactory.parse_model_string("claude-sonnet-4-6?web_search=maybe")
@@ -196,6 +203,21 @@ def test_factory_passes_web_tool_overrides_to_anthropic_llm():
     assert isinstance(llm, AnthropicLLM)
     assert llm._web_search_override is True
     assert llm._web_fetch_override is False
+
+
+def test_factory_passes_web_search_override_to_responses_llm():
+    factory = ModelFactory.create_factory("responses.gpt-5-mini?web_search=on")
+    llm = factory(LlmAgent(AgentConfig(name="Test Agent")))
+    assert isinstance(llm, ResponsesLLM)
+    assert llm._web_search_override is True
+
+
+def test_factory_passes_web_search_override_to_codex_responses_llm():
+    factory = ModelFactory.create_factory("codexplan?web_search=on")
+    llm = factory(LlmAgent(AgentConfig(name="Test Agent")))
+    assert isinstance(llm, ResponsesLLM)
+    assert llm.provider == Provider.CODEX_RESPONSES
+    assert llm._web_search_override is True
 
 
 def test_invalid_inputs():

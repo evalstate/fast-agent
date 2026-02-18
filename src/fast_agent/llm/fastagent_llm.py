@@ -257,6 +257,11 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     def text_verbosity_spec(self) -> TextVerbositySpec | None:
         return self._text_verbosity_spec
 
+    @property
+    def web_search_enabled(self) -> bool:
+        """Whether provider-side web search is enabled for this LLM instance."""
+        return False
+
     def _initialize_default_params(self, kwargs: dict[str, Any]) -> RequestParams:
         """Initialize default parameters for the LLM.
         Should be overridden by provider implementations to set provider-specific defaults."""

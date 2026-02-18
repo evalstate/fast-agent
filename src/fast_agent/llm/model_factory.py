@@ -448,7 +448,12 @@ class ModelFactory:
                 kwargs["long_context"] = True
             if config.transport:
                 kwargs["transport"] = config.transport
-            if config.web_search is not None and config.provider == Provider.ANTHROPIC:
+            if config.web_search is not None and config.provider in {
+                Provider.ANTHROPIC,
+                Provider.RESPONSES,
+                Provider.OPENRESPONSES,
+                Provider.CODEX_RESPONSES,
+            }:
                 kwargs["web_search"] = config.web_search
             if config.web_fetch is not None and config.provider == Provider.ANTHROPIC:
                 kwargs["web_fetch"] = config.web_fetch

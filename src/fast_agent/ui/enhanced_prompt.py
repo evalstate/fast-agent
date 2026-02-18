@@ -2801,10 +2801,8 @@ async def get_enhanced_input(
                             llm.text_verbosity,
                             llm.text_verbosity_spec,
                         )
-                        if getattr(llm, "provider", None) == Provider.ANTHROPIC:
-                            search_on, fetch_on = getattr(llm, "web_tools_enabled", (False, False))
-                            if search_on or fetch_on:
-                                model_suffix = "⊕"  # ◉ # 🌐
+                        if llm.web_search_enabled:
+                            model_suffix = "⊕"  # ◉ # 🌐
                     except Exception:
                         reasoning_gauge = None
                         verbosity_gauge = None
