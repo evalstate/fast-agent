@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Protocol
@@ -17,7 +18,7 @@ from fast_agent.ui.markdown_helpers import prepare_markdown_content
 from fast_agent.ui.markdown_truncator import MarkdownTruncator
 from fast_agent.ui.plain_text_truncator import PlainTextTruncator
 from fast_agent.ui.stream_segments import StreamSegmentAssembler
-from fast_agent.ui.stream_viewport import StreamViewport, estimate_plain_text_height
+from fast_agent.ui.stream_viewport import StreamViewport
 
 if TYPE_CHECKING:
     from rich.console import RenderableType
@@ -36,6 +37,10 @@ PLAIN_STREAM_REFRESH_PER_SECOND = 20
 PLAIN_STREAM_HEIGHT_FUDGE = 2
 STREAM_BATCH_PERIOD = 1 / 100
 STREAM_BATCH_MAX_DURATION = 1 / 60
+
+_FENCE_OPEN_RE = re.compile(r"^```", re.MULTILINE)
+_FENCE_CLOSE_RE = re.compile(r"^```\s*$", re.MULTILINE)
+_FENCE_TRAILING_CLOSE_RE = re.compile(r"```\s*$")
 
 
 @dataclass(frozen=True)
@@ -111,6 +116,7 @@ class StreamingMessageHandle:
         self._viewport = StreamViewport(
             markdown_truncator=self._markdown_truncator,
             plain_truncator=self._plain_truncator,
+            code_theme=self._display.code_style,
         )
         self._stream_target_ratio = (
             PLAIN_STREAM_TARGET_RATIO if use_plain_text else MARKDOWN_STREAM_TARGET_RATIO
@@ -135,6 +141,8 @@ class StreamingMessageHandle:
         self._scrolling_started = False
         self._scroll_start_time: float | None = None
         self._display_truncated = False
+        self._header_cache: dict[tuple[int, bool], Text] = {}
+        self._next_render_deadline: float | None = None
         try:
             self._loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
         except RuntimeError:
@@ -148,6 +156,7 @@ class StreamingMessageHandle:
             console=console.console,
             vertical_overflow="ellipsis",
             refresh_per_second=refresh_rate,
+            auto_refresh=False,
             transient=True,
         )
         self._live_started = False
@@ -216,12 +225,21 @@ class StreamingMessageHandle:
             self._render_current_buffer()
 
     def _build_header(self) -> Text:
+        width = console.console.size.width
+        cache_key = (width, self._display_truncated)
+        cached = self._header_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         right_content = self._header_right.strip()
         if self._display_truncated:
             indicator = "[black on blue]display truncated[/black on blue]"
             right_content = f"{right_content} {indicator}" if right_content else indicator
 
         combined = self._display._format_header_line(self._header_left, right_content)
+        self._header_cache[cache_key] = combined
+        if len(self._header_cache) > 8:
+            self._header_cache.clear()
         return combined
 
     def _pause_progress_display(self) -> None:
@@ -252,13 +270,14 @@ class StreamingMessageHandle:
             self._live_started = True
 
     def _close_incomplete_code_blocks(self, text: str) -> str:
-        import re
+        if "```" not in text:
+            return text
 
-        opening_fences = len(re.findall(r"^```", text, re.MULTILINE))
-        closing_fences = len(re.findall(r"^```\s*$", text, re.MULTILINE))
+        opening_fences = len(_FENCE_OPEN_RE.findall(text))
+        closing_fences = len(_FENCE_CLOSE_RE.findall(text))
 
         if opening_fences > closing_fences:
-            if not re.search(r"```\s*$", text):
+            if not _FENCE_TRAILING_CLOSE_RE.search(text):
                 return text + "\n```\n"
 
         return text
@@ -309,6 +328,47 @@ class StreamingMessageHandle:
                 self._worker_task = None
         self._shutdown_live_resources()
         self._max_render_height = 0
+        self._next_render_deadline = None
+
+    async def _wait_for_render_slot(self) -> bool:
+        """Sleep until the next render deadline to keep frame cadence steady."""
+        interval = self._min_render_interval
+        if not interval:
+            return True
+
+        now = time.monotonic()
+        deadline = self._next_render_deadline
+        if deadline is None:
+            self._next_render_deadline = now
+            return True
+
+        delay = deadline - now
+        if delay <= 0:
+            return True
+
+        try:
+            await asyncio.sleep(delay)
+        except asyncio.CancelledError:
+            return False
+        return True
+
+    def _advance_render_deadline(self) -> None:
+        """Advance render deadline without drifting under variable render cost."""
+        interval = self._min_render_interval
+        if not interval:
+            return
+
+        now = time.monotonic()
+        deadline = self._next_render_deadline
+        if deadline is None:
+            self._next_render_deadline = now + interval
+            return
+
+        next_deadline = deadline + interval
+        if next_deadline <= now:
+            skipped_slots = int((now - deadline) // interval) + 1
+            next_deadline = deadline + (skipped_slots * interval)
+        self._next_render_deadline = next_deadline
 
     def _enqueue_chunk(self, chunk: object) -> None:
         if not self._queue or not self._loop:
@@ -364,7 +424,7 @@ class StreamingMessageHandle:
 
         header = self._build_header()
         max_allowed_height = max(1, console.console.size.height - 2)
-        window_segments = self._viewport.slice_segments(
+        window_segments, window_heights = self._viewport.slice_segments_with_heights(
             segments,
             terminal_height=max_allowed_height,
             console=console.console,
@@ -373,7 +433,9 @@ class StreamingMessageHandle:
         if not window_segments:
             return
         is_truncated = len(window_segments) < len(segments) or (
-            window_segments and segments and window_segments[0] is not segments[0]
+            bool(window_segments)
+            and bool(segments)
+            and window_segments[0] is not segments[0]
         )
         self._display_truncated = is_truncated
         if is_truncated and not self._scrolling_started:
@@ -382,7 +444,7 @@ class StreamingMessageHandle:
         self._segment_assembler.compact(window_segments)
 
         renderables: list[RenderableType] = []
-        content_height = 0
+        content_height = sum(window_heights)
         width = console.console.size.width
         render_start = time.perf_counter()
 
@@ -393,11 +455,6 @@ class StreamingMessageHandle:
                 if prepared_for_display:
                     renderables.append(
                         Markdown(prepared_for_display, code_theme=self._display.code_style)
-                    )
-                    content_height += self._markdown_truncator.measure_rendered_height(
-                        prepared_for_display,
-                        console.console,
-                        self._display.code_style,
                     )
                 else:
                     renderables.append(Text(""))
@@ -411,14 +468,8 @@ class StreamingMessageHandle:
                         style="dim italic",
                     )
                     renderables.append(markdown)
-                    content_height += self._markdown_truncator.measure_rendered_height(
-                        prepared_for_display,
-                        console.console,
-                        self._display.code_style,
-                    )
                 else:
                     renderables.append(Text(segment.text, style="dim italic"))
-                    content_height += estimate_plain_text_height(segment.text, width)
             else:
                 if segment.kind == "tool":
                     header_text = (
@@ -439,10 +490,8 @@ class StreamingMessageHandle:
                             tool_text.append("\n")
                             tool_text.append(args_text)
                     renderables.append(tool_text)
-                    content_height += estimate_plain_text_height(tool_text.plain, width)
                 else:
                     renderables.append(Text(segment.text))
-                    content_height += estimate_plain_text_height(segment.text, width)
 
         self._max_render_height = min(self._max_render_height, max_allowed_height)
         budget_height = min(content_height + self._height_fudge, max_allowed_height)
@@ -470,7 +519,7 @@ class StreamingMessageHandle:
             (now - self._last_render_time) * 1000 if self._last_render_time else None
         )
         try:
-            self._live.update(combined)
+            self._live.update(combined, refresh=True)
             self._last_render_time = time.monotonic()
         except Exception as exc:
             logger.warning(
@@ -585,6 +634,8 @@ class StreamingMessageHandle:
                         )
 
                 if should_render:
+                    if not await self._wait_for_render_slot():
+                        break
                     oldest_enqueued_at = None
                     newest_enqueued_at = None
                     if queued_items:
@@ -599,11 +650,7 @@ class StreamingMessageHandle:
                         "batch_chars": batch_chars,
                     }
                     self._render_current_buffer()
-                    if self._min_render_interval:
-                        try:
-                            await asyncio.sleep(self._min_render_interval)
-                        except asyncio.CancelledError:
-                            break
+                    self._advance_render_deadline()
 
                 if stop_requested:
                     break
