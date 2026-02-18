@@ -202,7 +202,7 @@ class StreamingMessageHandle:
                 "newest_enqueued_at": now,
                 "batch_chars": len(chunk),
             }
-            self._render_current_buffer()
+            self._render_sync_if_due()
 
     def update_chunk(self, chunk: StreamChunk) -> None:
         """Structured streaming update with an explicit reasoning flag."""
@@ -222,7 +222,7 @@ class StreamingMessageHandle:
                 "newest_enqueued_at": now,
                 "batch_chars": len(chunk.text),
             }
-            self._render_current_buffer()
+            self._render_sync_if_due()
 
     def _build_header(self) -> Text:
         width = console.console.size.width
@@ -369,6 +369,26 @@ class StreamingMessageHandle:
             skipped_slots = int((now - deadline) // interval) + 1
             next_deadline = deadline + (skipped_slots * interval)
         self._next_render_deadline = next_deadline
+
+    def _sync_render_due(self) -> bool:
+        """Return True when sync mode is allowed to render the next frame."""
+        interval = self._min_render_interval
+        if not interval:
+            return True
+
+        now = time.monotonic()
+        deadline = self._next_render_deadline
+        if deadline is None:
+            self._next_render_deadline = now
+            return True
+        return now >= deadline
+
+    def _render_sync_if_due(self) -> None:
+        """Render in sync mode while respecting frame-rate limits."""
+        if not self._sync_render_due():
+            return
+        self._render_current_buffer()
+        self._advance_render_deadline()
 
     def _enqueue_chunk(self, chunk: object) -> None:
         if not self._queue or not self._loop:
@@ -688,7 +708,7 @@ class StreamingMessageHandle:
                     "newest_enqueued_at": now,
                     "batch_chars": 0,
                 }
-                self._render_current_buffer()
+                self._render_sync_if_due()
         except Exception as exc:
             logger.warning(
                 "Error handling tool event",

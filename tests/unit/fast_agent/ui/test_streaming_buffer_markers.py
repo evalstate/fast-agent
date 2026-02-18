@@ -17,10 +17,17 @@ def test_contains_context_markers_detects_tables() -> None:
     assert buffer._contains_context_markers(table_text) is True
 
 
+def test_contains_context_markers_detects_tables_without_leading_pipes() -> None:
+    buffer = StreamBuffer()
+
+    table_text = "Name | Score\n--- | ---\nAda | 10\n"
+
+    assert buffer._contains_context_markers(table_text) is True
+
+
 def test_contains_context_markers_detects_indented_code() -> None:
     buffer = StreamBuffer()
 
     indented = "Intro\n    code line\n    code line 2\n"
 
     assert buffer._contains_context_markers(indented) is True
-

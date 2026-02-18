@@ -237,6 +237,8 @@ class StreamBuffer:
                 return True
             if "|---" in text or "---|" in text:
                 return True
+            if self._contains_pipe_table_separator(text):
+                return True
 
         # Indented code blocks can be expressed without fences.
         if text.startswith("    ") or "\n    " in text:
@@ -245,6 +247,29 @@ class StreamBuffer:
             return True
 
         return False
+
+    def _contains_pipe_table_separator(self, text: str) -> bool:
+        """Detect GFM separator rows, including tables without leading pipes."""
+        for line in text.splitlines():
+            stripped = line.strip()
+            if "|" not in stripped:
+                continue
+            cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+            if len(cells) < 2:
+                continue
+            if all(self._is_table_separator_cell(cell) for cell in cells):
+                return True
+        return False
+
+    def _is_table_separator_cell(self, cell: str) -> bool:
+        """Return True when cell is a GFM separator token like ':---:'."""
+        if not cell:
+            return False
+        if cell.startswith(":"):
+            cell = cell[1:]
+        if cell.endswith(":"):
+            cell = cell[:-1]
+        return len(cell) >= 3 and all(ch == "-" for ch in cell)
 
     def _line_start_offsets(self, lines: list[str]) -> list[int]:
         """Return character offsets for each line start (plus EOF)."""
