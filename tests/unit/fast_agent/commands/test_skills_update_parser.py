@@ -72,6 +72,23 @@ def test_format_update_results_shows_short_revision_and_installed_time() -> None
     assert "status: update available" in rendered
 
 
+def test_format_update_results_uses_markdown_safe_detail_prefix() -> None:
+    updates = [
+        SkillUpdateInfo(
+            index=1,
+            name="demo",
+            skill_dir=Path("/tmp/demo"),
+            status="up_to_date",
+        )
+    ]
+
+    rendered = _format_update_results(updates, title="Skill update check:").plain
+
+    assert "  - source: /tmp/demo" in rendered
+    assert "  - provenance:" in rendered
+    assert "\n     source:" not in rendered
+
+
 def test_format_update_results_shows_error_status_text() -> None:
     updates = [
         SkillUpdateInfo(

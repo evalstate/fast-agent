@@ -84,7 +84,7 @@ class TestOpenTelemetryCompatibility:
 
             # Mock _process_stream to return the final message
             with patch.object(llm, "_process_stream", new_callable=AsyncMock) as mock_process:
-                mock_process.return_value = (final_message, [])
+                mock_process.return_value = (final_message, [], [])
 
                 from mcp.types import TextContent
 
@@ -147,7 +147,7 @@ class TestOpenTelemetryCompatibility:
 
             # Mock the _process_stream method
             with patch.object(llm, "_process_stream", new_callable=AsyncMock) as mock_process:
-                mock_process.return_value = (final_message, [])
+                mock_process.return_value = (final_message, [], [])
 
                 result = await llm._anthropic_completion(
                     message_param,

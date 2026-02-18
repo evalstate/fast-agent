@@ -157,3 +157,53 @@ async def test_timeout_sends_ctrl_break_for_pwsh(monkeypatch: pytest.MonkeyPatch
     assert result.content[0].type == "text"
     assert isinstance(result.content[0], TextContent)
     assert "(timeout after 0s" in result.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_execute_no_output_shows_compact_exit_banner_detail() -> None:
+    """No-output commands should include compact '(no output)' + id detail."""
+    logger = logging.getLogger("shell-runtime-test")
+    runtime = ShellRuntime(activation_reason="test", logger=logger, timeout_seconds=10)
+
+    if platform.system() == "Windows":
+        command = "exit 0"
+    else:
+        command = "true"
+
+    with console.console.capture() as capture:
+        result = await runtime.execute(
+            {"command": command},
+            tool_use_id="call_abcdef0123456789",
+            show_tool_call_id=True,
+        )
+
+    assert result.isError is False
+    rendered = capture.get()
+    assert "exit code 0" in rendered
+    assert "(no output)" in rendered
+    assert "id: call_" in rendered
+
+
+@pytest.mark.asyncio
+async def test_execute_deferred_display_suppresses_live_console_output() -> None:
+    """When display is deferred, shell runtime should not stream output directly."""
+    logger = logging.getLogger("shell-runtime-test")
+    runtime = ShellRuntime(activation_reason="test", logger=logger, timeout_seconds=10)
+
+    with console.console.capture() as capture:
+        result = await runtime.execute(
+            {"command": "echo hello"},
+            tool_use_id="call_abcdef0123456789",
+            show_tool_call_id=True,
+            defer_display_to_tool_result=True,
+        )
+
+    assert result.isError is False
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    assert "hello" in result.content[0].text
+    assert "process exit code was 0" in result.content[0].text
+    assert getattr(result, "_suppress_display", True) is False
+    rendered = capture.get()
+    assert "hello" not in rendered
+    assert "exit code" not in rendered

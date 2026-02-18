@@ -3,20 +3,24 @@
 from __future__ import annotations
 
 import math
-import re
 import shlex
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Awaitable, Callable, Protocol
-from urllib.parse import urlparse
 
 from rich.text import Text
 
-from fast_agent.cli.commands.url_parser import parse_server_urls
 from fast_agent.commands.results import CommandOutcome
-from fast_agent.config import MCPServerSettings
+from fast_agent.mcp.connect_targets import (
+    build_server_config_from_target,
+    infer_server_name,
+)
+from fast_agent.mcp.connect_targets import (
+    infer_connect_mode as infer_connect_mode_shared,
+)
 from fast_agent.mcp.mcp_aggregator import MCPAttachOptions
 
 if TYPE_CHECKING:
+    from fast_agent.config import MCPServerSettings
     from fast_agent.mcp.oauth_client import OAuthEvent
 
 
@@ -48,45 +52,12 @@ class ParsedMcpConnectInput:
 
 
 def infer_connect_mode(target_text: str) -> str:
-    stripped = target_text.strip()
-    if stripped.startswith(("http://", "https://")):
-        return "url"
-    if stripped.startswith("@"):
-        return "npx"
-    if stripped.startswith("npx "):
-        return "npx"
-    if stripped.startswith("uvx "):
-        return "uvx"
-    return "stdio"
-
-
-def _slugify_server_name(value: str) -> str:
-    normalized = re.sub(r"[^a-zA-Z0-9_-]+", "-", value).strip("-").lower()
-    return normalized or "mcp-server"
+    return infer_connect_mode_shared(target_text)
 
 
 def _infer_server_name(target_text: str, mode: str) -> str:
-    tokens = shlex.split(target_text)
-    if mode == "url":
-        parsed = urlparse(target_text)
-        if parsed.hostname:
-            return _slugify_server_name(parsed.hostname)
-    if mode in {"npx", "uvx"} and tokens:
-        if tokens[0].startswith("@"):
-            package = tokens[0]
-        elif len(tokens) >= 2:
-            package = tokens[1]
-        else:
-            package = tokens[0]
-        if package.startswith("@"):
-            package = package.rsplit("@", 1)[0] if package.count("@") > 1 else package
-        else:
-            package = package.split("@", 1)[0]
-        package = package.rsplit("/", 1)[-1]
-        return _slugify_server_name(package)
-    if tokens:
-        return _slugify_server_name(tokens[0].rsplit("/", 1)[-1])
-    return "mcp-server"
+    """Backward-compatible private wrapper used by interactive UI code."""
+    return infer_server_name(target_text, mode)
 
 
 def _rebuild_target_text(tokens: list[str]) -> str:
@@ -172,37 +143,10 @@ def _build_server_config(
     *,
     auth_token: str | None = None,
 ) -> tuple[str, MCPServerSettings]:
-    mode = infer_connect_mode(target_text)
-    if mode == "url":
-        parsed_urls = parse_server_urls(target_text, auth_token=auth_token)
-        if not parsed_urls:
-            raise ValueError("Connection target is required")
-        parsed_name, transport, parsed_url, headers = parsed_urls[0]
-        final_name = server_name or parsed_name
-        return final_name, MCPServerSettings(
-            name=final_name,
-            transport=transport,
-            url=parsed_url,
-            headers=headers,
-        )
-
-    tokens = shlex.split(target_text)
-    if not tokens:
-        raise ValueError("Connection target is required")
-
-    if mode == "npx" and tokens[0].startswith("@"):
-        return server_name, MCPServerSettings(
-            name=server_name,
-            transport="stdio",
-            command="npx",
-            args=tokens,
-        )
-
-    return server_name, MCPServerSettings(
-        name=server_name,
-        transport="stdio",
-        command=tokens[0],
-        args=tokens[1:],
+    return build_server_config_from_target(
+        target_text,
+        server_name=server_name,
+        auth_token=auth_token,
     )
 
 
@@ -258,6 +202,28 @@ def _format_added_summary(tools_added_count: int, prompts_added_count: int) -> T
     summary.append(f" {tool_word} and ", style="dim")
     summary.append(str(prompts_added_count), style="bold bright_cyan")
     summary.append(f" {prompt_word}.", style="dim")
+    return summary
+
+
+def _format_refreshed_summary(
+    *,
+    tools_refreshed_count: int,
+    prompts_refreshed_count: int,
+    tools_added_count: int,
+    prompts_added_count: int,
+) -> Text:
+    tool_word = "tool" if tools_refreshed_count == 1 else "tools"
+    prompt_word = "prompt" if prompts_refreshed_count == 1 else "prompts"
+    new_count = tools_added_count + prompts_added_count
+
+    summary = Text()
+    summary.append("Refreshed ", style="dim")
+    summary.append(str(tools_refreshed_count), style="bold bright_cyan")
+    summary.append(f" {tool_word} and ", style="dim")
+    summary.append(str(prompts_refreshed_count), style="bold bright_cyan")
+    summary.append(f" {prompt_word} (", style="dim")
+    summary.append(str(new_count), style="bold bright_cyan")
+    summary.append(" new).", style="dim")
     return summary
 
 
@@ -373,7 +339,7 @@ async def handle_mcp_connect(
     )
 
     mode = "configured" if configured_alias is not None else infer_connect_mode(parsed.target_text)
-    server_name = configured_alias or parsed.server_name or _infer_server_name(parsed.target_text, mode)
+    server_name = configured_alias or parsed.server_name or infer_server_name(parsed.target_text, mode)
     await emit_progress(f"Connecting MCP server '{server_name}' via {mode}…")
 
     trigger_oauth = True if parsed.trigger_oauth is None else parsed.trigger_oauth
@@ -447,8 +413,23 @@ async def handle_mcp_connect(
 
     tools_added = getattr(result, "tools_added", [])
     prompts_added = getattr(result, "prompts_added", [])
+    tools_total = getattr(result, "tools_total", None)
+    prompts_total = getattr(result, "prompts_total", None)
     warnings = getattr(result, "warnings", [])
     already_attached = bool(getattr(result, "already_attached", False))
+
+    tools_added_count = len(tools_added)
+    prompts_added_count = len(prompts_added)
+    tools_refreshed_count = (
+        tools_total
+        if isinstance(tools_total, int) and tools_total >= 0
+        else tools_added_count
+    )
+    prompts_refreshed_count = (
+        prompts_total
+        if isinstance(prompts_total, int) and prompts_total >= 0
+        else prompts_added_count
+    )
 
     if already_attached and not parsed.force_reconnect:
         outcome.add_message(
@@ -468,14 +449,26 @@ async def handle_mcp_connect(
             right_info="mcp",
             agent_name=agent_name,
         )
-        outcome.add_message(
-            _format_added_summary(
-                tools_added_count=len(tools_added),
-                prompts_added_count=len(prompts_added),
-            ),
-            right_info="mcp",
-            agent_name=agent_name,
-        )
+        if action == "Reconnected":
+            outcome.add_message(
+                _format_refreshed_summary(
+                    tools_refreshed_count=tools_refreshed_count,
+                    prompts_refreshed_count=prompts_refreshed_count,
+                    tools_added_count=tools_added_count,
+                    prompts_added_count=prompts_added_count,
+                ),
+                right_info="mcp",
+                agent_name=agent_name,
+            )
+        else:
+            outcome.add_message(
+                _format_added_summary(
+                    tools_added_count=tools_added_count,
+                    prompts_added_count=prompts_added_count,
+                ),
+                right_info="mcp",
+                agent_name=agent_name,
+            )
         await emit_progress(f"{action} MCP server '{server_name}'.")
     for warning in warnings:
         outcome.add_message(warning, channel="warning", right_info="mcp", agent_name=agent_name)

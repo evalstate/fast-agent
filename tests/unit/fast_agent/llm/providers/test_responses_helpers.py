@@ -49,6 +49,7 @@ class _StreamingHarness(ResponsesStreamingMixin):
 
 class _OutputHarness(ResponsesOutputMixin):
     def __init__(self) -> None:
+        self.logger = get_logger("test.responses.output")
         self._tool_call_id_map = {}
 
     def _finalize_turn_usage(self, usage) -> None:  # pragma: no cover
@@ -203,3 +204,56 @@ def test_responses_tool_use_id_falls_back_to_item_id_when_call_id_missing():
     assert tool_calls is not None
     assert list(tool_calls.keys()) == ["fc_456"]
     assert harness._tool_call_id_map["fc_456"] == "call_456"
+
+
+def test_responses_filters_duplicate_tool_calls_across_turns():
+    harness = _OutputHarness()
+
+    first_response = SimpleNamespace(
+        output=[
+            SimpleNamespace(
+                type="function_call",
+                id="fc_123",
+                call_id="call_123",
+                name="weather",
+                arguments="{}",
+            )
+        ]
+    )
+    second_response = SimpleNamespace(
+        output=[
+            SimpleNamespace(
+                type="function_call",
+                id="fc_123",
+                call_id="call_123",
+                name="weather",
+                arguments="{}",
+            ),
+            SimpleNamespace(
+                type="function_call",
+                id="fc_456",
+                call_id="call_456",
+                name="stocks",
+                arguments="{}",
+            ),
+        ]
+    )
+
+    first_tool_calls = harness._extract_tool_calls(first_response)
+    assert first_tool_calls is not None
+    assert list(first_tool_calls.keys()) == ["call_123"]
+    assert harness._consume_tool_call_diagnostics() is None
+
+    second_tool_calls = harness._extract_tool_calls(second_response)
+    assert second_tool_calls is not None
+    assert list(second_tool_calls.keys()) == ["call_456"]
+
+    diagnostics = harness._consume_tool_call_diagnostics()
+    assert diagnostics is not None
+    assert diagnostics["kind"] == "duplicate_tool_calls_filtered"
+    assert diagnostics["duplicate_count"] == 1
+    assert diagnostics["duplicate_tool_call_ids"] == ["call_123"]
+    assert diagnostics["raw_function_call_count"] == 2
+    assert diagnostics["new_function_call_count"] == 1
+
+    assert harness._consume_tool_call_diagnostics() is None

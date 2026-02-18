@@ -270,6 +270,7 @@ def _format_update_results(updates: Sequence[SkillUpdateInfo], *, title: str) ->
         "source_path_missing",
         "skipped_dirty",
     }
+    detail_prefix = "  - "
 
     for update in updates:
         row = Text()
@@ -283,7 +284,7 @@ def _format_update_results(updates: Sequence[SkillUpdateInfo], *, title: str) ->
             source_display = source_path.relative_to(Path.cwd())
         except ValueError:
             source_display = source_path
-        content.append("     ", style="dim")
+        content.append(detail_prefix, style="dim")
         content.append(f"source: {source_display}", style="dim green")
         content.append("\n")
 
@@ -298,18 +299,18 @@ def _format_update_results(updates: Sequence[SkillUpdateInfo], *, title: str) ->
         else:
             provenance_text, installed_text = format_skill_provenance_details(update.skill_dir)
 
-        content.append("     ", style="dim")
+        content.append(detail_prefix, style="dim")
         content.append(f"provenance: {provenance_text}", style="dim")
         content.append("\n")
         if installed_text:
-            content.append("     ", style="dim")
+            content.append(detail_prefix, style="dim")
             content.append(f"installed: {installed_text}", style="dim")
             content.append("\n")
 
         if update.current_revision or update.available_revision:
             installed_revision = format_revision_short(update.current_revision)
             current_revision = format_revision_short(update.available_revision)
-            content.append("     ", style="dim")
+            content.append(detail_prefix, style="dim")
             content.append(f"revision: {installed_revision} -> {current_revision}", style="dim")
             content.append("\n")
 
@@ -326,7 +327,7 @@ def _format_update_results(updates: Sequence[SkillUpdateInfo], *, title: str) ->
             elif update.status not in {"unmanaged"}:
                 status_style = "yellow"
 
-            content.append("     ", style="dim")
+            content.append(detail_prefix, style="dim")
             content.append("status: ", style="dim")
             if status_style is None:
                 content.append(status_text)

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Iterable
 import frontmatter
 import yaml
 
-from fast_agent.agents.agent_types import AgentConfig, AgentType
+from fast_agent.agents.agent_types import AgentConfig, AgentType, MCPConnectTarget
 from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION, SMART_AGENT_INSTRUCTION
 from fast_agent.core.direct_decorators import _resolve_instruction
 from fast_agent.core.exceptions import AgentConfigError
@@ -41,6 +41,7 @@ _AGENT_FIELDS = {
     "tools",
     "resources",
     "prompts",
+    "mcp_connect",
     "skills",
     "model",
     "use_history",
@@ -463,6 +464,7 @@ def _build_agent_data(
     path: Path,
 ) -> AgentCardData:
     servers = _ensure_str_list(raw.get("servers", []), "servers", path)
+    mcp_connect = _ensure_mcp_connect_entries(raw.get("mcp_connect"), path)
     tools = _ensure_filter_map(raw.get("tools", {}), "tools", path)
     resources = _ensure_filter_map(raw.get("resources", {}), "resources", path)
     prompts = _ensure_filter_map(raw.get("prompts", {}), "prompts", path)
@@ -550,6 +552,7 @@ def _build_agent_data(
         tool_hooks=tool_hooks,
         lifecycle_hooks=lifecycle_hooks,
         trim_tool_history=trim_tool_history,
+        mcp_connect=mcp_connect,
         source_path=path,
     )
 
@@ -695,6 +698,49 @@ def _ensure_filter_map(value: Any, field: str, path: Path) -> dict[str, list[str
                 raise AgentConfigError(f"'{field}' values must be strings in {path}")
         result[key] = entry
     return result
+
+
+def _ensure_mcp_connect_entries(value: Any, path: Path) -> list[MCPConnectTarget]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise AgentConfigError(f"'mcp_connect' must be a list in {path}")
+
+    entries: list[MCPConnectTarget] = []
+    for idx, raw_entry in enumerate(value):
+        if not isinstance(raw_entry, dict):
+            raise AgentConfigError(
+                f"'mcp_connect[{idx}]' must be a mapping in {path}",
+            )
+
+        unknown_keys = set(raw_entry.keys()) - {"target", "name"}
+        if unknown_keys:
+            unknown_text = ", ".join(sorted(str(key) for key in unknown_keys))
+            raise AgentConfigError(
+                f"'mcp_connect[{idx}]' has unsupported keys in {path}",
+                f"Unknown keys: {unknown_text}",
+            )
+
+        target_raw = raw_entry.get("target")
+        if not isinstance(target_raw, str) or not target_raw.strip():
+            raise AgentConfigError(
+                f"'mcp_connect[{idx}].target' must be a non-empty string in {path}"
+            )
+
+        name_raw = raw_entry.get("name")
+        if name_raw is not None and (not isinstance(name_raw, str) or not name_raw.strip()):
+            raise AgentConfigError(
+                f"'mcp_connect[{idx}].name' must be a non-empty string in {path}"
+            )
+
+        entries.append(
+            MCPConnectTarget(
+                target=target_raw.strip(),
+                name=name_raw.strip() if isinstance(name_raw, str) else None,
+            )
+        )
+
+    return entries
 
 
 def _ensure_request_params(value: Any, path: Path) -> RequestParams | None:
@@ -868,6 +914,12 @@ def _build_card_dump(
 
     if config.servers and "servers" in allowed_fields:
         card["servers"] = list(config.servers)
+
+    if config.mcp_connect and "mcp_connect" in allowed_fields:
+        card["mcp_connect"] = [
+            {"target": entry.target, **({"name": entry.name} if entry.name else {})}
+            for entry in config.mcp_connect
+        ]
 
     if config.tools and "tools" in allowed_fields:
         card["tools"] = config.tools

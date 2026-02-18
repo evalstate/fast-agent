@@ -1,4 +1,5 @@
 import asyncio
+import json
 from typing import Any, Literal
 
 from mcp import Tool
@@ -25,12 +26,14 @@ from fast_agent.llm.provider.openai.responses_streaming import ResponsesStreamin
 from fast_agent.llm.provider.openai.responses_websocket import (
     ManagedWebSocketConnection,
     ResponsesWebSocketError,
+    ResponsesWsRequestPlanner,
+    StatelessResponsesWsPlanner,
     WebSocketConnectionManager,
     WebSocketResponsesStream,
     build_ws_headers,
     connect_websocket,
     resolve_responses_ws_url,
-    send_response_create,
+    send_response_request,
 )
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import format_reasoning_setting, parse_reasoning_setting
@@ -45,6 +48,7 @@ DEFAULT_RESPONSES_MODEL = "gpt-5-mini"
 DEFAULT_REASONING_EFFORT = "medium"
 MIN_RESPONSES_MAX_TOKENS = 16
 DEFAULT_RESPONSES_BASE_URL = "https://api.openai.com/v1"
+RESPONSES_DIAGNOSTICS_CHANNEL = "fast-agent-provider-diagnostics"
 
 ResponsesTransport = Literal["sse", "websocket", "auto"]
 
@@ -79,6 +83,9 @@ class ResponsesLLM(
         super().__init__(provider=provider, **kwargs)
         self.logger = get_logger(f"{__name__}.{self.name}" if self.name else __name__)
         self._tool_call_id_map: dict[str, str] = {}
+        self._seen_tool_call_ids: set[str] = set()
+        self._tool_call_diagnostics: dict[str, Any] | None = None
+        self._last_ws_request_type: str | None = None
         self._file_id_cache: dict[str, str] = {}
         self._transport: ResponsesTransport = "sse"
         self._last_transport_used: Literal["sse", "websocket"] | None = None
@@ -210,6 +217,9 @@ class ResponsesLLM(
         timeout_seconds: float | None,
     ) -> ManagedWebSocketConnection:
         return await connect_websocket(url=url, headers=headers, timeout_seconds=timeout_seconds)
+
+    def _new_ws_request_planner(self) -> ResponsesWsRequestPlanner:
+        return StatelessResponsesWsPlanner()
 
     def _websocket_retry_diagnostics(
         self,
@@ -407,6 +417,7 @@ class ResponsesLLM(
             display_model = f"{model_name} [ws]"
 
         self._log_chat_progress(self.chat_turn(), model=display_model)
+        self._last_ws_request_type = None
 
         try:
             if transport == "sse":
@@ -476,6 +487,17 @@ class ResponsesLLM(
                 channels[OPENAI_REASONING_ENCRYPTED] = encrypted_blocks
 
         tool_calls = self._extract_tool_calls(response)
+        tool_call_diagnostics = self._consume_tool_call_diagnostics()
+        if tool_call_diagnostics:
+            diagnostics_payload = dict(tool_call_diagnostics)
+            diagnostics_payload["transport"] = self._last_transport_used or "unknown"
+            if self._last_transport_used == "websocket" and self._last_ws_request_type:
+                diagnostics_payload["websocket_request_type"] = self._last_ws_request_type
+            if channels is None:
+                channels = {}
+            channels[RESPONSES_DIAGNOSTICS_CHANNEL] = [
+                TextContent(type="text", text=json.dumps(diagnostics_payload))
+            ]
         if tool_calls:
             stop_reason = LlmStopReason.TOOL_USE
         else:
@@ -586,6 +608,10 @@ class ResponsesLLM(
         for attempt in range(2):
             connection, is_reusable = await self._ws_connections.acquire(_create_connection)
             reused_existing_connection = is_reusable and connection.last_used_monotonic > 0.0
+            planner = connection.session_state.request_planner
+            if planner is None:
+                planner = self._new_ws_request_planner()
+                connection.session_state.request_planner = planner
             keep_connection = False
             stream: WebSocketResponsesStream | None = None
             retry_after_release = False
@@ -596,7 +622,9 @@ class ResponsesLLM(
                     "Using Responses websocket transport",
                     data={"model": model_name, "url": ws_url},
                 )
-                await send_response_create(connection.websocket, arguments)
+                planned_request = planner.plan(arguments)
+                self._last_ws_request_type = planned_request.event_type
+                await send_response_request(connection.websocket, planned_request)
                 stream = WebSocketResponsesStream(connection.websocket)
                 if timeout is None:
                     response, streamed_summary = await self._process_stream(
@@ -620,6 +648,7 @@ class ResponsesLLM(
                             "Streaming did not complete within "
                             f"{timeout} seconds."
                         ) from exc
+                planner.commit(arguments, planned_request)
                 keep_connection = True
                 if reconnected:
                     try:
@@ -643,6 +672,7 @@ class ResponsesLLM(
                         pass
                 return response, streamed_summary, normalized_input
             except ResponsesWebSocketError as error:
+                planner.rollback(error, stream_started=error.stream_started)
                 last_error = error
                 retry_after_release = (
                     attempt == 0
@@ -653,10 +683,15 @@ class ResponsesLLM(
                     reconnect_diagnostics = self._websocket_retry_diagnostics(connection, error)
                 if not retry_after_release:
                     raise
-            except TimeoutError:
+            except TimeoutError as error:
+                planner.rollback(
+                    error,
+                    stream_started=stream.stream_started if stream is not None else False,
+                )
                 raise
             except Exception as exc:
                 stream_started = stream.stream_started if stream is not None else False
+                planner.rollback(exc, stream_started=stream_started)
                 wrapped_error = ResponsesWebSocketError(
                     str(exc),
                     stream_started=stream_started,
@@ -675,6 +710,9 @@ class ResponsesLLM(
                 if not retry_after_release:
                     raise wrapped_error from exc
             finally:
+                if not (is_reusable and keep_connection):
+                    planner.reset()
+                    connection.session_state.request_planner = None
                 await self._ws_connections.release(
                     connection,
                     reusable=is_reusable,
@@ -711,3 +749,10 @@ class ResponsesLLM(
             model_name = self.default_request_params.model or DEFAULT_RESPONSES_MODEL
             return build_stream_failure_response(self.provider, error, model_name)
         return None
+
+    def clear(self, *, clear_prompts: bool = False) -> None:
+        super().clear(clear_prompts=clear_prompts)
+        self._tool_call_id_map.clear()
+        self._seen_tool_call_ids.clear()
+        self._tool_call_diagnostics = None
+        self._last_ws_request_type = None

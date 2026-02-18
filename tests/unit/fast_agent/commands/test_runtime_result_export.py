@@ -5,15 +5,18 @@ from pathlib import Path
 
 import pytest
 import typer
+from mcp.types import TextContent
 
 from fast_agent.cli.runtime.agent_setup import (
     _build_fan_out_result_paths,
     _build_result_file_with_suffix,
     _export_result_histories,
+    _find_last_assistant_text,
     _run_single_agent_cli_flow,
     _sanitize_result_suffix,
 )
 from fast_agent.cli.runtime.run_request import AgentRunRequest
+from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 
 class _DummyAgent:
@@ -66,6 +69,7 @@ def _make_request(
         skills_directory=None,
         environment_dir=None,
         noenv=False,
+        force_smart=False,
         shell_runtime=False,
         mode="interactive",
         transport="http",
@@ -99,6 +103,29 @@ def test_build_fan_out_result_paths_disambiguates_collisions() -> None:
         "foo-alpha_beta-2.json",
         "foo-alpha_beta-3.json",
     ]
+
+
+def test_find_last_assistant_text_prefers_latest_assistant_message() -> None:
+    history = [
+        PromptMessageExtended(role="user", content=[TextContent(type="text", text="hello")]),
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="first")],
+        ),
+        PromptMessageExtended(role="user", content=[TextContent(type="text", text="again")]),
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="second")],
+        ),
+    ]
+
+    assert _find_last_assistant_text(history) == "second"
+
+
+def test_find_last_assistant_text_returns_none_without_assistant_messages() -> None:
+    history = [PromptMessageExtended(role="user", content=[TextContent(type="text", text="hello")])]
+
+    assert _find_last_assistant_text(history) is None
 
 
 @pytest.mark.asyncio

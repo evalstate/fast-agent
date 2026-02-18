@@ -11,6 +11,15 @@ class CommonAgentOptions:
         return typer.Option(None, "--config-path", "-c", help="Path to config file")
 
     @staticmethod
+    def instruction():
+        return typer.Option(
+            None,
+            "--instruction",
+            "-i",
+            help="Path to file or URL containing instruction for the agent",
+        )
+
+    @staticmethod
     def servers():
         return typer.Option(None, "--servers", help="Comma-separated list of server names to enable from config")
 
@@ -83,6 +92,14 @@ class CommonAgentOptions:
     @staticmethod
     def shell():
         return typer.Option(False, "--shell", "-x", help="Enable a local shell runtime and expose the execute tool (bash or pwsh).")
+
+    @staticmethod
+    def smart():
+        return typer.Option(
+            False,
+            "--smart",
+            help="Prefer a smart default agent when fast-agent creates the default agent.",
+        )
 
     @staticmethod
     def reload():

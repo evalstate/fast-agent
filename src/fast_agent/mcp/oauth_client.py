@@ -28,6 +28,7 @@ from mcp.shared.auth import (
 )
 from pydantic import AnyUrl
 
+from fast_agent.core.keyring_utils import maybe_print_keyring_access_notice
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.ui import console
 
@@ -363,6 +364,7 @@ def compute_server_identity(server_config: MCPServerSettings) -> str:
 def keyring_has_token(server_config: MCPServerSettings) -> bool:
     """Check if keyring has a token stored for this server."""
     try:
+        maybe_print_keyring_access_notice(purpose="checking stored MCP OAuth tokens")
         import keyring
 
         identity = compute_server_identity(server_config)
@@ -492,6 +494,7 @@ class KeyringTokenStorage(TokenStorage):
 
     async def get_tokens(self) -> OAuthToken | None:
         try:
+            maybe_print_keyring_access_notice(purpose="loading MCP OAuth tokens")
             import keyring
 
             payload = keyring.get_password(self._service, self._token_key)
@@ -503,6 +506,7 @@ class KeyringTokenStorage(TokenStorage):
 
     async def set_tokens(self, tokens: OAuthToken) -> None:
         try:
+            maybe_print_keyring_access_notice(purpose="saving MCP OAuth tokens")
             import keyring
 
             keyring.set_password(self._service, self._token_key, tokens.model_dump_json())
@@ -513,6 +517,7 @@ class KeyringTokenStorage(TokenStorage):
 
     async def get_client_info(self) -> OAuthClientInformationFull | None:
         try:
+            maybe_print_keyring_access_notice(purpose="loading MCP OAuth client info")
             import keyring
 
             payload = keyring.get_password(self._service, self._client_key)
@@ -524,6 +529,7 @@ class KeyringTokenStorage(TokenStorage):
 
     async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
         try:
+            maybe_print_keyring_access_notice(purpose="saving MCP OAuth client info")
             import keyring
 
             keyring.set_password(self._service, self._client_key, client_info.model_dump_json())
@@ -542,6 +548,7 @@ def _read_index(service: str) -> set[str]:
     try:
         import json
 
+        maybe_print_keyring_access_notice(purpose="reading MCP OAuth token index")
         import keyring
 
         raw = keyring.get_password(service, _index_username())
@@ -559,6 +566,7 @@ def _write_index(service: str, identities: set[str]) -> None:
     try:
         import json
 
+        maybe_print_keyring_access_notice(purpose="updating MCP OAuth token index")
         import keyring
 
         payload = json.dumps(sorted(list(identities)))
@@ -587,6 +595,7 @@ def list_keyring_tokens(service: str = "fast-agent-mcp") -> list[str]:
     Returns only identities that currently have a corresponding token entry.
     """
     try:
+        maybe_print_keyring_access_notice(purpose="listing stored MCP OAuth tokens")
         import keyring
 
         identities = _read_index(service)
@@ -607,6 +616,7 @@ def clear_keyring_token(identity: str, service: str = "fast-agent-mcp") -> bool:
     """
     removed = False
     try:
+        maybe_print_keyring_access_notice(purpose="clearing stored MCP OAuth tokens")
         import keyring
 
         tok_key = f"oauth:tokens:{identity}"

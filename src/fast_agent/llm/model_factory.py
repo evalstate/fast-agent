@@ -33,6 +33,8 @@ class ModelConfig(BaseModel):
     structured_output_mode: StructuredOutputMode | None = None
     long_context: bool = False
     transport: Literal["sse", "websocket", "auto"] | None = None
+    web_search: bool | None = None
+    web_fetch: bool | None = None
 
 
 class ModelFactory:
@@ -87,6 +89,7 @@ class ModelFactory:
         "claude-sonnet-4-0": Provider.ANTHROPIC,
         "claude-sonnet-4-5-20250929": Provider.ANTHROPIC,
         "claude-sonnet-4-5": Provider.ANTHROPIC,
+        "claude-sonnet-4-6": Provider.ANTHROPIC,
         "claude-haiku-4-5": Provider.ANTHROPIC,
         "deepseek-chat": Provider.DEEPSEEK,
         "gemini-2.0-flash": Provider.GOOGLE,
@@ -116,9 +119,10 @@ class ModelFactory:
         "codexplan": "codexresponses.gpt-5.3-codex",
         "codexplan52": "codexresponses.gpt-5.2-codex",
         "codexspark": "codexresponses.gpt-5.3-codex-spark",
-        "sonnet": "claude-sonnet-4-5",
+        "sonnet": "claude-sonnet-4-6",
         "sonnet4": "claude-sonnet-4-0",
         "sonnet45": "claude-sonnet-4-5",
+        "sonnet46": "claude-sonnet-4-6",
         "sonnet35": "claude-3-5-sonnet-latest",
         "sonnet37": "claude-3-7-sonnet-latest",
         "claude": "claude-sonnet-4-5",
@@ -199,6 +203,18 @@ class ModelFactory:
         query_instant: bool | None = None
         query_long_context: bool = False
         query_transport: Literal["sse", "websocket", "auto"] | None = None
+        query_web_search: bool | None = None
+        query_web_fetch: bool | None = None
+
+        def _parse_on_off_query(raw_value: str, query_key: str) -> bool:
+            parsed = parse_reasoning_setting(raw_value)
+            if parsed is not None and parsed.kind == "toggle":
+                return bool(parsed.value)
+            raise ModelConfigError(
+                f"Invalid {query_key} query value: '{raw_value}' in '{model_string}'. "
+                "Use on/off (or true/false, 1/0)."
+            )
+
         if "?" in model_string:
             model_string, _, query = model_string.partition("?")
             query_params = parse_qs(query)
@@ -259,6 +275,14 @@ class ModelFactory:
                         f"Invalid transport query value: '{raw_value}' in '{model_string}'"
                     )
                 query_transport = normalized_transport
+            if "web_search" in query_params:
+                values = query_params.get("web_search") or []
+                raw_value = values[-1] if values else ""
+                query_web_search = _parse_on_off_query(raw_value, "web_search")
+            if "web_fetch" in query_params:
+                values = query_params.get("web_fetch") or []
+                raw_value = values[-1] if values else ""
+                query_web_fetch = _parse_on_off_query(raw_value, "web_fetch")
 
         suffix: str | None = None
         if ":" in model_string:
@@ -377,6 +401,8 @@ class ModelFactory:
             structured_output_mode=query_structured,
             long_context=query_long_context,
             transport=query_transport,
+            web_search=query_web_search,
+            web_fetch=query_web_fetch,
         )
 
     @classmethod
@@ -422,6 +448,10 @@ class ModelFactory:
                 kwargs["long_context"] = True
             if config.transport:
                 kwargs["transport"] = config.transport
+            if config.web_search is not None and config.provider == Provider.ANTHROPIC:
+                kwargs["web_search"] = config.web_search
+            if config.web_fetch is not None and config.provider == Provider.ANTHROPIC:
+                kwargs["web_fetch"] = config.web_fetch
             llm_args = {
                 "model": config.model_name,
                 "request_params": request_params,

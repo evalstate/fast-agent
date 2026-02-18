@@ -112,3 +112,39 @@ def test_scan_agent_cards_allows_acyclic_dependencies(tmp_path: Path) -> None:
 
     for entry in results:
         assert not any("Circular dependency detected" in err for err in entry.errors)
+
+
+def test_scan_agent_cards_reports_invalid_mcp_connect_target(tmp_path: Path) -> None:
+    card_path = tmp_path / "agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: mcp_agent",
+                "mcp_connect:",
+                "  - target: ''",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    results = scan_agent_card_directory(tmp_path)
+    assert len(results) == 1
+    assert any("mcp_connect[0].target" in err for err in results[0].errors)
+
+
+def test_scan_agent_cards_reports_unparseable_mcp_connect_entry(tmp_path: Path) -> None:
+    card_path = tmp_path / "agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: mcp_agent",
+                "mcp_connect:",
+                "  - target: \"npx 'unterminated\"",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    results = scan_agent_card_directory(tmp_path)
+    assert len(results) == 1
+    assert any("Invalid mcp_connect target" in err for err in results[0].errors)
