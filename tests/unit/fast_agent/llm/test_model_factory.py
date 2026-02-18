@@ -265,6 +265,12 @@ def test_opus_aliases_resolve_to_opus_46():
     assert config.provider == Provider.ANTHROPIC
     assert config.model_name == "claude-opus-4-6"
 
+
+def test_claude_alias_resolves_to_sonnet_46():
+    config = ModelFactory.parse_model_string("claude")
+    assert config.provider == Provider.ANTHROPIC
+    assert config.model_name == "claude-sonnet-4-6"
+
     config = ModelFactory.parse_model_string("opus46")
     assert config.provider == Provider.ANTHROPIC
     assert config.model_name == "claude-opus-4-6"

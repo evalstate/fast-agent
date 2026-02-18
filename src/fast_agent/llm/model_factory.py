@@ -125,7 +125,7 @@ class ModelFactory:
         "sonnet46": "claude-sonnet-4-6",
         "sonnet35": "claude-3-5-sonnet-latest",
         "sonnet37": "claude-3-7-sonnet-latest",
-        "claude": "claude-sonnet-4-5",
+        "claude": "claude-sonnet-4-6",
         "haiku": "claude-haiku-4-5",
         "haiku3": "claude-3-haiku-20240307",
         "haiku35": "claude-3-5-haiku-latest",
