@@ -9,7 +9,11 @@ from mcp.types import CallToolRequestParams, TextContent
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.commands.results import CommandMessage, CommandOutcome
-from fast_agent.constants import ANTHROPIC_CITATIONS_CHANNEL, ANTHROPIC_SERVER_TOOLS_CHANNEL
+from fast_agent.constants import (
+    ANTHROPIC_ASSISTANT_RAW_CONTENT,
+    ANTHROPIC_CITATIONS_CHANNEL,
+    ANTHROPIC_SERVER_TOOLS_CHANNEL,
+)
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.core.prompt import Prompt
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -325,6 +329,12 @@ async def test_history_webclear_removes_web_channels(monkeypatch, capsys: Any) -
                         ANTHROPIC_SERVER_TOOLS_CHANNEL: [
                             TextContent(type="text", text='{"type":"server_tool_use"}')
                         ],
+                        ANTHROPIC_ASSISTANT_RAW_CONTENT: [
+                            TextContent(
+                                type="text",
+                                text='{"type":"server_tool_use","name":"web_search","id":"srv_1"}',
+                            )
+                        ],
                         ANTHROPIC_CITATIONS_CHANNEL: [
                             TextContent(
                                 type="text",
@@ -366,7 +376,7 @@ async def test_history_webclear_removes_web_channels(monkeypatch, capsys: Any) -
     )
 
     output = capsys.readouterr().out
-    assert "Removed 2 web metadata block(s)" in output
+    assert "Removed 3 web metadata block(s)" in output
     channels = agent_app._agent("test").message_history[0].channels
     assert channels is None
 

@@ -55,3 +55,47 @@ def test_convert_log_event_uses_tool_use_id_when_call_id_missing() -> None:
     assert progress_event is not None
     assert progress_event.correlation_id == "use-789"
     assert progress_event.tool_event == "stop"
+
+
+def test_convert_log_event_skips_provider_web_tool_progress_events() -> None:
+    event = Event(
+        type="info",
+        namespace="fast_agent.llm.provider.anthropic.llm_anthropic",
+        message="Anthropic server tool started",
+        data={
+            "data": {
+                "progress_action": ProgressAction.CALLING_TOOL,
+                "agent_name": "assistant",
+                "model": "claude-sonnet-4-6",
+                "tool_name": "web_search",
+                "tool_use_id": "srv_123",
+                "tool_event": "start",
+            }
+        },
+    )
+
+    progress_event = convert_log_event(event)
+    assert progress_event is None
+
+
+def test_convert_log_event_keeps_mcp_web_tool_progress_events() -> None:
+    event = Event(
+        type="info",
+        namespace="fast_agent.mcp.mcp_aggregator",
+        message="Requesting tool call",
+        data={
+            "data": {
+                "progress_action": ProgressAction.CALLING_TOOL,
+                "agent_name": "assistant",
+                "tool_name": "web_search",
+                "server_name": "my_tools",
+                "tool_use_id": "call_456",
+                "tool_event": "start",
+            }
+        },
+    )
+
+    progress_event = convert_log_event(event)
+    assert progress_event is not None
+    assert progress_event.tool_name == "web_search"
+    assert progress_event.server_name == "my_tools"

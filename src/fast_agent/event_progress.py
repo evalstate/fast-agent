@@ -38,6 +38,7 @@ class ProgressEvent(BaseModel):
     agent_name: str | None = None
     correlation_id: str | None = None
     instance_name: str | None = None
+    server_name: str | None = None
     tool_name: str | None = None
     tool_event: str | None = None
     streaming_tokens: str | None = None  # Special field for streaming token count

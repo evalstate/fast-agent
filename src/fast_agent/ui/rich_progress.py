@@ -185,6 +185,13 @@ class RichProgressDisplay:
                 task.visible = False
                 break
 
+    @staticmethod
+    def _is_internal_shell_tool(tool_name: str | None, server_name: str | None) -> bool:
+        """Return True when event is for the built-in ACP shell tool."""
+        if not tool_name or not server_name:
+            return False
+        return tool_name.lower() == "execute" and server_name == "acp_terminal"
+
     def update(self, event: ProgressEvent) -> None:
         """Update the progress display with a new event."""
         with self._lock:
@@ -196,6 +203,7 @@ class RichProgressDisplay:
             is_correlated_tool_event = (
                 event.action in {ProgressAction.CALLING_TOOL, ProgressAction.TOOL_PROGRESS}
                 and event.correlation_id is not None
+                and not self._is_internal_shell_tool(event.tool_name, event.server_name)
             )
             if (
                 is_correlated_tool_event

@@ -43,6 +43,17 @@ def convert_log_event(event: Event) -> "ProgressEvent | None":
         # If we cannot coerce, drop this event from progress handling
         return None
 
+    # Provider-managed web tools (e.g., Anthropic/OpenAI built-ins) should not
+    # render progress rows. MCP web tools include server_name and remain visible.
+    tool_name = event_data.get("tool_name")
+    if (
+        action in {ProgressAction.CALLING_TOOL, ProgressAction.TOOL_PROGRESS}
+        and isinstance(tool_name, str)
+        and tool_name in {"web_search", "web_fetch"}
+        and not event_data.get("server_name")
+    ):
+        return None
+
     # Build target string based on the event type.
     # Progress display is currently [time] [event] --- [target] [details]
     namespace = event.namespace
@@ -77,7 +88,6 @@ def convert_log_event(event: Event) -> "ProgressEvent | None":
         if chat_turn is not None:
             details = f"{model} turn {chat_turn}"
 
-        tool_name = event_data.get("tool_name")
         tool_event = event_data.get("tool_event")
         if tool_name:
             tool_suffix = tool_name
@@ -105,6 +115,7 @@ def convert_log_event(event: Event) -> "ProgressEvent | None":
         target=target or "unknown",
         details=details,
         agent_name=event_data.get("agent_name"),
+        server_name=event_data.get("server_name"),
         correlation_id=(
             event_data.get("tool_use_id")
             or event_data.get("tool_call_id")

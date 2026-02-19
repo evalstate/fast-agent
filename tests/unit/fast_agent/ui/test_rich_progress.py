@@ -274,6 +274,61 @@ class TestParallelToolProgress:
 
         display.stop()
 
+    def test_internal_execute_tool_does_not_create_correlated_parallel_rows(self) -> None:
+        display = _make_display()
+        display.start()
+
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                correlation_id="exec-call-1",
+                tool_name="execute",
+                server_name="acp_terminal",
+            )
+        )
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                correlation_id="exec-call-2",
+                tool_name="execute",
+                server_name="acp_terminal",
+            )
+        )
+
+        assert "test-agent" in display._taskmap
+        assert "test-agent::exec-call-1" not in display._taskmap
+        assert "test-agent::exec-call-2" not in display._taskmap
+        assert len(display._taskmap) == 1
+
+        display.stop()
+
+    def test_non_shell_execute_tool_uses_correlated_parallel_rows(self) -> None:
+        display = _make_display()
+        display.start()
+
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                correlation_id="exec-call-1",
+                tool_name="execute",
+                server_name="codex",
+            )
+        )
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                correlation_id="exec-call-2",
+                tool_name="execute",
+                server_name="codex",
+            )
+        )
+
+        assert "test-agent::exec-call-1" in display._taskmap
+        assert "test-agent::exec-call-2" in display._taskmap
+        assert len(display._taskmap) == 2
+
+        display.stop()
+
 
 class TestFinishedEventHandlesNoneElapsed:
     """Issue #8: FINISHED event must handle None elapsed without crashing."""

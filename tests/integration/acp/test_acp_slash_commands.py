@@ -17,6 +17,7 @@ from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.config import get_settings, update_global_settings
 from fast_agent.constants import (
+    ANTHROPIC_ASSISTANT_RAW_CONTENT,
     ANTHROPIC_CITATIONS_CHANNEL,
     ANTHROPIC_SERVER_TOOLS_CHANNEL,
     FAST_AGENT_ERROR_CHANNEL,
@@ -511,6 +512,12 @@ async def test_slash_command_history_webclear() -> None:
                 ANTHROPIC_SERVER_TOOLS_CHANNEL: [
                     TextContent(type="text", text='{"type":"server_tool_use"}')
                 ],
+                ANTHROPIC_ASSISTANT_RAW_CONTENT: [
+                    TextContent(
+                        type="text",
+                        text='{"type":"server_tool_use","name":"web_search","id":"srv_1"}',
+                    )
+                ],
                 ANTHROPIC_CITATIONS_CHANNEL: [
                     TextContent(
                         type="text",
@@ -528,7 +535,7 @@ async def test_slash_command_history_webclear() -> None:
     response = await handler.execute_command("history", "webclear")
 
     assert "history webclear" in response.lower()
-    assert "removed 2 web metadata block(s)" in response.lower()
+    assert "removed 3 web metadata block(s)" in response.lower()
     assert stub_agent.message_history[0].channels is None
 
 
