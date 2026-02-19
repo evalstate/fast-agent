@@ -167,6 +167,24 @@ class RichProgressDisplay:
             ProgressAction.FATAL_ERROR: "black on red",
         }.get(action, "white")
 
+    def _drop_task(self, task_name: str, task_id: TaskID) -> None:
+        """Remove a task from visible progress tracking and internal maps."""
+        self._taskmap.pop(task_name, None)
+
+        remove_task = getattr(self._progress, "remove_task", None)
+        if callable(remove_task):
+            try:
+                remove_task(task_id)
+                return
+            except Exception:
+                # Fall back to hiding when remove_task is unavailable/unsupported.
+                pass
+
+        for task in self._progress.tasks:
+            if task.id == task_id:
+                task.visible = False
+                break
+
     def update(self, event: ProgressEvent) -> None:
         """Update the progress display with a new event."""
         with self._lock:
@@ -175,6 +193,30 @@ class RichProgressDisplay:
                 return
 
             task_name = event.agent_name or "default"
+            is_correlated_tool_event = (
+                event.action in {ProgressAction.CALLING_TOOL, ProgressAction.TOOL_PROGRESS}
+                and event.correlation_id is not None
+            )
+            if (
+                is_correlated_tool_event
+                and event.correlation_id
+            ):
+                task_name = f"{task_name}::{event.correlation_id}"
+
+            should_drop_completed_tool_task = (
+                is_correlated_tool_event
+                and event.action == ProgressAction.TOOL_PROGRESS
+                and event.progress is not None
+                and event.total is not None
+                and event.total > 0
+                and event.progress >= event.total
+            )
+            should_drop_stopped_tool_task = (
+                is_correlated_tool_event
+                and event.action == ProgressAction.CALLING_TOOL
+                and (event.tool_event or "").lower()
+                in {"stop", "stopped", "done", "complete", "completed"}
+            )
 
             # Create new task if needed
             if task_name not in self._taskmap:
@@ -272,5 +314,10 @@ class RichProgressDisplay:
                     details=f" / {event.details}",
                     task_name=task_name,
                 )
+            elif should_drop_completed_tool_task:
+                self._drop_task(task_name, task_id)
+            elif should_drop_stopped_tool_task:
+                self._drop_task(task_name, task_id)
             else:
-                self._progress.reset(task_id)
+                if event.action != ProgressAction.TOOL_PROGRESS:
+                    self._progress.reset(task_id)

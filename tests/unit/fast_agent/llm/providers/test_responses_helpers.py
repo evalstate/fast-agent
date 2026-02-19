@@ -19,6 +19,7 @@ from fast_agent.config import (
 from fast_agent.constants import OPENAI_REASONING_ENCRYPTED
 from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.provider.openai.codex_responses import CodexResponsesLLM
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider.openai.responses_content import ResponsesContentMixin
@@ -84,6 +85,18 @@ class _OutputHarness(ResponsesOutputMixin):
             suffix = tool_use_id[len("call_") :]
             return f"fc_{suffix}", tool_use_id
         return f"fc_{tool_use_id}", f"call_{tool_use_id}"
+
+
+class _LoggerSpy:
+    def __init__(self) -> None:
+        self.info_calls: list[tuple[str, dict[str, Any]]] = []
+        self.warning_calls: list[tuple[str, dict[str, Any]]] = []
+
+    def info(self, message: str, **data: Any) -> None:
+        self.info_calls.append((message, data))
+
+    def warning(self, message: str, **data: Any) -> None:
+        self.warning_calls.append((message, data))
 
 
 class _FakeResponsesStream:
@@ -346,6 +359,52 @@ def test_responses_filters_duplicate_tool_calls_across_turns():
     assert diagnostics["new_function_call_count"] == 1
 
     assert harness._consume_tool_call_diagnostics() is None
+
+
+def test_responses_duplicate_tool_calls_emit_stop_progress_events() -> None:
+    harness = _OutputHarness()
+    logger_spy = _LoggerSpy()
+    harness.logger = logger_spy  # type: ignore[assignment]
+    harness.name = "assistant"  # type: ignore[attr-defined]
+
+    first_response = SimpleNamespace(
+        model="gpt-test",
+        output=[
+            SimpleNamespace(
+                type="function_call",
+                id="fc_123",
+                call_id="call_123",
+                name="execute",
+                arguments="{}",
+            )
+        ],
+    )
+    duplicate_response = SimpleNamespace(
+        model="gpt-test",
+        output=[
+            SimpleNamespace(
+                type="function_call",
+                id="fc_123",
+                call_id="call_123",
+                name="execute",
+                arguments="{}",
+            )
+        ],
+    )
+
+    harness._extract_tool_calls(first_response)
+    harness._extract_tool_calls(duplicate_response)
+
+    stop_events = [
+        data
+        for message, data in logger_spy.info_calls
+        if message == "Filtered duplicate Responses tool call"
+    ]
+    assert len(stop_events) == 1
+    event_data = stop_events[0].get("data", {})
+    assert event_data.get("progress_action") == ProgressAction.CALLING_TOOL
+    assert event_data.get("tool_event") == "stop"
+    assert event_data.get("tool_use_id") == "call_123"
 
 
 def test_build_response_args_includes_openai_web_search_tool() -> None:

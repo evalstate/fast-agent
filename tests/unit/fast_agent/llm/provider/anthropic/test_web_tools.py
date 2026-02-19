@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -8,6 +9,7 @@ import pytest
 from anthropic.types.beta import (
     BetaCitationsWebSearchResultLocation,
     BetaCodeExecutionToolResultBlock,
+    BetaContainer,
     BetaEncryptedCodeExecutionResultBlock,
 )
 from mcp.types import TextContent
@@ -23,6 +25,7 @@ from fast_agent.config import (
 from fast_agent.constants import (
     ANTHROPIC_ASSISTANT_RAW_CONTENT,
     ANTHROPIC_CITATIONS_CHANNEL,
+    ANTHROPIC_CONTAINER_CHANNEL,
     ANTHROPIC_SERVER_TOOLS_CHANNEL,
 )
 from fast_agent.context import Context
@@ -389,6 +392,83 @@ async def test_tool_use_with_thinking_persists_raw_assistant_content_channel() -
     replay_payloads = result.channels.get(ANTHROPIC_ASSISTANT_RAW_CONTENT, [])
     replay_types = [json.loads(block.text).get("type") for block in replay_payloads]
     assert replay_types == ["thinking", "text", "tool_use"]
+
+
+@pytest.mark.asyncio
+async def test_response_container_id_is_persisted_for_followup_requests() -> None:
+    llm = _create_llm(model="claude-opus-4-6")
+
+    final_message = Message(
+        id="msg_container",
+        type="message",
+        role="assistant",
+        content=[TextBlock(type="text", text="done")],
+        model="claude-opus-4-6",
+        stop_reason="end_turn",
+        usage=Usage(input_tokens=10, output_tokens=20),
+        container=BetaContainer(id="cont_123", expires_at=datetime.now(UTC)),
+    )
+
+    with patch("fast_agent.llm.provider.anthropic.llm_anthropic.AsyncAnthropic") as mock_cls:
+        client = MagicMock()
+        client.beta.messages.stream.return_value = _DummyStreamManager()
+        mock_cls.return_value = client
+
+        with patch.object(llm, "_process_stream", new_callable=AsyncMock) as mock_process:
+            mock_process.return_value = (final_message, [], [])
+            result = await llm._anthropic_completion(
+                _user_message_param(),
+                history=[],
+                current_extended=_user_message_extended(),
+            )
+
+    assert result.channels is not None
+    container_blocks = result.channels.get(ANTHROPIC_CONTAINER_CHANNEL, [])
+    assert len(container_blocks) == 1
+    assert json.loads(container_blocks[0].text) == {"id": "cont_123"}
+
+
+@pytest.mark.asyncio
+async def test_request_reuses_container_id_from_history_channel() -> None:
+    llm = _create_llm(model="claude-opus-4-6")
+
+    final_message = Message(
+        id="msg_container_reuse",
+        type="message",
+        role="assistant",
+        content=[TextBlock(type="text", text="done")],
+        model="claude-opus-4-6",
+        stop_reason="end_turn",
+        usage=Usage(input_tokens=10, output_tokens=20),
+    )
+
+    history = [
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="Previous assistant turn")],
+            channels={
+                ANTHROPIC_CONTAINER_CHANNEL: [
+                    TextContent(type="text", text=json.dumps({"id": "cont_history"}))
+                ]
+            },
+        )
+    ]
+
+    with patch("fast_agent.llm.provider.anthropic.llm_anthropic.AsyncAnthropic") as mock_cls:
+        client = MagicMock()
+        client.beta.messages.stream.return_value = _DummyStreamManager()
+        mock_cls.return_value = client
+
+        with patch.object(llm, "_process_stream", new_callable=AsyncMock) as mock_process:
+            mock_process.return_value = (final_message, [], [])
+            await llm._anthropic_completion(
+                _user_message_param(),
+                history=history,
+                current_extended=_user_message_extended(),
+            )
+
+    request_kwargs = client.beta.messages.stream.call_args.kwargs
+    assert request_kwargs.get("container") == "cont_history"
 
 
 def test_convert_message_to_message_param_keeps_code_execution_tool_result() -> None:

@@ -335,18 +335,19 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
                         "tool_use_id": tool_use_id,
                         "index": index,
                     }
-                    self._notify_tool_stream_listeners("stop", payload)
-                    self.logger.info(
-                        "Model finished streaming tool call",
-                        data={
-                            "progress_action": ProgressAction.CALLING_TOOL,
-                            "agent_name": self.name,
-                            "model": model,
-                            "tool_name": tool_name,
-                            "tool_use_id": tool_use_id,
-                            "tool_event": "stop",
-                        },
-                    )
+                    if not tool_info.get("stopped_notified"):
+                        self._notify_tool_stream_listeners("stop", payload)
+                        self.logger.info(
+                            "Model finished streaming tool call",
+                            data={
+                                "progress_action": ProgressAction.CALLING_TOOL,
+                                "agent_name": self.name,
+                                "model": model,
+                                "tool_name": tool_name,
+                                "tool_use_id": tool_use_id,
+                                "tool_event": "stop",
+                            },
+                        )
                     continue
 
                 if event_type:
@@ -371,6 +372,18 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
                                 notified_tool_indices.add(index)
                         if status in _TOOL_STOP_STATUSES:
                             self._notify_tool_stream_listeners("stop", payload)
+                            self.logger.info(
+                                "Model finished streaming tool call",
+                                data={
+                                    "progress_action": ProgressAction.CALLING_TOOL,
+                                    "agent_name": self.name,
+                                    "model": model,
+                                    "tool_name": payload.get("tool_name"),
+                                    "tool_use_id": payload.get("tool_use_id"),
+                                    "tool_event": "stop",
+                                },
+                            )
+                            tool_info["stopped_notified"] = True
                         continue
 
         if final_response is None:

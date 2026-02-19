@@ -176,6 +176,87 @@ class TestToolProgressNoDoubleRender:
 
         display.stop()
 
+
+class TestParallelToolProgress:
+    """Tool progress events with correlation IDs should get distinct rows."""
+
+    def test_parallel_tool_progress_creates_separate_tasks(self) -> None:
+        display = _make_display()
+        display.start()
+
+        display.update(
+            _make_event(
+                action=ProgressAction.TOOL_PROGRESS,
+                progress=1.0,
+                total=3.0,
+                correlation_id="tool-call-1",
+            )
+        )
+        display.update(
+            _make_event(
+                action=ProgressAction.TOOL_PROGRESS,
+                progress=2.0,
+                total=3.0,
+                correlation_id="tool-call-2",
+            )
+        )
+
+        assert "test-agent::tool-call-1" in display._taskmap
+        assert "test-agent::tool-call-2" in display._taskmap
+        assert len(display._taskmap) == 2
+
+        display.stop()
+
+    def test_completed_tool_progress_row_is_removed(self) -> None:
+        display = _make_display()
+        display.start()
+
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                correlation_id="tool-call-1",
+            )
+        )
+        assert "test-agent::tool-call-1" in display._taskmap
+
+        display.update(
+            _make_event(
+                action=ProgressAction.TOOL_PROGRESS,
+                progress=1.0,
+                total=1.0,
+                correlation_id="tool-call-1",
+            )
+        )
+
+        assert "test-agent::tool-call-1" not in display._taskmap
+
+        display.stop()
+
+    def test_calling_tool_stop_event_row_is_removed(self) -> None:
+        display = _make_display()
+        display.start()
+
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                correlation_id="tool-call-2",
+                tool_event="start",
+            )
+        )
+        assert "test-agent::tool-call-2" in display._taskmap
+
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                correlation_id="tool-call-2",
+                tool_event="stop",
+            )
+        )
+
+        assert "test-agent::tool-call-2" not in display._taskmap
+
+        display.stop()
+
     def test_tool_progress_with_total_sets_completed(self) -> None:
         display = _make_display()
         display.start()

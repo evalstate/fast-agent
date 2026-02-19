@@ -281,6 +281,17 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
 
                 if event_type in _TOOL_STOP_EVENT_TYPES:
                     self._notify_tool_stream_listeners("stop", payload)
+                    self.logger.info(
+                        "Model finished streaming tool call",
+                        data={
+                            "progress_action": ProgressAction.CALLING_TOOL,
+                            "agent_name": self.name,
+                            "model": model,
+                            "tool_name": payload.get("tool_name"),
+                            "tool_use_id": payload.get("tool_use_id"),
+                            "tool_event": "stop",
+                        },
+                    )
                     _close_tool(index, tool_use_id if isinstance(tool_use_id, str) else None)
                 continue
 

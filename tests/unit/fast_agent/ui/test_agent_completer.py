@@ -257,6 +257,27 @@ def test_get_completions_for_history_subcommands_includes_webclear_when_web_sear
     assert "webclear" in names
 
 
+def test_get_completions_for_history_subcommands_includes_webclear_when_web_fetch_only_enabled() -> None:
+    class _LlmStub:
+        web_search_enabled = False
+        web_tools_enabled = (False, True)
+
+    class _AgentStub:
+        llm = _LlmStub()
+
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(_AgentStub())),
+    )
+
+    doc = Document("/history ", cursor_position=9)
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert "webclear" in names
+
+
 def test_get_completions_for_session_pin(tmp_path: Path) -> None:
     old_settings = get_settings()
     env_dir = tmp_path / "env"

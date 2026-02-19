@@ -8,6 +8,7 @@ from mcp.types import CallToolRequest, CallToolRequestParams, ContentBlock, Text
 from openai.types.responses import ResponseReasoningItem
 from pydantic_core import from_json
 
+from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.provider.openai.web_tools import (
     extract_url_citation_payload,
     normalize_web_search_call_payload,
@@ -79,8 +80,10 @@ class ResponsesOutputMixin:
     def _extract_tool_calls(self, response: Any) -> dict[str, CallToolRequest] | None:
         tool_calls: dict[str, CallToolRequest] = {}
         duplicate_call_ids: list[str] = []
+        duplicate_call_names: dict[str, str] = {}
         seen_tool_call_ids = self._seen_tool_call_ids_state()
         raw_function_call_count = 0
+        model_name = getattr(response, "model", None)
         for item in getattr(response, "output", []) or []:
             if getattr(item, "type", None) != "function_call":
                 continue
@@ -109,6 +112,8 @@ class ResponsesOutputMixin:
 
             if call_id in seen_tool_call_ids:
                 duplicate_call_ids.append(call_id)
+                if call_id not in duplicate_call_names:
+                    duplicate_call_names[call_id] = name
                 continue
 
             self._tool_call_id_map[tool_use_id] = call_id
@@ -138,6 +143,19 @@ class ResponsesOutputMixin:
                         "new_function_call_count": len(tool_calls),
                     },
                 )
+                agent_name = getattr(self, "name", None)
+                for call_id in duplicate_ids:
+                    logger.info(
+                        "Filtered duplicate Responses tool call",
+                        data={
+                            "progress_action": ProgressAction.CALLING_TOOL,
+                            "agent_name": agent_name,
+                            "model": model_name,
+                            "tool_name": duplicate_call_names.get(call_id, "tool"),
+                            "tool_use_id": call_id,
+                            "tool_event": "stop",
+                        },
+                    )
         else:
             self._tool_call_diagnostics = None
 

@@ -330,6 +330,7 @@ class MCPAggregator(ContextDependent):
         server_name: str,
         tool_name: str,
         tool_call_id: str,
+        tool_use_id: str | None = None,
         request_tool_handler: ToolExecutionHandler | None = None,
     ) -> "ProgressFnT":
         """Create a progress callback function for tool execution."""
@@ -356,6 +357,8 @@ class MCPAggregator(ContextDependent):
                     "tool_name": tool_name,
                     "server_name": server_name,
                     "agent_name": self.agent_name,
+                    "tool_call_id": tool_call_id,
+                    "tool_use_id": tool_use_id,
                     "progress": progress,
                     "total": total,
                     "details": message or "",  # Put the message in details column
@@ -1785,16 +1788,6 @@ class MCPAggregator(ContextDependent):
                 content=[TextContent(type="text", text=f"Permission check failed: {e}")],
             )
 
-        logger.info(
-            "Requesting tool call",
-            data={
-                "progress_action": ProgressAction.CALLING_TOOL,
-                "tool_name": local_tool_name,
-                "server_name": server_name,
-                "agent_name": self.agent_name,
-            },
-        )
-
         # Notify tool handler that execution is starting
         try:
             tool_call_id = await active_tool_handler.on_tool_start(
@@ -1807,6 +1800,18 @@ class MCPAggregator(ContextDependent):
 
             tool_call_id = str(uuid.uuid4())
 
+        logger.info(
+            "Requesting tool call",
+            data={
+                "progress_action": ProgressAction.CALLING_TOOL,
+                "tool_name": local_tool_name,
+                "server_name": server_name,
+                "agent_name": self.agent_name,
+                "tool_call_id": tool_call_id,
+                "tool_use_id": tool_use_id,
+            },
+        )
+
         tracer = trace.get_tracer(__name__)
         with tracer.start_as_current_span(f"MCP Tool: {namespaced_tool_name}"):
             trace.get_current_span().set_attribute("tool_name", local_tool_name)
@@ -1818,6 +1823,7 @@ class MCPAggregator(ContextDependent):
                 server_name,
                 local_tool_name,
                 tool_call_id,
+                tool_use_id,
                 active_tool_handler,
             )
 
@@ -1835,6 +1841,22 @@ class MCPAggregator(ContextDependent):
                         isError=True, content=[TextContent(type="text", text=msg)]
                     ),
                     progress_callback=progress_callback,
+                )
+
+                completion_state = "completed" if not result.isError else "failed"
+                logger.info(
+                    "Tool call completed",
+                    data={
+                        "progress_action": ProgressAction.TOOL_PROGRESS,
+                        "tool_name": local_tool_name,
+                        "server_name": server_name,
+                        "agent_name": self.agent_name,
+                        "tool_call_id": tool_call_id,
+                        "tool_use_id": tool_use_id,
+                        "progress": 1.0,
+                        "total": 1.0,
+                        "details": completion_state,
+                    },
                 )
 
                 # Notify tool handler of completion
@@ -1873,6 +1895,20 @@ class MCPAggregator(ContextDependent):
                 return result
 
             except Exception as e:
+                logger.info(
+                    "Tool call failed",
+                    data={
+                        "progress_action": ProgressAction.TOOL_PROGRESS,
+                        "tool_name": local_tool_name,
+                        "server_name": server_name,
+                        "agent_name": self.agent_name,
+                        "tool_call_id": tool_call_id,
+                        "tool_use_id": tool_use_id,
+                        "progress": 1.0,
+                        "total": 1.0,
+                        "details": f"failed: {e}",
+                    },
+                )
                 # Notify tool handler of error
                 try:
                     await active_tool_handler.on_tool_complete(tool_call_id, False, None, str(e))

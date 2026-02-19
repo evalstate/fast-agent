@@ -64,8 +64,8 @@ def convert_log_event(event: Event) -> "ProgressEvent | None":
         # For TOOL_PROGRESS, use progress message if available, otherwise keep default
         if action == ProgressAction.TOOL_PROGRESS:
             progress_message = event_data.get("details", "")
-            if progress_message:  # Only override if message is non-empty
-                details = progress_message
+            if progress_message:  # Only append if message is non-empty
+                details = f"{details} - {progress_message}" if details else progress_message
 
     # TODO: there must be a better way :D?!
     elif "llm" in namespace:
@@ -105,6 +105,13 @@ def convert_log_event(event: Event) -> "ProgressEvent | None":
         target=target or "unknown",
         details=details,
         agent_name=event_data.get("agent_name"),
+        correlation_id=(
+            event_data.get("tool_use_id")
+            or event_data.get("tool_call_id")
+            or event_data.get("correlation_id")
+        ),
+        tool_name=event_data.get("tool_name"),
+        tool_event=event_data.get("tool_event"),
         streaming_tokens=streaming_tokens,
         progress=progress,
         total=total,
