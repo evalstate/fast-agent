@@ -6,11 +6,12 @@ Tracks both active events (sampling/elicitation) and completed notifications.
 from datetime import datetime
 
 # Display metadata for toolbar summaries (singular, plural, compact label)
-_EVENT_ORDER = ("tool_update", "sampling", "elicitation")
+_EVENT_ORDER = ("tool_update", "sampling", "elicitation", "warning")
 _EVENT_DISPLAY = {
     "tool_update": {"singular": "tool update", "plural": "tool updates", "compact": "tool"},
     "sampling": {"singular": "sample", "plural": "samples", "compact": "samp"},
     "elicitation": {"singular": "elicitation", "plural": "elicitations", "compact": "elic"},
+    "warning": {"singular": "warning", "plural": "warnings", "compact": "warn"},
 }
 
 # Active events currently in progress
@@ -29,6 +30,14 @@ def add_tool_update(server_name: str) -> None:
     notifications.append({
         'type': 'tool_update',
         'server': server_name
+    })
+
+
+def add_warning(message: str) -> None:
+    """Add a deferred warning notification for toolbar/status surfaces."""
+    notifications.append({
+        'type': 'warning',
+        'message': message,
     })
 
 

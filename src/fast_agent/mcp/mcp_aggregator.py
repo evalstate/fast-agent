@@ -33,6 +33,7 @@ from fast_agent.config import MCPServerSettings
 from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.exceptions import ServerSessionTerminatedError
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.core.logging.progress_payloads import build_progress_payload
 from fast_agent.core.model_resolution import HARDCODED_DEFAULT_MODEL, resolve_model_spec
 from fast_agent.event_progress import ProgressAction
 from fast_agent.mcp.common import SEP, create_namespaced_name, is_namespaced_name
@@ -352,17 +353,17 @@ class MCPAggregator(ContextDependent):
 
             logger.info(
                 "Tool progress update",
-                data={
-                    "progress_action": ProgressAction.TOOL_PROGRESS,
-                    "tool_name": tool_name,
-                    "server_name": server_name,
-                    "agent_name": self.agent_name,
-                    "tool_call_id": tool_call_id,
-                    "tool_use_id": tool_use_id,
-                    "progress": progress,
-                    "total": total,
-                    "details": message or "",  # Put the message in details column
-                },
+                data=build_progress_payload(
+                    action=ProgressAction.TOOL_PROGRESS,
+                    tool_name=tool_name,
+                    server_name=server_name,
+                    agent_name=self.agent_name,
+                    tool_call_id=tool_call_id,
+                    tool_use_id=tool_use_id,
+                    progress=progress,
+                    total=total,
+                    details=message or "",  # Put the message in details column
+                ),
             )
 
             # Forward progress to tool handler (e.g., for ACP notifications)
@@ -1802,14 +1803,14 @@ class MCPAggregator(ContextDependent):
 
         logger.info(
             "Requesting tool call",
-            data={
-                "progress_action": ProgressAction.CALLING_TOOL,
-                "tool_name": local_tool_name,
-                "server_name": server_name,
-                "agent_name": self.agent_name,
-                "tool_call_id": tool_call_id,
-                "tool_use_id": tool_use_id,
-            },
+            data=build_progress_payload(
+                action=ProgressAction.CALLING_TOOL,
+                tool_name=local_tool_name,
+                server_name=server_name,
+                agent_name=self.agent_name,
+                tool_call_id=tool_call_id,
+                tool_use_id=tool_use_id,
+            ),
         )
 
         tracer = trace.get_tracer(__name__)
@@ -1846,17 +1847,17 @@ class MCPAggregator(ContextDependent):
                 completion_state = "completed" if not result.isError else "failed"
                 logger.info(
                     "Tool call completed",
-                    data={
-                        "progress_action": ProgressAction.TOOL_PROGRESS,
-                        "tool_name": local_tool_name,
-                        "server_name": server_name,
-                        "agent_name": self.agent_name,
-                        "tool_call_id": tool_call_id,
-                        "tool_use_id": tool_use_id,
-                        "progress": 1.0,
-                        "total": 1.0,
-                        "details": completion_state,
-                    },
+                    data=build_progress_payload(
+                        action=ProgressAction.TOOL_PROGRESS,
+                        tool_name=local_tool_name,
+                        server_name=server_name,
+                        agent_name=self.agent_name,
+                        tool_call_id=tool_call_id,
+                        tool_use_id=tool_use_id,
+                        progress=1.0,
+                        total=1.0,
+                        details=completion_state,
+                    ),
                 )
 
                 # Notify tool handler of completion
@@ -1897,17 +1898,17 @@ class MCPAggregator(ContextDependent):
             except Exception as e:
                 logger.info(
                     "Tool call failed",
-                    data={
-                        "progress_action": ProgressAction.TOOL_PROGRESS,
-                        "tool_name": local_tool_name,
-                        "server_name": server_name,
-                        "agent_name": self.agent_name,
-                        "tool_call_id": tool_call_id,
-                        "tool_use_id": tool_use_id,
-                        "progress": 1.0,
-                        "total": 1.0,
-                        "details": f"failed: {e}",
-                    },
+                    data=build_progress_payload(
+                        action=ProgressAction.TOOL_PROGRESS,
+                        tool_name=local_tool_name,
+                        server_name=server_name,
+                        agent_name=self.agent_name,
+                        tool_call_id=tool_call_id,
+                        tool_use_id=tool_use_id,
+                        progress=1.0,
+                        total=1.0,
+                        details=f"failed: {e}",
+                    ),
                 )
                 # Notify tool handler of error
                 try:
@@ -2391,12 +2392,12 @@ class MCPAggregator(ContextDependent):
 
         logger.info(
             "Requesting resource",
-            data={
-                "progress_action": ProgressAction.CALLING_TOOL,
-                "resource_uri": resource_uri,
-                "server_name": server_name,
-                "agent_name": self.agent_name,
-            },
+            data=build_progress_payload(
+                action=ProgressAction.CALLING_TOOL,
+                server_name=server_name,
+                agent_name=self.agent_name,
+                extra={"resource_uri": resource_uri},
+            ),
         )
 
         try:

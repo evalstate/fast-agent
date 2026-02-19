@@ -498,6 +498,7 @@ class McpAgent(ABC, ToolAgent):
             working_directory=working_directory,
             output_byte_limit=output_byte_limit,
             config=self._context.config if self._context else None,
+            agent_name=self._name,
         )
         self._shell_runtime_enabled = self._shell_runtime.enabled
         self._bash_tool = self._shell_runtime.tool
@@ -537,8 +538,10 @@ class McpAgent(ABC, ToolAgent):
         self._warnings.append(message)
         self.logger.warning(message)
         try:
-            console.error_console.print(f"[yellow]{message}[/yellow]")
-        except Exception:  # pragma: no cover - console fallback
+            from fast_agent.ui import notification_tracker
+
+            notification_tracker.add_warning(message)
+        except Exception:
             pass
 
     @property

@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 from mcp.types import TextContent
 
+from fast_agent.event_progress import ProgressAction
 from fast_agent.tools.shell_runtime import ShellRuntime
 from fast_agent.ui import console
 from fast_agent.ui.progress_display import progress_display
@@ -52,6 +53,22 @@ class DummyProcess:
         self.returncode = 1 if self.returncode is None else self.returncode
 
 
+class RecordingFastLogger:
+    def __init__(self) -> None:
+        self.info_calls: list[tuple[str, dict[str, Any]]] = []
+        self.debug_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+        self.error_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+
+    def info(self, message: str, **kwargs: Any) -> None:
+        self.info_calls.append((message, kwargs))
+
+    def debug(self, *args: Any, **kwargs: Any) -> None:
+        self.debug_calls.append((args, kwargs))
+
+    def error(self, *args: Any, **kwargs: Any) -> None:
+        self.error_calls.append((args, kwargs))
+
+
 @contextmanager
 def _no_progress():
     yield
@@ -91,6 +108,18 @@ def _setup_runtime(
         monkeypatch.setattr(signal, "CTRL_BREAK_EVENT", object(), raising=False)
 
     return runtime, dummy_process, captured
+
+
+def _extract_progress_payloads(logger: RecordingFastLogger) -> list[dict[str, Any]]:
+    payloads: list[dict[str, Any]] = []
+    for _, kwargs in logger.info_calls:
+        payload = kwargs.get("data")
+        if not isinstance(payload, dict):
+            continue
+        action = payload.get("progress_action")
+        if action in {ProgressAction.CALLING_TOOL, ProgressAction.TOOL_PROGRESS}:
+            payloads.append(payload)
+    return payloads
 
 
 @pytest.mark.asyncio
@@ -207,3 +236,88 @@ async def test_execute_deferred_display_suppresses_live_console_output() -> None
     rendered = capture.get()
     assert "hello" not in rendered
     assert "exit code" not in rendered
+
+
+@pytest.mark.asyncio
+async def test_execute_emits_shell_lifecycle_progress_events(monkeypatch: pytest.MonkeyPatch) -> None:
+    logger = RecordingFastLogger()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logger,
+        timeout_seconds=10,
+        agent_name="assistant",
+    )
+    runtime.runtime_info = lambda: {"name": "bash", "path": "/bin/bash"}  # type: ignore[assignment]
+    runtime.working_directory = lambda: Path(".")  # type: ignore[assignment]
+
+    process = DummyProcess()
+    process.stdout = DummyStream([b"hello\n"])
+    process.stderr = DummyStream([])
+
+    async def fake_shell(*args, **kwargs):
+        return process
+
+    monkeypatch.setattr(asyncio, "create_subprocess_shell", fake_shell)
+    monkeypatch.setattr(console.console, "print", lambda *a, **k: None)
+    monkeypatch.setattr(progress_display, "paused", _no_progress)
+
+    result = await runtime.execute({"command": "echo hello"}, tool_use_id="call-123")
+    assert result.isError is False
+
+    progress_payloads = _extract_progress_payloads(logger)
+    assert len(progress_payloads) == 2
+
+    start_payload = progress_payloads[0]
+    assert start_payload == {
+        "progress_action": ProgressAction.CALLING_TOOL,
+        "tool_name": "execute",
+        "server_name": "local",
+        "agent_name": "assistant",
+        "tool_use_id": "call-123",
+        "tool_call_id": "call-123",
+        "tool_event": "start",
+    }
+
+    end_payload = progress_payloads[1]
+    assert end_payload["progress_action"] == ProgressAction.TOOL_PROGRESS
+    assert end_payload["tool_name"] == "execute"
+    assert end_payload["server_name"] == "local"
+    assert end_payload["agent_name"] == "assistant"
+    assert end_payload["tool_use_id"] == "call-123"
+    assert end_payload["tool_call_id"] == "call-123"
+    assert end_payload["progress"] == 1.0
+    assert end_payload["total"] == 1.0
+    assert end_payload["details"] == "completed (exit 0)"
+
+
+@pytest.mark.asyncio
+async def test_execute_emits_terminal_failed_progress_when_subprocess_start_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    logger = RecordingFastLogger()
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logger,
+        timeout_seconds=10,
+        agent_name="assistant",
+    )
+
+    async def fail_shell(*args, **kwargs):
+        raise RuntimeError("spawn failed")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_shell", fail_shell)
+    monkeypatch.setattr(progress_display, "paused", _no_progress)
+
+    result = await runtime.execute({"command": "echo hello"}, tool_use_id="call-456")
+
+    assert result.isError is True
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    assert "Command failed to start" in result.content[0].text
+
+    progress_payloads = _extract_progress_payloads(logger)
+    assert len(progress_payloads) == 2
+    assert progress_payloads[0]["progress_action"] == ProgressAction.CALLING_TOOL
+    assert progress_payloads[0]["tool_event"] == "start"
+    assert progress_payloads[1]["progress_action"] == ProgressAction.TOOL_PROGRESS
+    assert progress_payloads[1]["details"] == "failed: spawn failed"
