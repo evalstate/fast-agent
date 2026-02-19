@@ -143,21 +143,36 @@ def dedupe_preserve_order(values: Sequence[str]) -> list[str]:
 
 
 def serialize_anthropic_block_payload(block: object) -> dict[str, Any] | None:
+    payload: dict[str, Any] | None = None
+
     if hasattr(block, "model_dump"):
         model_dump = getattr(block, "model_dump")
         try:
-            payload = model_dump(mode="json", exclude_none=False)
+            dumped = model_dump(mode="json", exclude_none=False)
         except TypeError:
-            payload = model_dump()
-        if isinstance(payload, dict):
-            return payload
-    if isinstance(block, Mapping):
-        payload: dict[str, Any] = {}
+            dumped = model_dump()
+        if isinstance(dumped, dict):
+            payload = dumped
+    elif isinstance(block, Mapping):
+        payload = {}
         for key, value in block.items():
             if isinstance(key, str):
                 payload[key] = value
-        return payload or None
-    return None
+    else:
+        return None
+
+    if not payload:
+        return None
+
+    if payload.get("type") == "text":
+        text_value = payload.get("text")
+        if isinstance(text_value, Mapping):
+            nested_text = text_value.get("text")
+            if isinstance(nested_text, str):
+                payload["text"] = nested_text
+        payload.pop("parsed_output", None)
+
+    return payload
 
 
 def is_server_tool_trace_payload(payload: Mapping[str, Any] | None) -> bool:

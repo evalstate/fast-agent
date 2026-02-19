@@ -25,6 +25,7 @@ from opentelemetry.semconv_ai import LLMRequestTypeValues, SpanAttributes
 from opentelemetry.trace import Span, Status, StatusCode
 
 from fast_agent.constants import (
+    ANTHROPIC_ASSISTANT_RAW_CONTENT,
     ANTHROPIC_CITATIONS_CHANNEL,
     ANTHROPIC_SERVER_TOOLS_CHANNEL,
     ANTHROPIC_THINKING_BLOCKS,
@@ -1414,10 +1415,25 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             channels[ANTHROPIC_THINKING_BLOCKS] = serialized_blocks
 
         if response.content:
+            raw_assistant_payloads: list[TextContent] = []
             server_tool_payloads: list[TextContent] = []
             citation_payloads: list[TextContent] = []
             for block in response.content:
                 payload = serialize_anthropic_block_payload(block)
+                if payload is not None:
+                    try:
+                        raw_assistant_payloads.append(
+                            TextContent(type="text", text=json.dumps(payload))
+                        )
+                    except Exception as error:
+                        logger.warning(
+                            "Skipping non-serializable assistant block payload",
+                            data={
+                                "payload_type": payload.get("type"),
+                                "error": str(error),
+                            },
+                        )
+
                 if payload is not None and is_server_tool_trace_payload(payload):
                     server_tool_payloads.append(TextContent(type="text", text=json.dumps(payload)))
 
@@ -1441,6 +1457,13 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                 if channels is None:
                     channels = {}
                 channels[ANTHROPIC_SERVER_TOOLS_CHANNEL] = server_tool_payloads
+
+            if raw_assistant_payloads and (
+                raw_thinking_blocks or server_tool_payloads or tool_calls is not None
+            ):
+                if channels is None:
+                    channels = {}
+                channels[ANTHROPIC_ASSISTANT_RAW_CONTENT] = raw_assistant_payloads
 
             if citation_payloads:
                 if channels is None:

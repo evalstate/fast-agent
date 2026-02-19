@@ -17,9 +17,6 @@ from anthropic.types.beta import (
     BetaImageBlockParam as ImageBlockParam,
 )
 from anthropic.types.beta import (
-    BetaMessage as Message,
-)
-from anthropic.types.beta import (
     BetaMessageParam as MessageParam,
 )
 from anthropic.types.beta import (
@@ -67,7 +64,11 @@ from mcp.types import (
 )
 from pydantic import TypeAdapter
 
-from fast_agent.constants import ANTHROPIC_SERVER_TOOLS_CHANNEL, ANTHROPIC_THINKING_BLOCKS
+from fast_agent.constants import (
+    ANTHROPIC_ASSISTANT_RAW_CONTENT,
+    ANTHROPIC_SERVER_TOOLS_CHANNEL,
+    ANTHROPIC_THINKING_BLOCKS,
+)
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.llm.provider.anthropic.web_tools import is_server_tool_trace_payload
 from fast_agent.mcp.helpers.content_helpers import (
@@ -87,7 +88,10 @@ from fast_agent.types import PromptMessageExtended
 
 _logger = get_logger("multipart_converter_anthropic")
 
-_ANTHROPIC_CONTENT_BLOCK_LIST_ADAPTER = TypeAdapter(Message.model_fields["content"].annotation)
+# Validate and normalize replay blocks against *input* content block params.
+# Using output block schemas preserves output-only fields (for example
+# `parsed_output`) that Anthropic rejects when sent back in message history.
+_ANTHROPIC_CONTENT_BLOCK_LIST_ADAPTER = TypeAdapter(list[ContentBlockParam])
 
 # List of image MIME types supported by Anthropic API
 SUPPORTED_IMAGE_MIME_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
@@ -122,56 +126,32 @@ class AnthropicConverter:
         role = multipart_msg.role
         all_content_blocks: list = []
 
+        if role == "assistant" and multipart_msg.channels:
+            raw_assistant_content = AnthropicConverter._deserialize_assistant_raw_blocks(
+                multipart_msg.channels
+            )
+            if raw_assistant_content:
+                return MessageParam(role=role, content=raw_assistant_content)
+
         # If this is an assistant message that contains tool_calls, convert
         # those into Anthropic tool_use blocks so the next user message can
         # legally include corresponding tool_result blocks.
         if role == "assistant" and multipart_msg.tool_calls:
-            # CRITICAL: Thinking blocks must come FIRST in assistant messages
-            # when using extended thinking with tool use
             if multipart_msg.channels:
-                raw_thinking = multipart_msg.channels.get(ANTHROPIC_THINKING_BLOCKS)
-                if raw_thinking:
-                    for thinking_block in raw_thinking:
-                        # Pass through raw ThinkingBlock/RedactedThinkingBlock
-                        # These contain signatures needed for API verification
-                        if isinstance(thinking_block, ThinkingBlock):
-                            all_content_blocks.append(
-                                ThinkingBlockParam(
-                                    type="thinking",
-                                    thinking=thinking_block.thinking,
-                                    signature=thinking_block.signature,
-                                )
-                            )
-                        elif isinstance(thinking_block, RedactedThinkingBlock):
-                            # Redacted thinking blocks are passed as-is
-                            # They contain encrypted data that the API can verify
-                            all_content_blocks.append(thinking_block)
-                        elif isinstance(thinking_block, TextContent):
-                            try:
-                                payload = json.loads(thinking_block.text)
-                            except (TypeError, json.JSONDecodeError):
-                                payload = None
-                            if isinstance(payload, dict):
-                                block_type = payload.get("type")
-                                if block_type == "thinking":
-                                    all_content_blocks.append(
-                                        ThinkingBlockParam(
-                                            type="thinking",
-                                            thinking=payload.get("thinking", ""),
-                                            signature=payload.get("signature", ""),
-                                        )
-                                    )
-                                elif block_type == "redacted_thinking":
-                                    all_content_blocks.append(
-                                        RedactedThinkingBlockParam(
-                                            type="redacted_thinking",
-                                            data=payload.get("data", ""),
-                                        )
-                                    )
-                AnthropicConverter._append_server_tool_channel_blocks(
+                AnthropicConverter._append_assistant_channel_blocks(
                     multipart_msg.channels,
                     all_content_blocks,
                 )
+
+            if multipart_msg.content:
+                anthropic_blocks = AnthropicConverter._convert_content_items(
+                    multipart_msg.content,
+                    document_mode=True,
+                )
+                text_blocks = [
+                    block for block in anthropic_blocks if isinstance(block, dict) and block.get("type") == "text"
+                ]
+                all_content_blocks.extend(text_blocks)
 
             for tool_use_id, req in multipart_msg.tool_calls.items():
                 sanitized_id = AnthropicConverter._sanitize_tool_id(tool_use_id)
@@ -200,7 +180,7 @@ class AnthropicConverter:
             all_content_blocks.extend(tool_msg["content"])
 
         if role == "assistant" and multipart_msg.channels:
-            AnthropicConverter._append_server_tool_channel_blocks(
+            AnthropicConverter._append_assistant_channel_blocks(
                 multipart_msg.channels,
                 all_content_blocks,
             )
@@ -235,6 +215,141 @@ class AnthropicConverter:
         return MessageParam(role=role, content=all_content_blocks)
 
     @staticmethod
+    def _append_assistant_channel_blocks(
+        channels: Mapping[str, Sequence[ContentBlock]],
+        destination: list[ContentBlockParam],
+    ) -> None:
+        thinking_blocks = AnthropicConverter._deserialize_thinking_channel_blocks(channels)
+        server_tool_blocks: list[ContentBlockParam] = []
+        AnthropicConverter._append_server_tool_channel_blocks(channels, server_tool_blocks)
+
+        # Legacy history fallback:
+        # Before exact raw-content replay was added, thinking and server-tool payloads
+        # were persisted in separate channels and lost relative ordering. For turns that
+        # include multiple thinking blocks and server-tool activity, Anthropic generally
+        # expects first-thought -> server-tool blocks -> follow-up thoughts.
+        if thinking_blocks and server_tool_blocks and len(thinking_blocks) > 1:
+            destination.append(thinking_blocks[0])
+            destination.extend(server_tool_blocks)
+            destination.extend(thinking_blocks[1:])
+            return
+
+        destination.extend(thinking_blocks)
+        destination.extend(server_tool_blocks)
+
+    @staticmethod
+    def _deserialize_thinking_channel_blocks(
+        channels: Mapping[str, Sequence[ContentBlock]],
+    ) -> list[ContentBlockParam]:
+        raw_thinking = channels.get(ANTHROPIC_THINKING_BLOCKS)
+        if not raw_thinking:
+            return []
+
+        thinking_blocks: list[ContentBlockParam] = []
+        for thinking_block in raw_thinking:
+            # Pass through raw ThinkingBlock/RedactedThinkingBlock.
+            # These contain signatures or encrypted data needed for API verification.
+            if isinstance(thinking_block, ThinkingBlock):
+                thinking_blocks.append(
+                    ThinkingBlockParam(
+                        type="thinking",
+                        thinking=thinking_block.thinking,
+                        signature=thinking_block.signature,
+                    )
+                )
+                continue
+
+            if isinstance(thinking_block, RedactedThinkingBlock):
+                thinking_blocks.append(thinking_block)
+                continue
+
+            if not isinstance(thinking_block, TextContent):
+                continue
+
+            try:
+                payload = json.loads(thinking_block.text)
+            except (TypeError, json.JSONDecodeError):
+                payload = None
+
+            if not isinstance(payload, dict):
+                continue
+
+            block_type = payload.get("type")
+            if block_type == "thinking":
+                thinking_blocks.append(
+                    ThinkingBlockParam(
+                        type="thinking",
+                        thinking=payload.get("thinking", ""),
+                        signature=payload.get("signature", ""),
+                    )
+                )
+            elif block_type == "redacted_thinking":
+                thinking_blocks.append(
+                    RedactedThinkingBlockParam(
+                        type="redacted_thinking",
+                        data=payload.get("data", ""),
+                    )
+                )
+
+        return thinking_blocks
+
+    @staticmethod
+    def _deserialize_assistant_raw_blocks(
+        channels: Mapping[str, Sequence[ContentBlock]],
+    ) -> list[ContentBlockParam]:
+        raw_blocks = channels.get(ANTHROPIC_ASSISTANT_RAW_CONTENT)
+        if not raw_blocks:
+            return []
+
+        deserialized: list[ContentBlockParam] = []
+        for block in raw_blocks:
+            if not isinstance(block, TextContent):
+                continue
+
+            raw_text = block.text
+            if not raw_text:
+                continue
+
+            try:
+                payload = json.loads(raw_text)
+            except Exception:
+                continue
+
+            if not isinstance(payload, dict):
+                continue
+
+            candidate = cast("ContentBlockParam", payload)
+            try:
+                validated_blocks = _ANTHROPIC_CONTENT_BLOCK_LIST_ADAPTER.validate_python(
+                    [candidate]
+                )
+            except Exception as error:
+                payload_type = payload.get("type")
+                _logger.warning(
+                    "Skipping invalid assistant replay payload",
+                    data={
+                        "payload_type": payload_type,
+                        "error": str(error),
+                    },
+                )
+                continue
+
+            normalized = validated_blocks[0]
+            if hasattr(normalized, "model_dump"):
+                model_dump = getattr(normalized, "model_dump")
+                try:
+                    normalized = model_dump(mode="json", exclude_none=False)
+                except TypeError:
+                    normalized = model_dump()
+
+            if not isinstance(normalized, dict):
+                continue
+
+            deserialized.append(cast("ContentBlockParam", normalized))
+
+        return deserialized
+
+    @staticmethod
     def _append_server_tool_channel_blocks(
         channels: Mapping[str, Sequence[ContentBlock]] | None,
         destination: list[ContentBlockParam],
@@ -262,7 +377,9 @@ class AnthropicConverter:
 
             candidate = cast("ContentBlockParam", payload)
             try:
-                _ANTHROPIC_CONTENT_BLOCK_LIST_ADAPTER.validate_python([candidate])
+                validated_blocks = _ANTHROPIC_CONTENT_BLOCK_LIST_ADAPTER.validate_python(
+                    [candidate]
+                )
             except Exception as error:
                 payload_type = payload.get("type")
                 _logger.warning(
@@ -279,7 +396,16 @@ class AnthropicConverter:
                     )
                 continue
 
-            destination.append(candidate)
+            normalized = validated_blocks[0]
+            if hasattr(normalized, "model_dump"):
+                model_dump = getattr(normalized, "model_dump")
+                try:
+                    normalized = model_dump(mode="json", exclude_none=False)
+                except TypeError:
+                    normalized = model_dump()
+
+            if isinstance(normalized, dict):
+                destination.append(cast("ContentBlockParam", normalized))
 
     @staticmethod
     def convert_prompt_message_to_anthropic(message: PromptMessage) -> MessageParam:

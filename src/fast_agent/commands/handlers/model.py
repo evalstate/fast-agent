@@ -231,6 +231,14 @@ async def handle_model_reasoning(
         outcome.add_message("No LLM attached to agent.", channel="warning", right_info="model")
         return outcome
 
+    _add_model_details(
+        outcome,
+        ctx=ctx,
+        agent=agent,
+        llm=llm,
+        include_shell_budget=value is None,
+    )
+
     spec = llm.reasoning_effort_spec
     if spec is None:
         outcome.add_message(
@@ -239,14 +247,6 @@ async def handle_model_reasoning(
             right_info="model",
         )
         return outcome
-
-    _add_model_details(
-        outcome,
-        ctx=ctx,
-        agent=agent,
-        llm=llm,
-        include_shell_budget=value is None,
-    )
 
     if value is None:
         current = format_reasoning_setting(llm.reasoning_effort or spec.default)
@@ -338,6 +338,14 @@ async def handle_model_verbosity(
         outcome.add_message("No LLM attached to agent.", channel="warning", right_info="model")
         return outcome
 
+    _add_model_details(
+        outcome,
+        ctx=ctx,
+        agent=agent,
+        llm=llm,
+        include_shell_budget=value is None,
+    )
+
     spec = llm.text_verbosity_spec
     if spec is None:
         outcome.add_message(
@@ -346,14 +354,6 @@ async def handle_model_verbosity(
             right_info="model",
         )
         return outcome
-
-    _add_model_details(
-        outcome,
-        ctx=ctx,
-        agent=agent,
-        llm=llm,
-        include_shell_budget=value is None,
-    )
 
     if value is None:
         current = format_text_verbosity(llm.text_verbosity or spec.default)

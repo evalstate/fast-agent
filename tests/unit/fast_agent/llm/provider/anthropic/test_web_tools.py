@@ -20,7 +20,11 @@ from fast_agent.config import (
     AnthropicWebSearchSettings,
     Settings,
 )
-from fast_agent.constants import ANTHROPIC_CITATIONS_CHANNEL, ANTHROPIC_SERVER_TOOLS_CHANNEL
+from fast_agent.constants import (
+    ANTHROPIC_ASSISTANT_RAW_CONTENT,
+    ANTHROPIC_CITATIONS_CHANNEL,
+    ANTHROPIC_SERVER_TOOLS_CHANNEL,
+)
 from fast_agent.context import Context
 from fast_agent.llm.provider.anthropic.beta_types import (
     Message,
@@ -28,9 +32,12 @@ from fast_agent.llm.provider.anthropic.beta_types import (
     ServerToolUseBlock,
     TextBlock,
     TextDelta,
+    ThinkingBlock,
+    ToolUseBlock,
     Usage,
 )
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
+from fast_agent.llm.provider.anthropic.web_tools import serialize_anthropic_block_payload
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
@@ -48,6 +55,40 @@ def test_web_tool_settings_validate_domains_and_limits() -> None:
 
     with pytest.raises(ValidationError):
         AnthropicWebFetchSettings(enabled=True, max_content_tokens=0)
+
+
+def test_serialize_anthropic_text_payload_strips_parsed_output() -> None:
+    payload = serialize_anthropic_block_payload(
+        {
+            "type": "text",
+            "text": "hello",
+            "parsed_output": None,
+            "citations": None,
+        }
+    )
+
+    assert payload is not None
+    assert payload["type"] == "text"
+    assert payload["text"] == "hello"
+    assert "parsed_output" not in payload
+
+
+def test_serialize_anthropic_text_payload_flattens_nested_text_objects() -> None:
+    payload = serialize_anthropic_block_payload(
+        {
+            "type": "text",
+            "text": {
+                "type": "text",
+                "text": "hello",
+                "parsed_output": None,
+            },
+            "parsed_output": None,
+        }
+    )
+
+    assert payload is not None
+    assert payload["text"] == "hello"
+    assert "parsed_output" not in payload
 
 
 class _DummyStreamManager:
@@ -248,6 +289,7 @@ async def test_server_tool_only_tool_use_does_not_create_mcp_tool_calls() -> Non
     assert result.tool_calls is None
     assert result.channels is not None
     assert ANTHROPIC_SERVER_TOOLS_CHANNEL in result.channels
+    assert ANTHROPIC_ASSISTANT_RAW_CONTENT in result.channels
 
 
 @pytest.mark.asyncio
@@ -301,6 +343,52 @@ async def test_code_execution_tool_results_are_preserved_in_server_tool_channel(
     payload_types = [json.loads(block.text).get("type") for block in payloads]
     assert "server_tool_use" in payload_types
     assert "code_execution_tool_result" in payload_types
+    replay_payloads = result.channels.get(ANTHROPIC_ASSISTANT_RAW_CONTENT, [])
+    replay_types = [json.loads(block.text).get("type") for block in replay_payloads]
+    assert replay_types == ["server_tool_use", "code_execution_tool_result", "text"]
+
+
+@pytest.mark.asyncio
+async def test_tool_use_with_thinking_persists_raw_assistant_content_channel() -> None:
+    llm = _create_llm(model="claude-haiku-4-5")
+
+    final_message = Message(
+        id="msg_3c",
+        type="message",
+        role="assistant",
+        content=[
+            ThinkingBlock(type="thinking", thinking="I should call a tool", signature="sig_123"),
+            TextBlock(type="text", text="Let me fetch data."),
+            ToolUseBlock(
+                type="tool_use",
+                id="toolu_123",
+                name="mcp__demo",
+                input={"q": "status"},
+            ),
+        ],
+        model="claude-haiku-4-5",
+        stop_reason="tool_use",
+        usage=Usage(input_tokens=10, output_tokens=20),
+    )
+
+    with patch("fast_agent.llm.provider.anthropic.llm_anthropic.AsyncAnthropic") as mock_cls:
+        client = MagicMock()
+        client.beta.messages.stream.return_value = _DummyStreamManager()
+        mock_cls.return_value = client
+
+        with patch.object(llm, "_process_stream", new_callable=AsyncMock) as mock_process:
+            mock_process.return_value = (final_message, ["I should call a tool"], [])
+            result = await llm._anthropic_completion(
+                _user_message_param(),
+                history=[],
+                current_extended=_user_message_extended(),
+            )
+
+    assert result.stop_reason == LlmStopReason.TOOL_USE
+    assert result.channels is not None
+    replay_payloads = result.channels.get(ANTHROPIC_ASSISTANT_RAW_CONTENT, [])
+    replay_types = [json.loads(block.text).get("type") for block in replay_payloads]
+    assert replay_types == ["thinking", "text", "tool_use"]
 
 
 def test_convert_message_to_message_param_keeps_code_execution_tool_result() -> None:
