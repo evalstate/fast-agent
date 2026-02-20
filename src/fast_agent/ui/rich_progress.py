@@ -254,6 +254,7 @@ class RichProgressDisplay:
         """Map actions to appropriate styles."""
         return {
             ProgressAction.STARTING: "bold yellow",
+            ProgressAction.CONNECTING: "bold yellow",
             ProgressAction.LOADED: "dim green",
             ProgressAction.INITIALIZED: "dim green",
             ProgressAction.CHATTING: "bold blue",
@@ -587,6 +588,9 @@ class RichProgressDisplay:
                 details=f" / {event.details}",
                 task_name=task_name,
             )
+            # Keep fatal errors visible via command output/logging, but avoid
+            # permanently pinning stale "Error" rows in the live progress board.
+            self._drop_task(task_name, task_id)
         elif should_drop_tool_task:
             self._drop_task(task_name, task_id)
         else:
