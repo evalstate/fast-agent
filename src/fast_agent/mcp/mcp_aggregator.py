@@ -639,7 +639,7 @@ class MCPAggregator(ContextDependent):
             logger.info(
                 f"Creating persistent connection to server: {server_name}",
                 data={
-                    "progress_action": ProgressAction.STARTING,
+                    "progress_action": ProgressAction.CONNECTING,
                     "server_name": server_name,
                     "agent_name": self.agent_name,
                 },
@@ -1482,7 +1482,7 @@ class MCPAggregator(ContextDependent):
                 logger.debug(
                     f"Creating temporary connection to server: {server_name}",
                     data={
-                        "progress_action": ProgressAction.STARTING,
+                        "progress_action": ProgressAction.CONNECTING,
                         "server_name": server_name,
                         "agent_name": self.agent_name,
                     },

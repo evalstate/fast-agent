@@ -110,6 +110,8 @@ def convert_log_event(event: Event) -> "ProgressEvent | None":
     )
 
     if action == ProgressAction.FATAL_ERROR:
+        if not target:
+            target = (server_name or "").strip() or target
         details = event_data.get("error_message", "An error occurred")
     elif "mcp_aggregator" in namespace:
         details = tool_context

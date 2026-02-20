@@ -161,3 +161,23 @@ def test_convert_log_event_generic_tool_progress_includes_context_and_details() 
     progress_event = convert_log_event(event)
     assert progress_event is not None
     assert progress_event.details == "index - chunk 1"
+
+
+def test_convert_log_event_fatal_error_uses_server_name_as_target_when_agent_missing() -> None:
+    event = Event(
+        type="error",
+        namespace="fast_agent.mcp.mcp_connection_manager",
+        message="Lifecycle task encountered an error",
+        data={
+            "data": {
+                "progress_action": ProgressAction.FATAL_ERROR,
+                "server_name": "127-0-0-1",
+                "error_message": "Connection refused",
+            }
+        },
+    )
+
+    progress_event = convert_log_event(event)
+    assert progress_event is not None
+    assert progress_event.target == "127-0-0-1"
+    assert progress_event.details == "Connection refused"

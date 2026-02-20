@@ -251,6 +251,18 @@ class ModelVerbosityCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class ModelWebSearchCommand(CommandBase):
+    value: str | None
+    kind: Literal["model_web_search"] = "model_web_search"
+
+
+@dataclass(frozen=True, slots=True)
+class ModelWebFetchCommand(CommandBase):
+    value: str | None
+    kind: Literal["model_web_fetch"] = "model_web_fetch"
+
+
+@dataclass(frozen=True, slots=True)
 class InterruptCommand(CommandBase):
     """Represents a Ctrl+C user interrupt captured by the prompt layer."""
 
@@ -301,6 +313,8 @@ CommandPayload = (
     | ShellCommand
     | ModelReasoningCommand
     | ModelVerbosityCommand
+    | ModelWebSearchCommand
+    | ModelWebFetchCommand
     | InterruptCommand
     | UnknownCommand
 )

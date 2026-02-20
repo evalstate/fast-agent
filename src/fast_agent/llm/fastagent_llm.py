@@ -258,9 +258,32 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         return self._text_verbosity_spec
 
     @property
+    def web_search_supported(self) -> bool:
+        """Whether provider-side web search is supported by this model/provider."""
+        return False
+
+    @property
     def web_search_enabled(self) -> bool:
         """Whether provider-side web search is enabled for this LLM instance."""
         return False
+
+    def set_web_search_enabled(self, value: bool | None) -> None:
+        if value is not None and not self.web_search_supported:
+            raise ValueError("Current model does not support web search configuration.")
+
+    @property
+    def web_fetch_supported(self) -> bool:
+        """Whether provider-side web fetch is supported by this model/provider."""
+        return False
+
+    @property
+    def web_fetch_enabled(self) -> bool:
+        """Whether provider-side web fetch is enabled for this LLM instance."""
+        return False
+
+    def set_web_fetch_enabled(self, value: bool | None) -> None:
+        if value is not None and not self.web_fetch_supported:
+            raise ValueError("Current model does not support web fetch configuration.")
 
     def _initialize_default_params(self, kwargs: dict[str, Any]) -> RequestParams:
         """Initialize default parameters for the LLM.

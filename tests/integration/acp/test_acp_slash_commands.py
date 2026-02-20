@@ -22,6 +22,7 @@ from fast_agent.constants import (
     ANTHROPIC_SERVER_TOOLS_CHANNEL,
     FAST_AGENT_ERROR_CHANNEL,
 )
+from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.session import display_session_name, get_session_manager, reset_session_manager
 from fast_agent.session import session_manager as session_manager_module
@@ -135,6 +136,32 @@ async def test_slash_command_available_commands() -> None:
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_slash_command_available_commands_model_hint_is_dynamic() -> None:
+    class _LlmStub:
+        model_name = "gpt-5"
+        provider = Provider.RESPONSES
+        text_verbosity_spec = None
+        web_search_supported = True
+        web_fetch_supported = False
+
+    stub_agent = StubAgent(message_history=[], llm=_LlmStub())
+    instance = StubAgentInstance(agents={"test-agent": stub_agent})
+    handler = _handler(instance)
+
+    commands = handler.get_available_commands()
+    model_cmd = next(cmd for cmd in commands if cmd.name == "model")
+
+    assert model_cmd.input is not None
+    hint = model_cmd.input.root.hint
+    assert hint is not None
+    assert "reasoning <value>" in hint
+    assert "web_search <on|off|default>" in hint
+    assert "web_fetch <on|off|default>" not in hint
+    assert "verbosity <value>" not in hint
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_slash_command_unknown_command() -> None:
     """Test that unknown commands are handled gracefully."""
     handler = _handler(StubAgentInstance())
@@ -144,6 +171,19 @@ async def test_slash_command_unknown_command() -> None:
 
     # Should get an error message
     assert "Unknown command" in response or "not yet implemented" in response.lower()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_does_not_mask_handler_keyerror(monkeypatch) -> None:
+    async def _raise_handler_keyerror(*_args, **_kwargs) -> str:
+        raise KeyError("stale-agent")
+
+    monkeypatch.setattr("fast_agent.acp.slash.dispatch.execute", _raise_handler_keyerror)
+    handler = _handler(StubAgentInstance())
+
+    with pytest.raises(KeyError, match="stale-agent"):
+        await handler.execute_command("status", "")
 
 
 @pytest.mark.integration
@@ -212,6 +252,85 @@ async def test_slash_command_status_system() -> None:
     assert "test-agent" in response.lower()
     # Should contain the instruction/system prompt
     assert stub_agent.instruction in response
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_model_web_search() -> None:
+    class _LlmStub:
+        def __init__(self) -> None:
+            self.model_name = "gpt-5"
+            self.provider = Provider.RESPONSES
+            self.reasoning_effort_spec = None
+            self.reasoning_effort = None
+            self.text_verbosity_spec = None
+            self.text_verbosity = None
+            self.configured_transport = "sse"
+            self.active_transport = None
+            self.web_search_supported = True
+            self.web_fetch_supported = False
+            self._web_search_override: bool | None = None
+
+        @property
+        def web_search_enabled(self) -> bool:
+            return bool(self._web_search_override)
+
+        @property
+        def web_fetch_enabled(self) -> bool:
+            return False
+
+        def set_web_search_enabled(self, value: bool | None) -> None:
+            self._web_search_override = value
+
+        def set_web_fetch_enabled(self, value: bool | None) -> None:
+            if value is not None:
+                raise ValueError("Current model does not support web fetch configuration.")
+
+    stub_agent = StubAgent(message_history=[], llm=_LlmStub())
+    instance = StubAgentInstance(agents={"test-agent": stub_agent})
+    handler = _handler(instance)
+
+    response = await handler.execute_command("model", "web_search on")
+
+    assert "Web search: set to enabled." in response
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_model_web_fetch_unsupported() -> None:
+    class _LlmStub:
+        def __init__(self) -> None:
+            self.model_name = "gpt-5"
+            self.provider = Provider.RESPONSES
+            self.reasoning_effort_spec = None
+            self.reasoning_effort = None
+            self.text_verbosity_spec = None
+            self.text_verbosity = None
+            self.web_search_supported = True
+            self.web_fetch_supported = False
+
+        @property
+        def web_search_enabled(self) -> bool:
+            return False
+
+        @property
+        def web_fetch_enabled(self) -> bool:
+            return False
+
+        def set_web_search_enabled(self, value: bool | None) -> None:
+            return None
+
+        def set_web_fetch_enabled(self, value: bool | None) -> None:
+            if value is not None:
+                raise ValueError("Current model does not support web fetch configuration.")
+
+    stub_agent = StubAgent(message_history=[], llm=_LlmStub())
+    instance = StubAgentInstance(agents={"test-agent": stub_agent})
+    handler = _handler(instance)
+
+    response = await handler.execute_command("model", "web_fetch on")
+
+    assert "Current model does not support web_fetch configuration." in response
 
 
 @pytest.mark.integration
