@@ -151,6 +151,17 @@ def _user_message_extended() -> PromptMessageExtended:
     return PromptMessageExtended(role="user", content=[TextContent(type="text", text="hello")])
 
 
+def test_web_search_enabled_property_reflects_search_or_fetch() -> None:
+    llm = _create_llm(
+        model="claude-sonnet-4-5",
+        web_search=AnthropicWebSearchSettings(enabled=False),
+        web_fetch=AnthropicWebFetchSettings(enabled=True),
+    )
+
+    assert llm.web_tools_enabled == (False, True)
+    assert llm.web_search_enabled is True
+
+
 @pytest.mark.asyncio
 async def test_request_includes_web_tools_and_required_beta_for_46_model() -> None:
     llm = _create_llm(

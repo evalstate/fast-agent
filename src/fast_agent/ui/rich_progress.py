@@ -60,11 +60,30 @@ class RichProgressDisplay:
         self.console = console or default_console
         self._lock = RLock()
         self._taskmap: dict[str, TaskID] = {}
+        self._task_kind: dict[str, str] = {}
         self._description_spinner = SpinnerDescriptionColumn(spinner_name="dots3")
         self._progress = Progress(
             self._description_spinner,
-            TextColumn(text_format="{task.fields[target]:<16}", style="Bold Blue"),
-            TextColumn(text_format="{task.fields[details]}", style="dim white"),
+            TextColumn(
+                text_format="{task.fields[target]}",
+                style="Bold Blue",
+                table_column=Column(
+                    min_width=10,
+                    max_width=16,
+                    overflow="ellipsis",
+                    no_wrap=True,
+                ),
+            ),
+            TextColumn(
+                text_format="{task.fields[details]}",
+                style="dim white",
+                table_column=Column(
+                    ratio=1,
+                    min_width=24,
+                    overflow="ellipsis",
+                    no_wrap=True,
+                ),
+            ),
             console=self.console,
             transient=False,
         )
@@ -76,6 +95,7 @@ class RichProgressDisplay:
         with self._lock:
             ensure_blocking_console()
             self._stopped = False
+            self._paused = False
             self._progress.start()
 
     def stop(self) -> None:
@@ -95,6 +115,7 @@ class RichProgressDisplay:
         with self._lock:
             if self._stopped or self._paused:
                 return
+
             ensure_blocking_console()
             self._paused = True
             for task in self._progress.tasks:
@@ -170,6 +191,7 @@ class RichProgressDisplay:
     def _drop_task(self, task_name: str, task_id: TaskID) -> None:
         """Remove a task from visible progress tracking and internal maps."""
         self._taskmap.pop(task_name, None)
+        self._task_kind.pop(task_name, None)
 
         remove_task = getattr(self._progress, "remove_task", None)
         if callable(remove_task):
@@ -185,139 +207,289 @@ class RichProgressDisplay:
                 task.visible = False
                 break
 
+    @staticmethod
+    def _is_internal_shell_tool(tool_name: str | None, server_name: str | None) -> bool:
+        """Return True when event is for the built-in ACP shell tool."""
+        if not tool_name or not server_name:
+            return False
+        return tool_name.lower() == "execute" and server_name == "acp_terminal"
+
+    @staticmethod
+    def _short_correlation_id(correlation_id: str) -> str:
+        """Return a concise correlation identifier for display."""
+        normalized = correlation_id.strip()
+        if len(normalized) <= 16:
+            return normalized
+        return f"{normalized[:13]}…"
+
+    def _max_details_chars(self) -> int:
+        """Estimate available width for the details column."""
+        console_width = getattr(self.console, "width", 100)
+        # Rough budget: action+spinner (~22), target (<=16), table/padding (~10).
+        # Keep a sane lower bound so details remain informative.
+        return max(24, int(console_width) - 48)
+
+    @staticmethod
+    def _truncate_text(value: str, max_chars: int) -> str:
+        """Truncate with ellipsis when text exceeds max display chars."""
+        if max_chars <= 0:
+            return ""
+        if len(value) <= max_chars:
+            return value
+        if max_chars == 1:
+            return "…"
+        return f"{value[: max_chars - 1]}…"
+
+    def _count_correlated_tool_rows(self, agent_name: str) -> int:
+        """Return number of active correlated tool rows for an agent."""
+        prefix = f"{agent_name}::"
+        return sum(
+            1
+            for task_name, task_kind in self._task_kind.items()
+            if task_kind == "tool" and task_name.startswith(prefix)
+        )
+
+    def _format_correlated_details(
+        self,
+        *,
+        details: str,
+        correlation_id: str | None,
+        force_show_id: bool,
+    ) -> str:
+        """Format details for correlated tool events with width-aware id handling."""
+        if not correlation_id:
+            return details
+
+        correlation_marker = f"id:{self._short_correlation_id(correlation_id)}"
+        if not force_show_id:
+            budget = self._max_details_chars()
+            if len(details) + 3 + len(correlation_marker) > budget:
+                return self._truncate_text(details, budget)
+            return f"{details} • {correlation_marker}" if details else correlation_marker
+
+        budget = self._max_details_chars()
+        # Reserve room for separator and id marker when id must be shown.
+        message_budget = max(0, budget - (3 + len(correlation_marker)))
+        details_part = self._truncate_text(details, message_budget)
+        if details_part:
+            return f"{details_part} • {correlation_marker}"
+        return correlation_marker
+
+    @staticmethod
+    def _task_kind_for_event(event: ProgressEvent, *, is_correlated_tool_event: bool) -> str:
+        """Classify the row kind for task lifecycle handling."""
+        if is_correlated_tool_event:
+            return "tool"
+        if event.action in {ProgressAction.STREAMING, ProgressAction.THINKING}:
+            return "stream"
+        return "agent"
+
+    @staticmethod
+    def _is_terminal_tool_event(tool_event: str | None) -> bool:
+        """Return True for tool lifecycle events that should close correlated rows."""
+        normalized = (tool_event or "").strip().lower()
+        if not normalized:
+            return False
+        return normalized in {
+            "stop",
+            "stopped",
+            "done",
+            "complete",
+            "completed",
+            "cancel",
+            "canceled",
+            "cancelled",
+            "error",
+            "fail",
+            "failed",
+        }
+
+    @staticmethod
+    def _is_terminal_tool_progress(
+        *, progress: float | None, total: float | None, details: str | None
+    ) -> bool:
+        """Return True when progress payload indicates terminal completion/failure."""
+        if progress is not None and total is not None and total > 0 and progress >= total:
+            return True
+
+        normalized_details = (details or "").strip().lower()
+        if not normalized_details:
+            return False
+
+        terminal_details = {
+            "stop",
+            "stopped",
+            "done",
+            "complete",
+            "completed",
+            "cancel",
+            "canceled",
+            "cancelled",
+            "error",
+            "fail",
+            "failed",
+        }
+        if normalized_details in terminal_details:
+            return True
+
+        return normalized_details.startswith(("failed:", "error:"))
+
     def update(self, event: ProgressEvent) -> None:
         """Update the progress display with a new event."""
         with self._lock:
-            # Skip updates when display is paused or stopped
-            if self._paused or self._stopped:
+            # Skip updates when display is stopped
+            if self._stopped:
                 return
 
-            task_name = event.agent_name or "default"
-            is_correlated_tool_event = (
-                event.action in {ProgressAction.CALLING_TOOL, ProgressAction.TOOL_PROGRESS}
-                and event.correlation_id is not None
-            )
-            if (
-                is_correlated_tool_event
-                and event.correlation_id
-            ):
-                task_name = f"{task_name}::{event.correlation_id}"
+            self._apply_update_locked(event)
 
-            should_drop_completed_tool_task = (
-                is_correlated_tool_event
-                and event.action == ProgressAction.TOOL_PROGRESS
-                and event.progress is not None
-                and event.total is not None
-                and event.total > 0
-                and event.progress >= event.total
-            )
-            should_drop_stopped_tool_task = (
-                is_correlated_tool_event
-                and event.action == ProgressAction.CALLING_TOOL
-                and (event.tool_event or "").lower()
-                in {"stop", "stopped", "done", "complete", "completed"}
-            )
+    def _apply_update_locked(self, event: ProgressEvent) -> None:
+        """Apply an update while holding lock and with active display state."""
+        task_name = event.agent_name or "default"
+        is_correlated_tool_event = (
+            event.action in {ProgressAction.CALLING_TOOL, ProgressAction.TOOL_PROGRESS}
+            and event.correlation_id is not None
+            and not self._is_internal_shell_tool(event.tool_name, event.server_name)
+        )
+        if (
+            is_correlated_tool_event
+            and event.correlation_id
+        ):
+            task_name = f"{task_name}::{event.correlation_id}"
 
-            # Create new task if needed
-            if task_name not in self._taskmap:
-                task_id = self._progress.add_task(
-                    "",
-                    total=None,
-                    target=event.target or task_name,
-                    details=event.details or "",
-                    task_name=task_name,
+        should_drop_tool_task = (
+            is_correlated_tool_event
+            and (
+                (
+                    event.action == ProgressAction.CALLING_TOOL
+                    and self._is_terminal_tool_event(event.tool_event)
                 )
-                self._taskmap[task_name] = task_id
-            else:
-                task_id = self._taskmap[task_name]
-
-            # Ensure no None values in the update
-            # For streaming, use custom description immediately to avoid flashing
-            if (
-                event.action == ProgressAction.STREAMING
-                or event.action == ProgressAction.THINKING
-            ) and event.streaming_tokens:
-                # Account for [dim][/dim] tags (11 characters) in padding calculation
-                formatted_tokens = (
-                    f"▎[dim]◀[/dim] {event.streaming_tokens.strip()}".ljust(17 + 11)
+                or (
+                    event.action == ProgressAction.TOOL_PROGRESS
+                    and self._is_terminal_tool_progress(
+                        progress=event.progress,
+                        total=event.total,
+                        details=event.details,
+                    )
                 )
-                description = f"[{self._get_action_style(event.action)}]{formatted_tokens}"
-            elif event.action == ProgressAction.CHATTING:
-                # Add special formatting for chatting with dimmed arrow
-                formatted_text = f"▎[dim]▶[/dim] {event.action.value.strip()}".ljust(17 + 11)
-                description = f"[{self._get_action_style(event.action)}]{formatted_text}"
-            elif event.action == ProgressAction.CALLING_TOOL:
-                # Add special formatting for calling tool with dimmed arrow
-                formatted_text = f"▎[dim]◀[/dim] {event.action.value}".ljust(17 + 11)
-                description = f"[{self._get_action_style(event.action)}]{formatted_text}"
-            elif event.action == ProgressAction.TOOL_PROGRESS:
-                # Format similar to streaming - show progress numbers
-                if event.progress is not None:
-                    if event.total is not None:
-                        progress_display = f"{int(event.progress)}/{int(event.total)}"
-                    else:
-                        progress_display = str(int(event.progress))
-                else:
-                    progress_display = "Processing"
-                formatted_text = f"▎[dim]▶[/dim] {progress_display}".ljust(17 + 11)
-                description = f"[{self._get_action_style(event.action)}]{formatted_text}"
-            else:
-                formatted_text = f"▎[dim]•[/dim] {event.action.value}".ljust(17 + 11)
-                description = f"[{self._get_action_style(event.action)}]{formatted_text}"
+            )
+        )
 
-            # Update basic task information
-            update_kwargs: dict[str, Any] = {
-                "description": description,
-                "target": event.target or task_name,  # Use task_name as fallback for target
-                "details": event.details or "",
-                "task_name": task_name,
-            }
+        # Create new task if needed
+        if task_name not in self._taskmap:
+            task_id = self._progress.add_task(
+                "",
+                total=None,
+                target=event.target or task_name,
+                details=event.details or "",
+                task_name=task_name,
+            )
+            self._taskmap[task_name] = task_id
+        else:
+            task_id = self._taskmap[task_name]
 
-            # For TOOL_PROGRESS events, update progress if available
-            if event.action == ProgressAction.TOOL_PROGRESS and event.progress is not None:
+        self._task_kind[task_name] = self._task_kind_for_event(
+            event,
+            is_correlated_tool_event=is_correlated_tool_event,
+        )
+
+        # Ensure no None values in the update
+        # For streaming, use custom description immediately to avoid flashing
+        if (
+            event.action == ProgressAction.STREAMING
+            or event.action == ProgressAction.THINKING
+        ) and event.streaming_tokens:
+            # Account for [dim][/dim] tags (11 characters) in padding calculation
+            formatted_tokens = (
+                f"▎[dim]◀[/dim] {event.streaming_tokens.strip()}".ljust(17 + 11)
+            )
+            description = f"[{self._get_action_style(event.action)}]{formatted_tokens}"
+        elif event.action == ProgressAction.CHATTING:
+            # Add special formatting for chatting with dimmed arrow
+            formatted_text = f"▎[dim]▶[/dim] {event.action.value.strip()}".ljust(17 + 11)
+            description = f"[{self._get_action_style(event.action)}]{formatted_text}"
+        elif event.action == ProgressAction.CALLING_TOOL:
+            # Add special formatting for calling tool with dimmed arrow
+            formatted_text = f"▎[dim]◀[/dim] {event.action.value}".ljust(17 + 11)
+            description = f"[{self._get_action_style(event.action)}]{formatted_text}"
+        elif event.action == ProgressAction.TOOL_PROGRESS:
+            # Format similar to streaming - show progress numbers
+            if event.progress is not None:
                 if event.total is not None:
-                    update_kwargs["completed"] = event.progress
-                    update_kwargs["total"] = event.total
+                    progress_display = f"{int(event.progress)}/{int(event.total)}"
                 else:
-                    # Reset to indeterminate in a single update call to avoid
-                    # an intermediate render of the cleared state.
-                    update_kwargs["completed"] = 0
-                    update_kwargs["total"] = None
-
-            self._progress.update(task_id, **update_kwargs)
-
-            if (
-                event.action == ProgressAction.INITIALIZED
-                or event.action == ProgressAction.READY
-                or event.action == ProgressAction.LOADED
-            ):
-                self._progress.update(task_id, completed=100, total=100)
-            elif event.action == ProgressAction.FINISHED:
-                elapsed = self._progress.tasks[task_id].elapsed
-                elapsed_str = time.strftime(
-                    "%H:%M:%S", time.gmtime(elapsed if elapsed is not None else 0)
-                )
-                self._progress.update(
-                    task_id,
-                    completed=100,
-                    total=100,
-                    target=event.target or task_name,
-                    details=f" / Elapsed Time {elapsed_str}",
-                    task_name=task_name,
-                )
-            elif event.action == ProgressAction.FATAL_ERROR:
-                self._progress.update(
-                    task_id,
-                    completed=100,
-                    total=100,
-                    target=event.target or task_name,
-                    details=f" / {event.details}",
-                    task_name=task_name,
-                )
-            elif should_drop_completed_tool_task:
-                self._drop_task(task_name, task_id)
-            elif should_drop_stopped_tool_task:
-                self._drop_task(task_name, task_id)
+                    progress_display = str(int(event.progress))
             else:
-                if event.action != ProgressAction.TOOL_PROGRESS:
-                    self._progress.reset(task_id)
+                progress_display = "Processing"
+            formatted_text = f"▎[dim]▶[/dim] {progress_display}".ljust(17 + 11)
+            description = f"[{self._get_action_style(event.action)}]{formatted_text}"
+        else:
+            formatted_text = f"▎[dim]•[/dim] {event.action.value}".ljust(17 + 11)
+            description = f"[{self._get_action_style(event.action)}]{formatted_text}"
+
+        # Update basic task information
+        details_value = event.details or ""
+        if is_correlated_tool_event:
+            active_correlated = self._count_correlated_tool_rows(event.agent_name or "default")
+            details_value = self._format_correlated_details(
+                details=details_value.strip(),
+                correlation_id=event.correlation_id,
+                force_show_id=active_correlated > 1,
+            )
+
+        update_kwargs: dict[str, Any] = {
+            "description": description,
+            "target": event.target or task_name,  # Use task_name as fallback for target
+            "details": details_value,
+            "task_name": task_name,
+        }
+
+        # For TOOL_PROGRESS events, update progress if available
+        if event.action == ProgressAction.TOOL_PROGRESS and event.progress is not None:
+            if event.total is not None:
+                update_kwargs["completed"] = event.progress
+                update_kwargs["total"] = event.total
+            else:
+                # Reset to indeterminate in a single update call to avoid
+                # an intermediate render of the cleared state.
+                update_kwargs["completed"] = 0
+                update_kwargs["total"] = None
+
+        self._progress.update(task_id, **update_kwargs)
+
+        if event.action in {
+            ProgressAction.INITIALIZED,
+            ProgressAction.READY,
+            ProgressAction.LOADED,
+        }:
+            # Keep lifecycle transitions visible very briefly, then clear them.
+            # This prevents idle/inactive agents from permanently cluttering the board.
+            self._drop_task(task_name, task_id)
+        elif event.action == ProgressAction.FINISHED:
+            finished_task = next((task for task in self._progress.tasks if task.id == task_id), None)
+            elapsed = finished_task.elapsed if finished_task is not None else None
+            elapsed_str = time.strftime(
+                "%H:%M:%S", time.gmtime(elapsed if elapsed is not None else 0)
+            )
+            self._progress.update(
+                task_id,
+                completed=100,
+                total=100,
+                target=event.target or task_name,
+                details=f" / Elapsed Time {elapsed_str}",
+                task_name=task_name,
+            )
+        elif event.action == ProgressAction.FATAL_ERROR:
+            self._progress.update(
+                task_id,
+                completed=100,
+                total=100,
+                target=event.target or task_name,
+                details=f" / {event.details}",
+                task_name=task_name,
+            )
+        elif should_drop_tool_task:
+            self._drop_task(task_name, task_id)
+        else:
+            if event.action != ProgressAction.TOOL_PROGRESS:
+                self._progress.reset(task_id)

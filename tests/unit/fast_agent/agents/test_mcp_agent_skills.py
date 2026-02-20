@@ -11,6 +11,7 @@ from fast_agent.context import Context
 from fast_agent.skills import SKILLS_DEFAULT
 from fast_agent.skills.registry import SkillRegistry, format_skills_for_prompt
 from fast_agent.tools.skill_reader import SkillReader
+from fast_agent.ui import console, notification_tracker
 
 
 def create_skill(
@@ -215,11 +216,17 @@ async def test_agent_skills_missing_placeholder_warns(tmp_path: Path) -> None:
 
     agent = McpAgent(config=config, context=context)
 
-    with patch.object(agent.logger, "warning") as mock_warning:
+    with (
+        patch.object(agent.logger, "warning") as mock_warning,
+        patch.object(console.error_console, "print") as mock_console_print,
+        patch.object(notification_tracker, "add_warning") as mock_add_warning,
+    ):
         await agent._apply_instruction_templates()
         await agent._apply_instruction_templates()
 
     mock_warning.assert_called_once()
+    mock_console_print.assert_not_called()
+    mock_add_warning.assert_called_once()
     assert "Agent 'test' skills are configured" in mock_warning.call_args[0][0]
 
 

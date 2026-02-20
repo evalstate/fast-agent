@@ -135,7 +135,7 @@ class ToolDisplay:
     def _shell_exit_detail(self, *, no_output: bool, tool_call_id: str | None) -> str | None:
         detail = ""
         if no_output:
-            detail += "(no output)"
+            detail += " (no output)"
 
         formatted_id = self._format_tool_call_id(tool_call_id)
         if formatted_id:
@@ -267,7 +267,9 @@ class ToolDisplay:
                     if tool_cfg.tool_name == tool_name and tool_cfg.is_valid:
                         is_skybridge_tool = True
                         skybridge_resource_uri = (
-                            str(tool_cfg.resource_uri) if tool_cfg.resource_uri is not None else None
+                            str(tool_cfg.resource_uri)
+                            if tool_cfg.resource_uri is not None
+                            else None
                         )
                         break
 
@@ -326,10 +328,12 @@ class ToolDisplay:
                 tool_call_id,
             )
 
-            display_content, shell_exit_additional_message = self._build_shell_exit_additional_message(
-                content=display_content,
-                tool_name=tool_name,
-                tool_call_id=tool_call_id,
+            display_content, shell_exit_additional_message = (
+                self._build_shell_exit_additional_message(
+                    content=display_content,
+                    tool_name=tool_name,
+                    tool_call_id=tool_call_id,
+                )
             )
 
             if has_structured:
