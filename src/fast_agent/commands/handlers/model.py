@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Callable, cast
 
 from rich.text import Text
 
@@ -27,6 +27,7 @@ from fast_agent.llm.text_verbosity import (
 
 if TYPE_CHECKING:
     from fast_agent.commands.context import CommandContext
+    from fast_agent.interfaces import FastAgentLLMProtocol
 
 
 def _format_shell_budget(byte_limit: int, source: str) -> str:
@@ -67,6 +68,171 @@ def _styled_set_line(label: str, selected: str) -> Text:
     line.append(selected, style="bold cyan")
     line.append(".", style="dim")
     return line
+
+
+def _enabled_label(value: bool) -> str:
+    return "enabled" if value else "disabled"
+
+
+def _parse_web_tool_setting(value: str) -> bool | None:
+    normalized = value.strip().lower()
+    if normalized in {"default", "auto", "unset"}:
+        return None
+
+    parsed = parse_reasoning_setting(normalized)
+    if parsed is not None and parsed.kind == "toggle":
+        return bool(parsed.value)
+
+    raise ValueError("Allowed values: on, off, default.")
+
+
+def _resolve_web_search_enabled(llm: object) -> bool:
+    web_tools_enabled = getattr(llm, "web_tools_enabled", None)
+    if isinstance(web_tools_enabled, tuple) and len(web_tools_enabled) >= 1:
+        return bool(web_tools_enabled[0])
+
+    enabled = getattr(llm, "web_search_enabled", None)
+    if isinstance(enabled, bool):
+        return enabled
+    return False
+
+
+def _resolve_web_fetch_enabled(llm: object) -> bool:
+    web_tools_enabled = getattr(llm, "web_tools_enabled", None)
+    if isinstance(web_tools_enabled, tuple) and len(web_tools_enabled) >= 2:
+        return bool(web_tools_enabled[1])
+
+    enabled = getattr(llm, "web_fetch_enabled", None)
+    if isinstance(enabled, bool):
+        return enabled
+    return False
+
+
+def _resolve_web_search_supported(llm: object) -> bool:
+    supported = getattr(llm, "web_search_supported", None)
+    return bool(supported) if isinstance(supported, bool) else False
+
+
+def _resolve_web_fetch_supported(llm: object) -> bool:
+    supported = getattr(llm, "web_fetch_supported", None)
+    return bool(supported) if isinstance(supported, bool) else False
+
+
+def _set_web_search_enabled(llm: object, value: bool | None) -> None:
+    setter = getattr(llm, "set_web_search_enabled", None)
+    if callable(setter):
+        setter(value)
+        return
+    raise ValueError("Current model does not support web search configuration.")
+
+
+def _set_web_fetch_enabled(llm: object, value: bool | None) -> None:
+    setter = getattr(llm, "set_web_fetch_enabled", None)
+    if callable(setter):
+        setter(value)
+        return
+    raise ValueError("Current model does not support web fetch configuration.")
+
+
+def model_supports_web_search(llm: object) -> bool:
+    """Return True when model/provider supports web_search runtime configuration."""
+    return _resolve_web_search_supported(llm)
+
+
+def model_supports_web_fetch(llm: object) -> bool:
+    """Return True when model/provider supports web_fetch runtime configuration."""
+    return _resolve_web_fetch_supported(llm)
+
+
+def model_supports_text_verbosity(llm: object) -> bool:
+    """Return True when model exposes text verbosity controls."""
+    return getattr(llm, "text_verbosity_spec", None) is not None
+
+
+def _resolve_agent_llm(
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+    outcome: CommandOutcome,
+) -> tuple[object, FastAgentLLMProtocol] | None:
+    agent = ctx.agent_provider._agent(agent_name)
+    llm_obj = getattr(agent, "llm", None) or getattr(agent, "_llm", None)
+    if llm_obj is None:
+        outcome.add_message("No LLM attached to agent.", channel="warning", right_info="model")
+        return None
+    llm = cast("FastAgentLLMProtocol", llm_obj)
+    return agent, llm
+
+
+async def _handle_model_web_tool(
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+    value: str | None,
+    label: str,
+    setting_name: str,
+    supported_resolver: Callable[[object], bool],
+    enabled_resolver: Callable[[object], bool],
+    setter: Callable[[object, bool | None], None],
+) -> CommandOutcome:
+    outcome = CommandOutcome()
+    resolved = _resolve_agent_llm(ctx, agent_name=agent_name, outcome=outcome)
+    if resolved is None:
+        return outcome
+    agent, llm = resolved
+
+    _add_model_details(
+        outcome,
+        ctx=ctx,
+        agent=agent,
+        llm=llm,
+        include_shell_budget=value is None,
+    )
+
+    if not supported_resolver(llm):
+        outcome.add_message(
+            f"Current model does not support {setting_name} configuration.",
+            channel="warning",
+            right_info="model",
+        )
+        return outcome
+
+    if value is None:
+        outcome.add_message(
+            _styled_selected_with_allowed(label, _enabled_label(enabled_resolver(llm)), "on, off, default"),
+            channel="system",
+            right_info="model",
+        )
+        return outcome
+
+    try:
+        parsed = _parse_web_tool_setting(value)
+    except ValueError as exc:
+        outcome.add_message(
+            f"Invalid {setting_name} value '{value}'. {exc}",
+            channel="error",
+            right_info="model",
+        )
+        return outcome
+
+    try:
+        setter(llm, parsed)
+    except ValueError as exc:
+        outcome.add_message(
+            str(exc),
+            channel="error",
+            right_info="model",
+        )
+        return outcome
+
+    current = _enabled_label(enabled_resolver(llm))
+    selected = current if parsed is not None else f"default ({current})"
+    outcome.add_message(
+        _styled_set_line(label, selected),
+        channel="system",
+        right_info="model",
+    )
+    return outcome
 
 
 def _add_model_details(
@@ -225,11 +391,10 @@ async def handle_model_reasoning(
     value: str | None,
 ) -> CommandOutcome:
     outcome = CommandOutcome()
-    agent = ctx.agent_provider._agent(agent_name)
-    llm = getattr(agent, "llm", None) or getattr(agent, "_llm", None)
-    if llm is None:
-        outcome.add_message("No LLM attached to agent.", channel="warning", right_info="model")
+    resolved = _resolve_agent_llm(ctx, agent_name=agent_name, outcome=outcome)
+    if resolved is None:
         return outcome
+    agent, llm = resolved
 
     _add_model_details(
         outcome,
@@ -332,11 +497,10 @@ async def handle_model_verbosity(
     value: str | None,
 ) -> CommandOutcome:
     outcome = CommandOutcome()
-    agent = ctx.agent_provider._agent(agent_name)
-    llm = getattr(agent, "llm", None) or getattr(agent, "_llm", None)
-    if llm is None:
-        outcome.add_message("No LLM attached to agent.", channel="warning", right_info="model")
+    resolved = _resolve_agent_llm(ctx, agent_name=agent_name, outcome=outcome)
+    if resolved is None:
         return outcome
+    agent, llm = resolved
 
     _add_model_details(
         outcome,
@@ -392,3 +556,39 @@ async def handle_model_verbosity(
         right_info="model",
     )
     return outcome
+
+
+async def handle_model_web_search(
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+    value: str | None,
+) -> CommandOutcome:
+    return await _handle_model_web_tool(
+        ctx,
+        agent_name=agent_name,
+        value=value,
+        label="Web search",
+        setting_name="web_search",
+        supported_resolver=_resolve_web_search_supported,
+        enabled_resolver=_resolve_web_search_enabled,
+        setter=_set_web_search_enabled,
+    )
+
+
+async def handle_model_web_fetch(
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+    value: str | None,
+) -> CommandOutcome:
+    return await _handle_model_web_tool(
+        ctx,
+        agent_name=agent_name,
+        value=value,
+        label="Web fetch",
+        setting_name="web_fetch",
+        supported_resolver=_resolve_web_fetch_supported,
+        enabled_resolver=_resolve_web_fetch_enabled,
+        setter=_set_web_fetch_enabled,
+    )

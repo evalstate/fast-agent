@@ -15,84 +15,31 @@ Usage:
 """
 
 import asyncio
-import shlex
-import signal
-import threading
 import time
-from contextlib import suppress
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Union, cast
 
 from mcp.types import PromptMessage
 from rich import print as rich_print
-from rich.text import Text
 
 if TYPE_CHECKING:
-    from fast_agent.commands.context import AgentProvider
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.ui.console_display import ConsoleDisplay
 
 from fast_agent.agents.agent_types import AgentType
-from fast_agent.commands.context import CommandContext
-from fast_agent.commands.handlers import agent_cards as agent_card_handlers
-from fast_agent.commands.handlers import display as display_handlers
-from fast_agent.commands.handlers import history as history_handlers
-from fast_agent.commands.handlers import mcp_runtime as mcp_runtime_handlers
-from fast_agent.commands.handlers import model as model_handlers
+from fast_agent.commands.handlers import mcp_runtime as mcp_runtime_handlers  # noqa: F401
 from fast_agent.commands.handlers import prompts as prompt_handlers
-from fast_agent.commands.handlers import sessions as sessions_handlers
-from fast_agent.commands.handlers import skills as skills_handlers
-from fast_agent.commands.handlers import tools as tools_handlers
-from fast_agent.commands.handlers.shared import clear_agent_histories
-from fast_agent.commands.results import CommandOutcome
 from fast_agent.config import get_settings
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui import enhanced_prompt
-from fast_agent.ui.adapters import TuiCommandIO
 from fast_agent.ui.command_payloads import (
-    AgentCommand,
-    ClearCommand,
-    ClearSessionsCommand,
     CommandPayload,
-    CreateSessionCommand,
-    ForkSessionCommand,
-    HashAgentCommand,
-    HistoryFixCommand,
-    HistoryReviewCommand,
-    HistoryRewindCommand,
-    HistoryWebClearCommand,
     InterruptCommand,
-    ListPromptsCommand,
-    ListSessionsCommand,
-    ListSkillsCommand,
-    ListToolsCommand,
-    LoadAgentCardCommand,
-    LoadPromptCommand,
-    McpConnectCommand,
-    McpDisconnectCommand,
-    McpListCommand,
-    ModelReasoningCommand,
-    ModelVerbosityCommand,
-    PinSessionCommand,
-    ReloadAgentsCommand,
-    ResumeSessionCommand,
-    SelectPromptCommand,
     ShellCommand,
-    ShowHistoryCommand,
-    ShowMarkdownCommand,
-    ShowMcpStatusCommand,
-    ShowSystemCommand,
-    ShowUsageCommand,
-    SkillsCommand,
-    SwitchAgentCommand,
-    TitleSessionCommand,
-    UnknownCommand,
     is_command_payload,
 )
-from fast_agent.ui.console import console, ensure_blocking_console
 from fast_agent.ui.enhanced_prompt import (
-    _display_agent_info_helper,
     get_enhanced_input,
     handle_special_commands,
     parse_special_input,
@@ -131,38 +78,18 @@ class InteractivePrompt:
             rich_print(f"[red]Unable to load agent '{agent_name}'[/red]")
             return None
 
-    def _build_command_context(
-        self, prompt_provider: "AgentApp", agent_name: str
-    ) -> CommandContext:
-        settings = get_settings()
-        noenv_mode = bool(getattr(prompt_provider, "_noenv_mode", False))
-        io = TuiCommandIO(
-            prompt_provider=cast("AgentProvider", prompt_provider),
-            agent_name=agent_name,
-            settings=settings,
-        )
-        return CommandContext(
-            agent_provider=cast("AgentProvider", prompt_provider),
-            current_agent_name=agent_name,
-            io=io,
-            settings=settings,
-            noenv=noenv_mode,
-        )
-
-    async def _emit_command_outcome(self, context: CommandContext, outcome: CommandOutcome) -> None:
-        for message in outcome.messages:
-            await context.io.emit(message)
-
     async def _get_all_prompts(
         self,
         prompt_provider: "AgentApp",
         agent_name: str | None = None,
     ) -> list[dict[str, Any]]:
+        from fast_agent.ui.interactive.command_context import build_command_context
+
         target_agent = agent_name
         if not target_agent:
             agent_names = list(prompt_provider.agent_names())
             target_agent = agent_names[0] if agent_names else ""
-        context = self._build_command_context(prompt_provider, target_agent)
+        context = build_command_context(prompt_provider, target_agent)
         return await prompt_handlers._get_all_prompts(context, agent_name)
 
     async def prompt_loop(
@@ -425,555 +352,45 @@ class InteractivePrompt:
             # Check if we should switch agents
             if is_command_payload(command_result):
                 command_payload: CommandPayload = cast("CommandPayload", command_result)
-                match command_payload:
-                    case InterruptCommand():
-                        _handle_ctrl_c_interrupt()
-                        continue
-                    case SwitchAgentCommand(agent_name=new_agent):
-                        if new_agent in available_agents_set:
-                            agent = new_agent
-                            # Display new agent info immediately when switching
-                            rich_print()  # Add spacing
-                            await _display_agent_info_helper(agent, prompt_provider)
-                            continue
-                        rich_print(f"[red]Agent '{new_agent}' not found[/red]")
-                        continue
-                    case HashAgentCommand(agent_name=target_agent, message=hash_message):
-                        # Validate, but send after input handling.
-                        if target_agent not in available_agents_set:
-                            rich_print(f"[red]Agent '{target_agent}' not found[/red]")
-                            continue
-                        if not hash_message:
-                            rich_print(f"[yellow]Usage: #{target_agent} <message>[/yellow]")
-                            continue
-                        # Set up for sending outside the paused context
-                        hash_send_target = target_agent
-                        hash_send_message = hash_message
-                        # Don't continue here - fall through to execution
-                    case ShellCommand(command=shell_cmd):
-                        # Store for execution after input handling
-                        shell_execute_cmd = shell_cmd
-                        # Don't continue here - fall through to execution
-                    # Keep the existing list_prompts handler for backward compatibility
-                    case ListPromptsCommand():
-                        context = self._build_command_context(prompt_provider, agent)
-                        outcome = await prompt_handlers.handle_list_prompts(
-                            context,
-                            agent_name=agent,
-                        )
-                        await self._emit_command_outcome(context, outcome)
-                        continue
-                    case SelectPromptCommand(prompt_name=prompt_name, prompt_index=prompt_index):
-                        context = self._build_command_context(prompt_provider, agent)
-                        outcome = await prompt_handlers.handle_select_prompt(
-                            context,
-                            agent_name=agent,
-                            requested_name=prompt_name,
-                            prompt_index=prompt_index,
-                        )
-                        await self._emit_command_outcome(context, outcome)
-                        if outcome.buffer_prefill:
-                            buffer_prefill = outcome.buffer_prefill
-                        continue
-                    case LoadPromptCommand(filename=filename, error=error):
-                        context = self._build_command_context(prompt_provider, agent)
-                        outcome = await prompt_handlers.handle_load_prompt(
-                            context,
-                            agent_name=agent,
-                            filename=filename,
-                            error=error,
-                        )
-                        await self._emit_command_outcome(context, outcome)
-                        if outcome.buffer_prefill:
-                            buffer_prefill = outcome.buffer_prefill
-                        continue
-                    case ListToolsCommand():
-                        context = self._build_command_context(prompt_provider, agent)
-                        outcome = await tools_handlers.handle_list_tools(
-                            context,
-                            agent_name=agent,
-                        )
-                        await self._emit_command_outcome(context, outcome)
-                        continue
-                    case ListSkillsCommand():
-                        context = self._build_command_context(prompt_provider, agent)
-                        outcome = await skills_handlers.handle_list_skills(
-                            context,
-                            agent_name=agent,
-                        )
-                        await self._emit_command_outcome(context, outcome)
-                        continue
-                    case SkillsCommand(action=action, argument=argument):
-                        context = self._build_command_context(prompt_provider, agent)
-                        outcome = await skills_handlers.handle_skills_command(
-                            context,
-                            agent_name=agent,
-                            action=action,
-                            argument=argument,
-                        )
-                        await self._emit_command_outcome(context, outcome)
-                        continue
-                    case ShowUsageCommand():
-                        context = self._build_command_context(prompt_provider, agent)
-                        outcome = await display_handlers.handle_show_usage(
-                            context,
-                            agent_name=agent,
-                        )
-                        await self._emit_command_outcome(context, outcome)
-                        continue
-                    case ShowHistoryCommand(agent=target_agent):
-                        if (
-                            target_agent
-                            and self._get_agent_or_warn(prompt_provider, target_agent) is None
-                        ):
-                            continue
-                        context = self._build_command_context(prompt_provider, agent)
-                        outcome = await history_handlers.handle_show_history(
-                            context,
-                            agent_name=agent,
-                            target_agent=target_agent,
-                        )
-                        await self._emit_command_outcome(context, outcome)
-                        continue
-                    case HistoryRewindCommand(turn_index=turn_index, error=error):
-                        context = self._build_command_context(prompt_provider, agent)
-                        outcome = await history_handlers.handle_history_rewind(
-                            context,
-                            agent_name=agent,
-                            turn_index=turn_index,
-                            error=error,
-                        )
-                        await self._emit_command_outcome(context, outcome)
-                        if outcome.buffer_prefill:
-                            buffer_prefill = outcome.buffer_prefill
-                        continue
-                    case HistoryReviewCommand(turn_index=turn_index, error=error):
-                        context = self._build_command_context(prompt_provider, agent)
-                        outcome = await history_handlers.handle_history_review(
-                            context,
-                            agent_name=agent,
-                            turn_index=turn_index,
-                            error=error,
-                        )
-                        await self._emit_command_outcome(context, outcome)
-                        continue
-                    case HistoryFixCommand(agent=target_agent):
-                        if (
-                            target_agent
-                            and self._get_agent_or_warn(prompt_provider, target_agent) is None
-                        ):
-                            continue
-                        context = self._build_command_context(prompt_provider, agent)
-                        outcome = await history_handlers.handle_history_fix(
-                            context,
-                            agent_name=agent,
-                            target_agent=target_agent,
-                        )
-                        await self._emit_command_outcome(context, outcome)
-                        continue
-                    case HistoryWebClearCommand(agent=target_agent):
-                        if (
-                            target_agent
-                            and self._get_agent_or_warn(prompt_provider, target_agent) is None
-                        ):
-                            continue
-                        context = self._build_command_context(prompt_provider, agent)
-                        outcome = await history_handlers.handle_history_webclear(
-                            context,
-                            agent_name=agent,
-                            target_agent=target_agent,
-                        )
-                        await self._emit_command_outcome(context, outcome)
-                        continue
-                    case ClearCommand(kind="clear_last", agent=target_agent):
-                        if (
-                            target_agent
-                            and self._get_agent_or_warn(prompt_provider, target_agent) is None
-                        ):
-                            continue
-                        context = self._build_command_context(prompt_provider, agent)
-                        outcome = await history_handlers.handle_history_clear_last(
-                            context,
-                            agent_name=agent,
-                            target_agent=target_agent,
-                        )
-                        await self._emit_command_outcome(context, outcome)
-                        continue
-                    case ClearCommand(kind="clear_history", agent=target_agent):
-                        if (
-                            target_agent
-                            and self._get_agent_or_warn(prompt_provider, target_agent) is None
-                        ):
-                            continue
-                        context = self._build_command_context(prompt_provider, agent)
-                        outcome = await history_handlers.handle_history_clear_all(
-                            context,
-                            agent_name=agent,
-                            target_agent=target_agent,
-                        )
-                        await self._emit_command_outcome(context, outcome)
-                        continue
-                    case ShowSystemCommand():
-                        context = self._build_command_context(prompt_provider, agent)
-                        outcome = await display_handlers.handle_show_system(
-                            context,
-                            agent_name=agent,
-                        )
-                        await self._emit_command_outcome(context, outcome)
-                        continue
-                    case ShowMarkdownCommand():
-                        context = self._build_command_context(prompt_provider, agent)
-                        outcome = await display_handlers.handle_show_markdown(
-                            context,
-                            agent_name=agent,
-                        )
-                        await self._emit_command_outcome(context, outcome)
-                        continue
-                    case ShowMcpStatusCommand():
-                        context = self._build_command_context(prompt_provider, agent)
-                        outcome = await display_handlers.handle_show_mcp_status(
-                            context,
-                            agent_name=agent,
-                        )
-                        await self._emit_command_outcome(context, outcome)
-                        continue
-                    case McpListCommand():
-                        context = self._build_command_context(prompt_provider, agent)
-                        outcome = await mcp_runtime_handlers.handle_mcp_list(
-                            context,
-                            manager=prompt_provider,
-                            agent_name=agent,
-                        )
-                        await self._emit_command_outcome(context, outcome)
-                        continue
-                    case McpConnectCommand(
-                        target_text=target_text,
-                        server_name=server_name,
-                        auth_token=auth_token,
-                        timeout_seconds=timeout_seconds,
-                        trigger_oauth=trigger_oauth,
-                        reconnect_on_disconnect=reconnect_on_disconnect,
-                        force_reconnect=force_reconnect,
-                        error=error,
-                    ):
-                        context = self._build_command_context(prompt_provider, agent)
-                        if error:
-                            rich_print(f"[red]{error}[/red]")
-                            continue
-                        runtime_target = target_text
-                        if server_name:
-                            runtime_target += f" --name {server_name}"
-                        if auth_token:
-                            runtime_target += f" --auth {shlex.quote(auth_token)}"
-                        if timeout_seconds is not None:
-                            runtime_target += f" --timeout {timeout_seconds}"
-                        if trigger_oauth is True:
-                            runtime_target += " --oauth"
-                        elif trigger_oauth is False:
-                            runtime_target += " --no-oauth"
-                        if reconnect_on_disconnect is False:
-                            runtime_target += " --no-reconnect"
-                        if force_reconnect:
-                            runtime_target += " --reconnect"
-                        label = server_name or target_text.split(maxsplit=1)[0]
-                        attached_before_connect: set[str] = set()
-                        try:
-                            attached_before_connect = set(
-                                await prompt_provider.list_attached_mcp_servers(agent)
-                            )
-                        except Exception:
-                            attached_before_connect = set()
+                from fast_agent.ui.interactive.command_dispatch import dispatch_command_payload
 
-                        async def _handle_mcp_connect_cancel() -> None:
-                            nonlocal ctrl_c_deadline
+                try:
+                    dispatch_result = await dispatch_command_payload(
+                        self,
+                        command_payload,
+                        prompt_provider=prompt_provider,
+                        agent=agent,
+                        available_agents=available_agents,
+                        available_agents_set=available_agents_set,
+                        merge_pinned_agents=_merge_pinned_agents,
+                    )
+                except KeyboardInterrupt:
+                    _handle_ctrl_c_interrupt()
+                    continue
 
-                            cancel_server_name = server_name
-                            if not cancel_server_name:
-                                try:
-                                    parsed_runtime = mcp_runtime_handlers.parse_connect_input(
-                                        runtime_target
-                                    )
-                                    cancel_server_name = parsed_runtime.server_name
-                                    if not cancel_server_name:
-                                        mode = mcp_runtime_handlers.infer_connect_mode(
-                                            parsed_runtime.target_text
-                                        )
-                                        cancel_server_name = mcp_runtime_handlers._infer_server_name(
-                                            parsed_runtime.target_text,
-                                            mode,
-                                        )
-                                except Exception:
-                                    cancel_server_name = None
+                if dispatch_result.available_agents is not None:
+                    available_agents = dispatch_result.available_agents
+                if dispatch_result.available_agents_set is not None:
+                    available_agents_set = dispatch_result.available_agents_set
 
-                            should_detach_on_cancel = bool(cancel_server_name) and (
-                                cancel_server_name not in attached_before_connect
-                            )
-                            if should_detach_on_cancel and cancel_server_name:
-                                try:
-                                    await prompt_provider.detach_mcp_server(
-                                        agent,
-                                        cancel_server_name,
-                                    )
-                                except (Exception, asyncio.CancelledError):
-                                    pass
+                if dispatch_result.next_agent is not None:
+                    agent = dispatch_result.next_agent
 
-                            rich_print()
-                            rich_print(
-                                "[yellow]MCP connect cancelled; returned to prompt.[/yellow]"
-                            )
-                            ctrl_c_deadline = None
+                if dispatch_result.buffer_prefill:
+                    buffer_prefill = dispatch_result.buffer_prefill
 
-                        with console.status(
-                            f"[yellow]Starting MCP server '{label}'...[/yellow]",
-                            spinner="dots",
-                        ) as mcp_connect_status:
-                            oauth_link_shown = False
+                if dispatch_result.hash_send_target and dispatch_result.hash_send_message:
+                    hash_send_target = dispatch_result.hash_send_target
+                    hash_send_message = dispatch_result.hash_send_message
 
-                            async def _emit_mcp_progress(message: str) -> None:
-                                nonlocal oauth_link_shown
-                                if message.startswith("Open this link to authorize:"):
-                                    auth_url = message.split(":", 1)[1].strip()
-                                    if auth_url:
-                                        oauth_link_shown = True
-                                        rich_print("[bold]Open this link to authorize:[/bold]")
-                                        ensure_blocking_console()
-                                        console.print(
-                                            f"[link={auth_url}]{auth_url}[/link]",
-                                            style="bright_cyan",
-                                            soft_wrap=True,
-                                        )
-                                        return
-                                mcp_connect_status.update(status=Text(message, style="yellow"))
+                if dispatch_result.shell_execute_cmd:
+                    shell_execute_cmd = dispatch_result.shell_execute_cmd
 
-                            connect_task = asyncio.create_task(
-                                mcp_runtime_handlers.handle_mcp_connect(
-                                    context,
-                                    manager=prompt_provider,
-                                    agent_name=agent,
-                                    target_text=runtime_target,
-                                    on_progress=_emit_mcp_progress,
-                                )
-                            )
+                if dispatch_result.should_return:
+                    return result
 
-                            previous_sigint_handler: Any | None = None
-                            sigint_handler_installed = False
-
-                            if threading.current_thread() is threading.main_thread():
-                                previous_sigint_handler = signal.getsignal(signal.SIGINT)
-
-                                def _sigint_cancel_connect(_signum: int, _frame: Any) -> None:
-                                    if not connect_task.done():
-                                        connect_task.cancel()
-
-                                signal.signal(signal.SIGINT, _sigint_cancel_connect)
-                                sigint_handler_installed = True
-
-                            try:
-                                outcome = await connect_task
-                            except (KeyboardInterrupt, asyncio.CancelledError):
-                                if not connect_task.done():
-                                    connect_task.cancel()
-                                    with suppress(asyncio.CancelledError, asyncio.TimeoutError):
-                                        await asyncio.wait_for(connect_task, timeout=1.0)
-
-                                await _handle_mcp_connect_cancel()
-                                continue
-                            finally:
-                                if sigint_handler_installed and previous_sigint_handler is not None:
-                                    signal.signal(signal.SIGINT, previous_sigint_handler)
-                        if oauth_link_shown:
-                            outcome.messages = [
-                                message
-                                for message in outcome.messages
-                                if not str(message.text).startswith("OAuth authorization link:")
-                            ]
-                        await self._emit_command_outcome(context, outcome)
-                        continue
-                    case McpDisconnectCommand(server_name=server_name, error=error):
-                        context = self._build_command_context(prompt_provider, agent)
-                        if error or not server_name:
-                            rich_print(f"[red]{error or 'Server name is required'}[/red]")
-                            continue
-                        outcome = await mcp_runtime_handlers.handle_mcp_disconnect(
-                            context,
-                            manager=prompt_provider,
-                            agent_name=agent,
-                            server_name=server_name,
-                        )
-                        await self._emit_command_outcome(context, outcome)
-                        continue
-                    case ModelReasoningCommand(value=value):
-                        context = self._build_command_context(prompt_provider, agent)
-                        outcome = await model_handlers.handle_model_reasoning(
-                            context,
-                            agent_name=agent,
-                            value=value,
-                        )
-                        await self._emit_command_outcome(context, outcome)
-                        continue
-                    case ModelVerbosityCommand(value=value):
-                        context = self._build_command_context(prompt_provider, agent)
-                        outcome = await model_handlers.handle_model_verbosity(
-                            context,
-                            agent_name=agent,
-                            value=value,
-                        )
-                        await self._emit_command_outcome(context, outcome)
-                        continue
-                    case CreateSessionCommand(session_name=session_name):
-                        context = self._build_command_context(prompt_provider, agent)
-                        outcome = await sessions_handlers.handle_create_session(
-                            context,
-                            session_name=session_name,
-                        )
-                        # Clear agent histories for new session
-                        cleared = clear_agent_histories(prompt_provider._agents)
-                        if cleared:
-                            cleared_list = ", ".join(sorted(cleared))
-                            outcome.add_message(
-                                f"Cleared agent history: {cleared_list}",
-                                channel="info",
-                            )
-                        await self._emit_command_outcome(context, outcome)
-                        continue
-                    case ListSessionsCommand(show_help=show_help):
-                        context = self._build_command_context(prompt_provider, agent)
-                        outcome = await sessions_handlers.handle_list_sessions(
-                            context,
-                            show_help=show_help,
-                        )
-                        await self._emit_command_outcome(context, outcome)
-                        continue
-                    case ClearSessionsCommand(target=target):
-                        context = self._build_command_context(prompt_provider, agent)
-                        outcome = await sessions_handlers.handle_clear_sessions(
-                            context,
-                            target=target,
-                        )
-                        await self._emit_command_outcome(context, outcome)
-                        continue
-                    case PinSessionCommand(value=value, target=target):
-                        context = self._build_command_context(prompt_provider, agent)
-                        outcome = await sessions_handlers.handle_pin_session(
-                            context,
-                            value=value,
-                            target=target,
-                        )
-                        await self._emit_command_outcome(context, outcome)
-                        continue
-                    case ResumeSessionCommand(session_id=session_id):
-                        context = self._build_command_context(prompt_provider, agent)
-                        outcome = await sessions_handlers.handle_resume_session(
-                            context,
-                            agent_name=agent,
-                            session_id=session_id,
-                        )
-                        await self._emit_command_outcome(context, outcome)
-                        if outcome.switch_agent:
-                            agent = outcome.switch_agent
-                        continue
-                    case TitleSessionCommand(title=title):
-                        context = self._build_command_context(prompt_provider, agent)
-                        outcome = await sessions_handlers.handle_title_session(
-                            context,
-                            title=title,
-                        )
-                        await self._emit_command_outcome(context, outcome)
-                        continue
-                    case ForkSessionCommand(title=title):
-                        context = self._build_command_context(prompt_provider, agent)
-                        outcome = await sessions_handlers.handle_fork_session(
-                            context,
-                            title=title,
-                        )
-                        await self._emit_command_outcome(context, outcome)
-                        continue
-
-                    case LoadAgentCardCommand(
-                        filename=filename,
-                        add_tool=add_tool,
-                        remove_tool=remove_tool,
-                        error=error,
-                    ):
-                        if error:
-                            rich_print(f"[red]{error}[/red]")
-                            continue
-
-                        context = self._build_command_context(prompt_provider, agent)
-                        outcome = await agent_card_handlers.handle_card_load(
-                            context,
-                            manager=prompt_provider,
-                            filename=filename,
-                            add_tool=add_tool,
-                            remove_tool=remove_tool,
-                            current_agent=agent,
-                        )
-                        await self._emit_command_outcome(context, outcome)
-
-                        if outcome.requires_refresh:
-                            available_agents = _merge_pinned_agents(
-                                list(prompt_provider.agent_names())
-                            )
-                            available_agents_set = set(available_agents)
-                            self.agent_types = prompt_provider.agent_types()
-
-                            if agent not in available_agents_set:
-                                if available_agents:
-                                    agent = available_agents[0]
-                                else:
-                                    rich_print("[red]No agents available after load.[/red]")
-                                    return result
-                        continue
-                    case AgentCommand(
-                        agent_name=agent_name,
-                        add_tool=add_tool,
-                        remove_tool=remove_tool,
-                        dump=dump,
-                        error=error,
-                    ):
-                        if error:
-                            rich_print(f"[red]{error}[/red]")
-                            continue
-
-                        context = self._build_command_context(prompt_provider, agent)
-                        outcome = await agent_card_handlers.handle_agent_command(
-                            context,
-                            manager=prompt_provider,
-                            current_agent=agent,
-                            target_agent=agent_name,
-                            add_tool=add_tool,
-                            remove_tool=remove_tool,
-                            dump=dump,
-                        )
-                        await self._emit_command_outcome(context, outcome)
-                        continue
-                    case ReloadAgentsCommand():
-                        context = self._build_command_context(prompt_provider, agent)
-                        outcome = await agent_card_handlers.handle_reload_agents(
-                            context,
-                            manager=prompt_provider,
-                        )
-                        await self._emit_command_outcome(context, outcome)
-
-                        if outcome.requires_refresh:
-                            available_agents = _merge_pinned_agents(
-                                list(prompt_provider.agent_names())
-                            )
-                            available_agents_set = set(available_agents)
-                            self.agent_types = prompt_provider.agent_types()
-
-                            if agent not in available_agents_set:
-                                if available_agents:
-                                    agent = available_agents[0]
-                                else:
-                                    rich_print("[red]No agents available after reload.[/red]")
-                                    return result
-                        continue
-                    case UnknownCommand(command=command):
-                        rich_print(f"[red]Command not found: {command}[/red]")
-                        continue
-                    case _:
-                        pass
+                if dispatch_result.handled and not hash_send_target and not shell_execute_cmd:
+                    continue
 
             # Skip further processing if:
             # 1. The command was handled (command_result is truthy)

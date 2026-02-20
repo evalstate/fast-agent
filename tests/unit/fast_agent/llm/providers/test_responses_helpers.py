@@ -21,7 +21,10 @@ from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.provider.openai.codex_responses import CodexResponsesLLM
-from fast_agent.llm.provider.openai.responses import ResponsesLLM
+from fast_agent.llm.provider.openai.responses import (
+    RESPONSE_INCLUDE_WEB_SEARCH_SOURCES,
+    ResponsesLLM,
+)
 from fast_agent.llm.provider.openai.responses_content import ResponsesContentMixin
 from fast_agent.llm.provider.openai.responses_files import ResponsesFileMixin
 from fast_agent.llm.provider.openai.responses_output import ResponsesOutputMixin
@@ -446,6 +449,10 @@ def test_build_response_args_includes_openai_web_search_tool() -> None:
     assert web_tool["search_context_size"] == "high"
     assert web_tool["user_location"]["timezone"] == "America/Chicago"
 
+    include_payload = args.get("include")
+    assert isinstance(include_payload, list)
+    assert RESPONSE_INCLUDE_WEB_SEARCH_SOURCES in include_payload
+
 
 def test_web_search_override_disables_configured_web_search_tool() -> None:
     llm = _build_responses_llm_with_web_search(
@@ -467,6 +474,10 @@ def test_web_search_override_disables_configured_web_search_tool() -> None:
 
     assert "tools" not in args
     assert llm.web_search_enabled is False
+
+    include_payload = args.get("include")
+    assert isinstance(include_payload, list)
+    assert RESPONSE_INCLUDE_WEB_SEARCH_SOURCES not in include_payload
 
 
 def test_responses_web_search_enabled_property_tracks_config() -> None:
@@ -527,6 +538,10 @@ def test_codex_web_search_enabled_adds_tool_payload() -> None:
     assert web_tool["type"] == "web_search"
     assert web_tool["filters"]["allowed_domains"] == ["openai.com"]
     assert web_tool["external_web_access"] is True
+
+    include_payload = args.get("include")
+    assert isinstance(include_payload, list)
+    assert RESPONSE_INCLUDE_WEB_SEARCH_SOURCES in include_payload
 
 
 def test_extract_web_search_metadata_captures_tool_and_citations() -> None:

@@ -55,6 +55,8 @@ DEFAULT_REASONING_EFFORT = "medium"
 MIN_RESPONSES_MAX_TOKENS = 16
 DEFAULT_RESPONSES_BASE_URL = "https://api.openai.com/v1"
 RESPONSES_DIAGNOSTICS_CHANNEL = "fast-agent-provider-diagnostics"
+RESPONSE_INCLUDE_REASONING = "reasoning.encrypted_content"
+RESPONSE_INCLUDE_WEB_SEARCH_SOURCES = "web_search_call.action.sources"
 
 ResponsesTransport = Literal["sse", "websocket", "auto"]
 
@@ -287,6 +289,11 @@ class ResponsesLLM(
         return self._get_provider_config()
 
     @property
+    def web_search_supported(self) -> bool:
+        """Responses-family models currently expose the web_search server tool."""
+        return True
+
+    @property
     def web_search_enabled(self) -> bool:
         """Whether Responses web_search is enabled for this LLM instance."""
         resolved_web_search = resolve_web_search(
@@ -294,6 +301,22 @@ class ResponsesLLM(
             web_search_override=self._web_search_override,
         )
         return resolved_web_search.enabled
+
+    def set_web_search_enabled(self, value: bool | None) -> None:
+        self._web_search_override = value
+
+    @property
+    def web_fetch_supported(self) -> bool:
+        """Responses-family models do not expose web_fetch."""
+        return False
+
+    @property
+    def web_fetch_enabled(self) -> bool:
+        """Responses-family models do not expose web_fetch."""
+        return False
+
+    def set_web_fetch_enabled(self, value: bool | None) -> None:
+        super().set_web_fetch_enabled(value)
 
     def _base_url(self) -> str | None:
         settings = self._openai_settings()
@@ -364,7 +387,7 @@ class ResponsesLLM(
             "model": model,
             "input": input_items,
             "store": False,
-            "include": ["reasoning.encrypted_content"],
+            "include": [RESPONSE_INCLUDE_REASONING],
             "parallel_tool_calls": request_params.parallel_tool_calls,
         }
 
@@ -392,6 +415,11 @@ class ResponsesLLM(
             tools_payload = base_args.setdefault("tools", [])
             if isinstance(tools_payload, list):
                 tools_payload.append(web_search_tool)
+
+            include_payload = base_args.get("include")
+            if isinstance(include_payload, list):
+                if RESPONSE_INCLUDE_WEB_SEARCH_SOURCES not in include_payload:
+                    include_payload.append(RESPONSE_INCLUDE_WEB_SEARCH_SOURCES)
 
         if self._reasoning:
             effort = self._resolve_reasoning_effort()

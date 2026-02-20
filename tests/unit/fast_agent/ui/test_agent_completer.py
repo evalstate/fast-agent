@@ -278,6 +278,80 @@ def test_get_completions_for_history_subcommands_includes_webclear_when_web_fetc
     assert "webclear" in names
 
 
+def test_get_completions_for_model_subcommands_includes_web_search_when_supported() -> None:
+    class _LlmStub:
+        reasoning_effort_spec = None
+        text_verbosity_spec = None
+        web_search_supported = True
+        web_fetch_supported = False
+
+    class _AgentStub:
+        llm = _LlmStub()
+
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(_AgentStub())),
+    )
+
+    doc = Document("/model ", cursor_position=len("/model "))
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert "reasoning" in names
+    assert "web_search" in names
+    assert "web_fetch" not in names
+
+
+def test_get_completions_for_model_subcommands_includes_web_fetch_when_supported() -> None:
+    class _LlmStub:
+        reasoning_effort_spec = None
+        text_verbosity_spec = None
+        web_search_supported = True
+        web_fetch_supported = True
+
+    class _AgentStub:
+        llm = _LlmStub()
+
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(_AgentStub())),
+    )
+
+    doc = Document("/model ", cursor_position=len("/model "))
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert "web_search" in names
+    assert "web_fetch" in names
+
+
+def test_get_completions_for_model_web_search_values() -> None:
+    class _LlmStub:
+        reasoning_effort_spec = None
+        text_verbosity_spec = None
+        web_search_supported = True
+        web_fetch_supported = False
+
+    class _AgentStub:
+        llm = _LlmStub()
+
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(_AgentStub())),
+    )
+
+    doc = Document("/model web_search ", cursor_position=len("/model web_search "))
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert "on" in names
+    assert "off" in names
+    assert "default" in names
+
+
 def test_get_completions_for_session_pin(tmp_path: Path) -> None:
     old_settings = get_settings()
     env_dir = tmp_path / "env"

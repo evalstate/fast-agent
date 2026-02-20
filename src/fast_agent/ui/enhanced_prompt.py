@@ -35,6 +35,7 @@ from fast_agent.agents.agent_types import AgentType
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.agents.workflow.router_agent import RouterAgent
 from fast_agent.commands.handlers import history as history_handlers
+from fast_agent.commands.handlers import model as model_handlers
 from fast_agent.config import get_settings
 from fast_agent.constants import (
     FAST_AGENT_ALERT_CHANNEL,
@@ -50,10 +51,7 @@ from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.ui.command_payloads import (
     AgentCommand,
     ClearCommand,
-    ClearSessionsCommand,
     CommandPayload,
-    CreateSessionCommand,
-    ForkSessionCommand,
     HashAgentCommand,
     HistoryFixCommand,
     HistoryReviewCommand,
@@ -69,14 +67,9 @@ from fast_agent.ui.command_payloads import (
     McpConnectMode,
     McpDisconnectCommand,
     McpListCommand,
-    ModelReasoningCommand,
-    ModelVerbosityCommand,
-    PinSessionCommand,
     ReloadAgentsCommand,
-    ResumeSessionCommand,
     SaveHistoryCommand,
     SelectPromptCommand,
-    ShellCommand,
     ShowHistoryCommand,
     ShowMarkdownCommand,
     ShowMcpStatusCommand,
@@ -84,8 +77,6 @@ from fast_agent.ui.command_payloads import (
     ShowUsageCommand,
     SkillsCommand,
     SwitchAgentCommand,
-    TitleSessionCommand,
-    UnknownCommand,
     is_command_payload,
 )
 from fast_agent.ui.mcp_display import render_mcp_status
@@ -877,7 +868,10 @@ class AgentCompleter(Completer):
             "connect": "Alias for /mcp connect with target auto-detection",
             "history": "Show conversation history overview (or /history save|load|clear|rewind|review|fix)",
             "tools": "List tools",
-            "model": "Update model settings (/model reasoning <value> | /model verbosity <value>)",
+            "model": (
+                "Update model settings "
+                "(/model reasoning|verbosity|web_search|web_fetch <value>)"
+            ),
             "skills": "Manage skills (/skills, /skills add, /skills remove, /skills update, /skills registry)",
             "prompt": "Load a Prompt File or use MCP Prompt",
             "system": "Show the current system prompt",
@@ -1068,29 +1062,39 @@ class AgentCompleter(Completer):
             user_turns.append(first)
         return user_turns
 
-    def _resolve_reasoning_values(self) -> list[str]:
+    def _current_agent_llm(self) -> object | None:
         if not self.agent_provider or not self.current_agent:
-            return []
+            return None
         try:
             agent_obj = self.agent_provider._agent(self.current_agent)
         except Exception:
-            return []
+            return None
         llm = getattr(agent_obj, "llm", None) or getattr(agent_obj, "_llm", None)
+        return llm
+
+    def _resolve_reasoning_values(self) -> list[str]:
+        llm = self._current_agent_llm()
         if not llm:
             return []
         return available_reasoning_values(getattr(llm, "reasoning_effort_spec", None))
 
     def _resolve_verbosity_values(self) -> list[str]:
-        if not self.agent_provider or not self.current_agent:
-            return []
-        try:
-            agent_obj = self.agent_provider._agent(self.current_agent)
-        except Exception:
-            return []
-        llm = getattr(agent_obj, "llm", None) or getattr(agent_obj, "_llm", None)
+        llm = self._current_agent_llm()
         if not llm:
             return []
         return available_text_verbosity_values(getattr(llm, "text_verbosity_spec", None))
+
+    def _supports_web_search_setting(self) -> bool:
+        llm = self._current_agent_llm()
+        if llm is None:
+            return False
+        return model_handlers.model_supports_web_search(llm)
+
+    def _supports_web_fetch_setting(self) -> bool:
+        llm = self._current_agent_llm()
+        if llm is None:
+            return False
+        return model_handlers.model_supports_web_fetch(llm)
 
     def _complete_history_rewind(self, partial: str):
         user_turns = self._iter_user_turns()
@@ -1516,362 +1520,11 @@ class AgentCompleter(Completer):
                 yield from self._complete_shell_paths(path_part, len(path_part))
             return
 
-        # Sub-completion for /history load - show .json and .md files
-        if text_lower.startswith("/history load "):
-            partial = text[len("/history load ") :]
-            yield from self._complete_history_files(partial)
-            return
+        from fast_agent.ui.prompt.completion_sources import command_completions
 
-        if text_lower.startswith("/history rewind "):
-            partial = text[len("/history rewind ") :]
-            yield from self._complete_history_rewind(partial)
-            return
-
-        if text_lower.startswith("/history review "):
-            partial = text[len("/history review ") :]
-            yield from self._complete_history_rewind(partial)
-            return
-
-        if text_lower.startswith("/prompt load "):
-            partial = text[len("/prompt load ") :]
-            yield from self._complete_history_files(partial)
-            return
-
-        if text_lower.startswith("/history clear "):
-            partial = text[len("/history clear ") :]
-            subcommands = {
-                "all": "Clear the full history",
-                "last": "Remove the most recent message",
-            }
-            for subcmd, description in subcommands.items():
-                if subcmd.startswith(partial.lower()):
-                    yield Completion(
-                        subcmd,
-                        start_position=-len(partial),
-                        display=subcmd,
-                        display_meta=description,
-                    )
-            return
-
-        if text_lower.startswith("/history webclear "):
-            if not self._current_agent_has_web_tools_enabled():
-                return
-            partial = text[len("/history webclear ") :].strip()
-            partial_lower = partial.lower()
-            for name in sorted(available_agents):
-                if partial and not name.lower().startswith(partial_lower):
-                    continue
-                yield Completion(
-                    name,
-                    start_position=-len(partial),
-                    display=name,
-                    display_meta="Strip web metadata channels for this agent",
-                )
-            return
-
-        if text_lower.startswith("/resume "):
-            partial = text[len("/resume ") :]
-            yield from self._complete_session_ids(partial)
-            return
-
-        if text_lower.startswith("/session resume "):
-            partial = text[len("/session resume ") :]
-            yield from self._complete_session_ids(partial)
-            return
-
-        if text_lower.startswith("/session delete "):
-            partial = text[len("/session delete ") :]
-            if "all".startswith(partial.lower()):
-                yield Completion(
-                    "all",
-                    start_position=-len(partial),
-                    display="all",
-                    display_meta="Delete all sessions",
-                )
-            yield from self._complete_session_ids(partial)
-            return
-
-        if text_lower.startswith("/session clear "):
-            partial = text[len("/session clear ") :]
-            if "all".startswith(partial.lower()):
-                yield Completion(
-                    "all",
-                    start_position=-len(partial),
-                    display="all",
-                    display_meta="Delete all sessions",
-                )
-            yield from self._complete_session_ids(partial)
-            return
-
-        if text_lower.startswith("/session pin "):
-            remainder = text[len("/session pin ") :]
-            parts = remainder.split(maxsplit=1) if remainder else []
-            if not parts:
-                for option in ("on", "off"):
-                    yield Completion(
-                        option,
-                        start_position=0,
-                        display=option,
-                        display_meta="Toggle session pin",
-                    )
-                yield from self._complete_session_ids("")
-                return
-            first = parts[0].lower()
-            if first in {"on", "off"}:
-                if len(parts) == 1 and not remainder.endswith(" "):
-                    for option in ("on", "off"):
-                        if option.startswith(first):
-                            yield Completion(
-                                option,
-                                start_position=-len(first),
-                                display=option,
-                                display_meta="Toggle session pin",
-                            )
-                    return
-                suffix = parts[1] if len(parts) > 1 else ""
-                start_position = -len(suffix) if suffix else 0
-                yield from self._complete_session_ids(suffix, start_position=start_position)
-                return
-            yield from self._complete_session_ids(remainder)
-            return
-
-        if text_lower.startswith("/skills "):
-            remainder = text[len("/skills ") :]
-            if not remainder:
-                remainder = ""
-            parts = remainder.split(maxsplit=1)
-            subcommands = {
-                "list": "List local skills",
-                "add": "Install a skill",
-                "remove": "Remove a local skill",
-                "update": "Check or apply skill updates",
-                "registry": "Set skills registry",
-            }
-            yield from self._complete_subcommands(parts, remainder, subcommands)
-            if not parts or (len(parts) == 1 and not remainder.endswith(" ")):
-                return
-
-            subcmd = parts[0].lower()
-            argument = parts[1] if len(parts) > 1 else ""
-            if subcmd in {"remove", "rm", "delete", "uninstall"}:
-                yield from self._complete_local_skill_names(argument)
-                return
-            if subcmd in {"update", "refresh", "upgrade"}:
-                if "all".startswith(argument.lower()):
-                    yield Completion(
-                        "all",
-                        start_position=-len(argument),
-                        display="all",
-                        display_meta="update all managed skills",
-                    )
-                if "--force".startswith(argument.lower()):
-                    yield Completion(
-                        "--force",
-                        start_position=-len(argument),
-                        display="--force",
-                        display_meta="overwrite local modifications",
-                    )
-                if "--yes".startswith(argument.lower()):
-                    yield Completion(
-                        "--yes",
-                        start_position=-len(argument),
-                        display="--yes",
-                        display_meta="confirm multi-skill apply",
-                    )
-                yield from self._complete_local_skill_names(
-                    argument,
-                    managed_only=True,
-                    include_indices=False,
-                )
-                return
-            if subcmd in {"registry", "marketplace", "source"}:
-                yield from self._complete_skill_registries(argument)
-                return
-            return
-
-        if text_lower.startswith("/model "):
-            remainder = text[len("/model ") :]
-            if not remainder:
-                remainder = ""
-            parts = remainder.split(maxsplit=1)
-            subcommands = {
-                "reasoning": (
-                    "Set reasoning effort (off/low/medium/high/max/xhigh or budgets like "
-                    "0/1024/16000/32000)"
-                ),
-            }
-            if self._resolve_verbosity_values():
-                subcommands["verbosity"] = "Set text verbosity (low/medium/high)"
-            yield from self._complete_subcommands(parts, remainder, subcommands)
-            if not parts or (len(parts) == 1 and not remainder.endswith(" ")):
-                return
-
-            subcmd = parts[0].lower()
-            argument = parts[1] if len(parts) > 1 else ""
-            if subcmd == "reasoning":
-                for value in self._resolve_reasoning_values():
-                    if value.startswith(argument.lower()):
-                        yield Completion(
-                            value,
-                            start_position=-len(argument),
-                            display=value,
-                            display_meta="reasoning",
-                        )
-                return
-            if subcmd == "verbosity":
-                for value in self._resolve_verbosity_values():
-                    if value.startswith(argument.lower()):
-                        yield Completion(
-                            value,
-                            start_position=-len(argument),
-                            display=value,
-                            display_meta="verbosity",
-                        )
-                return
-
-            return
-
-        if text_lower.startswith("/mcp disconnect "):
-            partial = text[len("/mcp disconnect ") :]
-            attached: list[str] = []
-            if self.agent_provider is not None and self.current_agent:
-                try:
-                    agent = self.agent_provider._agent(self.current_agent)
-                    aggregator = getattr(agent, "aggregator", None)
-                    list_attached = getattr(aggregator, "list_attached_servers", None)
-                    if callable(list_attached):
-                        attached = list_attached()
-                except Exception:
-                    attached = []
-            for server in attached:
-                if server.lower().startswith(partial.lower()):
-                    yield Completion(
-                        server,
-                        start_position=-len(partial),
-                        display=server,
-                        display_meta="attached mcp server",
-                    )
-            return
-
-        if text_lower.startswith("/mcp connect "):
-            remainder = text[len("/mcp connect ") :]
-            connect_flags = {
-                "--name": "set attached server name",
-                "--auth": "set bearer token for URL servers",
-                "--timeout": "set startup timeout in seconds",
-                "--oauth": "enable oauth flow",
-                "--no-oauth": "disable oauth flow",
-                "--reconnect": "force reconnect and refresh tools",
-                "--no-reconnect": "disable reconnect-on-disconnect",
-            }
-
-            context, target_count, partial = self._mcp_connect_context(remainder)
-
-            if context in {"target", "new_token"} and target_count == 0:
-                yield self._mcp_connect_target_hint(partial)
-                yield from self._complete_configured_mcp_servers(partial)
-                return
-
-            if context == "new_token" and target_count > 0:
-                for flag, description in connect_flags.items():
-                    yield Completion(
-                        flag,
-                        start_position=0,
-                        display=flag,
-                        display_meta=description,
-                    )
-                return
-
-            if context == "flag" and target_count > 0:
-                for flag, description in connect_flags.items():
-                    if flag.startswith(partial.lower()):
-                        yield Completion(
-                            flag,
-                            start_position=-len(partial),
-                            display=flag,
-                            display_meta=description,
-                        )
-                return
-
-        if text_lower.startswith("/mcp "):
-            remainder = text[len("/mcp ") :]
-            parts = remainder.split(maxsplit=1) if remainder else []
-            subcommands = {
-                "list": "List currently attached MCP servers",
-                "connect": "Connect a new MCP server",
-                "disconnect": "Disconnect an attached MCP server",
-            }
-            yield from self._complete_subcommands(parts, remainder, subcommands)
-            return
-
-        if text_lower.startswith("/history "):
-            partial = text[len("/history ") :]
-            subcommands = {
-                "show": "Show history overview",
-                "save": "Save history to a file",
-                "load": "Load history from a file",
-                "clear": "Clear history (all or last)",
-                "rewind": "Rewind to a previous user turn",
-                "review": "Review a previous user turn in full",
-                "fix": "Remove the last pending tool call",
-            }
-            if self._current_agent_has_web_tools_enabled():
-                subcommands["webclear"] = "Strip web tool/citation metadata channels"
-            for subcmd, description in subcommands.items():
-                if subcmd.startswith(partial.lower()):
-                    yield Completion(
-                        subcmd,
-                        start_position=-len(partial),
-                        display=subcmd,
-                        display_meta=description,
-                    )
-            return
-
-        if text_lower.startswith("/session "):
-            partial = text[len("/session ") :]
-            subcommands = {
-                "delete": "Delete a session (or all)",
-                "pin": "Pin or unpin the current session",
-                "clear": "Alias for delete",
-                "list": "List recent sessions",
-                "new": "Create a new session",
-                "resume": "Resume a session",
-                "title": "Set session title",
-                "fork": "Fork current session",
-            }
-            for subcmd, description in subcommands.items():
-                if subcmd.startswith(partial.lower()):
-                    yield Completion(
-                        subcmd,
-                        start_position=-len(partial),
-                        display=subcmd,
-                        display_meta=description,
-                    )
-            return
-
-        if text_lower.startswith("/card "):
-            partial = text[len("/card ") :]
-            yield from self._complete_agent_card_files(partial)
-            return
-
-        # Sub-completion for /agent - show available agent names (excluding current agent)
-        if text_lower.startswith("/agent "):
-            partial = text[len("/agent ") :].lstrip()
-            # Strip leading @ if present
-            if partial.startswith("@"):
-                partial = partial[1:]
-            for agent in self.agents:
-                # Don't suggest attaching current agent to itself
-                if agent == self.current_agent:
-                    continue
-                if agent.lower().startswith(partial.lower()):
-                    agent_type = self.agent_types.get(agent, AgentType.BASIC).value
-                    yield Completion(
-                        agent,
-                        start_position=-len(partial),
-                        display=agent,
-                        display_meta=agent_type,
-                    )
+        source_completions = command_completions(self, text, text_lower)
+        if source_completions is not None:
+            yield from source_completions
             return
 
         # Complete commands
@@ -2198,458 +1851,10 @@ def create_keybindings(
 
 
 def parse_special_input(text: str) -> str | CommandPayload:
-    stripped = text.lstrip()
-    if stripped.startswith("/"):
-        cmd_line = stripped.splitlines()[0]
-    else:
-        cmd_line = text
+    """Compatibility wrapper around the prompt parser module."""
+    from fast_agent.ui.prompt.parser import parse_special_input as _parse_special_input
 
-    # Command processing
-    if cmd_line and cmd_line.startswith("/"):
-        if cmd_line == "/":
-            return ""
-        cmd_parts = cmd_line[1:].strip().split(maxsplit=1)
-        cmd = cmd_parts[0].lower()
-
-        if cmd == "help":
-            return "HELP"
-        if cmd == "system":
-            return _show_system_cmd()
-        if cmd == "usage":
-            return _show_usage_cmd()
-        if cmd == "history":
-            remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
-            if not remainder:
-                return _show_history_cmd(None)
-            try:
-                tokens = shlex.split(remainder)
-            except ValueError:
-                candidate = remainder.strip()
-                return _show_history_cmd(candidate or None)
-            if not tokens:
-                return _show_history_cmd(None)
-            subcmd = tokens[0].lower()
-            argument = " ".join(tokens[1:]).strip()
-            if subcmd == "show":
-                return _show_history_cmd(argument or None)
-            if subcmd == "save":
-                return _save_history_cmd(argument or None)
-            if subcmd == "load":
-                if not argument:
-                    return _load_history_cmd(None, "Filename required for /history load")
-                return _load_history_cmd(argument, None)
-            if subcmd == "review":
-                if not argument:
-                    return _history_review_cmd(None, "Turn number required for /history review")
-                try:
-                    turn_index = int(argument)
-                except ValueError:
-                    return _history_review_cmd(None, "Turn number must be an integer")
-                return _history_review_cmd(turn_index, None)
-            if subcmd == "fix":
-                return _history_fix_cmd(argument or None)
-            if subcmd == "webclear":
-                return _history_webclear_cmd(argument or None)
-            if subcmd == "rewind":
-                if not argument:
-                    return _history_rewind_cmd(None, "Turn number required for /history rewind")
-                try:
-                    turn_index = int(argument)
-                except ValueError:
-                    return _history_rewind_cmd(None, "Turn number must be an integer")
-                return _history_rewind_cmd(turn_index, None)
-            if subcmd == "clear":
-                tokens = argument.split(maxsplit=1) if argument else []
-                action = tokens[0].lower() if tokens else "all"
-                target_agent = tokens[1].strip() if len(tokens) > 1 else None
-                if action == "last":
-                    return _clear_last_cmd(target_agent)
-                if action == "all":
-                    return _clear_history_cmd(target_agent)
-                return _clear_history_cmd(argument or None)
-            return _show_history_cmd(remainder)
-        if cmd == "markdown":
-            return _show_markdown_cmd()
-        if cmd in ("save_history", "save"):
-            filename = cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
-            return _save_history_cmd(filename)
-        if cmd in ("load_history", "load"):
-            filename = cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
-            if not filename:
-                return _load_history_cmd(None, "Filename required for /history load")
-            return _load_history_cmd(filename, None)
-        if cmd == "resume":
-            session_id = (
-                cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
-            )
-            return ResumeSessionCommand(session_id=session_id)
-        if cmd == "session":
-            remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
-            if not remainder:
-                return ListSessionsCommand(show_help=True)
-            try:
-                tokens = shlex.split(remainder)
-            except ValueError:
-                return ListSessionsCommand(show_help=True)
-            if not tokens:
-                return ListSessionsCommand(show_help=True)
-            subcmd = tokens[0].lower()
-            argument = remainder[len(tokens[0]) :].strip()
-            if subcmd == "resume":
-                session_id = argument if argument else None
-                return ResumeSessionCommand(session_id=session_id)
-            if subcmd == "list":
-                return ListSessionsCommand()
-            if subcmd == "new":
-                return CreateSessionCommand(session_name=argument or None)
-            if subcmd in {"delete", "clear"}:
-                return ClearSessionsCommand(target=argument or None)
-            if subcmd == "pin":
-                pin_tokens: list[str]
-                if argument:
-                    try:
-                        pin_tokens = shlex.split(argument)
-                    except ValueError:
-                        pin_tokens = argument.split(maxsplit=1)
-                else:
-                    pin_tokens = []
-                if not pin_tokens:
-                    return PinSessionCommand(value=None, target=None)
-                first = pin_tokens[0].lower()
-                value_tokens = {
-                    "on",
-                    "off",
-                    "toggle",
-                    "true",
-                    "false",
-                    "yes",
-                    "no",
-                    "enable",
-                    "enabled",
-                    "disable",
-                    "disabled",
-                }
-                if first in value_tokens:
-                    target = " ".join(pin_tokens[1:]).strip() or None
-                    return PinSessionCommand(value=first, target=target)
-                return PinSessionCommand(value=None, target=argument or None)
-            if subcmd == "title":
-                if not argument:
-                    return TitleSessionCommand(title="")
-                return TitleSessionCommand(title=argument)
-            if subcmd == "fork":
-                title = argument if argument else None
-                return ForkSessionCommand(title=title)
-            return ListSessionsCommand(show_help=True)
-        if cmd == "card":
-            remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
-            if not remainder:
-                return _load_agent_card_cmd(None, False, False, "Filename required for /card")
-            try:
-                tokens = shlex.split(remainder)
-            except ValueError as exc:
-                return _load_agent_card_cmd(None, False, False, f"Invalid arguments: {exc}")
-            add_tool = False
-            remove_tool = False
-            filename = None
-            for token in tokens:
-                if token in {"tool", "--tool", "--as-tool", "-t"}:
-                    add_tool = True
-                    continue
-                if token in {"remove", "--remove", "--rm"}:
-                    remove_tool = True
-                    add_tool = True
-                    continue
-                if filename is None:
-                    filename = token
-            if not filename:
-                return _load_agent_card_cmd(
-                    None, add_tool, remove_tool, "Filename required for /card"
-                )
-            return _load_agent_card_cmd(filename, add_tool, remove_tool, None)
-        if cmd == "agent":
-            remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
-            if not remainder:
-                return _agent_cmd(
-                    None,
-                    False,
-                    False,
-                    False,
-                    "Usage: /agent <name> --tool | /agent [name] --dump",
-                )
-            try:
-                tokens = shlex.split(remainder)
-            except ValueError as exc:
-                return _agent_cmd(None, False, False, False, f"Invalid arguments: {exc}")
-            add_tool = False
-            remove_tool = False
-            dump = False
-            agent_name = None
-            unknown: list[str] = []
-            for token in tokens:
-                if token in {"tool", "--tool", "--as-tool", "-t"}:
-                    add_tool = True
-                    continue
-                if token in {"remove", "--remove", "--rm"}:
-                    remove_tool = True
-                    add_tool = True
-                    continue
-                if token in {"dump", "--dump", "-d"}:
-                    dump = True
-                    continue
-                if agent_name is None:
-                    agent_name = token[1:] if token.startswith("@") else token
-                    continue
-                unknown.append(token)
-            if unknown:
-                return _agent_cmd(
-                    agent_name,
-                    add_tool,
-                    remove_tool,
-                    dump,
-                    f"Unexpected arguments: {', '.join(unknown)}",
-                )
-            if add_tool and dump:
-                return _agent_cmd(
-                    agent_name,
-                    add_tool,
-                    remove_tool,
-                    dump,
-                    "Use either --tool or --dump, not both",
-                )
-            if not add_tool and not dump:
-                return _agent_cmd(
-                    agent_name,
-                    add_tool,
-                    remove_tool,
-                    dump,
-                    "Usage: /agent <name> --tool | /agent [name] --dump",
-                )
-            if add_tool and not agent_name:
-                return _agent_cmd(
-                    agent_name,
-                    add_tool,
-                    remove_tool,
-                    dump,
-                    "Agent name is required for /agent --tool",
-                )
-            return _agent_cmd(agent_name, add_tool, remove_tool, dump, None)
-        if cmd == "reload":
-            return _reload_agents_cmd()
-        if cmd == "mcpstatus":
-            return _show_mcp_status_cmd()
-        if cmd == "mcp":
-            remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
-            if not remainder:
-                return _show_mcp_status_cmd()
-            try:
-                tokens = shlex.split(remainder)
-            except ValueError as exc:
-                return _mcp_connect_cmd(
-                    "",
-                    parsed_mode="stdio",
-                    server_name=None,
-                    auth_token=None,
-                    timeout_seconds=None,
-                    trigger_oauth=None,
-                    reconnect_on_disconnect=None,
-                    force_reconnect=False,
-                    error=f"Invalid arguments: {exc}",
-                )
-
-            subcmd = tokens[0].lower() if tokens else ""
-            if subcmd == "list":
-                return _mcp_list_cmd()
-            if subcmd == "disconnect":
-                name = tokens[1] if len(tokens) > 1 else None
-                error = None if name else "Usage: /mcp disconnect <server_name>"
-                return _mcp_disconnect_cmd(name, error)
-            if subcmd == "connect":
-                if len(tokens) < 2:
-                    return _mcp_connect_cmd(
-                        "",
-                        parsed_mode="stdio",
-                        server_name=None,
-                        auth_token=None,
-                        timeout_seconds=None,
-                        trigger_oauth=None,
-                        reconnect_on_disconnect=None,
-                        force_reconnect=False,
-                        error=(
-                            "Usage: /mcp connect <target> [--name <server>] [--auth <token>] [--timeout <seconds>] "
-                            "[--oauth|--no-oauth] [--reconnect|--no-reconnect]"
-                        ),
-                    )
-                connect_args = tokens[1:]
-                target_tokens: list[str] = []
-                server_name: str | None = None
-                auth_token: str | None = None
-                timeout_seconds: float | None = None
-                trigger_oauth: bool | None = None
-                reconnect_on_disconnect: bool | None = None
-                force_reconnect = False
-                parse_error: str | None = None
-                idx = 0
-                while idx < len(connect_args):
-                    token = connect_args[idx]
-                    if token in {"--name", "-n"}:
-                        idx += 1
-                        if idx >= len(connect_args):
-                            parse_error = "Missing value for --name"
-                            break
-                        server_name = connect_args[idx]
-                    elif token == "--timeout":
-                        idx += 1
-                        if idx >= len(connect_args):
-                            parse_error = "Missing value for --timeout"
-                            break
-                        try:
-                            timeout_seconds = float(connect_args[idx])
-                        except ValueError:
-                            parse_error = "--timeout must be a number"
-                            break
-                    elif token == "--auth":
-                        idx += 1
-                        if idx >= len(connect_args):
-                            parse_error = "Missing value for --auth"
-                            break
-                        auth_token = connect_args[idx]
-                    elif token.startswith("--auth="):
-                        auth_token = token.split("=", 1)[1]
-                        if not auth_token:
-                            parse_error = "Missing value for --auth"
-                            break
-                    elif token == "--oauth":
-                        trigger_oauth = True
-                    elif token == "--no-oauth":
-                        trigger_oauth = False
-                    elif token == "--reconnect":
-                        force_reconnect = True
-                    elif token == "--no-reconnect":
-                        reconnect_on_disconnect = False
-                    else:
-                        target_tokens.append(token)
-                    idx += 1
-
-                target_text = _rebuild_mcp_target_text(target_tokens).strip()
-                parsed_mode = _infer_mcp_connect_mode(target_text)
-                if not parse_error and not target_text:
-                    parse_error = "Connection target is required"
-
-                return _mcp_connect_cmd(
-                    target_text,
-                    parsed_mode=parsed_mode,
-                    server_name=server_name,
-                    auth_token=auth_token,
-                    timeout_seconds=timeout_seconds,
-                    trigger_oauth=trigger_oauth,
-                    reconnect_on_disconnect=reconnect_on_disconnect,
-                    force_reconnect=force_reconnect,
-                    error=parse_error,
-                )
-            return UnknownCommand(command=cmd)
-        if cmd == "connect":
-            remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
-            parsed_mode = _infer_mcp_connect_mode(remainder)
-            if not remainder:
-                return _mcp_connect_cmd(
-                    "",
-                    parsed_mode="stdio",
-                    server_name=None,
-                    auth_token=None,
-                    timeout_seconds=None,
-                    trigger_oauth=None,
-                    reconnect_on_disconnect=None,
-                    force_reconnect=False,
-                    error="Usage: /connect <target>",
-                )
-            return _mcp_connect_cmd(
-                remainder,
-                parsed_mode=parsed_mode,
-                server_name=None,
-                auth_token=None,
-                timeout_seconds=None,
-                trigger_oauth=None,
-                reconnect_on_disconnect=None,
-                force_reconnect=False,
-                error=None,
-            )
-        if cmd == "prompt":
-            remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
-            if not remainder:
-                return _select_prompt_cmd(None, None)
-            try:
-                tokens = shlex.split(remainder)
-            except ValueError:
-                tokens = []
-            if tokens:
-                subcmd = tokens[0].lower()
-                argument = remainder[len(tokens[0]) :].strip()
-                if subcmd == "load":
-                    if not argument:
-                        return _load_prompt_cmd(None, "Filename required for /prompt load")
-                    return _load_prompt_cmd(argument, None)
-            if remainder.lower().endswith((".json", ".md")):
-                return _load_prompt_cmd(remainder, None)
-            if remainder.isdigit():
-                return _select_prompt_cmd(int(remainder), None)
-            return _select_prompt_cmd(None, remainder)
-        if cmd == "tools":
-            return _list_tools_cmd()
-        if cmd == "model":
-            remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
-            if not remainder:
-                return ModelReasoningCommand(value=None)
-            try:
-                tokens = shlex.split(remainder)
-            except ValueError:
-                tokens = remainder.split(maxsplit=1)
-            if not tokens:
-                return ModelReasoningCommand(value=None)
-            subcmd = tokens[0].lower()
-            argument = remainder[len(tokens[0]) :].strip()
-            if subcmd == "reasoning":
-                return ModelReasoningCommand(value=argument or None)
-            if subcmd == "verbosity":
-                return ModelVerbosityCommand(value=argument or None)
-            return UnknownCommand(command=cmd_line)
-        if cmd == "skills":
-            remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
-            if not remainder:
-                return _skills_cmd("list", None)
-            tokens = remainder.split(maxsplit=1)
-            action = tokens[0].lower()
-            argument = tokens[1].strip() if len(tokens) > 1 else None
-            return _skills_cmd(action, argument)
-        if cmd == "exit":
-            return "EXIT"
-        if cmd.lower() == "stop":
-            return "STOP"
-
-        return UnknownCommand(command=cmd_line)
-
-    if cmd_line and cmd_line.startswith("@"):
-        return _switch_agent_cmd(cmd_line[1:].strip())
-
-    # Hash command: #agent_name message - send message to agent, return result to buffer
-    if cmd_line and cmd_line.startswith("#"):
-        rest = cmd_line[1:].strip()
-        if " " in rest:
-            # Split into agent name and message
-            agent_name, message = rest.split(" ", 1)
-            return _hash_agent_cmd(agent_name.strip(), message.strip())
-        elif rest:
-            # Just agent name, no message - return empty hash command (user will be prompted)
-            return _hash_agent_cmd(rest.strip(), "")
-
-    # Shell command: ! command - execute directly in shell
-    if cmd_line and cmd_line.startswith("!"):
-        command = cmd_line[1:].strip()
-        if command:
-            return ShellCommand(command=command)
-        return ShellCommand(command=_default_shell_command())
-
-    return text
+    return _parse_special_input(text)
 
 
 async def get_enhanced_input(
@@ -3486,6 +2691,8 @@ async def handle_special_commands(
             "  /model reasoning <value> - Set reasoning effort (off/low/medium/high/max/xhigh or budgets like 0/1024/16000/32000)"
         )
         rich_print("  /model verbosity <value> - Set text verbosity (low/medium/high)")
+        rich_print("  /model web_search <value> - Set web search (on/off/default, if supported)")
+        rich_print("  /model web_fetch <value> - Set web fetch (on/off/default, if supported)")
         rich_print("  /history [agent_name] - Show chat history overview")
         rich_print(
             "  /history clear all [agent_name] - Clear conversation history (keeps templates)"
