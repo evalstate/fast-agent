@@ -2,9 +2,20 @@
 Unit tests for agent types and their interactions with the interactive prompt.
 """
 
+from dataclasses import dataclass
+from typing import Any, cast
+
+import pytest
+
 from fast_agent.agents import McpAgent
 from fast_agent.agents.agent_types import AgentConfig, AgentType
-from fast_agent.agents.smart_agent import SmartAgent
+from fast_agent.agents.smart_agent import (
+    SmartAgent,
+    _apply_runtime_mcp_connections,
+    _resolve_default_agent_name,
+    _run_mcp_connect_call,
+)
+from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.types import RequestParams
 
 
@@ -94,3 +105,97 @@ def test_instruction_takes_precedence_over_systemPrompt():
         f"RequestParams.systemPrompt ('{original_system_prompt}'), "
         f"but got {config.default_request_params.systemPrompt}"
     )
+
+
+@dataclass
+class _FakeAttachResult:
+    tools_added: list[str]
+    prompts_added: list[str]
+
+
+class _FakeMcpAgent:
+    def __init__(self, *, default: bool = False, fail: bool = False) -> None:
+        self.config = AgentConfig(name="fake", default=default)
+        self._fail = fail
+        self.attached: list[str] = []
+
+    async def attach_mcp_server(self, *, server_name: str, server_config=None, options=None):
+        del server_config, options
+        if self._fail:
+            raise RuntimeError("boom")
+        self.attached.append(server_name)
+        return _FakeAttachResult(tools_added=[], prompts_added=[])
+
+    async def detach_mcp_server(self, server_name: str):
+        detached = server_name in self.attached
+        if detached:
+            self.attached.remove(server_name)
+
+        @dataclass
+        class _DetachResult:
+            detached: bool
+            tools_removed: list[str]
+            prompts_removed: list[str]
+
+        return _DetachResult(detached=detached, tools_removed=[], prompts_removed=[])
+
+    def list_attached_mcp_servers(self) -> list[str]:
+        return list(self.attached)
+
+
+class _FakeSmartToolAgent(_FakeMcpAgent):
+    def __init__(self) -> None:
+        super().__init__(default=True)
+        self.name = "smart"
+        self.context = None
+
+
+def test_resolve_default_agent_name_prefers_non_tool_default() -> None:
+    tool_default = _FakeMcpAgent(default=True)
+    non_tool_default = _FakeMcpAgent(default=True)
+    agents = {
+        "tool": tool_default,
+        "main": non_tool_default,
+    }
+
+    resolved = _resolve_default_agent_name(
+        cast("Any", agents),
+        tool_only_agents={"tool"},
+    )
+    assert resolved == "main"
+
+
+@pytest.mark.asyncio
+async def test_apply_runtime_mcp_connections_attaches_servers() -> None:
+    agent = _FakeMcpAgent(default=True)
+    summary = await _apply_runtime_mcp_connections(
+        context=None,
+        agents_map=cast("Any", {"main": agent}),
+        target_agent_name="main",
+        mcp_connect=["npx demo-server --name demo"],
+    )
+
+    assert summary.connected == ["demo"]
+    assert summary.warnings == []
+    assert agent.attached == ["demo"]
+
+
+@pytest.mark.asyncio
+async def test_apply_runtime_mcp_connections_raises_on_connect_error() -> None:
+    failing = _FakeMcpAgent(default=True, fail=True)
+    with pytest.raises(AgentConfigError, match="Failed to connect MCP server"):
+        await _apply_runtime_mcp_connections(
+            context=None,
+            agents_map=cast("Any", {"main": failing}),
+            target_agent_name="main",
+            mcp_connect=["npx demo-server --name demo"],
+        )
+
+
+@pytest.mark.asyncio
+async def test_run_mcp_connect_call_returns_connect_summary() -> None:
+    agent = _FakeSmartToolAgent()
+    result = await _run_mcp_connect_call(agent, "npx demo-server --name demo")
+
+    assert "Connected MCP server 'demo'" in result
+    assert agent.attached == ["demo"]

@@ -9,6 +9,7 @@ class ProgressAction(str, Enum):
     """Progress actions available in the system."""
 
     STARTING = "Starting"
+    CONNECTING = "Connecting"
     LOADED = "Loaded"
     INITIALIZED = "Initialized"
     CHATTING = "Chatting"

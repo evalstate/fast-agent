@@ -643,6 +643,45 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         return resolved.search_enabled, resolved.fetch_enabled
 
     @property
+    def web_search_supported(self) -> bool:
+        from fast_agent.llm.model_database import ModelDatabase
+
+        model_name = self.model_name
+        if not model_name:
+            return False
+        return ModelDatabase.get_anthropic_web_search_version(model_name) is not None
+
+    def set_web_search_enabled(self, value: bool | None) -> None:
+        if value is None:
+            self._web_search_override = None
+            return
+        if not self.web_search_supported:
+            raise ValueError("Current model does not support web search configuration.")
+        self._web_search_override = value
+
+    @property
+    def web_fetch_supported(self) -> bool:
+        from fast_agent.llm.model_database import ModelDatabase
+
+        model_name = self.model_name
+        if not model_name:
+            return False
+        return ModelDatabase.get_anthropic_web_fetch_version(model_name) is not None
+
+    @property
+    def web_fetch_enabled(self) -> bool:
+        _, fetch_enabled = self.web_tools_enabled
+        return fetch_enabled
+
+    def set_web_fetch_enabled(self, value: bool | None) -> None:
+        if value is None:
+            self._web_fetch_override = None
+            return
+        if not self.web_fetch_supported:
+            raise ValueError("Current model does not support web fetch configuration.")
+        self._web_fetch_override = value
+
+    @property
     def web_search_enabled(self) -> bool:
         """Whether any Anthropic web tooling is enabled for this LLM instance."""
         search_enabled, fetch_enabled = self.web_tools_enabled

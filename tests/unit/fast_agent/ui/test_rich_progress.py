@@ -13,7 +13,7 @@ from fast_agent.ui.rich_progress import RichProgressDisplay
 
 def _make_event(
     action: ProgressAction = ProgressAction.CHATTING,
-    agent_name: str = "test-agent",
+    agent_name: str | None = "test-agent",
     target: str = "test-agent",
     details: str = "",
     **kwargs,
@@ -555,6 +555,24 @@ class TestAggregatorInitializedVisibility:
         assert "test-agent::exec-call-1" in display._taskmap
         assert "test-agent::exec-call-2" in display._taskmap
         assert len(display._taskmap) == 2
+
+        display.stop()
+
+    def test_fatal_error_row_is_removed_after_update(self) -> None:
+        display = _make_display()
+        display.start()
+
+        display.update(
+            _make_event(
+                action=ProgressAction.FATAL_ERROR,
+                agent_name=None,
+                target="127-0-0-1",
+                details="Connection refused",
+            )
+        )
+
+        # Fatal errors should not leave sticky rows in future turns.
+        assert "default" not in display._taskmap
 
         display.stop()
 
