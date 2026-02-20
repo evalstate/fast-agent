@@ -103,3 +103,14 @@ def test_sync_streaming_respects_render_interval(monkeypatch) -> None:
     handle.update("third")
 
     assert len(render_calls) == 2
+
+
+def test_resolve_progress_resume_debounce_seconds_from_env(monkeypatch) -> None:
+    monkeypatch.setenv("FAST_AGENT_PROGRESS_RESUME_DEBOUNCE_SECONDS", "0.05")
+    assert streaming_module._resolve_progress_resume_debounce_seconds() == 0.05
+
+    monkeypatch.setenv("FAST_AGENT_PROGRESS_RESUME_DEBOUNCE_SECONDS", "-1")
+    assert streaming_module._resolve_progress_resume_debounce_seconds() == 0.0
+
+    monkeypatch.setenv("FAST_AGENT_PROGRESS_RESUME_DEBOUNCE_SECONDS", "invalid")
+    assert streaming_module._resolve_progress_resume_debounce_seconds() == 0.12

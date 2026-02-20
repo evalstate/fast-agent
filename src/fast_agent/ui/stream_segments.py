@@ -282,6 +282,30 @@ def _format_json(raw_text: str) -> str | None:
     return json.dumps(parsed, indent=2, ensure_ascii=True)
 
 
+def _normalize_tool_name(tool_name: str) -> str:
+    if tool_name in {"web_search", "web_search_call"}:
+        return "Searching the web"
+    return tool_name
+
+
+def _status_chunk(status: str) -> str:
+    normalized = status.strip().lower()
+    if not normalized:
+        return ""
+
+    known_chunks = {
+        "in_progress": "starting search...",
+        "queued": "queued...",
+        "started": "started...",
+        "searching": "searching...",
+        "completed": "search complete",
+        "failed": "search failed",
+        "cancelled": "search cancelled",
+        "incomplete": "search incomplete",
+    }
+    return known_chunks.get(normalized, normalized.replace("_", " "))
+
+
 class StreamSegmentAssembler:
     """Route streamed chunks into markdown/reasoning/tool segments."""
 
@@ -342,6 +366,7 @@ class StreamSegmentAssembler:
             tool_name = str(info.get("tool_display_name") or info.get("tool_name") or "tool")
         else:
             tool_name = "tool"
+        tool_name = _normalize_tool_name(tool_name)
         tool_use_id = str(info.get("tool_use_id")) if info and info.get("tool_use_id") else ""
 
         if not tool_use_id:
@@ -372,6 +397,23 @@ class StreamSegmentAssembler:
                 return False
             if state is None:
                 state = self._start_tool(tool_use_id, tool_name, create_segment=False)
+            state.append(chunk)
+            self._update_tool_segment(state, pretty=False)
+            return True
+
+        if event_type == "status":
+            chunk = str(info.get("chunk") or "") if info else ""
+            if not chunk and info:
+                raw_status = info.get("status")
+                if isinstance(raw_status, str):
+                    chunk = _status_chunk(raw_status)
+            if not chunk:
+                return False
+            if state is None:
+                state = self._start_tool(tool_use_id, tool_name, create_segment=False)
+            state.raw_text = ""
+            state.display_text = ""
+            state.decoder = LiteralNewlineDecoder()
             state.append(chunk)
             self._update_tool_segment(state, pretty=False)
             return True

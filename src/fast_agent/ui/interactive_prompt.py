@@ -221,6 +221,7 @@ class InteractivePrompt:
         buffer_prefill = ""  # One-off buffer content for # command results
         ctrl_c_exit_window_seconds = 2.0
         ctrl_c_deadline: float | None = None
+        startup_warning_digest_checked = False
 
         def _handle_ctrl_c_interrupt() -> None:
             nonlocal ctrl_c_deadline
@@ -247,6 +248,33 @@ class InteractivePrompt:
 
             ctrl_c_deadline = None
             rich_print("[yellow]Generation cancelled by user.[/yellow]")
+
+        def _emit_startup_warning_digest_once() -> None:
+            nonlocal startup_warning_digest_checked
+
+            if startup_warning_digest_checked:
+                return
+            startup_warning_digest_checked = True
+
+            try:
+                from fast_agent.ui import notification_tracker
+
+                startup_warnings = notification_tracker.pop_startup_warnings()
+            except Exception:
+                return
+
+            if not startup_warnings:
+                return
+
+            count = len(startup_warnings)
+            if count == 1:
+                rich_print("[yellow]Startup warning:[/yellow]")
+                rich_print(f"  {startup_warnings[0]}")
+                return
+
+            rich_print(f"[yellow]Startup warnings ({count}):[/yellow]")
+            for warning in startup_warnings:
+                rich_print(f"  • {warning}")
 
         def _auto_fix_pending_tool_call(agent_obj: Any) -> bool:
             """Remove a dangling assistant TOOL_USE message at end of history."""
@@ -283,7 +311,7 @@ class InteractivePrompt:
             # Variable for shell command - executed after input handling
             shell_execute_cmd: str | None = None
 
-            progress_display.pause()
+            progress_display.pause(cancel_deferred_on_noop=True)
 
             try:
                 refreshed = await prompt_provider.refresh_if_needed()
@@ -339,6 +367,8 @@ class InteractivePrompt:
                 else:
                     rich_print("[red]No agents available.[/red]")
                     return result
+
+            _emit_startup_warning_digest_once()
 
             # Use the enhanced input method with advanced features
             noenv_mode = bool(getattr(prompt_provider, "_noenv_mode", False))
@@ -985,7 +1015,7 @@ class InteractivePrompt:
                     rich_print(f"[red]Error asking {hash_send_target}: {exc}[/red]")
                     continue
                 finally:
-                    progress_display.pause()
+                    progress_display.pause(cancel_deferred_on_noop=True)
                     emit_prompt_mark("D")
 
                 # Status messages after send completes
@@ -1024,7 +1054,7 @@ class InteractivePrompt:
                 _handle_inflight_cancel()
                 continue
             finally:
-                progress_display.pause()
+                progress_display.pause(cancel_deferred_on_noop=True)
                 emit_prompt_mark("D")
 
             if result and result.startswith("▲ **System Error:**"):
