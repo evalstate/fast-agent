@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 import time
 from dataclasses import dataclass
@@ -37,6 +38,19 @@ PLAIN_STREAM_REFRESH_PER_SECOND = 20
 PLAIN_STREAM_HEIGHT_FUDGE = 3
 STREAM_BATCH_PERIOD = 1 / 100
 STREAM_BATCH_MAX_DURATION = 1 / 60
+
+
+def _resolve_progress_resume_debounce_seconds() -> float:
+    """Return debounce duration for progress resume after streaming closes."""
+    raw_value = os.getenv("FAST_AGENT_PROGRESS_RESUME_DEBOUNCE_SECONDS", "0.12").strip()
+    try:
+        parsed = float(raw_value)
+    except ValueError:
+        return 0.12
+    return max(0.0, parsed)
+
+
+STREAM_PROGRESS_RESUME_DEBOUNCE_SECONDS = _resolve_progress_resume_debounce_seconds()
 
 _FENCE_OPEN_RE = re.compile(r"^```", re.MULTILINE)
 _FENCE_CLOSE_RE = re.compile(r"^```\s*$", re.MULTILINE)
@@ -253,6 +267,11 @@ class StreamingMessageHandle:
     def _resume_progress_display(self) -> None:
         if self._progress_display and self._progress_paused:
             try:
+                self._progress_display.resume(
+                    debounce_seconds=STREAM_PROGRESS_RESUME_DEBOUNCE_SECONDS
+                )
+            except TypeError:
+                # Backward compatibility for non-standard displays in tests/experiments.
                 self._progress_display.resume()
             except Exception:
                 pass

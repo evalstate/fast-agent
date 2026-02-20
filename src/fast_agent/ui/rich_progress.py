@@ -1,7 +1,10 @@
 """Rich-based progress display for MCP Agent."""
 
+import json
+import os
 import time
 from contextlib import contextmanager
+from pathlib import Path
 from threading import RLock
 from typing import Any
 
@@ -89,6 +92,9 @@ class RichProgressDisplay:
         )
         self._paused = False
         self._stopped = False
+        self._deferred_resume_at: float | None = None
+        trace_path_raw = os.getenv("FAST_AGENT_PROGRESS_DEBUG_TRACE", "").strip()
+        self._trace_path: Path | None = Path(trace_path_raw).expanduser() if trace_path_raw else None
 
     def start(self) -> None:
         """start"""
@@ -96,7 +102,9 @@ class RichProgressDisplay:
             ensure_blocking_console()
             self._stopped = False
             self._paused = False
+            self._deferred_resume_at = None
             self._progress.start()
+            self._trace("start")
 
     def stop(self) -> None:
         """Stop and clear the progress display permanently."""
@@ -105,45 +113,119 @@ class RichProgressDisplay:
             # Mark as permanently stopped — resume() will be a no-op after this
             self._stopped = True
             self._paused = True
+            self._deferred_resume_at = None
             # Hide all tasks before stopping (like pause does)
             for task in self._progress.tasks:
                 task.visible = False
             self._progress.stop()
+            self._trace("stop")
 
-    def pause(self) -> None:
+    def pause(self, *, cancel_deferred_on_noop: bool = False) -> None:
         """Pause the progress display."""
         with self._lock:
             if self._stopped or self._paused:
+                if cancel_deferred_on_noop:
+                    self._deferred_resume_at = None
+                self._trace(
+                    "pause.noop",
+                    stopped=self._stopped,
+                    paused=self._paused,
+                    cancel_deferred_on_noop=cancel_deferred_on_noop,
+                )
                 return
 
+            self._deferred_resume_at = None
             ensure_blocking_console()
             self._paused = True
             for task in self._progress.tasks:
                 task.visible = False
             self._progress.stop()
+            self._trace("pause")
 
-    def resume(self) -> None:
+    def _resume_locked(self) -> None:
+        """Resume live rendering while lock is held."""
+        # Never resume after a permanent stop()
+        if self._stopped or not self._paused:
+            self._trace("resume_locked.noop", stopped=self._stopped, paused=self._paused)
+            return
+        try:
+            live_stack = getattr(self.console, "_live_stack", [])
+        except Exception:
+            live_stack = []
+
+        if live_stack and any(live is not self._progress.live for live in live_stack):
+            self._trace("resume_locked.blocked_nested_live", live_stack=len(live_stack))
+            return
+        ensure_blocking_console()
+        if getattr(self._progress.live, "_nested", False):
+            self._progress.live._nested = False
+        for task in self._progress.tasks:
+            task.visible = True
+        # Start the Live display before clearing the flag so that
+        # update() never runs against an un-started Progress.
+        self._progress.start()
+        self._paused = False
+        self._trace("resume_locked.applied")
+
+    def resume(self, *, debounce_seconds: float = 0.0) -> None:
         """Resume the progress display."""
         with self._lock:
-            # Never resume after a permanent stop()
             if self._stopped or not self._paused:
+                self._deferred_resume_at = None
+                self._trace(
+                    "resume.noop",
+                    debounce_seconds=debounce_seconds,
+                    stopped=self._stopped,
+                    paused=self._paused,
+                )
                 return
-            try:
-                live_stack = getattr(self.console, "_live_stack", [])
-            except Exception:
-                live_stack = []
 
-            if live_stack and any(live is not self._progress.live for live in live_stack):
+            if debounce_seconds > 0:
+                self._deferred_resume_at = time.monotonic() + debounce_seconds
+                self._trace(
+                    "resume.deferred",
+                    debounce_seconds=debounce_seconds,
+                    resume_at=self._deferred_resume_at,
+                )
                 return
-            ensure_blocking_console()
-            if getattr(self._progress.live, "_nested", False):
-                self._progress.live._nested = False
-            for task in self._progress.tasks:
-                task.visible = True
-            # Start the Live display before clearing the flag so that
-            # update() never runs against an un-started Progress.
-            self._progress.start()
-            self._paused = False
+
+            self._deferred_resume_at = None
+            self._trace("resume.immediate")
+            self._resume_locked()
+
+    def _flush_deferred_resume_locked(self, *, force: bool = False) -> None:
+        """Apply deferred resume request if debounce window has elapsed."""
+        resume_at = self._deferred_resume_at
+        if resume_at is None:
+            return
+        if not force and time.monotonic() < resume_at:
+            self._trace("resume.deferred_pending", force=force, resume_at=resume_at)
+            return
+        self._deferred_resume_at = None
+        self._trace("resume.deferred_flushed", force=force)
+        self._resume_locked()
+
+    def _trace(self, event: str, **fields: Any) -> None:
+        """Write optional debug traces when FAST_AGENT_PROGRESS_DEBUG_TRACE is set."""
+        if self._trace_path is None:
+            return
+
+        payload = {
+            "ts": time.time(),
+            "mono": time.monotonic(),
+            "event": event,
+            "paused": self._paused,
+            "stopped": self._stopped,
+            "deferred_resume_at": self._deferred_resume_at,
+            **fields,
+        }
+        try:
+            self._trace_path.parent.mkdir(parents=True, exist_ok=True)
+            with self._trace_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, separators=(",", ":")) + "\n")
+        except Exception:
+            # Never let diagnostics interfere with user-facing progress behavior.
+            pass
 
     def hide_task(self, task_name: str) -> None:
         """Hide an existing task from the progress display by name."""
@@ -339,12 +421,29 @@ class RichProgressDisplay:
         with self._lock:
             # Skip updates when display is stopped
             if self._stopped:
+                self._trace("update.skipped_stopped", action=event.action.value)
                 return
+
+            self._flush_deferred_resume_locked(force=True)
+            self._trace(
+                "update",
+                action=event.action.value,
+                agent_name=event.agent_name,
+                target=event.target,
+            )
 
             self._apply_update_locked(event)
 
     def _apply_update_locked(self, event: ProgressEvent) -> None:
         """Apply an update while holding lock and with active display state."""
+        if (
+            event.action == ProgressAction.AGGREGATOR_INITIALIZED
+            and not (event.details or "").strip()
+        ):
+            # "Running" without additional details is redundant noise because
+            # active rows already imply the app is running.
+            return
+
         task_name = event.agent_name or "default"
         is_correlated_tool_event = (
             event.action in {ProgressAction.CALLING_TOOL, ProgressAction.TOOL_PROGRESS}

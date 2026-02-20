@@ -4,6 +4,7 @@ Tracks both active events (sampling/elicitation) and completed notifications.
 """
 
 from datetime import datetime
+from typing import Literal
 
 # Display metadata for toolbar summaries (singular, plural, compact label)
 _EVENT_ORDER = ("tool_update", "sampling", "elicitation", "warning")
@@ -20,6 +21,11 @@ active_events: dict[str, dict[str, str]] = {}
 # Completed notifications history
 notifications: list[dict[str, str]] = []
 
+# Startup warnings are tracked separately so they can be emitted once
+# without polluting toolbar warning counters.
+startup_warnings: list[str] = []
+_startup_warning_seen: set[str] = set()
+
 
 def add_tool_update(server_name: str) -> None:
     """Add a tool update notification.
@@ -33,12 +39,39 @@ def add_tool_update(server_name: str) -> None:
     })
 
 
-def add_warning(message: str) -> None:
-    """Add a deferred warning notification for toolbar/status surfaces."""
+def add_warning(message: str, *, surface: Literal["runtime_toolbar", "startup_once"] = "runtime_toolbar") -> None:
+    """Add a deferred warning notification.
+
+    Args:
+        message: Warning text to track.
+        surface: Where warning should appear.
+            - runtime_toolbar: contributes to toolbar warning counters
+            - startup_once: queued for one-time startup digest emission
+    """
+    normalized_message = message.strip()
+    if not normalized_message:
+        return
+
+    if surface == "startup_once":
+        if normalized_message not in _startup_warning_seen:
+            startup_warnings.append(normalized_message)
+            _startup_warning_seen.add(normalized_message)
+        return
+
     notifications.append({
         'type': 'warning',
-        'message': message,
+        'message': normalized_message,
     })
+
+
+def pop_startup_warnings() -> list[str]:
+    """Return startup warnings queued for one-time emission and clear the queue."""
+    if not startup_warnings:
+        return []
+
+    queued = list(startup_warnings)
+    startup_warnings.clear()
+    return queued
 
 
 def start_sampling(server_name: str) -> None:
@@ -140,6 +173,8 @@ def clear() -> None:
     """Clear all notifications and active events."""
     notifications.clear()
     active_events.clear()
+    startup_warnings.clear()
+    _startup_warning_seen.clear()
 
 
 def get_count() -> int:

@@ -1,5 +1,6 @@
 """Tests for RichProgressDisplay focusing on state machine correctness."""
 
+import json
 import threading
 import time
 from typing import Any
@@ -131,6 +132,76 @@ class TestPauseResumeOrdering:
         assert display._paused is True
 
 
+class TestDebouncedResume:
+    """Debounced resume should coalesce rapid pause/resume transitions."""
+
+    def test_debounced_resume_waits_until_update_after_window(self) -> None:
+        display = _make_display()
+        display.start()
+        display.pause()
+
+        display.resume(debounce_seconds=0.02)
+        assert display._paused is True
+
+        time.sleep(0.03)
+        display.update(_make_event())
+        assert display._paused is False
+
+        display.stop()
+
+    def test_pause_noop_keeps_pending_debounced_resume(self) -> None:
+        display = _make_display()
+        display.start()
+        display.pause()
+
+        display.resume(debounce_seconds=0.05)
+        display.pause()
+
+        display.update(_make_event())
+        assert display._paused is False
+
+        display.stop()
+
+    def test_pause_noop_can_cancel_pending_debounced_resume(self) -> None:
+        display = _make_display()
+        display.start()
+        display.pause()
+
+        display.resume(debounce_seconds=0.05)
+        display.pause(cancel_deferred_on_noop=True)
+
+        display.update(_make_event())
+        assert display._paused is True
+
+        display.stop()
+
+    def test_debug_trace_records_deferred_resume_lifecycle(
+        self,
+        monkeypatch,
+        tmp_path,
+    ) -> None:
+        trace_path = tmp_path / "progress-trace.jsonl"
+        monkeypatch.setenv("FAST_AGENT_PROGRESS_DEBUG_TRACE", str(trace_path))
+
+        display = _make_display()
+        display.start()
+        display.pause()
+        display.resume(debounce_seconds=0.02)
+        time.sleep(0.03)
+        display.update(_make_event())
+        display.stop()
+
+        records = [json.loads(line) for line in trace_path.read_text().splitlines() if line]
+        events = [record.get("event") for record in records]
+
+        assert "start" in events
+        assert "pause" in events
+        assert "resume.deferred" in events
+        assert "resume.deferred_flushed" in events
+        assert "resume_locked.applied" in events
+        assert "stop" in events
+
+
 class TestUpdateSkipsWhenInactive:
     """Issue #2: update() must skip when stopped and continue state while paused."""
 
@@ -219,6 +290,40 @@ class TestParallelToolProgress:
         assert "test-agent::tool-call-1" in display._taskmap
         assert "test-agent::tool-call-2" in display._taskmap
         assert len(display._taskmap) == 2
+
+        display.stop()
+
+
+class TestAggregatorInitializedVisibility:
+    """Running status should only render when it carries meaningful details."""
+
+    def test_running_event_without_details_is_suppressed(self) -> None:
+        display = _make_display()
+        display.start()
+
+        display.update(
+            _make_event(
+                action=ProgressAction.AGGREGATOR_INITIALIZED,
+                details="",
+            )
+        )
+
+        assert len(display._taskmap) == 0
+
+        display.stop()
+
+    def test_running_event_with_details_is_rendered(self) -> None:
+        display = _make_display()
+        display.start()
+
+        display.update(
+            _make_event(
+                action=ProgressAction.AGGREGATOR_INITIALIZED,
+                details="warming up tool registry",
+            )
+        )
+
+        assert "test-agent" in display._taskmap
 
         display.stop()
 
