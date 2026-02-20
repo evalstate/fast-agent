@@ -352,6 +352,28 @@ def test_get_completions_for_model_web_search_values() -> None:
     assert "default" in names
 
 
+def test_get_completions_for_model_web_fetch_values_omits_unsupported_setting() -> None:
+    class _LlmStub:
+        reasoning_effort_spec = None
+        text_verbosity_spec = None
+        web_search_supported = True
+        web_fetch_supported = False
+
+    class _AgentStub:
+        llm = _LlmStub()
+
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(_AgentStub())),
+    )
+
+    doc = Document("/model web_fetch ", cursor_position=len("/model web_fetch "))
+    completions = list(completer.get_completions(doc, None))
+
+    assert completions == []
+
+
 def test_get_completions_for_session_pin(tmp_path: Path) -> None:
     old_settings = get_settings()
     env_dir = tmp_path / "env"

@@ -588,7 +588,7 @@ class SlashCommandHandler:
         if command_name in allowed_session_commands:
             try:
                 return await slash_dispatch.execute(self, command_name, arguments)
-            except KeyError:
+            except slash_dispatch.UnknownSlashCommandError:
                 pass
 
         # Check agent-specific commands
@@ -720,4 +720,3 @@ class SlashCommandHandler:
 
     async def _handle_clear_last(self) -> str:
         return await clear_slash_handlers.handle_clear_last(self)
-

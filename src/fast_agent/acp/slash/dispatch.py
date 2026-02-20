@@ -8,6 +8,10 @@ if TYPE_CHECKING:
     from fast_agent.acp.slash_commands import SlashCommandHandler
 
 
+class UnknownSlashCommandError(KeyError):
+    """Raised when no slash command route exists for a command name."""
+
+
 async def execute(handler: "SlashCommandHandler", command_name: str, arguments: str) -> str:
     match command_name:
         case "status":
@@ -37,4 +41,4 @@ async def execute(handler: "SlashCommandHandler", command_name: str, arguments: 
         case "reload":
             return await handler._handle_reload()
         case _:
-            raise KeyError(command_name)
+            raise UnknownSlashCommandError(command_name)

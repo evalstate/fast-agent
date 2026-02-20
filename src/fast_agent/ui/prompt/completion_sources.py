@@ -246,7 +246,19 @@ def command_completions(
                 if value.startswith(argument.lower())
             )
             return results
-        if subcmd in {"web_search", "web_fetch"}:
+        if subcmd == "web_search" and completer._supports_web_search_setting():
+            results.extend(
+                Completion(
+                    value,
+                    start_position=-len(argument),
+                    display=value,
+                    display_meta=subcmd,
+                )
+                for value in ("on", "off", "default")
+                if value.startswith(argument.lower())
+            )
+            return results
+        if subcmd == "web_fetch" and completer._supports_web_fetch_setting():
             results.extend(
                 Completion(
                     value,

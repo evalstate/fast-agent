@@ -175,6 +175,19 @@ async def test_slash_command_unknown_command() -> None:
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_slash_command_does_not_mask_handler_keyerror(monkeypatch) -> None:
+    async def _raise_handler_keyerror(*_args, **_kwargs) -> str:
+        raise KeyError("stale-agent")
+
+    monkeypatch.setattr("fast_agent.acp.slash.dispatch.execute", _raise_handler_keyerror)
+    handler = _handler(StubAgentInstance())
+
+    with pytest.raises(KeyError, match="stale-agent"):
+        await handler.execute_command("status", "")
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_slash_command_status() -> None:
     """Test the /status command execution."""
     stub_agent = StubAgent(message_history=[], llm=None)
