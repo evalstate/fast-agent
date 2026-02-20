@@ -1,7 +1,9 @@
 """Tests for RichProgressDisplay focusing on state machine correctness."""
 
+import json
 import threading
 import time
+from typing import Any
 
 from rich.console import Console
 
@@ -29,6 +31,14 @@ def _make_display() -> RichProgressDisplay:
     """Create a display backed by a non-interactive string console."""
     console = Console(file=open("/dev/null", "w"), force_terminal=True)
     return RichProgressDisplay(console=console)
+
+
+def _task_fields(display: RichProgressDisplay, task_name: str) -> dict[str, Any]:
+    task_id = display._taskmap[task_name]
+    for task in display._progress.tasks:
+        if task.id == task_id:
+            return task.fields
+    raise AssertionError(f"Task not found for {task_name}")
 
 
 class TestStopPreventsResume:
@@ -76,6 +86,7 @@ class TestStopPreventsResume:
 
         display.start()
         assert display._stopped is False
+        assert display._paused is False
 
 
 class TestPauseResumeOrdering:
@@ -121,17 +132,92 @@ class TestPauseResumeOrdering:
         assert display._paused is True
 
 
-class TestUpdateSkipsWhenInactive:
-    """Issue #2: update() must check both _paused and _stopped."""
+class TestDebouncedResume:
+    """Debounced resume should coalesce rapid pause/resume transitions."""
 
-    def test_update_skipped_when_paused(self) -> None:
+    def test_debounced_resume_waits_until_update_after_window(self) -> None:
+        display = _make_display()
+        display.start()
+        display.pause()
+
+        display.resume(debounce_seconds=0.02)
+        assert display._paused is True
+
+        time.sleep(0.03)
+        display.update(_make_event())
+        assert display._paused is False
+
+        display.stop()
+
+    def test_pause_noop_keeps_pending_debounced_resume(self) -> None:
+        display = _make_display()
+        display.start()
+        display.pause()
+
+        display.resume(debounce_seconds=0.05)
+        display.pause()
+
+        display.update(_make_event())
+        assert display._paused is False
+
+        display.stop()
+
+    def test_pause_noop_can_cancel_pending_debounced_resume(self) -> None:
+        display = _make_display()
+        display.start()
+        display.pause()
+
+        display.resume(debounce_seconds=0.05)
+        display.pause(cancel_deferred_on_noop=True)
+
+        display.update(_make_event())
+        assert display._paused is True
+
+        display.stop()
+
+    def test_debug_trace_records_deferred_resume_lifecycle(
+        self,
+        monkeypatch,
+        tmp_path,
+    ) -> None:
+        trace_path = tmp_path / "progress-trace.jsonl"
+        monkeypatch.setenv("FAST_AGENT_PROGRESS_DEBUG_TRACE", str(trace_path))
+
+        display = _make_display()
+        display.start()
+        display.pause()
+        display.resume(debounce_seconds=0.02)
+        time.sleep(0.03)
+        display.update(_make_event())
+        display.stop()
+
+        records = [json.loads(line) for line in trace_path.read_text().splitlines() if line]
+        events = [record.get("event") for record in records]
+
+        assert "start" in events
+        assert "pause" in events
+        assert "resume.deferred" in events
+        assert "resume.deferred_flushed" in events
+        assert "resume_locked.applied" in events
+        assert "stop" in events
+
+
+class TestUpdateSkipsWhenInactive:
+    """Issue #2: update() must skip when stopped and continue state while paused."""
+
+    def test_update_applies_while_paused(self) -> None:
         display = _make_display()
         display.start()
         display.pause()
 
         event = _make_event()
         display.update(event)
-        assert len(display._taskmap) == 0
+
+        # Pause suppresses rendering, but state still advances.
+        assert "test-agent" in display._taskmap
+
+        display.resume()
+        assert "test-agent" in display._taskmap
 
     def test_update_skipped_when_stopped(self) -> None:
         display = _make_display()
@@ -176,6 +262,230 @@ class TestToolProgressNoDoubleRender:
 
         display.stop()
 
+
+class TestParallelToolProgress:
+    """Tool progress events with correlation IDs should get distinct rows."""
+
+    def test_parallel_tool_progress_creates_separate_tasks(self) -> None:
+        display = _make_display()
+        display.start()
+
+        display.update(
+            _make_event(
+                action=ProgressAction.TOOL_PROGRESS,
+                progress=1.0,
+                total=3.0,
+                correlation_id="tool-call-1",
+            )
+        )
+        display.update(
+            _make_event(
+                action=ProgressAction.TOOL_PROGRESS,
+                progress=2.0,
+                total=3.0,
+                correlation_id="tool-call-2",
+            )
+        )
+
+        assert "test-agent::tool-call-1" in display._taskmap
+        assert "test-agent::tool-call-2" in display._taskmap
+        assert len(display._taskmap) == 2
+
+        display.stop()
+
+
+class TestAggregatorInitializedVisibility:
+    """Running status should only render when it carries meaningful details."""
+
+    def test_running_event_without_details_is_suppressed(self) -> None:
+        display = _make_display()
+        display.start()
+
+        display.update(
+            _make_event(
+                action=ProgressAction.AGGREGATOR_INITIALIZED,
+                details="",
+            )
+        )
+
+        assert len(display._taskmap) == 0
+
+        display.stop()
+
+    def test_running_event_with_details_is_rendered(self) -> None:
+        display = _make_display()
+        display.start()
+
+        display.update(
+            _make_event(
+                action=ProgressAction.AGGREGATOR_INITIALIZED,
+                details="warming up tool registry",
+            )
+        )
+
+        assert "test-agent" in display._taskmap
+
+        display.stop()
+
+    def test_completed_tool_progress_row_is_removed(self) -> None:
+        display = _make_display()
+        display.start()
+
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                correlation_id="tool-call-1",
+            )
+        )
+        assert "test-agent::tool-call-1" in display._taskmap
+
+        display.update(
+            _make_event(
+                action=ProgressAction.TOOL_PROGRESS,
+                progress=1.0,
+                total=1.0,
+                correlation_id="tool-call-1",
+            )
+        )
+
+        assert "test-agent::tool-call-1" not in display._taskmap
+
+        display.stop()
+
+    def test_calling_tool_stop_event_row_is_removed(self) -> None:
+        display = _make_display()
+        display.start()
+
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                correlation_id="tool-call-2",
+                tool_event="start",
+            )
+        )
+        assert "test-agent::tool-call-2" in display._taskmap
+
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                correlation_id="tool-call-2",
+                tool_event="stop",
+            )
+        )
+
+        assert "test-agent::tool-call-2" not in display._taskmap
+        assert "test-agent::tool-call-2" not in display._task_kind
+
+        display.stop()
+
+    def test_calling_tool_failed_event_row_is_removed(self) -> None:
+        display = _make_display()
+        display.start()
+
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                correlation_id="tool-call-failed",
+                tool_event="start",
+            )
+        )
+        assert "test-agent::tool-call-failed" in display._taskmap
+
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                correlation_id="tool-call-failed",
+                tool_event="failed",
+            )
+        )
+
+        assert "test-agent::tool-call-failed" not in display._taskmap
+
+        display.stop()
+
+    def test_tool_progress_failed_details_without_total_removes_row(self) -> None:
+        display = _make_display()
+        display.start()
+
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                correlation_id="tool-call-failed-details",
+                tool_event="start",
+            )
+        )
+        assert "test-agent::tool-call-failed-details" in display._taskmap
+
+        display.update(
+            _make_event(
+                action=ProgressAction.TOOL_PROGRESS,
+                correlation_id="tool-call-failed-details",
+                details="failed: boom",
+            )
+        )
+
+        assert "test-agent::tool-call-failed-details" not in display._taskmap
+
+        display.stop()
+
+    def test_calling_tool_stop_while_paused_removes_row(self) -> None:
+        display = _make_display()
+        display.start()
+
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                correlation_id="tool-call-3",
+                tool_event="start",
+            )
+        )
+        assert "test-agent::tool-call-3" in display._taskmap
+
+        display.pause()
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                correlation_id="tool-call-3",
+                tool_event="stop",
+            )
+        )
+        # State advances while paused, so terminal events can clean rows.
+        assert "test-agent::tool-call-3" not in display._taskmap
+
+        display.resume()
+        assert "test-agent::tool-call-3" not in display._taskmap
+
+        display.stop()
+
+    def test_completed_tool_progress_while_paused_removes_row(self) -> None:
+        display = _make_display()
+        display.start()
+
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                correlation_id="tool-call-4",
+            )
+        )
+        assert "test-agent::tool-call-4" in display._taskmap
+
+        display.pause()
+        display.update(
+            _make_event(
+                action=ProgressAction.TOOL_PROGRESS,
+                progress=1.0,
+                total=1.0,
+                correlation_id="tool-call-4",
+            )
+        )
+        # State advances while paused, so terminal events can clean rows.
+        assert "test-agent::tool-call-4" not in display._taskmap
+
+        display.resume()
+        assert "test-agent::tool-call-4" not in display._taskmap
+
+        display.stop()
+
     def test_tool_progress_with_total_sets_completed(self) -> None:
         display = _make_display()
         display.start()
@@ -193,6 +503,61 @@ class TestToolProgressNoDoubleRender:
 
         display.stop()
 
+    def test_internal_execute_tool_does_not_create_correlated_parallel_rows(self) -> None:
+        display = _make_display()
+        display.start()
+
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                correlation_id="exec-call-1",
+                tool_name="execute",
+                server_name="acp_terminal",
+            )
+        )
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                correlation_id="exec-call-2",
+                tool_name="execute",
+                server_name="acp_terminal",
+            )
+        )
+
+        assert "test-agent" in display._taskmap
+        assert "test-agent::exec-call-1" not in display._taskmap
+        assert "test-agent::exec-call-2" not in display._taskmap
+        assert len(display._taskmap) == 1
+
+        display.stop()
+
+    def test_non_shell_execute_tool_uses_correlated_parallel_rows(self) -> None:
+        display = _make_display()
+        display.start()
+
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                correlation_id="exec-call-1",
+                tool_name="execute",
+                server_name="codex",
+            )
+        )
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                correlation_id="exec-call-2",
+                tool_name="execute",
+                server_name="codex",
+            )
+        )
+
+        assert "test-agent::exec-call-1" in display._taskmap
+        assert "test-agent::exec-call-2" in display._taskmap
+        assert len(display._taskmap) == 2
+
+        display.stop()
+
 
 class TestFinishedEventHandlesNoneElapsed:
     """Issue #8: FINISHED event must handle None elapsed without crashing."""
@@ -205,6 +570,145 @@ class TestFinishedEventHandlesNoneElapsed:
         event = _make_event(action=ProgressAction.FINISHED)
         # This should not raise TypeError from time.gmtime(None)
         display.update(event)
+
+        display.stop()
+
+    def test_finished_event_handles_sparse_task_ids(self) -> None:
+        display = _make_display()
+        display.start()
+
+        # Create and drop a lifecycle row so the next task id is no longer
+        # aligned with progress.tasks list indices.
+        display.update(
+            _make_event(
+                action=ProgressAction.STARTING,
+                agent_name="agent-1",
+                target="agent-1",
+            )
+        )
+        display.update(
+            _make_event(
+                action=ProgressAction.READY,
+                agent_name="agent-1",
+                target="agent-1",
+            )
+        )
+        assert "agent-1" not in display._taskmap
+
+        # This should not raise IndexError even when the new task id is sparse.
+        display.update(
+            _make_event(
+                action=ProgressAction.FINISHED,
+                agent_name="agent-2",
+                target="agent-2",
+            )
+        )
+        assert "agent-2" in display._taskmap
+
+        display.stop()
+
+
+class TestAgentLifecycleRows:
+    """Startup lifecycle rows should not linger in the progress board."""
+
+    def test_ready_event_row_is_cleared(self) -> None:
+        display = _make_display()
+        display.start()
+
+        display.update(_make_event(action=ProgressAction.STARTING))
+        assert "test-agent" in display._taskmap
+
+        display.update(_make_event(action=ProgressAction.READY))
+        assert "test-agent" not in display._taskmap
+
+        display.stop()
+
+    def test_ready_event_while_paused_still_clears_row(self) -> None:
+        display = _make_display()
+        display.start()
+
+        display.update(_make_event(action=ProgressAction.STARTING))
+        assert "test-agent" in display._taskmap
+
+        display.pause()
+        display.update(_make_event(action=ProgressAction.READY))
+        assert "test-agent" not in display._taskmap
+
+        display.resume()
+        assert "test-agent" not in display._taskmap
+
+        display.stop()
+
+
+class TestTaskKindClassification:
+    """Internal row-kind metadata should reflect the latest event class."""
+
+    def test_stream_rows_are_classified_as_stream(self) -> None:
+        display = _make_display()
+        display.start()
+
+        display.update(
+            _make_event(
+                action=ProgressAction.STREAMING,
+                streaming_tokens="42",
+            )
+        )
+
+        assert display._task_kind.get("test-agent") == "stream"
+        display.stop()
+
+    def test_correlated_tool_rows_are_classified_as_tool(self) -> None:
+        display = _make_display()
+        display.start()
+
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                correlation_id="tool-kind",
+                tool_event="start",
+            )
+        )
+
+        assert display._task_kind.get("test-agent::tool-kind") == "tool"
+        display.stop()
+
+
+class TestCorrelationIdDetails:
+    """Correlated tool rows should surface a short id in details for clarity."""
+
+    def test_correlated_tool_row_appends_short_id_to_details(self) -> None:
+        display = _make_display()
+        display.start()
+
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                correlation_id="call_abcdef0123456789",
+                details="web (search)",
+            )
+        )
+
+        fields = _task_fields(display, "test-agent::call_abcdef0123456789")
+        details = str(fields.get("details", ""))
+        assert "web (search)" in details
+        assert "id:call_abcdef01…" in details
+
+        display.stop()
+
+    def test_correlated_tool_row_without_details_still_shows_id(self) -> None:
+        display = _make_display()
+        display.start()
+
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                correlation_id="tool-short-id",
+            )
+        )
+
+        fields = _task_fields(display, "test-agent::tool-short-id")
+        details = str(fields.get("details", ""))
+        assert details == "id:tool-short-id"
 
         display.stop()
 

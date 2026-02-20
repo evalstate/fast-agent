@@ -65,6 +65,9 @@ class ModelParameters(BaseModel):
     anthropic_required_betas: tuple[str, ...] | None = None
     """Anthropic beta headers required for model-specific server tool support."""
 
+    default_temperature: float | None = None
+    """Optional default sampling temperature for this model."""
+
 
 class ModelDatabase:
     """Centralized model configuration database"""
@@ -233,7 +236,10 @@ class ModelDatabase:
     )
 
     FAST_AGENT_STANDARD = ModelParameters(
-        context_window=1000000, max_output_tokens=100000, tokenizes=TEXT_ONLY
+        context_window=1000000,
+        max_output_tokens=100000,
+        tokenizes=TEXT_ONLY,
+        default_temperature=0.0,
     )
 
     OPENAI_4_1_SERIES = ModelParameters(
@@ -792,6 +798,15 @@ class ModelDatabase:
         if params:
             return params.max_output_tokens
         return 2048  # Fallback for unknown models
+
+    @classmethod
+    def get_default_temperature(cls, model: str | None) -> float | None:
+        """Get default temperature for RequestParams based on model metadata."""
+        if not model:
+            return None
+
+        params = cls.get_model_params(model)
+        return params.default_temperature if params else None
 
     @classmethod
     def get_cache_ttl(cls, model: str) -> Literal["5m", "1h"] | None:

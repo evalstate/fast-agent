@@ -38,6 +38,12 @@ class Logger:
 
     def _emit_event(self, event: Event) -> None:
         """Emit an event by running it in the event loop."""
+        # AsyncEventBus is a singleton that tests may reset between runs.
+        # Logger instances are cached globally and can therefore outlive a bus
+        # reset. Always re-resolve the current bus before emitting to avoid
+        # dispatching to a stale, stopped bus instance.
+        self.event_bus = AsyncEventBus.get()
+
         loop = ensure_event_loop()
         if loop.is_running():
             # If we're in a thread with a running loop, schedule the coroutine

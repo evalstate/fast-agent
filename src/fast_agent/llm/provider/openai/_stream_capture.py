@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -48,7 +49,25 @@ def save_stream_chunk(filename_base: Path | None, chunk: Any) -> None:
     try:
         chunk_file = filename_base.with_name(f"{filename_base.name}_chunks.jsonl")
         with chunk_file.open("a") as handle:
-            chunk_dict = chunk.model_dump() if hasattr(chunk, "model_dump") else str(chunk)
+            chunk_dict: Any
+            if hasattr(chunk, "model_dump"):
+                with warnings.catch_warnings():
+                    warnings.filterwarnings(
+                        "ignore",
+                        message="Pydantic serializer warnings",
+                        category=UserWarning,
+                    )
+                    warnings.filterwarnings(
+                        "ignore",
+                        message=".*PydanticSerializationUnexpectedValue.*",
+                        category=UserWarning,
+                    )
+                    try:
+                        chunk_dict = chunk.model_dump(warnings="none")
+                    except TypeError:
+                        chunk_dict = chunk.model_dump()
+            else:
+                chunk_dict = str(chunk)
             handle.write(json.dumps(chunk_dict, default=str) + "\n")
     except Exception as exc:
         _logger.debug(f"Failed to save stream chunk: {exc}")

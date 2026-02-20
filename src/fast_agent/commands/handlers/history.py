@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
@@ -11,6 +12,7 @@ from fast_agent.commands.handlers.shared import (
 )
 from fast_agent.commands.results import CommandOutcome
 from fast_agent.constants import (
+    ANTHROPIC_ASSISTANT_RAW_CONTENT,
     ANTHROPIC_CITATIONS_CHANNEL,
     ANTHROPIC_SERVER_TOOLS_CHANNEL,
     CONTROL_MESSAGE_SAVE_HISTORY,
@@ -86,6 +88,48 @@ def _trim_history_for_rewind(
     return history[:turn_start_index]
 
 
+def _is_web_tool_trace_payload(payload: Mapping[str, Any]) -> bool:
+    block_type = payload.get("type")
+    if not isinstance(block_type, str):
+        return False
+
+    if block_type == "server_tool_use":
+        tool_name = payload.get("name")
+        return isinstance(tool_name, str) and tool_name in {"web_search", "web_fetch"}
+
+    if block_type.endswith("_tool_result"):
+        return block_type.startswith("web_search") or block_type.startswith("web_fetch")
+
+    return False
+
+
+def _strip_web_tool_traces_from_raw_assistant_channel(
+    blocks: Sequence[Any],
+) -> tuple[list[Any], int]:
+    retained: list[Any] = []
+    removed = 0
+
+    for block in blocks:
+        raw_text = getattr(block, "text", None)
+        if not isinstance(raw_text, str) or not raw_text:
+            retained.append(block)
+            continue
+
+        try:
+            payload = json.loads(raw_text)
+        except Exception:
+            retained.append(block)
+            continue
+
+        if isinstance(payload, Mapping) and _is_web_tool_trace_payload(payload):
+            removed += 1
+            continue
+
+        retained.append(block)
+
+    return retained, removed
+
+
 def _strip_web_metadata_channels(
     message: PromptMessageExtended,
 ) -> tuple[PromptMessageExtended, int]:
@@ -98,6 +142,12 @@ def _strip_web_metadata_channels(
     for channel_name, blocks in channels.items():
         if channel_name in {ANTHROPIC_SERVER_TOOLS_CHANNEL, ANTHROPIC_CITATIONS_CHANNEL}:
             removed_blocks += len(blocks)
+            continue
+        if channel_name == ANTHROPIC_ASSISTANT_RAW_CONTENT:
+            cleaned_blocks, removed = _strip_web_tool_traces_from_raw_assistant_channel(blocks)
+            removed_blocks += removed
+            if cleaned_blocks:
+                retained[channel_name] = cleaned_blocks
             continue
         retained[channel_name] = blocks
 
@@ -118,6 +168,10 @@ def web_tools_enabled_for_agent(agent_obj: object) -> bool:
         return bool(enabled[0] or enabled[1])
     if isinstance(enabled, bool):
         return enabled
+
+    web_search_enabled = getattr(llm, "web_search_enabled", None)
+    if isinstance(web_search_enabled, bool):
+        return web_search_enabled
     return False
 
 

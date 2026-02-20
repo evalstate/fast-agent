@@ -501,6 +501,35 @@ class AnthropicSettings(BaseModel):
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
+class OpenAIUserLocationSettings(BaseModel):
+    """Approximate user location for OpenAI web search tool requests."""
+
+    type: Literal["approximate"] = "approximate"
+    city: str | None = None
+    country: str | None = None
+    region: str | None = None
+    timezone: str | None = None
+
+
+class OpenAIWebSearchSettings(BaseModel):
+    """OpenAI Responses web_search tool settings."""
+
+    enabled: bool = False
+    tool_type: Literal["web_search", "web_search_preview"] = "web_search"
+    search_context_size: Literal["low", "medium", "high"] | None = None
+    allowed_domains: list[str] | None = None
+    user_location: OpenAIUserLocationSettings | None = None
+    external_web_access: bool | None = None
+
+    @field_validator("allowed_domains")
+    @classmethod
+    def _validate_allowed_domains(cls, value: list[str] | None) -> list[str] | None:
+        normalized = _validate_domain_list(value)
+        if normalized is not None and len(normalized) > 100:
+            raise ValueError("allowed_domains supports at most 100 domains.")
+        return normalized
+
+
 class OpenAISettings(BaseModel):
     """Settings for using OpenAI models in the fast-agent application."""
 
@@ -526,6 +555,7 @@ class OpenAISettings(BaseModel):
         default="sse",
         description="Responses transport mode: sse (default), websocket, or auto fallback.",
     )
+    web_search: OpenAIWebSearchSettings = Field(default_factory=OpenAIWebSearchSettings)
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
@@ -551,6 +581,7 @@ class OpenResponsesSettings(BaseModel):
         default="sse",
         description="Responses transport mode: sse (default), websocket, or auto fallback.",
     )
+    web_search: OpenAIWebSearchSettings = Field(default_factory=OpenAIWebSearchSettings)
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
@@ -572,6 +603,7 @@ class CodexResponsesSettings(BaseModel):
         default="sse",
         description="Responses transport mode: sse (default), websocket, or auto fallback.",
     )
+    web_search: OpenAIWebSearchSettings = Field(default_factory=OpenAIWebSearchSettings)
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 

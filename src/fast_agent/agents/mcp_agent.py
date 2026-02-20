@@ -15,6 +15,7 @@ from typing import (
     Any,
     Callable,
     Iterable,
+    Literal,
     Mapping,
     Sequence,
     TypeVar,
@@ -397,7 +398,7 @@ class McpAgent(ABC, ToolAgent):
         # Warn if skills configured but placeholder missing
         if self._skill_manifests and "{{agentSkills}}" not in self._instruction_template:
             warning_message = f"[dim]Agent '{self._name}' skills are configured but no {{{{agentSkills}}}} in system prompt.[/dim]"
-            self._record_warning(warning_message)
+            self._record_warning(warning_message, surface="startup_once")
 
         self.logger.debug(f"Applied instruction templates for agent {self._name}")
 
@@ -498,6 +499,7 @@ class McpAgent(ABC, ToolAgent):
             working_directory=working_directory,
             output_byte_limit=output_byte_limit,
             config=self._context.config if self._context else None,
+            agent_name=self._name,
         )
         self._shell_runtime_enabled = self._shell_runtime.enabled
         self._bash_tool = self._shell_runtime.tool
@@ -530,15 +532,22 @@ class McpAgent(ABC, ToolAgent):
 
         return format_shell_notice(self._shell_access_modes, self._shell_runtime)
 
-    def _record_warning(self, message: str) -> None:
+    def _record_warning(
+        self,
+        message: str,
+        *,
+        surface: Literal["runtime_toolbar", "startup_once"] = "runtime_toolbar",
+    ) -> None:
         if message in self._warning_messages_seen:
             return
         self._warning_messages_seen.add(message)
         self._warnings.append(message)
         self.logger.warning(message)
         try:
-            console.error_console.print(f"[yellow]{message}[/yellow]")
-        except Exception:  # pragma: no cover - console fallback
+            from fast_agent.ui import notification_tracker
+
+            notification_tracker.add_warning(message, surface=surface)
+        except Exception:
             pass
 
     @property

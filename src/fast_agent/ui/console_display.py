@@ -73,9 +73,7 @@ class ConsoleDisplay:
                 pass
         self._markup = getattr(self._logger_settings, "enable_markup", True)
         self._escape_xml = True
-        self._style = resolve_message_style(
-            getattr(self._logger_settings, "message_style", "a3")
-        )
+        self._style = resolve_message_style(getattr(self._logger_settings, "message_style", "a3"))
         self._tool_display = ToolDisplay(self)
 
     @staticmethod
@@ -85,12 +83,7 @@ class ConsoleDisplay:
         return logger_settings if logger_settings is not None else LoggerSettings()
 
     def _truncate_text(self, text: str, *, truncate: bool) -> str:
-        if (
-            truncate
-            and self.config
-            and self.config.logger.truncate_tools
-            and len(text) > 360
-        ):
+        if truncate and self.config and self.config.logger.truncate_tools and len(text) > 360:
             return text[:360] + "..."
         return text
 
@@ -142,9 +135,7 @@ class ConsoleDisplay:
             streaming_mode = "markdown"
 
         # Legacy compatibility: allow streaming_plain_text override
-        if streaming_mode == "markdown" and getattr(
-            logger_settings, "streaming_plain_text", False
-        ):
+        if streaming_mode == "markdown" and getattr(logger_settings, "streaming_plain_text", False):
             streaming_mode = "plain"
 
         show_chat = bool(getattr(logger_settings, "show_chat", True))
@@ -216,7 +207,7 @@ class ConsoleDisplay:
         """Display a shell-style exit code banner."""
         detail = ""
         if no_output:
-            detail += "(no output)"
+            detail += " (no output)"
 
         formatted_id = ToolDisplay._format_tool_call_id(tool_call_id)
         if formatted_id:

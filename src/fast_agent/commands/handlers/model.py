@@ -77,6 +77,22 @@ def _add_model_details(
     llm: object,
     include_shell_budget: bool,
 ) -> None:
+    provider = getattr(llm, "provider", None)
+    provider_label: str | None = None
+    if isinstance(provider, str) and provider.strip():
+        provider_label = provider.strip()
+    else:
+        provider_value = getattr(provider, "value", None)
+        if isinstance(provider_value, str) and provider_value.strip():
+            provider_label = provider_value.strip()
+
+    if provider_label:
+        outcome.add_message(
+            _styled_model_line("Provider", provider_label, emphasize_value=True),
+            channel="system",
+            right_info="model",
+        )
+
     model_name = getattr(llm, "model_name", None)
     if model_name:
         outcome.add_message(
@@ -215,6 +231,14 @@ async def handle_model_reasoning(
         outcome.add_message("No LLM attached to agent.", channel="warning", right_info="model")
         return outcome
 
+    _add_model_details(
+        outcome,
+        ctx=ctx,
+        agent=agent,
+        llm=llm,
+        include_shell_budget=value is None,
+    )
+
     spec = llm.reasoning_effort_spec
     if spec is None:
         outcome.add_message(
@@ -223,14 +247,6 @@ async def handle_model_reasoning(
             right_info="model",
         )
         return outcome
-
-    _add_model_details(
-        outcome,
-        ctx=ctx,
-        agent=agent,
-        llm=llm,
-        include_shell_budget=value is None,
-    )
 
     if value is None:
         current = format_reasoning_setting(llm.reasoning_effort or spec.default)
@@ -322,6 +338,14 @@ async def handle_model_verbosity(
         outcome.add_message("No LLM attached to agent.", channel="warning", right_info="model")
         return outcome
 
+    _add_model_details(
+        outcome,
+        ctx=ctx,
+        agent=agent,
+        llm=llm,
+        include_shell_budget=value is None,
+    )
+
     spec = llm.text_verbosity_spec
     if spec is None:
         outcome.add_message(
@@ -330,14 +354,6 @@ async def handle_model_verbosity(
             right_info="model",
         )
         return outcome
-
-    _add_model_details(
-        outcome,
-        ctx=ctx,
-        agent=agent,
-        llm=llm,
-        include_shell_budget=value is None,
-    )
 
     if value is None:
         current = format_text_verbosity(llm.text_verbosity or spec.default)

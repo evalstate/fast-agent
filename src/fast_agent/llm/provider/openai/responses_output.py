@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 from mcp.types import CallToolRequest, CallToolRequestParams, ContentBlock, TextContent
 from openai.types.responses import ResponseReasoningItem
 from pydantic_core import from_json
 
+from fast_agent.event_progress import ProgressAction
+from fast_agent.llm.provider.openai.web_tools import (
+    extract_url_citation_payload,
+    normalize_web_search_call_payload,
+)
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import CacheUsage, TurnUsage
 from fast_agent.mcp.helpers.content_helpers import text_content
@@ -74,8 +80,10 @@ class ResponsesOutputMixin:
     def _extract_tool_calls(self, response: Any) -> dict[str, CallToolRequest] | None:
         tool_calls: dict[str, CallToolRequest] = {}
         duplicate_call_ids: list[str] = []
+        duplicate_call_names: dict[str, str] = {}
         seen_tool_call_ids = self._seen_tool_call_ids_state()
         raw_function_call_count = 0
+        model_name = getattr(response, "model", None)
         for item in getattr(response, "output", []) or []:
             if getattr(item, "type", None) != "function_call":
                 continue
@@ -104,6 +112,8 @@ class ResponsesOutputMixin:
 
             if call_id in seen_tool_call_ids:
                 duplicate_call_ids.append(call_id)
+                if call_id not in duplicate_call_names:
+                    duplicate_call_names[call_id] = name
                 continue
 
             self._tool_call_id_map[tool_use_id] = call_id
@@ -133,6 +143,19 @@ class ResponsesOutputMixin:
                         "new_function_call_count": len(tool_calls),
                     },
                 )
+                agent_name = getattr(self, "name", None)
+                for call_id in duplicate_ids:
+                    logger.info(
+                        "Filtered duplicate Responses tool call",
+                        data={
+                            "progress_action": ProgressAction.CALLING_TOOL,
+                            "agent_name": agent_name,
+                            "model": model_name,
+                            "tool_name": duplicate_call_names.get(call_id, "tool"),
+                            "tool_use_id": call_id,
+                            "tool_event": "stop",
+                        },
+                    )
         else:
             self._tool_call_diagnostics = None
 
@@ -185,3 +208,56 @@ class ResponsesOutputMixin:
                 payload["id"] = item_id
             encrypted_blocks.append(TextContent(type="text", text=json.dumps(payload)))
         return encrypted_blocks
+
+    @staticmethod
+    def _web_citation_dedupe_key(payload: Mapping[str, Any]) -> tuple[str, str] | tuple[str, str, str]:
+        raw_url = payload.get("url")
+        if isinstance(raw_url, str) and raw_url:
+            return ("url", raw_url.strip().lower())
+
+        title_key = str(payload.get("title") or "").strip().lower()
+        source_key = str(payload.get("source") or "").strip().lower()
+        return ("meta", title_key, source_key)
+
+    def _extract_web_search_metadata(
+        self,
+        response: Any,
+    ) -> tuple[list[ContentBlock], list[ContentBlock]]:
+        web_tool_payloads: list[ContentBlock] = []
+        citation_payloads: list[ContentBlock] = []
+        seen_citations: set[tuple[str, str] | tuple[str, str, str]] = set()
+
+        def append_citation(payload: Mapping[str, Any]) -> None:
+            key = self._web_citation_dedupe_key(payload)
+            if key in seen_citations:
+                return
+            seen_citations.add(key)
+            citation_payloads.append(TextContent(type="text", text=json.dumps(dict(payload))))
+
+        for output_item in getattr(response, "output", []) or []:
+            item_type = getattr(output_item, "type", None)
+            if item_type == "web_search_call":
+                tool_payload, call_citations = normalize_web_search_call_payload(output_item)
+                if tool_payload is not None:
+                    web_tool_payloads.append(TextContent(type="text", text=json.dumps(tool_payload)))
+                for citation in call_citations:
+                    append_citation(citation)
+                continue
+
+            if item_type != "message":
+                continue
+
+            for part in getattr(output_item, "content", []) or []:
+                if getattr(part, "type", None) != "output_text":
+                    continue
+
+                annotations = getattr(part, "annotations", None)
+                if not isinstance(annotations, Sequence) or isinstance(annotations, str):
+                    continue
+
+                for annotation in annotations:
+                    payload = extract_url_citation_payload(annotation)
+                    if payload is not None:
+                        append_citation(payload)
+
+        return web_tool_payloads, citation_payloads

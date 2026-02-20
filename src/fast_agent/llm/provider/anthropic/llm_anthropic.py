@@ -5,7 +5,7 @@ import os
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Type, Union, cast
+from typing import Any, Mapping, Sequence, Type, Union, cast
 
 from anthropic import APIError, AsyncAnthropic, AuthenticationError, transform_schema
 from anthropic.lib.streaming import BetaAsyncMessageStream
@@ -25,7 +25,9 @@ from opentelemetry.semconv_ai import LLMRequestTypeValues, SpanAttributes
 from opentelemetry.trace import Span, Status, StatusCode
 
 from fast_agent.constants import (
+    ANTHROPIC_ASSISTANT_RAW_CONTENT,
     ANTHROPIC_CITATIONS_CHANNEL,
+    ANTHROPIC_CONTAINER_CHANNEL,
     ANTHROPIC_SERVER_TOOLS_CHANNEL,
     ANTHROPIC_THINKING_BLOCKS,
     REASONING,
@@ -640,6 +642,12 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         )
         return resolved.search_enabled, resolved.fetch_enabled
 
+    @property
+    def web_search_enabled(self) -> bool:
+        """Whether any Anthropic web tooling is enabled for this LLM instance."""
+        search_enabled, fetch_enabled = self.web_tools_enabled
+        return search_enabled or fetch_enabled
+
     def _apply_system_cache(self, base_args: dict, cache_mode: str) -> int:
         """Apply cache control to system prompt if cache mode allows it."""
         system_content: SystemParam | None = base_args.get("system")
@@ -1072,6 +1080,56 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
         return messages
 
+    @staticmethod
+    def _container_id_from_channels(
+        channels: Mapping[str, Sequence[ContentBlock]] | None,
+    ) -> str | None:
+        if not channels:
+            return None
+
+        raw_container = channels.get(ANTHROPIC_CONTAINER_CHANNEL)
+        if not raw_container:
+            return None
+
+        for block in raw_container:
+            if not isinstance(block, TextContent):
+                continue
+
+            raw_text = block.text
+            if not raw_text:
+                continue
+
+            payload: object = raw_text
+            try:
+                payload = json.loads(raw_text)
+            except Exception:
+                payload = raw_text
+
+            if isinstance(payload, dict):
+                container_id = payload.get("id")
+                if isinstance(container_id, str) and container_id:
+                    return container_id
+            elif isinstance(payload, str) and payload:
+                return payload
+
+        return None
+
+    def _resolve_container_id_for_request(
+        self,
+        history: list[PromptMessageExtended] | None,
+        current_extended: PromptMessageExtended | None,
+    ) -> str | None:
+        if history:
+            for message in reversed(history):
+                container_id = self._container_id_from_channels(message.channels)
+                if container_id:
+                    return container_id
+
+        if current_extended is not None:
+            return self._container_id_from_channels(current_extended.channels)
+
+        return None
+
     async def _anthropic_completion(
         self,
         message_param,
@@ -1128,6 +1186,10 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             "messages": messages,
             "stop_sequences": params.stopSequences,
         }
+        container_id = self._resolve_container_id_for_request(history, current_extended)
+        if container_id:
+            base_args["container"] = container_id
+
         if request_tools:
             base_args["tools"] = request_tools
 
@@ -1408,10 +1470,25 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             channels[ANTHROPIC_THINKING_BLOCKS] = serialized_blocks
 
         if response.content:
+            raw_assistant_payloads: list[TextContent] = []
             server_tool_payloads: list[TextContent] = []
             citation_payloads: list[TextContent] = []
             for block in response.content:
                 payload = serialize_anthropic_block_payload(block)
+                if payload is not None:
+                    try:
+                        raw_assistant_payloads.append(
+                            TextContent(type="text", text=json.dumps(payload))
+                        )
+                    except Exception as error:
+                        logger.warning(
+                            "Skipping non-serializable assistant block payload",
+                            data={
+                                "payload_type": payload.get("type"),
+                                "error": str(error),
+                            },
+                        )
+
                 if payload is not None and is_server_tool_trace_payload(payload):
                     server_tool_payloads.append(TextContent(type="text", text=json.dumps(payload)))
 
@@ -1436,10 +1513,24 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                     channels = {}
                 channels[ANTHROPIC_SERVER_TOOLS_CHANNEL] = server_tool_payloads
 
+            if raw_assistant_payloads and (
+                raw_thinking_blocks or server_tool_payloads or tool_calls is not None
+            ):
+                if channels is None:
+                    channels = {}
+                channels[ANTHROPIC_ASSISTANT_RAW_CONTENT] = raw_assistant_payloads
+
             if citation_payloads:
                 if channels is None:
                     channels = {}
                 channels[ANTHROPIC_CITATIONS_CHANNEL] = citation_payloads
+
+        if response.container and response.container.id:
+            if channels is None:
+                channels = {}
+            channels[ANTHROPIC_CONTAINER_CHANNEL] = [
+                TextContent(type="text", text=json.dumps({"id": response.container.id}))
+            ]
 
         return PromptMessageExtended(
             role="assistant",

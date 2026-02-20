@@ -1,9 +1,11 @@
 import pytest
 
 from fast_agent.commands.context import CommandContext
-from fast_agent.commands.handlers.model import handle_model_reasoning
+from fast_agent.commands.handlers.model import handle_model_reasoning, handle_model_verbosity
 from fast_agent.config import Settings, ShellSettings
+from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, ReasoningEffortSpec
+from fast_agent.llm.text_verbosity import TextVerbositySpec
 
 
 class _StubIO:
@@ -37,6 +39,7 @@ class _StubIO:
 class _StubLLM:
     def __init__(self, model_name: str) -> None:
         self.model_name = model_name
+        self.provider = Provider.RESPONSES
         self.reasoning_effort_spec = ReasoningEffortSpec(
             kind="effort",
             allowed_efforts=["low", "medium", "high", "max"],
@@ -44,6 +47,8 @@ class _StubLLM:
             default=ReasoningEffortSetting(kind="effort", value="auto"),
         )
         self.reasoning_effort = None
+        self.text_verbosity_spec = TextVerbositySpec()
+        self.text_verbosity = None
         self.configured_transport = "sse"
         self.active_transport = None
 
@@ -88,6 +93,7 @@ async def test_model_reasoning_includes_shell_budget_details() -> None:
     outcome = await handle_model_reasoning(ctx, agent_name="test", value=None)
     text_messages = [str(m.text) for m in outcome.messages]
 
+    assert "Provider: responses." in text_messages
     assert "Resolved model: claude-opus-4-6." in text_messages
     assert "Model max output tokens: 128000." in text_messages
     assert "Shell output budget: 21120 bytes (~6400 tokens, active runtime)." in text_messages
@@ -131,3 +137,43 @@ async def test_model_reasoning_includes_transport_details_for_configurable_model
     assert (
         "Active transport: sse (websocket fallback was used for this turn)." in text_messages
     )
+
+
+@pytest.mark.asyncio
+async def test_model_reasoning_shows_model_details_when_reasoning_unsupported() -> None:
+    llm = _StubLLM("gpt-4.1")
+    llm.reasoning_effort_spec = None
+    provider = _StubAgentProvider(_StubAgent(llm, shell_limit=None))
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+    )
+
+    outcome = await handle_model_reasoning(ctx, agent_name="test", value=None)
+    text_messages = [str(m.text) for m in outcome.messages]
+
+    assert "Provider: responses." in text_messages
+    assert "Resolved model: gpt-4.1." in text_messages
+    assert "Current model does not support reasoning effort configuration." in text_messages
+
+
+@pytest.mark.asyncio
+async def test_model_verbosity_shows_model_details_when_unsupported() -> None:
+    llm = _StubLLM("o1")
+    llm.text_verbosity_spec = None
+    provider = _StubAgentProvider(_StubAgent(llm, shell_limit=None))
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+    )
+
+    outcome = await handle_model_verbosity(ctx, agent_name="test", value=None)
+    text_messages = [str(m.text) for m in outcome.messages]
+
+    assert "Provider: responses." in text_messages
+    assert "Resolved model: o1." in text_messages
+    assert "Current model does not support text verbosity configuration." in text_messages

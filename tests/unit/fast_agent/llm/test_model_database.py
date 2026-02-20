@@ -88,6 +88,12 @@ def test_model_database_max_tokens():
     assert ModelDatabase.get_default_max_tokens("") == 2048
 
 
+def test_model_database_default_temperature():
+    assert ModelDatabase.get_default_temperature("passthrough") == 0.0
+    assert ModelDatabase.get_default_temperature("unknown-model") is None
+    assert ModelDatabase.get_default_temperature(None) is None
+
+
 def test_model_database_tokenizes():
     """Test that ModelDatabase returns expected tokenization types"""
     # Test multimodal model
@@ -166,6 +172,7 @@ def test_llm_uses_model_database_for_max_tokens():
     assert isinstance(llm3, FastAgentLLM)
     expected_max_tokens = ModelDatabase.get_default_max_tokens("passthrough")
     assert llm3.default_request_params.maxTokens == expected_max_tokens
+    assert llm3.default_request_params.temperature is None
 
 
 def test_llm_usage_tracking_uses_model_database():

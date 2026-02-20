@@ -120,6 +120,18 @@ def test_model_query_text_verbosity():
     assert config.text_verbosity == "medium"
 
 
+def test_model_query_temperature():
+    config = ModelFactory.parse_model_string("gpt-5?temperature=0.35")
+    assert config.provider == Provider.RESPONSES
+    assert config.model_name == "gpt-5"
+    assert config.temperature == 0.35
+
+
+def test_model_query_temp_alias():
+    config = ModelFactory.parse_model_string("gpt-5?temp=0.2")
+    assert config.temperature == 0.2
+
+
 def test_model_query_transport_websocket_alias():
     config = ModelFactory.parse_model_string("codexplan?transport=ws")
     assert config.provider == Provider.CODEX_RESPONSES
@@ -151,6 +163,13 @@ def test_model_query_web_tool_flags_boolean_aliases():
     assert config.model_name == "claude-sonnet-4-6"
     assert config.web_search is True
     assert config.web_fetch is False
+
+
+def test_model_query_web_search_flag_for_responses_provider():
+    config = ModelFactory.parse_model_string("responses.gpt-5-mini?web_search=on")
+    assert config.provider == Provider.RESPONSES
+    assert config.model_name == "gpt-5-mini"
+    assert config.web_search is True
 
 
 def test_invalid_web_tool_query_values():
@@ -198,6 +217,21 @@ def test_factory_passes_web_tool_overrides_to_anthropic_llm():
     assert llm._web_fetch_override is False
 
 
+def test_factory_passes_web_search_override_to_responses_llm():
+    factory = ModelFactory.create_factory("responses.gpt-5-mini?web_search=on")
+    llm = factory(LlmAgent(AgentConfig(name="Test Agent")))
+    assert isinstance(llm, ResponsesLLM)
+    assert llm._web_search_override is True
+
+
+def test_factory_passes_web_search_override_to_codex_responses_llm():
+    factory = ModelFactory.create_factory("codexplan?web_search=on")
+    llm = factory(LlmAgent(AgentConfig(name="Test Agent")))
+    assert isinstance(llm, ResponsesLLM)
+    assert llm.provider == Provider.CODEX_RESPONSES
+    assert llm._web_search_override is True
+
+
 def test_invalid_inputs():
     """Test handling of invalid inputs"""
     invalid_cases = [
@@ -223,6 +257,11 @@ def test_invalid_instant_query():
 def test_invalid_verbosity_query():
     with pytest.raises(ModelConfigError):
         ModelFactory.parse_model_string("gpt-5?verbosity=verbose")
+
+
+def test_invalid_temperature_query():
+    with pytest.raises(ModelConfigError):
+        ModelFactory.parse_model_string("gpt-5?temperature=hot")
 
 
 def test_llm_class_creation():
@@ -447,3 +486,10 @@ def test_anthropic_long_context_default_is_200k():
     info = llm.model_info
     assert info is not None
     assert info.context_window == 200_000
+
+
+def test_factory_passes_temperature_query_to_request_params():
+    factory = ModelFactory.create_factory("gpt-5?temperature=0.42")
+    agent = LlmAgent(AgentConfig(name="test"))
+    llm = factory(agent)
+    assert llm.default_request_params.temperature == 0.42

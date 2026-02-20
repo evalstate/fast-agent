@@ -6,7 +6,12 @@ from mcp import Tool
 from mcp.types import ContentBlock, TextContent
 from openai import APIError, AsyncOpenAI, AuthenticationError, DefaultAioHttpClient
 
-from fast_agent.constants import OPENAI_REASONING_ENCRYPTED, REASONING
+from fast_agent.constants import (
+    ANTHROPIC_CITATIONS_CHANNEL,
+    ANTHROPIC_SERVER_TOOLS_CHANNEL,
+    OPENAI_REASONING_ENCRYPTED,
+    REASONING,
+)
 from fast_agent.core.exceptions import ModelConfigError, ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
@@ -35,6 +40,7 @@ from fast_agent.llm.provider.openai.responses_websocket import (
     resolve_responses_ws_url,
     send_response_request,
 )
+from fast_agent.llm.provider.openai.web_tools import build_web_search_tool, resolve_web_search
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import format_reasoning_setting, parse_reasoning_setting
 from fast_agent.llm.request_params import RequestParams
@@ -79,6 +85,7 @@ class ResponsesLLM(
     }
 
     def __init__(self, provider: Provider = Provider.RESPONSES, **kwargs) -> None:
+        web_search_override = kwargs.pop("web_search", None)
         kwargs.pop("provider", None)
         super().__init__(provider=provider, **kwargs)
         self.logger = get_logger(f"{__name__}.{self.name}" if self.name else __name__)
@@ -90,6 +97,9 @@ class ResponsesLLM(
         self._transport: ResponsesTransport = "sse"
         self._last_transport_used: Literal["sse", "websocket"] | None = None
         self._ws_connections = WebSocketConnectionManager(idle_timeout_seconds=300.0)
+        self._web_search_override: bool | None = (
+            bool(web_search_override) if isinstance(web_search_override, bool) else None
+        )
 
         raw_setting = kwargs.get("reasoning_effort", None)
         settings = self._get_provider_config()
@@ -276,6 +286,15 @@ class ResponsesLLM(
     def _openai_settings(self):
         return self._get_provider_config()
 
+    @property
+    def web_search_enabled(self) -> bool:
+        """Whether Responses web_search is enabled for this LLM instance."""
+        resolved_web_search = resolve_web_search(
+            self._openai_settings(),
+            web_search_override=self._web_search_override,
+        )
+        return resolved_web_search.enabled
+
     def _base_url(self) -> str | None:
         settings = self._openai_settings()
         return settings.base_url if settings else None
@@ -363,6 +382,16 @@ class ResponsesLLM(
                 }
                 for tool in tools
             ]
+
+        resolved_web_search = resolve_web_search(
+            self._openai_settings(),
+            web_search_override=self._web_search_override,
+        )
+        web_search_tool = build_web_search_tool(resolved_web_search)
+        if web_search_tool is not None:
+            tools_payload = base_args.setdefault("tools", [])
+            if isinstance(tools_payload, list):
+                tools_payload.append(web_search_tool)
 
         if self._reasoning:
             effort = self._resolve_reasoning_effort()
@@ -519,6 +548,16 @@ class ResponsesLLM(
 
         if getattr(response, "usage", None):
             self._record_usage(response.usage, model_name)
+
+        web_tool_payloads, citation_payloads = self._extract_web_search_metadata(response)
+        if web_tool_payloads:
+            if channels is None:
+                channels = {}
+            channels[ANTHROPIC_SERVER_TOOLS_CHANNEL] = web_tool_payloads
+        if citation_payloads:
+            if channels is None:
+                channels = {}
+            channels[ANTHROPIC_CITATIONS_CHANNEL] = citation_payloads
 
         self.history.set(input_items)
 

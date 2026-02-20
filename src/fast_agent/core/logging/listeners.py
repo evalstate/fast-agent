@@ -14,6 +14,41 @@ if TYPE_CHECKING:
 from fast_agent.core.logging.events import Event, EventFilter, EventType
 
 
+def _append_details(base: str, extra: str | None, *, separator: str = " - ") -> str:
+    """Append extra details using a stable separator when both parts exist."""
+    normalized_extra = (extra or "").strip()
+    if not normalized_extra:
+        return base
+    if not base:
+        return normalized_extra
+    return f"{base}{separator}{normalized_extra}"
+
+
+def _format_tool_context(
+    *,
+    tool_name: str | None,
+    server_name: str | None,
+    tool_event: str | None = None,
+) -> str:
+    """Build a concise, stable tool context string for progress details."""
+    normalized_tool = (tool_name or "").strip()
+    normalized_server = (server_name or "").strip()
+    normalized_event = (tool_event or "").strip()
+
+    # Prefer tool name for compactness. Server names can be long and
+    # overwhelm progress rows; only fall back to server name when tool
+    # name is unavailable.
+    if normalized_tool:
+        context = normalized_tool
+    else:
+        context = normalized_server
+
+    if context and normalized_event:
+        return f"{context} ({normalized_event})"
+
+    return context
+
+
 def convert_log_event(event: Event) -> "ProgressEvent | None":
     """Convert a log event to a progress event if applicable."""
 
@@ -43,6 +78,21 @@ def convert_log_event(event: Event) -> "ProgressEvent | None":
         # If we cannot coerce, drop this event from progress handling
         return None
 
+    # LOADED events are useful telemetry but too noisy for the live progress board.
+    if action == ProgressAction.LOADED:
+        return None
+
+    # Provider-managed web tools (e.g., Anthropic/OpenAI built-ins) should not
+    # render progress rows. MCP web tools include server_name and remain visible.
+    tool_name = event_data.get("tool_name")
+    if (
+        action in {ProgressAction.CALLING_TOOL, ProgressAction.TOOL_PROGRESS}
+        and isinstance(tool_name, str)
+        and tool_name in {"web_search", "web_fetch"}
+        and not event_data.get("server_name")
+    ):
+        return None
+
     # Build target string based on the event type.
     # Progress display is currently [time] [event] --- [target] [details]
     namespace = event.namespace
@@ -50,22 +100,25 @@ def convert_log_event(event: Event) -> "ProgressEvent | None":
 
     target = agent_name
     details = ""
+    raw_details = event_data.get("details", "")
+    server_name = event_data.get("server_name")
+    tool_event = event_data.get("tool_event")
+    tool_context = _format_tool_context(
+        tool_name=tool_name,
+        server_name=server_name,
+        tool_event=tool_event if action == ProgressAction.CALLING_TOOL else None,
+    )
+
     if action == ProgressAction.FATAL_ERROR:
         details = event_data.get("error_message", "An error occurred")
     elif "mcp_aggregator" in namespace:
-        server_name = event_data.get("server_name", "")
-        tool_name = event_data.get("tool_name")
-        if tool_name:
-            # fetch(fetch)
-            details = f"{server_name} ({tool_name})"
-        else:
-            details = f"{server_name}"
+        details = tool_context
+        if not details:
+            details = (server_name or "").strip()
 
-        # For TOOL_PROGRESS, use progress message if available, otherwise keep default
+        # For TOOL_PROGRESS, use progress message if available, otherwise keep default.
         if action == ProgressAction.TOOL_PROGRESS:
-            progress_message = event_data.get("details", "")
-            if progress_message:  # Only override if message is non-empty
-                details = progress_message
+            details = _append_details(details, raw_details)
 
     # TODO: there must be a better way :D?!
     elif "llm" in namespace:
@@ -77,16 +130,15 @@ def convert_log_event(event: Event) -> "ProgressEvent | None":
         if chat_turn is not None:
             details = f"{model} turn {chat_turn}"
 
-        tool_name = event_data.get("tool_name")
-        tool_event = event_data.get("tool_event")
-        if tool_name:
-            tool_suffix = tool_name
-            if tool_event:
-                tool_suffix = f"{tool_suffix} ({tool_event})"
-            details = f"{details} • {tool_suffix}".strip()
+        if tool_context:
+            details = f"{details} • {tool_context}".strip()
     else:
         if not target:
             target = event_data.get("target", "unknown")
+        if tool_context:
+            details = tool_context
+            if action == ProgressAction.TOOL_PROGRESS:
+                details = _append_details(details, raw_details)
 
     # Extract streaming token count for STREAMING/THINKING actions
     streaming_tokens = None
@@ -105,6 +157,14 @@ def convert_log_event(event: Event) -> "ProgressEvent | None":
         target=target or "unknown",
         details=details,
         agent_name=event_data.get("agent_name"),
+        server_name=event_data.get("server_name"),
+        correlation_id=(
+            event_data.get("tool_use_id")
+            or event_data.get("tool_call_id")
+            or event_data.get("correlation_id")
+        ),
+        tool_name=event_data.get("tool_name"),
+        tool_event=event_data.get("tool_event"),
         streaming_tokens=streaming_tokens,
         progress=progress,
         total=total,

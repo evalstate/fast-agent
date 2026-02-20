@@ -17,7 +17,11 @@ from mcp.types import (
 )
 from pydantic import AnyUrl
 
-from fast_agent.constants import ANTHROPIC_SERVER_TOOLS_CHANNEL, ANTHROPIC_THINKING_BLOCKS
+from fast_agent.constants import (
+    ANTHROPIC_ASSISTANT_RAW_CONTENT,
+    ANTHROPIC_SERVER_TOOLS_CHANNEL,
+    ANTHROPIC_THINKING_BLOCKS,
+)
 from fast_agent.llm.provider.anthropic.multipart_converter_anthropic import (
     AnthropicConverter,
 )
@@ -799,6 +803,280 @@ class TestAnthropicAssistantConverter(unittest.TestCase):
         self.assertEqual(content_blocks(anthropic_msg)[1]["data"], "opaque")
         self.assertEqual(content_blocks(anthropic_msg)[2]["type"], "tool_use")
         self.assertEqual(content_blocks(anthropic_msg)[2]["name"], "test_tool")
+
+    def test_assistant_raw_content_channel_preserves_provider_order(self):
+        """Raw assistant channel should replay content blocks exactly as captured."""
+        channels = {
+            ANTHROPIC_ASSISTANT_RAW_CONTENT: [
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "type": "thinking",
+                            "thinking": "First thought",
+                            "signature": "sig_1",
+                        }
+                    ),
+                ),
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "type": "server_tool_use",
+                            "id": "srv_1",
+                            "name": "web_search",
+                            "input": {"query": "top news"},
+                        }
+                    ),
+                ),
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "type": "web_search_tool_result",
+                            "tool_use_id": "srv_1",
+                            "content": [],
+                        }
+                    ),
+                ),
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "type": "thinking",
+                            "thinking": "Second thought",
+                            "signature": "sig_2",
+                        }
+                    ),
+                ),
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "type": "text",
+                            "text": "Using those headlines now.",
+                        }
+                    ),
+                ),
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "type": "tool_use",
+                            "id": "toolu_123",
+                            "name": "huggingface-co__dynamic_space",
+                            "input": {"operation": "discover"},
+                        }
+                    ),
+                ),
+            ]
+        }
+        multipart = PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="fallback text")],
+            tool_calls={
+                "toolu_123": CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(
+                        name="huggingface-co__dynamic_space",
+                        arguments={"operation": "discover"},
+                    ),
+                )
+            },
+            channels=channels,
+        )
+
+        anthropic_msg = AnthropicConverter.convert_to_anthropic(multipart)
+        blocks = content_blocks(anthropic_msg)
+
+        self.assertEqual(
+            [block["type"] for block in blocks],
+            [
+                "thinking",
+                "server_tool_use",
+                "web_search_tool_result",
+                "thinking",
+                "text",
+                "tool_use",
+            ],
+        )
+        self.assertEqual(blocks[0]["thinking"], "First thought")
+        self.assertEqual(blocks[3]["thinking"], "Second thought")
+        self.assertEqual(blocks[4]["text"], "Using those headlines now.")
+        self.assertEqual(blocks[5]["name"], "huggingface-co__dynamic_space")
+
+    def test_assistant_raw_content_text_block_strips_output_only_fields(self):
+        """Replay should drop output-only text fields like parsed_output."""
+        channels = {
+            ANTHROPIC_ASSISTANT_RAW_CONTENT: [
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "type": "text",
+                            "text": "Replay this text",
+                            "citations": None,
+                            "parsed_output": None,
+                        }
+                    ),
+                )
+            ]
+        }
+
+        multipart = PromptMessageExtended(role="assistant", content=[], channels=channels)
+        anthropic_msg = AnthropicConverter.convert_to_anthropic(multipart)
+        blocks = content_blocks(anthropic_msg)
+
+        self.assertEqual(len(blocks), 1)
+        self.assertEqual(blocks[0]["type"], "text")
+        self.assertEqual(blocks[0]["text"], "Replay this text")
+        self.assertNotIn("parsed_output", blocks[0])
+
+    def test_assistant_tool_use_fallback_keeps_assistant_text(self):
+        """Legacy replay path should preserve assistant text when rebuilding tool_use turns."""
+        channels = {
+            ANTHROPIC_THINKING_BLOCKS: [
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "type": "thinking",
+                            "thinking": "Reasoning summary.",
+                            "signature": "sig_fallback",
+                        }
+                    ),
+                )
+            ]
+        }
+        multipart = PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="I found the headlines.")],
+            tool_calls={
+                "toolu_legacy": CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(
+                        name="huggingface-co__dynamic_space",
+                        arguments={"operation": "discover"},
+                    ),
+                )
+            },
+            channels=channels,
+        )
+
+        anthropic_msg = AnthropicConverter.convert_to_anthropic(multipart)
+        blocks = content_blocks(anthropic_msg)
+
+        self.assertEqual([block["type"] for block in blocks], ["thinking", "text", "tool_use"])
+        self.assertEqual(blocks[1]["text"], "I found the headlines.")
+        self.assertEqual(blocks[2]["name"], "huggingface-co__dynamic_space")
+
+    def test_assistant_tool_use_legacy_channels_interleave_server_tools(self):
+        """Legacy channels should place server-tool blocks between multiple thinking blocks."""
+        channels = {
+            ANTHROPIC_THINKING_BLOCKS: [
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "type": "thinking",
+                            "thinking": "Need data first.",
+                            "signature": "sig_1",
+                        }
+                    ),
+                ),
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "type": "thinking",
+                            "thinking": "Now use the result.",
+                            "signature": "sig_2",
+                        }
+                    ),
+                ),
+            ],
+            ANTHROPIC_SERVER_TOOLS_CHANNEL: [
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "type": "server_tool_use",
+                            "id": "srv_1",
+                            "name": "web_search",
+                            "input": {"query": "top news"},
+                        }
+                    ),
+                ),
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "type": "web_search_tool_result",
+                            "tool_use_id": "srv_1",
+                            "content": [],
+                        }
+                    ),
+                ),
+            ],
+        }
+
+        multipart = PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="Done with search")],
+            tool_calls={
+                "toolu_legacy": CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(
+                        name="execute",
+                        arguments={"command": "echo hi"},
+                    ),
+                )
+            },
+            channels=channels,
+        )
+
+        anthropic_msg = AnthropicConverter.convert_to_anthropic(multipart)
+        blocks = content_blocks(anthropic_msg)
+
+        self.assertEqual(
+            [block["type"] for block in blocks],
+            [
+                "thinking",
+                "server_tool_use",
+                "web_search_tool_result",
+                "thinking",
+                "text",
+                "tool_use",
+            ],
+        )
+
+    def test_assistant_legacy_channels_without_tool_calls_include_thinking(self):
+        """Assistant turns without MCP tool calls should still replay thinking blocks."""
+        channels = {
+            ANTHROPIC_THINKING_BLOCKS: [
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "type": "thinking",
+                            "thinking": "I should summarize this.",
+                            "signature": "sig_only",
+                        }
+                    ),
+                )
+            ]
+        }
+        multipart = PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="Summary ready.")],
+            channels=channels,
+        )
+
+        anthropic_msg = AnthropicConverter.convert_to_anthropic(multipart)
+        blocks = content_blocks(anthropic_msg)
+
+        self.assertEqual([block["type"] for block in blocks], ["thinking", "text"])
+        self.assertEqual(blocks[1]["text"], "Summary ready.")
 
     def test_assistant_server_tool_blocks_deserialized_from_channel(self):
         """Server-tool channel payloads should round-trip into Anthropic blocks."""

@@ -22,6 +22,8 @@ from fast_agent.constants import (
     MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
     TERMINAL_BYTES_PER_TOKEN,
 )
+from fast_agent.core.logging.progress_payloads import build_progress_payload
+from fast_agent.event_progress import ProgressAction
 from fast_agent.ui import console
 from fast_agent.ui.console_display import ConsoleDisplay
 from fast_agent.ui.progress_display import progress_display
@@ -41,6 +43,7 @@ class ShellRuntime:
         working_directory: Path | None = None,
         output_byte_limit: int | None = None,
         config: Settings | None = None,
+        agent_name: str | None = None,
     ) -> None:
         self._activation_reason = activation_reason
         self._logger = logger
@@ -53,6 +56,7 @@ class ShellRuntime:
         self.enabled: bool = activation_reason is not None
         self._tool: Tool | None = None
         self._display = ConsoleDisplay(config=config)
+        self._agent_name = agent_name
         self._output_display_lines: int | None = None
         self._show_bash_output = True
         if config is not None:
@@ -205,6 +209,12 @@ class ShellRuntime:
         # Pause progress display during shell execution to avoid overlaying output
         with progress_display.paused():
             try:
+                self._emit_progress_event(
+                    action=ProgressAction.CALLING_TOOL,
+                    tool_use_id=tool_use_id,
+                    tool_event="start",
+                )
+
                 working_dir = self.working_directory()
                 runtime_details = self.runtime_info()
                 shell_name = (runtime_details.get("name") or "").lower()
@@ -478,6 +488,7 @@ class ShellRuntime:
                             )
                         ],
                     )
+                    completion_details = f"failed (timeout after {self._timeout_seconds}s)"
                 else:
                     combined_output = "".join(output_segments)
                     # Add explicit exit code message for the LLM
@@ -498,6 +509,8 @@ class ShellRuntime:
                             )
                         ],
                     )
+                    completion_state = "completed" if return_code == 0 else "failed"
+                    completion_details = f"{completion_state} (exit {return_code})"
 
                 # Display bottom separator with exit code
                 if use_live_shell_display:
@@ -512,11 +525,62 @@ class ShellRuntime:
                     suppress_display = False
                 setattr(result, "_suppress_display", suppress_display)
                 setattr(result, "exit_code", return_code)
+
+                self._emit_progress_event(
+                    action=ProgressAction.TOOL_PROGRESS,
+                    tool_use_id=tool_use_id,
+                    progress=1.0,
+                    total=1.0,
+                    details=completion_details,
+                )
                 return result
 
             except Exception as exc:
                 self._logger.error(f"Execute tool failed: {exc}")
+                self._emit_progress_event(
+                    action=ProgressAction.TOOL_PROGRESS,
+                    tool_use_id=tool_use_id,
+                    progress=1.0,
+                    total=1.0,
+                    details=f"failed: {exc}",
+                )
                 return CallToolResult(
                     isError=True,
                     content=[TextContent(type="text", text=f"Command failed to start: {exc}")],
                 )
+
+    def _emit_progress_event(
+        self,
+        *,
+        action: ProgressAction,
+        tool_use_id: str | None,
+        tool_event: str | None = None,
+        progress: float | None = None,
+        total: float | None = None,
+        details: str | None = None,
+    ) -> None:
+        """Emit shell tool lifecycle events for progress display when supported."""
+        info = getattr(self._logger, "info", None)
+        if not callable(info):
+            return
+
+        payload: dict[str, Any] = build_progress_payload(
+            action=action,
+            tool_name="execute",
+            server_name="local",
+            agent_name=self._agent_name,
+            tool_use_id=tool_use_id,
+            tool_call_id=tool_use_id,
+            tool_event=tool_event,
+            progress=progress,
+            total=total,
+            details=details,
+        )
+
+        try:
+            info("Local shell tool lifecycle", data=payload)
+        except TypeError:
+            # Standard library loggers reject custom keyword arguments.
+            return
+        except Exception:
+            return

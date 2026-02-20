@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -8,6 +9,7 @@ import pytest
 from anthropic.types.beta import (
     BetaCitationsWebSearchResultLocation,
     BetaCodeExecutionToolResultBlock,
+    BetaContainer,
     BetaEncryptedCodeExecutionResultBlock,
 )
 from mcp.types import TextContent
@@ -20,7 +22,12 @@ from fast_agent.config import (
     AnthropicWebSearchSettings,
     Settings,
 )
-from fast_agent.constants import ANTHROPIC_CITATIONS_CHANNEL, ANTHROPIC_SERVER_TOOLS_CHANNEL
+from fast_agent.constants import (
+    ANTHROPIC_ASSISTANT_RAW_CONTENT,
+    ANTHROPIC_CITATIONS_CHANNEL,
+    ANTHROPIC_CONTAINER_CHANNEL,
+    ANTHROPIC_SERVER_TOOLS_CHANNEL,
+)
 from fast_agent.context import Context
 from fast_agent.llm.provider.anthropic.beta_types import (
     Message,
@@ -28,9 +35,12 @@ from fast_agent.llm.provider.anthropic.beta_types import (
     ServerToolUseBlock,
     TextBlock,
     TextDelta,
+    ThinkingBlock,
+    ToolUseBlock,
     Usage,
 )
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
+from fast_agent.llm.provider.anthropic.web_tools import serialize_anthropic_block_payload
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
@@ -48,6 +58,40 @@ def test_web_tool_settings_validate_domains_and_limits() -> None:
 
     with pytest.raises(ValidationError):
         AnthropicWebFetchSettings(enabled=True, max_content_tokens=0)
+
+
+def test_serialize_anthropic_text_payload_strips_parsed_output() -> None:
+    payload = serialize_anthropic_block_payload(
+        {
+            "type": "text",
+            "text": "hello",
+            "parsed_output": None,
+            "citations": None,
+        }
+    )
+
+    assert payload is not None
+    assert payload["type"] == "text"
+    assert payload["text"] == "hello"
+    assert "parsed_output" not in payload
+
+
+def test_serialize_anthropic_text_payload_flattens_nested_text_objects() -> None:
+    payload = serialize_anthropic_block_payload(
+        {
+            "type": "text",
+            "text": {
+                "type": "text",
+                "text": "hello",
+                "parsed_output": None,
+            },
+            "parsed_output": None,
+        }
+    )
+
+    assert payload is not None
+    assert payload["text"] == "hello"
+    assert "parsed_output" not in payload
 
 
 class _DummyStreamManager:
@@ -105,6 +149,17 @@ def _user_message_param() -> dict[str, object]:
 
 def _user_message_extended() -> PromptMessageExtended:
     return PromptMessageExtended(role="user", content=[TextContent(type="text", text="hello")])
+
+
+def test_web_search_enabled_property_reflects_search_or_fetch() -> None:
+    llm = _create_llm(
+        model="claude-sonnet-4-5",
+        web_search=AnthropicWebSearchSettings(enabled=False),
+        web_fetch=AnthropicWebFetchSettings(enabled=True),
+    )
+
+    assert llm.web_tools_enabled == (False, True)
+    assert llm.web_search_enabled is True
 
 
 @pytest.mark.asyncio
@@ -248,6 +303,7 @@ async def test_server_tool_only_tool_use_does_not_create_mcp_tool_calls() -> Non
     assert result.tool_calls is None
     assert result.channels is not None
     assert ANTHROPIC_SERVER_TOOLS_CHANNEL in result.channels
+    assert ANTHROPIC_ASSISTANT_RAW_CONTENT in result.channels
 
 
 @pytest.mark.asyncio
@@ -301,6 +357,129 @@ async def test_code_execution_tool_results_are_preserved_in_server_tool_channel(
     payload_types = [json.loads(block.text).get("type") for block in payloads]
     assert "server_tool_use" in payload_types
     assert "code_execution_tool_result" in payload_types
+    replay_payloads = result.channels.get(ANTHROPIC_ASSISTANT_RAW_CONTENT, [])
+    replay_types = [json.loads(block.text).get("type") for block in replay_payloads]
+    assert replay_types == ["server_tool_use", "code_execution_tool_result", "text"]
+
+
+@pytest.mark.asyncio
+async def test_tool_use_with_thinking_persists_raw_assistant_content_channel() -> None:
+    llm = _create_llm(model="claude-haiku-4-5")
+
+    final_message = Message(
+        id="msg_3c",
+        type="message",
+        role="assistant",
+        content=[
+            ThinkingBlock(type="thinking", thinking="I should call a tool", signature="sig_123"),
+            TextBlock(type="text", text="Let me fetch data."),
+            ToolUseBlock(
+                type="tool_use",
+                id="toolu_123",
+                name="mcp__demo",
+                input={"q": "status"},
+            ),
+        ],
+        model="claude-haiku-4-5",
+        stop_reason="tool_use",
+        usage=Usage(input_tokens=10, output_tokens=20),
+    )
+
+    with patch("fast_agent.llm.provider.anthropic.llm_anthropic.AsyncAnthropic") as mock_cls:
+        client = MagicMock()
+        client.beta.messages.stream.return_value = _DummyStreamManager()
+        mock_cls.return_value = client
+
+        with patch.object(llm, "_process_stream", new_callable=AsyncMock) as mock_process:
+            mock_process.return_value = (final_message, ["I should call a tool"], [])
+            result = await llm._anthropic_completion(
+                _user_message_param(),
+                history=[],
+                current_extended=_user_message_extended(),
+            )
+
+    assert result.stop_reason == LlmStopReason.TOOL_USE
+    assert result.channels is not None
+    replay_payloads = result.channels.get(ANTHROPIC_ASSISTANT_RAW_CONTENT, [])
+    replay_types = [json.loads(block.text).get("type") for block in replay_payloads]
+    assert replay_types == ["thinking", "text", "tool_use"]
+
+
+@pytest.mark.asyncio
+async def test_response_container_id_is_persisted_for_followup_requests() -> None:
+    llm = _create_llm(model="claude-opus-4-6")
+
+    final_message = Message(
+        id="msg_container",
+        type="message",
+        role="assistant",
+        content=[TextBlock(type="text", text="done")],
+        model="claude-opus-4-6",
+        stop_reason="end_turn",
+        usage=Usage(input_tokens=10, output_tokens=20),
+        container=BetaContainer(id="cont_123", expires_at=datetime.now(UTC)),
+    )
+
+    with patch("fast_agent.llm.provider.anthropic.llm_anthropic.AsyncAnthropic") as mock_cls:
+        client = MagicMock()
+        client.beta.messages.stream.return_value = _DummyStreamManager()
+        mock_cls.return_value = client
+
+        with patch.object(llm, "_process_stream", new_callable=AsyncMock) as mock_process:
+            mock_process.return_value = (final_message, [], [])
+            result = await llm._anthropic_completion(
+                _user_message_param(),
+                history=[],
+                current_extended=_user_message_extended(),
+            )
+
+    assert result.channels is not None
+    container_blocks = result.channels.get(ANTHROPIC_CONTAINER_CHANNEL, [])
+    assert len(container_blocks) == 1
+    assert json.loads(container_blocks[0].text) == {"id": "cont_123"}
+
+
+@pytest.mark.asyncio
+async def test_request_reuses_container_id_from_history_channel() -> None:
+    llm = _create_llm(model="claude-opus-4-6")
+
+    final_message = Message(
+        id="msg_container_reuse",
+        type="message",
+        role="assistant",
+        content=[TextBlock(type="text", text="done")],
+        model="claude-opus-4-6",
+        stop_reason="end_turn",
+        usage=Usage(input_tokens=10, output_tokens=20),
+    )
+
+    history = [
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="Previous assistant turn")],
+            channels={
+                ANTHROPIC_CONTAINER_CHANNEL: [
+                    TextContent(type="text", text=json.dumps({"id": "cont_history"}))
+                ]
+            },
+        )
+    ]
+
+    with patch("fast_agent.llm.provider.anthropic.llm_anthropic.AsyncAnthropic") as mock_cls:
+        client = MagicMock()
+        client.beta.messages.stream.return_value = _DummyStreamManager()
+        mock_cls.return_value = client
+
+        with patch.object(llm, "_process_stream", new_callable=AsyncMock) as mock_process:
+            mock_process.return_value = (final_message, [], [])
+            await llm._anthropic_completion(
+                _user_message_param(),
+                history=history,
+                current_extended=_user_message_extended(),
+            )
+
+    request_kwargs = client.beta.messages.stream.call_args.kwargs
+    assert request_kwargs.get("container") == "cont_history"
 
 
 def test_convert_message_to_message_param_keeps_code_execution_tool_result() -> None:

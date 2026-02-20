@@ -45,6 +45,7 @@ from fast_agent.workflow_telemetry import (
 )
 
 if TYPE_CHECKING:
+    from fast_agent.agents.llm_decorator import RemovedContentSummary
     from fast_agent.agents.tool_runner import ToolRunnerHooks
     from fast_agent.ui.streaming import StreamingHandle
 # TODO -- decide what to do with type safety for model/chat_turn()
@@ -216,8 +217,9 @@ class LlmAgent(LlmDecorator):
             )
 
         message_text = message
+        show_post_turn_metadata = message.stop_reason != LlmStopReason.TOOL_USE
 
-        sources_text = render_sources_additional_text(message)
+        sources_text = render_sources_additional_text(message) if show_post_turn_metadata else None
         debug_web = bool(os.environ.get("FAST_AGENT_WEBDEBUG"))
         if debug_web:
             channels = message.channels or {}
@@ -230,12 +232,13 @@ class LlmAgent(LlmDecorator):
                 f" server_tool_blocks={len(channels.get(ANTHROPIC_SERVER_TOOLS_CHANNEL, [])) if isinstance(channels, dict) else 0}"
                 f" citation_blocks={len(channels.get(ANTHROPIC_CITATIONS_CHANNEL, [])) if isinstance(channels, dict) else 0}"
                 f" source_count={source_count}"
+                f" show_post_turn_metadata={show_post_turn_metadata}"
                 f" sources_rendered={bool(sources_text)}"
             )
         if sources_text is not None:
             additional_segments.append(sources_text)
 
-        badge_items = web_tool_badges(message)
+        badge_items = web_tool_badges(message) if show_post_turn_metadata else []
         if debug_web:
             print(f"[webdebug] agent={self.name} badges={badge_items}")
         if badge_items:
@@ -303,6 +306,15 @@ class LlmAgent(LlmDecorator):
             show_hook_indicator=hook_indicator,
         )
         self._display_url_elicitations_from_history(display_name)
+
+    def _summary_text_for_result(
+        self,
+        message: PromptMessageExtended,
+        summary: "RemovedContentSummary | None",
+    ) -> Text | None:
+        if summary is None or message.stop_reason == LlmStopReason.TOOL_USE:
+            return None
+        return Text(f"\n\n{summary.message}", style="dim red italic")
 
     def _display_url_elicitations_from_history(self, agent_name: str | None) -> None:
         """Display deferred URL elicitations from the previous tool-result turn."""
@@ -531,8 +543,7 @@ class LlmAgent(LlmDecorator):
                     if remove_tool_listener:
                         remove_tool_listener()
 
-                if summary:
-                    summary_text = Text(f"\n\n{summary.message}", style="dim red italic")
+                summary_text = self._summary_text_for_result(result, summary)
 
                 self._maybe_close_streaming_for_tool_calls(result)
                 stream_handle.finalize(result)
@@ -545,10 +556,7 @@ class LlmAgent(LlmDecorator):
             )
         else:
             result, summary = await self._generate_with_summary(messages, request_params, tools)
-
-            summary_text = (
-                Text(f"\n\n{summary.message}", style="dim red italic") if summary else None
-            )
+            summary_text = self._summary_text_for_result(result, summary)
             await self.show_assistant_message(result, additional_message=summary_text)
 
         return result
@@ -619,6 +627,6 @@ class LlmAgent(LlmDecorator):
         (result, message), summary = await self._structured_with_summary(
             messages, model, request_params
         )
-        summary_text = Text(f"\n\n{summary.message}", style="dim red italic") if summary else None
+        summary_text = self._summary_text_for_result(message, summary)
         await self.show_assistant_message(message=message, additional_message=summary_text)
         return result, message
