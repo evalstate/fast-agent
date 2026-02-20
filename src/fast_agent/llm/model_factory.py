@@ -1,3 +1,4 @@
+import math
 from typing import Literal, Type, Union
 from urllib.parse import parse_qs
 
@@ -35,6 +36,7 @@ class ModelConfig(BaseModel):
     transport: Literal["sse", "websocket", "auto"] | None = None
     web_search: bool | None = None
     web_fetch: bool | None = None
+    temperature: float | None = None
 
 
 class ModelFactory:
@@ -205,6 +207,7 @@ class ModelFactory:
         query_transport: Literal["sse", "websocket", "auto"] | None = None
         query_web_search: bool | None = None
         query_web_fetch: bool | None = None
+        query_temperature: float | None = None
 
         def _parse_on_off_query(raw_value: str, query_key: str) -> bool:
             parsed = parse_reasoning_setting(raw_value)
@@ -283,6 +286,21 @@ class ModelFactory:
                 values = query_params.get("web_fetch") or []
                 raw_value = values[-1] if values else ""
                 query_web_fetch = _parse_on_off_query(raw_value, "web_fetch")
+            if "temperature" in query_params or "temp" in query_params:
+                values = query_params.get("temperature") or query_params.get("temp") or []
+                raw_value = values[-1] if values else ""
+                try:
+                    parsed_temperature = float(raw_value)
+                except ValueError as exc:
+                    raise ModelConfigError(
+                        f"Invalid temperature query value: '{raw_value}' in '{model_string}'"
+                    ) from exc
+
+                if not math.isfinite(parsed_temperature):
+                    raise ModelConfigError(
+                        f"Invalid temperature query value: '{raw_value}' in '{model_string}'"
+                    )
+                query_temperature = parsed_temperature
 
         suffix: str | None = None
         if ":" in model_string:
@@ -403,6 +421,7 @@ class ModelFactory:
             transport=query_transport,
             web_search=query_web_search,
             web_fetch=query_web_fetch,
+            temperature=query_temperature,
         )
 
     @classmethod
@@ -436,8 +455,16 @@ class ModelFactory:
         def factory(
             agent: AgentProtocol, request_params: RequestParams | None = None, **kwargs
         ) -> FastAgentLLMProtocol:
-            base_params = RequestParams()
-            base_params.model = config.model_name
+            effective_request_params = request_params
+
+            if config.temperature is not None:
+                if effective_request_params is None:
+                    effective_request_params = RequestParams(temperature=config.temperature)
+                else:
+                    effective_request_params = effective_request_params.model_copy(
+                        update={"temperature": config.temperature}
+                    )
+
             if config.reasoning_effort:
                 kwargs["reasoning_effort"] = config.reasoning_effort
             if config.text_verbosity:
@@ -459,7 +486,7 @@ class ModelFactory:
                 kwargs["web_fetch"] = config.web_fetch
             llm_args = {
                 "model": config.model_name,
-                "request_params": request_params,
+                "request_params": effective_request_params,
                 "name": getattr(agent, "name", "fast-agent"),
                 "instructions": getattr(agent, "instruction", None),
                 **kwargs,

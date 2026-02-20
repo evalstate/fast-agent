@@ -12,6 +12,24 @@ from fast_agent.event_progress import ProgressAction
 from fast_agent.ui.rich_progress import RichProgressDisplay
 
 
+async def _wait_for(
+    predicate,
+    *,
+    timeout: float = 5.0,
+    interval: float = 0.05,
+) -> bool:
+    """Wait for an async-test condition to become true."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+
+    while True:
+        if predicate():
+            return True
+        if loop.time() >= deadline:
+            return False
+        await asyncio.sleep(interval)
+
+
 class ProgressDisplayProbe(FilteredListener):
     def __init__(self) -> None:
         event_filter = EventFilter(types={"info"}, namespaces={"fast_agent.mcp.mcp_aggregator"})
@@ -91,12 +109,9 @@ async def test_parallel_tool_progress_rows_are_tracked_and_cleaned_up(fast_agent
 
         await agent_function()
 
-        # Ensure all queued events are consumed before asserting.
-        await asyncio.sleep(0.2)
-
-        assert len(probe.seen_correlation_ids) >= 3
+        assert await _wait_for(lambda: len(probe.seen_correlation_ids) >= 3)
         assert probe.max_task_count >= 3
-        assert len(probe.display._taskmap) == 0
+        assert await _wait_for(lambda: len(probe.display._taskmap) == 0)
 
     finally:
         bus.remove_listener(listener_name)
@@ -150,12 +165,9 @@ async def test_llm_tool_call_rows_cleanup_on_stop_events(fast_agent) -> None:
 
         await agent_function()
 
-        # Ensure all queued events are consumed before asserting.
-        await asyncio.sleep(0.2)
-
-        assert len(probe.seen_correlation_ids) >= 3
+        assert await _wait_for(lambda: len(probe.seen_correlation_ids) >= 3)
         assert probe.max_task_count >= 3
-        assert len(probe.display._taskmap) == 0
+        assert await _wait_for(lambda: len(probe.display._taskmap) == 0)
 
     finally:
         bus.remove_listener(listener_name)

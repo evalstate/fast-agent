@@ -42,3 +42,9 @@ def test_model_database_preserves_known_slash_keys() -> None:
     assert ModelDatabase.get_max_output_tokens("openai/gpt-oss-20b") == ModelDatabase.get_max_output_tokens(
         "hf.openai/gpt-oss-20b"
     )
+
+
+def test_model_database_normalizes_temperature_query() -> None:
+    assert ModelDatabase.get_max_output_tokens("gpt-5?temperature=0.2") == ModelDatabase.get_max_output_tokens(
+        "gpt-5"
+    )

@@ -120,6 +120,18 @@ def test_model_query_text_verbosity():
     assert config.text_verbosity == "medium"
 
 
+def test_model_query_temperature():
+    config = ModelFactory.parse_model_string("gpt-5?temperature=0.35")
+    assert config.provider == Provider.RESPONSES
+    assert config.model_name == "gpt-5"
+    assert config.temperature == 0.35
+
+
+def test_model_query_temp_alias():
+    config = ModelFactory.parse_model_string("gpt-5?temp=0.2")
+    assert config.temperature == 0.2
+
+
 def test_model_query_transport_websocket_alias():
     config = ModelFactory.parse_model_string("codexplan?transport=ws")
     assert config.provider == Provider.CODEX_RESPONSES
@@ -245,6 +257,11 @@ def test_invalid_instant_query():
 def test_invalid_verbosity_query():
     with pytest.raises(ModelConfigError):
         ModelFactory.parse_model_string("gpt-5?verbosity=verbose")
+
+
+def test_invalid_temperature_query():
+    with pytest.raises(ModelConfigError):
+        ModelFactory.parse_model_string("gpt-5?temperature=hot")
 
 
 def test_llm_class_creation():
@@ -469,3 +486,10 @@ def test_anthropic_long_context_default_is_200k():
     info = llm.model_info
     assert info is not None
     assert info.context_window == 200_000
+
+
+def test_factory_passes_temperature_query_to_request_params():
+    factory = ModelFactory.create_factory("gpt-5?temperature=0.42")
+    agent = LlmAgent(AgentConfig(name="test"))
+    llm = factory(agent)
+    assert llm.default_request_params.temperature == 0.42
