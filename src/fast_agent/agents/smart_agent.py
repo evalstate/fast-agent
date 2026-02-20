@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping, Sequence
+from typing import TYPE_CHECKING, Any, Mapping, Protocol, Sequence
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.mcp_agent import McpAgent
@@ -12,6 +12,7 @@ from fast_agent.agents.workflow.agents_as_tools_agent import (
     AgentsAsToolsAgent,
     AgentsAsToolsOptions,
 )
+from fast_agent.commands.handlers import mcp_runtime as mcp_runtime_handlers
 from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.agent_card_loader import load_agent_cards
 from fast_agent.core.agent_card_validation import AgentCardScanResult, scan_agent_card_path
@@ -31,9 +32,12 @@ from fast_agent.tools.function_tool_loader import FastMCPTool
 
 if TYPE_CHECKING:
     from fast_agent.agents.llm_agent import LlmAgent
+    from fast_agent.commands.results import CommandOutcome
+    from fast_agent.config import MCPServerSettings
     from fast_agent.context import Context
     from fast_agent.core.agent_card_types import AgentCardData
     from fast_agent.interfaces import AgentProtocol
+    from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
 
 logger = get_logger(__name__)
 
@@ -42,6 +46,181 @@ logger = get_logger(__name__)
 class _SmartCardBundle:
     agents_dict: dict[str, "AgentCardData | dict[str, Any]"]
     message_files: dict[str, list[Path]]
+
+
+class _McpCapableAgent(Protocol):
+    async def attach_mcp_server(
+        self,
+        *,
+        server_name: str,
+        server_config: MCPServerSettings | None = None,
+        options: MCPAttachOptions | None = None,
+    ) -> MCPAttachResult: ...
+
+    async def detach_mcp_server(self, server_name: str) -> MCPDetachResult: ...
+
+    def list_attached_mcp_servers(self) -> list[str]: ...
+
+
+@dataclass(frozen=True)
+class _SmartConnectSummary:
+    connected: list[str]
+    warnings: list[str]
+
+
+class _SmartToolMcpManager:
+    """Minimal MCP runtime manager adapter for temporary smart-tool agents."""
+
+    def __init__(
+        self,
+        agents: Mapping[str, AgentProtocol],
+        configured_server_names: set[str],
+    ) -> None:
+        self._agents = agents
+        self._configured_server_names = configured_server_names
+
+    def _agent(self, name: str) -> _McpCapableAgent:
+        agent = self._agents.get(name)
+        if agent is None:
+            raise AgentConfigError("Unknown agent", f"Agent '{name}' is not loaded")
+
+        required = ("attach_mcp_server", "detach_mcp_server", "list_attached_mcp_servers")
+        if not all(callable(getattr(agent, attr, None)) for attr in required):
+            raise AgentConfigError(
+                "Agent does not support runtime MCP connection",
+                f"Agent '{name}' cannot attach MCP servers",
+            )
+
+        return agent  # type: ignore[return-value]
+
+    async def attach_mcp_server(
+        self,
+        agent_name: str,
+        server_name: str,
+        server_config: MCPServerSettings | None = None,
+        options: MCPAttachOptions | None = None,
+    ) -> MCPAttachResult:
+        agent = self._agent(agent_name)
+        return await agent.attach_mcp_server(
+            server_name=server_name,
+            server_config=server_config,
+            options=options,
+        )
+
+    async def detach_mcp_server(self, agent_name: str, server_name: str) -> MCPDetachResult:
+        agent = self._agent(agent_name)
+        return await agent.detach_mcp_server(server_name)
+
+    async def list_attached_mcp_servers(self, agent_name: str) -> list[str]:
+        agent = self._agent(agent_name)
+        return list(agent.list_attached_mcp_servers())
+
+    async def list_configured_detached_mcp_servers(self, agent_name: str) -> list[str]:
+        attached = set(await self.list_attached_mcp_servers(agent_name))
+        return sorted(self._configured_server_names - attached)
+
+
+def _resolve_default_agent_name(
+    agents: Mapping[str, AgentProtocol],
+    *,
+    tool_only_agents: set[str],
+) -> str:
+    for name, agent in agents.items():
+        if name in tool_only_agents:
+            continue
+        if bool(getattr(agent.config, "default", False)):
+            return name
+
+    for name in agents:
+        if name not in tool_only_agents:
+            return name
+
+    return next(iter(agents.keys()))
+
+
+def _collect_outcome_messages(outcome: "CommandOutcome") -> tuple[list[str], list[str]]:
+    errors: list[str] = []
+    warnings: list[str] = []
+    for message in outcome.messages:
+        text = str(message.text)
+        if message.channel == "error":
+            errors.append(text)
+        elif message.channel == "warning":
+            warnings.append(text)
+    return errors, warnings
+
+
+def _format_command_outcome(outcome: "CommandOutcome") -> str:
+    lines: list[str] = []
+    for message in outcome.messages:
+        text = str(message.text).strip()
+        if text:
+            lines.append(text)
+    return "\n".join(lines) if lines else "Done."
+
+
+def _context_server_names(context: "Context | None") -> set[str]:
+    if context and context.config and context.config.mcp and context.config.mcp.servers:
+        return set(context.config.mcp.servers.keys())
+    return set()
+
+
+async def _apply_runtime_mcp_connections(
+    *,
+    context: "Context | None",
+    agents_map: Mapping[str, AgentProtocol],
+    target_agent_name: str,
+    mcp_connect: Sequence[str],
+) -> _SmartConnectSummary:
+    configured_names = _context_server_names(context)
+
+    manager = _SmartToolMcpManager(agents_map, configured_server_names=configured_names)
+    connected_names: list[str] = []
+    warnings: list[str] = []
+
+    for raw_target in mcp_connect:
+        target = raw_target.strip()
+        if not target:
+            continue
+
+        outcome = await mcp_runtime_handlers.handle_mcp_connect(
+            None,
+            manager=manager,
+            agent_name=target_agent_name,
+            target_text=target,
+        )
+        errors, target_warnings = _collect_outcome_messages(outcome)
+        warnings.extend(target_warnings)
+        if errors:
+            raise AgentConfigError(
+                "Failed to connect MCP server for smart tool call",
+                "\n".join(errors),
+            )
+
+        parsed = mcp_runtime_handlers.parse_connect_input(target)
+        mode = mcp_runtime_handlers.infer_connect_mode(parsed.target_text)
+        resolved_name = parsed.server_name or mcp_runtime_handlers.infer_server_name(
+            parsed.target_text,
+            mode,
+        )
+        connected_names.append(resolved_name)
+
+    return _SmartConnectSummary(connected=connected_names, warnings=warnings)
+
+
+async def _run_mcp_connect_call(agent: Any, target: str) -> str:
+    context = getattr(agent, "context", None)
+    manager = _SmartToolMcpManager(
+        {agent.name: agent},
+        configured_server_names=_context_server_names(context),
+    )
+    outcome = await mcp_runtime_handlers.handle_mcp_connect(
+        None,
+        manager=manager,
+        agent_name=agent.name,
+        target_text=target,
+    )
+    return _format_command_outcome(outcome)
 
 
 def _resolve_agent_card_path(path_value: str, context: Context | None) -> Path:
@@ -138,6 +317,7 @@ async def _run_smart_call(
     agent_card_path: str,
     message: str,
     *,
+    mcp_connect: Sequence[str] | None = None,
     disable_streaming: bool = False,
 ) -> str:
     if context is None:
@@ -161,6 +341,31 @@ async def _run_smart_call(
             name for name, data in bundle.agents_dict.items() if data.get("tool_only", False)
         }
         app = AgentApp(agents_map, tool_only_agents=tool_only_agents)
+
+        if mcp_connect:
+            default_agent_name = _resolve_default_agent_name(
+                agents_map,
+                tool_only_agents=tool_only_agents,
+            )
+            connect_summary = await _apply_runtime_mcp_connections(
+                context=context,
+                agents_map=agents_map,
+                target_agent_name=default_agent_name,
+                mcp_connect=mcp_connect,
+            )
+            if connect_summary.connected:
+                logger.info(
+                    "Connected runtime MCP servers for smart tool call",
+                    data={
+                        "agent": default_agent_name,
+                        "servers": connect_summary.connected,
+                    },
+                )
+            for warning in connect_summary.warnings:
+                logger.warning(
+                    "Runtime MCP connect warning in smart tool call",
+                    data={"warning": warning, "agent": default_agent_name},
+                )
 
         if disable_streaming:
             for agent in agents_map.values():
@@ -210,7 +415,8 @@ def _enable_smart_tooling(agent: Any) -> None:
         name="smart",
         description=(
             "Load AgentCards from a path and send a message to the resolved default card agent "
-            "(default:true, otherwise first non-tool_only)."
+            "(default:true, otherwise first non-tool_only). Optional `mcp_connect` entries "
+            "accept `/mcp connect` style target strings for runtime MCP attachment."
         ),
     )
     validate_tool = FastMCPTool.from_function(
@@ -218,14 +424,25 @@ def _enable_smart_tooling(agent: Any) -> None:
         name="validate",
         description="Validate AgentCard files using the same checks as fast-agent check.",
     )
+    mcp_connect_tool = FastMCPTool.from_function(
+        agent.mcp_connect,
+        name="mcp_connect",
+        description=(
+            "Connect an MCP server to this smart agent at runtime. "
+            "Accepts `/mcp connect` style target strings, including flags "
+            "like --name/--auth/--timeout/--oauth/--reconnect."
+        ),
+    )
     agent.add_tool(smart_tool)
     agent.add_tool(validate_tool)
+    agent.add_tool(mcp_connect_tool)
 
 
 async def _dispatch_smart_tool(
     agent: Any,
     agent_card_path: str,
     message: str,
+    mcp_connect: list[str] | None = None,
 ) -> str:
     disable_streaming = bool(getattr(agent, "_parallel_smart_tool_calls", False))
     context = getattr(agent, "context", None)
@@ -233,6 +450,7 @@ async def _dispatch_smart_tool(
         context,
         agent_card_path,
         message,
+        mcp_connect=mcp_connect,
         disable_streaming=disable_streaming,
     )
 
@@ -240,6 +458,10 @@ async def _dispatch_smart_tool(
 async def _dispatch_validate_tool(agent: Any, agent_card_path: str) -> str:
     context = getattr(agent, "context", None)
     return await _run_validate_call(context, agent_card_path)
+
+
+async def _dispatch_mcp_connect_tool(agent: Any, target: str) -> str:
+    return await _run_mcp_connect_call(agent, target)
 
 
 class SmartAgent(McpAgent):
@@ -258,13 +480,27 @@ class SmartAgent(McpAgent):
     def agent_type(self) -> AgentType:
         return AgentType.SMART
 
-    async def smart(self, agent_card_path: str, message: str) -> str:
+    async def smart(
+        self,
+        agent_card_path: str,
+        message: str,
+        mcp_connect: list[str] | None = None,
+    ) -> str:
         """Load AgentCards and send a message to the default agent."""
-        return await _dispatch_smart_tool(self, agent_card_path, message)
+        return await _dispatch_smart_tool(
+            self,
+            agent_card_path,
+            message,
+            mcp_connect=mcp_connect,
+        )
 
     async def validate(self, agent_card_path: str) -> str:
         """Validate AgentCard files for the provided path."""
         return await _dispatch_validate_tool(self, agent_card_path)
+
+    async def mcp_connect(self, target: str) -> str:
+        """Connect an MCP server to this agent at runtime."""
+        return await _dispatch_mcp_connect_tool(self, target)
 
 
 class SmartAgentsAsToolsAgent(AgentsAsToolsAgent):
@@ -293,11 +529,24 @@ class SmartAgentsAsToolsAgent(AgentsAsToolsAgent):
     def agent_type(self) -> AgentType:
         return AgentType.SMART
 
-    async def smart(self, agent_card_path: str, message: str) -> str:
-        return await _dispatch_smart_tool(self, agent_card_path, message)
+    async def smart(
+        self,
+        agent_card_path: str,
+        message: str,
+        mcp_connect: list[str] | None = None,
+    ) -> str:
+        return await _dispatch_smart_tool(
+            self,
+            agent_card_path,
+            message,
+            mcp_connect=mcp_connect,
+        )
 
     async def validate(self, agent_card_path: str) -> str:
         return await _dispatch_validate_tool(self, agent_card_path)
+
+    async def mcp_connect(self, target: str) -> str:
+        return await _dispatch_mcp_connect_tool(self, target)
 
 
 class SmartAgentWithUI(McpUIMixin, SmartAgent):
