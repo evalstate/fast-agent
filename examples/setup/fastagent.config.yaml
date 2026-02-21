@@ -12,6 +12,17 @@
 
 default_model: gpt-5-mini.low
 
+# Optional namespaced model aliases (Phase 1: string targets only)
+# model_aliases:
+#   system:
+#     default: "responses.gpt-5-mini.low"
+#     plan: "codexplan"
+#     fast: "claude-haiku-4-5"
+#
+# Example usage:
+# default_model: "$system.default"
+# agent model: "$system.fast"
+
 # Number of times to retry transient LLM API errors (falls back to FAST_AGENT_RETRIES env var)
 # llm_retries: 1
 

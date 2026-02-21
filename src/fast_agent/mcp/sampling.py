@@ -17,7 +17,12 @@ from mcp.types import (
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.core.model_resolution import HARDCODED_DEFAULT_MODEL, resolve_model_spec
+from fast_agent.core.model_resolution import (
+    HARDCODED_DEFAULT_MODEL,
+    get_context_model_aliases,
+    resolve_model_alias,
+    resolve_model_spec,
+)
 from fast_agent.interfaces import FastAgentLLMProtocol
 from fast_agent.llm.sampling_converter import SamplingConverter
 from fast_agent.mcp.helpers.server_config_helpers import get_server_config
@@ -109,6 +114,13 @@ async def sample(
     api_key: str | None = None
     app_context: Any | None = None
     try:
+        try:
+            from fast_agent.context import get_current_context
+
+            app_context = get_current_context()
+        except Exception:
+            app_context = None
+
         # Extract model from server config using type-safe helper
         server_config = get_server_config(context)
 
@@ -121,9 +133,6 @@ async def sample(
             # Check if auto_sampling is enabled
             auto_sampling_enabled = False
             try:
-                from fast_agent.context import get_current_context
-
-                app_context = get_current_context()
                 if app_context and app_context.config:
                     auto_sampling_enabled = getattr(app_context.config, "auto_sampling", True)
             except Exception as e:
@@ -165,6 +174,8 @@ async def sample(
             raise ValueError(
                 "No model configured for sampling (server config, agent model, or system default)"
             )
+
+        model = resolve_model_alias(model, get_context_model_aliases(app_context))
 
         # Create an LLM instance
         llm = create_sampling_llm(params, model, api_key)

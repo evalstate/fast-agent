@@ -3,9 +3,10 @@
 import os
 import platform
 import sys
+from dataclasses import dataclass
 from importlib.metadata import version
 from pathlib import Path
-from typing import Callable, Literal
+from typing import Any, Callable
 
 import typer
 import yaml
@@ -28,6 +29,129 @@ app = typer.Typer(
     help="Check and diagnose FastAgent configuration",
     no_args_is_help=False,  # Allow showing our custom help instead
 )
+
+
+@dataclass(frozen=True)
+class ProviderCatalogScope:
+    """A CLI provider scope for model catalog inspection."""
+
+    display_name: str
+    providers: tuple[Provider, ...]
+
+
+_PROVIDER_CATALOG_SCOPES_BY_KEY: dict[str, ProviderCatalogScope] = {
+    "openai": ProviderCatalogScope(
+        display_name="OpenAI",
+        providers=(
+            Provider.OPENAI,
+            Provider.RESPONSES,
+            Provider.CODEX_RESPONSES,
+        ),
+    ),
+    "responses": ProviderCatalogScope(
+        display_name="Responses",
+        providers=(Provider.RESPONSES,),
+    ),
+    "codexresponses": ProviderCatalogScope(
+        display_name="Codex Responses",
+        providers=(Provider.CODEX_RESPONSES,),
+    ),
+    "anthropic": ProviderCatalogScope(
+        display_name="Anthropic",
+        providers=(Provider.ANTHROPIC,),
+    ),
+    "google": ProviderCatalogScope(
+        display_name="Google",
+        providers=(Provider.GOOGLE,),
+    ),
+    "deepseek": ProviderCatalogScope(
+        display_name="Deepseek",
+        providers=(Provider.DEEPSEEK,),
+    ),
+    "aliyun": ProviderCatalogScope(
+        display_name="Aliyun",
+        providers=(Provider.ALIYUN,),
+    ),
+    "huggingface": ProviderCatalogScope(
+        display_name="HuggingFace",
+        providers=(Provider.HUGGINGFACE,),
+    ),
+    "xai": ProviderCatalogScope(
+        display_name="XAI",
+        providers=(Provider.XAI,),
+    ),
+    "openrouter": ProviderCatalogScope(
+        display_name="OpenRouter",
+        providers=(Provider.OPENROUTER,),
+    ),
+}
+
+_PROVIDER_CATALOG_SCOPE_ALIASES: dict[str, str] = {
+    "hf": "huggingface",
+    "codex-responses": "codexresponses",
+    "codex_responses": "codexresponses",
+}
+
+_PROVIDER_CATALOG_VISIBLE_CHOICES: tuple[str, ...] = (
+    "openai",
+    "anthropic",
+    "google",
+    "deepseek",
+    "aliyun",
+    "huggingface",
+    "xai",
+    "openrouter",
+    "responses",
+    "codexresponses",
+)
+
+
+def _normalize_provider_catalog_scope_name(value: str) -> str:
+    return value.strip().lower().replace("-", "").replace("_", "").replace(" ", "")
+
+
+def _build_provider_catalog_scope_lookup() -> dict[str, ProviderCatalogScope]:
+    lookup: dict[str, ProviderCatalogScope] = {}
+    for name, scope in _PROVIDER_CATALOG_SCOPES_BY_KEY.items():
+        lookup[_normalize_provider_catalog_scope_name(name)] = scope
+
+    for alias, canonical_name in _PROVIDER_CATALOG_SCOPE_ALIASES.items():
+        normalized_alias = _normalize_provider_catalog_scope_name(alias)
+        canonical_scope = _PROVIDER_CATALOG_SCOPES_BY_KEY.get(canonical_name)
+        if canonical_scope is None:
+            continue
+        lookup[normalized_alias] = canonical_scope
+
+    return lookup
+
+
+_PROVIDER_CATALOG_SCOPE_LOOKUP = _build_provider_catalog_scope_lookup()
+
+
+def _resolve_provider_catalog_scope(provider_name: str) -> ProviderCatalogScope:
+    normalized_name = _normalize_provider_catalog_scope_name(provider_name)
+    scope = _PROVIDER_CATALOG_SCOPE_LOOKUP.get(normalized_name)
+    if scope is not None:
+        return scope
+
+    choices = ", ".join(_PROVIDER_CATALOG_VISIBLE_CHOICES)
+    raise ValueError(f"Unknown provider '{provider_name}'. Choose one of: {choices}")
+
+
+def _print_section_header(title: str, color: str = "blue") -> None:
+    width = console.size.width
+    left = f"[{color}]▎[/{color}][dim {color}]▶[/dim {color}] [{color}]{title}[/{color}]"
+    left_text = Text.from_markup(left)
+    separator_count = max(1, width - left_text.cell_len - 1)
+
+    combined = Text()
+    combined.append_text(left_text)
+    combined.append(" ")
+    combined.append("─" * separator_count, style="dim")
+
+    console.print()
+    console.print(combined)
+    console.print()
 
 
 def find_config_files(start_path: Path, env_dir: Path | None = None) -> dict[str, Path | None]:
@@ -341,109 +465,100 @@ def _resolve_configured_providers(config_summary: dict, api_keys: dict) -> list[
 
 def _render_model_catalog_sections(
     *,
-    model_catalog: Literal["curated", "all", "both"],
     configured_providers: list[Provider],
     print_section_header: Callable[..., None],
 ) -> None:
     model_suggestions = ModelSelectionCatalog.suggestions_for_providers(configured_providers)
-    show_curated = model_catalog in {"curated", "both"}
-    show_all = model_catalog in {"all", "both"}
+    if not model_suggestions:
+        return
 
-    if show_curated and model_suggestions:
-        suggestions_table = Table(show_header=True, box=None)
-        suggestions_table.add_column("Provider", style="white", header_style="bold bright_white")
-        suggestions_table.add_column("Current Aliases", style="magenta", header_style="bold bright_white")
-        suggestions_table.add_column("Listed (non-current)", style="yellow", header_style="bold bright_white")
-        suggestions_table.add_column("Fast", style="cyan", header_style="bold bright_white")
-        suggestions_table.add_column("Current", style="green", header_style="bold bright_white")
+    suggestions_table = Table(show_header=True, box=None)
+    suggestions_table.add_column("Provider", style="white", header_style="bold bright_white")
+    suggestions_table.add_column("Current Aliases", style="magenta", header_style="bold bright_white")
+    suggestions_table.add_column("Listed (non-current)", style="yellow", header_style="bold bright_white")
+    suggestions_table.add_column("Fast", style="cyan", header_style="bold bright_white")
+    suggestions_table.add_column("Current", style="green", header_style="bold bright_white")
 
-        for suggestion in model_suggestions:
-            aliases = (
-                ", ".join(suggestion.current_aliases[:3])
-                if suggestion.current_aliases
-                else "[dim]-[/dim]"
-            )
-            non_current_aliases = (
-                ", ".join(suggestion.non_current_aliases[:3])
-                if suggestion.non_current_aliases
-                else "[dim]-[/dim]"
-            )
-            fast = ", ".join(suggestion.fast_models[:2]) if suggestion.fast_models else "[dim]-[/dim]"
-            current = (
-                ", ".join(suggestion.current_models[:3])
-                if suggestion.current_models
-                else "[dim]-[/dim]"
-            )
-            suggestions_table.add_row(
-                suggestion.provider.display_name,
-                aliases,
-                non_current_aliases,
-                fast,
-                current,
-            )
-
-        print_section_header("Current Model Suggestions", color="blue")
-        console.print(suggestions_table)
-
-    if show_all and model_suggestions:
-        all_models_table = Table(show_header=True, box=None)
-        all_models_table.add_column("Provider", style="white", header_style="bold bright_white")
-        all_models_table.add_column("Known Models", style="cyan", header_style="bold bright_white")
-        all_models_table.add_column("Examples", style="green", header_style="bold bright_white")
-
-        for suggestion in model_suggestions:
-            known_models = len(suggestion.all_models)
-            known_display = str(known_models) if known_models else "[dim]-[/dim]"
-            examples = (
-                ", ".join(suggestion.all_models[:3]) if suggestion.all_models else "[dim]-[/dim]"
-            )
-            all_models_table.add_row(suggestion.provider.display_name, known_display, examples)
-
-        total_known_models = len(ModelSelectionCatalog.list_all_models())
-        print_section_header(
-            f"All Known Models ({total_known_models} historical/current aliases)", color="blue"
+    for suggestion in model_suggestions:
+        aliases = (
+            ", ".join(suggestion.current_aliases[:3]) if suggestion.current_aliases else "[dim]-[/dim]"
         )
-        console.print(all_models_table)
+        non_current_aliases = (
+            ", ".join(suggestion.non_current_aliases[:3])
+            if suggestion.non_current_aliases
+            else "[dim]-[/dim]"
+        )
+        fast = ", ".join(suggestion.fast_models[:2]) if suggestion.fast_models else "[dim]-[/dim]"
+        current = (
+            ", ".join(suggestion.current_models[:3]) if suggestion.current_models else "[dim]-[/dim]"
+        )
+        suggestions_table.add_row(
+            suggestion.provider.display_name,
+            aliases,
+            non_current_aliases,
+            fast,
+            current,
+        )
+
+    print_section_header("Current Model Suggestions", color="blue")
+    console.print(suggestions_table)
 
 
-def show_model_catalog_summary(
-    env_dir: Path | None = None,
-    model_catalog: Literal["curated", "all", "both"] = "both",
-) -> None:
-    """Show only model catalog information (without full check output)."""
-    cwd = Path.cwd()
-    config_files = find_config_files(cwd, env_dir=env_dir)
+def _load_catalog_config(env_dir: Path | None) -> dict[str, Any] | None:
+    config_files = find_config_files(Path.cwd(), env_dir=env_dir)
     config_summary = get_config_summary(config_files["config"])
-    secrets_summary = get_secrets_summary(config_files["secrets"])
-    api_keys = check_api_keys(secrets_summary, config_summary)
-    configured_providers = _resolve_configured_providers(config_summary, api_keys)
+    if config_summary.get("status") != "parsed":
+        return None
 
-    def _print_section_header(title: str, color: str = "blue") -> None:
-        width = console.size.width
-        left = f"[{color}]▎[/{color}][dim {color}]▶[/dim {color}] [{color}]{title}[/{color}]"
-        left_text = Text.from_markup(left)
-        separator_count = max(1, width - left_text.cell_len - 1)
-
-        combined = Text()
-        combined.append_text(left_text)
-        combined.append(" ")
-        combined.append("─" * separator_count, style="dim")
-
-        console.print()
-        console.print(combined)
-        console.print()
-
-    _render_model_catalog_sections(
-        model_catalog=model_catalog,
-        configured_providers=configured_providers,
-        print_section_header=_print_section_header,
-    )
+    config_payload = config_summary.get("config")
+    if isinstance(config_payload, dict):
+        return config_payload
+    return None
 
 
-def show_check_summary(
+def show_provider_model_catalog(
+    provider_name: str,
+    *,
+    show_all: bool = False,
     env_dir: Path | None = None,
-    model_catalog: Literal["curated", "all", "both"] = "curated",
 ) -> None:
+    """Show curated aliases or all models for a single provider scope."""
+    scope = _resolve_provider_catalog_scope(provider_name)
+
+    mode = "all models" if show_all else "curated aliases"
+    _print_section_header(f"{scope.display_name} model catalog ({mode})", color="blue")
+
+    if show_all:
+        config_payload = _load_catalog_config(env_dir)
+        for provider in scope.providers:
+            models = ModelSelectionCatalog.list_all_models(provider, config=config_payload)
+            model_count = len(models)
+            plural = "model" if model_count == 1 else "models"
+            console.print(f"[bold]{provider.display_name}[/bold] ({model_count} {plural})")
+            if not models:
+                console.print("  [dim]-[/dim]")
+            else:
+                for model in models:
+                    console.print(f"  [green]-[/green] {model}")
+            console.print()
+        return
+
+    curated_table = Table(show_header=True, box=None)
+    curated_table.add_column("Provider", style="white", header_style="bold bright_white")
+    curated_table.add_column("Curated Aliases", style="magenta", header_style="bold bright_white")
+    curated_table.add_column("Curated Models", style="green", header_style="bold bright_white")
+
+    for provider in scope.providers:
+        curated_aliases = ModelSelectionCatalog.list_current_aliases(provider)
+        curated_models = ModelSelectionCatalog.list_current_models(provider)
+        aliases_display = ", ".join(curated_aliases) if curated_aliases else "[dim]-[/dim]"
+        models_display = ", ".join(curated_models) if curated_models else "[dim]-[/dim]"
+        curated_table.add_row(provider.display_name, aliases_display, models_display)
+
+    console.print(curated_table)
+
+
+def show_check_summary(env_dir: Path | None = None) -> None:
     """Show a summary of checks with colorful styling."""
     cwd = Path.cwd()
     search_root = resolve_config_search_root(cwd, env_dir=env_dir)
@@ -453,22 +568,6 @@ def show_check_summary(
     secrets_summary = get_secrets_summary(config_files["secrets"])
     api_keys = check_api_keys(secrets_summary, config_summary)
     fastagent_version = get_fastagent_version()
-
-    # Helper to print section headers using the new console_display style
-    def _print_section_header(title: str, color: str = "blue") -> None:
-        width = console.size.width
-        left = f"[{color}]▎[/{color}][dim {color}]▶[/dim {color}] [{color}]{title}[/{color}]"
-        left_text = Text.from_markup(left)
-        separator_count = max(1, width - left_text.cell_len - 1)
-
-        combined = Text()
-        combined.append_text(left_text)
-        combined.append(" ")
-        combined.append("─" * separator_count, style="dim")
-
-        console.print()
-        console.print(combined)
-        console.print()
 
     # Environment and configuration section (merged)
     # Header shows version and platform for a concise overview
@@ -717,7 +816,6 @@ def show_check_summary(
 
     configured_providers = _resolve_configured_providers(config_summary, api_keys)
     _render_model_catalog_sections(
-        model_catalog=model_catalog,
         configured_providers=configured_providers,
         print_section_header=_print_section_header,
     )
@@ -1104,24 +1202,57 @@ def show(
         console.print(f"[red]Error parsing {file_type} file:[/red] {e}")
 
 
+def _context_env_dir(ctx: typer.Context) -> Path | None:
+    payload = ctx.obj
+    if not isinstance(payload, dict):
+        return None
+
+    env_dir = payload.get("env_dir")
+    if isinstance(env_dir, Path):
+        return env_dir
+    return None
+
+
+@app.command("models")
+def models(
+    ctx: typer.Context,
+    provider: str = typer.Argument(
+        ...,
+        help=(
+            "Provider to inspect (openai includes openai/responses/codexresponses; "
+            "also supports anthropic, google, deepseek, aliyun, huggingface, xai, openrouter)"
+        ),
+    ),
+    all_models: bool = typer.Option(
+        False,
+        "--all",
+        help="Show all known models for the provider scope (default: curated aliases)",
+    ),
+) -> None:
+    """Show model catalog entries for a single provider scope."""
+    try:
+        show_provider_model_catalog(
+            provider,
+            show_all=all_models,
+            env_dir=_context_env_dir(ctx),
+        )
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc), param_hint="provider") from exc
+
+
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
     env_dir: Path | None = typer.Option(
         None, "--env", help="Override the base fast-agent environment directory"
     ),
-    model_catalog: Literal["curated", "all", "both"] | None = typer.Option(
-        None,
-        "--model-catalog",
-        help=(
-            "Show only model catalog output in curated/all/both mode"
-        ),
-    ),
 ) -> None:
     """Check and diagnose FastAgent configuration."""
     env_dir = resolve_environment_dir_option(ctx, env_dir)
+    if isinstance(ctx.obj, dict):
+        ctx.obj["env_dir"] = env_dir
+    else:
+        ctx.obj = {"env_dir": env_dir}
+
     if ctx.invoked_subcommand is None:
-        if model_catalog is not None:
-            show_model_catalog_summary(env_dir=env_dir, model_catalog=model_catalog)
-            return
         show_check_summary(env_dir=env_dir)

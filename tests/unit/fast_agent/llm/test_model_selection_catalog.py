@@ -105,3 +105,53 @@ def test_codexresponses_curated_entries_use_explicit_transports() -> None:
     curated = ModelSelectionCatalog.list_curated_models(Provider.CODEX_RESPONSES)
     assert "codexresponses.gpt-5.3-codex?transport=ws&reasoning=high" in curated
     assert "codexresponses.gpt-5.3-codex-spark?transport=ws" in curated
+
+
+def test_openrouter_list_all_models_uses_discovery(monkeypatch) -> None:
+    captured: dict[str, str | None] = {}
+
+    def _stub_openrouter_models(*, api_key: str, base_url: str | None = None):
+        captured["api_key"] = api_key
+        captured["base_url"] = base_url
+        return [
+            "openrouter.openai/gpt-4.1-mini",
+            "openrouter.anthropic/claude-sonnet-4",
+        ]
+
+    monkeypatch.setattr(
+        "fast_agent.llm.openrouter_model_lookup.list_openrouter_model_specs_sync",
+        _stub_openrouter_models,
+    )
+
+    models = ModelSelectionCatalog.list_all_models(
+        Provider.OPENROUTER,
+        config={
+            "openrouter": {
+                "api_key": "or-test-key",
+                "base_url": "https://openrouter.ai/api/v1",
+            }
+        },
+    )
+
+    assert captured["api_key"] == "or-test-key"
+    assert captured["base_url"] == "https://openrouter.ai/api/v1"
+    assert "openrouter.openai/gpt-4.1-mini" in models
+    assert "openrouter.anthropic/claude-sonnet-4" in models
+
+
+def test_openrouter_suggestions_use_discovered_models_when_no_curated(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "fast_agent.llm.openrouter_model_lookup.list_openrouter_model_specs_sync",
+        lambda **kwargs: ["openrouter.openai/gpt-4.1-mini"],
+    )
+
+    suggestions = ModelSelectionCatalog.suggestions_for_providers(
+        [Provider.OPENROUTER],
+        config={"openrouter": {"api_key": "or-test-key"}},
+    )
+
+    assert len(suggestions) == 1
+    suggestion = suggestions[0]
+    assert suggestion.provider == Provider.OPENROUTER
+    assert suggestion.current_models == ("openrouter.openai/gpt-4.1-mini",)
+    assert suggestion.all_models == ("openrouter.openai/gpt-4.1-mini",)

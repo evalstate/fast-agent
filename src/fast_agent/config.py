@@ -950,6 +950,9 @@ class Settings(BaseSettings):
     If not set, falls back to FAST_AGENT_MODEL env var, then to "gpt-5-mini.low".
     """
 
+    model_aliases: dict[str, dict[str, str]] = Field(default_factory=dict)
+    """Model aliases grouped by namespace (e.g. $system.default)."""
+
     auto_sampling: bool = True
     """Enable automatic sampling model selection if not explicitly configured"""
 
@@ -1042,6 +1045,40 @@ class Settings(BaseSettings):
 
     _config_file: str | None = PrivateAttr(default=None)
     _secrets_file: str | None = PrivateAttr(default=None)
+
+    @field_validator("model_aliases")
+    @classmethod
+    def _validate_model_aliases(
+        cls,
+        value: dict[str, dict[str, str]],
+    ) -> dict[str, dict[str, str]]:
+        """Validate model alias namespace/key names and normalize values."""
+        valid_name = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
+        normalized: dict[str, dict[str, str]] = {}
+
+        for namespace, entries in value.items():
+            if not valid_name.fullmatch(namespace):
+                raise ValueError(
+                    "model_aliases namespace names must match [A-Za-z_][A-Za-z0-9_-]*"
+                )
+
+            normalized_entries: dict[str, str] = {}
+            for key, model in entries.items():
+                if not valid_name.fullmatch(key):
+                    raise ValueError(
+                        "model_aliases keys must match [A-Za-z_][A-Za-z0-9_-]*"
+                    )
+
+                model_value = model.strip()
+                if not model_value:
+                    raise ValueError(
+                        f"model_aliases.{namespace}.{key} must be a non-empty model string"
+                    )
+                normalized_entries[key] = model_value
+
+            normalized[namespace] = normalized_entries
+
+        return normalized
 
     @classmethod
     def find_config(cls) -> Path | None:

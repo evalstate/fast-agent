@@ -378,6 +378,7 @@ def get_model_factory(
 def get_default_model_source(
     config_default_model: str | None = None,
     cli_model: str | None = None,
+    model_aliases: dict[str, dict[str, str]] | None = None,
 ) -> str | None:
     """
     Determine the source of the default model selection.
@@ -396,6 +397,7 @@ def get_default_model_source(
         default_model=config_default_model,
         cli_model=None,
         fallback_to_hardcoded=False,
+        model_aliases=model_aliases,
     )
     if source == "config file":
         return "config file"

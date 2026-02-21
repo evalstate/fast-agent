@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
+from fast_agent.llm.provider_model_catalog import ProviderModelCatalogRegistry
 from fast_agent.llm.provider_types import Provider
 
 
@@ -70,6 +71,7 @@ class ModelSelectionCatalog:
         Provider.DEEPSEEK: (
             CatalogModelEntry(alias="deepseek", model="deepseek.deepseek-chat", fast=True),
         ),
+        Provider.OPENROUTER: (),
         Provider.ALIYUN: (
             CatalogModelEntry(alias="qwen-turbo", model="aliyun.qwen-turbo", fast=True),
             CatalogModelEntry(alias="qwen3-max", model="aliyun.qwen3-max"),
@@ -87,7 +89,11 @@ class ModelSelectionCatalog:
                 alias="deepseek32",
                 model="hf.deepseek-ai/DeepSeek-V3.2:fireworks-ai",
             ),
-            CatalogModelEntry(alias="kimi25", model="hf.moonshotai/Kimi-K2.5:fireworks-ai"),
+            CatalogModelEntry(
+                alias="kimi25",
+                model="hf.moonshotai/Kimi-K2.5:fireworks-ai",
+                fast=True,
+            ),
             CatalogModelEntry(
                 alias="glm47",
                 model="hf.zai-org/GLM-4.7:cerebras",
@@ -200,13 +206,18 @@ class ModelSelectionCatalog:
         return cls.list_non_current_aliases(provider)
 
     @classmethod
-    def list_all_models(cls, provider: Provider | None = None) -> list[str]:
+    def list_all_models(cls, provider: Provider | None = None, config: Any | None = None) -> list[str]:
         """Return all known models, optionally constrained to one provider."""
-        models = ModelDatabase.list_models()
+        config_payload = cls._as_mapping(config)
         if provider is None:
-            return models
+            return ModelDatabase.list_models()
 
-        return [model for model in models if ModelDatabase.get_default_provider(model) == provider]
+        static_models = cls._list_static_models_for_provider(provider)
+        discovered = ProviderModelCatalogRegistry.discover(provider, config_payload)
+        if not discovered.all_models:
+            return static_models
+
+        return cls._dedupe_preserve_order([*static_models, *discovered.all_models])
 
     @classmethod
     def is_fast_model(cls, model: str) -> bool:
@@ -217,15 +228,29 @@ class ModelSelectionCatalog:
     def suggestions_for_providers(
         cls,
         providers: Iterable[Provider],
+        *,
+        config: Any | None = None,
     ) -> list[ProviderModelSuggestions]:
         """Build provider-specific current, non-current, and fast model suggestions."""
+        config_payload = cls._as_mapping(config)
         suggestions: list[ProviderModelSuggestions] = []
         for provider in providers:
-            current_models = tuple(cls.list_current_models(provider))
+            discovered = ProviderModelCatalogRegistry.discover(provider, config_payload)
+
+            current_models = tuple(
+                cls._dedupe_preserve_order(
+                    [*cls.list_current_models(provider), *discovered.current_models]
+                )
+            )
             current_aliases = tuple(cls.list_current_aliases(provider))
             non_current_aliases = tuple(cls.list_non_current_aliases(provider))
             fast = tuple(cls.list_fast_models(provider))
-            all_models = tuple(cls.list_all_models(provider))
+            all_models = tuple(
+                cls._dedupe_preserve_order(
+                    [*cls._list_static_models_for_provider(provider), *discovered.all_models]
+                )
+            )
+
             if (
                 not current_models
                 and not current_aliases
@@ -292,3 +317,8 @@ class ModelSelectionCatalog:
             return False
 
         return bool(vertex_cfg.get("enabled"))
+
+    @staticmethod
+    def _list_static_models_for_provider(provider: Provider) -> list[str]:
+        models = ModelDatabase.list_models()
+        return [model for model in models if ModelDatabase.get_default_provider(model) == provider]

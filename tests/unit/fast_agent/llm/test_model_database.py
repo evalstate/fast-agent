@@ -4,7 +4,7 @@ from fast_agent.config import HuggingFaceSettings, Settings
 from fast_agent.constants import DEFAULT_MAX_ITERATIONS
 from fast_agent.context import Context
 from fast_agent.llm.fastagent_llm import FastAgentLLM
-from fast_agent.llm.model_database import ModelDatabase
+from fast_agent.llm.model_database import ModelDatabase, ModelParameters
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
@@ -393,3 +393,27 @@ def test_huggingface_kimi25_default_reasoning_toggle_enabled():
     extra_body = args.get("extra_body")
     assert isinstance(extra_body, dict)
     assert extra_body["thinking"] == {"type": "enabled"}
+
+
+def test_model_database_runtime_model_params_registration():
+    model_name = "vendor/runtime-model"
+    ModelDatabase.unregister_runtime_model_params(model_name)
+
+    params = ModelParameters(
+        context_window=12345,
+        max_output_tokens=678,
+        tokenizes=["text/plain"],
+        default_provider=Provider.OPENROUTER,
+    )
+
+    ModelDatabase.register_runtime_model_params(model_name, params)
+
+    retrieved = ModelDatabase.get_model_params(model_name)
+    assert retrieved is not None
+    assert retrieved.context_window == 12345
+    assert retrieved.max_output_tokens == 678
+    assert ModelDatabase.get_default_provider(model_name) == Provider.OPENROUTER
+    assert model_name in ModelDatabase.list_runtime_models(Provider.OPENROUTER)
+
+    ModelDatabase.unregister_runtime_model_params(model_name)
+    assert ModelDatabase.get_model_params(model_name) is None

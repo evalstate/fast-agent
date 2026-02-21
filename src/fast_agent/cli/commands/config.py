@@ -126,7 +126,10 @@ def _build_shell_form(current: ShellSettings) -> FormSchema:
 
 def _build_model_description(config_data: dict[str, Any]) -> str:
     configured_providers = ModelSelectionCatalog.configured_providers(config_data)
-    suggestions = ModelSelectionCatalog.suggestions_for_providers(configured_providers)
+    suggestions = ModelSelectionCatalog.suggestions_for_providers(
+        configured_providers,
+        config=config_data,
+    )
 
     if not suggestions:
         return (

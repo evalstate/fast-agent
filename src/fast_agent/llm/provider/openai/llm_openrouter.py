@@ -1,5 +1,8 @@
 import os
 
+from fast_agent.core.exceptions import ProviderKeyError
+from fast_agent.llm.model_database import ModelDatabase
+from fast_agent.llm.openrouter_model_lookup import discover_openrouter_models_sync
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.types import RequestParams
@@ -18,19 +21,40 @@ class OpenRouterLLM(OpenAILLM):
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize OpenRouter-specific default parameters."""
+        chosen_model = kwargs.get("model", DEFAULT_OPENROUTER_MODEL)
+        self._ensure_model_metadata(chosen_model)
+
         # Get base defaults from parent (includes ModelDatabase lookup)
         base_params = super()._initialize_default_params(kwargs)
 
         # Override with OpenRouter-specific settings
         # OpenRouter model names include the provider, e.g., "google/gemini-flash-1.5"
         # The model should be passed in the 'model' kwarg during factory creation.
-        chosen_model = kwargs.get("model", DEFAULT_OPENROUTER_MODEL)
         if chosen_model:
             base_params.model = chosen_model
         # If it's still None here, it indicates an issue upstream (factory or user input).
         # However, the base class _get_model handles the error if model is None.
 
         return base_params
+
+    def _ensure_model_metadata(self, model_name: str | None) -> None:
+        """Populate runtime model metadata for OpenRouter-discovered models."""
+        if not model_name:
+            return
+
+        if ModelDatabase.get_model_params(model_name) is not None:
+            return
+
+        try:
+            api_key = self._api_key()
+        except ProviderKeyError:
+            return
+
+        try:
+            discover_openrouter_models_sync(api_key=api_key, base_url=self._base_url())
+        except Exception:
+            # Non-fatal: unknown models fall back to conservative defaults.
+            return
 
     def _base_url(self) -> str:
         """Retrieve the OpenRouter base URL from config or use the default."""

@@ -90,6 +90,7 @@ class ModelDatabase:
     """Centralized model configuration database"""
 
     _RUNTIME_MODEL_DEFAULT_PROVIDERS: dict[str, Provider] = {}
+    _RUNTIME_MODEL_PARAMS: dict[str, ModelParameters] = {}
 
     # Common parameter sets
     OPENAI_MULTIMODAL = ["text/plain", "image/jpeg", "image/png", "image/webp", "application/pdf"]
@@ -726,7 +727,10 @@ class ModelDatabase:
             return None
 
         normalized = cls.normalize_model_name(model)
-        return cls.MODELS.get(normalized)
+        params = cls.MODELS.get(normalized)
+        if params is not None:
+            return params
+        return cls._RUNTIME_MODEL_PARAMS.get(normalized)
 
     @classmethod
     def normalize_model_name(cls, model: str) -> str:
@@ -931,7 +935,14 @@ class ModelDatabase:
     @classmethod
     def list_models(cls) -> list[str]:
         """List all available model names"""
-        return list(cls.MODELS.keys())
+        models = list(cls.MODELS.keys())
+        if not cls._RUNTIME_MODEL_PARAMS:
+            return models
+
+        for runtime_key in sorted(cls._RUNTIME_MODEL_PARAMS.keys()):
+            if runtime_key not in cls.MODELS:
+                models.append(runtime_key)
+        return models
 
     @classmethod
     def _normalize_provider_lookup_name(cls, model: str | None) -> str:
@@ -981,6 +992,55 @@ class ModelDatabase:
         if not model_key:
             return
         cls._RUNTIME_MODEL_DEFAULT_PROVIDERS[model_key] = provider
+
+    @classmethod
+    def register_runtime_model_params(cls, model: str, params: ModelParameters) -> None:
+        """Register runtime model parameters for dynamic providers."""
+        model_key = cls.normalize_model_name(model)
+        if not model_key:
+            return
+        cls._RUNTIME_MODEL_PARAMS[model_key] = params
+
+        if params.default_provider is not None:
+            cls._RUNTIME_MODEL_DEFAULT_PROVIDERS[model_key] = params.default_provider
+
+    @classmethod
+    def unregister_runtime_model_params(cls, model: str) -> None:
+        """Remove runtime model parameter metadata for a model."""
+        model_key = cls.normalize_model_name(model)
+        if not model_key:
+            return
+        cls._RUNTIME_MODEL_PARAMS.pop(model_key, None)
+        cls._RUNTIME_MODEL_DEFAULT_PROVIDERS.pop(model_key, None)
+
+    @classmethod
+    def clear_runtime_model_params(cls, provider: Provider | None = None) -> None:
+        """Clear runtime model parameter metadata.
+
+        Args:
+            provider: Optional provider filter. If omitted, all runtime metadata is cleared.
+        """
+        if provider is None:
+            cls._RUNTIME_MODEL_PARAMS.clear()
+            cls._RUNTIME_MODEL_DEFAULT_PROVIDERS.clear()
+            return
+
+        for model_key, params in list(cls._RUNTIME_MODEL_PARAMS.items()):
+            if params.default_provider == provider:
+                cls._RUNTIME_MODEL_PARAMS.pop(model_key, None)
+                cls._RUNTIME_MODEL_DEFAULT_PROVIDERS.pop(model_key, None)
+
+    @classmethod
+    def list_runtime_models(cls, provider: Provider | None = None) -> list[str]:
+        """List runtime-registered models, optionally filtered by provider."""
+        if provider is None:
+            return sorted(cls._RUNTIME_MODEL_PARAMS.keys())
+
+        return sorted(
+            model_key
+            for model_key, params in cls._RUNTIME_MODEL_PARAMS.items()
+            if params.default_provider == provider
+        )
 
     @classmethod
     def unregister_runtime_default_provider(cls, model: str) -> None:
