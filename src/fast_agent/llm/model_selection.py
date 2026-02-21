@@ -1,0 +1,294 @@
+"""Model selection helpers for current, listed, and fast model recommendations."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Iterable
+
+from pydantic import BaseModel
+
+from fast_agent.llm.model_database import ModelDatabase
+from fast_agent.llm.provider_key_manager import ProviderKeyManager
+from fast_agent.llm.provider_types import Provider
+
+
+@dataclass(frozen=True)
+class ProviderModelSuggestions:
+    """Current/listed and fast model suggestions for a provider."""
+
+    provider: Provider
+    current_models: tuple[str, ...]
+    current_aliases: tuple[str, ...]
+    non_current_aliases: tuple[str, ...]
+    fast_models: tuple[str, ...]
+    all_models: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class CatalogModelEntry:
+    """An explicit model catalog entry for a provider."""
+
+    alias: str
+    model: str
+    current: bool = True
+    fast: bool = False
+
+
+class ModelSelectionCatalog:
+    """Catalog of current/listed and fast model aliases."""
+
+    CATALOG_ENTRIES_BY_PROVIDER: dict[Provider, tuple[CatalogModelEntry, ...]] = {
+        Provider.RESPONSES: (
+            CatalogModelEntry(
+                alias="gpt-5-mini",
+                model="responses.gpt-5-mini?reasoning=low",
+                fast=True,
+            ),
+            CatalogModelEntry(alias="gpt-5.2", model="responses.gpt-5.2?reasoning=medium"),
+        ),
+        Provider.OPENAI: (
+            CatalogModelEntry(alias="gpt-4.1-mini", model="openai.gpt-4.1-mini", fast=True),
+            CatalogModelEntry(alias="gpt-4.1", model="openai.gpt-4.1"),
+        ),
+        Provider.ANTHROPIC: (
+            CatalogModelEntry(alias="sonnet", model="claude-sonnet-4-6"),
+            CatalogModelEntry(alias="haiku", model="claude-haiku-4-5", fast=True),
+            CatalogModelEntry(alias="opus", model="claude-opus-4-6"),
+        ),
+        Provider.GOOGLE: (
+            CatalogModelEntry(
+                alias="gemini25",
+                model="google.gemini-2.5-flash-preview-09-2025",
+                fast=True,
+            ),
+            CatalogModelEntry(alias="gemini25pro", model="google.gemini-2.5-pro"),
+        ),
+        Provider.XAI: (
+            CatalogModelEntry(alias="grok-3-mini-fast", model="xai.grok-3-mini-fast", fast=True),
+            CatalogModelEntry(alias="grok-4", model="xai.grok-4"),
+        ),
+        Provider.DEEPSEEK: (
+            CatalogModelEntry(alias="deepseek", model="deepseek.deepseek-chat", fast=True),
+        ),
+        Provider.ALIYUN: (
+            CatalogModelEntry(alias="qwen-turbo", model="aliyun.qwen-turbo", fast=True),
+            CatalogModelEntry(alias="qwen3-max", model="aliyun.qwen3-max"),
+        ),
+        Provider.HUGGINGFACE: (
+            CatalogModelEntry(alias="kimi", model="hf.moonshotai/Kimi-K2-Instruct-0905:groq"),
+            CatalogModelEntry(alias="minimax", model="hf.MiniMaxAI/MiniMax-M2.1:novita"),
+            CatalogModelEntry(alias="gpt-oss", model="hf.openai/gpt-oss-120b:cerebras", fast=True),
+            CatalogModelEntry(alias="gpt-oss-20b", model="hf.openai/gpt-oss-20b"),
+            CatalogModelEntry(alias="glm5", model="hf.zai-org/GLM-5:novita"),
+            CatalogModelEntry(alias="glm", model="hf.zai-org/GLM-5:novita"),
+            CatalogModelEntry(alias="qwen3", model="hf.Qwen/Qwen3-Next-80B-A3B-Instruct:together"),
+            CatalogModelEntry(alias="deepseek31", model="hf.deepseek-ai/DeepSeek-V3.1"),
+            CatalogModelEntry(
+                alias="deepseek32",
+                model="hf.deepseek-ai/DeepSeek-V3.2:fireworks-ai",
+            ),
+            CatalogModelEntry(alias="kimi25", model="hf.moonshotai/Kimi-K2.5:fireworks-ai"),
+            CatalogModelEntry(
+                alias="glm47",
+                model="hf.zai-org/GLM-4.7:cerebras",
+                current=False,
+            ),
+        ),
+        Provider.CODEX_RESPONSES: (
+            CatalogModelEntry(
+                alias="codexplan",
+                model="codexresponses.gpt-5.3-codex?transport=ws&reasoning=high",
+            ),
+            CatalogModelEntry(
+                alias="codexspark",
+                model="codexresponses.gpt-5.3-codex-spark?transport=ws",
+                fast=True,
+            ),
+        ),
+    }
+
+    @staticmethod
+    def _dedupe_preserve_order(items: Iterable[str]) -> list[str]:
+        seen: set[str] = set()
+        deduped: list[str] = []
+        for item in items:
+            if item in seen:
+                continue
+            seen.add(item)
+            deduped.append(item)
+        return deduped
+
+    @classmethod
+    def _entries_by_provider(cls) -> dict[Provider, tuple[CatalogModelEntry, ...]]:
+        return cls.CATALOG_ENTRIES_BY_PROVIDER
+
+    @classmethod
+    def list_entries(
+        cls,
+        provider: Provider | None = None,
+        *,
+        current: bool | None = None,
+    ) -> list[CatalogModelEntry]:
+        """Return catalog entries, optionally filtered by provider and current flag."""
+        provider_map = cls._entries_by_provider()
+        if provider is not None:
+            entries = list(provider_map.get(provider, ()))
+            if current is None:
+                return entries
+            return [entry for entry in entries if entry.current is current]
+
+        entries: list[CatalogModelEntry] = []
+        for provider_entries in provider_map.values():
+            entries.extend(provider_entries)
+        if current is None:
+            return entries
+        return [entry for entry in entries if entry.current is current]
+
+    @classmethod
+    def list_current_entries(cls, provider: Provider | None = None) -> list[CatalogModelEntry]:
+        """Return current entries for one provider, or all providers."""
+        return cls.list_entries(provider=provider, current=True)
+
+    @classmethod
+    def list_non_current_entries(cls, provider: Provider | None = None) -> list[CatalogModelEntry]:
+        """Return listed but non-current entries for one provider, or all providers."""
+        return cls.list_entries(provider=provider, current=False)
+
+    @classmethod
+    def list_current_models(cls, provider: Provider | None = None) -> list[str]:
+        """Return current models for one provider, or all providers."""
+        entries = cls.list_current_entries(provider)
+        return cls._dedupe_preserve_order(entry.model for entry in entries)
+
+    @classmethod
+    def list_current_aliases(cls, provider: Provider | None = None) -> list[str]:
+        """Return current aliases for one provider, or all providers."""
+        entries = cls.list_current_entries(provider)
+        return cls._dedupe_preserve_order(entry.alias for entry in entries)
+
+    @classmethod
+    def list_non_current_aliases(cls, provider: Provider | None = None) -> list[str]:
+        """Return listed aliases that are intentionally not current."""
+        entries = cls.list_non_current_entries(provider)
+        return cls._dedupe_preserve_order(entry.alias for entry in entries)
+
+    @classmethod
+    def list_fast_models(cls, provider: Provider | None = None) -> list[str]:
+        """Return explicit fast models from current catalog entries."""
+        entries = cls.list_current_entries(provider)
+        return cls._dedupe_preserve_order(entry.model for entry in entries if entry.fast)
+
+    # Backward-compatible aliases
+    @classmethod
+    def list_curated_entries(cls, provider: Provider | None = None) -> list[CatalogModelEntry]:
+        """Backward-compatible alias for current entries."""
+        return cls.list_current_entries(provider)
+
+    @classmethod
+    def list_curated_models(cls, provider: Provider | None = None) -> list[str]:
+        """Backward-compatible alias for current models."""
+        return cls.list_current_models(provider)
+
+    @classmethod
+    def list_curated_aliases(cls, provider: Provider | None = None) -> list[str]:
+        """Backward-compatible alias for current aliases."""
+        return cls.list_current_aliases(provider)
+
+    @classmethod
+    def list_legacy_aliases(cls, provider: Provider | None = None) -> list[str]:
+        """Backward-compatible alias for non-current aliases."""
+        return cls.list_non_current_aliases(provider)
+
+    @classmethod
+    def list_all_models(cls, provider: Provider | None = None) -> list[str]:
+        """Return all known models, optionally constrained to one provider."""
+        models = ModelDatabase.list_models()
+        if provider is None:
+            return models
+
+        return [model for model in models if ModelDatabase.get_default_provider(model) == provider]
+
+    @classmethod
+    def is_fast_model(cls, model: str) -> bool:
+        """Return True when the provided model spec belongs to the fast catalog."""
+        return ModelDatabase.is_fast_model(model)
+
+    @classmethod
+    def suggestions_for_providers(
+        cls,
+        providers: Iterable[Provider],
+    ) -> list[ProviderModelSuggestions]:
+        """Build provider-specific current, non-current, and fast model suggestions."""
+        suggestions: list[ProviderModelSuggestions] = []
+        for provider in providers:
+            current_models = tuple(cls.list_current_models(provider))
+            current_aliases = tuple(cls.list_current_aliases(provider))
+            non_current_aliases = tuple(cls.list_non_current_aliases(provider))
+            fast = tuple(cls.list_fast_models(provider))
+            all_models = tuple(cls.list_all_models(provider))
+            if (
+                not current_models
+                and not current_aliases
+                and not non_current_aliases
+                and not fast
+                and not all_models
+            ):
+                continue
+            suggestions.append(
+                ProviderModelSuggestions(
+                    provider=provider,
+                    current_models=current_models,
+                    current_aliases=current_aliases,
+                    non_current_aliases=non_current_aliases,
+                    fast_models=fast,
+                    all_models=all_models,
+                )
+            )
+
+        return suggestions
+
+    @classmethod
+    def configured_providers(cls, config: Any | None = None) -> list[Provider]:
+        """Detect providers with configured credentials via config and environment."""
+        config_payload = cls._as_mapping(config)
+
+        providers: list[Provider] = []
+        for provider in cls._entries_by_provider():
+            provider_name = provider.config_name
+
+            # Google Vertex can run without an API key.
+            if provider == Provider.GOOGLE and cls._google_vertex_enabled(config_payload):
+                providers.append(provider)
+                continue
+
+            config_key = ProviderKeyManager.get_config_file_key(provider_name, config_payload)
+            env_key = ProviderKeyManager.get_env_var(provider_name)
+            if config_key or env_key:
+                providers.append(provider)
+
+        return providers
+
+    @staticmethod
+    def _as_mapping(config: Any | None) -> dict[str, Any]:
+        if config is None:
+            return {}
+        if isinstance(config, BaseModel):
+            dumped = config.model_dump()
+            if isinstance(dumped, dict):
+                return dumped
+            return {}
+        if isinstance(config, dict):
+            return config
+        return {}
+
+    @staticmethod
+    def _google_vertex_enabled(config_payload: dict[str, Any]) -> bool:
+        google_cfg = config_payload.get("google")
+        if not isinstance(google_cfg, dict):
+            return False
+
+        vertex_cfg = google_cfg.get("vertex_ai")
+        if not isinstance(vertex_cfg, dict):
+            return False
+
+        return bool(vertex_cfg.get("enabled"))

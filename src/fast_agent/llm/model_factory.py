@@ -42,78 +42,6 @@ class ModelConfig(BaseModel):
 class ModelFactory:
     """Factory for creating LLM instances based on model specifications"""
 
-    """
-    TODO -- add audio supporting got-4o-audio-preview
-    TODO -- bring model parameter configuration here
-    Mapping of model names to their default providers
-    """
-    DEFAULT_PROVIDERS = {
-        "passthrough": Provider.FAST_AGENT,
-        "silent": Provider.FAST_AGENT,
-        "playback": Provider.FAST_AGENT,
-        "slow": Provider.FAST_AGENT,
-        "gpt-4o": Provider.OPENAI,
-        "gpt-4o-mini": Provider.OPENAI,
-        "gpt-4.1": Provider.OPENAI,
-        "gpt-4.1-mini": Provider.OPENAI,
-        "gpt-4.1-nano": Provider.OPENAI,
-        "gpt-5": Provider.RESPONSES,
-        "gpt-5.1": Provider.RESPONSES,
-        "gpt-5-mini": Provider.RESPONSES,
-        "gpt-5-nano": Provider.RESPONSES,
-        "gpt-5.2": Provider.RESPONSES,
-        "gpt-5.1-codex": Provider.RESPONSES,
-        "gpt-5.2-codex": Provider.RESPONSES,
-        "gpt-5.3-codex": Provider.RESPONSES,
-        "gpt-5.3-codex-spark": Provider.CODEX_RESPONSES,
-        "o1-mini": Provider.RESPONSES,
-        "o1": Provider.RESPONSES,
-        "o1-preview": Provider.RESPONSES,
-        "o3": Provider.RESPONSES,
-        "o3-mini": Provider.RESPONSES,
-        "o4-mini": Provider.RESPONSES,
-        "claude-3-haiku-20240307": Provider.ANTHROPIC,
-        "claude-3-5-haiku-20241022": Provider.ANTHROPIC,
-        "claude-3-5-haiku-latest": Provider.ANTHROPIC,
-        "claude-3-5-sonnet-20240620": Provider.ANTHROPIC,
-        "claude-3-5-sonnet-20241022": Provider.ANTHROPIC,
-        "claude-3-5-sonnet-latest": Provider.ANTHROPIC,
-        "claude-3-7-sonnet-20250219": Provider.ANTHROPIC,
-        "claude-3-7-sonnet-latest": Provider.ANTHROPIC,
-        "claude-3-opus-20240229": Provider.ANTHROPIC,
-        "claude-3-opus-latest": Provider.ANTHROPIC,
-        "claude-opus-4-0": Provider.ANTHROPIC,
-        "claude-opus-4-1": Provider.ANTHROPIC,
-        "claude-opus-4-5": Provider.ANTHROPIC,
-        "claude-opus-4-6": Provider.ANTHROPIC,
-        "claude-opus-4-20250514": Provider.ANTHROPIC,
-        "claude-sonnet-4-20250514": Provider.ANTHROPIC,
-        "claude-sonnet-4-0": Provider.ANTHROPIC,
-        "claude-sonnet-4-5-20250929": Provider.ANTHROPIC,
-        "claude-sonnet-4-5": Provider.ANTHROPIC,
-        "claude-sonnet-4-6": Provider.ANTHROPIC,
-        "claude-haiku-4-5": Provider.ANTHROPIC,
-        "deepseek-chat": Provider.DEEPSEEK,
-        "gemini-2.0-flash": Provider.GOOGLE,
-        "gemini-2.5-flash-preview-05-20": Provider.GOOGLE,
-        "gemini-2.5-flash-preview-09-2025": Provider.GOOGLE,
-        "gemini-2.5-pro-preview-05-06": Provider.GOOGLE,
-        "gemini-2.5-pro": Provider.GOOGLE,
-        "gemini-3-pro-preview": Provider.GOOGLE,
-        "gemini-3-flash-preview": Provider.GOOGLE,
-        "grok-4": Provider.XAI,
-        "grok-4-0709": Provider.XAI,
-        "grok-3": Provider.XAI,
-        "grok-3-mini": Provider.XAI,
-        "grok-3-fast": Provider.XAI,
-        "grok-3-mini-fast": Provider.XAI,
-        "qwen-turbo": Provider.ALIYUN,
-        "qwen-plus": Provider.ALIYUN,
-        "qwen-max": Provider.ALIYUN,
-        "qwen-long": Provider.ALIYUN,
-        "qwen3-max": Provider.ALIYUN,
-    }
-
     MODEL_ALIASES = {
         "gpt51": "responses.gpt-5.1",
         "gpt52": "responses.gpt-5.2",
@@ -160,6 +88,7 @@ class ModelFactory:
         "kimithink": "hf.moonshotai/Kimi-K2-Thinking:together",
         "deepseek32": "hf.deepseek-ai/DeepSeek-V3.2:fireworks-ai",
         "kimi25": "hf.moonshotai/Kimi-K2.5:fireworks-ai",
+        "kimi-2.5": "hf.moonshotai/Kimi-K2.5:fireworks-ai",
     }
 
     @staticmethod
@@ -185,6 +114,34 @@ class ModelFactory:
         "silent": SilentLLM,
         "slow": SlowLLM,
     }
+
+    @classmethod
+    def register_runtime_model_provider(cls, model_name: str, provider: Provider) -> None:
+        """Register or override a runtime default provider for an unprefixed model name."""
+        ModelDatabase.register_runtime_default_provider(model_name, provider)
+
+    @classmethod
+    def unregister_runtime_model_provider(cls, model_name: str) -> None:
+        """Remove a runtime default provider override."""
+        ModelDatabase.unregister_runtime_default_provider(model_name)
+
+    @classmethod
+    def register_runtime_model(
+        cls,
+        model_name: str,
+        provider: Provider,
+        llm_class: LLMClass | None = None,
+    ) -> None:
+        """Register a runtime model provider and optional model-specific class."""
+        cls.register_runtime_model_provider(model_name, provider)
+        if llm_class is not None:
+            cls.MODEL_SPECIFIC_CLASSES[model_name] = llm_class
+
+    @classmethod
+    def unregister_runtime_model(cls, model_name: str) -> None:
+        """Remove runtime model provider and model-specific class overrides."""
+        cls.unregister_runtime_model_provider(model_name)
+        cls.MODEL_SPECIFIC_CLASSES.pop(model_name, None)
 
     @classmethod
     def parse_model_string(
@@ -365,9 +322,9 @@ class ModelFactory:
             # If no provider prefix was matched, the whole string (after effort removal) is the model name
             model_name_str = ".".join(parts_for_provider_model)
 
-        # If provider still None, try to get from DEFAULT_PROVIDERS using the model_name_str
+        # If provider still None, try to resolve from model metadata.
         if provider is None:
-            provider = cls.DEFAULT_PROVIDERS.get(model_name_str)
+            provider = ModelDatabase.get_default_provider(model_name_str)
 
             # If still None, try pattern matching for Bedrock models
             if provider is None and cls._bedrock_pattern_matches(model_name_str):

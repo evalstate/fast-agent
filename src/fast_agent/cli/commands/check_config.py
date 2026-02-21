@@ -5,6 +5,7 @@ import platform
 import sys
 from importlib.metadata import version
 from pathlib import Path
+from typing import Callable, Literal
 
 import typer
 import yaml
@@ -16,6 +17,7 @@ from fast_agent.config import resolve_config_search_root
 from fast_agent.core.agent_card_validation import scan_agent_card_directory
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.llm.model_factory import ModelFactory
+from fast_agent.llm.model_selection import ModelSelectionCatalog
 from fast_agent.llm.provider_key_manager import API_KEY_HINT_TEXT, ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
 from fast_agent.paths import resolve_environment_paths
@@ -319,7 +321,129 @@ def get_config_summary(config_path: Path | None) -> dict:
     return result
 
 
-def show_check_summary(env_dir: Path | None = None) -> None:
+def _resolve_configured_providers(config_summary: dict, api_keys: dict) -> list[Provider]:
+    configured_providers: list[Provider] = []
+    for provider_name, status in api_keys.items():
+        if not status["env"] and not status["config"]:
+            continue
+        try:
+            configured_providers.append(Provider(provider_name))
+        except ValueError:
+            continue
+
+    main_config = config_summary.get("config") if config_summary.get("status") == "parsed" else {}
+    for provider in ModelSelectionCatalog.configured_providers(main_config):
+        if provider not in configured_providers:
+            configured_providers.append(provider)
+
+    return configured_providers
+
+
+def _render_model_catalog_sections(
+    *,
+    model_catalog: Literal["curated", "all", "both"],
+    configured_providers: list[Provider],
+    print_section_header: Callable[..., None],
+) -> None:
+    model_suggestions = ModelSelectionCatalog.suggestions_for_providers(configured_providers)
+    show_curated = model_catalog in {"curated", "both"}
+    show_all = model_catalog in {"all", "both"}
+
+    if show_curated and model_suggestions:
+        suggestions_table = Table(show_header=True, box=None)
+        suggestions_table.add_column("Provider", style="white", header_style="bold bright_white")
+        suggestions_table.add_column("Current Aliases", style="magenta", header_style="bold bright_white")
+        suggestions_table.add_column("Listed (non-current)", style="yellow", header_style="bold bright_white")
+        suggestions_table.add_column("Fast", style="cyan", header_style="bold bright_white")
+        suggestions_table.add_column("Current", style="green", header_style="bold bright_white")
+
+        for suggestion in model_suggestions:
+            aliases = (
+                ", ".join(suggestion.current_aliases[:3])
+                if suggestion.current_aliases
+                else "[dim]-[/dim]"
+            )
+            non_current_aliases = (
+                ", ".join(suggestion.non_current_aliases[:3])
+                if suggestion.non_current_aliases
+                else "[dim]-[/dim]"
+            )
+            fast = ", ".join(suggestion.fast_models[:2]) if suggestion.fast_models else "[dim]-[/dim]"
+            current = (
+                ", ".join(suggestion.current_models[:3])
+                if suggestion.current_models
+                else "[dim]-[/dim]"
+            )
+            suggestions_table.add_row(
+                suggestion.provider.display_name,
+                aliases,
+                non_current_aliases,
+                fast,
+                current,
+            )
+
+        print_section_header("Current Model Suggestions", color="blue")
+        console.print(suggestions_table)
+
+    if show_all and model_suggestions:
+        all_models_table = Table(show_header=True, box=None)
+        all_models_table.add_column("Provider", style="white", header_style="bold bright_white")
+        all_models_table.add_column("Known Models", style="cyan", header_style="bold bright_white")
+        all_models_table.add_column("Examples", style="green", header_style="bold bright_white")
+
+        for suggestion in model_suggestions:
+            known_models = len(suggestion.all_models)
+            known_display = str(known_models) if known_models else "[dim]-[/dim]"
+            examples = (
+                ", ".join(suggestion.all_models[:3]) if suggestion.all_models else "[dim]-[/dim]"
+            )
+            all_models_table.add_row(suggestion.provider.display_name, known_display, examples)
+
+        total_known_models = len(ModelSelectionCatalog.list_all_models())
+        print_section_header(
+            f"All Known Models ({total_known_models} historical/current aliases)", color="blue"
+        )
+        console.print(all_models_table)
+
+
+def show_model_catalog_summary(
+    env_dir: Path | None = None,
+    model_catalog: Literal["curated", "all", "both"] = "both",
+) -> None:
+    """Show only model catalog information (without full check output)."""
+    cwd = Path.cwd()
+    config_files = find_config_files(cwd, env_dir=env_dir)
+    config_summary = get_config_summary(config_files["config"])
+    secrets_summary = get_secrets_summary(config_files["secrets"])
+    api_keys = check_api_keys(secrets_summary, config_summary)
+    configured_providers = _resolve_configured_providers(config_summary, api_keys)
+
+    def _print_section_header(title: str, color: str = "blue") -> None:
+        width = console.size.width
+        left = f"[{color}]▎[/{color}][dim {color}]▶[/dim {color}] [{color}]{title}[/{color}]"
+        left_text = Text.from_markup(left)
+        separator_count = max(1, width - left_text.cell_len - 1)
+
+        combined = Text()
+        combined.append_text(left_text)
+        combined.append(" ")
+        combined.append("─" * separator_count, style="dim")
+
+        console.print()
+        console.print(combined)
+        console.print()
+
+    _render_model_catalog_sections(
+        model_catalog=model_catalog,
+        configured_providers=configured_providers,
+        print_section_header=_print_section_header,
+    )
+
+
+def show_check_summary(
+    env_dir: Path | None = None,
+    model_catalog: Literal["curated", "all", "both"] = "curated",
+) -> None:
     """Show a summary of checks with colorful styling."""
     cwd = Path.cwd()
     search_root = resolve_config_search_root(cwd, env_dir=env_dir)
@@ -590,6 +714,13 @@ def show_check_summary(env_dir: Path | None = None) -> None:
     # API Keys section
     _print_section_header("API Keys", color="blue")
     console.print(keys_table)
+
+    configured_providers = _resolve_configured_providers(config_summary, api_keys)
+    _render_model_catalog_sections(
+        model_catalog=model_catalog,
+        configured_providers=configured_providers,
+        print_section_header=_print_section_header,
+    )
 
     # Codex OAuth panel (separate from API keys)
     try:
@@ -979,8 +1110,18 @@ def main(
     env_dir: Path | None = typer.Option(
         None, "--env", help="Override the base fast-agent environment directory"
     ),
+    model_catalog: Literal["curated", "all", "both"] | None = typer.Option(
+        None,
+        "--model-catalog",
+        help=(
+            "Show only model catalog output in curated/all/both mode"
+        ),
+    ),
 ) -> None:
     """Check and diagnose FastAgent configuration."""
     env_dir = resolve_environment_dir_option(ctx, env_dir)
     if ctx.invoked_subcommand is None:
+        if model_catalog is not None:
+            show_model_catalog_summary(env_dir=env_dir, model_catalog=model_catalog)
+            return
         show_check_summary(env_dir=env_dir)

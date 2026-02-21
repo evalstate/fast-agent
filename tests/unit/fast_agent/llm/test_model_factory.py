@@ -493,3 +493,14 @@ def test_factory_passes_temperature_query_to_request_params():
     agent = LlmAgent(AgentConfig(name="test"))
     llm = factory(agent)
     assert llm.default_request_params.temperature == 0.42
+
+
+def test_runtime_model_provider_registration():
+    model_name = "runtime-fast-model"
+    ModelFactory.register_runtime_model_provider(model_name, Provider.FAST_AGENT)
+    try:
+        config = ModelFactory.parse_model_string(model_name)
+        assert config.provider == Provider.FAST_AGENT
+        assert config.model_name == model_name
+    finally:
+        ModelFactory.unregister_runtime_model_provider(model_name)

@@ -11,6 +11,7 @@ from ruamel.yaml import YAML
 from fast_agent.config import Settings, ShellSettings
 from fast_agent.human_input.form_fields import FormSchema, boolean, integer, string
 from fast_agent.human_input.simple_form import form_sync
+from fast_agent.llm.model_selection import ModelSelectionCatalog
 
 app = typer.Typer(help="Configure fast-agent settings interactively.")
 
@@ -123,12 +124,35 @@ def _build_shell_form(current: ShellSettings) -> FormSchema:
     return FormSchema(**fields)
 
 
-def _build_model_form(current_model: str | None) -> FormSchema:
+def _build_model_description(config_data: dict[str, Any]) -> str:
+    configured_providers = ModelSelectionCatalog.configured_providers(config_data)
+    suggestions = ModelSelectionCatalog.suggestions_for_providers(configured_providers)
+
+    if not suggestions:
+        return (
+            "Format: provider.model_name (e.g., anthropic.claude-sonnet-4-6). "
+            "Fast suggestions: responses.gpt-5-mini?reasoning=low, claude-haiku-4-5"
+        )
+
+    provider_suggestions: list[str] = []
+    for suggestion in suggestions[:4]:
+        if suggestion.current_models:
+            curated = ", ".join(suggestion.current_models[:2])
+            provider_suggestions.append(f"{suggestion.provider.display_name}: {curated}")
+
+    summary = " | ".join(provider_suggestions)
+    return (
+        "Format: provider.model_name. "
+        f"Detected provider suggestions: {summary}"
+    )
+
+
+def _build_model_form(current_model: str | None, config_data: dict[str, Any]) -> FormSchema:
     """Build form schema for model settings."""
     return FormSchema(
         default_model=string(
             title="Default Model",
-            description="Format: provider.model_name (e.g., anthropic.claude-sonnet-4-20250514)",
+            description=_build_model_description(config_data),
             default=current_model or "",
             max_length=100,
         ),
@@ -204,7 +228,7 @@ def config_model(config: ConfigOption = None) -> None:
     current_model = config_data.get("default_model")
 
     # Build and show form
-    schema = _build_model_form(current_model)
+    schema = _build_model_form(current_model, config_data)
     result = form_sync(
         schema,
         message="Configure the default model for agents",

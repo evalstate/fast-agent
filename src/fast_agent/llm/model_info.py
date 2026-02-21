@@ -90,7 +90,7 @@ class ModelInfo:
             )
 
         if provider is None:
-            provider = ModelFactory.DEFAULT_PROVIDERS.get(canonical_name, Provider.GENERIC)
+            provider = ModelDatabase.get_default_provider(canonical_name) or Provider.GENERIC
 
         return ModelInfo(
             name=canonical_name,

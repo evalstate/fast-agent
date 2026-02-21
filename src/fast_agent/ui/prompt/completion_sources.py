@@ -9,7 +9,7 @@ from prompt_toolkit.completion import Completion
 from fast_agent.agents.agent_types import AgentType
 
 if TYPE_CHECKING:
-    from fast_agent.ui.enhanced_prompt import AgentCompleter
+    from fast_agent.ui.prompt.completer import AgentCompleter
 
 
 def command_completions(
