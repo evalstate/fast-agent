@@ -17,7 +17,6 @@ from uuid import uuid4
 
 import anyio
 import mcp.types as types
-from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.server import StreamableHTTPASGIApp
 from mcp.server.session import InitializationState, ServerSession
 from mcp.server.stdio import stdio_server
@@ -40,6 +39,7 @@ LOGGER = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from anyio.abc import TaskStatus
+    from mcp.server.fastmcp import FastMCP
     from mcp.server.models import InitializationOptions
     from mcp.shared.message import SessionMessage
     from starlette.types import Receive, Scope, Send

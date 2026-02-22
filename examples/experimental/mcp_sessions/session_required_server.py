@@ -19,8 +19,6 @@ import argparse
 from typing import Any
 
 import mcp.types as types
-from mcp.server.fastmcp import Context, FastMCP
-
 from _session_base import (
     SESSION_REQUIRED_ERROR_CODE,
     SessionStore,
@@ -31,6 +29,7 @@ from _session_base import (
     session_cookie_from_meta,
     session_id_from_cookie,
 )
+from mcp.server.fastmcp import Context, FastMCP
 
 
 def _require_session(
