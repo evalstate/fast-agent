@@ -32,6 +32,8 @@ async def execute(handler: "SlashCommandHandler", command_name: str, arguments: 
             return await handler._handle_load(arguments)
         case "model":
             return await handler._handle_model(arguments)
+        case "models":
+            return await handler._handle_models(arguments)
         case "session":
             return await handler._handle_session(arguments)
         case "card":

@@ -71,6 +71,10 @@ class AgentCompleter(Completer):
                 "Update model settings "
                 "(/model reasoning|verbosity|web_search|web_fetch <value>)"
             ),
+            "models": (
+                "Inspect model onboarding "
+                "(/models, /models doctor, /models aliases [list|set|unset], /models catalog <provider>)"
+            ),
             "skills": "Manage skills (/skills, /skills add, /skills remove, /skills update, /skills registry)",
             "cards": (
                 "Manage card packs "

@@ -14,6 +14,7 @@ from fast_agent.commands.handlers import display as display_handlers
 from fast_agent.commands.handlers import history as history_handlers
 from fast_agent.commands.handlers import mcp_runtime as mcp_runtime_handlers
 from fast_agent.commands.handlers import model as model_handlers
+from fast_agent.commands.handlers import models_manager as models_manager_handlers
 from fast_agent.commands.handlers import prompts as prompt_handlers
 from fast_agent.commands.handlers import sessions as sessions_handlers
 from fast_agent.commands.handlers import skills as skills_handlers
@@ -44,6 +45,7 @@ from fast_agent.ui.command_payloads import (
     McpDisconnectCommand,
     McpListCommand,
     ModelReasoningCommand,
+    ModelsCommand,
     ModelVerbosityCommand,
     ModelWebFetchCommand,
     ModelWebSearchCommand,
@@ -171,6 +173,16 @@ async def dispatch_command_payload(
         case CardsCommand(action=action, argument=argument):
             context = build_command_context(prompt_provider, agent)
             outcome = await cards_handlers.handle_cards_command(
+                context,
+                agent_name=agent,
+                action=action,
+                argument=argument,
+            )
+            await emit_command_outcome(context, outcome)
+            return result
+        case ModelsCommand(action=action, argument=argument):
+            context = build_command_context(prompt_provider, agent)
+            outcome = await models_manager_handlers.handle_models_command(
                 context,
                 agent_name=agent,
                 action=action,

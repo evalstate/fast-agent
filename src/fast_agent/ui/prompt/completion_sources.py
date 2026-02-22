@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from prompt_toolkit.completion import Completion
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.llm.model_selection import ModelSelectionCatalog
 
 if TYPE_CHECKING:
     from fast_agent.ui.prompt.completer import AgentCompleter
@@ -388,6 +389,120 @@ def command_completions(
                 if value.startswith(argument.lower())
             )
             return results
+        return results
+
+    if text_lower.startswith("/models "):
+        remainder = text[len("/models ") :] or ""
+        parts = remainder.split(maxsplit=1)
+        subcommands = {
+            "doctor": "Inspect model onboarding readiness",
+            "aliases": "List or update configured model alias mappings",
+            "catalog": "Show curated models for a provider",
+        }
+        results = list(completer._complete_subcommands(parts, remainder, subcommands))
+        if not parts or (len(parts) == 1 and not remainder.endswith(" ")):
+            return results
+
+        subcmd = parts[0].lower()
+        argument = parts[1] if len(parts) > 1 else ""
+        if subcmd == "aliases":
+            alias_parts = argument.split(maxsplit=1)
+            alias_subcommands = {
+                "list": "List configured alias mappings",
+                "set": "Set an alias: set <token> <model-spec>",
+                "unset": "Unset an alias: unset <token>",
+            }
+            results.extend(completer._complete_subcommands(alias_parts, argument, alias_subcommands))
+
+            if not alias_parts or (len(alias_parts) == 1 and not argument.endswith(" ")):
+                return results
+
+            alias_action = alias_parts[0].lower()
+            if alias_action not in {"set", "unset"}:
+                return results
+
+            alias_argument = alias_parts[1] if len(alias_parts) > 1 else ""
+            alias_tokens = alias_argument.split()
+            current_token = ""
+            if alias_argument and not alias_argument.endswith(" ") and alias_tokens:
+                current_token = alias_tokens[-1]
+
+            if alias_tokens and alias_tokens[-1] == "--target" and alias_argument.endswith(" "):
+                results.extend(
+                    Completion(
+                        target,
+                        start_position=0,
+                        display=target,
+                        display_meta="alias write target",
+                    )
+                    for target in ("env", "project")
+                )
+                return results
+
+            if len(alias_tokens) >= 2 and alias_tokens[-2] == "--target" and current_token:
+                results.extend(
+                    Completion(
+                        target,
+                        start_position=-len(current_token),
+                        display=target,
+                        display_meta="alias write target",
+                    )
+                    for target in ("env", "project")
+                    if target.startswith(current_token.lower())
+                )
+                return results
+
+            if (not current_token and alias_argument.endswith(" ")) or current_token.startswith("--"):
+                alias_flags = {
+                    "--target": "choose write target (env|project)",
+                    "--dry-run": "preview changes without writing",
+                }
+                results.extend(
+                    Completion(
+                        flag,
+                        start_position=-len(current_token),
+                        display=flag,
+                        display_meta=description,
+                    )
+                    for flag, description in alias_flags.items()
+                    if flag.startswith(current_token.lower())
+                )
+            return results
+
+        if subcmd != "catalog":
+            return results
+
+        provider_names = sorted(
+            {provider.config_name for provider in ModelSelectionCatalog.CATALOG_ENTRIES_BY_PROVIDER}
+        )
+        catalog_tokens = argument.split()
+        current_token = ""
+        if argument and not argument.endswith(" "):
+            current_token = catalog_tokens[-1]
+
+        if (not catalog_tokens and not argument) or (current_token and not current_token.startswith("--")):
+            partial = current_token.lower()
+            results.extend(
+                Completion(
+                    provider_name,
+                    start_position=-len(current_token),
+                    display=provider_name,
+                    display_meta="provider",
+                )
+                for provider_name in provider_names
+                if provider_name.startswith(partial)
+            )
+
+        if (not current_token and argument.endswith(" ")) or current_token.startswith("--"):
+            if "--all".startswith(current_token.lower()):
+                results.append(
+                    Completion(
+                        "--all",
+                        start_position=-len(current_token),
+                        display="--all",
+                        display_meta="include all known models",
+                    )
+                )
         return results
 
     if text_lower.startswith("/mcp disconnect "):

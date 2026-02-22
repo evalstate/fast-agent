@@ -38,6 +38,7 @@ from fast_agent.acp.slash.handlers import clear as clear_slash_handlers
 from fast_agent.acp.slash.handlers import history as history_slash_handlers
 from fast_agent.acp.slash.handlers import mcp as mcp_slash_handlers
 from fast_agent.acp.slash.handlers import model as model_slash_handlers
+from fast_agent.acp.slash.handlers import models_manager as models_manager_slash_handlers
 from fast_agent.acp.slash.handlers import session as session_slash_handlers
 from fast_agent.acp.slash.handlers import skills as skills_slash_handlers
 from fast_agent.acp.slash.handlers import status as status_slash_handlers
@@ -272,6 +273,15 @@ class SlashCommandHandler:
                             "reasoning <value> | verbosity <value> | "
                             "web_search <on|off|default> | web_fetch <on|off|default>"
                         )
+                    )
+                ),
+            ),
+            "models": AvailableCommand(
+                name="models",
+                description="Inspect model onboarding state (doctor/aliases/catalog)",
+                input=AvailableCommandInput(
+                    root=UnstructuredCommandInput(
+                        hint="[doctor|aliases|catalog <provider> [--all]]"
                     )
                 ),
             ),
@@ -623,6 +633,9 @@ class SlashCommandHandler:
 
     async def _handle_model(self, arguments: str | None = None) -> str:
         return await model_slash_handlers.handle_model(self, arguments)
+
+    async def _handle_models(self, arguments: str | None = None) -> str:
+        return await models_manager_slash_handlers.handle_models(self, arguments)
 
     async def _handle_session(self, arguments: str | None = None) -> str:
         return await session_slash_handlers.handle_session(self, arguments)

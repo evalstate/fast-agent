@@ -97,6 +97,13 @@ class CardsCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class ModelsCommand(CommandBase):
+    action: str
+    argument: str | None
+    kind: Literal["models_command"] = "models_command"
+
+
+@dataclass(frozen=True, slots=True)
 class SelectPromptCommand(CommandBase):
     prompt_name: str | None
     prompt_index: int | None
@@ -297,6 +304,7 @@ CommandPayload = (
     | ClearCommand
     | SkillsCommand
     | CardsCommand
+    | ModelsCommand
     | SelectPromptCommand
     | SwitchAgentCommand
     | HashAgentCommand

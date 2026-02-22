@@ -611,6 +611,61 @@ def test_get_completions_for_cards_subcommands() -> None:
     assert "registry" in names
 
 
+def test_get_completions_for_models_subcommands() -> None:
+    completer = AgentCompleter(agents=["agent1"])
+
+    doc = Document("/models ", cursor_position=len("/models "))
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert "doctor" in names
+    assert "aliases" in names
+    assert "catalog" in names
+
+    doc = Document("/models aliases ", cursor_position=len("/models aliases "))
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+    assert "list" in names
+    assert "set" in names
+    assert "unset" in names
+
+
+def test_get_completions_for_models_catalog_provider_and_flag() -> None:
+    completer = AgentCompleter(agents=["agent1"])
+
+    doc = Document("/models catalog a", cursor_position=len("/models catalog a"))
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+    assert "anthropic" in names
+
+    doc = Document("/models catalog anthropic --", cursor_position=len("/models catalog anthropic --"))
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+    assert "--all" in names
+
+
+def test_get_completions_for_models_aliases_flags_and_target_values() -> None:
+    completer = AgentCompleter(agents=["agent1"])
+
+    doc = Document(
+        "/models aliases set $system.fast claude-haiku-4-5 --",
+        cursor_position=len("/models aliases set $system.fast claude-haiku-4-5 --"),
+    )
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+    assert "--dry-run" in names
+    assert "--target" in names
+
+    doc = Document(
+        "/models aliases unset $system.fast --target ",
+        cursor_position=len("/models aliases unset $system.fast --target "),
+    )
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+    assert "env" in names
+    assert "project" in names
+
+
 def test_get_completions_for_mcp_subcommands() -> None:
     completer = AgentCompleter(agents=["agent1"])
 
