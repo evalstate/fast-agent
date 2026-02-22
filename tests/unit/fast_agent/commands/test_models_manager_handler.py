@@ -534,3 +534,87 @@ async def test_models_aliases_set_invalid_token_returns_usage(tmp_path: Path) ->
     rendered = str(outcome.messages[0].text)
     assert "Model aliases must be exact tokens in the format '$<namespace>.<key>'" in rendered
     assert "Usage: /models aliases" in rendered
+
+
+@pytest.mark.asyncio
+async def test_models_doctor_displays_runtime_config_context(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    env_dir = workspace / ".fast-agent"
+    workspace.mkdir(parents=True)
+
+    previous_cwd = Path.cwd()
+    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
+    previous_fast_model = os.environ.get("FAST_AGENT_MODEL")
+    try:
+        os.chdir(workspace)
+        os.environ["ENVIRONMENT_DIR"] = str(env_dir)
+        os.environ["FAST_AGENT_MODEL"] = "kimi"
+        outcome = await models_manager.handle_models_command(
+            _context(Settings(environment_dir=str(env_dir))),
+            agent_name="main",
+            action="doctor",
+            argument=None,
+        )
+    finally:
+        os.chdir(previous_cwd)
+        if previous_env_dir is None:
+            os.environ.pop("ENVIRONMENT_DIR", None)
+        else:
+            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+        if previous_fast_model is None:
+            os.environ.pop("FAST_AGENT_MODEL", None)
+        else:
+            os.environ["FAST_AGENT_MODEL"] = previous_fast_model
+
+    rendered = str(outcome.messages[0].text)
+    assert "Runtime config context:" in rendered
+    assert f"ENVIRONMENT_DIR: {env_dir}" in rendered
+    assert f"Effective environment_dir: {env_dir}" in rendered
+    assert "FAST_AGENT_MODEL: kimi" in rendered
+
+
+@pytest.mark.asyncio
+async def test_models_aliases_prefers_cwd_env_overlay_even_with_parent_config_file(
+    tmp_path: Path,
+) -> None:
+    parent = tmp_path / "parent"
+    workspace = parent / "workspace"
+    env_dir = workspace / ".fast-agent"
+    parent.mkdir(parents=True)
+    workspace.mkdir(parents=True)
+
+    _write_yaml(parent / "fastagent.config.yaml", {"logger": {"show_chat": True}})
+    _write_yaml(
+        env_dir / "fastagent.config.yaml",
+        {
+            "model_aliases": {
+                "system": {
+                    "fast": "gpt-oss",
+                }
+            }
+        },
+    )
+
+    settings = Settings(environment_dir=None)
+    settings._config_file = str(parent / "fastagent.config.yaml")
+
+    previous_cwd = Path.cwd()
+    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
+    try:
+        os.environ.pop("ENVIRONMENT_DIR", None)
+        os.chdir(workspace)
+        outcome = await models_manager.handle_models_command(
+            _context(settings),
+            agent_name="main",
+            action="aliases",
+            argument=None,
+        )
+    finally:
+        os.chdir(previous_cwd)
+        if previous_env_dir is None:
+            os.environ.pop("ENVIRONMENT_DIR", None)
+        else:
+            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+
+    rendered = str(outcome.messages[0].text)
+    assert "$system.fast = gpt-oss" in rendered

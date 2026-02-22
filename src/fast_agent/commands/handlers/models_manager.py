@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shlex
 from collections import Counter
 from dataclasses import dataclass
@@ -372,12 +373,7 @@ def _provider_display_choices() -> str:
 def _resolve_alias_service(ctx: "CommandContext") -> ModelAliasConfigService:
     settings = ctx.resolve_settings()
     env_dir = getattr(settings, "environment_dir", None)
-    config_file = getattr(settings, "_config_file", None)
-    if isinstance(config_file, str) and config_file.strip():
-        service_cwd = Path(config_file).resolve().parent
-    else:
-        service_cwd = Path.cwd()
-    return ModelAliasConfigService(cwd=service_cwd, env_dir=env_dir)
+    return ModelAliasConfigService(cwd=Path.cwd(), env_dir=env_dir)
 
 
 def _flatten_aliases(aliases: dict[str, dict[str, str]]) -> list[tuple[str, str]]:
@@ -489,6 +485,10 @@ async def handle_models_command(
 async def _handle_models_doctor(ctx: "CommandContext") -> CommandOutcome:
     outcome = CommandOutcome()
     settings = ctx.resolve_settings()
+    env_dir_env = os.getenv("ENVIRONMENT_DIR")
+    fast_agent_model_env = os.getenv("FAST_AGENT_MODEL")
+    effective_env_dir = getattr(settings, "environment_dir", None)
+    loaded_config_file = getattr(settings, "_config_file", None)
 
     try:
         service = _resolve_alias_service(ctx)
@@ -528,6 +528,25 @@ async def _handle_models_doctor(ctx: "CommandContext") -> CommandOutcome:
             content,
             _a3_status_line("Readiness", "action required", value_style="bold yellow"),
         )
+
+    _append_line(content)
+    _append_line(content, _a3_section("Runtime config context:"))
+    _append_line(
+        content,
+        _a3_bullet(f"ENVIRONMENT_DIR: {env_dir_env or '<unset>'}", style="dim"),
+    )
+    _append_line(
+        content,
+        _a3_bullet(f"Effective environment_dir: {effective_env_dir or '<unset>'}", style="dim"),
+    )
+    _append_line(
+        content,
+        _a3_bullet(f"FAST_AGENT_MODEL: {fast_agent_model_env or '<unset>'}", style="dim"),
+    )
+    _append_line(
+        content,
+        _a3_bullet(f"Loaded config file: {loaded_config_file or '<none>'}", style="dim"),
+    )
 
     _append_line(content)
     _append_line(content, _a3_section("Unresolved aliases:"))
