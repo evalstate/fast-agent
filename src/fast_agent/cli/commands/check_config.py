@@ -1265,7 +1265,7 @@ def show_check_summary(env_dir: Path | None = None) -> None:
     if config_status == "not_found" or secrets_status == "not_found":
         console.print("\n[bold]Setup Tips:[/bold]")
         console.print(
-            "Run [cyan]fast-agent setup[/cyan] to create configuration files. Visit [cyan][link=https://fast-agent.ai]fast-agent.ai[/link][/cyan] for configuration guides. "
+            "Run [cyan]fast-agent scaffold[/cyan] to create configuration files. Visit [cyan][link=https://fast-agent.ai]fast-agent.ai[/link][/cyan] for configuration guides. "
         )
     elif config_status == "error" or secrets_status == "error":
         console.print("\n[bold]Config File Issues:[/bold]")
@@ -1312,7 +1312,7 @@ def show(
             console.print(
                 f"[yellow]No {file_type} file found in current directory or parents[/yellow]"
             )
-            console.print("Run [cyan]fast-agent setup[/cyan] to create configuration files")
+            console.print("Run [cyan]fast-agent scaffold[/cyan] to create configuration files")
             raise typer.Exit(1)
 
     console.print(f"\n[bold]{file_type.capitalize()} file:[/bold] {config_path}\n")

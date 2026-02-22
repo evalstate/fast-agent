@@ -91,7 +91,7 @@ def init(
     # Check for existing .gitignore
     needs_gitignore = not find_gitignore(config_path)
 
-    console.print("\n[bold]fast-agent setup[/bold]\n")
+    console.print("\n[bold]fast-agent scaffold[/bold]\n")
     console.print("This will create the following files:")
     console.print(f"  - {config_path}/fastagent.config.yaml")
     console.print(f"  - {config_path}/fastagent.secrets.yaml")
@@ -151,7 +151,7 @@ def init(
         created.append(".gitignore")
 
     if created:
-        console.print("\n[green]Setup completed successfully![/green]")
+        console.print("\n[green]Scaffold completed successfully![/green]")
         if not needs_gitignore:
             console.print(
                 "[yellow]Note:[/yellow] Found an existing .gitignore in this or a parent directory. "

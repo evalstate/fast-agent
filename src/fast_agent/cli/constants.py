@@ -57,7 +57,7 @@ KNOWN_SUBCOMMANDS = {
     "go",
     "serve",
     "acp",
-    "setup",
+    "scaffold",
     "check",
     "auth",
     "bootstrap",

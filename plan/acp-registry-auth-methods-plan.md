@@ -114,7 +114,7 @@ Candidate entrypoints (fast-agent already has these building blocks):
 
 - `fast-agent auth codexplan` (Codex OAuth)
 - `fast-agent auth login <server-or-url>` (OAuth for MCP servers)
-- A new dedicated `fast-agent setup` command (wizard that can:
+- A new dedicated `fast-agent scaffold` command (wizard that can:
   - validate config,
   - prompt for provider keys,
   - store in keyring or write `fastagent.secrets.yaml`).
@@ -173,4 +173,3 @@ Open question:
    - Auth methods present in initialize response.
    - Calling `authenticate` returns the expected error/response for unknown vs known method ids.
 3. (If Terminal Auth implemented) add an e2e-ish test that runs the setup entrypoint and verifies persistence target.
-

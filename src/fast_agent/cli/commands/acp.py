@@ -25,7 +25,7 @@ app = typer.Typer(
 ROOT_SUBCOMMANDS = {
     "go",
     "serve",
-    "setup",
+    "scaffold",
     "check",
     "auth",
     "bootstrap",

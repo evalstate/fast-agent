@@ -47,7 +47,7 @@ else
 fi
 
 # Test the setup command (non-interactive; accept defaults)
-printf '\n' | fast-agent setup --force
+printf '\n' | fast-agent scaffold --force
 
 # Check that setup created the expected files in the current directory
 if [ -f "fastagent.config.yaml" ] && [ -f "fastagent.secrets.yaml" ] && [ -f "agent.py" ]; then
