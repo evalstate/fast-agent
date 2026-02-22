@@ -130,6 +130,10 @@ class ServerStatus(BaseModel):
     sampling_mode: str | None = None
     spoofing_enabled: bool | None = None
     session_id: str | None = None
+    experimental_session_supported: bool | None = None
+    experimental_session_features: list[str] | None = None
+    session_cookie: dict[str, Any] | None = None
+    session_title: str | None = None
     transport_channels: TransportSnapshot | None = None
     skybridge: SkybridgeServerConfig | None = None
     reconnect_count: int = 0
@@ -1194,6 +1198,10 @@ class MCPAggregator(ContextDependent):
             spoofing_enabled = None
             server_cfg = None
             session_id = None
+            experimental_session_supported: bool | None = None
+            experimental_session_features: list[str] | None = None
+            session_cookie: dict[str, Any] | None = None
+            session_title: str | None = None
             server_conn = None
             transport: str | None = None
             transport_snapshot: TransportSnapshot | None = None
@@ -1248,12 +1256,39 @@ class MCPAggregator(ContextDependent):
                         ping_last_error = server_conn._ping_last_error
                         if session:
                             elicitation_mode = session.effective_elicitation_mode
+                            experimental_session_supported = getattr(
+                                session, "experimental_session_supported", None
+                            )
+                            raw_features = getattr(session, "experimental_session_features", None)
+                            if raw_features is not None:
+                                experimental_session_features = [
+                                    str(feature)
+                                    for feature in raw_features
+                                    if isinstance(feature, str) and feature
+                                ]
+                            raw_cookie = getattr(session, "experimental_session_cookie", None)
+                            if isinstance(raw_cookie, dict):
+                                session_cookie = dict(raw_cookie)
+                            raw_title = getattr(session, "experimental_session_title", None)
+                            if isinstance(raw_title, str) and raw_title.strip():
+                                session_title = raw_title.strip()
+                            if session_title is None and isinstance(session_cookie, dict):
+                                cookie_data = session_cookie.get("data")
+                                if isinstance(cookie_data, dict):
+                                    cookie_title = cookie_data.get("title") or cookie_data.get("label")
+                                    if isinstance(cookie_title, str) and cookie_title.strip():
+                                        session_title = cookie_title.strip()
+
                             session_id = server_conn.session_id
                             if not session_id and server_conn._get_session_id_cb:
                                 try:
                                     session_id = server_conn._get_session_id_cb()  # type: ignore[attr-defined]
                                 except Exception:
                                     session_id = None
+                            if not session_id and isinstance(session_cookie, dict):
+                                cookie_id = session_cookie.get("id")
+                                if isinstance(cookie_id, str) and cookie_id:
+                                    session_id = cookie_id
                         metrics = server_conn.transport_metrics
                         if metrics is not None:
                             try:
@@ -1361,6 +1396,10 @@ class MCPAggregator(ContextDependent):
                 sampling_mode=sampling_mode,
                 spoofing_enabled=spoofing_enabled,
                 session_id=session_id,
+                experimental_session_supported=experimental_session_supported,
+                experimental_session_features=experimental_session_features,
+                session_cookie=session_cookie,
+                session_title=session_title,
                 transport_channels=transport_snapshot,
                 skybridge=self._skybridge_configs.get(server_name),
                 reconnect_count=reconnect_count,
@@ -1431,7 +1470,12 @@ class MCPAggregator(ContextDependent):
                 # Prepare kwargs
                 kwargs = method_args or {}
                 if metadata:
-                    kwargs["_meta"] = metadata
+                    # call_tool expects `meta=` (matching MCP ClientSession API)
+                    # while read_resource/get_prompt use our local `_meta=` adapter.
+                    if method_name == "call_tool":
+                        kwargs["meta"] = metadata
+                    else:
+                        kwargs["_meta"] = metadata
 
                 # For call_tool method, check if we need to add progress_callback
                 if method_name == "call_tool" and progress_callback:

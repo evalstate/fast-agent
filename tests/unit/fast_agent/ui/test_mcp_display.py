@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from fast_agent.mcp.mcp_aggregator import ServerStatus
-from fast_agent.ui.mcp_display import _get_health_state
+from fast_agent.ui.mcp_display import _format_session_cookie, _get_health_state
 
 
 def test_health_state_marks_stale_when_last_ping_exceeds_window():
@@ -17,3 +17,15 @@ def test_health_state_marks_stale_when_last_ping_exceeds_window():
     state, _style = _get_health_state(status)
 
     assert state == "stale"
+
+
+def test_format_session_cookie_truncates_long_payload() -> None:
+    cookie = {
+        "id": "sess-abc",
+        "data": {"title": "Demo", "payload": "x" * 200},
+    }
+
+    rendered = _format_session_cookie(cookie)
+
+    assert "sess-abc" in rendered.plain
+    assert rendered.plain.endswith("...")
