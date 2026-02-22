@@ -58,15 +58,16 @@ class ModelSelectionCatalog:
         ),
         Provider.GOOGLE: (
             CatalogModelEntry(
-                alias="gemini25",
-                model="google.gemini-2.5-flash-preview-09-2025",
+                alias="gemini3-flash",
+                model="google.gemini-3-flash-preview",
                 fast=True,
             ),
-            CatalogModelEntry(alias="gemini25pro", model="google.gemini-2.5-pro"),
+            CatalogModelEntry(alias="gemini3", model="google.gemini-3-pro-preview"),
+            CatalogModelEntry(alias="gemini3.1", model="google.gemini-3.1-pro-preview"),
         ),
         Provider.XAI: (
-            CatalogModelEntry(alias="grok-3-mini-fast", model="xai.grok-3-mini-fast", fast=True),
-            CatalogModelEntry(alias="grok-4", model="xai.grok-4"),
+            CatalogModelEntry(alias="grok41fast", model="grok-4-1-fast-non-reasoning", fast=True),
+            CatalogModelEntry(alias="grok4", model="xai.grok-4"),
         ),
         Provider.DEEPSEEK: (
             CatalogModelEntry(alias="deepseek", model="deepseek.deepseek-chat", fast=True),
@@ -206,7 +207,9 @@ class ModelSelectionCatalog:
         return cls.list_non_current_aliases(provider)
 
     @classmethod
-    def list_all_models(cls, provider: Provider | None = None, config: Any | None = None) -> list[str]:
+    def list_all_models(
+        cls, provider: Provider | None = None, config: Any | None = None
+    ) -> list[str]:
         """Return all known models, optionally constrained to one provider."""
         config_payload = cls._as_mapping(config)
         if provider is None:

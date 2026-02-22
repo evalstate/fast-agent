@@ -169,6 +169,10 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
         self.display = ConsoleDisplay(config=self.context.config)
 
+        # Some providers may resolve model metadata during default param initialization
+        # and require API key access in that path.
+        self._init_api_key = api_key
+
         # Initialize default parameters, passing model info
         model_kwargs = kwargs.copy()
         if model:
@@ -212,8 +216,6 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             )
 
         self.verb = kwargs.get("verb")
-
-        self._init_api_key = api_key
 
         # Initialize usage tracking
         self._usage_accumulator = UsageAccumulator()
@@ -284,6 +286,46 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     def set_web_fetch_enabled(self, value: bool | None) -> None:
         if value is not None and not self.web_fetch_supported:
             raise ValueError("Current model does not support web fetch configuration.")
+
+    def _get_provider_config(self) -> Any | None:
+        """Return provider-specific config section when available."""
+        context_config = getattr(self.context, "config", None)
+        if context_config is None:
+            return None
+
+        section_name = getattr(self, "config_section", None) or getattr(self.provider, "value", None)
+        if not section_name or not hasattr(context_config, section_name):
+            return None
+        return getattr(context_config, section_name)
+
+    def _resolve_config_default_model(self) -> str | None:
+        """Resolve optional provider-level default model from config."""
+        provider_config = self._get_provider_config()
+        if provider_config is None:
+            return None
+
+        value = getattr(provider_config, "default_model", None)
+        if not isinstance(value, str):
+            return None
+
+        normalized = value.strip()
+        return normalized or None
+
+    def _resolve_default_model_name(
+        self,
+        requested_model: str | None,
+        hardcoded_default: str | None,
+    ) -> str | None:
+        """Resolve model name using explicit value, then provider config, then fallback."""
+        normalized_requested = requested_model.strip() if isinstance(requested_model, str) else None
+        if normalized_requested:
+            return normalized_requested
+
+        config_default = self._resolve_config_default_model()
+        if config_default:
+            return config_default
+
+        return hardcoded_default
 
     def _initialize_default_params(self, kwargs: dict[str, Any]) -> RequestParams:
         """Initialize default parameters for the LLM.

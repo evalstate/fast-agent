@@ -38,6 +38,7 @@ PLAIN_STREAM_REFRESH_PER_SECOND = 20
 PLAIN_STREAM_HEIGHT_FUDGE = 3
 STREAM_BATCH_PERIOD = 1 / 100
 STREAM_BATCH_MAX_DURATION = 1 / 60
+STREAM_CURSOR_BLOCK = "●"
 
 
 def _resolve_progress_resume_debounce_seconds() -> float:
@@ -176,6 +177,7 @@ class StreamingMessageHandle:
         self._live_started = False
         self._active = True
         self._finalized = False
+        self._show_stream_cursor = True
         self._max_render_height = 0
 
         if self._async_mode and self._loop and self._queue is not None:
@@ -304,6 +306,9 @@ class StreamingMessageHandle:
     def finalize(self, _message: "PromptMessageExtended | str") -> None:
         if not self._active or self._finalized:
             return
+
+        # Remove the transient cursor in the final frame before closing Live rendering.
+        self._show_stream_cursor = False
 
         # Flush any buffered reasoning content before closing the live view
         if self._segment_assembler.flush():
@@ -450,6 +455,15 @@ class StreamingMessageHandle:
     def _handle_chunk(self, chunk: str) -> bool:
         return self._segment_assembler.handle_text(chunk)
 
+    def _cursor_suffix(self, *, segment_index: int, total_segments: int) -> str:
+        if not self._show_stream_cursor:
+            return ""
+        if total_segments <= 0:
+            return ""
+        if segment_index != total_segments - 1:
+            return ""
+        return STREAM_CURSOR_BLOCK
+
     def _render_current_buffer(self) -> None:
         if not self._active:
             return
@@ -487,10 +501,17 @@ class StreamingMessageHandle:
         width = console.console.size.width
         render_start = time.perf_counter()
 
-        for segment in window_segments:
+        total_segments = len(window_segments)
+        for segment_index, segment in enumerate(window_segments):
+            cursor_suffix = self._cursor_suffix(
+                segment_index=segment_index,
+                total_segments=total_segments,
+            )
             if segment.kind == "markdown":
                 prepared = prepare_markdown_content(segment.text, self._display._escape_xml)
                 prepared_for_display = self._close_incomplete_code_blocks(prepared)
+                if cursor_suffix:
+                    prepared_for_display += cursor_suffix
                 if prepared_for_display:
                     renderables.append(
                         Markdown(prepared_for_display, code_theme=self._display.code_style)
@@ -501,6 +522,8 @@ class StreamingMessageHandle:
                 if self._render_reasoning_markdown:
                     prepared = prepare_markdown_content(segment.text, self._display._escape_xml)
                     prepared_for_display = self._close_incomplete_code_blocks(prepared)
+                    if cursor_suffix:
+                        prepared_for_display += cursor_suffix
                     markdown = Markdown(
                         prepared_for_display,
                         code_theme=self._display.code_style,
@@ -508,7 +531,7 @@ class StreamingMessageHandle:
                     )
                     renderables.append(markdown)
                 else:
-                    renderables.append(Text(segment.text, style="dim italic"))
+                    renderables.append(Text(f"{segment.text}{cursor_suffix}", style="dim italic"))
             else:
                 if segment.kind == "tool":
                     header_text = (
@@ -528,9 +551,11 @@ class StreamingMessageHandle:
                         if args_text:
                             tool_text.append("\n")
                             tool_text.append(args_text)
+                    if cursor_suffix:
+                        tool_text.append(cursor_suffix, style="dim")
                     renderables.append(tool_text)
                 else:
-                    renderables.append(Text(segment.text))
+                    renderables.append(Text(f"{segment.text}{cursor_suffix}"))
 
         self._max_render_height = min(self._max_render_height, max_allowed_height)
         budget_height = min(content_height + self._height_fudge, max_allowed_height)

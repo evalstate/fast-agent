@@ -4,7 +4,7 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.types import RequestParams
 
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
-DEFAULT_GROQ_MODEL = "moonshotai/kimi-k2-instruct"
+DEFAULT_GROQ_MODEL = "moonshotai/kimi-k2-instruct-0905"
 
 ### There is some big refactorings to be had quite easily here now:
 ### - combining the structured output type handling
@@ -18,11 +18,15 @@ class GroqLLM(OpenAICompatibleLLM):
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize Groq default parameters"""
+        chosen_model = self._resolve_default_model_name(kwargs.get("model"), DEFAULT_GROQ_MODEL)
+        resolved_kwargs = dict(kwargs)
+        if chosen_model is not None:
+            resolved_kwargs["model"] = chosen_model
+
         # Get base defaults from parent (includes ModelDatabase lookup)
-        base_params = super()._initialize_default_params(kwargs)
+        base_params = super()._initialize_default_params(resolved_kwargs)
 
         # Override with Groq-specific settings
-        chosen_model = kwargs.get("model", DEFAULT_GROQ_MODEL)
         base_params.model = chosen_model
         base_params.parallel_tool_calls = False
 

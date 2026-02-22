@@ -21,11 +21,18 @@ class OpenRouterLLM(OpenAILLM):
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize OpenRouter-specific default parameters."""
-        chosen_model = kwargs.get("model", DEFAULT_OPENROUTER_MODEL)
+        chosen_model = self._resolve_default_model_name(
+            kwargs.get("model"),
+            DEFAULT_OPENROUTER_MODEL,
+        )
         self._ensure_model_metadata(chosen_model)
 
+        resolved_kwargs = dict(kwargs)
+        if chosen_model is not None:
+            resolved_kwargs["model"] = chosen_model
+
         # Get base defaults from parent (includes ModelDatabase lookup)
-        base_params = super()._initialize_default_params(kwargs)
+        base_params = super()._initialize_default_params(resolved_kwargs)
 
         # Override with OpenRouter-specific settings
         # OpenRouter model names include the provider, e.g., "google/gemini-flash-1.5"

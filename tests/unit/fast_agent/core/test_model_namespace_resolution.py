@@ -77,7 +77,11 @@ def test_resolve_model_alias_rejects_non_exact_token_format() -> None:
 
 def test_resolve_model_spec_resolves_default_alias_from_context() -> None:
     context = _build_context()
-    model, source = resolve_model_spec(context, hardcoded_default="playback")
+    model, source = resolve_model_spec(
+        context,
+        hardcoded_default="playback",
+        env_var="FAST_AGENT_MODEL_TEST_UNSET",
+    )
     assert model == "passthrough"
     assert source == "config file"
 
@@ -92,6 +96,40 @@ def test_resolve_model_spec_precedence_with_aliases() -> None:
     )
     assert model == "claude-haiku-4-5"
     assert source == "explicit model"
+
+
+def test_resolve_model_spec_falls_back_when_explicit_alias_unresolved() -> None:
+    context = _build_context()
+    model, source = resolve_model_spec(
+        context,
+        model="$system.unknown",
+        hardcoded_default="playback",
+    )
+
+    assert model == "passthrough"
+    assert source == "config file"
+
+
+def test_resolve_model_spec_falls_back_to_hardcoded_when_config_alias_unresolved() -> None:
+    context = Context(
+        config=Settings(
+            default_model="$system.missing",
+            model_aliases={
+                "system": {
+                    "fast": "claude-haiku-4-5",
+                }
+            },
+        )
+    )
+
+    model, source = resolve_model_spec(
+        context,
+        hardcoded_default="playback",
+        env_var="FAST_AGENT_MODEL_TEST_UNSET",
+    )
+
+    assert model == "playback"
+    assert source == "hardcoded default"
 
 
 def test_resolve_model_spec_env_alias() -> None:

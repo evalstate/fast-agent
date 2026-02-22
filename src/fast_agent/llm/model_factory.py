@@ -72,6 +72,7 @@ class ModelFactory:
         "gemini25": "gemini-2.5-flash-preview-09-2025",
         "gemini25pro": "gemini-2.5-pro",
         "gemini3": "gemini-3-pro-preview",
+        "gemini3.1": "gemini-3.1-pro-preview",
         "gemini3flash": "gemini-3-flash-preview",
         "grok-4-fast": "xai.grok-4-fast-non-reasoning",
         "grok-4-fast-reasoning": "xai.grok-4-fast-reasoning",
@@ -144,6 +145,21 @@ class ModelFactory:
         cls.MODEL_SPECIFIC_CLASSES.pop(model_name, None)
 
     @classmethod
+    def get_runtime_aliases(cls) -> dict[str, str]:
+        """Return parser aliases, including curated catalog aliases."""
+        aliases = dict(cls.MODEL_ALIASES)
+
+        from fast_agent.llm.model_selection import ModelSelectionCatalog
+
+        for entry in ModelSelectionCatalog.list_current_entries():
+            alias = entry.alias.strip()
+            if not alias or "?" in entry.model:
+                continue
+            aliases.setdefault(alias, entry.model)
+
+        return aliases
+
+    @classmethod
     def parse_model_string(
         cls, model_string: str, aliases: dict[str, str] | None = None
     ) -> ModelConfig:
@@ -154,7 +170,7 @@ class ModelFactory:
             aliases: Optional custom aliases map. Defaults to MODEL_ALIASES.
         """
         if aliases is None:
-            aliases = cls.MODEL_ALIASES
+            aliases = cls.get_runtime_aliases()
 
         query_setting: ReasoningEffortSetting | None = None
         query_structured: StructuredOutputMode | None = None

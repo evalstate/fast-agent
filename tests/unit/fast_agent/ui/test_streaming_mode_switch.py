@@ -114,3 +114,13 @@ def test_resolve_progress_resume_debounce_seconds_from_env(monkeypatch) -> None:
 
     monkeypatch.setenv("FAST_AGENT_PROGRESS_RESUME_DEBOUNCE_SECONDS", "invalid")
     assert streaming_module._resolve_progress_resume_debounce_seconds() == 0.12
+
+
+def test_stream_cursor_suffix_only_targets_last_segment() -> None:
+    handle = _make_handle("plain")
+
+    assert handle._cursor_suffix(segment_index=0, total_segments=2) == ""
+    assert handle._cursor_suffix(segment_index=1, total_segments=2) == streaming_module.STREAM_CURSOR_BLOCK
+
+    handle._show_stream_cursor = False
+    assert handle._cursor_suffix(segment_index=1, total_segments=2) == ""

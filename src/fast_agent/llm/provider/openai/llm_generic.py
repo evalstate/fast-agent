@@ -16,7 +16,10 @@ class GenericLLM(OpenAILLM):
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize Generic  parameters"""
-        chosen_model = kwargs.get("model", DEFAULT_OLLAMA_MODEL)
+        chosen_model = self._resolve_default_model_name(
+            kwargs.get("model"),
+            DEFAULT_OLLAMA_MODEL,
+        )
 
         return RequestParams(
             model=chosen_model,

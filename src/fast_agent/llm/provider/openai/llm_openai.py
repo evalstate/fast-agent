@@ -134,11 +134,13 @@ class OpenAILLM(
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize OpenAI-specific default parameters"""
-        # Get base defaults from parent (includes ModelDatabase lookup)
-        base_params = super()._initialize_default_params(kwargs)
+        chosen_model = self._resolve_default_model_name(kwargs.get("model"), DEFAULT_OPENAI_MODEL)
+        resolved_kwargs = dict(kwargs)
+        if chosen_model is not None:
+            resolved_kwargs["model"] = chosen_model
 
-        # Override with OpenAI-specific settings
-        chosen_model = kwargs.get("model", DEFAULT_OPENAI_MODEL)
+        # Get base defaults from parent (includes ModelDatabase lookup)
+        base_params = super()._initialize_default_params(resolved_kwargs)
         base_params.model = chosen_model
 
         return base_params

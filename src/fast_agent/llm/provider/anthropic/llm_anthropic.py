@@ -89,7 +89,7 @@ from fast_agent.llm.usage_tracking import TurnUsage
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
-DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-0"
+DEFAULT_ANTHROPIC_MODEL = "sonnet"
 STRUCTURED_OUTPUT_TOOL_NAME = "return_structured_output"
 STRUCTURED_OUTPUT_BETA = "structured-outputs-2025-11-13"
 INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14"
@@ -437,11 +437,16 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize Anthropic-specific default parameters"""
-        # Get base defaults from parent (includes ModelDatabase lookup)
-        base_params = super()._initialize_default_params(kwargs)
+        chosen_model = self._resolve_default_model_name(
+            kwargs.get("model"),
+            DEFAULT_ANTHROPIC_MODEL,
+        )
+        resolved_kwargs = dict(kwargs)
+        if chosen_model is not None:
+            resolved_kwargs["model"] = chosen_model
 
-        # Override with Anthropic-specific settings
-        chosen_model = kwargs.get("model", DEFAULT_ANTHROPIC_MODEL)
+        # Get base defaults from parent (includes ModelDatabase lookup)
+        base_params = super()._initialize_default_params(resolved_kwargs)
         base_params.model = chosen_model
 
         return base_params

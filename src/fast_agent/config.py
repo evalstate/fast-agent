@@ -473,6 +473,10 @@ class AnthropicSettings(BaseModel):
 
     api_key: str | None = Field(default=None, description="Anthropic API key")
     base_url: str | None = Field(default=None, description="Override API endpoint")
+    default_model: str | None = Field(
+        default=None,
+        description="Default model when Anthropic provider is selected without an explicit model",
+    )
     default_headers: dict[str, str] | None = Field(
         default=None, description="Custom headers to pass with every request"
     )
@@ -535,6 +539,10 @@ class OpenAISettings(BaseModel):
 
     api_key: str | None = Field(default=None, description="OpenAI API key")
     base_url: str | None = Field(default=None, description="Override API endpoint")
+    default_model: str | None = Field(
+        default=None,
+        description="Default model when OpenAI provider is selected without an explicit model",
+    )
     reasoning: ReasoningEffortSetting | str | int | bool | None = Field(
         default=None,
         description="Unified reasoning setting (effort level or budget)",
@@ -565,6 +573,12 @@ class OpenResponsesSettings(BaseModel):
 
     api_key: str | None = Field(default=None, description="Open Responses API key")
     base_url: str | None = Field(default=None, description="Open Responses endpoint URL")
+    default_model: str | None = Field(
+        default=None,
+        description=(
+            "Default model when Open Responses provider is selected without an explicit model"
+        ),
+    )
     reasoning: ReasoningEffortSetting | str | int | bool | None = Field(
         default=None,
         description="Unified reasoning setting (effort level or budget)",
@@ -591,6 +605,12 @@ class CodexResponsesSettings(BaseModel):
 
     api_key: str | None = Field(default=None, description="Codex Responses API key")
     base_url: str | None = Field(default=None, description="Override API endpoint")
+    default_model: str | None = Field(
+        default=None,
+        description=(
+            "Default model when Codex Responses provider is selected without an explicit model"
+        ),
+    )
     text_verbosity: Literal["low", "medium", "high"] = Field(
         default="medium",
         description="Text verbosity level: low, medium, high",
@@ -613,6 +633,10 @@ class DeepSeekSettings(BaseModel):
 
     api_key: str | None = Field(default=None, description="DeepSeek API key")
     base_url: str | None = Field(default=None, description="Override API endpoint")
+    default_model: str | None = Field(
+        default=None,
+        description="Default model when DeepSeek provider is selected without an explicit model",
+    )
     default_headers: dict[str, str] | None = Field(
         default=None,
         description="Custom headers for all API requests",
@@ -626,6 +650,10 @@ class GoogleSettings(BaseModel):
 
     api_key: str | None = Field(default=None, description="Google API key")
     base_url: str | None = Field(default=None, description="Override API endpoint")
+    default_model: str | None = Field(
+        default=None,
+        description="Default model when Google provider is selected without an explicit model",
+    )
     default_headers: dict[str, str] | None = Field(
         default=None,
         description="Custom headers for all API requests",
@@ -641,6 +669,10 @@ class XAISettings(BaseModel):
     base_url: str | None = Field(
         default="https://api.x.ai/v1",
         description="xAI API endpoint (default: https://api.x.ai/v1)",
+    )
+    default_model: str | None = Field(
+        default=None,
+        description="Default model when xAI provider is selected without an explicit model",
     )
     default_headers: dict[str, str] | None = Field(
         default=None,
@@ -658,6 +690,10 @@ class GenericSettings(BaseModel):
         default=None,
         description="API endpoint (default: http://localhost:11434/v1 for Ollama)",
     )
+    default_model: str | None = Field(
+        default=None,
+        description="Default model when generic provider is selected without an explicit model",
+    )
     default_headers: dict[str, str] | None = Field(
         default=None,
         description="Custom headers for all API requests",
@@ -673,6 +709,12 @@ class OpenRouterSettings(BaseModel):
     base_url: str | None = Field(
         default=None,
         description="Override API endpoint (default: https://openrouter.ai/api/v1)",
+    )
+    default_model: str | None = Field(
+        default=None,
+        description=(
+            "Default model when OpenRouter provider is selected without an explicit model"
+        ),
     )
     default_headers: dict[str, str] | None = Field(
         default=None,
@@ -699,6 +741,12 @@ class AzureSettings(BaseModel):
         default=None,
         description="Full endpoint URL (do not use with resource_name)",
     )
+    default_model: str | None = Field(
+        default=None,
+        description=(
+            "Default deployment/model when Azure provider is selected without an explicit model"
+        ),
+    )
     default_headers: dict[str, str] | None = Field(
         default=None,
         description="Custom headers for all API requests",
@@ -714,6 +762,10 @@ class GroqSettings(BaseModel):
     base_url: str | None = Field(
         default="https://api.groq.com/openai/v1",
         description="Groq API endpoint",
+    )
+    default_model: str | None = Field(
+        default=None,
+        description="Default model when Groq provider is selected without an explicit model",
     )
     default_headers: dict[str, str] | None = Field(
         default=None,
@@ -746,6 +798,12 @@ class TensorZeroSettings(BaseModel):
         default=None,
         description="TensorZero endpoint (default: http://localhost:3000)",
     )
+    default_model: str | None = Field(
+        default=None,
+        description=(
+            "Default function name when TensorZero provider is selected without an explicit model"
+        ),
+    )
     api_key: str | None = Field(default=None, description="TensorZero API key (if required)")
     default_headers: dict[str, str] | None = Field(
         default=None,
@@ -762,6 +820,10 @@ class BedrockSettings(BaseModel):
     profile: str | None = Field(
         default=None,
         description="AWS profile for authentication (default: 'default')",
+    )
+    default_model: str | None = Field(
+        default=None,
+        description="Default model when Bedrock provider is selected without an explicit model",
     )
     reasoning: ReasoningEffortSetting | str | int | bool | None = Field(
         default=None,
@@ -782,6 +844,12 @@ class HuggingFaceSettings(BaseModel):
     base_url: str | None = Field(
         default=None,
         description="Override router endpoint (default: https://router.huggingface.co/v1)",
+    )
+    default_model: str | None = Field(
+        default=None,
+        description=(
+            "Default model when HuggingFace provider is selected without an explicit model"
+        ),
     )
     default_provider: str | None = Field(
         default=None,

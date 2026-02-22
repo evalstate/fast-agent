@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 
+from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_selection import ModelSelectionCatalog
 from fast_agent.llm.provider_types import Provider
 
@@ -105,6 +106,15 @@ def test_codexresponses_curated_entries_use_explicit_transports() -> None:
     curated = ModelSelectionCatalog.list_curated_models(Provider.CODEX_RESPONSES)
     assert "codexresponses.gpt-5.3-codex?transport=ws&reasoning=high" in curated
     assert "codexresponses.gpt-5.3-codex-spark?transport=ws" in curated
+
+
+def test_google_curated_models_exist_in_provider_catalog() -> None:
+    known = {
+        ModelDatabase.normalize_model_name(model)
+        for model in ModelSelectionCatalog.list_all_models(Provider.GOOGLE)
+    }
+    for entry in ModelSelectionCatalog.list_current_entries(Provider.GOOGLE):
+        assert ModelDatabase.normalize_model_name(entry.model) in known
 
 
 def test_openrouter_list_all_models_uses_discovery(monkeypatch) -> None:
