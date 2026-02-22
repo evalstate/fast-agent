@@ -8,11 +8,13 @@ from collections.abc import Mapping
 from typing import Any
 
 from fast_agent.core.exceptions import ModelConfigError
+from fast_agent.core.logging.logger import get_logger
 
 HARDCODED_DEFAULT_MODEL = "gpt-5-mini?reasoning=low"
 _MODEL_ALIAS_PATTERN = re.compile(
     r"^\$(?P<namespace>[A-Za-z_][A-Za-z0-9_-]*)\.(?P<key>[A-Za-z_][A-Za-z0-9_-]*)$"
 )
+logger = get_logger(__name__)
 
 
 def resolve_model_alias(
@@ -124,31 +126,47 @@ def resolve_model_spec(
         4. CLI --model argument
         5. Explicit model parameter
     """
-    model_spec: str | None = hardcoded_default if fallback_to_hardcoded else None
-    source: str | None = "hardcoded default" if fallback_to_hardcoded else None
+    candidates: list[tuple[str, str]] = []
 
-    env_model = os.getenv(env_var)
-    if env_model:
-        model_spec = env_model
-        source = f"environment variable {env_var}"
+    def _add_candidate(value: str | None, source_label: str) -> None:
+        if value is None:
+            return
+        stripped = value.strip()
+        if not stripped:
+            return
+        candidates.append((stripped, source_label))
+
+    _add_candidate(model, "explicit model")
+    _add_candidate(cli_model, "CLI --model")
 
     config_default = default_model
     if config_default is None and context and getattr(context, "config", None):
         config_default = context.config.default_model
-    if config_default:
-        model_spec = config_default
-        source = "config file"
+    _add_candidate(config_default, "config file")
 
-    if cli_model:
-        model_spec = cli_model
-        source = "CLI --model"
+    env_model = os.getenv(env_var)
+    _add_candidate(env_model, f"environment variable {env_var}")
 
-    if model:
-        model_spec = model
-        source = "explicit model"
+    if fallback_to_hardcoded:
+        _add_candidate(hardcoded_default, "hardcoded default")
 
     aliases = model_aliases if model_aliases is not None else get_context_model_aliases(context)
-    if model_spec:
-        model_spec = resolve_model_alias(model_spec, aliases)
 
-    return model_spec, source
+    for index, (candidate, source) in enumerate(candidates):
+        try:
+            return resolve_model_alias(candidate, aliases), source
+        except ModelConfigError as exc:
+            if not candidate.startswith("$"):
+                raise
+
+            fallback_source = next((label for _, label in candidates[index + 1 :]), None)
+            logger.warning(
+                "Failed to resolve model alias; trying lower-precedence default",
+                model_alias=candidate,
+                source=source,
+                fallback_source=fallback_source,
+                error=exc.message,
+                details=exc.details,
+            )
+
+    return None, None
