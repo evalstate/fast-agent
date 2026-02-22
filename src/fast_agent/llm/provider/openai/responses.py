@@ -50,7 +50,7 @@ from fast_agent.types.llm_stop_reason import LlmStopReason
 
 _logger = get_logger(__name__)
 
-DEFAULT_RESPONSES_MODEL = "gpt-5-mini"
+DEFAULT_RESPONSES_MODEL = "gpt-5.2"
 DEFAULT_REASONING_EFFORT = "medium"
 MIN_RESPONSES_MAX_TOKENS = 16
 DEFAULT_RESPONSES_BASE_URL = "https://api.openai.com/v1"
@@ -132,9 +132,7 @@ class ResponsesLLM(
         if raw_text_verbosity is not None:
             parsed_verbosity = parse_text_verbosity(str(raw_text_verbosity))
             if parsed_verbosity is None:
-                self.logger.warning(
-                    f"Invalid text verbosity setting: {raw_text_verbosity}"
-                )
+                self.logger.warning(f"Invalid text verbosity setting: {raw_text_verbosity}")
             else:
                 try:
                     self.set_text_verbosity(parsed_verbosity)
@@ -272,18 +270,10 @@ class ResponsesLLM(
         return DEFAULT_REASONING_EFFORT
 
     def _initialize_default_params(self, kwargs: dict[str, Any]) -> RequestParams:
-        base_params = super()._initialize_default_params(kwargs)
-        chosen_model = kwargs.get("model", DEFAULT_RESPONSES_MODEL)
-        base_params.model = chosen_model
-        return base_params
+        return self._initialize_default_params_with_model_fallback(kwargs, DEFAULT_RESPONSES_MODEL)
 
-    def _get_provider_config(self):
-        if not self.context or not self.context.config:
-            return None
-        section_name = self.config_section or getattr(self.provider, "value", None)
-        if section_name and hasattr(self.context.config, section_name):
-            return getattr(self.context.config, section_name)
-        return getattr(self.context.config, "openai", None)
+    def _provider_config_fallback_sections(self) -> tuple[str, ...]:
+        return ("openai",)
 
     def _openai_settings(self):
         return self._get_provider_config()
@@ -465,7 +455,9 @@ class ResponsesLLM(
         request_params: RequestParams,
         tools: list[Tool] | None = None,
     ) -> PromptMessageExtended:
-        model_name = request_params.model or self.default_request_params.model or DEFAULT_RESPONSES_MODEL
+        model_name = (
+            request_params.model or self.default_request_params.model or DEFAULT_RESPONSES_MODEL
+        )
         transport = self._effective_transport()
         self._validate_transport_support(model_name, transport)
 
@@ -499,7 +491,11 @@ class ResponsesLLM(
                 self.logger.warning(
                     "WebSocket transport failed before stream start; falling back to SSE "
                     "(experimental transport safeguard)",
-                    data={"model": model_name, "requested_transport": transport, "error": str(error)},
+                    data={
+                        "model": model_name,
+                        "requested_transport": transport,
+                        "error": str(error),
+                    },
                 )
                 try:
                     from rich.text import Text
@@ -633,8 +629,7 @@ class ResponsesLLM(
                                 },
                             )
                             raise TimeoutError(
-                                "Streaming did not complete within "
-                                f"{timeout} seconds."
+                                f"Streaming did not complete within {timeout} seconds."
                             ) from exc
                 return response, streamed_summary, normalized_input
         except AuthenticationError as e:
@@ -712,8 +707,7 @@ class ResponsesLLM(
                             },
                         )
                         raise TimeoutError(
-                            "Streaming did not complete within "
-                            f"{timeout} seconds."
+                            f"Streaming did not complete within {timeout} seconds."
                         ) from exc
                 planner.commit(arguments, planned_request)
                 keep_connection = True
@@ -742,9 +736,7 @@ class ResponsesLLM(
                 planner.rollback(error, stream_started=error.stream_started)
                 last_error = error
                 retry_after_release = (
-                    attempt == 0
-                    and reused_existing_connection
-                    and not error.stream_started
+                    attempt == 0 and reused_existing_connection and not error.stream_started
                 )
                 if retry_after_release:
                     reconnect_diagnostics = self._websocket_retry_diagnostics(connection, error)
@@ -765,9 +757,7 @@ class ResponsesLLM(
                 )
                 last_error = wrapped_error
                 retry_after_release = (
-                    attempt == 0
-                    and reused_existing_connection
-                    and not stream_started
+                    attempt == 0 and reused_existing_connection and not stream_started
                 )
                 if retry_after_release:
                     reconnect_diagnostics = self._websocket_retry_diagnostics(

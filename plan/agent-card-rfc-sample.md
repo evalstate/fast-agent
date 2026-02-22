@@ -8,7 +8,7 @@ uv pip install fast-agent-mcp          # install fast-agent!
 fast-agent go                          # start an interactive session
 fast-agent go --url https://hf.co/mcp  # with a remote MCP
 fast-agent go --model=generic.qwen2.5  # use ollama qwen 2.5
-fast-agent setup                       # create an example agent and config files
+fast-agent scaffold                    # create an example agent and config files
 uv run agent.py                        # run your first agent
 uv run agent.py --model=o3-mini.low    # specify a model
 uv run agent.py --transport http --port 8001  # expose as MCP server (server mode implied)

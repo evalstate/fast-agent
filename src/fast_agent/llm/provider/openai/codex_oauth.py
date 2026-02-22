@@ -411,15 +411,23 @@ def _load_codex_cli_tokens() -> CodexOAuthTokens | None:
     return None
 
 
-def load_codex_tokens() -> CodexOAuthTokens | None:
+def _load_codex_tokens_with_source() -> tuple[CodexOAuthTokens | None, str | None]:
     payload = _get_keyring_password()
     if payload:
         try:
-            return CodexOAuthTokens.model_validate_json(payload)
+            return CodexOAuthTokens.model_validate_json(payload), "keyring"
         except Exception:
-            return None
+            return None, None
+
     tokens = _load_codex_cli_tokens()
     if tokens:
+        return tokens, "auth.json"
+    return None, None
+
+
+def load_codex_tokens() -> CodexOAuthTokens | None:
+    tokens, source = _load_codex_tokens_with_source()
+    if tokens and source == "auth.json":
         logger.info(
             "codex_cli_tokens",
             "Loaded Codex OAuth tokens from auth.json",
@@ -498,11 +506,16 @@ def get_codex_access_token() -> str | None:
 
 
 def get_codex_token_status() -> dict[str, Any]:
-    tokens = load_codex_tokens()
+    tokens, source = _load_codex_tokens_with_source()
     if not tokens:
-        return {"present": False, "expires_at": None, "expired": False}
+        return {"present": False, "expires_at": None, "expired": False, "source": None}
     expired = tokens.is_expired(margin_seconds=0)
-    return {"present": True, "expires_at": tokens.expires_at, "expired": expired}
+    return {
+        "present": True,
+        "expires_at": tokens.expires_at,
+        "expired": expired,
+        "source": source,
+    }
 
 
 def parse_chatgpt_account_id(access_token: str) -> str | None:

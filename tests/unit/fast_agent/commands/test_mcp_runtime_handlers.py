@@ -155,6 +155,15 @@ class _OAuthFailureManager(_Manager):
         )
 
 
+class _OAuthRegistration404Manager(_Manager):
+    async def attach_mcp_server(self, agent_name, server_name, server_config=None, options=None):
+        del agent_name, server_name, server_config, options
+        raise RuntimeError(
+            "OAuthRegistrationError: Registration failed: 404 404 page not found "
+            "for URL: https://api.githubcopilot.com/mcp/"
+        )
+
+
 class _Always404Manager(_Manager):
     def __init__(self) -> None:
         super().__init__()
@@ -174,6 +183,39 @@ def test_parse_connect_input_rejects_non_finite_or_non_positive_timeout(
 ) -> None:
     with pytest.raises(ValueError, match="--timeout"):
         mcp_runtime.parse_connect_input(f"npx demo-server --timeout {raw_timeout}")
+
+
+def test_parse_connect_input_resolves_auth_env_reference(monkeypatch) -> None:
+    monkeypatch.setenv("DEMO_TOKEN", "token-from-env")
+
+    parsed = mcp_runtime.parse_connect_input("https://example.com/api --auth ${DEMO_TOKEN}")
+
+    assert parsed.auth_token == "token-from-env"
+
+
+def test_parse_connect_input_resolves_simple_auth_env_reference(monkeypatch) -> None:
+    monkeypatch.setenv("DEMO_TOKEN", "token-from-env")
+
+    parsed = mcp_runtime.parse_connect_input("https://example.com/api --auth $DEMO_TOKEN")
+
+    assert parsed.auth_token == "token-from-env"
+
+
+def test_parse_connect_input_resolves_auth_env_reference_with_default(monkeypatch) -> None:
+    monkeypatch.delenv("MISSING_TOKEN", raising=False)
+
+    parsed = mcp_runtime.parse_connect_input(
+        "https://example.com/api --auth ${MISSING_TOKEN:default-token}"
+    )
+
+    assert parsed.auth_token == "default-token"
+
+
+def test_parse_connect_input_rejects_missing_auth_env_reference(monkeypatch) -> None:
+    monkeypatch.delenv("MISSING_TOKEN", raising=False)
+
+    with pytest.raises(ValueError, match="Environment variable 'MISSING_TOKEN' is not set"):
+        mcp_runtime.parse_connect_input("https://example.com/api --auth ${MISSING_TOKEN}")
 
 
 @pytest.mark.asyncio
@@ -462,6 +504,26 @@ async def test_handle_mcp_connect_oauth_failure_adds_noninteractive_recovery_gui
     assert "fast-agent auth login" in message_text
     assert "Stop/Cancel" in message_text
     assert any("Failed to connect MCP server" in item for item in progress_updates)
+
+
+@pytest.mark.asyncio
+async def test_handle_mcp_connect_oauth_registration_404_adds_guidance() -> None:
+    manager = _OAuthRegistration404Manager()
+    ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())
+
+    outcome = await mcp_runtime.handle_mcp_connect(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        target_text="https://api.githubcopilot.com/mcp/",
+    )
+
+    message_text = "\n".join(str(msg.text) for msg in outcome.messages)
+    assert "Failed to connect MCP server" in message_text
+    assert "registration returned HTTP 404" in message_text
+    assert "--client-metadata-url" in message_text
+    assert "--auth <token>" in message_text
+    assert "GitHub Copilot MCP" in message_text
 
 
 @pytest.mark.asyncio

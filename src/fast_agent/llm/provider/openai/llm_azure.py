@@ -106,6 +106,21 @@ class AzureOpenAILLM(OpenAILLM):
             return "AzureCredential"
         return super()._api_key()
 
+    def _resolve_config_default_model(self) -> str | None:
+        """Resolve Azure deployment default, honoring explicit default_model first."""
+        configured_default = super()._resolve_config_default_model()
+        if configured_default:
+            return configured_default
+
+        context_config = getattr(self.context, "config", None)
+        azure_config = getattr(context_config, "azure", None) if context_config else None
+        deployment = getattr(azure_config, "azure_deployment", None) if azure_config else None
+        if not isinstance(deployment, str):
+            return None
+
+        normalized = deployment.strip()
+        return normalized or None
+
     def _openai_client(self) -> AsyncOpenAI:
         """
         Returns an AzureOpenAI client, handling both API Key and DefaultAzureCredential.

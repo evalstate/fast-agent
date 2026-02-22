@@ -21,6 +21,7 @@ fast-agent go [OPTIONS]
 - `--servers TEXT`: Comma-separated list of server names to enable from config
 - `--url TEXT`: Comma-separated list of HTTP/SSE URLs to connect to directly
 - `--auth TEXT`: Bearer token for authorization with URL-based servers
+- `--client-metadata-url TEXT`: OAuth Client ID Metadata Document URL for URL-based servers
 - `--model TEXT`: Override the default model (e.g., haiku, sonnet, gpt-4)
 - `--message`, `-m TEXT`: Message to send to the agent (skips interactive mode)
 - `--prompt-file`, `-p TEXT`: Path to a prompt file to use (either text or JSON)
@@ -86,6 +87,7 @@ fast-agent serve [OPTIONS]
 - `--card`, `--agent-cards TEXT`: Path or URL to an AgentCard file or directory (repeatable)
 - `--url TEXT`: Comma-separated list of HTTP/SSE URLs to connect to
 - `--auth TEXT`: Bearer token for authorization with URL-based servers
+- `--client-metadata-url TEXT`: OAuth Client ID Metadata Document URL for URL-based servers
 - `--model TEXT`: Override the default model (e.g., haiku, sonnet, gpt-4)
 - `--skills-dir`, `--skills PATH`: Override the default skills directory
 - `--npx TEXT`: NPX package and args to run as an MCP server (quoted)

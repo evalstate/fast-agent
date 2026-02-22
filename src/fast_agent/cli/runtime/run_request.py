@@ -17,6 +17,7 @@ class UrlServerConfig(TypedDict, total=False):
     transport: str
     url: str
     headers: dict[str, str]
+    auth: dict[str, str | bool]
 
 
 class StdioServerConfig(TypedDict):

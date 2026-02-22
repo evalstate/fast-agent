@@ -44,8 +44,7 @@ from hf_inference_acp.hf_config import (
 from hf_inference_acp.wizard import WizardSetupLLM
 
 # Register wizard-setup model locally
-ModelFactory.MODEL_SPECIFIC_CLASSES["wizard-setup"] = WizardSetupLLM
-ModelFactory.DEFAULT_PROVIDERS["wizard-setup"] = Provider.FAST_AGENT
+ModelFactory.register_runtime_model("wizard-setup", provider=Provider.FAST_AGENT, llm_class=WizardSetupLLM)
 
 app = typer.Typer(
     help="Run the Hugging Face Inference ACP agent over stdio.",

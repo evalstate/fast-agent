@@ -22,14 +22,7 @@ class DeepSeekLLM(OpenAICompatibleLLM):
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize Deepseek-specific default parameters"""
-        # Get base defaults from parent (includes ModelDatabase lookup)
-        base_params = super()._initialize_default_params(kwargs)
-
-        # Override with Deepseek-specific settings
-        chosen_model = kwargs.get("model", DEFAULT_DEEPSEEK_MODEL)
-        base_params.model = chosen_model
-
-        return base_params
+        return self._initialize_default_params_with_model_fallback(kwargs, DEFAULT_DEEPSEEK_MODEL)
 
     def _base_url(self) -> str:
         base_url = None

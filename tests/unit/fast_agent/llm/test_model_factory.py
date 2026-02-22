@@ -3,7 +3,9 @@ import pytest
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.core.exceptions import ModelConfigError
+from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory, Provider
+from fast_agent.llm.model_selection import ModelSelectionCatalog
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
 from fast_agent.llm.provider.openai.llm_generic import GenericLLM
 from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
@@ -315,6 +317,26 @@ def test_claude_alias_resolves_to_sonnet_46():
     assert config.model_name == "claude-opus-4-6"
 
 
+def test_gemini31_alias_resolves_to_google_31_preview():
+    config = ModelFactory.parse_model_string("gemini3.1")
+    assert config.provider == Provider.GOOGLE
+    assert config.model_name == "gemini-3.1-pro-preview"
+
+
+def test_curated_catalog_aliases_are_parseable():
+    for entry in ModelSelectionCatalog.list_current_entries():
+        if "?" in entry.model:
+            continue
+
+        alias_config = ModelFactory.parse_model_string(entry.alias)
+        model_config = ModelFactory.parse_model_string(entry.model)
+
+        assert alias_config.provider == model_config.provider
+        assert ModelDatabase.normalize_model_name(alias_config.model_name) == ModelDatabase.normalize_model_name(
+            model_config.model_name
+        )
+
+
 def test_codexplan_aliases_use_codex_oauth_provider():
     config = ModelFactory.parse_model_string("codexplan")
     assert config.provider == Provider.CODEX_RESPONSES
@@ -493,3 +515,14 @@ def test_factory_passes_temperature_query_to_request_params():
     agent = LlmAgent(AgentConfig(name="test"))
     llm = factory(agent)
     assert llm.default_request_params.temperature == 0.42
+
+
+def test_runtime_model_provider_registration():
+    model_name = "runtime-fast-model"
+    ModelFactory.register_runtime_model_provider(model_name, Provider.FAST_AGENT)
+    try:
+        config = ModelFactory.parse_model_string(model_name)
+        assert config.provider == Provider.FAST_AGENT
+        assert config.model_name == model_name
+    finally:
+        ModelFactory.unregister_runtime_model_provider(model_name)

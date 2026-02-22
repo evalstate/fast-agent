@@ -169,6 +169,7 @@ def _merge_url_servers(
     server_list: list[str] | None,
     urls: str | None,
     auth: str | None,
+    client_metadata_url: str | None,
 ) -> tuple[dict[str, UrlServerConfig] | None, list[str] | None]:
     url_servers: dict[str, UrlServerConfig] | None = None
 
@@ -189,6 +190,11 @@ def _merge_url_servers(
                 normalized_config["headers"] = {
                     str(key): str(value)
                     for key, value in headers.items()
+                }
+            if client_metadata_url:
+                normalized_config["auth"] = {
+                    "oauth": True,
+                    "client_metadata_url": client_metadata_url,
                 }
             url_servers[server_name] = normalized_config
 
@@ -260,6 +266,7 @@ def build_agent_run_request(
     servers: str | None,
     urls: str | None,
     auth: str | None,
+    client_metadata_url: str | None,
     agent_cards: list[str] | None,
     card_tools: list[str] | None,
     model: str | None,
@@ -295,7 +302,12 @@ def build_agent_run_request(
 
     server_list = servers.split(",") if servers else None
 
-    url_servers, server_list = _merge_url_servers(server_list, urls, auth)
+    url_servers, server_list = _merge_url_servers(
+        server_list,
+        urls,
+        auth,
+        client_metadata_url,
+    )
     stdio_servers, server_list = _merge_stdio_servers(server_list, stdio_commands)
 
     if environment_dir:
@@ -363,6 +375,7 @@ def build_run_agent_kwargs(
     servers: str | None,
     urls: str | None,
     auth: str | None,
+    client_metadata_url: str | None,
     agent_cards: list[str] | None,
     card_tools: list[str] | None,
     model: str | None,
@@ -396,6 +409,7 @@ def build_run_agent_kwargs(
         servers=servers,
         urls=urls,
         auth=auth,
+        client_metadata_url=client_metadata_url,
         agent_cards=agent_cards,
         card_tools=card_tools,
         model=model,
@@ -433,6 +447,7 @@ def build_command_run_request(
     servers: str | None,
     urls: str | None,
     auth: str | None,
+    client_metadata_url: str | None,
     agent_cards: list[str] | None,
     card_tools: list[str] | None,
     model: str | None,
@@ -482,6 +497,7 @@ def build_command_run_request(
         servers=servers,
         urls=urls,
         auth=auth,
+        client_metadata_url=client_metadata_url,
         agent_cards=agent_cards,
         card_tools=card_tools,
         model=model,

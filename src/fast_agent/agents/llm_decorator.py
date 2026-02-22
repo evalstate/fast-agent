@@ -55,6 +55,7 @@ from fast_agent.constants import (
 from fast_agent.context import Context
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.core.model_resolution import get_context_model_aliases, resolve_model_alias
 from fast_agent.hooks.hook_messages import show_hook_failure
 from fast_agent.interfaces import (
     AgentProtocol,
@@ -312,7 +313,8 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
         from fast_agent.llm.model_factory import ModelFactory
 
-        model_config = ModelFactory.parse_model_string(model)
+        model_with_aliases = resolve_model_alias(model, get_context_model_aliases(self._context))
+        model_config = ModelFactory.parse_model_string(model_with_aliases)
         resolved_model = model_config.model_name
         if self._default_request_params:
             self._default_request_params.model = resolved_model
@@ -328,7 +330,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             request_params = deepcopy(request_params)
             request_params.model = resolved_model
 
-        llm_factory = ModelFactory.create_factory(model)
+        llm_factory = ModelFactory.create_factory(model_with_aliases)
 
         await self.attach_llm(
             llm_factory,

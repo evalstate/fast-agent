@@ -102,6 +102,8 @@ async def add_servers_to_config(fast_app: Any, servers: dict[str, dict[str, Any]
             server_settings["url"] = server_config["url"]
             if "headers" in server_config:
                 server_settings["headers"] = server_config["headers"]
+            if "auth" in server_config:
+                server_settings["auth"] = server_config["auth"]
 
         mcp_server = MCPServerSettings(**server_settings)
         # Update config model

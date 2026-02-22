@@ -9,10 +9,12 @@ from typing import TYPE_CHECKING, Callable
 from rich import print as rich_print
 
 from fast_agent.commands.handlers import agent_cards as agent_card_handlers
+from fast_agent.commands.handlers import cards_manager as cards_handlers
 from fast_agent.commands.handlers import display as display_handlers
 from fast_agent.commands.handlers import history as history_handlers
 from fast_agent.commands.handlers import mcp_runtime as mcp_runtime_handlers
 from fast_agent.commands.handlers import model as model_handlers
+from fast_agent.commands.handlers import models_manager as models_manager_handlers
 from fast_agent.commands.handlers import prompts as prompt_handlers
 from fast_agent.commands.handlers import sessions as sessions_handlers
 from fast_agent.commands.handlers import skills as skills_handlers
@@ -21,6 +23,7 @@ from fast_agent.commands.handlers.shared import clear_agent_histories
 from fast_agent.ui import enhanced_prompt
 from fast_agent.ui.command_payloads import (
     AgentCommand,
+    CardsCommand,
     ClearCommand,
     ClearSessionsCommand,
     CommandPayload,
@@ -42,6 +45,7 @@ from fast_agent.ui.command_payloads import (
     McpDisconnectCommand,
     McpListCommand,
     ModelReasoningCommand,
+    ModelsCommand,
     ModelVerbosityCommand,
     ModelWebFetchCommand,
     ModelWebSearchCommand,
@@ -159,6 +163,26 @@ async def dispatch_command_payload(
         case SkillsCommand(action=action, argument=argument):
             context = build_command_context(prompt_provider, agent)
             outcome = await skills_handlers.handle_skills_command(
+                context,
+                agent_name=agent,
+                action=action,
+                argument=argument,
+            )
+            await emit_command_outcome(context, outcome)
+            return result
+        case CardsCommand(action=action, argument=argument):
+            context = build_command_context(prompt_provider, agent)
+            outcome = await cards_handlers.handle_cards_command(
+                context,
+                agent_name=agent,
+                action=action,
+                argument=argument,
+            )
+            await emit_command_outcome(context, outcome)
+            return result
+        case ModelsCommand(action=action, argument=argument):
+            context = build_command_context(prompt_provider, agent)
+            outcome = await models_manager_handlers.handle_models_command(
                 context,
                 agent_name=agent,
                 action=action,

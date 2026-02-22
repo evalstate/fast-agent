@@ -9,6 +9,7 @@ from typing import Literal
 
 from pydantic import BaseModel
 
+from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import (
     AUTO_REASONING,
     ReasoningEffortSetting,
@@ -68,9 +69,28 @@ class ModelParameters(BaseModel):
     default_temperature: float | None = None
     """Optional default sampling temperature for this model."""
 
+    default_provider: Provider | None = None
+    """Default provider used when model is referenced without an explicit prefix."""
+
+    fast: bool = False
+    """Whether this model is recommended for fast/simple tasks."""
+
+
+def _with_fast(params: ModelParameters) -> ModelParameters:
+    """Return a model variant marked as fast."""
+    return params.model_copy(update={"fast": True})
+
+
+def _with_long_context(params: ModelParameters, window: int) -> ModelParameters:
+    """Return a model variant with an explicit long-context window override."""
+    return params.model_copy(update={"long_context_window": window})
+
 
 class ModelDatabase:
     """Centralized model configuration database"""
+
+    _RUNTIME_MODEL_DEFAULT_PROVIDERS: dict[str, Provider] = {}
+    _RUNTIME_MODEL_PARAMS: dict[str, ModelParameters] = {}
 
     # Common parameter sets
     OPENAI_MULTIMODAL = ["text/plain", "image/jpeg", "image/png", "image/webp", "application/pdf"]
@@ -175,11 +195,17 @@ class ModelDatabase:
 
     # Common parameter configurations
     OPENAI_STANDARD = ModelParameters(
-        context_window=128000, max_output_tokens=16384, tokenizes=OPENAI_MULTIMODAL
+        context_window=128000,
+        max_output_tokens=16384,
+        tokenizes=OPENAI_MULTIMODAL,
+        default_provider=Provider.OPENAI,
     )
 
     OPENAI_4_1_STANDARD = ModelParameters(
-        context_window=1047576, max_output_tokens=32768, tokenizes=OPENAI_MULTIMODAL
+        context_window=1047576,
+        max_output_tokens=32768,
+        tokenizes=OPENAI_MULTIMODAL,
+        default_provider=Provider.OPENAI,
     )
 
     OPENAI_O_SERIES = ModelParameters(
@@ -188,6 +214,7 @@ class ModelDatabase:
         tokenizes=OPENAI_VISION,
         reasoning="openai",
         reasoning_effort_spec=OPENAI_REASONING_EFFORT_SPEC,
+        default_provider=Provider.RESPONSES,
     )
 
     ANTHROPIC_LEGACY = ModelParameters(
@@ -198,6 +225,7 @@ class ModelDatabase:
         cache_ttl="5m",
         anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_LEGACY,
         anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_LEGACY,
+        default_provider=Provider.ANTHROPIC,
     )
 
     ANTHROPIC_35_SERIES = ModelParameters(
@@ -208,6 +236,7 @@ class ModelDatabase:
         cache_ttl="5m",
         anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_LEGACY,
         anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_LEGACY,
+        default_provider=Provider.ANTHROPIC,
     )
 
     # TODO--- TO USE 64,000 NEED TO SUPPORT STREAMING
@@ -219,6 +248,7 @@ class ModelDatabase:
         cache_ttl="5m",
         anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_LEGACY,
         anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_LEGACY,
+        default_provider=Provider.ANTHROPIC,
     )
 
     QWEN_STANDARD = ModelParameters(
@@ -226,6 +256,7 @@ class ModelDatabase:
         max_output_tokens=8192,
         tokenizes=QWEN_MULTIMODAL,
         json_mode="object",
+        default_provider=Provider.ALIYUN,
     )
     QWEN3_REASONER = ModelParameters(
         context_window=131072,
@@ -240,14 +271,21 @@ class ModelDatabase:
         max_output_tokens=100000,
         tokenizes=TEXT_ONLY,
         default_temperature=0.0,
+        default_provider=Provider.FAST_AGENT,
     )
 
     OPENAI_4_1_SERIES = ModelParameters(
-        context_window=1047576, max_output_tokens=32768, tokenizes=OPENAI_MULTIMODAL
+        context_window=1047576,
+        max_output_tokens=32768,
+        tokenizes=OPENAI_MULTIMODAL,
+        default_provider=Provider.OPENAI,
     )
 
     OPENAI_4O_SERIES = ModelParameters(
-        context_window=128000, max_output_tokens=16384, tokenizes=OPENAI_MULTIMODAL
+        context_window=128000,
+        max_output_tokens=16384,
+        tokenizes=OPENAI_MULTIMODAL,
+        default_provider=Provider.OPENAI,
     )
 
     OPENAI_O3_SERIES = ModelParameters(
@@ -256,6 +294,7 @@ class ModelDatabase:
         tokenizes=OPENAI_MULTIMODAL,
         reasoning="openai",
         reasoning_effort_spec=OPENAI_O_CLASS_REASONING,
+        default_provider=Provider.RESPONSES,
     )
 
     OPENAI_O3_MINI_SERIES = ModelParameters(
@@ -264,6 +303,7 @@ class ModelDatabase:
         tokenizes=TEXT_ONLY,
         reasoning="openai",
         reasoning_effort_spec=OPENAI_O_CLASS_REASONING,
+        default_provider=Provider.RESPONSES,
     )
     OPENAI_GPT_OSS_SERIES = ModelParameters(
         context_window=131072,
@@ -279,6 +319,7 @@ class ModelDatabase:
         reasoning="openai",
         reasoning_effort_spec=OPENAI_GPT_5_CLASS_REASONING,
         text_verbosity_spec=OPENAI_TEXT_VERBOSITY_SPEC,
+        default_provider=Provider.RESPONSES,
     )
 
     OPENAI_GPT_5_2 = ModelParameters(
@@ -288,6 +329,7 @@ class ModelDatabase:
         reasoning="openai",
         reasoning_effort_spec=OPENAI_GPT_51_CLASS_REASONING,
         text_verbosity_spec=OPENAI_TEXT_VERBOSITY_SPEC,
+        default_provider=Provider.RESPONSES,
     )
 
     OPENAI_GPT_CODEX = ModelParameters(
@@ -298,6 +340,7 @@ class ModelDatabase:
         reasoning_effort_spec=OPENAI_GPT_5_CODEX_CLASS_REASONING,
         text_verbosity_spec=OPENAI_TEXT_VERBOSITY_SPEC,
         response_transports=("sse", "websocket"),
+        default_provider=Provider.RESPONSES,
     )
 
     OPENAI_GPT_CODEX_SPARK = ModelParameters(
@@ -306,6 +349,7 @@ class ModelDatabase:
         tokenizes=TEXT_ONLY,
         # Spark does not support reasoning effort or text verbosity controls.
         response_transports=("sse", "websocket"),
+        default_provider=Provider.CODEX_RESPONSES,
     )
 
     ANTHROPIC_OPUS_4_VERSIONED = ModelParameters(
@@ -317,6 +361,7 @@ class ModelDatabase:
         cache_ttl="5m",
         anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_LEGACY,
         anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_LEGACY,
+        default_provider=Provider.ANTHROPIC,
     )
     ANTHROPIC_OPUS_46 = ModelParameters(
         context_window=200000,
@@ -328,6 +373,7 @@ class ModelDatabase:
         anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_46,
         anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_46,
         anthropic_required_betas=(ANTHROPIC_WEB_TOOLS_BETA_46,),
+        default_provider=Provider.ANTHROPIC,
     )
     ANTHROPIC_OPUS_4_LEGACY = ModelParameters(
         context_window=200000,
@@ -339,6 +385,7 @@ class ModelDatabase:
         cache_ttl="5m",
         anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_LEGACY,
         anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_LEGACY,
+        default_provider=Provider.ANTHROPIC,
     )
     ANTHROPIC_SONNET_4_VERSIONED = ModelParameters(
         context_window=200000,
@@ -349,6 +396,7 @@ class ModelDatabase:
         cache_ttl="5m",
         anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_LEGACY,
         anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_LEGACY,
+        default_provider=Provider.ANTHROPIC,
     )
     ANTHROPIC_SONNET_46 = ModelParameters(
         context_window=200000,
@@ -360,6 +408,7 @@ class ModelDatabase:
         anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_46,
         anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_46,
         anthropic_required_betas=(ANTHROPIC_WEB_TOOLS_BETA_46,),
+        default_provider=Provider.ANTHROPIC,
     )
 
     ANTHROPIC_SONNET_4_LEGACY = ModelParameters(
@@ -372,6 +421,7 @@ class ModelDatabase:
         cache_ttl="5m",
         anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_LEGACY,
         anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_LEGACY,
+        default_provider=Provider.ANTHROPIC,
     )
     # Claude 3.7 Sonnet supports extended thinking (deprecated but still available)
     ANTHROPIC_37_SERIES_THINKING = ModelParameters(
@@ -384,10 +434,14 @@ class ModelDatabase:
         cache_ttl="5m",
         anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_LEGACY,
         anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_LEGACY,
+        default_provider=Provider.ANTHROPIC,
     )
 
     DEEPSEEK_CHAT_STANDARD = ModelParameters(
-        context_window=65536, max_output_tokens=8192, tokenizes=TEXT_ONLY
+        context_window=65536,
+        max_output_tokens=8192,
+        tokenizes=TEXT_ONLY,
+        default_provider=Provider.DEEPSEEK,
     )
 
     DEEPSEEK_REASONER = ModelParameters(
@@ -412,11 +466,17 @@ class ModelDatabase:
     )
 
     GEMINI_STANDARD = ModelParameters(
-        context_window=1_048_576, max_output_tokens=65_536, tokenizes=GOOGLE_MULTIMODAL
+        context_window=1_048_576,
+        max_output_tokens=65_536,
+        tokenizes=GOOGLE_MULTIMODAL,
+        default_provider=Provider.GOOGLE,
     )
 
     GEMINI_2_FLASH = ModelParameters(
-        context_window=1_048_576, max_output_tokens=8192, tokenizes=GOOGLE_MULTIMODAL
+        context_window=1_048_576,
+        max_output_tokens=8192,
+        tokenizes=GOOGLE_MULTIMODAL,
+        default_provider=Provider.GOOGLE,
     )
 
     # 31/08/25 switched to object mode (even though groq says schema supported and used to work..)
@@ -442,15 +502,28 @@ class ModelDatabase:
         reasoning_effort_spec=KIMI_REASONING_TOGGLE_SPEC,
     )
     # FIXME: xAI has not documented the max output tokens for Grok 4. Using Grok 3 as a placeholder. Will need to update when available (if ever)
-    GROK_4 = ModelParameters(context_window=256000, max_output_tokens=16385, tokenizes=TEXT_ONLY)
+    GROK_4 = ModelParameters(
+        context_window=256000,
+        max_output_tokens=16385,
+        tokenizes=TEXT_ONLY,
+        default_provider=Provider.XAI,
+    )
 
     GROK_4_VLM = ModelParameters(
-        context_window=2000000, max_output_tokens=16385, tokenizes=XAI_VISION
+        context_window=2000000,
+        max_output_tokens=16385,
+        tokenizes=XAI_VISION,
+        default_provider=Provider.XAI,
     )
 
     # Source for Grok 3 max output: https://www.reddit.com/r/grok/comments/1j7209p/exploring_grok_3_beta_output_capacity_a_simple/
     # xAI does not document Grok 3 max output tokens, using the above source as a reference.
-    GROK_3 = ModelParameters(context_window=131072, max_output_tokens=16385, tokenizes=TEXT_ONLY)
+    GROK_3 = ModelParameters(
+        context_window=131072,
+        max_output_tokens=16385,
+        tokenizes=TEXT_ONLY,
+        default_provider=Provider.XAI,
+    )
 
     # H U G G I N G F A C E - max output tokens are not documented, using 16k as a reasonable default
     GLM_46 = ModelParameters(
@@ -507,7 +580,10 @@ class ModelDatabase:
     )
 
     ALIYUN_QWEN3_MODERN = ModelParameters(
-        context_window=256_000, max_output_tokens=64_000, tokenizes=TEXT_ONLY
+        context_window=256_000,
+        max_output_tokens=64_000,
+        tokenizes=TEXT_ONLY,
+        default_provider=Provider.ALIYUN,
     )
 
     ANTHROPIC_LONG_CONTEXT_WINDOW = 1_000_000
@@ -521,23 +597,29 @@ class ModelDatabase:
         "playback": FAST_AGENT_STANDARD,
         "slow": FAST_AGENT_STANDARD,
         # aliyun models
-        "qwen-turbo": QWEN_STANDARD,
+        "qwen-turbo": _with_fast(QWEN_STANDARD),
         "qwen-plus": QWEN_STANDARD,
         "qwen-max": QWEN_STANDARD,
         "qwen-long": ModelParameters(
-            context_window=10000000, max_output_tokens=8192, tokenizes=TEXT_ONLY
+            context_window=10000000,
+            max_output_tokens=8192,
+            tokenizes=TEXT_ONLY,
+            default_provider=Provider.ALIYUN,
         ),
         # OpenAI Models (vanilla aliases and versioned)
         "gpt-4.1": OPENAI_4_1_SERIES,
-        "gpt-4.1-mini": OPENAI_4_1_SERIES,
-        "gpt-4.1-nano": OPENAI_4_1_SERIES,
+        "gpt-4.1-mini": _with_fast(OPENAI_4_1_SERIES),
+        "gpt-4.1-nano": _with_fast(OPENAI_4_1_SERIES),
         "gpt-4.1-2025-04-14": OPENAI_4_1_SERIES,
         "gpt-4.1-mini-2025-04-14": OPENAI_4_1_SERIES,
         "gpt-4.1-nano-2025-04-14": OPENAI_4_1_SERIES,
         "gpt-4o": OPENAI_4O_SERIES,
+        "gpt-4o-mini": OPENAI_4O_SERIES,
         "gpt-4o-2024-11-20": OPENAI_4O_SERIES,
         "gpt-4o-mini-2024-07-18": OPENAI_4O_SERIES,
         "o1": OPENAI_O_SERIES,
+        "o1-mini": OPENAI_O_SERIES,
+        "o1-preview": OPENAI_O_SERIES,
         "o1-2024-12-17": OPENAI_O_SERIES,
         "o3": OPENAI_O3_SERIES,
         "o3-pro": ModelParameters(
@@ -549,13 +631,13 @@ class ModelDatabase:
         "o3-mini-2025-01-31": OPENAI_O3_MINI_SERIES,
         "o4-mini-2025-04-16": OPENAI_O3_SERIES,
         "gpt-5": OPENAI_GPT_5,
-        "gpt-5-mini": OPENAI_GPT_5,
-        "gpt-5-nano": OPENAI_GPT_5,
+        "gpt-5-mini": _with_fast(OPENAI_GPT_5),
+        "gpt-5-nano": _with_fast(OPENAI_GPT_5),
         "gpt-5.1": OPENAI_GPT_5_2,
         "gpt-5.1-codex": OPENAI_GPT_CODEX,
         "gpt-5.2-codex": OPENAI_GPT_CODEX,
         "gpt-5.3-codex": OPENAI_GPT_CODEX,
-        "gpt-5.3-codex-spark": OPENAI_GPT_CODEX_SPARK,
+        "gpt-5.3-codex-spark": _with_fast(OPENAI_GPT_CODEX_SPARK),
         "gpt-5.2": OPENAI_GPT_5,
         # Anthropic Models
         "claude-3-haiku": ANTHROPIC_35_SERIES,
@@ -566,7 +648,7 @@ class ModelDatabase:
         "claude-3-opus-latest": ANTHROPIC_LEGACY,
         "claude-3-5-haiku": ANTHROPIC_35_SERIES,
         "claude-3-5-haiku-20241022": ANTHROPIC_35_SERIES,
-        "claude-3-5-haiku-latest": ANTHROPIC_35_SERIES,
+        "claude-3-5-haiku-latest": _with_fast(ANTHROPIC_35_SERIES),
         "claude-3-sonnet-20240229": ANTHROPIC_LEGACY,
         "claude-3-5-sonnet": ANTHROPIC_35_SERIES,
         "claude-3-5-sonnet-20240620": ANTHROPIC_35_SERIES,
@@ -575,44 +657,43 @@ class ModelDatabase:
         "claude-3-7-sonnet": ANTHROPIC_37_SERIES_THINKING,
         "claude-3-7-sonnet-20250219": ANTHROPIC_37_SERIES_THINKING,
         "claude-3-7-sonnet-latest": ANTHROPIC_37_SERIES_THINKING,
-        "claude-sonnet-4-0": ANTHROPIC_SONNET_4_LEGACY.model_copy(
-            update={"long_context_window": ANTHROPIC_LONG_CONTEXT_WINDOW}
+        "claude-sonnet-4-0": _with_long_context(
+            ANTHROPIC_SONNET_4_LEGACY, ANTHROPIC_LONG_CONTEXT_WINDOW
         ),
-        "claude-sonnet-4-20250514": ANTHROPIC_SONNET_4_LEGACY.model_copy(
-            update={"long_context_window": ANTHROPIC_LONG_CONTEXT_WINDOW}
+        "claude-sonnet-4-20250514": _with_long_context(
+            ANTHROPIC_SONNET_4_LEGACY, ANTHROPIC_LONG_CONTEXT_WINDOW
         ),
-        "claude-sonnet-4-5": ANTHROPIC_SONNET_4_VERSIONED.model_copy(
-            update={"long_context_window": ANTHROPIC_LONG_CONTEXT_WINDOW}
+        "claude-sonnet-4-5": _with_long_context(
+            ANTHROPIC_SONNET_4_VERSIONED, ANTHROPIC_LONG_CONTEXT_WINDOW
         ),
-        "claude-sonnet-4-5-20250929": ANTHROPIC_SONNET_4_VERSIONED.model_copy(
-            update={"long_context_window": ANTHROPIC_LONG_CONTEXT_WINDOW}
+        "claude-sonnet-4-5-20250929": _with_long_context(
+            ANTHROPIC_SONNET_4_VERSIONED, ANTHROPIC_LONG_CONTEXT_WINDOW
         ),
-        "claude-sonnet-4-6": ANTHROPIC_SONNET_46.model_copy(
-            update={"long_context_window": ANTHROPIC_LONG_CONTEXT_WINDOW}
-        ),
+        "claude-sonnet-4-6": _with_long_context(ANTHROPIC_SONNET_46, ANTHROPIC_LONG_CONTEXT_WINDOW),
         "claude-opus-4-0": ANTHROPIC_OPUS_4_LEGACY,
         "claude-opus-4-1": ANTHROPIC_OPUS_4_VERSIONED,
         "claude-opus-4-5": ANTHROPIC_OPUS_4_VERSIONED,
-        "claude-opus-4-6": ANTHROPIC_OPUS_46.model_copy(
-            update={"long_context_window": ANTHROPIC_LONG_CONTEXT_WINDOW}
-        ),
+        "claude-opus-4-6": _with_long_context(ANTHROPIC_OPUS_46, ANTHROPIC_LONG_CONTEXT_WINDOW),
         "claude-opus-4-20250514": ANTHROPIC_OPUS_4_LEGACY,
         "claude-haiku-4-5-20251001": ANTHROPIC_SONNET_4_VERSIONED,
-        "claude-haiku-4-5": ANTHROPIC_SONNET_4_VERSIONED,
+        "claude-haiku-4-5": _with_fast(ANTHROPIC_SONNET_4_VERSIONED),
         # DeepSeek Models
-        "deepseek-chat": DEEPSEEK_CHAT_STANDARD,
+        "deepseek-chat": _with_fast(DEEPSEEK_CHAT_STANDARD),
         # Google Gemini Models (vanilla aliases and versioned)
-        "gemini-2.0-flash": GEMINI_2_FLASH,
+        "gemini-2.0-flash": _with_fast(GEMINI_2_FLASH),
         "gemini-2.5-flash-preview": GEMINI_STANDARD,
         "gemini-2.5-pro-preview": GEMINI_STANDARD,
         "gemini-2.5-flash-preview-05-20": GEMINI_STANDARD,
         "gemini-2.5-pro-preview-05-06": GEMINI_STANDARD,
         "gemini-2.5-pro": GEMINI_STANDARD,
-        "gemini-2.5-flash-preview-09-2025": GEMINI_STANDARD,
-        "gemini-2.5-flash": GEMINI_STANDARD,
+        "gemini-2.5-flash-preview-09-2025": _with_fast(GEMINI_STANDARD),
+        "gemini-2.5-flash": _with_fast(GEMINI_STANDARD),
         "gemini-3-pro-preview": GEMINI_STANDARD,
         "gemini-3-flash-preview": GEMINI_STANDARD,
+        "gemini-3.1-pro-preview": GEMINI_STANDARD,
         # xAI Grok Models
+        "grok-4-1-fast-reasoning": GROK_4_VLM,
+        "grok-4-1-fast-non-reasoning": GROK_4_VLM,
         "grok-4-fast-reasoning": GROK_4_VLM,
         "grok-4-fast-non-reasoning": GROK_4_VLM,
         "grok-4": GROK_4,
@@ -620,9 +701,9 @@ class ModelDatabase:
         "grok-3": GROK_3,
         "grok-3-mini": GROK_3,
         "grok-3-fast": GROK_3,
-        "grok-3-mini-fast": GROK_3,
+        "grok-3-mini-fast": _with_fast(GROK_3),
         "moonshotai/kimi-k2": KIMI_MOONSHOT,
-        "moonshotai/kimi-k2-instruct-0905": KIMI_MOONSHOT,
+        "moonshotai/kimi-k2-instruct-0905": _with_fast(KIMI_MOONSHOT),
         "moonshotai/kimi-k2-thinking": KIMI_MOONSHOT_THINKING,
         "moonshotai/kimi-k2-thinking-0905": KIMI_MOONSHOT_THINKING,
         "moonshotai/kimi-k2.5": KIMI_MOONSHOT_25,
@@ -632,7 +713,7 @@ class ModelDatabase:
         "openai/gpt-oss-20b": OPENAI_GPT_OSS_SERIES,  # tool/reasoning interleave guidance
         "zai-org/glm-4.6": GLM_46,
         "zai-org/glm-4.7": GLM_47,
-        "zai-org/glm-5": GLM_5,
+        "zai-org/glm-5": _with_fast(GLM_5),
         "minimaxai/minimax-m2": GLM_46,
         "minimaxai/minimax-m2.1": MINIMAX_21,
         "qwen/qwen3-next-80b-a3b-instruct": HF_PROVIDER_QWEN3_NEXT,
@@ -649,7 +730,10 @@ class ModelDatabase:
             return None
 
         normalized = cls.normalize_model_name(model)
-        return cls.MODELS.get(normalized)
+        params = cls.MODELS.get(normalized)
+        if params is not None:
+            return params
+        return cls._RUNTIME_MODEL_PARAMS.get(normalized)
 
     @classmethod
     def normalize_model_name(cls, model: str) -> str:
@@ -854,4 +938,128 @@ class ModelDatabase:
     @classmethod
     def list_models(cls) -> list[str]:
         """List all available model names"""
-        return list(cls.MODELS.keys())
+        models = list(cls.MODELS.keys())
+        if not cls._RUNTIME_MODEL_PARAMS:
+            return models
+
+        for runtime_key in sorted(cls._RUNTIME_MODEL_PARAMS.keys()):
+            if runtime_key not in cls.MODELS:
+                models.append(runtime_key)
+        return models
+
+    @classmethod
+    def _normalize_provider_lookup_name(cls, model: str | None) -> str:
+        model_spec = (model or "").strip()
+        if not model_spec:
+            return ""
+        if "?" in model_spec:
+            model_spec = model_spec.split("?", 1)[0]
+        return model_spec.lower()
+
+    @classmethod
+    def _provider_from_explicit_prefix(cls, model_spec: str) -> Provider | None:
+        if "/" in model_spec:
+            prefix, rest = model_spec.split("/", 1)
+            if rest and any(prefix == provider.value for provider in Provider):
+                return Provider(prefix)
+
+        if "." in model_spec:
+            prefix, _ = model_spec.split(".", 1)
+            if any(prefix == provider.value for provider in Provider):
+                return Provider(prefix)
+
+        return None
+
+    @classmethod
+    def get_default_provider(cls, model: str | None) -> Provider | None:
+        """Get default provider for a model name."""
+        model_key = cls._normalize_provider_lookup_name(model)
+        if not model_key:
+            return None
+
+        explicit_provider = cls._provider_from_explicit_prefix(model_key)
+        if explicit_provider is not None:
+            return explicit_provider
+
+        runtime_provider = cls._RUNTIME_MODEL_DEFAULT_PROVIDERS.get(model_key)
+        if runtime_provider is not None:
+            return runtime_provider
+
+        params = cls.MODELS.get(model_key)
+        return params.default_provider if params else None
+
+    @classmethod
+    def register_runtime_default_provider(cls, model: str, provider: Provider) -> None:
+        """Register or override a runtime default provider for a model name."""
+        model_key = cls._normalize_provider_lookup_name(model)
+        if not model_key:
+            return
+        cls._RUNTIME_MODEL_DEFAULT_PROVIDERS[model_key] = provider
+
+    @classmethod
+    def register_runtime_model_params(cls, model: str, params: ModelParameters) -> None:
+        """Register runtime model parameters for dynamic providers."""
+        model_key = cls.normalize_model_name(model)
+        if not model_key:
+            return
+        cls._RUNTIME_MODEL_PARAMS[model_key] = params
+
+        if params.default_provider is not None:
+            cls._RUNTIME_MODEL_DEFAULT_PROVIDERS[model_key] = params.default_provider
+
+    @classmethod
+    def unregister_runtime_model_params(cls, model: str) -> None:
+        """Remove runtime model parameter metadata for a model."""
+        model_key = cls.normalize_model_name(model)
+        if not model_key:
+            return
+        cls._RUNTIME_MODEL_PARAMS.pop(model_key, None)
+        cls._RUNTIME_MODEL_DEFAULT_PROVIDERS.pop(model_key, None)
+
+    @classmethod
+    def clear_runtime_model_params(cls, provider: Provider | None = None) -> None:
+        """Clear runtime model parameter metadata.
+
+        Args:
+            provider: Optional provider filter. If omitted, all runtime metadata is cleared.
+        """
+        if provider is None:
+            cls._RUNTIME_MODEL_PARAMS.clear()
+            cls._RUNTIME_MODEL_DEFAULT_PROVIDERS.clear()
+            return
+
+        for model_key, params in list(cls._RUNTIME_MODEL_PARAMS.items()):
+            if params.default_provider == provider:
+                cls._RUNTIME_MODEL_PARAMS.pop(model_key, None)
+                cls._RUNTIME_MODEL_DEFAULT_PROVIDERS.pop(model_key, None)
+
+    @classmethod
+    def list_runtime_models(cls, provider: Provider | None = None) -> list[str]:
+        """List runtime-registered models, optionally filtered by provider."""
+        if provider is None:
+            return sorted(cls._RUNTIME_MODEL_PARAMS.keys())
+
+        return sorted(
+            model_key
+            for model_key, params in cls._RUNTIME_MODEL_PARAMS.items()
+            if params.default_provider == provider
+        )
+
+    @classmethod
+    def unregister_runtime_default_provider(cls, model: str) -> None:
+        """Remove a runtime default provider override for a model name."""
+        model_key = cls._normalize_provider_lookup_name(model)
+        if not model_key:
+            return
+        cls._RUNTIME_MODEL_DEFAULT_PROVIDERS.pop(model_key, None)
+
+    @classmethod
+    def is_fast_model(cls, model: str) -> bool:
+        """Return True when model metadata marks the model as fast."""
+        params = cls.get_model_params(model)
+        return bool(params.fast) if params else False
+
+    @classmethod
+    def list_fast_models(cls) -> list[str]:
+        """List model names marked as fast in metadata."""
+        return sorted(name for name, params in cls.MODELS.items() if params.fast)

@@ -23,6 +23,9 @@ PROVIDER_CONFIG_KEY_ALIASES: dict[str, tuple[str, ...]] = {
     # while the provider id is "hf". Support both spellings.
     "hf": ("hf", "huggingface"),
     "huggingface": ("huggingface", "hf"),
+    # Responses shares OpenAI credentials; allow reading openai.api_key when
+    # responses.api_key is omitted.
+    "responses": ("openai",),
 }
 API_KEY_HINT_TEXT = "<your-api-key-here>"
 

@@ -3,7 +3,7 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.types import RequestParams
 
 GOOGLE_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
-DEFAULT_GOOGLE_MODEL = "gemini-2.0-flash"
+DEFAULT_GOOGLE_MODEL = "gemini3"
 
 
 class GoogleOaiLLM(OpenAILLM):
@@ -15,7 +15,7 @@ class GoogleOaiLLM(OpenAILLM):
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize Google OpenAI Compatibility default parameters"""
-        chosen_model = kwargs.get("model", DEFAULT_GOOGLE_MODEL)
+        chosen_model = self._resolve_default_model_name(kwargs.get("model"), DEFAULT_GOOGLE_MODEL)
 
         return RequestParams(
             model=chosen_model,

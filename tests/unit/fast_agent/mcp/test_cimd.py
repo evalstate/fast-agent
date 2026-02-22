@@ -94,7 +94,7 @@ class TestCIMDOAuthProvider:
         assert captured_kwargs.get("client_metadata_url") == "https://example.com/client.json"
 
     def test_build_oauth_provider_without_cimd_url(self, monkeypatch):
-        """build_oauth_provider should pass None for client_metadata_url when not configured."""
+        """build_oauth_provider should use the default CIMD URL when not configured."""
         captured_kwargs = {}
 
         class MockOAuthClientProvider:
@@ -105,6 +105,30 @@ class TestCIMDOAuthProvider:
             "fast_agent.mcp.oauth_client.OAuthClientProvider",
             MockOAuthClientProvider,
         )
+
+        config = MCPServerSettings(
+            name="test",
+            transport="http",
+            url="https://example.com/mcp",
+        )
+
+        build_oauth_provider(config)
+
+        assert captured_kwargs.get("client_metadata_url") == "https://fast-agent.ai/oauth/client.json"
+
+    def test_build_oauth_provider_can_disable_default_cimd_with_env(self, monkeypatch):
+        """Setting FAST_AGENT_OAUTH_CLIENT_METADATA_URL to empty should disable default CIMD."""
+        captured_kwargs = {}
+
+        class MockOAuthClientProvider:
+            def __init__(self, **kwargs):
+                captured_kwargs.update(kwargs)
+
+        monkeypatch.setattr(
+            "fast_agent.mcp.oauth_client.OAuthClientProvider",
+            MockOAuthClientProvider,
+        )
+        monkeypatch.setenv("FAST_AGENT_OAUTH_CLIENT_METADATA_URL", "")
 
         config = MCPServerSettings(
             name="test",

@@ -30,7 +30,7 @@ from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
 # Define default model and potentially other Google-specific defaults
-DEFAULT_GOOGLE_MODEL = "gemini25"
+DEFAULT_GOOGLE_MODEL = "gemini3"
 
 
 # Define Google-specific parameter exclusions if necessary
@@ -59,12 +59,20 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
     def _vertex_cfg(self) -> tuple[bool, str | None, str | None]:
         """(enabled, project_id, location) for Vertex config; supports dict/mapping or object."""
         google_cfg = getattr(getattr(self.context, "config", None), "google", None)
-        vertex = (google_cfg or {}).get("vertex_ai") if isinstance(google_cfg, Mapping) else getattr(google_cfg, "vertex_ai", None)
+        vertex = (
+            (google_cfg or {}).get("vertex_ai")
+            if isinstance(google_cfg, Mapping)
+            else getattr(google_cfg, "vertex_ai", None)
+        )
         if not vertex:
             return (False, None, None)
         if isinstance(vertex, Mapping):
             return (bool(vertex.get("enabled")), vertex.get("project_id"), vertex.get("location"))
-        return (bool(getattr(vertex, "enabled", False)), getattr(vertex, "project_id", None), getattr(vertex, "location", None))
+        return (
+            bool(getattr(vertex, "enabled", False)),
+            getattr(vertex, "project_id", None),
+            getattr(vertex, "location", None),
+        )
 
     def _resolve_model_name(self, model: str) -> str:
         """Resolve model name; for Vertex, apply a generic preview→base fallback.
@@ -123,7 +131,10 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize Google-specific default parameters."""
-        chosen_model = kwargs.get("model", DEFAULT_GOOGLE_MODEL)
+        chosen_model = (
+            self._resolve_default_model_name(kwargs.get("model"), DEFAULT_GOOGLE_MODEL)
+            or DEFAULT_GOOGLE_MODEL
+        )
         # Gemini models have different max output token limits; for example,
         # gemini-2.0-flash only supports up to 8192 output tokens.
         max_tokens = ModelDatabase.get_max_output_tokens(chosen_model) or 65536
@@ -422,9 +433,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                 and not isinstance(api_response, BaseException)
             ):
                 try:
-                    turn_usage = TurnUsage.from_google(
-                        api_response.usage_metadata, model_name
-                    )
+                    turn_usage = TurnUsage.from_google(api_response.usage_metadata, model_name)
                     self._finalize_turn_usage(turn_usage)
 
                 except Exception as e:

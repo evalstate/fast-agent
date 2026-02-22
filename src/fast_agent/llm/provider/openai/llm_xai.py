@@ -5,7 +5,7 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.types import RequestParams
 
 XAI_BASE_URL = "https://api.x.ai/v1"
-DEFAULT_XAI_MODEL = "grok-3"
+DEFAULT_XAI_MODEL = "grok-4-1-fast-reasoning"
 
 
 class XAILLM(OpenAILLM):
@@ -15,12 +15,7 @@ class XAILLM(OpenAILLM):
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize xAI parameters"""
-        # Get base defaults from parent (includes ModelDatabase lookup)
-        base_params = super()._initialize_default_params(kwargs)
-
-        # Override with xAI-specific settings
-        chosen_model = kwargs.get("model", DEFAULT_XAI_MODEL)
-        base_params.model = chosen_model
+        base_params = self._initialize_default_params_with_model_fallback(kwargs, DEFAULT_XAI_MODEL)
         base_params.parallel_tool_calls = False
 
         return base_params

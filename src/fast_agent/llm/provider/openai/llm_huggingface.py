@@ -19,7 +19,10 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize HuggingFace-specific default parameters"""
         kwargs = kwargs.copy()
-        requested_model = kwargs.get("model") or DEFAULT_HUGGINGFACE_MODEL
+        requested_model = self._resolve_default_model_name(
+            kwargs.get("model"),
+            DEFAULT_HUGGINGFACE_MODEL,
+        )
         base_model, explicit_provider = self._split_provider_suffix(requested_model)
         base_model = base_model or requested_model
         kwargs["model"] = base_model

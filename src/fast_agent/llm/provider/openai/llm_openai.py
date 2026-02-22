@@ -134,14 +134,7 @@ class OpenAILLM(
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize OpenAI-specific default parameters"""
-        # Get base defaults from parent (includes ModelDatabase lookup)
-        base_params = super()._initialize_default_params(kwargs)
-
-        # Override with OpenAI-specific settings
-        chosen_model = kwargs.get("model", DEFAULT_OPENAI_MODEL)
-        base_params.model = chosen_model
-
-        return base_params
+        return self._initialize_default_params_with_model_fallback(kwargs, DEFAULT_OPENAI_MODEL)
 
     def _base_url(self) -> str | None:
         if self.context.config and self.context.config.openai:
@@ -155,16 +148,6 @@ class OpenAILLM(
         """
         provider_config = self._get_provider_config()
         return getattr(provider_config, "default_headers", None) if provider_config else None
-
-    def _get_provider_config(self):
-        """Return the config section for this provider, if available."""
-        context_config = getattr(self.context, "config", None)
-        if not context_config:
-            return None
-        section_name = self.config_section or getattr(self.provider, "value", None)
-        if not section_name:
-            return None
-        return getattr(context_config, section_name, None)
 
     def _openai_client(self) -> AsyncOpenAI:
         """

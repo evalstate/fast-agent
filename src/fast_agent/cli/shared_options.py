@@ -49,6 +49,17 @@ class CommonAgentOptions:
         return typer.Option(None, "--auth", help="Bearer token for authorization with URL-based servers")
 
     @staticmethod
+    def client_metadata_url():
+        return typer.Option(
+            None,
+            "--client-metadata-url",
+            help=(
+                "OAuth Client ID Metadata Document URL for URL-based servers "
+                "(used when server does not support dynamic client registration)"
+            ),
+        )
+
+    @staticmethod
     def model():
         return typer.Option(None, "--model", "--models", help="Override the default model (e.g., haiku, sonnet, gpt-4)")
 

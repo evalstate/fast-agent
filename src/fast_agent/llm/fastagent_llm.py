@@ -38,6 +38,7 @@ from fast_agent.constants import (
 from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.exceptions import AgentConfigError, ProviderKeyError, ServerConfigError
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.core.model_resolution import get_context_model_aliases, resolve_model_alias
 from fast_agent.core.prompt import Prompt
 from fast_agent.event_progress import ProgressAction
 from fast_agent.interfaces import (
@@ -169,6 +170,10 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
         self.display = ConsoleDisplay(config=self.context.config)
 
+        # Some providers may resolve model metadata during default param initialization
+        # and require API key access in that path.
+        self._init_api_key = api_key
+
         # Initialize default parameters, passing model info
         model_kwargs = kwargs.copy()
         if model:
@@ -212,8 +217,6 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             )
 
         self.verb = kwargs.get("verb")
-
-        self._init_api_key = api_key
 
         # Initialize usage tracking
         self._usage_accumulator = UsageAccumulator()
@@ -285,9 +288,104 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         if value is not None and not self.web_fetch_supported:
             raise ValueError("Current model does not support web fetch configuration.")
 
+    def _get_provider_config(self) -> Any | None:
+        """Return provider-specific config section when available."""
+        context_config = getattr(self.context, "config", None)
+        if context_config is None:
+            return None
+
+        checked_sections: set[str] = set()
+        for section_name in (
+            *self._provider_config_sections(),
+            *self._provider_config_fallback_sections(),
+        ):
+            if not section_name or section_name in checked_sections:
+                continue
+            checked_sections.add(section_name)
+
+            if not hasattr(context_config, section_name):
+                continue
+
+            provider_config = getattr(context_config, section_name)
+            if provider_config is not None:
+                return provider_config
+
+        return None
+
+    def _provider_config_sections(self) -> tuple[str, ...]:
+        section_name = getattr(self, "config_section", None) or getattr(self.provider, "value", None)
+        return (section_name,) if section_name else ()
+
+    def _provider_config_fallback_sections(self) -> tuple[str, ...]:
+        return ()
+
+    def _resolve_config_default_model(self) -> str | None:
+        """Resolve optional provider-level default model from config."""
+        provider_config = self._get_provider_config()
+        if provider_config is None:
+            return None
+
+        value = getattr(provider_config, "default_model", None)
+        if not isinstance(value, str):
+            return None
+
+        normalized = value.strip()
+        return normalized or None
+
+    @staticmethod
+    def _normalize_model_name(value: str | None) -> str | None:
+        if not isinstance(value, str):
+            return None
+
+        normalized = value.strip()
+        return normalized or None
+
+    def _resolve_model_aliases(self, value: str) -> str:
+        aliases = get_context_model_aliases(self.context)
+        return resolve_model_alias(value, aliases)
+
+    def _resolve_default_model_name(
+        self,
+        requested_model: str | None,
+        hardcoded_default: str | None,
+    ) -> str | None:
+        """Resolve model name using explicit value, then provider config, then fallback."""
+        normalized_requested = self._normalize_model_name(requested_model)
+        if normalized_requested:
+            return self._resolve_model_aliases(normalized_requested)
+
+        config_default = self._resolve_config_default_model()
+        if config_default:
+            return self._resolve_model_aliases(config_default)
+
+        normalized_fallback = self._normalize_model_name(hardcoded_default)
+        if not normalized_fallback:
+            return None
+
+        return self._resolve_model_aliases(normalized_fallback)
+
+    def _initialize_default_params_with_model_fallback(
+        self,
+        kwargs: dict[str, Any],
+        hardcoded_default: str | None,
+    ) -> RequestParams:
+        """Initialize params via shared model resolution precedence."""
+        chosen_model = self._resolve_default_model_name(kwargs.get("model"), hardcoded_default)
+        resolved_kwargs = dict(kwargs)
+        if chosen_model is not None:
+            resolved_kwargs["model"] = chosen_model
+
+        base_params = self._initialize_base_default_params(resolved_kwargs)
+        base_params.model = chosen_model
+        return base_params
+
     def _initialize_default_params(self, kwargs: dict[str, Any]) -> RequestParams:
         """Initialize default parameters for the LLM.
         Should be overridden by provider implementations to set provider-specific defaults."""
+        return self._initialize_base_default_params(kwargs)
+
+    def _initialize_base_default_params(self, kwargs: dict[str, Any]) -> RequestParams:
+        """Provider-agnostic default request params."""
         # Get model-aware default max tokens
         model = kwargs.get("model")
         max_tokens = ModelDatabase.get_default_max_tokens(model) if model else 16384

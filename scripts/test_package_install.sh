@@ -47,7 +47,7 @@ else
 fi
 
 # Test the setup command (non-interactive; accept defaults)
-printf '\n' | fast-agent setup --force
+printf '\n' | fast-agent scaffold --force
 
 # Check that setup created the expected files in the current directory
 if [ -f "fastagent.config.yaml" ] && [ -f "fastagent.secrets.yaml" ] && [ -f "agent.py" ]; then
@@ -69,6 +69,10 @@ except Exception as e:
     print("❌ Smoke import failed:", e)
     raise
 PY
+
+# Smoke test: cards CLI with env-scoped registry configuration and override
+echo "Running cards CLI env smoke test..."
+bash ../../scripts/test_cards_cli_env.sh
 
 # Deactivate the virtual environment
 deactivate

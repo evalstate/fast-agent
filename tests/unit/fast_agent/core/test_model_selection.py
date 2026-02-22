@@ -26,6 +26,15 @@ class TestGetDefaultModelSource:
         )
         assert result == "config file"
 
+    def test_config_model_alias_returns_config_file(self):
+        """Alias defaults still report config as the source."""
+        result = get_default_model_source(
+            config_default_model="$system.default",
+            cli_model=None,
+            model_aliases={"system": {"default": "passthrough"}},
+        )
+        assert result == "config file"
+
     def test_env_var_returns_environment_variable(self):
         """When env var is set and no config/CLI, returns 'environment variable'."""
         # Store original value if any

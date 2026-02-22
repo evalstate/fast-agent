@@ -32,7 +32,7 @@ class TensorZeroOpenAILLM(OpenAILLM):
         Initializes TensorZero-specific default parameters. Ensures the model name
         is correctly prefixed for the TensorZero API.
         """
-        model = kwargs.get("model", "")
+        model = self._resolve_default_model_name(kwargs.get("model"), "") or ""
         if not model.startswith("tensorzero::"):
             model = f"tensorzero::function_name::{model}"
 

@@ -1,5 +1,6 @@
 
 import asyncio
+import logging
 import time
 from typing import Any, cast
 
@@ -9,6 +10,8 @@ from fast_agent.config import MCPServerSettings
 from fast_agent.mcp.mcp_connection_manager import (
     MCPConnectionManager,
     ServerConnection,
+    _format_oauth_registration_404_details,
+    _is_oauth_registration_404_message,
     _is_oauth_timeout_message,
     _prepare_headers_and_auth,
     _server_lifecycle_task,
@@ -263,3 +266,54 @@ def test_is_oauth_timeout_message_requires_real_timeout_markers() -> None:
         )
         is False
     )
+
+
+def test_is_oauth_registration_404_message_detects_registration_failures() -> None:
+    assert (
+        _is_oauth_registration_404_message(
+            "OAuthRegistrationError: Registration failed: 404 404 page not found"
+        )
+        is True
+    )
+    assert _is_oauth_registration_404_message("HTTP Error: 404 Not Found for URL: /mcp") is False
+
+
+def test_format_oauth_registration_404_details_includes_copilot_hint() -> None:
+    details = _format_oauth_registration_404_details(
+        "OAuthRegistrationError: Registration failed: 404 404 page not found",
+        "https://api.githubcopilot.com/mcp/",
+    )
+    assert "dynamic client registration" in details
+    assert "--client-metadata-url" in details
+    assert "--auth <token>" in details
+    assert "GitHub Copilot MCP" in details
+
+
+def test_oauth_traceback_filter_suppresses_non_debug_oauth_flow_errors() -> None:
+    manager = MCPConnectionManager(server_registry=cast("Any", _DummyRegistry()))
+    oauth_logger = logging.getLogger("mcp.client.auth.oauth2")
+    initial_filter_count = len(oauth_logger.filters)
+    root_logger = logging.getLogger()
+    original_level = root_logger.level
+
+    try:
+        root_logger.setLevel(logging.INFO)
+        manager._suppress_mcp_oauth_cancel_errors()
+        added_filters = oauth_logger.filters[initial_filter_count:]
+        assert added_filters
+        oauth_filter = added_filters[-1]
+
+        record = logging.LogRecord(
+            name="mcp.client.auth.oauth2",
+            level=logging.ERROR,
+            pathname=__file__,
+            lineno=1,
+            msg="OAuth flow error",
+            args=(),
+            exc_info=(RuntimeError, RuntimeError("boom"), None),
+        )
+        assert oauth_filter.filter(record) is False
+    finally:
+        root_logger.setLevel(original_level)
+        for filt in oauth_logger.filters[initial_filter_count:]:
+            oauth_logger.removeFilter(filt)

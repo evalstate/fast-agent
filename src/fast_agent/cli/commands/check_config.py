@@ -3,8 +3,10 @@
 import os
 import platform
 import sys
+from dataclasses import dataclass
 from importlib.metadata import version
 from pathlib import Path
+from typing import Any
 
 import typer
 import yaml
@@ -16,6 +18,7 @@ from fast_agent.config import resolve_config_search_root
 from fast_agent.core.agent_card_validation import scan_agent_card_directory
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.llm.model_factory import ModelFactory
+from fast_agent.llm.model_selection import ModelSelectionCatalog
 from fast_agent.llm.provider_key_manager import API_KEY_HINT_TEXT, ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
 from fast_agent.paths import resolve_environment_paths
@@ -26,6 +29,163 @@ app = typer.Typer(
     help="Check and diagnose FastAgent configuration",
     no_args_is_help=False,  # Allow showing our custom help instead
 )
+
+
+@dataclass(frozen=True)
+class ProviderCatalogScope:
+    """A CLI provider scope for model catalog inspection."""
+
+    display_name: str
+    providers: tuple[Provider, ...]
+
+
+_PROVIDER_CATALOG_SCOPES_BY_KEY: dict[str, ProviderCatalogScope] = {
+    "openai": ProviderCatalogScope(
+        display_name="OpenAI",
+        providers=(
+            Provider.OPENAI,
+            Provider.RESPONSES,
+            Provider.CODEX_RESPONSES,
+        ),
+    ),
+    "responses": ProviderCatalogScope(
+        display_name="Responses",
+        providers=(Provider.RESPONSES,),
+    ),
+    "codexresponses": ProviderCatalogScope(
+        display_name="Codex Responses",
+        providers=(Provider.CODEX_RESPONSES,),
+    ),
+    "anthropic": ProviderCatalogScope(
+        display_name="Anthropic",
+        providers=(Provider.ANTHROPIC,),
+    ),
+    "google": ProviderCatalogScope(
+        display_name="Google",
+        providers=(Provider.GOOGLE,),
+    ),
+    "deepseek": ProviderCatalogScope(
+        display_name="Deepseek",
+        providers=(Provider.DEEPSEEK,),
+    ),
+    "aliyun": ProviderCatalogScope(
+        display_name="Aliyun",
+        providers=(Provider.ALIYUN,),
+    ),
+    "huggingface": ProviderCatalogScope(
+        display_name="HuggingFace",
+        providers=(Provider.HUGGINGFACE,),
+    ),
+    "xai": ProviderCatalogScope(
+        display_name="XAI",
+        providers=(Provider.XAI,),
+    ),
+    "openrouter": ProviderCatalogScope(
+        display_name="OpenRouter",
+        providers=(Provider.OPENROUTER,),
+    ),
+}
+
+_PROVIDER_CATALOG_SCOPE_ALIASES: dict[str, str] = {
+    "hf": "huggingface",
+    "codex-responses": "codexresponses",
+    "codex_responses": "codexresponses",
+}
+
+_PROVIDER_CATALOG_VISIBLE_CHOICES: tuple[str, ...] = (
+    "openai",
+    "anthropic",
+    "google",
+    "deepseek",
+    "aliyun",
+    "huggingface",
+    "xai",
+    "openrouter",
+    "responses",
+    "codexresponses",
+)
+
+
+def _normalize_provider_catalog_scope_name(value: str) -> str:
+    return value.strip().lower().replace("-", "").replace("_", "").replace(" ", "")
+
+
+def _build_provider_catalog_scope_lookup() -> dict[str, ProviderCatalogScope]:
+    lookup: dict[str, ProviderCatalogScope] = {}
+    for name, scope in _PROVIDER_CATALOG_SCOPES_BY_KEY.items():
+        lookup[_normalize_provider_catalog_scope_name(name)] = scope
+
+    for alias, canonical_name in _PROVIDER_CATALOG_SCOPE_ALIASES.items():
+        normalized_alias = _normalize_provider_catalog_scope_name(alias)
+        canonical_scope = _PROVIDER_CATALOG_SCOPES_BY_KEY.get(canonical_name)
+        if canonical_scope is None:
+            continue
+        lookup[normalized_alias] = canonical_scope
+
+    return lookup
+
+
+_PROVIDER_CATALOG_SCOPE_LOOKUP = _build_provider_catalog_scope_lookup()
+
+
+def _resolve_provider_catalog_scope(provider_name: str) -> ProviderCatalogScope:
+    normalized_name = _normalize_provider_catalog_scope_name(provider_name)
+    scope = _PROVIDER_CATALOG_SCOPE_LOOKUP.get(normalized_name)
+    if scope is not None:
+        return scope
+
+    choices = ", ".join(_PROVIDER_CATALOG_VISIBLE_CHOICES)
+    raise ValueError(f"Unknown provider '{provider_name}'. Choose one of: {choices}")
+
+
+def _print_section_header(title: str, color: str = "blue") -> None:
+    """Render section headers with compact a3 styling."""
+    header = Text.from_markup(
+        f"[{color}]▎[/{color}][dim {color}]•[/dim {color}] [{color}]{title}[/{color}]"
+    )
+    console.print()
+    console.print(header)
+    console.print()
+
+
+def _get_named_alias_rows(config_payload: dict[str, Any] | None) -> list[tuple[str, str]]:
+    if not isinstance(config_payload, dict):
+        return []
+
+    aliases_payload = config_payload.get("model_aliases")
+    if not isinstance(aliases_payload, dict):
+        return []
+
+    rows: list[tuple[str, str]] = []
+    for namespace, entries in sorted(aliases_payload.items(), key=lambda item: str(item[0])):
+        if not isinstance(namespace, str) or not isinstance(entries, dict):
+            continue
+        for alias_name, model in sorted(entries.items(), key=lambda item: str(item[0])):
+            if not isinstance(alias_name, str) or not isinstance(model, str):
+                continue
+            alias_token = f"${namespace}.{alias_name}"
+            rows.append((alias_token, model))
+    return rows
+
+
+def _resolve_active_model_providers(
+    *,
+    api_keys: dict[str, dict[str, str]],
+    config_payload: dict[str, Any] | None,
+) -> set[Provider]:
+    active_providers: set[Provider] = set()
+
+    for provider_name, status in api_keys.items():
+        if not status.get("env") and not status.get("config"):
+            continue
+        try:
+            active_providers.add(Provider(provider_name))
+        except ValueError:
+            continue
+
+    config_mapping: dict[str, Any] = config_payload if isinstance(config_payload, dict) else {}
+    active_providers.update(ModelSelectionCatalog.configured_providers(config_mapping))
+    return active_providers
 
 
 def find_config_files(start_path: Path, env_dir: Path | None = None) -> dict[str, Path | None]:
@@ -145,6 +305,48 @@ def check_api_keys(secrets_summary: dict, config_summary: dict) -> dict:
                 results[provider_name]["config"] = f"...{config_key[-5:]}"
             else:
                 results[provider_name]["config"] = "...***"
+
+        if (
+            provider_name in {Provider.HUGGINGFACE.config_name, "huggingface"}
+            and not results[provider_name]["env"]
+            and not results[provider_name]["config"]
+        ):
+            try:
+                from huggingface_hub import get_token  # type: ignore
+
+                hub_token = get_token()
+            except Exception:
+                hub_token = None
+
+            if hub_token:
+                results[provider_name]["config"] = "Hub login"
+
+        if (
+            provider_name == Provider.CODEX_RESPONSES.config_name
+            and not results[provider_name]["env"]
+            and not results[provider_name]["config"]
+        ):
+            try:
+                from fast_agent.llm.provider.openai.codex_oauth import get_codex_token_status
+
+                codex_status = get_codex_token_status()
+            except Exception:
+                codex_status = {"present": False, "source": None}
+
+            if codex_status.get("present"):
+                source = codex_status.get("source")
+                is_expired = bool(codex_status.get("expired"))
+                if source == "keyring":
+                    source_label = "Keyring OAuth"
+                elif source == "auth.json":
+                    source_label = "Codex auth.json"
+                else:
+                    source_label = "OAuth token"
+
+                if is_expired:
+                    results[provider_name]["config"] = f"Expired {source_label}"
+                else:
+                    results[provider_name]["config"] = source_label
 
     return results
 
@@ -319,6 +521,177 @@ def get_config_summary(config_path: Path | None) -> dict:
     return result
 
 
+def _load_catalog_config(env_dir: Path | None) -> dict[str, Any] | None:
+    config_files = find_config_files(Path.cwd(), env_dir=env_dir)
+    config_summary = get_config_summary(config_files["config"])
+    if config_summary.get("status") != "parsed":
+        return None
+
+    config_payload = config_summary.get("config")
+    if isinstance(config_payload, dict):
+        return config_payload
+    return None
+
+
+def show_models_overview(env_dir: Path | None = None) -> None:
+    """Show providers accepted by `fast-agent check models <provider>` and alias status."""
+    cwd = Path.cwd()
+    config_files = find_config_files(cwd, env_dir=env_dir)
+    config_summary = get_config_summary(config_files["config"])
+    secrets_summary = get_secrets_summary(config_files["secrets"])
+    api_keys = check_api_keys(secrets_summary, config_summary)
+    config_payload = _load_catalog_config(env_dir)
+    active_providers = _resolve_active_model_providers(
+        api_keys=api_keys,
+        config_payload=config_payload,
+    )
+
+    _print_section_header("Model Catalog", color="blue")
+
+    provider_table = Table(show_header=True, box=None)
+    provider_table.add_column("Provider Arg", style="cyan", header_style="bold bright_white")
+    provider_table.add_column("Scope", style="white", header_style="bold bright_white")
+    provider_table.add_column("Active", justify="center", header_style="bold bright_white")
+
+    for scope_name in _PROVIDER_CATALOG_VISIBLE_CHOICES:
+        scope = _PROVIDER_CATALOG_SCOPES_BY_KEY.get(scope_name)
+        if scope is None:
+            continue
+        if len(scope.providers) > 1:
+            scope_label = ", ".join(provider.display_name for provider in scope.providers)
+            scope_text = f"{scope_label} (family)"
+        elif scope_name in {"responses", "codexresponses"}:
+            scope_text = f"{scope.providers[0].display_name} (direct)"
+        else:
+            scope_text = scope.providers[0].display_name
+        is_active = any(provider in active_providers for provider in scope.providers)
+        active_symbol = "[bold green]✓[/bold green]" if is_active else "[dim]✗[/dim]"
+        provider_table.add_row(scope_name, scope_text, active_symbol)
+
+    console.print(provider_table)
+
+    alias_rows = sorted(_PROVIDER_CATALOG_SCOPE_ALIASES.items())
+    if alias_rows:
+        alias_table = Table(show_header=True, box=None)
+        alias_table.add_column("Arg Alias", style="cyan", header_style="bold bright_white")
+        alias_table.add_column("Resolves To", style="white", header_style="bold bright_white")
+        for alias, target in alias_rows:
+            alias_table.add_row(alias, target)
+        console.print(alias_table)
+
+    _print_section_header("Named Model Aliases", color="blue")
+    alias_rows = _get_named_alias_rows(config_payload)
+    if alias_rows:
+        alias_table = Table(show_header=True, box=None)
+        alias_table.add_column("Alias", style="magenta", header_style="bold bright_white")
+        alias_table.add_column("Resolves To", style="green", header_style="bold bright_white")
+
+        for alias_token, model in alias_rows:
+            alias_table.add_row(alias_token, model)
+        console.print(alias_table)
+    else:
+        console.print("[dim]No model_aliases configured in fastagent.config.yaml[/dim]")
+
+    console.print()
+    console.print(
+        "Use [cyan]fast-agent check models <provider>[/cyan] to inspect provider models and aliases."
+    )
+    console.print("Use [cyan]fast-agent check models <provider> --all[/cyan] to list every known model.")
+
+
+def show_provider_model_catalog(
+    provider_name: str,
+    *,
+    show_all: bool = False,
+    env_dir: Path | None = None,
+) -> None:
+    """Show provider model catalog with curated entries first."""
+    scope = _resolve_provider_catalog_scope(provider_name)
+    config_payload = _load_catalog_config(env_dir)
+    all_models_by_provider: dict[Provider, list[str]] = {
+        provider: ModelSelectionCatalog.list_all_models(provider, config=config_payload)
+        for provider in scope.providers
+    }
+
+    mode = "curated + all models" if show_all else "curated"
+    _print_section_header(f"{scope.display_name} model catalog ({mode})", color="blue")
+
+    curated_table = Table(show_header=True, box=None)
+    curated_table.add_column("Provider", style="white", header_style="bold bright_white")
+    curated_table.add_column("Alias", style="magenta", header_style="bold bright_white")
+    curated_table.add_column("Tags", style="cyan", header_style="bold bright_white")
+    curated_table.add_column(
+        "Model",
+        style="green",
+        header_style="bold bright_white",
+        overflow="fold",
+    )
+
+    row_count = 0
+    curated_models_by_provider: dict[Provider, set[str]] = {}
+    for provider in scope.providers:
+        provider_entries = ModelSelectionCatalog.list_current_entries(provider)
+        curated_models_by_provider[provider] = {entry.model for entry in provider_entries}
+        for entry in provider_entries:
+            tags = "fast" if entry.fast else "[dim]-[/dim]"
+            curated_table.add_row(
+                provider.display_name,
+                entry.alias if entry.alias else "[dim]-[/dim]",
+                tags,
+                entry.model,
+            )
+            row_count += 1
+
+    if row_count == 0:
+        console.print("[yellow]No curated models found for this provider scope.[/yellow]")
+    else:
+        console.print(curated_table)
+
+    has_additional_models = any(
+        any(model not in curated_models_by_provider.get(provider, set()) for model in all_models)
+        for provider, all_models in all_models_by_provider.items()
+    )
+
+    if not show_all:
+        if has_additional_models:
+            console.print(
+                f"[dim]More models are available. Run [cyan]fast-agent check models {provider_name} --all[/cyan] "
+                "for the complete catalog.[/dim]"
+            )
+        return
+
+    _print_section_header("All known models", color="blue")
+    all_models_table = Table(show_header=True, box=None)
+    all_models_table.add_column("Provider", style="white", header_style="bold bright_white")
+    all_models_table.add_column("Tags", style="cyan", header_style="bold bright_white")
+    all_models_table.add_column(
+        "Model",
+        style="green",
+        header_style="bold bright_white",
+        overflow="fold",
+    )
+    all_row_count = 0
+    for provider in scope.providers:
+        models = all_models_by_provider.get(provider, [])
+        curated_models = curated_models_by_provider.get(provider, set())
+        if not models:
+            all_models_table.add_row(provider.display_name, "[dim]-[/dim]", "[dim]-[/dim]")
+            all_row_count += 1
+            continue
+        for model in models:
+            labels: list[str] = []
+            if ModelSelectionCatalog.is_fast_model(model):
+                labels.append("fast")
+            if model in curated_models:
+                labels.append("catalog")
+            tags = " • ".join(labels) if labels else "[dim]-[/dim]"
+            all_models_table.add_row(provider.display_name, tags, model)
+            all_row_count += 1
+
+    if all_row_count:
+        console.print(all_models_table)
+
+
 def show_check_summary(env_dir: Path | None = None) -> None:
     """Show a summary of checks with colorful styling."""
     cwd = Path.cwd()
@@ -329,22 +702,6 @@ def show_check_summary(env_dir: Path | None = None) -> None:
     secrets_summary = get_secrets_summary(config_files["secrets"])
     api_keys = check_api_keys(secrets_summary, config_summary)
     fastagent_version = get_fastagent_version()
-
-    # Helper to print section headers using the new console_display style
-    def _print_section_header(title: str, color: str = "blue") -> None:
-        width = console.size.width
-        left = f"[{color}]▎[/{color}][dim {color}]▶[/dim {color}] [{color}]{title}[/{color}]"
-        left_text = Text.from_markup(left)
-        separator_count = max(1, width - left_text.cell_len - 1)
-
-        combined = Text()
-        combined.append_text(left_text)
-        combined.append(" ")
-        combined.append("─" * separator_count, style="dim")
-
-        console.print()
-        console.print(combined)
-        console.print()
 
     # Environment and configuration section (merged)
     # Header shows version and platform for a concise overview
@@ -590,6 +947,7 @@ def show_check_summary(env_dir: Path | None = None) -> None:
     # API Keys section
     _print_section_header("API Keys", color="blue")
     console.print(keys_table)
+    console.print("[dim]Use [cyan]fast-agent check models[/cyan] to see/configure models.[/dim]")
 
     # Codex OAuth panel (separate from API keys)
     try:
@@ -600,6 +958,7 @@ def show_check_summary(env_dir: Path | None = None) -> None:
         codex_status = get_codex_token_status()
         codex_table = Table(show_header=True, box=None)
         codex_table.add_column("Token", style="white", header_style="bold bright_white")
+        codex_table.add_column("Source", style="white", header_style="bold bright_white")
         codex_table.add_column("Expires", style="white", header_style="bold bright_white")
         codex_table.add_column("Keyring", style="white", header_style="bold bright_white")
 
@@ -612,9 +971,17 @@ def show_check_summary(env_dir: Path | None = None) -> None:
 
         if not codex_status["present"]:
             token_display = "[dim]Not configured[/dim]"
+            source_display = "[dim]-[/dim]"
             expires_display = "[dim]-[/dim]"
         else:
             token_display = "[bold green]OAuth token[/bold green]"
+            source = codex_status.get("source")
+            if source == "keyring":
+                source_display = "[green]Keyring OAuth[/green]"
+            elif source == "auth.json":
+                source_display = "[green]Codex auth.json[/green]"
+            else:
+                source_display = "[green]OAuth token[/green]"
             expires_at = codex_status.get("expires_at")
             if expires_at:
                 expires_display = datetime.fromtimestamp(expires_at).strftime("%Y-%m-%d %H:%M")
@@ -625,7 +992,7 @@ def show_check_summary(env_dir: Path | None = None) -> None:
             else:
                 expires_display = "[green]unknown[/green]"
 
-        codex_table.add_row(token_display, expires_display, keyring_display)
+        codex_table.add_row(token_display, source_display, expires_display, keyring_display)
         _print_section_header("Codex OAuth", color="blue")
         console.print(codex_table)
     except Exception:
@@ -898,7 +1265,7 @@ def show_check_summary(env_dir: Path | None = None) -> None:
     if config_status == "not_found" or secrets_status == "not_found":
         console.print("\n[bold]Setup Tips:[/bold]")
         console.print(
-            "Run [cyan]fast-agent setup[/cyan] to create configuration files. Visit [cyan][link=https://fast-agent.ai]fast-agent.ai[/link][/cyan] for configuration guides. "
+            "Run [cyan]fast-agent scaffold[/cyan] to create configuration files. Visit [cyan][link=https://fast-agent.ai]fast-agent.ai[/link][/cyan] for configuration guides. "
         )
     elif config_status == "error" or secrets_status == "error":
         console.print("\n[bold]Config File Issues:[/bold]")
@@ -945,7 +1312,7 @@ def show(
             console.print(
                 f"[yellow]No {file_type} file found in current directory or parents[/yellow]"
             )
-            console.print("Run [cyan]fast-agent setup[/cyan] to create configuration files")
+            console.print("Run [cyan]fast-agent scaffold[/cyan] to create configuration files")
             raise typer.Exit(1)
 
     console.print(f"\n[bold]{file_type.capitalize()} file:[/bold] {config_path}\n")
@@ -973,6 +1340,55 @@ def show(
         console.print(f"[red]Error parsing {file_type} file:[/red] {e}")
 
 
+def _context_env_dir(ctx: typer.Context) -> Path | None:
+    payload = ctx.obj
+    if not isinstance(payload, dict):
+        return None
+
+    env_dir = payload.get("env_dir")
+    if isinstance(env_dir, Path):
+        return env_dir
+    return None
+
+
+@app.command("models")
+def models(
+    ctx: typer.Context,
+    provider: str | None = typer.Argument(
+        None,
+        help=(
+            "Provider scope to inspect. Omit to list available providers, key status, "
+            "and configured named aliases."
+        ),
+    ),
+    all_models: bool = typer.Option(
+        False,
+        "--all",
+        help="Show all known models after curated entries (requires a provider argument)",
+    ),
+) -> None:
+    """Show model catalog provider guidance or provider-specific model entries."""
+    env_dir = _context_env_dir(ctx)
+
+    if provider is None:
+        if all_models:
+            console.print(
+                "[yellow]Tip:[/yellow] Pass a provider name with [cyan]--all[/cyan], "
+                "for example: [cyan]fast-agent check models openai --all[/cyan]"
+            )
+        show_models_overview(env_dir=env_dir)
+        return
+
+    try:
+        show_provider_model_catalog(
+            provider,
+            show_all=all_models,
+            env_dir=env_dir,
+        )
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc), param_hint="provider") from exc
+
+
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
@@ -982,5 +1398,10 @@ def main(
 ) -> None:
     """Check and diagnose FastAgent configuration."""
     env_dir = resolve_environment_dir_option(ctx, env_dir)
+    if isinstance(ctx.obj, dict):
+        ctx.obj["env_dir"] = env_dir
+    else:
+        ctx.obj = {"env_dir": env_dir}
+
     if ctx.invoked_subcommand is None:
         show_check_summary(env_dir=env_dir)

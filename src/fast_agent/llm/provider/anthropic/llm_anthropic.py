@@ -89,7 +89,7 @@ from fast_agent.llm.usage_tracking import TurnUsage
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
-DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-0"
+DEFAULT_ANTHROPIC_MODEL = "sonnet"
 STRUCTURED_OUTPUT_TOOL_NAME = "return_structured_output"
 STRUCTURED_OUTPUT_BETA = "structured-outputs-2025-11-13"
 INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14"
@@ -437,14 +437,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize Anthropic-specific default parameters"""
-        # Get base defaults from parent (includes ModelDatabase lookup)
-        base_params = super()._initialize_default_params(kwargs)
-
-        # Override with Anthropic-specific settings
-        chosen_model = kwargs.get("model", DEFAULT_ANTHROPIC_MODEL)
-        base_params.model = chosen_model
-
-        return base_params
+        return self._initialize_default_params_with_model_fallback(kwargs, DEFAULT_ANTHROPIC_MODEL)
 
     def _list_supported_long_context_models(self) -> list[str]:
         """Return models that support explicit long-context overrides."""

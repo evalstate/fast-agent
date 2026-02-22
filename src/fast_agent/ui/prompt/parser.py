@@ -10,6 +10,7 @@ from pathlib import Path
 
 from fast_agent.ui.command_payloads import (
     AgentCommand,
+    CardsCommand,
     ClearCommand,
     ClearSessionsCommand,
     CommandPayload,
@@ -30,6 +31,7 @@ from fast_agent.ui.command_payloads import (
     McpDisconnectCommand,
     McpListCommand,
     ModelReasoningCommand,
+    ModelsCommand,
     ModelVerbosityCommand,
     ModelWebFetchCommand,
     ModelWebSearchCommand,
@@ -553,6 +555,22 @@ def parse_special_input(text: str) -> str | CommandPayload:
             action = tokens[0].lower()
             argument = tokens[1].strip() if len(tokens) > 1 else None
             return SkillsCommand(action=action, argument=argument)
+        if cmd == "cards":
+            remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
+            if not remainder:
+                return CardsCommand(action="list", argument=None)
+            tokens = remainder.split(maxsplit=1)
+            action = tokens[0].lower()
+            argument = tokens[1].strip() if len(tokens) > 1 else None
+            return CardsCommand(action=action, argument=argument)
+        if cmd == "models":
+            remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
+            if not remainder:
+                return ModelsCommand(action="doctor", argument=None)
+            tokens = remainder.split(maxsplit=1)
+            action = tokens[0].lower()
+            argument = tokens[1].strip() if len(tokens) > 1 else None
+            return ModelsCommand(action=action, argument=argument)
         if cmd == "exit":
             return "EXIT"
         if cmd.lower() == "stop":
