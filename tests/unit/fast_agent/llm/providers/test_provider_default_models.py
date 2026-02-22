@@ -24,6 +24,16 @@ def test_openai_provider_default_model_used_when_model_missing() -> None:
     assert llm.default_request_params.model == "gpt-4.1-mini"
 
 
+def test_openai_provider_default_model_alias_is_resolved() -> None:
+    settings = Settings(
+        openai=OpenAISettings(default_model="$system.fast"),
+        model_aliases={"system": {"fast": "gpt-4.1-mini"}},
+    )
+    llm = OpenAILLM(context=Context(config=settings), model="")
+
+    assert llm.default_request_params.model == "gpt-4.1-mini"
+
+
 def test_openai_explicit_model_overrides_provider_default() -> None:
     settings = Settings(openai=OpenAISettings(default_model="gpt-4.1-mini"))
     llm = OpenAILLM(context=Context(config=settings), model="gpt-4.1")
@@ -33,6 +43,13 @@ def test_openai_explicit_model_overrides_provider_default() -> None:
 
 def test_responses_provider_default_model_used_when_model_missing() -> None:
     settings = Settings(responses=OpenAISettings(default_model="gpt-5.1"))
+    llm = ResponsesLLM(context=Context(config=settings), model="")
+
+    assert llm.default_request_params.model == "gpt-5.1"
+
+
+def test_responses_falls_back_to_openai_provider_config_default_model() -> None:
+    settings = Settings(openai=OpenAISettings(default_model="gpt-5.1"))
     llm = ResponsesLLM(context=Context(config=settings), model="")
 
     assert llm.default_request_params.model == "gpt-5.1"

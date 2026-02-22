@@ -15,16 +15,7 @@ class XAILLM(OpenAILLM):
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize xAI parameters"""
-        chosen_model = self._resolve_default_model_name(kwargs.get("model"), DEFAULT_XAI_MODEL)
-        resolved_kwargs = dict(kwargs)
-        if chosen_model is not None:
-            resolved_kwargs["model"] = chosen_model
-
-        # Get base defaults from parent (includes ModelDatabase lookup)
-        base_params = super()._initialize_default_params(resolved_kwargs)
-
-        # Override with xAI-specific settings
-        base_params.model = chosen_model
+        base_params = self._initialize_default_params_with_model_fallback(kwargs, DEFAULT_XAI_MODEL)
         base_params.parallel_tool_calls = False
 
         return base_params

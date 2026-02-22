@@ -265,16 +265,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize Bedrock-specific default parameters"""
-        chosen_model = self._resolve_default_model_name(kwargs.get("model"), DEFAULT_BEDROCK_MODEL)
-        resolved_kwargs = dict(kwargs)
-        if chosen_model is not None:
-            resolved_kwargs["model"] = chosen_model
-
-        # Get base defaults from parent (includes ModelDatabase lookup)
-        base_params = super()._initialize_default_params(resolved_kwargs)
-        base_params.model = chosen_model
-
-        return base_params
+        return self._initialize_default_params_with_model_fallback(kwargs, DEFAULT_BEDROCK_MODEL)
 
     @property
     def model(self) -> str:

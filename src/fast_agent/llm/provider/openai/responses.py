@@ -270,25 +270,10 @@ class ResponsesLLM(
         return DEFAULT_REASONING_EFFORT
 
     def _initialize_default_params(self, kwargs: dict[str, Any]) -> RequestParams:
-        chosen_model = self._resolve_default_model_name(
-            kwargs.get("model"),
-            DEFAULT_RESPONSES_MODEL,
-        )
-        resolved_kwargs = dict(kwargs)
-        if chosen_model is not None:
-            resolved_kwargs["model"] = chosen_model
+        return self._initialize_default_params_with_model_fallback(kwargs, DEFAULT_RESPONSES_MODEL)
 
-        base_params = super()._initialize_default_params(resolved_kwargs)
-        base_params.model = chosen_model
-        return base_params
-
-    def _get_provider_config(self):
-        if not self.context or not self.context.config:
-            return None
-        section_name = self.config_section or getattr(self.provider, "value", None)
-        if section_name and hasattr(self.context.config, section_name):
-            return getattr(self.context.config, section_name)
-        return getattr(self.context.config, "openai", None)
+    def _provider_config_fallback_sections(self) -> tuple[str, ...]:
+        return ("openai",)
 
     def _openai_settings(self):
         return self._get_provider_config()
