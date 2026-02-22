@@ -17,6 +17,29 @@ _MODEL_ALIAS_PATTERN = re.compile(
 logger = get_logger(__name__)
 
 
+def parse_model_alias_token(token: str) -> tuple[str, str]:
+    """Parse and validate a model alias token.
+
+    Args:
+        token: Alias token in ``$<namespace>.<key>`` format.
+
+    Returns:
+        ``(namespace, key)`` tuple.
+
+    Raises:
+        ModelConfigError: If token format is invalid.
+    """
+    normalized = token.strip()
+    match = _MODEL_ALIAS_PATTERN.fullmatch(normalized)
+    if match is None:
+        raise ModelConfigError(
+            f"Invalid model alias '{normalized}'",
+            "Model aliases must be exact tokens in the format '$<namespace>.<key>' "
+            "(for example '$system.fast').",
+        )
+    return match.group("namespace"), match.group("key")
+
+
 def resolve_model_alias(
     model: str,
     aliases: Mapping[str, Mapping[str, str]] | None,
@@ -39,13 +62,7 @@ def _resolve_alias_recursive(
     *,
     stack: list[str],
 ) -> str:
-    match = _MODEL_ALIAS_PATTERN.fullmatch(token)
-    if match is None:
-        raise ModelConfigError(
-            f"Invalid model alias '{token}'",
-            "Model aliases must be exact tokens in the format '$<namespace>.<key>' "
-            "(for example '$system.fast').",
-        )
+    namespace, key = parse_model_alias_token(token)
 
     if aliases is None or len(aliases) == 0:
         raise ModelConfigError(
@@ -60,8 +77,6 @@ def _resolve_alias_recursive(
             f"Detected alias cycle: {cycle}",
         )
 
-    namespace = match.group("namespace")
-    key = match.group("key")
     namespace_map = aliases.get(namespace)
 
     if namespace_map is None:

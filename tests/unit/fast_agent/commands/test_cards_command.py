@@ -5,6 +5,7 @@ import subprocess
 import sys
 from typing import TYPE_CHECKING
 
+from click.utils import strip_ansi
 from typer.testing import CliRunner
 
 from fast_agent.cli.commands import cards as cards_command
@@ -115,10 +116,11 @@ def test_cards_add_and_remove_via_cli(tmp_path: Path) -> None:
 def test_cards_help_has_registry_option_no_registry_subcommand() -> None:
     runner = CliRunner()
     result = runner.invoke(cards_command.app, ["--help"])
+    output = strip_ansi(result.output)
 
-    assert result.exit_code == 0, result.output
-    assert "--registry" in result.output
-    assert "│ registry" not in result.output
+    assert result.exit_code == 0, output
+    assert "--registry" in output
+    assert "│ registry" not in output
 
 
 def test_top_level_env_flag_routes_to_cards_subcommand(tmp_path: Path) -> None:
@@ -284,7 +286,8 @@ def test_cards_publish_no_push_commits_locally(tmp_path: Path) -> None:
 def test_cards_publish_help_lists_temp_flags() -> None:
     runner = CliRunner()
     result = runner.invoke(cards_command.app, ["publish", "--help"])
+    output = strip_ansi(result.output)
 
-    assert result.exit_code == 0, result.output
-    assert "--temp-dir" in result.output
-    assert "--keep-temp" in result.output
+    assert result.exit_code == 0, output
+    assert "--temp-dir" in output
+    assert "--keep-temp" in output

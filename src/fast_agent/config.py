@@ -19,6 +19,7 @@ else:  # pragma: no cover - used only to satisfy type checkers
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
 from fast_agent.llm.structured_output_mode import StructuredOutputMode
 from fast_agent.llm.text_verbosity import TextVerbosityLevel
@@ -997,6 +998,125 @@ def resolve_config_search_root(
     return root
 
 
+def resolve_env_vars(config_item: Any) -> Any:
+    """Recursively resolve environment variables in config data."""
+    if isinstance(config_item, dict):
+        return {k: resolve_env_vars(v) for k, v in config_item.items()}
+    if isinstance(config_item, list):
+        return [resolve_env_vars(i) for i in config_item]
+    if isinstance(config_item, str):
+        pattern = re.compile(r"\$\{([^}]+)\}")
+
+        def replace_match(match: re.Match[str]) -> str:
+            var_name_with_default = match.group(1)
+            if ":" in var_name_with_default:
+                var_name, default_value = var_name_with_default.split(":", 1)
+                return os.getenv(var_name, default_value)
+
+            var_name = var_name_with_default
+            env_value = os.getenv(var_name)
+            if env_value is None:
+                return match.group(0)
+            return env_value
+
+        return pattern.sub(replace_match, config_item)
+
+    return config_item
+
+
+def deep_merge(base: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]:
+    """Recursively merge two dictionaries, preserving nested structures."""
+    merged = base.copy()
+    for key, value in update.items():
+        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+            existing = merged[key]
+            if isinstance(existing, dict):
+                merged[key] = deep_merge(existing, value)
+            else:
+                merged[key] = value
+        else:
+            merged[key] = value
+    return merged
+
+
+def load_yaml_mapping(path: Path | None) -> dict[str, Any]:
+    if path is None or not path.exists():
+        return {}
+
+    import yaml  # pylint: disable=C0415
+
+    with open(path, "r", encoding="utf-8") as f:
+        payload = yaml.safe_load(f) or {}
+    if not isinstance(payload, dict):
+        return {}
+    return resolve_env_vars(payload)
+
+
+def find_project_config_file(start_path: Path) -> Path | None:
+    """Find project-level ``fastagent.config.yaml`` from ``start_path`` upward."""
+    current = start_path.resolve()
+    while current != current.parent:
+        candidate = current / "fastagent.config.yaml"
+        if candidate.exists():
+            return candidate
+        current = current.parent
+    return None
+
+
+def resolve_environment_config_file(
+    start_path: Path,
+    *,
+    env_dir: str | Path | None = None,
+) -> Path:
+    """Return the env overlay config path: ``<env>/fastagent.config.yaml``."""
+    base = start_path.resolve()
+    override = env_dir if env_dir is not None else os.getenv("ENVIRONMENT_DIR")
+
+    if override:
+        env_root = Path(override).expanduser()
+        if not env_root.is_absolute():
+            env_root = (base / env_root).resolve()
+    else:
+        env_root = (base / DEFAULT_ENVIRONMENT_DIR).resolve()
+
+    return env_root / "fastagent.config.yaml"
+
+
+def load_layered_model_settings(
+    *,
+    start_path: Path,
+    env_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    """Load layered model settings from project + env config.
+
+    Precedence: project config < env config.
+    ``model_aliases`` uses deep-merge semantics, while ``default_model`` uses
+    scalar replacement semantics.
+    """
+    layered: dict[str, Any] = {}
+
+    for config_path in (
+        find_project_config_file(start_path),
+        resolve_environment_config_file(start_path, env_dir=env_dir),
+    ):
+        payload = load_yaml_mapping(config_path)
+        if not payload:
+            continue
+
+        if "default_model" in payload:
+            layered["default_model"] = payload["default_model"]
+
+        if "model_aliases" in payload:
+            aliases_payload = payload["model_aliases"]
+            existing_aliases = layered.get("model_aliases")
+            if isinstance(existing_aliases, dict) and isinstance(aliases_payload, dict):
+                layered["model_aliases"] = deep_merge(existing_aliases, aliases_payload)
+            else:
+                layered["model_aliases"] = aliases_payload
+
+    return layered
+
+
 class Settings(BaseSettings):
     """
     Settings class for the fast-agent application.
@@ -1185,46 +1305,6 @@ _settings: Settings | None = None
 def get_settings(config_path: str | os.PathLike[str] | None = None) -> Settings:
     """Get settings instance, automatically loading from config file if available."""
 
-    def resolve_env_vars(config_item: Any) -> Any:
-        """Recursively resolve environment variables in config data."""
-        if isinstance(config_item, dict):
-            return {k: resolve_env_vars(v) for k, v in config_item.items()}
-        elif isinstance(config_item, list):
-            return [resolve_env_vars(i) for i in config_item]
-        elif isinstance(config_item, str):
-            # Regex to find ${ENV_VAR} or ${ENV_VAR:default_value}
-            pattern = re.compile(r"\$\{([^}]+)\}")
-
-            def replace_match(match: re.Match) -> str:
-                var_name_with_default = match.group(1)
-                if ":" in var_name_with_default:
-                    var_name, default_value = var_name_with_default.split(":", 1)
-                    return os.getenv(var_name, default_value)
-                else:
-                    var_name = var_name_with_default
-                    env_value = os.getenv(var_name)
-                    if env_value is None:
-                        # Optionally, raise an error or return the placeholder if the env var is not set
-                        # For now, returning the placeholder to avoid breaking if not set and no default
-                        # print(f"Warning: Environment variable {var_name} not set and no default provided.")
-                        return match.group(0)
-                    return env_value
-
-            # Replace all occurrences
-            resolved_value = pattern.sub(replace_match, config_item)
-            return resolved_value
-        return config_item
-
-    def deep_merge(base: dict, update: dict) -> dict:
-        """Recursively merge two dictionaries, preserving nested structures."""
-        merged = base.copy()
-        for key, value in update.items():
-            if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
-                merged[key] = deep_merge(merged[key], value)
-            else:
-                merged[key] = value
-        return merged
-
     global _settings
 
     # If we have a specific config path, always reload settings
@@ -1257,27 +1337,26 @@ def get_settings(config_path: str | os.PathLike[str] | None = None) -> Settings:
         search_root = resolve_config_search_root(Path.cwd())
         config_file, secrets_file = find_fastagent_config_files(search_root)
 
-    merged_settings = {}
-
-    import yaml  # pylint: disable=C0415
+    merged_settings: dict[str, Any] = {}
 
     # Load main config if it exists
     if config_file and config_file.exists():
-        with open(config_file, "r", encoding="utf-8") as f:
-            yaml_settings = yaml.safe_load(f) or {}
-            # Resolve environment variables in the loaded YAML settings
-            resolved_yaml_settings = resolve_env_vars(yaml_settings)
-            merged_settings = resolved_yaml_settings
+        merged_settings = load_yaml_mapping(config_file)
     elif config_file and not config_file.exists():
         print(f"Warning: Specified config file does not exist: {config_file}")
 
+    # Model settings layering is deterministic and independent of whichever
+    # single config file happened to be discovered first.
+    if config_path is None:
+        layered_model_settings = load_layered_model_settings(
+            start_path=Path.cwd(),
+            env_dir=os.getenv("ENVIRONMENT_DIR"),
+        )
+        merged_settings = deep_merge(merged_settings, layered_model_settings)
+
     # Load secrets file if found (regardless of whether config file exists)
     if secrets_file and secrets_file.exists():
-        with open(secrets_file, "r", encoding="utf-8") as f:
-            yaml_secrets = yaml.safe_load(f) or {}
-            # Resolve environment variables in the loaded secrets YAML
-            resolved_secrets_yaml = resolve_env_vars(yaml_secrets)
-            merged_settings = deep_merge(merged_settings, resolved_secrets_yaml)
+        merged_settings = deep_merge(merged_settings, load_yaml_mapping(secrets_file))
 
     legacy_keys: list[str] = []
     anthropic_settings = merged_settings.get("anthropic")
