@@ -7,7 +7,7 @@ from fast_agent.cli.constants import (
     KNOWN_SUBCOMMANDS,
     normalize_resume_flag_args,
 )
-from fast_agent.cli.main import app
+from fast_agent.cli.main import LAZY_SUBCOMMANDS, app
 from fast_agent.constants import FAST_AGENT_SHELL_CHILD_ENV
 from fast_agent.utils.async_utils import configure_uvloop, ensure_event_loop
 
@@ -40,8 +40,13 @@ def main():
 
     # Check if we should auto-route to 'go'
     if len(sys.argv) > 1:
-        # Check if first arg is not already a subcommand
-        first_arg = sys.argv[1]
+        # Detect explicit subcommands even when global options (like --env)
+        # appear before the command name.
+        known_commands = set(KNOWN_SUBCOMMANDS) | set(LAZY_SUBCOMMANDS.keys())
+        explicit_subcommand = next(
+            (arg for arg in sys.argv[1:] if arg in known_commands),
+            None,
+        )
 
         # Only auto-route if any known go-specific options are present
         has_go_options = any(
@@ -49,7 +54,7 @@ def main():
             for arg in sys.argv[1:]
         )
 
-        if first_arg not in KNOWN_SUBCOMMANDS and has_go_options:
+        if (explicit_subcommand not in known_commands) and has_go_options:
             # Find where to insert 'go' - before the first go-specific option
             insert_pos = 1
             for i, arg in enumerate(sys.argv[1:], 1):

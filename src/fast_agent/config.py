@@ -144,6 +144,15 @@ class SkillsSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+class CardsSettings(BaseModel):
+    """Configuration for card pack registry selection."""
+
+    marketplace_url: str | None = None
+    marketplace_urls: list[str] | None = None
+
+    model_config = ConfigDict(extra="ignore")
+
+
 class ShellSettings(BaseModel):
     """Configuration for shell execution behavior."""
 
@@ -1101,6 +1110,9 @@ class Settings(BaseSettings):
 
     skills: SkillsSettings = SkillsSettings()
     """Local skills discovery and selection settings."""
+
+    cards: CardsSettings = CardsSettings()
+    """Card pack registry selection settings."""
 
     shell_execution: ShellSettings = ShellSettings()
     """Shell execution timeout and warning settings."""

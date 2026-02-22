@@ -1,15 +1,22 @@
 """Tests for AgentCompleter sub-completion functionality."""
 
+import asyncio
 import os
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
+import pytest
+from mcp.types import Completion as MCPCompletion
+from mcp.types import ResourceTemplate
 from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
 
 import fast_agent.config as config_module
+from fast_agent.cards.manager import InstalledCardPackSource, write_installed_card_pack_source
 from fast_agent.config import (
+    CardsSettings,
     MCPServerSettings,
     MCPSettings,
     Settings,
@@ -40,6 +47,88 @@ class _ProviderStub:
 
     def _agent(self, _name: str) -> object:
         return self._agent_obj
+
+
+class _MentionAggregatorStub:
+    def __init__(self) -> None:
+        self._templates = {
+            "demo": [
+                ResourceTemplate(name="repo", uriTemplate="repo://items/{id}"),
+                ResourceTemplate(name="repo_pair", uriTemplate="repo://items/{owner}/{repo}"),
+                ResourceTemplate(name="repo_resource", uriTemplate="repo://items/{resourceId}"),
+            ]
+        }
+        self.last_completion_request: dict[str, object] | None = None
+
+    async def collect_server_status(self):
+        return {
+            "demo": SimpleNamespace(
+                is_connected=True,
+                server_capabilities=SimpleNamespace(resources=True),
+            )
+        }
+
+    def list_attached_servers(self) -> list[str]:
+        return ["demo"]
+
+    def list_configured_detached_servers(self) -> list[str]:
+        return []
+
+    async def list_resource_templates(self, server_name: str | None = None):
+        if server_name:
+            return {server_name: self._templates.get(server_name, [])}
+        return dict(self._templates)
+
+    async def complete_resource_argument(
+        self,
+        server_name: str,
+        template_uri: str,
+        argument_name: str,
+        value: str,
+        context_args=None,
+    ):
+        self.last_completion_request = {
+            "server_name": server_name,
+            "template_uri": template_uri,
+            "argument_name": argument_name,
+            "value": value,
+            "context_args": context_args,
+        }
+        values = ["123", "789"]
+        return MCPCompletion(values=[item for item in values if item.startswith(value)])
+
+
+class _MentionAgentStub:
+    def __init__(self) -> None:
+        self.aggregator = _MentionAggregatorStub()
+
+    async def list_resources(self, namespace: str | None = None):
+        if namespace == "demo":
+            return {"demo": ["repo://items/123", "repo://items/456"]}
+        return {}
+
+
+class _MentionFilteredAggregatorStub(_MentionAggregatorStub):
+    async def collect_server_status(self):
+        return {
+            "demo": SimpleNamespace(
+                is_connected=True,
+                server_capabilities=SimpleNamespace(resources=True),
+            ),
+            "offline": SimpleNamespace(
+                is_connected=False,
+                server_capabilities=SimpleNamespace(resources=True),
+            ),
+            "nores": SimpleNamespace(
+                is_connected=True,
+                server_capabilities=SimpleNamespace(resources=None),
+            ),
+        }
+
+
+class _MentionFilteredAgentStub(_MentionAgentStub):
+    def __init__(self) -> None:
+        self.aggregator = _MentionFilteredAggregatorStub()
 
 
 def test_complete_history_files_finds_json_and_md():
@@ -453,6 +542,45 @@ def _mark_skill_managed(skill_root: Path, name: str) -> None:
     )
 
 
+def _write_card_pack(card_pack_root: Path, name: str) -> None:
+    pack_dir = card_pack_root / name
+    pack_dir.mkdir(parents=True, exist_ok=True)
+    (pack_dir / "card-pack.yaml").write_text(
+        "schema_version: 1\n"
+        f"name: {name}\n"
+        "kind: card\n"
+        "install:\n"
+        f"  agent_cards: ['agent-cards/{name}.md']\n"
+        "  tool_cards: []\n"
+        "  files: []\n",
+        encoding="utf-8",
+    )
+
+
+def _mark_card_pack_managed(card_pack_root: Path, name: str) -> None:
+    pack_dir = card_pack_root / name
+    write_installed_card_pack_source(
+        pack_dir,
+        InstalledCardPackSource(
+            schema_version=1,
+            installed_via="marketplace",
+            source_origin="remote",
+            name=name,
+            kind="card",
+            repo_url="https://github.com/example/card-packs",
+            repo_ref="main",
+            repo_path=f"packs/{name}",
+            source_url="https://raw.githubusercontent.com/example/card-packs/main/marketplace.json",
+            installed_commit="abcdef1234567890",
+            installed_path_oid="def456",
+            installed_revision="abcdef1234567890",
+            installed_at="2026-02-15T00:00:00Z",
+            content_fingerprint="sha256:deadbeef",
+            installed_files=tuple(),
+        ),
+    )
+
+
 def test_get_completions_for_skills_subcommands():
     """Test get_completions suggests /skills subcommands."""
     completer = AgentCompleter(agents=["agent1"])
@@ -465,6 +593,21 @@ def test_get_completions_for_skills_subcommands():
     assert "add" in names
     assert "remove" in names
     assert "update" in names
+    assert "registry" in names
+
+
+def test_get_completions_for_cards_subcommands() -> None:
+    completer = AgentCompleter(agents=["agent1"])
+
+    doc = Document("/cards ", cursor_position=len("/cards "))
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert "list" in names
+    assert "add" in names
+    assert "remove" in names
+    assert "update" in names
+    assert "publish" in names
     assert "registry" in names
 
 
@@ -623,6 +766,99 @@ def test_get_completions_for_skills_update_only_managed():
             update_global_settings(old_settings)
 
 
+def test_get_completions_for_cards_remove() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        env_root = Path(tmpdir) / ".fast-agent"
+        card_pack_root = env_root / "card-packs"
+        _write_card_pack(card_pack_root, "alpha")
+        _write_card_pack(card_pack_root, "beta")
+
+        old_settings = get_settings()
+        override = old_settings.model_copy(
+            update={
+                "environment_dir": str(env_root),
+                "cards": CardsSettings(),
+            }
+        )
+        update_global_settings(override)
+        try:
+            completer = AgentCompleter(agents=["agent1"])
+            doc = Document("/cards remove ", cursor_position=len("/cards remove "))
+            completions = list(completer.get_completions(doc, None))
+            names = [c.text for c in completions]
+
+            assert "alpha" in names
+            assert "beta" in names
+        finally:
+            update_global_settings(old_settings)
+
+
+def test_get_completions_for_cards_registry() -> None:
+    old_settings = get_settings()
+    override = old_settings.model_copy(
+        update={
+            "cards": CardsSettings(
+                marketplace_urls=[
+                    "https://example.com/cards-one.json",
+                    "https://example.com/cards-two.json",
+                ]
+            )
+        }
+    )
+    update_global_settings(override)
+    try:
+        completer = AgentCompleter(agents=["agent1"])
+        doc = Document("/cards registry ", cursor_position=len("/cards registry "))
+        completions = list(completer.get_completions(doc, None))
+        names = [c.text for c in completions]
+
+        assert "1" in names
+        assert "2" in names
+    finally:
+        update_global_settings(old_settings)
+
+
+def test_get_completions_for_cards_update_only_managed() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        env_root = Path(tmpdir) / ".fast-agent"
+        card_pack_root = env_root / "card-packs"
+        _write_card_pack(card_pack_root, "alpha")
+        _write_card_pack(card_pack_root, "beta")
+        _write_card_pack(card_pack_root, "gamma")
+        _mark_card_pack_managed(card_pack_root, "beta")
+        _mark_card_pack_managed(card_pack_root, "gamma")
+
+        old_settings = get_settings()
+        override = old_settings.model_copy(update={"environment_dir": str(env_root)})
+        update_global_settings(override)
+        try:
+            completer = AgentCompleter(agents=["agent1"])
+            doc = Document("/cards update ", cursor_position=len("/cards update "))
+            completions = list(completer.get_completions(doc, None))
+            names = [c.text for c in completions]
+
+            assert "alpha" not in names
+            assert "beta" in names
+            assert "gamma" in names
+            assert "1" not in names
+            assert "2" not in names
+            assert "3" not in names
+        finally:
+            update_global_settings(old_settings)
+
+
+def test_get_completions_for_cards_publish_flags() -> None:
+    completer = AgentCompleter(agents=["agent1"])
+    doc = Document("/cards publish --", cursor_position=len("/cards publish --"))
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert "--no-push" in names
+    assert "--message" in names
+    assert "--temp-dir" in names
+    assert "--keep-temp" in names
+
+
 def test_complete_agent_card_files_finds_md_and_yaml():
     """Test that _complete_agent_card_files finds AgentCard files."""
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -743,3 +979,152 @@ def test_agent_completions_still_work():
 
     assert "test_agent" in names
     assert "other_agent" not in names
+
+
+def test_resource_mention_server_completion() -> None:
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(_MentionAgentStub())),
+    )
+
+    doc = Document("^de", cursor_position=3)
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert "demo:" in names
+
+
+def test_resource_mention_server_completion_filters_connected_resource_servers() -> None:
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(_MentionFilteredAgentStub())),
+    )
+
+    doc = Document("^", cursor_position=1)
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert "demo:" in names
+    assert "offline:" not in names
+    assert "nores:" not in names
+
+
+def test_resource_mention_resource_and_template_completion() -> None:
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(_MentionAgentStub())),
+    )
+
+    doc = Document("^demo:repo://items/", cursor_position=len("^demo:repo://items/"))
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert "repo://items/123" in names
+    assert "repo://items/{id}{" in names
+
+
+def test_resource_mention_argument_value_completion() -> None:
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(_MentionAgentStub())),
+    )
+
+    doc = Document("^demo:repo://items/{id}{id=7", cursor_position=len("^demo:repo://items/{id}{id=7"))
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert "789" in names
+
+
+def test_resource_mention_template_uri_with_balanced_placeholders_still_completes() -> None:
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(_MentionAgentStub())),
+    )
+
+    text = "^demo:repo://items/{resourceId}"
+    doc = Document(text, cursor_position=len(text))
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert "repo://items/{resourceId}{" in names
+
+
+def test_resource_mention_argument_name_completion_supports_camel_case_placeholders() -> None:
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(_MentionAgentStub())),
+    )
+
+    text = "^demo:repo://items/{resourceId}{r"
+    doc = Document(text, cursor_position=len(text))
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert "resourceId=" in names
+
+
+def test_resource_mention_argument_name_completion_for_later_segments() -> None:
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(_MentionAgentStub())),
+    )
+
+    text = "^demo:repo://items/{owner}/{repo}{owner=octo,r"
+    doc = Document(text, cursor_position=len(text))
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert "repo=" in names
+    assert "123" not in names
+
+
+def test_resource_mention_argument_value_completion_receives_context_args() -> None:
+    mention_agent = _MentionAgentStub()
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(mention_agent)),
+    )
+
+    text = "^demo:repo://items/{owner}/{repo}{owner=octo,repo=7"
+    doc = Document(text, cursor_position=len(text))
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert "789" in names
+    assert mention_agent.aggregator.last_completion_request is not None
+    assert mention_agent.aggregator.last_completion_request["argument_name"] == "repo"
+    assert mention_agent.aggregator.last_completion_request["context_args"] == {"owner": "octo"}
+
+
+def test_resource_mention_malformed_context_falls_back() -> None:
+    completer = AgentCompleter(agents=["agent1"])
+
+    doc = Document("^:broken", cursor_position=len("^:broken"))
+    completions = list(completer.get_completions(doc, None))
+
+    assert completions == []
+
+
+async def _async_identity(value):
+    await asyncio.sleep(0)
+    return value
+
+
+@pytest.mark.asyncio
+async def test_run_async_completion_uses_owner_loop_from_worker_thread() -> None:
+    completer = AgentCompleter(agents=["agent1"])
+
+    result = await asyncio.to_thread(
+        lambda: completer._run_async_completion(_async_identity("ok"))
+    )
+
+    assert result == "ok"

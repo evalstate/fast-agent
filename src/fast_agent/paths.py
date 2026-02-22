@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 @dataclass(frozen=True)
 class EnvironmentPaths:
     root: Path
+    card_packs: Path
     agent_cards: Path
     tool_cards: Path
     skills: Path
@@ -58,6 +59,7 @@ def resolve_environment_paths(
     root = resolve_environment_dir(settings=settings, cwd=cwd, override=override)
     return EnvironmentPaths(
         root=root,
+        card_packs=root / "card-packs",
         agent_cards=root / "agent-cards",
         tool_cards=root / "tool-cards",
         skills=root / "skills",

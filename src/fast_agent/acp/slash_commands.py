@@ -4,7 +4,7 @@ Slash Commands for ACP
 Provides slash command support for the ACP server, allowing clients to
 discover and invoke special commands with the /command syntax.
 
-Session commands (status, tools, skills, history, clear, session) are always available.
+Session commands (status, tools, skills, cards, history, clear, session) are always available.
 Agent-specific commands are queried from the current agent if it implements
 ACPAwareProtocol.
 """
@@ -33,6 +33,7 @@ from fast_agent.acp.command_io import ACPCommandIO
 from fast_agent.acp.slash import dispatch as slash_dispatch
 from fast_agent.acp.slash.command_catalog import apply_dynamic_session_hints
 from fast_agent.acp.slash.handlers import cards as cards_slash_handlers
+from fast_agent.acp.slash.handlers import cards_manager as cards_manager_slash_handlers
 from fast_agent.acp.slash.handlers import clear as clear_slash_handlers
 from fast_agent.acp.slash.handlers import history as history_slash_handlers
 from fast_agent.acp.slash.handlers import mcp as mcp_slash_handlers
@@ -246,6 +247,19 @@ class SlashCommandHandler:
                 input=AvailableCommandInput(
                     root=UnstructuredCommandInput(
                         hint="[add|remove|update|registry] [name|number|all|url] [--force] [--yes]"
+                    )
+                ),
+            ),
+            "cards": AvailableCommand(
+                name="cards",
+                description="List or manage card packs (add/remove/update/publish/registry)",
+                input=AvailableCommandInput(
+                    root=UnstructuredCommandInput(
+                        hint=(
+                            "[add|remove|update|publish|registry] "
+                            "[name|number|all|url] "
+                            "[--force|--yes|--no-push|--message|--temp-dir|--keep-temp]"
+                        )
                     )
                 ),
             ),
@@ -654,6 +668,9 @@ class SlashCommandHandler:
 
     async def _handle_skills(self, arguments: str | None = None) -> str:
         return await skills_slash_handlers.handle_skills(self, arguments)
+
+    async def _handle_cards(self, arguments: str | None = None) -> str:
+        return await cards_manager_slash_handlers.handle_cards(self, arguments)
 
     async def _handle_skills_registry(self, argument: str) -> str:
         return await skills_slash_handlers.handle_skills_registry(self, argument)

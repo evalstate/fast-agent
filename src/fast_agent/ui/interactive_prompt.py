@@ -47,6 +47,11 @@ from fast_agent.ui.enhanced_prompt import (
 )
 from fast_agent.ui.interactive_shell import run_interactive_shell_command
 from fast_agent.ui.progress_display import progress_display
+from fast_agent.ui.prompt.resource_mentions import (
+    build_prompt_with_resources,
+    parse_mentions,
+    resolve_mentions,
+)
 from fast_agent.ui.prompt_marks import emit_prompt_mark
 
 # Type alias for the send function
@@ -463,10 +468,32 @@ class InteractivePrompt:
             # Send the message to the agent
             # Type narrowing: by this point user_input is str (non-str inputs continue above)
             assert isinstance(user_input, str)
+
+            prompt_payload: str | PromptMessageExtended = user_input
+            parsed_mentions = parse_mentions(user_input)
+            for warning in parsed_mentions.warnings:
+                rich_print(f"[yellow]{warning}[/yellow]")
+
+            if parsed_mentions.mentions:
+                try:
+                    agent_for_mentions = prompt_provider._agent(agent)
+                except Exception:
+                    rich_print(
+                        f"[red]Unable to resolve resource mentions: agent '{agent}' unavailable[/red]"
+                    )
+                    continue
+
+                try:
+                    resolved_mentions = await resolve_mentions(agent_for_mentions, parsed_mentions)
+                    prompt_payload = build_prompt_with_resources(user_input, resolved_mentions)
+                except Exception as exc:
+                    rich_print(f"[red]Failed to resolve resource mentions: {exc}[/red]")
+                    continue
+
             emit_prompt_mark("C")
             progress_display.resume()
             try:
-                result = await send_func(user_input, agent)
+                result = await send_func(prompt_payload, agent)
             except (KeyboardInterrupt, asyncio.CancelledError):
                 _handle_inflight_cancel()
                 continue

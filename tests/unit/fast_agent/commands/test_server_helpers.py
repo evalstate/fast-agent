@@ -1,5 +1,9 @@
 """Tests for server helper functions."""
 
+from types import SimpleNamespace
+
+import pytest
+
 from fast_agent.cli.commands.server_helpers import generate_server_name
 
 
@@ -52,3 +56,37 @@ class TestGenerateServerName:
         assert generate_server_name("-server-") == "server"
         assert generate_server_name("_server_") == "server"
         assert generate_server_name("@-server-@") == "server"
+
+
+@pytest.mark.asyncio
+async def test_add_servers_to_config_keeps_url_server_auth_block() -> None:
+    from fast_agent.cli.commands.server_helpers import add_servers_to_config
+
+    class _FakeApp:
+        def __init__(self) -> None:
+            self.context = SimpleNamespace(
+                config=SimpleNamespace(),
+                server_registry=SimpleNamespace(registry={}),
+            )
+
+        async def initialize(self) -> None:
+            return None
+
+    fast_app = SimpleNamespace(app=_FakeApp())
+    await add_servers_to_config(
+        fast_app,
+        {
+            "example": {
+                "transport": "http",
+                "url": "https://example.com/mcp",
+                "auth": {
+                    "oauth": True,
+                    "client_metadata_url": "https://example.com/oauth/client-metadata.json",
+                },
+            }
+        },
+    )
+
+    config = fast_app.app.context.config.mcp.servers["example"]
+    assert config.auth is not None
+    assert config.auth.client_metadata_url == "https://example.com/oauth/client-metadata.json"

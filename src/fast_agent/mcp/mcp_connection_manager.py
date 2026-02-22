@@ -579,6 +579,28 @@ def _is_oauth_timeout_message(message: str | None) -> bool:
     return any(marker in normalized for marker in timeout_markers)
 
 
+def _is_oauth_registration_404_message(message: str | None) -> bool:
+    if not message:
+        return False
+    normalized = message.lower()
+    return "oauth" in normalized and "registration failed: 404" in normalized
+
+
+def _format_oauth_registration_404_details(error_text: str, server_url: str | None) -> str:
+    details = (
+        "OAuth client registration failed with HTTP 404.\n"
+        "The server likely does not support dynamic client registration for this client.\n"
+        "Try one of these options:\n"
+        "- Configure a Client ID Metadata URL (CIMD): auth.client_metadata_url or --client-metadata-url\n"
+        "- Use direct bearer authentication with --auth <token>\n"
+    )
+    normalized_url = (server_url or "").lower()
+    if "githubcopilot.com" in normalized_url:
+        details += "GitHub Copilot MCP commonly expects token auth for external hosts. Try --auth $GITHUB_TOKEN.\n"
+    details += f"\nOriginal error:\n{error_text}"
+    return details
+
+
 def _is_oauth_cancelled_message(message: str | None) -> bool:
     if not message:
         return False
@@ -703,7 +725,7 @@ class MCPConnectionManager(ContextDependent):
         self._mcp_streamable_http_filter_added = True
 
     def _suppress_mcp_oauth_cancel_errors(self) -> None:
-        """Suppress expected OAuth cancellation tracebacks from MCP OAuth internals."""
+        """Suppress noisy OAuth flow tracebacks from MCP OAuth internals."""
         if self._mcp_oauth_cancel_filter_added:
             return
 
@@ -722,7 +744,14 @@ class MCPConnectionManager(ContextDependent):
                     _exc_type, exc_value, _exc_tb = exc_info
                 except Exception:
                     return True
-                return not isinstance(exc_value, OAuthFlowCancelledError)
+
+                # User-cancelled OAuth flows are expected.
+                if isinstance(exc_value, OAuthFlowCancelledError):
+                    return False
+
+                # Avoid traceback spam in normal operation. Keep full OAuth tracebacks
+                # visible when debug logging is enabled.
+                return logging.getLogger().isEnabledFor(logging.DEBUG)
 
         oauth_logger = logging.getLogger("mcp.client.auth.oauth2")
         oauth_logger.addFilter(MCPOAuthCancellationFilter())
@@ -1046,6 +1075,12 @@ class MCPConnectionManager(ContextDependent):
             else:
                 formatted_error = str(error_msg)
 
+            if _is_oauth_registration_404_message(formatted_error):
+                raise ServerInitializationError(
+                    f"MCP Server: '{server_name}': OAuth client registration failed.",
+                    _format_oauth_registration_404_details(formatted_error, server_conn.server_config.url),
+                )
+
             raise ServerInitializationError(
                 f"MCP Server: '{server_name}': Failed to initialize - see details. Check fastagent.config.yaml?",
                 formatted_error,
@@ -1157,6 +1192,12 @@ class MCPConnectionManager(ContextDependent):
                 formatted_error = "\n".join(error_msg)
             else:
                 formatted_error = str(error_msg)
+
+            if _is_oauth_registration_404_message(formatted_error):
+                raise ServerInitializationError(
+                    f"MCP Server: '{server_name}': OAuth client registration failed during reconnect.",
+                    _format_oauth_registration_404_details(formatted_error, server_conn.server_config.url),
+                )
 
             raise ServerInitializationError(
                 f"MCP Server: '{server_name}': Failed to reconnect - see details.",

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import math
+import os
+import re
 import shlex
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Awaitable, Callable, Protocol
@@ -49,6 +51,43 @@ class ParsedMcpConnectInput:
     reconnect_on_disconnect: bool | None
     force_reconnect: bool
     auth_token: str | None
+
+
+_AUTH_ENV_BRACED_RE = re.compile(
+    r"^\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?::(?P<default>.*))?\}$"
+)
+_AUTH_ENV_SIMPLE_RE = re.compile(r"^\$(?P<name>[A-Za-z_][A-Za-z0-9_]*)$")
+
+
+def _resolve_auth_token_value(raw_value: str) -> str:
+    """Resolve --auth values that reference environment variables.
+
+    Supported forms:
+    - ``$VAR``
+    - ``${VAR}``
+    - ``${VAR:default}``
+    """
+
+    match = _AUTH_ENV_BRACED_RE.match(raw_value)
+    if match:
+        env_name = match.group("name")
+        default = match.group("default")
+        resolved = os.environ.get(env_name)
+        if resolved is not None:
+            return resolved
+        if default is not None:
+            return default
+        raise ValueError(f"Environment variable '{env_name}' is not set for --auth")
+
+    match = _AUTH_ENV_SIMPLE_RE.match(raw_value)
+    if match:
+        env_name = match.group("name")
+        resolved = os.environ.get(env_name)
+        if resolved is None:
+            raise ValueError(f"Environment variable '{env_name}' is not set for --auth")
+        return resolved
+
+    return raw_value
 
 
 def infer_connect_mode(target_text: str) -> str:
@@ -113,11 +152,12 @@ def parse_connect_input(target_text: str) -> ParsedMcpConnectInput:
             idx += 1
             if idx >= len(tokens):
                 raise ValueError("Missing value for --auth")
-            auth_token = tokens[idx]
+            auth_token = _resolve_auth_token_value(tokens[idx])
         elif token.startswith("--auth="):
             auth_token = token.split("=", 1)[1]
             if not auth_token:
                 raise ValueError("Missing value for --auth")
+            auth_token = _resolve_auth_token_value(auth_token)
         else:
             target_tokens.append(token)
         idx += 1
@@ -382,11 +422,44 @@ async def handle_mcp_connect(
 
         normalized_error = error_text.lower()
         oauth_related = "oauth" in normalized_error
+        oauth_registration_404 = (
+            "oauth" in normalized_error and "registration failed: 404" in normalized_error
+        )
         fallback_disabled = (
             "paste fallback is disabled" in normalized_error
             or "non-interactive connection mode" in normalized_error
         )
         oauth_timeout = "oauth" in normalized_error and "time" in normalized_error
+
+        if oauth_registration_404:
+            outcome.add_message(
+                (
+                    "OAuth client registration returned HTTP 404. "
+                    "This server likely does not allow dynamic client registration."
+                ),
+                channel="warning",
+                right_info="mcp",
+                agent_name=agent_name,
+            )
+            outcome.add_message(
+                (
+                    "Try either `--client-metadata-url <https-url>` (CIMD) "
+                    "or connect with bearer auth via `--auth <token>`."
+                ),
+                channel="info",
+                right_info="mcp",
+                agent_name=agent_name,
+            )
+            if "githubcopilot.com" in normalized_error:
+                outcome.add_message(
+                    (
+                        "For GitHub Copilot MCP, token auth is commonly required. "
+                        "Try `--auth $GITHUB_TOKEN`."
+                    ),
+                    channel="info",
+                    right_info="mcp",
+                    agent_name=agent_name,
+                )
 
         if oauth_related and (fallback_disabled or oauth_timeout or not oauth_paste_fallback_enabled):
             outcome.add_message(

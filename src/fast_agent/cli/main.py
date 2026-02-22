@@ -21,6 +21,7 @@ LAZY_SUBCOMMANDS: dict[str, str] = {
     "acp": "fast_agent.cli.commands.acp:app",
     "setup": "fast_agent.cli.commands.setup:app",
     "check": "fast_agent.cli.commands.check_config:app",
+    "cards": "fast_agent.cli.commands.cards:app",
     "config": "fast_agent.cli.commands.config:app",
     "auth": "fast_agent.cli.commands.auth:app",
     "quickstart": "fast_agent.cli.commands.quickstart:app",
@@ -104,6 +105,7 @@ def show_welcome() -> None:
     table.add_row("go -x", "Start an interactive session with a local shell tool")
     table.add_row("[bold]serve[/bold]", "Start fast-agent as an MCP server")
     table.add_row("check", "Show current configuration")
+    table.add_row("cards", "Manage card packs (list/add/remove/update/publish)")
     table.add_row("config", "Configure settings interactively (shell, model)")
     table.add_row("auth", "Manage OAuth tokens in the OS keyring for MCP servers")
     table.add_row("setup", "Create agent template and configuration")

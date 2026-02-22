@@ -37,6 +37,8 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+DEFAULT_CLIENT_METADATA_URL = "https://fast-agent.ai/oauth/client.json"
+
 OAuthEventType = Literal[
     "authorization_url",
     "wait_start",
@@ -661,7 +663,14 @@ def build_oauth_provider(
     redirect_path = "/callback"
     scope_value: str | None = None
     persist_mode: str = "keyring"
-    client_metadata_url: str | None = None
+    # Use a default CIMD URL so OAuth can avoid dynamic client registration
+    # on providers that don't expose registration endpoints.
+    env_client_metadata_url = os.environ.get("FAST_AGENT_OAUTH_CLIENT_METADATA_URL")
+    if env_client_metadata_url is None:
+        client_metadata_url: str | None = DEFAULT_CLIENT_METADATA_URL
+    else:
+        stripped_client_metadata_url = env_client_metadata_url.strip()
+        client_metadata_url = stripped_client_metadata_url or None
 
     if server_config.auth is not None:
         try:
@@ -670,7 +679,9 @@ def build_oauth_provider(
             redirect_path = getattr(server_config.auth, "redirect_path", "/callback")
             scope_field = getattr(server_config.auth, "scope", None)
             persist_mode = getattr(server_config.auth, "persist", "keyring")
-            client_metadata_url = getattr(server_config.auth, "client_metadata_url", None)
+            configured_client_metadata_url = getattr(server_config.auth, "client_metadata_url", None)
+            if configured_client_metadata_url is not None:
+                client_metadata_url = configured_client_metadata_url
             if isinstance(scope_field, list):
                 scope_value = " ".join(scope_field)
             elif isinstance(scope_field, str):

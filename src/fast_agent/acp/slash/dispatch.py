@@ -20,6 +20,8 @@ async def execute(handler: "SlashCommandHandler", command_name: str, arguments: 
             return await handler._handle_tools()
         case "skills":
             return await handler._handle_skills(arguments)
+        case "cards":
+            return await handler._handle_cards(arguments)
         case "history":
             return await handler._handle_history(arguments)
         case "clear":

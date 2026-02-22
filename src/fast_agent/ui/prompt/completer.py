@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
+import re
+import time
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from mcp.types import ResourceTemplate
 from prompt_toolkit.completion import Completer, Completion
 
 from fast_agent.agents.agent_types import AgentType
@@ -24,6 +29,24 @@ if TYPE_CHECKING:
 
 class AgentCompleter(Completer):
     """Provide completion for agent names and common commands."""
+
+    _MENTION_RE = re.compile(r"(?:^|\s)(\^[^\s]*)$")
+
+    @dataclass(frozen=True)
+    class _MentionContext:
+        token: str
+        kind: str
+        server_name: str | None
+        partial: str
+        template_uri: str | None
+        argument_name: str | None
+        argument_value: str
+        context_args: dict[str, str]
+
+    @dataclass(frozen=True)
+    class _CacheEntry:
+        created_at: float
+        completions: tuple[Completion, ...]
 
     def __init__(
         self,
@@ -49,6 +72,10 @@ class AgentCompleter(Completer):
                 "(/model reasoning|verbosity|web_search|web_fetch <value>)"
             ),
             "skills": "Manage skills (/skills, /skills add, /skills remove, /skills update, /skills registry)",
+            "cards": (
+                "Manage card packs "
+                "(/cards, /cards add, /cards remove, /cards update, /cards publish, /cards registry)"
+            ),
             "prompt": "Load a Prompt File or use MCP Prompt",
             "system": "Show the current system prompt",
             "usage": "Show current usage statistics",
@@ -67,6 +94,13 @@ class AgentCompleter(Completer):
             self.commands.pop("tools", None)  # Remove tools command in human input mode
             self.commands.pop("usage", None)  # Remove usage command in human input mode
         self.agent_types = agent_types or {}
+        self._mention_cache: dict[tuple[Any, ...], AgentCompleter._CacheEntry] = {}
+        self._mention_cache_ttl_seconds = 3.0
+        self._completion_wait_timeout_seconds = 1.5
+        try:
+            self._owner_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._owner_loop = None
 
     def _current_agent_has_web_tools_enabled(self) -> bool:
         if self.agent_provider is None or not self.current_agent:
@@ -446,6 +480,89 @@ class AgentCompleter(Completer):
                     display_meta=display,
                 )
 
+    def _complete_local_card_pack_names(
+        self,
+        partial: str,
+        *,
+        managed_only: bool = False,
+        include_indices: bool = True,
+    ):
+        """Generate completions for installed card packs."""
+        from fast_agent.cards.manager import list_local_card_packs
+        from fast_agent.paths import resolve_environment_paths
+
+        env_paths = resolve_environment_paths(get_settings())
+        packs = list_local_card_packs(environment_paths=env_paths)
+        if not packs:
+            return
+
+        partial_lower = partial.lower()
+        include_numbers = include_indices and (not partial or partial.isdigit())
+        for entry in packs:
+            if managed_only and entry.source is None:
+                continue
+
+            name = entry.name
+            if name and (not partial or name.lower().startswith(partial_lower)):
+                yield Completion(
+                    name,
+                    start_position=-len(partial),
+                    display=name,
+                    display_meta="managed card pack" if entry.source else "local card pack",
+                )
+
+            if include_numbers:
+                index_text = str(entry.index)
+                if not partial or index_text.startswith(partial):
+                    yield Completion(
+                        index_text,
+                        start_position=-len(partial),
+                        display=index_text,
+                        display_meta=name,
+                    )
+
+    def _complete_card_registries(self, partial: str):
+        """Generate completions for configured card registries."""
+        from fast_agent.cards.manager import DEFAULT_CARD_REGISTRIES, format_marketplace_display_url
+
+        settings = get_settings()
+        cards_settings = getattr(settings, "cards", None)
+        configured_urls = (
+            getattr(cards_settings, "marketplace_urls", None) if cards_settings else None
+        ) or list(DEFAULT_CARD_REGISTRIES)
+        active_url = getattr(cards_settings, "marketplace_url", None) if cards_settings else None
+        if active_url and active_url not in configured_urls:
+            configured_urls.append(active_url)
+
+        unique_urls: list[str] = []
+        seen_urls = set()
+        for url in configured_urls:
+            if url in seen_urls:
+                continue
+            seen_urls.add(url)
+            unique_urls.append(url)
+
+        partial_lower = partial.lower()
+        include_numbers = not partial or partial.isdigit()
+        include_urls = bool(partial) and not partial.isdigit()
+        for index, url in enumerate(unique_urls, 1):
+            display = format_marketplace_display_url(url)
+            index_text = str(index)
+            if include_numbers and index_text.startswith(partial):
+                yield Completion(
+                    index_text,
+                    start_position=-len(partial),
+                    display=index_text,
+                    display_meta=display,
+                )
+            if include_urls and url.lower().startswith(partial_lower):
+                yield Completion(
+                    url,
+                    start_position=-len(partial),
+                    display=index_text,
+                    display_meta=display,
+                )
+
     def _complete_executables(self, partial: str, max_results: int = 100):
         """Complete executable names from PATH.
 
@@ -667,6 +784,454 @@ class AgentCompleter(Completer):
             return "flag", target_count, partial
         return "target", target_count, partial
 
+    def _current_agent_object(self) -> object | None:
+        if self.agent_provider is None or not self.current_agent:
+            return None
+        try:
+            return self.agent_provider._agent(self.current_agent)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _feature_enabled(value: object | None) -> bool:
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return False
+        try:
+            return bool(value)
+        except Exception:  # noqa: BLE001 - defensive fallback for capability objects
+            return True
+
+    async def _list_connected_resource_servers(self) -> list[str]:
+        agent = self._current_agent_object()
+        if agent is None:
+            return []
+
+        aggregator = getattr(agent, "aggregator", None)
+        if aggregator is None:
+            return []
+
+        collect_status = getattr(aggregator, "collect_server_status", None)
+        if callable(collect_status):
+            try:
+                status_map = await collect_status()
+            except Exception:
+                status_map = None
+            if isinstance(status_map, dict):
+                names: set[str] = set()
+                for server_name, status in status_map.items():
+                    if getattr(status, "is_connected", None) is not True:
+                        continue
+
+                    capabilities = getattr(status, "server_capabilities", None)
+                    resources_capability = (
+                        getattr(capabilities, "resources", None) if capabilities is not None else None
+                    )
+                    if not self._feature_enabled(resources_capability):
+                        continue
+
+                    names.add(str(server_name))
+                return sorted(names)
+
+        list_attached = getattr(aggregator, "list_attached_servers", None)
+        get_capabilities = getattr(aggregator, "get_capabilities", None)
+        if not callable(list_attached) or not callable(get_capabilities):
+            return []
+
+        names: set[str] = set()
+        try:
+            attached_servers = list_attached()
+        except Exception:
+            attached_servers = []
+
+        for server_name in attached_servers:
+            try:
+                capabilities = await get_capabilities(server_name)
+            except Exception:
+                continue
+            resources_capability = (
+                getattr(capabilities, "resources", None) if capabilities is not None else None
+            )
+            if self._feature_enabled(resources_capability):
+                names.add(str(server_name))
+
+        return sorted(names)
+
+    def _completion_cache_get(self, key: tuple[Any, ...]) -> tuple[Completion, ...] | None:
+        cached = self._mention_cache.get(key)
+        if cached is None:
+            return None
+        if (time.monotonic() - cached.created_at) > self._mention_cache_ttl_seconds:
+            self._mention_cache.pop(key, None)
+            return None
+        return cached.completions
+
+    def _completion_cache_put(self, key: tuple[Any, ...], completions: list[Completion]) -> None:
+        self._mention_cache[key] = self._CacheEntry(
+            created_at=time.monotonic(),
+            completions=tuple(completions),
+        )
+
+    def _run_async_completion(self, awaitable) -> Any:
+        owner_loop = self._owner_loop
+        if owner_loop is not None and owner_loop.is_running():
+            try:
+                current_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                current_loop = None
+
+            if current_loop is not owner_loop:
+                future = asyncio.run_coroutine_threadsafe(awaitable, owner_loop)
+                try:
+                    return future.result(timeout=self._completion_wait_timeout_seconds)
+                except FuturesTimeoutError:
+                    future.cancel()
+                    return None
+                except Exception:
+                    return None
+
+        try:
+            return asyncio.run(awaitable)
+        except Exception:
+            return None
+
+    async def _list_server_resource_uris(self, server_name: str) -> list[str]:
+        agent = self._current_agent_object()
+        if agent is None:
+            return []
+
+        list_resources = getattr(agent, "list_resources", None)
+        if not callable(list_resources):
+            return []
+
+        result = await list_resources(namespace=server_name)
+        uris = result.get(server_name, []) if isinstance(result, dict) else []
+        return [str(uri) for uri in uris]
+
+    async def _list_server_resource_templates(self, server_name: str) -> list[ResourceTemplate]:
+        agent = self._current_agent_object()
+        if agent is None:
+            return []
+
+        aggregator = getattr(agent, "aggregator", None)
+        list_templates = getattr(aggregator, "list_resource_templates", None)
+        if not callable(list_templates):
+            return []
+
+        result = await list_templates(server_name)
+        templates = result.get(server_name, []) if isinstance(result, dict) else []
+        return [template for template in templates if isinstance(template, ResourceTemplate)]
+
+    async def _complete_server_template_argument(
+        self,
+        server_name: str,
+        template_uri: str,
+        argument_name: str,
+        value: str,
+        context_args: dict[str, str] | None = None,
+    ) -> list[str]:
+        agent = self._current_agent_object()
+        if agent is None:
+            return []
+
+        aggregator = getattr(agent, "aggregator", None)
+        complete_arg = getattr(aggregator, "complete_resource_argument", None)
+        if not callable(complete_arg):
+            return []
+
+        completion = await complete_arg(
+            server_name=server_name,
+            template_uri=template_uri,
+            argument_name=argument_name,
+            value=value,
+            context_args=context_args,
+        )
+        values = getattr(completion, "values", None)
+        if not isinstance(values, list):
+            return []
+        return [str(item) for item in values]
+
+    @staticmethod
+    def _extract_template_argument_names(template_uri: str) -> list[str]:
+        names: list[str] = []
+        seen: set[str] = set()
+        for match in re.finditer(r"\{([^{}]+)\}", template_uri):
+            name = match.group(1).strip()
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            names.append(name)
+        return names
+
+    @staticmethod
+    def _split_mention_argument_section(remainder: str) -> tuple[str, str] | None:
+        """Split a mention remainder into (template_uri, argument_text).
+
+        Returns ``None`` when no trailing argument section has been started.
+        The argument section starts at the first unmatched ``{`` from the end,
+        while URI-template placeholders remain balanced ``{...}`` segments.
+        """
+
+        open_index: int | None = None
+        depth = 0
+
+        for index, char in enumerate(remainder):
+            if char == "{":
+                if depth == 0:
+                    open_index = index
+                depth += 1
+                continue
+            if char == "}":
+                if depth > 0:
+                    depth -= 1
+                    if depth == 0:
+                        open_index = None
+
+        if depth == 0 or open_index is None:
+            return None
+        if depth != 1:
+            return None
+
+        return remainder[:open_index], remainder[open_index + 1 :]
+
+    def _mention_context_for_text(self, text: str) -> _MentionContext | None:
+        match = self._MENTION_RE.search(text)
+        if not match:
+            return None
+
+        token = match.group(1)
+        payload = token[1:]
+
+        if ":" not in payload:
+            return self._MentionContext(
+                token=token,
+                kind="server",
+                server_name=None,
+                partial=payload,
+                template_uri=None,
+                argument_name=None,
+                argument_value="",
+                context_args={},
+            )
+
+        server_name, remainder = payload.split(":", 1)
+        if not server_name:
+            return None
+
+        split_result = self._split_mention_argument_section(remainder)
+        if split_result is None:
+            return self._MentionContext(
+                token=token,
+                kind="resource",
+                server_name=server_name,
+                partial=remainder,
+                template_uri=None,
+                argument_name=None,
+                argument_value="",
+                context_args={},
+            )
+
+        template_uri, argument_text = split_result
+        if "}" in argument_text:
+            return None
+
+        argument_text = argument_text.strip()
+        context_args: dict[str, str] = {}
+        raw_segments = [segment.strip() for segment in argument_text.split(",")]
+        if not raw_segments:
+            raw_segments = [""]
+
+        for segment in raw_segments[:-1]:
+            if "=" not in segment:
+                continue
+            key, value = segment.split("=", 1)
+            key = key.strip()
+            if not key:
+                continue
+            context_args[key] = value.strip()
+
+        current_segment = raw_segments[-1]
+        if not current_segment:
+            return self._MentionContext(
+                token=token,
+                kind="argument_name",
+                server_name=server_name,
+                partial="",
+                template_uri=template_uri,
+                argument_name=None,
+                argument_value="",
+                context_args=context_args,
+            )
+
+        if "=" not in current_segment:
+            return self._MentionContext(
+                token=token,
+                kind="argument_name",
+                server_name=server_name,
+                partial=current_segment,
+                template_uri=template_uri,
+                argument_name=None,
+                argument_value="",
+                context_args=context_args,
+            )
+
+        argument_name, value_partial = current_segment.split("=", 1)
+        argument_name = argument_name.strip()
+        return self._MentionContext(
+            token=token,
+            kind="argument_value",
+            server_name=server_name,
+            partial=value_partial,
+            template_uri=template_uri,
+            argument_name=argument_name,
+            argument_value=value_partial,
+            context_args=context_args,
+        )
+
+    def _mention_completions(self, text_before_cursor: str) -> list[Completion] | None:
+        context = self._mention_context_for_text(text_before_cursor)
+        if context is None:
+            return None
+
+        if context.kind == "server":
+            cache_key = (
+                "resource_server",
+                self.current_agent,
+                context.partial,
+            )
+            cached = self._completion_cache_get(cache_key)
+            if cached is not None:
+                return list(cached)
+
+            server_names = self._run_async_completion(self._list_connected_resource_servers()) or []
+            partial = context.partial.lower()
+            completions = [
+                Completion(
+                    f"{server_name}:",
+                    start_position=-len(context.partial),
+                    display=server_name,
+                    display_meta="connected mcp server (resources)",
+                )
+                for server_name in server_names
+                if not partial or server_name.lower().startswith(partial)
+            ]
+            self._completion_cache_put(cache_key, completions)
+            return completions
+
+        if context.server_name is None:
+            return []
+
+        if context.kind == "resource":
+            cache_key = (
+                "resource",
+                self.current_agent,
+                context.server_name,
+                context.partial,
+            )
+            cached = self._completion_cache_get(cache_key)
+            if cached is not None:
+                return list(cached)
+
+            resources = self._run_async_completion(
+                self._list_server_resource_uris(context.server_name)
+            ) or []
+            templates = self._run_async_completion(
+                self._list_server_resource_templates(context.server_name)
+            ) or []
+
+            prefix = context.partial.lower()
+            completions: list[Completion] = []
+            for uri in sorted(set(resources)):
+                if prefix and not uri.lower().startswith(prefix):
+                    continue
+                completions.append(
+                    Completion(
+                        uri,
+                        start_position=-len(context.partial),
+                        display=uri,
+                        display_meta="resource",
+                    )
+                )
+
+            for template in templates:
+                template_uri = template.uriTemplate
+                if prefix and not template_uri.lower().startswith(prefix):
+                    continue
+                completions.append(
+                    Completion(
+                        f"{template_uri}{{",
+                        start_position=-len(context.partial),
+                        display=template_uri,
+                        display_meta="resource template",
+                    )
+                )
+
+            self._completion_cache_put(cache_key, completions)
+            return completions
+
+        if context.kind == "argument_name":
+            if not context.template_uri:
+                return []
+            argument_names = self._extract_template_argument_names(context.template_uri)
+            prefix = context.partial.lower()
+            return [
+                Completion(
+                    f"{argument_name}=",
+                    start_position=-len(context.partial),
+                    display=argument_name,
+                    display_meta="template argument",
+                )
+                for argument_name in argument_names
+                if argument_name not in context.context_args
+                if not prefix or argument_name.lower().startswith(prefix)
+            ]
+
+        if context.kind == "argument_value":
+            if (
+                not context.template_uri
+                or not context.argument_name
+                or not context.server_name
+            ):
+                return []
+
+            cache_key = (
+                "arg_value",
+                self.current_agent,
+                context.server_name,
+                context.template_uri,
+                context.argument_name,
+                tuple(sorted(context.context_args.items())),
+                context.argument_value,
+            )
+            cached = self._completion_cache_get(cache_key)
+            if cached is not None:
+                return list(cached)
+
+            values = self._run_async_completion(
+                self._complete_server_template_argument(
+                    server_name=context.server_name,
+                    template_uri=context.template_uri,
+                    argument_name=context.argument_name,
+                    value=context.argument_value,
+                    context_args=context.context_args or None,
+                )
+            ) or []
+
+            completions = [
+                Completion(
+                    value,
+                    start_position=-len(context.argument_value),
+                    display=value,
+                    display_meta=f"{context.server_name} completion",
+                )
+                for value in values
+            ]
+            self._completion_cache_put(cache_key, completions)
+            return completions
+
+        return []
+
     def get_completions(self, document, complete_event):
         """Synchronous completions method - this is what prompt_toolkit expects by default"""
         text = document.text_before_cursor
@@ -694,6 +1259,11 @@ class AgentCompleter(Completer):
                 # After first token: complete paths
                 _, path_part = shell_text.rsplit(" ", 1)
                 yield from self._complete_shell_paths(path_part, len(path_part))
+            return
+
+        mention_completions = self._mention_completions(text)
+        if mention_completions is not None:
+            yield from mention_completions
             return
 
         from fast_agent.ui.prompt.completion_sources import command_completions
@@ -755,4 +1325,3 @@ class AgentCompleter(Completer):
                             display=agent,
                             display_meta=f"# {agent_type}",
                         )
-

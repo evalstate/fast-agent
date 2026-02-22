@@ -20,8 +20,12 @@ from mcp.client.session import ClientSession
 from mcp.shared.session import ProgressFnT
 from mcp.types import (
     CallToolResult,
+    CompleteResult,
+    Completion,
     ListToolsResult,
     Prompt,
+    ResourceTemplate,
+    ResourceTemplateReference,
     ServerCapabilities,
     TextContent,
     Tool,
@@ -2448,6 +2452,24 @@ class MCPAggregator(ContextDependent):
 
         return getattr(result, "resources", []) or []
 
+    async def _list_resource_templates_from_server(
+        self, server_name: str, *, check_support: bool = True
+    ) -> list[ResourceTemplate]:
+        """Internal helper to list resource templates from a specific server."""
+        if check_support and not await self.server_supports_feature(server_name, "resources"):
+            return []
+
+        result = await self._execute_on_server(
+            server_name=server_name,
+            operation_type="resources/templates/list",
+            operation_name="",
+            method_name="list_resource_templates",
+            method_args={},
+            error_factory=lambda _: None,
+        )
+
+        return getattr(result, "resourceTemplates", []) or []
+
     async def list_resources(self, server_name: str | None = None) -> dict[str, list[str]]:
         """
         List available resources from one or all servers.
@@ -2493,6 +2515,67 @@ class MCPAggregator(ContextDependent):
                 logger.error(f"Error fetching resources from {s_name}: {e}")
 
         return results
+
+    async def list_resource_templates(
+        self, server_name: str | None = None
+    ) -> dict[str, list[ResourceTemplate]]:
+        """List available resource templates from one or all servers."""
+        if not self.initialized:
+            await self.load_servers()
+
+        results: dict[str, list[ResourceTemplate]] = {}
+        servers_to_check = [server_name] if server_name else self.server_names
+
+        for s_name in servers_to_check:
+            if s_name not in self.server_names:
+                logger.error(f"Server '{s_name}' not found")
+                continue
+
+            results[s_name] = []
+
+            if not await self.server_supports_feature(s_name, "resources"):
+                logger.debug(f"Server '{s_name}' does not support resources")
+                continue
+
+            try:
+                templates = await self._list_resource_templates_from_server(
+                    s_name, check_support=False
+                )
+                results[s_name] = list(templates)
+            except Exception as e:
+                logger.error(f"Error fetching resource templates from {s_name}: {e}")
+
+        return results
+
+    async def complete_resource_argument(
+        self,
+        server_name: str,
+        template_uri: str,
+        argument_name: str,
+        value: str,
+        context_args: dict[str, str] | None = None,
+    ) -> Completion:
+        """Request MCP completion for resource template argument values."""
+        if not await self.validate_server(server_name):
+            return Completion(values=[])
+
+        if not await self.server_supports_feature(server_name, "completions"):
+            return Completion(values=[])
+
+        result: CompleteResult = await self._execute_on_server(
+            server_name=server_name,
+            operation_type="completion/complete",
+            operation_name=template_uri,
+            method_name="complete",
+            method_args={
+                "ref": ResourceTemplateReference(type="ref/resource", uri=template_uri),
+                "argument": {"name": argument_name, "value": value},
+                "context_arguments": context_args,
+            },
+            error_factory=lambda _msg: CompleteResult(completion=Completion(values=[])),
+        )
+
+        return result.completion
 
     async def list_mcp_tools(self, server_name: str | None = None) -> dict[str, list[Tool]]:
         """

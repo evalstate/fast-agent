@@ -201,6 +201,124 @@ def command_completions(
             return results
         return results
 
+    if text_lower.startswith("/cards "):
+        remainder = text[len("/cards ") :] or ""
+        parts = remainder.split(maxsplit=1)
+        subcommands = {
+            "list": "List installed card packs",
+            "add": "Install a card pack",
+            "remove": "Remove an installed card pack",
+            "update": "Check or apply card pack updates",
+            "publish": "Publish local card pack changes",
+            "registry": "Set card pack registry",
+        }
+        results = list(completer._complete_subcommands(parts, remainder, subcommands))
+        if not parts or (len(parts) == 1 and not remainder.endswith(" ")):
+            return results
+
+        subcmd = parts[0].lower()
+        argument = parts[1] if len(parts) > 1 else ""
+        if subcmd in {"remove", "rm", "delete", "uninstall"}:
+            results.extend(list(completer._complete_local_card_pack_names(argument)))
+            return results
+        if subcmd in {"update", "refresh", "upgrade"}:
+            if "all".startswith(argument.lower()):
+                results.append(
+                    Completion(
+                        "all",
+                        start_position=-len(argument),
+                        display="all",
+                        display_meta="update all managed card packs",
+                    )
+                )
+            if "--force".startswith(argument.lower()):
+                results.append(
+                    Completion(
+                        "--force",
+                        start_position=-len(argument),
+                        display="--force",
+                        display_meta="overwrite local modifications",
+                    )
+                )
+            if "--yes".startswith(argument.lower()):
+                results.append(
+                    Completion(
+                        "--yes",
+                        start_position=-len(argument),
+                        display="--yes",
+                        display_meta="confirm multi-pack apply",
+                    )
+                )
+            results.extend(
+                list(
+                    completer._complete_local_card_pack_names(
+                        argument,
+                        managed_only=True,
+                        include_indices=False,
+                    )
+                )
+            )
+            return results
+        if subcmd in {"registry", "marketplace", "source"}:
+            results.extend(list(completer._complete_card_registries(argument)))
+            return results
+        if subcmd in {"publish"}:
+            current_token = ""
+            if argument and not argument.endswith(" "):
+                current_token = argument.split()[-1]
+            elif argument.startswith("--"):
+                current_token = argument
+
+            if current_token.startswith("--") or not argument.strip():
+                if "--no-push".startswith(current_token.lower()):
+                    results.append(
+                        Completion(
+                            "--no-push",
+                            start_position=-len(current_token),
+                            display="--no-push",
+                            display_meta="commit locally without push",
+                        )
+                    )
+                if "--message".startswith(current_token.lower()):
+                    results.append(
+                        Completion(
+                            "--message",
+                            start_position=-len(current_token),
+                            display="--message",
+                            display_meta="set publish commit message",
+                        )
+                    )
+                if "--temp-dir".startswith(current_token.lower()):
+                    results.append(
+                        Completion(
+                            "--temp-dir",
+                            start_position=-len(current_token),
+                            display="--temp-dir",
+                            display_meta="set parent directory for temp clone",
+                        )
+                    )
+                if "--keep-temp".startswith(current_token.lower()):
+                    results.append(
+                        Completion(
+                            "--keep-temp",
+                            start_position=-len(current_token),
+                            display="--keep-temp",
+                            display_meta="retain temp clone after publish",
+                        )
+                    )
+
+            results.extend(
+                list(
+                    completer._complete_local_card_pack_names(
+                        argument,
+                        managed_only=True,
+                        include_indices=False,
+                    )
+                )
+            )
+            return results
+        return results
+
     if text_lower.startswith("/model "):
         remainder = text[len("/model ") :] or ""
         parts = remainder.split(maxsplit=1)

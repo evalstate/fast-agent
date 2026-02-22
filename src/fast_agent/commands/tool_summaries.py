@@ -39,6 +39,7 @@ def _format_tool_args(schema: dict[str, Any] | None) -> list[str] | None:
 
 def build_tool_summaries(agent: object, tools: list[object]) -> list[ToolSummary]:
     card_tool_names = set(getattr(agent, "_card_tool_names", []) or [])
+    smart_tool_names = set(getattr(agent, "_smart_tool_names", []) or [])
     agent_tool_names = set(getattr(agent, "_agent_tools", {}).keys())
     child_agent_tool_names = set(getattr(agent, "_child_agents", {}).keys())
     agent_tool_names |= child_agent_tool_names
@@ -55,6 +56,8 @@ def build_tool_summaries(agent: object, tools: list[object]) -> list[ToolSummary
         suffix = None
         if name in internal_tool_names:
             suffix = "(Internal)"
+        elif name in smart_tool_names:
+            suffix = "(Smart)"
         elif name in card_tool_names:
             suffix = "(Card Function)"
         elif name in child_agent_tool_names:

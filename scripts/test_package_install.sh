@@ -70,6 +70,10 @@ except Exception as e:
     raise
 PY
 
+# Smoke test: cards CLI with env-scoped registry configuration and override
+echo "Running cards CLI env smoke test..."
+bash ../../scripts/test_cards_cli_env.sh
+
 # Deactivate the virtual environment
 deactivate
 
