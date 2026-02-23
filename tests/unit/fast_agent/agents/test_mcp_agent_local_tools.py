@@ -1,4 +1,5 @@
 import asyncio
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
@@ -227,6 +228,41 @@ async def test_shell_output_limit_override_is_preserved_after_llm_attach() -> No
     await agent.attach_llm(_stub_llm_factory("claude-opus-4-6"), model="opus")
 
     assert shell_runtime.output_byte_limit == 9000
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_shell_startup_warns_when_configured_cwd_missing(tmp_path: Path) -> None:
+    missing_dir = tmp_path / "missing-shell-cwd"
+    config = AgentConfig(
+        name="test",
+        instruction="Instruction",
+        servers=[],
+        shell=True,
+        cwd=missing_dir,
+    )
+    agent = McpAgent(config=config, context=Context())
+
+    assert any("shell cwd that does not exist" in warning for warning in agent.warnings)
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_shell_startup_warns_when_configured_cwd_is_file(tmp_path: Path) -> None:
+    file_path = tmp_path / "shell-cwd-file.txt"
+    file_path.write_text("x", encoding="utf-8")
+    config = AgentConfig(
+        name="test",
+        instruction="Instruction",
+        servers=[],
+        shell=True,
+        cwd=file_path,
+    )
+    agent = McpAgent(config=config, context=Context())
+
+    assert any("shell cwd that is not a directory" in warning for warning in agent.warnings)
 
     await agent._aggregator.close()
 

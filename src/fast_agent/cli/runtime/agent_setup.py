@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import sys
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -16,6 +17,14 @@ from fast_agent.cli.constants import RESUME_LATEST_SENTINEL
 from fast_agent.core.exceptions import AgentConfigError
 
 from .request_builders import resolve_default_instruction, resolve_smart_agent_enabled
+from .shell_cwd_policy import (
+    can_prompt_for_missing_cwd,
+    collect_shell_cwd_issues,
+    create_missing_shell_cwd_directories,
+    effective_missing_shell_cwd_policy,
+    format_shell_cwd_issues,
+    resolve_missing_shell_cwd_policy,
+)
 
 if TYPE_CHECKING:
     from .run_request import AgentRunRequest
@@ -31,6 +40,110 @@ def _find_last_assistant_text(history: list[Any]) -> str | None:
             if value:
                 return str(value)
     return None
+
+
+def _is_interactive_startup_notice_context(request: AgentRunRequest) -> bool:
+    return request.mode == "interactive" and request.message is None and request.prompt_file is None
+
+
+def _emit_startup_notice(request: AgentRunRequest, message: str) -> None:
+    if _is_interactive_startup_notice_context(request):
+        from fast_agent.ui.enhanced_prompt import queue_startup_notice
+
+        queue_startup_notice(message)
+        return
+
+    typer.echo(message, err=True)
+
+
+def _format_shell_cwd_policy_message(
+    *,
+    policy: str,
+    lines: list[str],
+) -> str:
+    title = f"Shell cwd policy ({policy}):"
+    return "\n".join([title, *lines])
+
+
+def _apply_shell_cwd_policy_preflight(fast: Any, request: AgentRunRequest) -> None:
+    issues = collect_shell_cwd_issues(
+        fast.agents,
+        shell_runtime_requested=request.shell_runtime,
+        cwd=Path.cwd(),
+    )
+    if not issues:
+        return
+
+    settings = getattr(fast.app.context, "config", None)
+    shell_settings = getattr(settings, "shell_execution", None)
+    configured_policy = getattr(shell_settings, "missing_cwd_policy", None)
+    resolved_policy = resolve_missing_shell_cwd_policy(
+        cli_override=request.missing_shell_cwd_policy,
+        configured_policy=configured_policy,
+    )
+    interactive_startup_context = _is_interactive_startup_notice_context(request)
+    can_prompt = can_prompt_for_missing_cwd(
+        mode=request.mode,
+        message=request.message,
+        prompt_file=request.prompt_file,
+        stdin_is_tty=sys.stdin.isatty(),
+        tty_device_available=False,
+    )
+    policy = effective_missing_shell_cwd_policy(resolved_policy, can_prompt=can_prompt)
+    issue_lines = format_shell_cwd_issues(issues)
+
+    if policy == "warn":
+        _emit_startup_notice(
+            request,
+            _format_shell_cwd_policy_message(policy=policy, lines=issue_lines),
+        )
+        return
+
+    if policy == "error":
+        typer.echo(_format_shell_cwd_policy_message(policy=policy, lines=issue_lines), err=True)
+        raise typer.Exit(1)
+
+    if policy == "ask":
+        if interactive_startup_context:
+            # Keep interactive confirmation inside the prompt lifecycle for ask mode.
+            return
+        policy = "warn"
+
+    if policy == "warn":
+        _emit_startup_notice(
+            request,
+            _format_shell_cwd_policy_message(policy=policy, lines=issue_lines),
+        )
+        return
+
+    created_paths, creation_errors = create_missing_shell_cwd_directories(issues)
+    if created_paths:
+        created_lines = [
+            "Created missing shell cwd directories:",
+            *[f" - {path}" for path in created_paths],
+        ]
+        _emit_startup_notice(request, "\n".join(created_lines))
+
+    if creation_errors:
+        error_lines = ["Failed to create one or more shell cwd directories:"]
+        error_lines.extend(f" - {item.path}: {item.message}" for item in creation_errors)
+        typer.echo("\n".join(error_lines), err=True)
+        raise typer.Exit(1)
+
+    remaining_issues = collect_shell_cwd_issues(
+        fast.agents,
+        shell_runtime_requested=request.shell_runtime,
+        cwd=Path.cwd(),
+    )
+    if remaining_issues:
+        typer.echo(
+            _format_shell_cwd_policy_message(
+                policy="error",
+                lines=format_shell_cwd_issues(remaining_issues),
+            ),
+            err=True,
+        )
+        raise typer.Exit(1)
 
 
 async def _resume_session_if_requested(agent_app, request: AgentRunRequest) -> None:
@@ -236,6 +349,9 @@ async def _export_result_histories(
 async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -> None:
     from fast_agent.mcp.prompts.prompt_load import load_prompt
 
+    # Allow interactive prompt startup checks to honor per-run CLI override policy.
+    setattr(agent_app, "_missing_shell_cwd_policy_override", request.missing_shell_cwd_policy)
+
     async def _run_interactive_with_interrupt_recovery() -> None:
         ctrl_c_exit_window_seconds = 2.0
         ctrl_c_deadline: float | None = None
@@ -427,6 +543,7 @@ async def run_agent_request(request: AgentRunRequest) -> None:
                     fast.attach_agent_tools(target_name, tool_loaded_names)
 
             _validate_target_agent_name(fast, request)
+            _apply_shell_cwd_policy_preflight(fast, request)
         except AgentConfigError as exc:
             fast._handle_error(exc)
             raise typer.Exit(1) from exc

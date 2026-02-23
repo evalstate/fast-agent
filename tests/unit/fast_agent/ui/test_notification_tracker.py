@@ -31,3 +31,19 @@ def test_startup_warnings_are_queued_separately_from_toolbar_counts() -> None:
     assert notification_tracker.pop_startup_warnings() == []
 
     notification_tracker.clear()
+
+
+def test_remove_startup_warnings_containing_fragment() -> None:
+    notification_tracker.clear()
+
+    notification_tracker.add_warning("Agent A shell cwd missing", surface="startup_once")
+    notification_tracker.add_warning("Agent B shell cwd missing", surface="startup_once")
+    notification_tracker.add_warning("other startup warning", surface="startup_once")
+
+    removed = notification_tracker.remove_startup_warnings_containing("shell cwd")
+    assert removed == 2
+
+    queued = notification_tracker.pop_startup_warnings()
+    assert queued == ["other startup warning"]
+
+    notification_tracker.clear()

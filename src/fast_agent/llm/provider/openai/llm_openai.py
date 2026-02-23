@@ -41,6 +41,10 @@ from fast_agent.llm.provider.openai._stream_capture import (
     stream_capture_filename as _stream_capture_filename,
 )
 from fast_agent.llm.provider.openai.multipart_converter_openai import OpenAIConverter
+from fast_agent.llm.provider.openai.schema_sanitizer import (
+    sanitize_tool_input_schema,
+    should_strip_tool_schema_defaults,
+)
 from fast_agent.llm.provider.openai.tool_notifications import OpenAIToolNotificationMixin
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import format_reasoning_setting, parse_reasoning_setting
@@ -852,7 +856,7 @@ class OpenAILLM(
                     "function": {
                         "name": tool.name,
                         "description": tool.description if tool.description else "",
-                        "parameters": self.adjust_schema(tool.inputSchema),
+                        "parameters": self.adjust_schema(tool.inputSchema, model_name=model_name),
                     },
                 }
                 for tool in tools or []
@@ -1220,14 +1224,20 @@ class OpenAILLM(
 
         return converted
 
-    def adjust_schema(self, inputSchema: dict) -> dict:
-        # return inputSchema
+    def adjust_schema(self, inputSchema: dict, model_name: str | None = None) -> dict:
+        effective_model = model_name or self.default_request_params.model
+        result = (
+            sanitize_tool_input_schema(inputSchema)
+            if should_strip_tool_schema_defaults(effective_model)
+            else inputSchema
+        )
+
         if self.provider not in [Provider.OPENAI, Provider.AZURE]:
-            return inputSchema
+            return result
 
-        if "properties" in inputSchema:
-            return inputSchema
+        if "properties" in result:
+            return result
 
-        result = inputSchema.copy()
+        result = result.copy()
         result["properties"] = {}
         return result

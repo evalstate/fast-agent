@@ -30,6 +30,13 @@ class InstanceScope(str, Enum):
     REQUEST = "request"
 
 
+class MissingShellCwdPolicy(str, Enum):
+    ASK = "ask"
+    CREATE = "create"
+    WARN = "warn"
+    ERROR = "error"
+
+
 def _build_run_request(
     *,
     ctx: typer.Context,
@@ -60,6 +67,7 @@ def _build_run_request(
     no_permissions: bool,
     reload: bool,
     watch: bool,
+    missing_shell_cwd: MissingShellCwdPolicy | None = None,
 ) -> AgentRunRequest:
     resolved_env_dir = resolve_environment_dir_option(ctx, env_dir, set_env_var=not noenv)
     return build_command_run_request(
@@ -96,6 +104,7 @@ def _build_run_request(
         permissions_enabled=not no_permissions,
         reload=reload,
         watch=watch,
+        missing_shell_cwd_policy=missing_shell_cwd.value if missing_shell_cwd else None,
     )
 
 
@@ -162,6 +171,11 @@ def serve(
         "--no-permissions",
         help="Disable tool permission requests (allow all tool executions without asking) - ACP only",
     ),
+    missing_shell_cwd: MissingShellCwdPolicy | None = typer.Option(
+        None,
+        "--missing-shell-cwd",
+        help="Override shell_execution.missing_cwd_policy (ask, create, warn, error)",
+    ),
     reload: bool = CommonAgentOptions.reload(),
     watch: bool = CommonAgentOptions.watch(),
 ) -> None:
@@ -195,5 +209,6 @@ def serve(
         no_permissions=no_permissions,
         reload=reload,
         watch=watch,
+        missing_shell_cwd=missing_shell_cwd,
     )
     run_request(request)

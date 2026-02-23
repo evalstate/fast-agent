@@ -200,6 +200,36 @@ def test_build_command_run_request_smart_flag_uses_smart_instruction() -> None:
     assert request.instruction == SMART_AGENT_INSTRUCTION
 
 
+def test_build_command_run_request_accepts_missing_shell_cwd_override() -> None:
+    request = build_command_run_request(
+        name="cli",
+        instruction_option=None,
+        config_path=None,
+        servers=None,
+        urls=None,
+        auth=None,
+        client_metadata_url=None,
+        agent_cards=None,
+        card_tools=None,
+        model=None,
+        message=None,
+        prompt_file=None,
+        result_file=None,
+        resume=None,
+        npx=None,
+        uvx=None,
+        stdio=None,
+        target_agent_name=None,
+        skills_directory=None,
+        environment_dir=None,
+        shell_enabled=False,
+        mode="serve",
+        missing_shell_cwd_policy="error",
+    )
+
+    assert request.missing_shell_cwd_policy == "error"
+
+
 def test_resolve_smart_agent_enabled_disables_smart_for_multi_model_even_when_forced() -> None:
     assert resolve_smart_agent_enabled(
         "gpt-4.1,claude-sonnet-4-5",

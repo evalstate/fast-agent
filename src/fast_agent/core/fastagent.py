@@ -59,7 +59,7 @@ from fast_agent.core.validation import (
     validate_server_references,
     validate_workflow_references,
 )
-from fast_agent.mcp.connect_targets import build_server_config_from_target
+from fast_agent.mcp.connect_targets import resolve_target_entry
 from fast_agent.mcp.prompts.prompt_load import load_prompt
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest, SkillRegistry, SkillsDefault
 from fast_agent.ui.console import configure_console_stream
@@ -1078,10 +1078,20 @@ class FastAgent(DecoratorMixin):
                         f"Entry {index}: target must be a non-empty string",
                     )
 
+                overrides: dict[str, Any] = {}
+                entry_headers = getattr(entry, "headers", None)
+                if isinstance(entry_headers, dict):
+                    overrides["headers"] = dict(entry_headers)
+                entry_auth = getattr(entry, "auth", None)
+                if isinstance(entry_auth, dict):
+                    overrides["auth"] = dict(entry_auth)
+
                 try:
-                    resolved_name, resolved_settings = build_server_config_from_target(
-                        target,
-                        server_name=explicit_name,
+                    resolved_name, resolved_settings = resolve_target_entry(
+                        target=target,
+                        default_name=explicit_name,
+                        overrides=overrides,
+                        source_path=f"mcp_connect[{index}].target",
                     )
                 except Exception as exc:  # noqa: BLE001
                     raise AgentConfigError(

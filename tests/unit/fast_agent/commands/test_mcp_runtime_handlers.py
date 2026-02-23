@@ -1,3 +1,4 @@
+import os
 from typing import cast
 
 import pytest
@@ -209,6 +210,26 @@ def test_parse_connect_input_resolves_auth_env_reference_with_default(monkeypatc
     )
 
     assert parsed.auth_token == "default-token"
+
+
+def test_parse_connect_input_normalizes_bearer_prefix() -> None:
+    parsed = mcp_runtime.parse_connect_input("https://example.com/api --auth 'Bearer token-from-cli'")
+
+    assert parsed.auth_token == "token-from-cli"
+
+
+def test_parse_connect_input_normalizes_bearer_prefix_before_env_resolution() -> None:
+    original_token = os.environ.get("DEMO_TOKEN")
+    os.environ["DEMO_TOKEN"] = "token-from-env"
+    try:
+        parsed = mcp_runtime.parse_connect_input("https://example.com/api --auth 'Bearer $DEMO_TOKEN'")
+    finally:
+        if original_token is None:
+            os.environ.pop("DEMO_TOKEN", None)
+        else:
+            os.environ["DEMO_TOKEN"] = original_token
+
+    assert parsed.auth_token == "token-from-env"
 
 
 def test_parse_connect_input_rejects_missing_auth_env_reference(monkeypatch) -> None:

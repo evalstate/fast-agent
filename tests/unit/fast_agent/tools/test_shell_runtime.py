@@ -161,6 +161,51 @@ async def test_execute_command_with_exit_code() -> None:
 
 
 @pytest.mark.asyncio
+async def test_execute_with_missing_working_directory_returns_actionable_error(
+    tmp_path: Path,
+) -> None:
+    logger = logging.getLogger("shell-runtime-test")
+    missing_dir = tmp_path / "missing-dir"
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logger,
+        timeout_seconds=10,
+        working_directory=missing_dir,
+    )
+
+    result = await runtime.execute({"command": "pwd"})
+
+    assert result.isError is True
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    assert "Shell working directory does not exist" in result.content[0].text
+    assert str(missing_dir.resolve()) in result.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_execute_with_file_working_directory_returns_actionable_error(
+    tmp_path: Path,
+) -> None:
+    logger = logging.getLogger("shell-runtime-test")
+    file_path = tmp_path / "not-a-directory.txt"
+    file_path.write_text("x", encoding="utf-8")
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logger,
+        timeout_seconds=10,
+        working_directory=file_path,
+    )
+
+    result = await runtime.execute({"command": "pwd"})
+
+    assert result.isError is True
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    assert "Shell working directory is not a directory" in result.content[0].text
+    assert str(file_path.resolve()) in result.content[0].text
+
+
+@pytest.mark.asyncio
 async def test_timeout_sends_ctrl_break_for_pwsh(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(platform, "system", lambda: "Windows")
     runtime, process, captured = _setup_runtime(

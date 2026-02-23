@@ -40,6 +40,10 @@ from fast_agent.llm.provider.openai.responses_websocket import (
     resolve_responses_ws_url,
     send_response_request,
 )
+from fast_agent.llm.provider.openai.schema_sanitizer import (
+    sanitize_tool_input_schema,
+    should_strip_tool_schema_defaults,
+)
 from fast_agent.llm.provider.openai.web_tools import build_web_search_tool, resolve_web_search
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import format_reasoning_setting, parse_reasoning_setting
@@ -334,10 +338,15 @@ class ResponsesLLM(
                 "Please check that your API key is valid and not expired.",
             ) from e
 
-    def _adjust_schema(self, input_schema: dict[str, Any]) -> dict[str, Any]:
-        if "properties" in input_schema:
-            return input_schema
-        result = input_schema.copy()
+    def _adjust_schema(self, input_schema: dict[str, Any], model_name: str) -> dict[str, Any]:
+        result = (
+            sanitize_tool_input_schema(input_schema)
+            if should_strip_tool_schema_defaults(model_name)
+            else input_schema
+        )
+        if "properties" in result:
+            return result
+        result = result.copy()
         result["properties"] = {}
         return result
 
@@ -391,7 +400,7 @@ class ResponsesLLM(
                     "type": "function",
                     "name": tool.name,
                     "description": tool.description or "",
-                    "parameters": self._adjust_schema(tool.inputSchema),
+                    "parameters": self._adjust_schema(tool.inputSchema, model),
                 }
                 for tool in tools
             ]

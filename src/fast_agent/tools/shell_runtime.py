@@ -124,6 +124,37 @@ class ShellRuntime:
         # Skills now show their location relative to cwd in the system prompt
         return Path.cwd()
 
+    @staticmethod
+    def _resolve_working_directory(path: Path) -> Path:
+        """Resolve working directory to an absolute path for subprocess execution."""
+        if path.is_absolute():
+            return path.resolve()
+        return (Path.cwd() / path).resolve()
+
+    def _validate_working_directory(self, configured_path: Path) -> str | None:
+        """Return an actionable validation error when cwd is missing/invalid."""
+        resolved_path = self._resolve_working_directory(configured_path)
+
+        if not resolved_path.exists():
+            return " ".join(
+                [
+                    f"Shell working directory does not exist: {resolved_path}.",
+                    f"Configured cwd: {configured_path}.",
+                    "Check the agent card 'cwd' setting or create the directory.",
+                ]
+            )
+
+        if not resolved_path.is_dir():
+            return " ".join(
+                [
+                    f"Shell working directory is not a directory: {resolved_path}.",
+                    f"Configured cwd: {configured_path}.",
+                    "Check the agent card 'cwd' setting.",
+                ]
+            )
+
+        return None
+
     def runtime_info(self) -> dict[str, str | None]:
         """Best-effort detection of the shell runtime used for local execution.
 
@@ -206,6 +237,14 @@ class ShellRuntime:
             f"Executing command with timeout={self._timeout_seconds}s, warning_interval={self._warning_interval_seconds}s"
         )
 
+        configured_working_dir = self.working_directory()
+        working_dir_error = self._validate_working_directory(configured_working_dir)
+        if working_dir_error:
+            return CallToolResult(
+                isError=True,
+                content=[TextContent(type="text", text=working_dir_error)],
+            )
+
         # Pause progress display during shell execution to avoid overlaying output
         with progress_display.paused():
             try:
@@ -215,7 +254,7 @@ class ShellRuntime:
                     tool_event="start",
                 )
 
-                working_dir = self.working_directory()
+                working_dir = self._resolve_working_directory(configured_working_dir)
                 runtime_details = self.runtime_info()
                 shell_name = (runtime_details.get("name") or "").lower()
                 shell_path = runtime_details.get("path")

@@ -52,10 +52,10 @@ async def _print_status(aggregator: MCPAggregator, label: str) -> None:
 
 
 def _server_settings() -> MCPServerSettings:
-    return _server_settings_stdio()
+    return _server_settings_stdio(advertise_session_capability=False)
 
 
-def _server_settings_stdio() -> MCPServerSettings:
+def _server_settings_stdio(*, advertise_session_capability: bool) -> MCPServerSettings:
     repo_root = Path(__file__).resolve().parents[3]
     server_script = repo_root / "examples" / "experimental" / "mcp_sessions" / "session_server.py"
     return MCPServerSettings(
@@ -64,14 +64,16 @@ def _server_settings_stdio() -> MCPServerSettings:
         command=sys.executable,
         args=[str(server_script)],
         cwd=str(repo_root),
+        experimental_session_advertise=advertise_session_capability,
     )
 
 
-def _server_settings_http(url: str) -> MCPServerSettings:
+def _server_settings_http(url: str, *, advertise_session_capability: bool) -> MCPServerSettings:
     return MCPServerSettings(
         name=SERVER_NAME,
         transport="http",
         url=url,
+        experimental_session_advertise=advertise_session_capability,
     )
 
 
@@ -88,6 +90,14 @@ def _parse_args() -> argparse.Namespace:
         default="http://127.0.0.1:8765/mcp",
         help="Streamable HTTP server URL used when --transport=http",
     )
+    parser.add_argument(
+        "--advertise-session-capability",
+        action="store_true",
+        help=(
+            "Advertise experimental session capability from the client in initialize, "
+            "so you can compare server-first vs client-first style negotiation."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -95,9 +105,12 @@ async def main() -> None:
     args = _parse_args()
 
     server_settings = (
-        _server_settings_stdio()
+        _server_settings_stdio(advertise_session_capability=args.advertise_session_capability)
         if args.transport == "stdio"
-        else _server_settings_http(args.url)
+        else _server_settings_http(
+            args.url,
+            advertise_session_capability=args.advertise_session_capability,
+        )
     )
 
     registry = ServerRegistry()

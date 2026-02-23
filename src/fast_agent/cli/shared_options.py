@@ -46,7 +46,14 @@ class CommonAgentOptions:
 
     @staticmethod
     def auth():
-        return typer.Option(None, "--auth", help="Bearer token for authorization with URL-based servers")
+        return typer.Option(
+            None,
+            "--auth",
+            help=(
+                "Authorization token value for URL-based servers "
+                "(pass token only; optional 'Bearer ' prefix is accepted)"
+            ),
+        )
 
     @staticmethod
     def client_metadata_url():

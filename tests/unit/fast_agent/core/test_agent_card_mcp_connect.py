@@ -40,6 +40,25 @@ def _write_card(path: Path, *, include_mcp_connect: bool) -> None:
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
+def _write_http_card_with_auth(path: Path) -> None:
+    lines = [
+        "---",
+        "type: agent",
+        "name: card_agent",
+        "mcp_connect:",
+        "  - target: 'https://demo.hf.space'",
+        "    name: 'demo_remote'",
+        "    headers:",
+        "      Authorization: 'Bearer token-from-card'",
+        "    auth:",
+        "      oauth: false",
+        "---",
+        "Return ok.",
+        "",
+    ]
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
 @pytest.mark.asyncio
 async def test_sync_agent_card_mcp_connect_registers_runtime_server(tmp_path: Path) -> None:
     config_path = tmp_path / "fastagent.config.yaml"
@@ -76,6 +95,41 @@ async def test_sync_agent_card_mcp_connect_registers_runtime_server(tmp_path: Pa
         registry_cfg = context.server_registry.registry.get("bar") if context.server_registry else None
         assert registry_cfg is not None
         assert registry_cfg.command == "npx"
+    finally:
+        await fast.app.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_sync_agent_card_mcp_connect_applies_auth_overrides(tmp_path: Path) -> None:
+    config_path = tmp_path / "fastagent.config.yaml"
+    config_path.write_text("", encoding="utf-8")
+
+    cards_dir = tmp_path / "cards"
+    cards_dir.mkdir()
+    _write_http_card_with_auth(cards_dir / "card_agent.md")
+
+    fast = FastAgent(
+        "mcp-connect-test",
+        config_path=str(config_path),
+        parse_cli_args=False,
+        quiet=True,
+    )
+    fast.load_agents(cards_dir)
+
+    await fast.app.initialize()
+    try:
+        fast._sync_agent_card_mcp_servers()
+
+        context = fast.app.context
+        cfg = context.config
+        assert cfg is not None
+        assert cfg.mcp is not None
+        server_cfg = cfg.mcp.servers.get("demo_remote")
+        assert server_cfg is not None
+        assert server_cfg.transport == "http"
+        assert server_cfg.headers == {"Authorization": "Bearer token-from-card"}
+        assert server_cfg.auth is not None
+        assert server_cfg.auth.oauth is False
     finally:
         await fast.app.cleanup()
 

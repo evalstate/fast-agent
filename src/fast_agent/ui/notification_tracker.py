@@ -74,6 +74,30 @@ def pop_startup_warnings() -> list[str]:
     return queued
 
 
+def remove_startup_warnings_containing(fragment: str) -> int:
+    """Remove queued startup warnings containing a fragment (case-insensitive)."""
+    needle = fragment.strip().casefold()
+    if not needle:
+        return 0
+
+    to_remove = [
+        warning
+        for warning in startup_warnings
+        if needle in warning.casefold()
+    ]
+    if not to_remove:
+        return 0
+
+    startup_warnings[:] = [
+        warning
+        for warning in startup_warnings
+        if needle not in warning.casefold()
+    ]
+    for warning in to_remove:
+        _startup_warning_seen.discard(warning)
+    return len(to_remove)
+
+
 def start_sampling(server_name: str) -> None:
     """Start tracking a sampling operation.
 

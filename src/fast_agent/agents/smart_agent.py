@@ -720,7 +720,9 @@ def _enable_smart_tooling(agent: Any) -> None:
             "Connect an MCP server to this smart agent at runtime. "
             "Accepts `/mcp connect` style target strings, including flags "
             "like --name/--auth/--timeout/--oauth/--reconnect. "
-            "`--auth` supports `$VAR`, `${VAR}`, and `${VAR:default}` env references."
+            "`--auth` supports `$VAR`, `${VAR}`, and `${VAR:default}` env references. "
+            "Pass token value only; fast-agent sends `Authorization: Bearer <token>` automatically "
+            "(optional `Bearer ` input is normalized)."
         ),
     )
     smart_list_resources_tool = FastMCPTool.from_function(

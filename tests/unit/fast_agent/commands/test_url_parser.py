@@ -120,6 +120,18 @@ class TestUrlParser:
             assert headers is not None
             assert headers == {"Authorization": "Bearer test_token_123"}
 
+    def test_parse_server_urls_with_auth_accepts_optional_bearer_prefix(self):
+        """Test parsing URLs with auth values that include a Bearer prefix."""
+        urls = "http://example.com/mcp,https://api.test.com/sse"
+        auth_token = "Bearer test_token_123"
+        result = parse_server_urls(urls, auth_token)
+
+        assert len(result) == 2
+
+        for server_name, transport, url, headers in result:
+            assert headers is not None
+            assert headers == {"Authorization": "Bearer test_token_123"}
+
     def test_generate_server_configs(self):
         """Test generating server configurations from parsed URLs."""
         parsed_urls: list[tuple[str, Literal["http", "sse"], str, dict[str, str] | None]] = [

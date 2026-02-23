@@ -4,7 +4,16 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from mcp.types import (
+    LATEST_PROTOCOL_VERSION,
+    ClientCapabilities,
+    ClientRequest,
+    Implementation,
+    InitializeRequest,
+    InitializeRequestParams,
+)
 
+from fast_agent.config import MCPServerSettings
 from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 
 
@@ -15,7 +24,20 @@ def _new_session() -> MCPAgentClientSession:
     session._experimental_session_cookie = None
     session.agent_name = "demo-agent"
     session.session_server_name = "demo-server"
+    session.server_config = None
     return session
+
+
+def _initialize_request() -> ClientRequest:
+    return ClientRequest(
+        InitializeRequest(
+            params=InitializeRequestParams(
+                protocolVersion=LATEST_PROTOCOL_VERSION,
+                capabilities=ClientCapabilities(),
+                clientInfo=Implementation(name="test-client", version="1.0.0"),
+            )
+        )
+    )
 
 
 def test_capture_experimental_session_capability() -> None:
@@ -76,6 +98,75 @@ def test_update_experimental_session_cookie_from_meta_and_revocation() -> None:
 def test_build_experimental_session_title_includes_server_name() -> None:
     session = _new_session()
     assert session._build_experimental_session_title() == "demo-agent · demo-server"
+
+
+def test_maybe_advertise_experimental_session_capability_disabled_by_default() -> None:
+    session = _new_session()
+    session.server_config = MCPServerSettings(name="demo", transport="http", url="http://example.com")
+
+    request = _initialize_request()
+    updated = session._maybe_advertise_experimental_session_capability(request)
+
+    root = getattr(updated, "root", None)
+    assert isinstance(root, InitializeRequest)
+    params = root.params
+    assert params is not None
+    assert params.capabilities.experimental is None
+
+
+def test_maybe_advertise_experimental_session_capability_in_initialize_request() -> None:
+    session = _new_session()
+    session.server_config = MCPServerSettings(
+        name="demo",
+        transport="http",
+        url="http://example.com",
+        experimental_session_advertise=True,
+    )
+
+    request = _initialize_request()
+    updated = session._maybe_advertise_experimental_session_capability(request)
+
+    root = getattr(updated, "root", None)
+    assert isinstance(root, InitializeRequest)
+    params = root.params
+    assert params is not None
+    experimental = params.capabilities.experimental
+    assert isinstance(experimental, dict)
+    session_payload = experimental.get("session")
+    assert isinstance(session_payload, dict)
+    assert session_payload.get("version") == 2
+    assert "features" not in session_payload
+
+
+def test_maybe_advertise_experimental_session_capability_preserves_existing_session_payload() -> None:
+    session = _new_session()
+    session.server_config = MCPServerSettings(
+        name="demo",
+        transport="http",
+        url="http://example.com",
+        experimental_session_advertise=True,
+    )
+
+    request = ClientRequest(
+        InitializeRequest(
+            params=InitializeRequestParams(
+                protocolVersion=LATEST_PROTOCOL_VERSION,
+                capabilities=ClientCapabilities(
+                    experimental={"session": {"version": 99, "features": ["custom"]}}
+                ),
+                clientInfo=Implementation(name="test-client", version="1.0.0"),
+            )
+        )
+    )
+
+    updated = session._maybe_advertise_experimental_session_capability(request)
+    root = getattr(updated, "root", None)
+    assert isinstance(root, InitializeRequest)
+    params = root.params
+    assert params is not None
+    experimental = params.capabilities.experimental
+    assert isinstance(experimental, dict)
+    assert experimental.get("session") == {"version": 99, "features": ["custom"]}
 
 
 @pytest.mark.asyncio

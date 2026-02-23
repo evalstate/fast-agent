@@ -700,6 +700,30 @@ def _ensure_filter_map(value: Any, field: str, path: Path) -> dict[str, list[str
     return result
 
 
+def _ensure_headers_map(value: Any, field: str, path: Path) -> dict[str, str] | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise AgentConfigError(f"'{field}' must be a mapping in {path}")
+
+    headers: dict[str, str] = {}
+    for key, header_value in value.items():
+        if not isinstance(key, str) or not key.strip():
+            raise AgentConfigError(f"'{field}' keys must be non-empty strings in {path}")
+        if not isinstance(header_value, str):
+            raise AgentConfigError(f"'{field}' values must be strings in {path}")
+        headers[key] = header_value
+    return headers
+
+
+def _ensure_auth_map(value: Any, field: str, path: Path) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise AgentConfigError(f"'{field}' must be a mapping in {path}")
+    return dict(value)
+
+
 def _ensure_mcp_connect_entries(value: Any, path: Path) -> list[MCPConnectTarget]:
     if value is None:
         return []
@@ -713,7 +737,7 @@ def _ensure_mcp_connect_entries(value: Any, path: Path) -> list[MCPConnectTarget
                 f"'mcp_connect[{idx}]' must be a mapping in {path}",
             )
 
-        unknown_keys = set(raw_entry.keys()) - {"target", "name"}
+        unknown_keys = set(raw_entry.keys()) - {"target", "name", "headers", "auth"}
         if unknown_keys:
             unknown_text = ", ".join(sorted(str(key) for key in unknown_keys))
             raise AgentConfigError(
@@ -733,10 +757,15 @@ def _ensure_mcp_connect_entries(value: Any, path: Path) -> list[MCPConnectTarget
                 f"'mcp_connect[{idx}].name' must be a non-empty string in {path}"
             )
 
+        headers = _ensure_headers_map(raw_entry.get("headers"), f"mcp_connect[{idx}].headers", path)
+        auth = _ensure_auth_map(raw_entry.get("auth"), f"mcp_connect[{idx}].auth", path)
+
         entries.append(
             MCPConnectTarget(
                 target=target_raw.strip(),
                 name=name_raw.strip() if isinstance(name_raw, str) else None,
+                headers=headers,
+                auth=auth,
             )
         )
 
@@ -916,10 +945,17 @@ def _build_card_dump(
         card["servers"] = list(config.servers)
 
     if config.mcp_connect and "mcp_connect" in allowed_fields:
-        card["mcp_connect"] = [
-            {"target": entry.target, **({"name": entry.name} if entry.name else {})}
-            for entry in config.mcp_connect
-        ]
+        serialized_mcp_connect: list[dict[str, Any]] = []
+        for entry in config.mcp_connect:
+            serialized_entry: dict[str, Any] = {"target": entry.target}
+            if entry.name:
+                serialized_entry["name"] = entry.name
+            if entry.headers is not None:
+                serialized_entry["headers"] = dict(entry.headers)
+            if entry.auth is not None:
+                serialized_entry["auth"] = dict(entry.auth)
+            serialized_mcp_connect.append(serialized_entry)
+        card["mcp_connect"] = serialized_mcp_connect
 
     if config.tools and "tools" in allowed_fields:
         card["tools"] = config.tools

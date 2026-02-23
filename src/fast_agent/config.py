@@ -181,6 +181,10 @@ class ShellSettings(BaseModel):
         default=None,
         description="Override model-based output byte limit (None = auto)",
     )
+    missing_cwd_policy: Literal["ask", "create", "warn", "error"] = Field(
+        default="warn",
+        description="Policy when an agent shell cwd is missing or invalid",
+    )
 
     model_config = ConfigDict(extra="ignore")
 
@@ -320,6 +324,19 @@ class MCPServerSettings(BaseModel):
 
     implementation: Implementation | None = None
 
+    experimental_session_advertise: bool = False
+    """Advertise experimental session capability in client initialize payload."""
+
+    experimental_session_advertise_version: int = 2
+    """Version used when advertising experimental session capability."""
+
+    @field_validator("experimental_session_advertise_version", mode="after")
+    @classmethod
+    def _validate_experimental_session_advertise_version(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("experimental_session_advertise_version must be greater than zero.")
+        return value
+
     @field_validator("max_missed_pings", mode="before")
     @classmethod
     def _coerce_max_missed_pings(cls, value: Any) -> int:
@@ -372,6 +389,43 @@ class MCPSettings(BaseModel):
 
     servers: dict[str, MCPServerSettings] = {}
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_server_targets(cls, values: Any) -> Any:
+        if not isinstance(values, dict):
+            return values
+
+        raw_servers = values.get("servers")
+        if not isinstance(raw_servers, dict):
+            return values
+
+        from fast_agent.mcp.connect_targets import resolve_target_entry
+
+        normalized_servers: dict[Any, Any] = {}
+        for server_key, raw_entry in raw_servers.items():
+            if not isinstance(raw_entry, dict) or "target" not in raw_entry:
+                normalized_servers[server_key] = raw_entry
+                continue
+
+            source_name = str(server_key)
+            source_path = f"mcp.servers.{source_name}.target"
+            target_value = raw_entry.get("target")
+            if not isinstance(target_value, str) or not target_value.strip():
+                raise ValueError(f"`{source_path}` must be a non-empty string")
+
+            overrides = {key: value for key, value in raw_entry.items() if key != "target"}
+            _resolved_name, resolved_settings = resolve_target_entry(
+                target=target_value,
+                default_name=source_name,
+                overrides=overrides,
+                source_path=source_path,
+            )
+            normalized_servers[server_key] = resolved_settings.model_dump(mode="python")
+
+        normalized_values = dict(values)
+        normalized_values["servers"] = normalized_servers
+        return normalized_values
 
 
 _DOMAIN_LABEL_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")

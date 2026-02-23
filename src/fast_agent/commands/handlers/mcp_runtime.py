@@ -59,6 +59,20 @@ _AUTH_ENV_BRACED_RE = re.compile(
 _AUTH_ENV_SIMPLE_RE = re.compile(r"^\$(?P<name>[A-Za-z_][A-Za-z0-9_]*)$")
 
 
+def _normalize_auth_token_value(raw_value: str) -> str:
+    """Normalize user-provided --auth values before environment lookup.
+
+    ``--auth`` takes the raw token value. If a user passes an Authorization
+    header style value (``Bearer <token>``), strip the prefix so downstream
+    code can still compose a single valid ``Authorization: Bearer ...`` header.
+    """
+
+    normalized = raw_value.strip()
+    if normalized.lower().startswith("bearer "):
+        normalized = normalized[7:].strip()
+    return normalized
+
+
 def _resolve_auth_token_value(raw_value: str) -> str:
     """Resolve --auth values that reference environment variables.
 
@@ -68,7 +82,11 @@ def _resolve_auth_token_value(raw_value: str) -> str:
     - ``${VAR:default}``
     """
 
-    match = _AUTH_ENV_BRACED_RE.match(raw_value)
+    normalized_value = _normalize_auth_token_value(raw_value)
+    if not normalized_value:
+        raise ValueError("Missing value for --auth")
+
+    match = _AUTH_ENV_BRACED_RE.match(normalized_value)
     if match:
         env_name = match.group("name")
         default = match.group("default")
@@ -79,7 +97,7 @@ def _resolve_auth_token_value(raw_value: str) -> str:
             return default
         raise ValueError(f"Environment variable '{env_name}' is not set for --auth")
 
-    match = _AUTH_ENV_SIMPLE_RE.match(raw_value)
+    match = _AUTH_ENV_SIMPLE_RE.match(normalized_value)
     if match:
         env_name = match.group("name")
         resolved = os.environ.get(env_name)
@@ -87,7 +105,7 @@ def _resolve_auth_token_value(raw_value: str) -> str:
             raise ValueError(f"Environment variable '{env_name}' is not set for --auth")
         return resolved
 
-    return raw_value
+    return normalized_value
 
 
 def infer_connect_mode(target_text: str) -> str:

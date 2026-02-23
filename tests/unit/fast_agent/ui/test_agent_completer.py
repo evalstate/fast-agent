@@ -56,6 +56,10 @@ class _MentionAggregatorStub:
                 ResourceTemplate(name="repo", uriTemplate="repo://items/{id}"),
                 ResourceTemplate(name="repo_pair", uriTemplate="repo://items/{owner}/{repo}"),
                 ResourceTemplate(name="repo_resource", uriTemplate="repo://items/{resourceId}"),
+                ResourceTemplate(
+                    name="repo_contents",
+                    uriTemplate="repo://{owner}/{repo}/contents{/path*}",
+                ),
             ]
         }
         self.last_completion_request: dict[str, object] | None = None
@@ -1123,6 +1127,21 @@ def test_resource_mention_argument_name_completion_supports_camel_case_placehold
     names = [c.text for c in completions]
 
     assert "resourceId=" in names
+
+
+def test_resource_mention_argument_name_completion_supports_rfc6570_path_expressions() -> None:
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(_MentionAgentStub())),
+    )
+
+    text = "^demo:repo://{owner}/{repo}/contents{/path*}{p"
+    doc = Document(text, cursor_position=len(text))
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert "path=" in names
 
 
 def test_resource_mention_argument_name_completion_for_later_segments() -> None:

@@ -147,13 +147,35 @@ async def demo_hashcheck() -> None:
     )
 
 
+async def demo_selective() -> None:
+    await _run_demo(
+        "DEMO 4: selective-session (public + session-only tools)",
+        "selective-session",
+        "selective_session_server.py",
+        [
+            ("public echo (no session required)", "public_echo", {"text": "hello from public"}),
+            ("reset current session", "session_reset", {}),
+            (
+                "session counter get (expected error: session missing)",
+                "session_counter_get",
+                {},
+            ),
+            ("start session explicitly", "session_start", {"label": "selective-demo"}),
+            ("session counter increment", "session_counter_inc", {}),
+            ("session counter get", "session_counter_get", {}),
+        ],
+    )
+
+
 DEMOS = {
     "1": demo_session_required,
     "2": demo_notebook,
     "3": demo_hashcheck,
+    "4": demo_selective,
     "session-required": demo_session_required,
     "notebook": demo_notebook,
     "hashcheck": demo_hashcheck,
+    "selective": demo_selective,
 }
 
 
@@ -165,14 +187,24 @@ async def main() -> None:
         "demo",
         nargs="?",
         default="all",
-        choices=["all", "1", "2", "3", "session-required", "notebook", "hashcheck"],
+        choices=[
+            "all",
+            "1",
+            "2",
+            "3",
+            "4",
+            "session-required",
+            "notebook",
+            "hashcheck",
+            "selective",
+        ],
         help="Which demo to run (default: all — runs sequentially via subprocesses)",
     )
     args = parser.parse_args()
 
     if args.demo == "all":
         # Run each demo as a separate subprocess to avoid uvloop child-watcher issue
-        for num in ["1", "2", "3"]:
+        for num in ["1", "2", "3", "4"]:
             proc = await asyncio.create_subprocess_exec(
                 sys.executable, str(Path(__file__)), num,
                 stdout=None, stderr=None,  # inherit parent stdio

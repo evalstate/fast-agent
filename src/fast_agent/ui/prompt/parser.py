@@ -406,7 +406,7 @@ def parse_special_input(text: str) -> str | CommandPayload:
                         reconnect_on_disconnect=None,
                         force_reconnect=False,
                         error=(
-                            "Usage: /mcp connect <target> [--name <server>] [--auth <token>] [--timeout <seconds>] "
+                            "Usage: /mcp connect <target> [--name <server>] [--auth <token-value>] [--timeout <seconds>] "
                             "[--oauth|--no-oauth] [--reconnect|--no-reconnect]"
                         ),
                     )

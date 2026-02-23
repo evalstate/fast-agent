@@ -45,6 +45,14 @@ application-level sessions matter beyond transport-level `Mcp-Session-Id`.
 
 **Tools:** `hashcheck_store(key, text)`, `hashcheck_verify(key, text)`, `hashcheck_list()`, `hashcheck_delete(key)`
 
+### 5. `selective_session_server.py` — Mixed public + session-only tools
+
+Demonstrates **selective** session enforcement. Public tools work without a
+session, while session-scoped tools return a session-required error when the
+cookie is missing/invalid.
+
+**Tools:** `public_echo(text)`, `session_start(label?)`, `session_reset()`, `session_counter_inc()`, `session_counter_get()`
+
 ## Running
 
 ### Any server via stdio
@@ -69,6 +77,16 @@ uv run python examples/experimental/mcp_sessions/demo_fast_agent_sessions.py
 # or against a running HTTP server
 uv run python examples/experimental/mcp_sessions/demo_fast_agent_sessions.py \
   --transport http --url http://127.0.0.1:8765/mcp
+
+# optionally advertise session capability from the client during initialize
+uv run python examples/experimental/mcp_sessions/demo_fast_agent_sessions.py \
+  --advertise-session-capability
+
+# run all demo variants (including selective policy example)
+uv run python examples/experimental/mcp_sessions/demo_all_sessions.py
+
+# run only the selective-policy demo
+uv run python examples/experimental/mcp_sessions/demo_all_sessions.py selective
 ```
 
 ## Session flow
@@ -102,3 +120,5 @@ Client                              Server
 4. **Reconnection**: The hashcheck server demonstrates that a client reconnecting
    with the same session cookie retains access to previously stored data
 5. **Cookie lifecycle**: Create -> echo -> update -> revoke -> re-establish
+6. **Selective enforcement**: `selective_session_server.py` shows that servers can
+   require sessions only for specific tools while allowing others without sessions

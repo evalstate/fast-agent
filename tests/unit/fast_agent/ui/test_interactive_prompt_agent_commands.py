@@ -138,6 +138,40 @@ def _patch_input(monkeypatch, inputs: list[str]) -> None:
 
 
 @pytest.mark.asyncio
+async def test_prompt_loop_skips_shell_cwd_startup_prompt_when_policy_not_ask(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_input(monkeypatch, ["STOP"])
+
+    def _unexpected_collect(*_args: Any, **_kwargs: Any) -> list[Any]:
+        raise AssertionError("Shell cwd startup collection should not run outside ask policy.")
+
+    async def _unexpected_selection(*_args: Any, **_kwargs: Any) -> str:
+        raise AssertionError("Shell cwd startup prompt should not run outside ask policy.")
+
+    monkeypatch.setattr(
+        interactive_prompt,
+        "collect_shell_cwd_issues_from_runtime_agents",
+        _unexpected_collect,
+    )
+    monkeypatch.setattr(interactive_prompt, "get_selection_input", _unexpected_selection)
+
+    async def fake_send(*_args: Any, **_kwargs: Any) -> str:
+        return ""
+
+    prompt_ui = InteractivePrompt()
+    agent_app = _FakeAgentApp(["vertex-rag"])
+    setattr(agent_app, "_missing_shell_cwd_policy_override", "warn")
+
+    await prompt_ui.prompt_loop(
+        send_func=fake_send,
+        default_agent="vertex-rag",
+        available_agents=["vertex-rag"],
+        prompt_provider=cast("AgentApp", agent_app),
+    )
+
+
+@pytest.mark.asyncio
 async def test_agent_command_missing_agent(monkeypatch, capsys: Any) -> None:
     _patch_input(monkeypatch, ["/agent sizer --tool", "STOP"])
 

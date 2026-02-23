@@ -51,7 +51,7 @@ async def handle_mcp(handler: "SlashCommandHandler", arguments: str | None = Non
         if len(tokens) < 2:
             return (
                 f"{heading}\n\n"
-                "Usage: /mcp connect <target> [--name <server>] [--auth <token>] [--timeout <seconds>] "
+                "Usage: /mcp connect <target> [--name <server>] [--auth <token-value>] [--timeout <seconds>] "
                 "[--oauth|--no-oauth] [--reconnect|--no-reconnect]"
             )
         target_text = " ".join(tokens[1:])

@@ -20,6 +20,7 @@ _PLACEHOLDER_RE = re.compile(r"\{([^{}]+)\}")
 _TEMPLATE_ARGS_RE = re.compile(
     r"^(?P<template>.+)\{(?P<args>[A-Za-z0-9_.-]+=[^{}]*(?:,[A-Za-z0-9_.-]+=[^{}]*)*)\}$"
 )
+_TEMPLATE_OPERATORS = "+#./;?&"
 
 
 @dataclass(frozen=True)
@@ -51,6 +52,143 @@ class ResourceMentionError(ValueError):
     """Raised when one or more resource mentions cannot be resolved."""
 
 
+@dataclass(frozen=True)
+class _TemplateVarSpec:
+    name: str
+    explode: bool
+    prefix: int | None
+
+
+def _parse_template_varspec(raw_spec: str) -> _TemplateVarSpec | None:
+    spec = raw_spec.strip()
+    if not spec:
+        return None
+
+    explode = spec.endswith("*")
+    if explode:
+        spec = spec[:-1]
+
+    prefix: int | None = None
+    if ":" in spec:
+        var_name, prefix_str = spec.split(":", 1)
+        var_name = var_name.strip()
+        if prefix_str.isdigit():
+            prefix = int(prefix_str)
+        else:
+            prefix = None
+    else:
+        var_name = spec.strip()
+
+    if not var_name:
+        return None
+
+    return _TemplateVarSpec(name=var_name, explode=explode, prefix=prefix)
+
+
+def _iter_template_varspecs(expression_body: str) -> list[_TemplateVarSpec]:
+    if not expression_body:
+        return []
+
+    body = expression_body
+    if body[0] in _TEMPLATE_OPERATORS:
+        body = body[1:]
+
+    specs: list[_TemplateVarSpec] = []
+    for raw_spec in body.split(","):
+        parsed = _parse_template_varspec(raw_spec)
+        if parsed is None:
+            continue
+        specs.append(parsed)
+    return specs
+
+
+def _encode_template_value(
+    value: str,
+    *,
+    allow_reserved: bool,
+    preserve_slashes: bool,
+) -> str:
+    safe_chars = "%"
+    if allow_reserved:
+        safe_chars += "/:?#[]@!$&'()*+,;="
+    if preserve_slashes and "/" not in safe_chars:
+        safe_chars += "/"
+    return quote(value, safe=safe_chars)
+
+
+def _expand_template_expression(expression_body: str, args: dict[str, str]) -> str:
+    if not expression_body:
+        return ""
+
+    operator = ""
+    body = expression_body
+    if body[0] in _TEMPLATE_OPERATORS:
+        operator = body[0]
+        body = body[1:]
+
+    varspecs = _iter_template_varspecs(body)
+    if not varspecs:
+        return ""
+
+    separator = ","
+    prefix = ""
+    named = False
+    if_empty = ""
+    allow_reserved = operator in {"+", "#"}
+
+    if operator == "#":
+        prefix = "#"
+    elif operator == ".":
+        prefix, separator = ".", "."
+    elif operator == "/":
+        prefix, separator = "/", "/"
+    elif operator == ";":
+        prefix, separator, named = ";", ";", True
+    elif operator == "?":
+        prefix, separator, named, if_empty = "?", "&", True, "="
+    elif operator == "&":
+        prefix, separator, named, if_empty = "&", "&", True, "="
+
+    expanded_parts: list[str] = []
+    for spec in varspecs:
+        value = args.get(spec.name, "")
+        if spec.prefix is not None:
+            value = value[: spec.prefix]
+
+        encoded_value = _encode_template_value(
+            value,
+            allow_reserved=allow_reserved,
+            # Preserve legacy behavior for simple `{var}` path-like values.
+            preserve_slashes=spec.explode or operator == "",
+        )
+
+        if named:
+            if encoded_value:
+                expanded_parts.append(f"{spec.name}={encoded_value}")
+            else:
+                expanded_parts.append(f"{spec.name}{if_empty}")
+        else:
+            expanded_parts.append(encoded_value)
+
+    if not expanded_parts:
+        return ""
+    return prefix + separator.join(expanded_parts)
+
+
+def template_argument_names(template_uri: str) -> list[str]:
+    names: list[str] = []
+    seen: set[str] = set()
+
+    for raw_expression in _PLACEHOLDER_RE.findall(template_uri):
+        for spec in _iter_template_varspecs(raw_expression):
+            if spec.name in seen:
+                continue
+            seen.add(spec.name)
+            names.append(spec.name)
+
+    return names
+
+
 
 def _parse_template_args(value: str) -> tuple[str, dict[str, str]]:
     match = _TEMPLATE_ARGS_RE.match(value)
@@ -67,19 +205,18 @@ def _parse_template_args(value: str) -> tuple[str, dict[str, str]]:
 
 
 def _render_template_uri(template_uri: str, args: dict[str, str]) -> str:
-    placeholders = [name.strip() for name in _PLACEHOLDER_RE.findall(template_uri)]
-    if not placeholders:
+    required_names = template_argument_names(template_uri)
+    if not required_names:
         return template_uri
 
-    missing = [name for name in placeholders if name not in args]
+    missing = [name for name in required_names if name not in args]
     if missing:
         missing_str = ", ".join(sorted(set(missing)))
         raise ResourceMentionError(f"Missing template arguments: {missing_str}")
 
     def _replace(match: re.Match[str]) -> str:
-        key = match.group(1).strip()
-        value = args.get(key, "")
-        return quote(value, safe="/:?#[]@!$&'()*+,;=%")
+        expression_body = match.group(1).strip()
+        return _expand_template_expression(expression_body, args)
 
     return _PLACEHOLDER_RE.sub(_replace, template_uri)
 

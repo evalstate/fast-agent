@@ -62,6 +62,7 @@ def _build_run_request(
     resume: str | None,
     reload: bool,
     watch: bool,
+    missing_shell_cwd: serve.MissingShellCwdPolicy | None = None,
 ) -> AgentRunRequest:
     resolved_env_dir = resolve_environment_dir_option(ctx, env_dir, set_env_var=not noenv)
     return build_command_run_request(
@@ -98,6 +99,7 @@ def _build_run_request(
         permissions_enabled=not no_permissions,
         reload=reload,
         watch=watch,
+        missing_shell_cwd_policy=missing_shell_cwd.value if missing_shell_cwd else None,
     )
 
 
@@ -148,6 +150,11 @@ def run_acp(
         "--no-permissions",
         help="Disable tool permission requests (allow all tool executions without asking)",
     ),
+    missing_shell_cwd: serve.MissingShellCwdPolicy | None = typer.Option(
+        None,
+        "--missing-shell-cwd",
+        help="Override shell_execution.missing_cwd_policy (ask, create, warn, error)",
+    ),
     resume: str | None = typer.Option(
         None,
         "--resume",
@@ -185,6 +192,7 @@ def run_acp(
         resume=resume,
         reload=reload,
         watch=watch,
+        missing_shell_cwd=missing_shell_cwd,
     )
     run_request(request)
 

@@ -131,3 +131,40 @@ def test_serve_command_noenv_forces_permissions_disabled() -> None:
 
     assert request.noenv is True
     assert request.permissions_enabled is False
+
+
+def test_serve_command_builds_request_with_missing_shell_cwd_override() -> None:
+    ctx = typer.Context(click.Command("serve"))
+    request = serve_command._build_run_request(
+        ctx=ctx,
+        name="fast-agent",
+        instruction=None,
+        config_path=None,
+        servers=None,
+        agent_cards=None,
+        card_tools=None,
+        urls=None,
+        auth=None,
+        client_metadata_url=None,
+        model=None,
+        skills_dir=None,
+        env_dir=None,
+        noenv=False,
+        force_smart=False,
+        npx=None,
+        uvx=None,
+        stdio=None,
+        description=None,
+        tool_name_template=None,
+        transport=serve_command.ServeTransport.ACP,
+        host="127.0.0.1",
+        port=7010,
+        shell=False,
+        instance_scope=serve_command.InstanceScope.SHARED,
+        no_permissions=False,
+        reload=False,
+        watch=False,
+        missing_shell_cwd=serve_command.MissingShellCwdPolicy.ERROR,
+    )
+
+    assert request.missing_shell_cwd_policy == "error"

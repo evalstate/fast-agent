@@ -402,6 +402,44 @@ class McpAgent(ABC, ToolAgent):
 
         self.logger.debug(f"Applied instruction templates for agent {self._name}")
 
+    @staticmethod
+    def _resolve_shell_working_directory(path: Path) -> Path:
+        """Resolve a configured shell working directory for validation messages."""
+        if path.is_absolute():
+            return path.resolve()
+        return (Path.cwd() / path).resolve()
+
+    def _warn_if_invalid_shell_working_directory(self, working_directory: Path | None) -> None:
+        """Emit a startup warning when a configured shell cwd is missing/invalid."""
+        if working_directory is None:
+            return
+
+        resolved = self._resolve_shell_working_directory(working_directory)
+        if not resolved.exists():
+            self._record_warning(
+                " ".join(
+                    [
+                        f"[dim]Agent '{self._name}' has shell cwd that does not exist: {resolved}.",
+                        f"Configured cwd: {working_directory}.",
+                        "Shell commands will fail until this path exists.[/dim]",
+                    ]
+                ),
+                surface="startup_once",
+            )
+            return
+
+        if not resolved.is_dir():
+            self._record_warning(
+                " ".join(
+                    [
+                        f"[dim]Agent '{self._name}' has shell cwd that is not a directory: {resolved}.",
+                        f"Configured cwd: {working_directory}.",
+                        "Shell commands will fail until this points to a directory.[/dim]",
+                    ]
+                ),
+                surface="startup_once",
+            )
+
     def set_skill_manifests(self, manifests: Sequence[SkillManifest]) -> None:
         self._skill_manifests = list(manifests)
         self._skill_map = {manifest.name: manifest for manifest in self._skill_manifests}
@@ -484,6 +522,8 @@ class McpAgent(ABC, ToolAgent):
     ) -> None:
         if activation_reason is not None and self._external_runtime is not None:
             return
+
+        self._warn_if_invalid_shell_working_directory(working_directory)
 
         timeout_seconds, warning_interval_seconds, output_byte_limit = (
             self._resolve_shell_runtime_settings()

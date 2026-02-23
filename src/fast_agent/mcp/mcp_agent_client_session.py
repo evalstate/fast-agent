@@ -20,12 +20,15 @@ from mcp.types import (
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
+    ClientCapabilities,
     ClientRequest,
     EmptyResult,
     GetPromptRequest,
     GetPromptRequestParams,
     GetPromptResult,
     Implementation,
+    InitializeRequest,
+    InitializeRequestParams,
     InitializeResult,
     ListRootsResult,
     PingRequest,
@@ -392,6 +395,56 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             return f"{agent_name} · {server_name}"
         return agent_name
 
+    def _build_advertised_experimental_session_capability(self) -> dict[str, object] | None:
+        cfg = self.server_config
+        if cfg is None or not cfg.experimental_session_advertise:
+            return None
+
+        return {
+            "version": int(cfg.experimental_session_advertise_version),
+        }
+
+    def _maybe_advertise_experimental_session_capability(
+        self, request: ClientRequest
+    ) -> ClientRequest:
+        advertised = self._build_advertised_experimental_session_capability()
+        if advertised is None:
+            return request
+
+        root = getattr(request, "root", None)
+        if not isinstance(root, InitializeRequest):
+            return request
+
+        params = root.params
+        if params is None:
+            return request
+
+        capabilities = params.capabilities
+        existing_experimental = capabilities.experimental
+        experimental_payload: dict[str, dict[str, object]] = {}
+        if isinstance(existing_experimental, dict):
+            for name, value in existing_experimental.items():
+                if isinstance(name, str) and isinstance(value, dict):
+                    experimental_payload[name] = dict(value)
+
+        if _EXPERIMENTAL_SESSION_KEY not in experimental_payload:
+            experimental_payload[_EXPERIMENTAL_SESSION_KEY] = dict(advertised)
+            capabilities = ClientCapabilities(
+                roots=capabilities.roots,
+                sampling=capabilities.sampling,
+                elicitation=capabilities.elicitation,
+                experimental=experimental_payload,
+                tasks=capabilities.tasks,
+            )
+            params = InitializeRequestParams(
+                protocolVersion=params.protocolVersion,
+                capabilities=capabilities,
+                clientInfo=params.clientInfo,
+            )
+            return ClientRequest(InitializeRequest(params=params))
+
+        return request
+
     def _merge_experimental_session_meta(
         self, metadata: dict[str, Any] | None
     ) -> dict[str, Any] | None:
@@ -422,6 +475,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         metadata: MessageMetadata | None = None,
         progress_callback: ProgressFnT | None = None,
     ) -> ReceiveResultT:
+        request = self._maybe_advertise_experimental_session_capability(request)
         logger.debug("send_request: request=", data=request.model_dump())
         request_id = getattr(self, "_request_id", None)
         is_ping_request = self._is_ping_request(request)

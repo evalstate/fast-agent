@@ -148,3 +148,77 @@ def test_scan_agent_cards_reports_unparseable_mcp_connect_entry(tmp_path: Path) 
     results = scan_agent_card_directory(tmp_path)
     assert len(results) == 1
     assert any("Invalid mcp_connect target" in err for err in results[0].errors)
+
+
+def test_scan_agent_cards_rejects_mcp_connect_url_with_embedded_auth_flag(tmp_path: Path) -> None:
+    card_path = tmp_path / "agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: mcp_agent",
+                "mcp_connect:",
+                '  - target: "https://demo.hf.space --auth token"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    results = scan_agent_card_directory(tmp_path)
+    assert len(results) == 1
+    assert any("pure target string" in err for err in results[0].errors)
+    assert any("--auth" in err for err in results[0].errors)
+
+
+def test_scan_agent_cards_reports_missing_shell_cwd(tmp_path: Path) -> None:
+    missing_cwd = tmp_path / "missing-shell-cwd"
+    card_path = tmp_path / "agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: shell_agent",
+                f"cwd: {missing_cwd}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    results = scan_agent_card_directory(tmp_path)
+    assert len(results) == 1
+    assert any("Shell cwd does not exist" in err for err in results[0].errors)
+
+
+def test_scan_agent_cards_reports_shell_cwd_when_path_is_file(tmp_path: Path) -> None:
+    shell_file = tmp_path / "not-a-directory.txt"
+    shell_file.write_text("x", encoding="utf-8")
+    card_path = tmp_path / "agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: shell_agent",
+                f"cwd: {shell_file}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    results = scan_agent_card_directory(tmp_path)
+    assert len(results) == 1
+    assert any("Shell cwd is not a directory" in err for err in results[0].errors)
+
+
+def test_scan_agent_cards_reports_invalid_shell_cwd_type(tmp_path: Path) -> None:
+    card_path = tmp_path / "agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: shell_agent",
+                "cwd:",
+                "  nested: value",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    results = scan_agent_card_directory(tmp_path)
+    assert len(results) == 1
+    assert "'cwd' must be a string" in results[0].errors

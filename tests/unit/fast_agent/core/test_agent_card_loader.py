@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from fast_agent.core.agent_card_loader import _resolve_name, load_agent_cards
+from fast_agent.core.agent_card_loader import _resolve_name, dump_agent_to_string, load_agent_cards
 from fast_agent.core.exceptions import AgentConfigError
 
 if TYPE_CHECKING:
@@ -75,6 +75,10 @@ def test_load_agent_card_parses_mcp_connect_entries(tmp_path: Path) -> None:
                 '  - target: "https://demo.hf.space"',
                 '  - target: "@foo/bar"',
                 '    name: "foo_bar"',
+                "    headers:",
+                '      Authorization: "Bearer abc"',
+                "    auth:",
+                "      oauth: false",
             ]
         ),
         encoding="utf-8",
@@ -87,8 +91,39 @@ def test_load_agent_card_parses_mcp_connect_entries(tmp_path: Path) -> None:
     assert len(config.mcp_connect) == 2
     assert config.mcp_connect[0].target == "https://demo.hf.space"
     assert config.mcp_connect[0].name is None
+    assert config.mcp_connect[0].headers is None
+    assert config.mcp_connect[0].auth is None
     assert config.mcp_connect[1].target == "@foo/bar"
     assert config.mcp_connect[1].name == "foo_bar"
+    assert config.mcp_connect[1].headers == {"Authorization": "Bearer abc"}
+    assert config.mcp_connect[1].auth == {"oauth": False}
+
+
+def test_dump_agent_card_preserves_mcp_connect_auth_fields(tmp_path: Path) -> None:
+    card_path = tmp_path / "mcp_agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: mcp_agent",
+                "mcp_connect:",
+                '  - target: "https://demo.hf.space"',
+                '    name: "demo"',
+                "    headers:",
+                '      Authorization: "Bearer abc"',
+                "    auth:",
+                "      oauth: false",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_agent_cards(card_path)
+    dumped = dump_agent_to_string("mcp_agent", loaded[0].agent_data, as_yaml=True)
+
+    assert "mcp_connect:" in dumped
+    assert "headers:" in dumped
+    assert "auth:" in dumped
+    assert "Authorization: Bearer abc" in dumped
 
 
 def test_load_agent_card_rejects_mcp_connect_unknown_keys(tmp_path: Path) -> None:

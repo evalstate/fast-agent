@@ -16,6 +16,8 @@ from fast_agent.ui.prompt.editor import get_text_from_editor
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from prompt_toolkit.buffer import Buffer
+
     from fast_agent.core.agent_app import AgentApp
 
 
@@ -38,6 +40,48 @@ class ShellPrefixLexer(Lexer):
 class AgentKeyBindings(KeyBindings):
     agent_provider: "AgentApp | None" = None
     current_agent_name: str | None = None
+
+
+def _cycle_completion(buffer: Buffer, *, backwards: bool) -> bool:
+    """Cycle through current completion menu items.
+
+    Returns ``True`` when a completion menu was active and the selection moved.
+    """
+    state = buffer.complete_state
+    if state is None:
+        return False
+
+    completions = state.completions
+    if not completions:
+        return False
+
+    total = len(completions)
+    current_index = state.complete_index
+
+    if backwards:
+        next_index = total - 1 if current_index is None else (current_index - 1) % total
+    else:
+        next_index = 0 if current_index is None else (current_index + 1) % total
+
+    buffer.go_to_completion(next_index)
+    return True
+
+
+def _accept_completion(buffer: Buffer) -> bool:
+    """Accept the currently highlighted completion without submitting input."""
+    state = buffer.complete_state
+    if state is None:
+        return False
+
+    if not state.completions:
+        return False
+
+    if state.complete_index is None:
+        buffer.go_to_completion(0)
+
+    # Keep the inserted completion text and close the menu.
+    buffer.complete_state = None
+    return True
 
 
 def create_keybindings(
@@ -75,10 +119,36 @@ def create_keybindings(
     @kb.add("tab")
     @kb.add("c-i")
     def _(event) -> None:
+        if _cycle_completion(event.current_buffer, backwards=False):
+            return
+
         text = event.current_buffer.document.text_before_cursor
         if not _should_start_completion(text):
             return
         event.current_buffer.start_completion(insert_common_part=True)
+
+    @kb.add("s-tab")
+    def _(event) -> None:
+        if _cycle_completion(event.current_buffer, backwards=True):
+            return
+
+        text = event.current_buffer.document.text_before_cursor
+        if not _should_start_completion(text):
+            return
+        event.current_buffer.start_completion(select_last=True)
+
+    @kb.add("c-m", filter=Condition(lambda: _has_any_completions()), eager=True)
+    @kb.add("enter", filter=Condition(lambda: _has_any_completions()), eager=True)
+    def _(event) -> None:
+        _accept_completion(event.current_buffer)
+
+    def _has_any_completions() -> bool:
+        from prompt_toolkit.application.current import get_app
+
+        state = get_app().current_buffer.complete_state
+        if state is None:
+            return False
+        return len(state.completions) > 0
 
     @kb.add("c-m", filter=Condition(lambda: not _session_state_module().in_multiline_mode))
     def _(event) -> None:

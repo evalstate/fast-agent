@@ -20,6 +20,7 @@ from fast_agent.commands.handlers import model as model_handlers
 from fast_agent.config import get_settings
 from fast_agent.llm.reasoning_effort import available_reasoning_values
 from fast_agent.llm.text_verbosity import available_text_verbosity_values
+from fast_agent.ui.prompt.resource_mentions import template_argument_names
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Iterator, Sequence
@@ -958,15 +959,7 @@ class AgentCompleter(Completer):
 
     @staticmethod
     def _extract_template_argument_names(template_uri: str) -> list[str]:
-        names: list[str] = []
-        seen: set[str] = set()
-        for match in re.finditer(r"\{([^{}]+)\}", template_uri):
-            name = match.group(1).strip()
-            if not name or name in seen:
-                continue
-            seen.add(name)
-            names.append(name)
-        return names
+        return template_argument_names(template_uri)
 
     @staticmethod
     def _split_mention_argument_section(remainder: str) -> tuple[str, str] | None:

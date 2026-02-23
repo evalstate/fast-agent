@@ -11,6 +11,22 @@ from urllib.parse import urlparse
 from fast_agent.mcp.hf_auth import TokenProvider, add_hf_auth_header
 
 
+def _normalize_auth_token(auth_token: str) -> str:
+    """Normalize ``--auth`` values into the raw token string.
+
+    ``parse_server_urls`` always emits ``Authorization: Bearer <token>``.
+    Accept optional ``Bearer `` input here to avoid generating duplicated
+    prefixes like ``Bearer Bearer <token>``.
+    """
+
+    normalized = auth_token.strip()
+    if normalized.lower().startswith("bearer "):
+        normalized = normalized[7:].strip()
+    if not normalized:
+        raise ValueError("Auth token cannot be empty")
+    return normalized
+
+
 def parse_server_url(
     url: str,
 ) -> tuple[str, Literal["http", "sse"], str]:
@@ -117,7 +133,7 @@ def parse_server_urls(
 
     Args:
         urls_param: Comma-separated list of URLs
-        auth_token: Optional bearer token for authorization
+        auth_token: Optional authorization token value (``Bearer `` prefix optional)
         hub_token_provider: Optional callable that returns a HuggingFace token.
             Defaults to using huggingface_hub.get_token(). Pass a custom provider
             for testing.
@@ -137,7 +153,8 @@ def parse_server_urls(
     # Prepare headers if auth token is provided
     headers = None
     if auth_token:
-        headers = {"Authorization": f"Bearer {auth_token}"}
+        normalized_token = _normalize_auth_token(auth_token)
+        headers = {"Authorization": f"Bearer {normalized_token}"}
 
     # Parse each URL
     result = []

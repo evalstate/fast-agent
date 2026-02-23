@@ -15,7 +15,9 @@ Usage:
 """
 
 import asyncio
+import sys
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Union, cast
 
 from mcp.types import PromptMessage
@@ -26,6 +28,13 @@ if TYPE_CHECKING:
     from fast_agent.ui.console_display import ConsoleDisplay
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.cli.runtime.shell_cwd_policy import (
+    can_prompt_for_missing_cwd,
+    collect_shell_cwd_issues_from_runtime_agents,
+    create_missing_shell_cwd_directories,
+    effective_missing_shell_cwd_policy,
+    resolve_missing_shell_cwd_policy,
+)
 from fast_agent.commands.handlers import mcp_runtime as mcp_runtime_handlers  # noqa: F401
 from fast_agent.commands.handlers import prompts as prompt_handlers
 from fast_agent.config import get_settings
@@ -41,6 +50,7 @@ from fast_agent.ui.command_payloads import (
 )
 from fast_agent.ui.enhanced_prompt import (
     get_enhanced_input,
+    get_selection_input,
     handle_special_commands,
     parse_special_input,
     set_last_copyable_output,
@@ -154,6 +164,26 @@ class InteractivePrompt:
         ctrl_c_exit_window_seconds = 2.0
         ctrl_c_deadline: float | None = None
         startup_warning_digest_checked = False
+        shell_cwd_startup_prompt_checked = False
+        configured_shell_cwd_policy = getattr(
+            getattr(get_settings(), "shell_execution", None),
+            "missing_cwd_policy",
+            None,
+        )
+        resolved_shell_cwd_policy = resolve_missing_shell_cwd_policy(
+            cli_override=getattr(prompt_provider, "_missing_shell_cwd_policy_override", None),
+            configured_policy=configured_shell_cwd_policy,
+        )
+        shell_cwd_policy = effective_missing_shell_cwd_policy(
+            resolved_shell_cwd_policy,
+            can_prompt=can_prompt_for_missing_cwd(
+                mode="interactive",
+                message=None,
+                prompt_file=None,
+                stdin_is_tty=sys.stdin.isatty(),
+                tty_device_available=False,
+            ),
+        )
 
         def _handle_ctrl_c_interrupt() -> None:
             nonlocal ctrl_c_deadline
@@ -207,6 +237,60 @@ class InteractivePrompt:
             rich_print(f"[yellow]Startup warnings ({count}):[/yellow]")
             for warning in startup_warnings:
                 rich_print(f"  • {warning}")
+
+        async def _maybe_prompt_for_shell_cwd_startup_once() -> None:
+            nonlocal shell_cwd_startup_prompt_checked
+
+            if shell_cwd_startup_prompt_checked:
+                return
+            shell_cwd_startup_prompt_checked = True
+
+            if shell_cwd_policy != "ask":
+                return
+
+            runtime_agents = getattr(prompt_provider, "_agents", None)
+            if not isinstance(runtime_agents, dict):
+                return
+
+            issues = collect_shell_cwd_issues_from_runtime_agents(runtime_agents, cwd=Path.cwd())
+            if not issues:
+                return
+
+            issue_word = "issue" if len(issues) == 1 else "issues"
+            rich_print(f"[yellow]Shell cwd startup check:[/yellow] {len(issues)} {issue_word} found.")
+
+            selection = await get_selection_input(
+                "Create missing shell directories now? [Y/n] ",
+                default="y",
+                allow_cancel=False,
+                complete_options=False,
+            )
+            answer = (selection or "").strip().lower()
+            if answer not in {"", "y", "yes"}:
+                return
+
+            created_paths, creation_errors = create_missing_shell_cwd_directories(issues)
+            if created_paths:
+                rich_print("[green]Created missing shell cwd directories:[/green]")
+                for path in created_paths:
+                    rich_print(f"  • {path}")
+
+            if creation_errors:
+                rich_print("[red]Failed to create one or more shell cwd directories:[/red]")
+                for item in creation_errors:
+                    rich_print(f"  • {item.path}: {item.message}")
+
+            remaining_issues = collect_shell_cwd_issues_from_runtime_agents(
+                runtime_agents,
+                cwd=Path.cwd(),
+            )
+            if not remaining_issues:
+                try:
+                    from fast_agent.ui import notification_tracker
+
+                    notification_tracker.remove_startup_warnings_containing("shell cwd")
+                except Exception:
+                    pass
 
         def _auto_fix_pending_tool_call(agent_obj: Any) -> bool:
             """Remove a dangling assistant TOOL_USE message at end of history."""
@@ -300,6 +384,7 @@ class InteractivePrompt:
                     rich_print("[red]No agents available.[/red]")
                     return result
 
+            await _maybe_prompt_for_shell_cwd_startup_once()
             _emit_startup_warning_digest_once()
 
             # Use the enhanced input method with advanced features

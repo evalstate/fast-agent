@@ -727,20 +727,20 @@ def _validate_effective_settings(
         load_yaml_mapping,
     )
 
-    merged_settings: dict[str, Any] = {}
-
-    config_path = config_files.get("config")
-    if isinstance(config_path, Path):
-        merged_settings = load_yaml_mapping(config_path)
-
-    layered_model_settings = load_layered_model_settings(start_path=cwd, env_dir=env_override)
-    merged_settings = deep_merge(merged_settings, layered_model_settings)
-
-    secrets_path = config_files.get("secrets")
-    if isinstance(secrets_path, Path):
-        merged_settings = deep_merge(merged_settings, load_yaml_mapping(secrets_path))
-
     try:
+        merged_settings: dict[str, Any] = {}
+
+        config_path = config_files.get("config")
+        if isinstance(config_path, Path):
+            merged_settings = load_yaml_mapping(config_path)
+
+        layered_model_settings = load_layered_model_settings(start_path=cwd, env_dir=env_override)
+        merged_settings = deep_merge(merged_settings, layered_model_settings)
+
+        secrets_path = config_files.get("secrets")
+        if isinstance(secrets_path, Path):
+            merged_settings = deep_merge(merged_settings, load_yaml_mapping(secrets_path))
+
         Settings(**merged_settings)
     except Exception as exc:
         return str(exc)
@@ -1215,7 +1215,7 @@ def show_check_summary(env_dir: Path | None = None) -> None:
             }
 
     _print_section_header("Agent Cards", color="blue")
-    env_paths = resolve_environment_paths(cwd=search_root, override=environment_override)
+    env_paths = resolve_environment_paths(cwd=cwd, override=environment_override)
     card_directories = [
         ("Agent Cards", env_paths.agent_cards),
         ("Tool Cards", env_paths.tool_cards),

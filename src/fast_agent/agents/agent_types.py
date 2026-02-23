@@ -63,6 +63,8 @@ class MCPConnectTarget:
 
     target: str
     name: str | None = None
+    headers: dict[str, str] | None = None
+    auth: dict[str, Any] | None = None
 
 
 @dataclass

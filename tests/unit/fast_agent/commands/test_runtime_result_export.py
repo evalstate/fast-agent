@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import typer
 from mcp.types import TextContent
 
+from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.cli.runtime.agent_setup import (
+    _apply_shell_cwd_policy_preflight,
     _build_fan_out_result_paths,
     _build_result_file_with_suffix,
     _export_result_histories,
@@ -262,3 +265,145 @@ async def test_run_single_agent_cli_flow_retries_interactive_after_cancelled_err
     captured = capsys.readouterr()
     assert app.interactive_calls == 2
     assert "Interrupted operation; returning to fast-agent prompt." not in captured.err
+
+
+def test_apply_shell_cwd_policy_preflight_interactive_honors_error_policy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    fast = SimpleNamespace(
+        agents={
+            "agent": {
+                "config": AgentConfig(
+                    name="agent",
+                    instruction="x",
+                    servers=[],
+                    shell=True,
+                    cwd=Path("missing-shell-cwd"),
+                )
+            }
+        },
+        app=SimpleNamespace(
+            context=SimpleNamespace(
+                config=SimpleNamespace(
+                    shell_execution=SimpleNamespace(missing_cwd_policy="error")
+                )
+            )
+        ),
+    )
+    request = _make_request(result_file=None, message=None)
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(typer.Exit) as exc_info:
+        _apply_shell_cwd_policy_preflight(fast, request)
+
+    assert exc_info.value.exit_code == 1
+    assert "Shell cwd policy (error):" in capsys.readouterr().err
+
+
+def test_apply_shell_cwd_policy_preflight_interactive_honors_warn_policy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    notices: list[str] = []
+    monkeypatch.setattr(
+        "fast_agent.ui.enhanced_prompt.queue_startup_notice",
+        notices.append,
+    )
+    fast = SimpleNamespace(
+        agents={
+            "agent": {
+                "config": AgentConfig(
+                    name="agent",
+                    instruction="x",
+                    servers=[],
+                    shell=True,
+                    cwd=Path("missing-shell-cwd"),
+                )
+            }
+        },
+        app=SimpleNamespace(
+            context=SimpleNamespace(
+                config=SimpleNamespace(
+                    shell_execution=SimpleNamespace(missing_cwd_policy="warn")
+                )
+            )
+        ),
+    )
+    request = _make_request(result_file=None, message=None)
+    monkeypatch.chdir(tmp_path)
+
+    _apply_shell_cwd_policy_preflight(fast, request)
+
+    assert notices
+    assert "Shell cwd policy (warn):" in notices[0]
+
+
+def test_apply_shell_cwd_policy_preflight_interactive_honors_create_policy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fast = SimpleNamespace(
+        agents={
+            "agent": {
+                "config": AgentConfig(
+                    name="agent",
+                    instruction="x",
+                    servers=[],
+                    shell=True,
+                    cwd=Path("missing-shell-cwd"),
+                )
+            }
+        },
+        app=SimpleNamespace(
+            context=SimpleNamespace(
+                config=SimpleNamespace(
+                    shell_execution=SimpleNamespace(missing_cwd_policy="create")
+                )
+            )
+        ),
+    )
+    request = _make_request(result_file=None, message=None)
+    monkeypatch.chdir(tmp_path)
+
+    _apply_shell_cwd_policy_preflight(fast, request)
+
+    assert (tmp_path / "missing-shell-cwd").is_dir()
+
+
+def test_apply_shell_cwd_policy_preflight_interactive_create_errors_on_remaining_issue(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    not_a_dir = tmp_path / "not-a-dir"
+    not_a_dir.write_text("content", encoding="utf-8")
+    fast = SimpleNamespace(
+        agents={
+            "agent": {
+                "config": AgentConfig(
+                    name="agent",
+                    instruction="x",
+                    servers=[],
+                    shell=True,
+                    cwd=Path("not-a-dir"),
+                )
+            }
+        },
+        app=SimpleNamespace(
+            context=SimpleNamespace(
+                config=SimpleNamespace(
+                    shell_execution=SimpleNamespace(missing_cwd_policy="create")
+                )
+            )
+        ),
+    )
+    request = _make_request(result_file=None, message=None)
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(typer.Exit) as exc_info:
+        _apply_shell_cwd_policy_preflight(fast, request)
+
+    assert exc_info.value.exit_code == 1
+    assert "Shell cwd policy (error):" in capsys.readouterr().err

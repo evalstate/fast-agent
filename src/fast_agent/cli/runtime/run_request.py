@@ -62,6 +62,7 @@ class AgentRunRequest:
     permissions_enabled: bool
     reload: bool
     watch: bool
+    missing_shell_cwd_policy: Literal["ask", "create", "warn", "error"] | None = None
 
     def __post_init__(self) -> None:
         if self.noenv and self.environment_dir is not None:
@@ -112,4 +113,5 @@ class AgentRunRequest:
             "permissions_enabled": self.permissions_enabled,
             "reload": self.reload,
             "watch": self.watch,
+            "missing_shell_cwd_policy": self.missing_shell_cwd_policy,
         }

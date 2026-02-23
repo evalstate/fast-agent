@@ -49,6 +49,25 @@ def test_parse_mentions_renders_template_values() -> None:
     assert parsed.mentions[0].resource_uri == "file:///repo/main/README.md"
 
 
+def test_parse_mentions_preserves_slashes_for_simple_template_values() -> None:
+    parsed = parse_mentions("Inspect ^demo:file:///repo/{path}{path=src/main.py}")
+
+    assert len(parsed.mentions) == 1
+    assert parsed.mentions[0].resource_uri == "file:///repo/src/main.py"
+
+
+def test_parse_mentions_renders_rfc6570_path_expression_values() -> None:
+    parsed = parse_mentions(
+        "Inspect ^githubcopilot:repo://{owner}/{repo}/contents{/path*}{owner=evalstate,repo=fast-agent,path=plan/hot-mcp-auth.md}"
+    )
+
+    assert len(parsed.mentions) == 1
+    assert (
+        parsed.mentions[0].resource_uri
+        == "repo://evalstate/fast-agent/contents/plan/hot-mcp-auth.md"
+    )
+
+
 def test_parse_mentions_records_template_warning_on_missing_args() -> None:
     parsed = parse_mentions("Inspect ^demo:file:///repo/{branch}")
 

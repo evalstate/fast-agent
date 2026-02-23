@@ -123,6 +123,7 @@ async def _run_agent(
     permissions_enabled: bool = True,
     reload: bool = False,
     watch: bool = False,
+    missing_shell_cwd_policy: Literal["ask", "create", "warn", "error"] | None = None,
 ) -> None:
     """Compatibility wrapper for async request execution."""
     request = AgentRunRequest(
@@ -156,6 +157,7 @@ async def _run_agent(
         permissions_enabled=permissions_enabled,
         reload=reload,
         watch=watch,
+        missing_shell_cwd_policy=missing_shell_cwd_policy,
     )
     await run_agent_request(request)
 
@@ -193,6 +195,7 @@ def run_async_agent(
     permissions_enabled: bool = True,
     reload: bool = False,
     watch: bool = False,
+    missing_shell_cwd_policy: Literal["ask", "create", "warn", "error"] | None = None,
 ) -> None:
     """Run the async agent function with proper loop handling."""
     try:
@@ -229,6 +232,7 @@ def run_async_agent(
             permissions_enabled=permissions_enabled,
             reload=reload,
             watch=watch,
+            missing_shell_cwd_policy=missing_shell_cwd_policy,
         )
         request = AgentRunRequest(**run_kwargs)
     except ValueError as exc:
