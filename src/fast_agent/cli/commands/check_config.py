@@ -15,13 +15,14 @@ from rich.text import Text
 
 from fast_agent.cli.env_helpers import resolve_environment_dir_option
 from fast_agent.config import resolve_config_search_root
+from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
 from fast_agent.core.agent_card_validation import scan_agent_card_directory
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.model_selection import ModelSelectionCatalog
 from fast_agent.llm.provider_key_manager import API_KEY_HINT_TEXT, ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
-from fast_agent.paths import resolve_environment_paths
+from fast_agent.paths import default_skill_paths, resolve_environment_paths
 from fast_agent.skills import SkillRegistry
 from fast_agent.ui.console import console
 
@@ -692,6 +693,61 @@ def show_provider_model_catalog(
         console.print(all_models_table)
 
 
+def _effective_environment_override(
+    *,
+    env_dir: Path | None,
+    config_summary: dict[str, Any],
+) -> str | Path:
+    if env_dir is not None:
+        return env_dir
+
+    env_override = os.getenv("ENVIRONMENT_DIR")
+    if isinstance(env_override, str) and env_override.strip():
+        return env_override.strip()
+
+    config_payload = config_summary.get("config")
+    if isinstance(config_payload, dict):
+        configured_env_dir = config_payload.get("environment_dir")
+        if isinstance(configured_env_dir, str) and configured_env_dir.strip():
+            return configured_env_dir.strip()
+
+    return DEFAULT_ENVIRONMENT_DIR
+
+
+def _validate_effective_settings(
+    *,
+    cwd: Path,
+    config_files: dict[str, Path | None],
+    env_override: str | Path,
+) -> str | None:
+    from fast_agent.config import (
+        Settings,
+        deep_merge,
+        load_layered_model_settings,
+        load_yaml_mapping,
+    )
+
+    merged_settings: dict[str, Any] = {}
+
+    config_path = config_files.get("config")
+    if isinstance(config_path, Path):
+        merged_settings = load_yaml_mapping(config_path)
+
+    layered_model_settings = load_layered_model_settings(start_path=cwd, env_dir=env_override)
+    merged_settings = deep_merge(merged_settings, layered_model_settings)
+
+    secrets_path = config_files.get("secrets")
+    if isinstance(secrets_path, Path):
+        merged_settings = deep_merge(merged_settings, load_yaml_mapping(secrets_path))
+
+    try:
+        Settings(**merged_settings)
+    except Exception as exc:
+        return str(exc)
+
+    return None
+
+
 def show_check_summary(env_dir: Path | None = None) -> None:
     """Show a summary of checks with colorful styling."""
     cwd = Path.cwd()
@@ -702,6 +758,15 @@ def show_check_summary(env_dir: Path | None = None) -> None:
     secrets_summary = get_secrets_summary(config_files["secrets"])
     api_keys = check_api_keys(secrets_summary, config_summary)
     fastagent_version = get_fastagent_version()
+    environment_override = _effective_environment_override(
+        env_dir=env_dir,
+        config_summary=config_summary,
+    )
+    effective_settings_error = _validate_effective_settings(
+        cwd=cwd,
+        config_files=config_files,
+        env_override=environment_override,
+    )
 
     # Environment and configuration section (merged)
     # Header shows version and platform for a concise overview
@@ -763,6 +828,10 @@ def show_check_summary(env_dir: Path | None = None) -> None:
         )
         env_table.add_row("Default Model", f"[green]{default_model_value}[/green]")
 
+    if effective_settings_error:
+        env_table.add_row("Effective Config", "[orange_red1]Errors[/orange_red1]")
+        env_table.add_row("Effective Error", f"[orange_red1]{effective_settings_error}[/orange_red1]")
+
     # Keyring backend (always shown in application-level settings)
     if keyring_status.available:
         if keyring_status.writable:
@@ -792,7 +861,15 @@ def show_check_summary(env_dir: Path | None = None) -> None:
         if isinstance(skills_override, list)
         else None
     )
-    skills_registry = SkillRegistry(base_dir=search_root, directories=override_directories)
+    default_directories = (
+        default_skill_paths(cwd=search_root, override=environment_override)
+        if override_directories is None
+        else None
+    )
+    skills_registry = SkillRegistry(
+        base_dir=search_root,
+        directories=override_directories if override_directories is not None else default_directories,
+    )
     skills_dirs = skills_registry.directories
     skills_manifests, skill_errors = skills_registry.load_manifests_with_errors()
 
@@ -1138,7 +1215,7 @@ def show_check_summary(env_dir: Path | None = None) -> None:
             }
 
     _print_section_header("Agent Cards", color="blue")
-    env_paths = resolve_environment_paths(override=env_dir)
+    env_paths = resolve_environment_paths(cwd=search_root, override=environment_override)
     card_directories = [
         ("Agent Cards", env_paths.agent_cards),
         ("Tool Cards", env_paths.tool_cards),
@@ -1262,14 +1339,16 @@ def show_check_summary(env_dir: Path | None = None) -> None:
         )
 
     # Show help tips
-    if config_status == "not_found" or secrets_status == "not_found":
+    if config_status == "error" or secrets_status == "error" or effective_settings_error:
+        console.print("\n[bold]Config File Issues:[/bold]")
+        if effective_settings_error:
+            console.print(f"[orange_red1]{effective_settings_error}[/orange_red1]")
+        console.print("Fix the YAML syntax errors in your configuration files")
+    elif config_status == "not_found" or secrets_status == "not_found":
         console.print("\n[bold]Setup Tips:[/bold]")
         console.print(
             "Run [cyan]fast-agent scaffold[/cyan] to create configuration files. Visit [cyan][link=https://fast-agent.ai]fast-agent.ai[/link][/cyan] for configuration guides. "
         )
-    elif config_status == "error" or secrets_status == "error":
-        console.print("\n[bold]Config File Issues:[/bold]")
-        console.print("Fix the YAML syntax errors in your configuration files")
 
     if all(
         not api_keys[provider]["env"] and not api_keys[provider]["config"] for provider in api_keys
