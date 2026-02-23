@@ -390,15 +390,72 @@ class MCPSettings(BaseModel):
     servers: dict[str, MCPServerSettings] = {}
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
-    @model_validator(mode="before")
     @classmethod
-    def _normalize_server_targets(cls, values: Any) -> Any:
-        if not isinstance(values, dict):
-            return values
+    def _normalize_target_list_entries(
+        cls,
+        raw_targets: Any,
+    ) -> dict[str, dict[str, Any]]:
+        if raw_targets is None:
+            return {}
 
-        raw_servers = values.get("servers")
+        if not isinstance(raw_targets, list):
+            raise ValueError("`mcp.targets` must be a list")
+
+        from fast_agent.mcp.connect_targets import resolve_target_entry
+
+        normalized_targets: dict[str, dict[str, Any]] = {}
+        for index, raw_entry in enumerate(raw_targets):
+            entry: dict[str, Any]
+            if isinstance(raw_entry, str):
+                entry = {"target": raw_entry}
+            elif isinstance(raw_entry, dict):
+                entry = raw_entry
+            else:
+                raise ValueError(f"`mcp.targets[{index}]` must be a string or mapping")
+
+            target_value = entry.get("target")
+            source_path = f"mcp.targets[{index}].target"
+            if not isinstance(target_value, str) or not target_value.strip():
+                raise ValueError(f"`{source_path}` must be a non-empty string")
+
+            name_value = entry.get("name")
+            if name_value is not None and (not isinstance(name_value, str) or not name_value.strip()):
+                raise ValueError(f"`mcp.targets[{index}].name` must be a non-empty string")
+
+            overrides = {key: value for key, value in entry.items() if key != "target"}
+            resolved_name, resolved_settings = resolve_target_entry(
+                target=target_value,
+                default_name=name_value if isinstance(name_value, str) else None,
+                overrides=overrides,
+                source_path=source_path,
+            )
+
+            resolved_payload = resolved_settings.model_dump(mode="python")
+            existing_payload = normalized_targets.get(resolved_name)
+            if existing_payload is not None and existing_payload != resolved_payload:
+                raise ValueError(
+                    " ".join(
+                        [
+                            f"`mcp.targets[{index}]` resolves to duplicate server name '{resolved_name}'",
+                            "with different settings.",
+                            "Set an explicit unique `name`.",
+                        ]
+                    )
+                )
+
+            normalized_targets[resolved_name] = resolved_payload
+
+        return normalized_targets
+
+    @classmethod
+    def _normalize_server_map_entries(
+        cls,
+        raw_servers: Any,
+    ) -> dict[Any, Any] | None:
+        if raw_servers is None:
+            return {}
         if not isinstance(raw_servers, dict):
-            return values
+            return None
 
         from fast_agent.mcp.connect_targets import resolve_target_entry
 
@@ -423,8 +480,29 @@ class MCPSettings(BaseModel):
             )
             normalized_servers[server_key] = resolved_settings.model_dump(mode="python")
 
+        return normalized_servers
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_server_targets(cls, values: Any) -> Any:
+        if not isinstance(values, dict):
+            return values
+
+        raw_servers = values.get("servers")
+        raw_targets = values.get("targets")
+
+        normalized_targets = cls._normalize_target_list_entries(raw_targets)
+        normalized_servers = cls._normalize_server_map_entries(raw_servers)
+
+        if normalized_servers is None:
+            return values
+
+        merged_servers: dict[Any, Any] = dict(normalized_targets)
+        merged_servers.update(normalized_servers)
+
         normalized_values = dict(values)
-        normalized_values["servers"] = normalized_servers
+        normalized_values["servers"] = merged_servers
+        normalized_values.pop("targets", None)
         return normalized_values
 
 
