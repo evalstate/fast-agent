@@ -12,8 +12,8 @@ logger:
   truncate_tools: true
 
 mcp:
-  servers:
-    tester:
+  targets:
+    - name: tester
+      target: "http://localhost:8000/t0-example-server/sse"
       transport: "sse"
-      url: "http://localhost:8000/t0-example-server/sse"
       read_transport_sse_timeout_seconds: 300

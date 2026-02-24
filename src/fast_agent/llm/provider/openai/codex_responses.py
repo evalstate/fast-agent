@@ -11,7 +11,7 @@ from fast_agent.llm.provider.openai.codex_oauth import parse_chatgpt_account_id
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider.openai.responses_websocket import (
     ResponsesWsRequestPlanner,
-    StatefulAppendResponsesWsPlanner,
+    StatefulContinuationResponsesWsPlanner,
 )
 from fast_agent.llm.provider_types import Provider
 
@@ -89,7 +89,8 @@ class CodexResponsesLLM(ResponsesLLM):
         return True
 
     def _new_ws_request_planner(self) -> ResponsesWsRequestPlanner:
-        return StatefulAppendResponsesWsPlanner()
+        """Use response-id continuation on websocket turns."""
+        return StatefulContinuationResponsesWsPlanner()
 
     def _build_websocket_headers(self) -> dict[str, str]:
         token = self._api_key()

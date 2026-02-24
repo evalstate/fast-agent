@@ -44,6 +44,7 @@ from fast_agent.ui.command_payloads import (
     McpConnectCommand,
     McpDisconnectCommand,
     McpListCommand,
+    McpSessionCommand,
     ModelReasoningCommand,
     ModelsCommand,
     ModelVerbosityCommand,
@@ -346,6 +347,29 @@ async def dispatch_command_payload(
                 manager=prompt_provider,
                 agent_name=agent,
                 server_name=server_name,
+            )
+            await emit_command_outcome(context, outcome)
+            return result
+        case McpSessionCommand(
+            action=action,
+            server_identity=server_identity,
+            session_id=session_id,
+            title=title,
+            clear_all=clear_all,
+            error=error,
+        ):
+            context = build_command_context(prompt_provider, agent)
+            if error:
+                rich_print(f"[red]{error}[/red]")
+                return result
+            outcome = await mcp_runtime_handlers.handle_mcp_session(
+                context,
+                agent_name=agent,
+                action=action,
+                server_identity=server_identity,
+                session_id=session_id,
+                title=title,
+                clear_all=clear_all,
             )
             await emit_command_outcome(context, outcome)
             return result

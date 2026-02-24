@@ -55,6 +55,20 @@ class McpDisconnectCommand(CommandBase):
     kind: Literal["mcp_disconnect"] = "mcp_disconnect"
 
 
+McpSessionAction = Literal["jar", "new", "use", "clear", "list"]
+
+
+@dataclass(frozen=True, slots=True)
+class McpSessionCommand(CommandBase):
+    action: McpSessionAction
+    server_identity: str | None
+    session_id: str | None
+    title: str | None
+    clear_all: bool
+    error: str | None
+    kind: Literal["mcp_session"] = "mcp_session"
+
+
 @dataclass(frozen=True, slots=True)
 class ListToolsCommand(CommandBase):
     kind: Literal["list_tools"] = "list_tools"
@@ -297,6 +311,7 @@ CommandPayload = (
     | McpListCommand
     | McpConnectCommand
     | McpDisconnectCommand
+    | McpSessionCommand
     | ListToolsCommand
     | ListPromptsCommand
     | ListSkillsCommand

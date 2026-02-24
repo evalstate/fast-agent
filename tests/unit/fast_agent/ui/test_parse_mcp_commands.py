@@ -4,6 +4,7 @@ from fast_agent.ui.command_payloads import (
     McpConnectCommand,
     McpDisconnectCommand,
     McpListCommand,
+    McpSessionCommand,
     ShowMcpStatusCommand,
 )
 from fast_agent.ui.enhanced_prompt import parse_special_input
@@ -58,3 +59,46 @@ def test_parse_connect_alias_detects_npx_for_scoped_package() -> None:
     result = parse_special_input("/connect @modelcontextprotocol/server-everything")
     assert isinstance(result, McpConnectCommand)
     assert result.parsed_mode == "npx"
+
+
+def test_parse_mcp_session_defaults_to_list() -> None:
+    result = parse_special_input("/mcp session")
+    assert isinstance(result, McpSessionCommand)
+    assert result.action == "list"
+    assert result.server_identity is None
+    assert result.error is None
+
+
+def test_parse_mcp_session_server_shortcut() -> None:
+    result = parse_special_input("/mcp session demo-server")
+    assert isinstance(result, McpSessionCommand)
+    assert result.action == "list"
+    assert result.server_identity == "demo-server"
+    assert result.error is None
+
+
+def test_parse_mcp_session_new_with_title() -> None:
+    result = parse_special_input('/mcp session new demo --title "Demo Run"')
+    assert isinstance(result, McpSessionCommand)
+    assert result.action == "new"
+    assert result.server_identity == "demo"
+    assert result.title == "Demo Run"
+    assert result.error is None
+
+
+def test_parse_mcp_session_resume() -> None:
+    result = parse_special_input("/mcp session resume demo sess-123")
+    assert isinstance(result, McpSessionCommand)
+    assert result.action == "use"
+    assert result.server_identity == "demo"
+    assert result.session_id == "sess-123"
+    assert result.error is None
+
+
+def test_parse_mcp_session_clear_all_without_args() -> None:
+    result = parse_special_input("/mcp session clear")
+    assert isinstance(result, McpSessionCommand)
+    assert result.action == "clear"
+    assert result.clear_all is True
+    assert result.server_identity is None
+    assert result.error is None

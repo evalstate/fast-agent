@@ -54,6 +54,7 @@ from fast_agent.mcp.common import (
     get_server_name,
     is_namespaced_name,
 )
+from fast_agent.mcp.experimental_session_client import ExperimentalSessionClient
 from fast_agent.mcp.mcp_aggregator import (
     MCPAggregator,
     MCPAttachOptions,
@@ -342,6 +343,11 @@ class McpAgent(ABC, ToolAgent):
     def aggregator(self) -> MCPAggregator:
         """Expose the MCP aggregator for UI integrations."""
         return self._aggregator
+
+    @property
+    def experimental_sessions(self) -> ExperimentalSessionClient:
+        """Expose focused experimental-session cookie controls for this agent."""
+        return self._aggregator.experimental_sessions
 
     @property
     def instruction_template(self) -> str:

@@ -15,7 +15,6 @@ from aiohttp import WSMsgType
 RESPONSES_WEBSOCKET_BETA_HEADER = "responses_websockets=2026-02-06"
 RESPONSES_WEBSOCKET_BETA_HEADER_NAME = "OpenAI-Beta"
 RESPONSES_CREATE_EVENT_TYPE = "response.create"
-RESPONSES_APPEND_EVENT_TYPE = "response.append"
 TERMINAL_RESPONSE_EVENT_TYPES = {
     "response.completed",
     "response.done",
@@ -41,9 +40,20 @@ class ResponsesWebSocketError(RuntimeError):
         stream_started: Whether any meaningful streaming output/tool event was observed.
     """
 
-    def __init__(self, message: str, *, stream_started: bool = False) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        stream_started: bool = False,
+        error_code: str | None = None,
+        status: int | None = None,
+        error_param: str | None = None,
+    ) -> None:
         super().__init__(message)
         self.stream_started = stream_started
+        self.error_code = error_code
+        self.status = status
+        self.error_param = error_param
 
 
 class _AttrObjectView:
@@ -175,6 +185,7 @@ class ResponsesWsRequestPlanner(Protocol):
         self,
         full_arguments: Mapping[str, Any],
         planned: PlannedWsRequest,
+        final_response: Any | None = None,
     ) -> None: ...
 
     def rollback(self, error: BaseException, *, stream_started: bool) -> None: ...
@@ -195,8 +206,9 @@ class StatelessResponsesWsPlanner:
         self,
         full_arguments: Mapping[str, Any],
         planned: PlannedWsRequest,
+        final_response: Any | None = None,
     ) -> None:
-        del full_arguments, planned
+        del full_arguments, planned, final_response
 
     def rollback(self, error: BaseException, *, stream_started: bool) -> None:
         del error, stream_started
@@ -205,12 +217,13 @@ class StatelessResponsesWsPlanner:
         return None
 
 
-class StatefulAppendResponsesWsPlanner:
-    """Emit ``response.append`` when the request is a safe prefix extension."""
+class StatefulContinuationResponsesWsPlanner:
+    """Emit ``response.create`` with ``previous_response_id`` for safe continuations."""
 
     def __init__(self) -> None:
         self._last_signature: dict[str, Any] | None = None
         self._last_input_fingerprints: list[str] | None = None
+        self._last_response_id: str | None = None
 
     def plan(self, full_arguments: Mapping[str, Any]) -> PlannedWsRequest:
         signature = _sanitize_request_signature(full_arguments)
@@ -223,6 +236,7 @@ class StatefulAppendResponsesWsPlanner:
             or input_fingerprints is None
             or self._last_signature is None
             or self._last_input_fingerprints is None
+            or self._last_response_id is None
         ):
             return self._planned_create(full_arguments)
 
@@ -238,25 +252,32 @@ class StatefulAppendResponsesWsPlanner:
         if not incremental_items:
             return self._planned_create(full_arguments)
 
+        continuation_arguments = _copy_arguments(full_arguments)
+        continuation_arguments["input"] = incremental_items
+        continuation_arguments["previous_response_id"] = self._last_response_id
+
         return PlannedWsRequest(
-            event_type=RESPONSES_APPEND_EVENT_TYPE,
-            arguments={"input": incremental_items},
+            event_type=RESPONSES_CREATE_EVENT_TYPE,
+            arguments=continuation_arguments,
         )
 
     def commit(
         self,
         full_arguments: Mapping[str, Any],
         planned: PlannedWsRequest,
+        final_response: Any | None = None,
     ) -> None:
         del planned
         signature = _sanitize_request_signature(full_arguments)
         input_items = _extract_input_items(full_arguments)
         input_fingerprints = _fingerprint_input_items(input_items)
-        if signature is None or input_fingerprints is None:
+        response_id = _extract_response_id(final_response)
+        if signature is None or input_fingerprints is None or response_id is None:
             self.reset()
             return
         self._last_signature = signature
         self._last_input_fingerprints = input_fingerprints
+        self._last_response_id = response_id
 
     def rollback(self, error: BaseException, *, stream_started: bool) -> None:
         del error, stream_started
@@ -265,13 +286,21 @@ class StatefulAppendResponsesWsPlanner:
     def reset(self) -> None:
         self._last_signature = None
         self._last_input_fingerprints = None
+        self._last_response_id = None
 
     @staticmethod
     def _planned_create(full_arguments: Mapping[str, Any]) -> PlannedWsRequest:
+        create_arguments = _copy_arguments(full_arguments)
+        create_arguments.pop("previous_response_id", None)
         return PlannedWsRequest(
             event_type=RESPONSES_CREATE_EVENT_TYPE,
-            arguments=_copy_arguments(full_arguments),
+            arguments=create_arguments,
         )
+
+
+# Backward-compatibility alias for older imports.
+# New code should use StatefulContinuationResponsesWsPlanner directly.
+StatefulAppendResponsesWsPlanner = StatefulContinuationResponsesWsPlanner
 
 
 @dataclass
@@ -338,8 +367,9 @@ async def send_response_request(
     websocket: WebSocketLike,
     planned_request: PlannedWsRequest,
 ) -> None:
+    # WebSocket mode expects the Responses create payload shape plus event envelope.
+    # Transport-specific flags like `stream`/`background` are intentionally omitted.
     payload = _copy_arguments(planned_request.arguments)
-    payload.setdefault("stream", True)
     payload["type"] = planned_request.event_type
     await websocket.send_str(json.dumps(payload))
 
@@ -383,6 +413,19 @@ def _fingerprint_input_items(input_items: list[Any] | None) -> list[str] | None:
         except (TypeError, ValueError):
             return None
     return fingerprints
+
+
+def _extract_response_id(final_response: Any | None) -> str | None:
+    if final_response is None:
+        return None
+    response_id = getattr(final_response, "id", None)
+    if isinstance(response_id, str) and response_id:
+        return response_id
+    if isinstance(final_response, Mapping):
+        mapped_id = final_response.get("id")
+        if isinstance(mapped_id, str) and mapped_id:
+            return mapped_id
+    return None
 
 
 class WebSocketResponsesStream:
@@ -483,10 +526,18 @@ class WebSocketResponsesStream:
                 self._final_response = _to_attr_object(payload["response"])
 
             if event_type in {"error", "response.failed"}:
-                error_message = self._extract_error_message(payload)
+                (
+                    error_message,
+                    error_code,
+                    error_status,
+                    error_param,
+                ) = self._extract_error_details(payload)
                 raise ResponsesWebSocketError(
                     error_message,
                     stream_started=self._stream_started,
+                    error_code=error_code,
+                    status=error_status,
+                    error_param=error_param,
                 )
 
             if event_type in TERMINAL_RESPONSE_EVENT_TYPES:
@@ -505,20 +556,44 @@ class WebSocketResponsesStream:
         return self._final_response
 
     @staticmethod
-    def _extract_error_message(payload: Mapping[str, Any]) -> str:
+    def _extract_error_details(
+        payload: Mapping[str, Any],
+    ) -> tuple[str, str | None, int | None, str | None]:
+        status = payload.get("status")
+        error_status = status if isinstance(status, int) else None
+        error_code: str | None = None
+        error_param: str | None = None
+
         message = payload.get("message")
         if isinstance(message, str) and message.strip():
-            return message
+            top_level_message = message
+        else:
+            top_level_message = None
 
         error = payload.get("error")
         if isinstance(error, str) and error.strip():
-            return error
+            return error, None, error_status, None
         if isinstance(error, Mapping):
+            code_value = error.get("code")
+            if isinstance(code_value, str) and code_value.strip():
+                error_code = code_value
+
+            status_value = error.get("status")
+            if isinstance(status_value, int):
+                error_status = status_value
+
+            param_value = error.get("param")
+            if isinstance(param_value, str) and param_value.strip():
+                error_param = param_value
+
             error_message = error.get("message")
             if isinstance(error_message, str) and error_message.strip():
-                return error_message
+                return error_message, error_code, error_status, error_param
 
-        return "WebSocket Responses request failed."
+        if top_level_message:
+            return top_level_message, error_code, error_status, error_param
+
+        return "WebSocket Responses request failed.", error_code, error_status, error_param
 
 
 def _preview_text(raw_data: str, *, limit: int = 240) -> str:

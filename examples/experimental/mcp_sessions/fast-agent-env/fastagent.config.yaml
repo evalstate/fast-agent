@@ -1,0 +1,36 @@
+default_model: $system.demo
+
+model_aliases:
+  system:
+    demo: kimi
+
+logger:
+  level: error
+  type: file
+
+mcp:
+  servers:
+    mcp_sessions_probe:
+      command: uv
+      args: [run, python, session_server.py]
+      cwd: "${ENVIRONMENT_DIR:examples/experimental/mcp_sessions/fast-agent-env}/.."
+
+    mcp_sessions_required:
+      command: uv
+      args: [run, python, session_required_server.py]
+      cwd: "${ENVIRONMENT_DIR:examples/experimental/mcp_sessions/fast-agent-env}/.."
+
+    mcp_sessions_notebook:
+      command: uv
+      args: [run, python, notebook_server.py]
+      cwd: "${ENVIRONMENT_DIR:examples/experimental/mcp_sessions/fast-agent-env}/.."
+
+    mcp_sessions_hashcheck:
+      command: uv
+      args: [run, python, hashcheck_server.py]
+      cwd: "${ENVIRONMENT_DIR:examples/experimental/mcp_sessions/fast-agent-env}/.."
+
+    mcp_sessions_selective:
+      command: uv
+      args: [run, python, selective_session_server.py]
+      cwd: "${ENVIRONMENT_DIR:examples/experimental/mcp_sessions/fast-agent-env}/.."

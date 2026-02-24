@@ -95,11 +95,6 @@ def test_update_experimental_session_cookie_from_meta_and_revocation() -> None:
     assert session.experimental_session_title is None
 
 
-def test_build_experimental_session_title_includes_server_name() -> None:
-    session = _new_session()
-    assert session._build_experimental_session_title() == "demo-agent · demo-server"
-
-
 def test_maybe_advertise_experimental_session_capability_disabled_by_default() -> None:
     session = _new_session()
     session.server_config = MCPServerSettings(name="demo", transport="http", url="http://example.com")
@@ -191,9 +186,48 @@ async def test_maybe_establish_experimental_session_sends_create_request() -> No
     assert getattr(session.recorded_request, "method", None) == "session/create"
     params = getattr(session.recorded_request, "params", None)
     hints = getattr(params, "hints", None)
-    assert getattr(hints, "label", None) == "demo-agent · demo-server"
-    assert getattr(hints, "data", None) == {"title": "demo-agent · demo-server"}
+    assert getattr(hints, "label", None) is None
+    assert getattr(hints, "data", None) == {}
     assert session.experimental_session_cookie == {
         "id": "sess-created",
         "data": {"title": "demo"},
     }
+
+
+def test_set_experimental_session_cookie_accepts_manual_override() -> None:
+    session = _new_session()
+
+    session.set_experimental_session_cookie({"id": "sess-manual", "data": {"title": "Manual"}})
+    assert session.experimental_session_cookie == {
+        "id": "sess-manual",
+        "data": {"title": "Manual"},
+    }
+
+    session.set_experimental_session_cookie(None)
+    assert session.experimental_session_cookie is None
+
+
+@pytest.mark.asyncio
+async def test_experimental_session_list_and_delete_requests() -> None:
+    class _RecordingSession(MCPAgentClientSession):
+        async def send_request(self, request, result_type, **kwargs):  # type: ignore[override]
+            del result_type, kwargs
+            method = getattr(request, "method", None)
+            if method == "session/list":
+                return SimpleNamespace(sessions=[{"id": "sess-a"}, {"id": "sess-b"}])
+            if method == "session/delete":
+                return SimpleNamespace(deleted=True)
+            raise AssertionError(f"Unexpected method: {method}")
+
+    session = object.__new__(_RecordingSession)
+    session._experimental_session_cookie = {"id": "sess-current"}
+    session._experimental_session_supported = True
+    session._experimental_session_features = ("list", "delete")
+    session.agent_name = "demo-agent"
+    session.session_server_name = "demo-server"
+
+    listed = await session.experimental_session_list()
+    deleted = await session.experimental_session_delete("sess-a")
+
+    assert listed == [{"id": "sess-a"}, {"id": "sess-b"}]
+    assert deleted is True

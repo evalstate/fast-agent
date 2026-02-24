@@ -72,17 +72,15 @@ logger:
   # Streaming renderer for assistant responses: "markdown", "plain", or "none"
   streaming: markdown
 
-# MCP Servers
+# MCP Servers (target shorthand)
 mcp:
-  servers:
-    fetch:
-      command: "uvx"
-      args: ["mcp-server-fetch"]
-    filesystem:
-      command: "npx"
-      args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
-    huggingface:
-      url: "https://huggingface.co/mcp?login"
+  targets:
+    - name: fetch
+      target: "uvx mcp-server-fetch"
+    - name: filesystem
+      target: "npx -y @modelcontextprotocol/server-filesystem ."
+    - name: huggingface
+      target: "https://huggingface.co/mcp?login"
       # headers:
       # "Authorization": "Bearer ${ENV_VAR}"
 

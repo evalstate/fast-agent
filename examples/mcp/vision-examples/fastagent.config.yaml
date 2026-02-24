@@ -31,17 +31,12 @@ logger:
 
 # MCP Servers
 mcp:
-    servers:
-        fetch:
-            command: "uvx"
-            args: ["mcp-server-fetch"]
-        filesystem:
-            command: "npx"
-            args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
-        webcam: 
-            command: "npx"
-            args: ["-y","@llmindset/mcp-webcam"]
-        hfspace:
-            command: "npx"
-            args: ["-y","@llmindset/mcp-hfspace"]
-
+    targets:
+        - name: fetch
+          target: "uvx mcp-server-fetch"
+        - name: filesystem
+          target: "npx -y @modelcontextprotocol/server-filesystem ."
+        - name: webcam
+          target: "npx -y @llmindset/mcp-webcam"
+        - name: hfspace
+          target: "npx -y @llmindset/mcp-hfspace"

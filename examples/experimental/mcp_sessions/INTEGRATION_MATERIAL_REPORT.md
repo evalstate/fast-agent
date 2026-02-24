@@ -79,6 +79,27 @@ session protocol wiring.
 - **`README.md`**
   - Usage docs and commands for all above material
 
+### D. fast-agent environment + per-scenario server cards
+
+- **`fast-agent-env/fastagent.config.yaml`**
+  - Configures one MCP server entry per scenario:
+    - `mcp_sessions_probe`
+    - `mcp_sessions_required`
+    - `mcp_sessions_notebook`
+    - `mcp_sessions_hashcheck`
+    - `mcp_sessions_selective`
+  - Uses stdio launches via `uv run python <server>.py`
+
+- **`fast-agent-env/agent-cards/`**
+  - `sessions_probe` (default)
+  - `sessions_required`
+  - `sessions_notebook`
+  - `sessions_hashcheck`
+  - `sessions_selective`
+  - Each card is wired to exactly one scenario server for focused demos
+  - Cards use `model: $system.demo`
+  - `fast-agent-env/fastagent.config.yaml` defines `model_aliases.system.demo: haiku`
+
 ---
 
 ## 2) fast-agent runtime integration material (outside example folder)
@@ -108,8 +129,8 @@ session protocol wiring.
 
 ### D. Documentation
 
-- **`docs/docs/mcp/index.md`**
-  - Includes config guidance for optional client-side session capability advertisement
+- **`examples/experimental/mcp_sessions/README.md`**
+  - Includes server run commands, demo scripts, and fast-agent environment usage
 
 ---
 
@@ -159,6 +180,17 @@ uv run python examples/experimental/mcp_sessions/demo_all_sessions.py selective
 
 # Run any server directly
 uv run python examples/experimental/mcp_sessions/selective_session_server.py
+
+# Run default fast-agent environment card (sessions_probe)
+uv run fast-agent go \
+  --env examples/experimental/mcp_sessions/fast-agent-env \
+  --message 'Call session_probe with action=status and note=first'
+
+# Run selective-policy card
+uv run fast-agent go \
+  --env examples/experimental/mcp_sessions/fast-agent-env \
+  --agent sessions_selective \
+  --message 'Start a session labeled demo and increment the session counter'
 ```
 
 ---
@@ -170,4 +202,3 @@ uv run python examples/experimental/mcp_sessions/selective_session_server.py
   server bridge (`ExperimentalServerSession` path), which is intentional for experimentation.
 - `scripts/cpd.py --check` currently reports pre-existing repository duplications not
   specific to this session material.
-

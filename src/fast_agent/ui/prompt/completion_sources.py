@@ -570,6 +570,123 @@ def command_completions(
                 if flag.startswith(partial.lower())
             ]
 
+    if text_lower.startswith("/mcp session "):
+        remainder = text[len("/mcp session ") :]
+        parts = remainder.split(maxsplit=1) if remainder else []
+
+        attached: list[str] = []
+        if completer.agent_provider is not None and completer.current_agent:
+            try:
+                agent = completer.agent_provider._agent(completer.current_agent)
+                aggregator = getattr(agent, "aggregator", None)
+                list_attached = getattr(aggregator, "list_attached_servers", None)
+                if callable(list_attached):
+                    attached = list_attached()
+            except Exception:
+                attached = []
+
+        if not parts:
+            subcommands = {
+                "list": "List cookies for a server identity and highlight active cookie",
+                "jar": "Show all stored cookies grouped by server identity",
+                "new": "Create a new experimental session",
+                "use": "Switch active cookie to an existing session id",
+                "clear": "Clear one cookie or the full jar",
+            }
+            return list(completer._complete_subcommands(parts, remainder, subcommands))
+
+        subcmd = parts[0].lower()
+        tail = parts[1] if len(parts) > 1 else ""
+        tail_tokens = tail.split()
+        partial = tail_tokens[-1] if tail and not tail.endswith(" ") else ""
+
+        if subcmd in {"list", "jar", "new"}:
+            if subcmd == "new" and "--title" in tail_tokens:
+                return []
+            if "--title" in partial.lower():
+                return []
+            if subcmd == "new" and (not tail_tokens or tail.endswith(" ")):
+                completions = [
+                    Completion(
+                        "--title",
+                        start_position=0,
+                        display="--title",
+                        display_meta="session title hint",
+                    )
+                ]
+            else:
+                completions = []
+
+            completions.extend(
+                Completion(
+                    server,
+                    start_position=-len(partial),
+                    display=server,
+                    display_meta="attached mcp server",
+                )
+                for server in attached
+                if server.lower().startswith(partial.lower())
+            )
+            return completions
+
+        if subcmd in {"use", "resume"}:
+            if len(tail_tokens) <= 1 and not tail.endswith(" "):
+                return [
+                    Completion(
+                        server,
+                        start_position=-len(partial),
+                        display=server,
+                        display_meta="attached mcp server",
+                    )
+                    for server in attached
+                    if server.lower().startswith(partial.lower())
+                ]
+
+            if not tail_tokens:
+                return []
+
+            server_identifier = tail_tokens[0]
+            cookie_partial = ""
+            if tail.endswith(" "):
+                cookie_partial = ""
+            elif len(tail_tokens) >= 2:
+                cookie_partial = tail_tokens[-1]
+            else:
+                return []
+
+            cookie_choices = completer._run_async_completion(
+                completer._list_server_session_cookie_choices(server_identifier)
+            )
+            if not isinstance(cookie_choices, list):
+                return []
+
+            return [
+                Completion(
+                    cookie_id,
+                    start_position=-len(cookie_partial),
+                    display=cookie_id,
+                    display_meta=(
+                        f"{'active' if is_active else 'stored'} cookie"
+                        + (f" · {title}" if isinstance(title, str) and title else "")
+                    ),
+                )
+                for cookie_id, title, is_active in cookie_choices
+                if cookie_id.lower().startswith(cookie_partial.lower())
+            ]
+
+        if subcmd == "clear":
+            options = ["--all", *attached]
+            return [
+                Completion(
+                    option,
+                    start_position=-len(partial),
+                    display=option,
+                    display_meta=("clear full jar" if option == "--all" else "attached mcp server"),
+                )
+                for option in options
+                if option.lower().startswith(partial.lower())
+            ]
+
     if text_lower.startswith("/mcp "):
         remainder = text[len("/mcp ") :]
         parts = remainder.split(maxsplit=1) if remainder else []
@@ -577,6 +694,7 @@ def command_completions(
             "list": "List currently attached MCP servers",
             "connect": "Connect a new MCP server",
             "disconnect": "Disconnect an attached MCP server",
+            "session": "Inspect and control experimental session cookies",
         }
         return list(completer._complete_subcommands(parts, remainder, subcommands))
 

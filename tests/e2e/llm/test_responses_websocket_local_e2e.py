@@ -54,6 +54,7 @@ class _LocalWsCodexResponsesLLM(CodexResponsesLLM):
 class _LocalWebSocketState:
     handshake_count: int = 0
     received_request_types: list[str] = field(default_factory=list)
+    received_payloads: list[dict[str, Any]] = field(default_factory=list)
     scripted_responses: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -72,16 +73,19 @@ async def local_responses_ws_server(
             if message.type != WSMsgType.TEXT:
                 continue
             payload = json.loads(str(message.data))
+            state.received_payloads.append(payload)
             request_type = payload.get("type")
             if isinstance(request_type, str):
                 state.received_request_types.append(request_type)
 
             response_index = len(state.received_request_types) - 1
             if response_index < len(state.scripted_responses):
-                response_payload = state.scripted_responses[response_index]
+                response_payload = dict(state.scripted_responses[response_index])
+                response_payload.setdefault("id", f"resp_{len(state.received_request_types)}")
             else:
                 response_text = f"turn-{len(state.received_request_types)}"
                 response_payload = {
+                    "id": f"resp_{len(state.received_request_types)}",
                     "status": "completed",
                     "output_text": response_text,
                     "output": [
@@ -130,7 +134,7 @@ def _input_message(text: str) -> dict[str, Any]:
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_local_websocket_two_turns_reuse_connection_and_append(
+async def test_local_websocket_reuses_connection_and_continues_with_previous_response_id(
     local_responses_ws_server: tuple[str, _LocalWebSocketState],
 ) -> None:
     base_url, state = local_responses_ws_server
@@ -156,12 +160,14 @@ async def test_local_websocket_two_turns_reuse_connection_and_append(
     assert getattr(first_response, "output_text", None) == "turn-1"
     assert getattr(second_response, "output_text", None) == "turn-2"
     assert state.handshake_count == 1
-    assert state.received_request_types[:2] == ["response.create", "response.append"]
+    assert state.received_request_types[:2] == ["response.create", "response.create"]
+    assert state.received_payloads[1]["previous_response_id"] == "resp_1"
+    assert state.received_payloads[1]["input"] == [_input_message("second")]
 
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_local_websocket_append_filters_duplicate_tool_calls(
+async def test_local_websocket_continuation_dedupes_duplicate_tool_calls(
     local_responses_ws_server: tuple[str, _LocalWebSocketState],
 ) -> None:
     base_url, state = local_responses_ws_server
@@ -235,10 +241,12 @@ async def test_local_websocket_append_filters_duplicate_tool_calls(
     diagnostics = json.loads(diagnostics_block.text)
     assert diagnostics["kind"] == "duplicate_tool_calls_filtered"
     assert diagnostics["transport"] == "websocket"
-    assert diagnostics["websocket_request_type"] == "response.append"
+    assert diagnostics["websocket_request_type"] == "response.create"
     assert diagnostics["raw_function_call_count"] == 2
     assert diagnostics["new_function_call_count"] == 1
     assert diagnostics["duplicate_count"] == 1
 
     assert state.handshake_count == 1
-    assert state.received_request_types[:2] == ["response.create", "response.append"]
+    assert state.received_request_types[:2] == ["response.create", "response.create"]
+    assert state.received_payloads[1]["previous_response_id"] == "resp_1"
+    assert state.received_payloads[1]["input"] == [_input_message("second")]

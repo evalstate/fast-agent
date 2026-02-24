@@ -6,6 +6,7 @@ import pytest
 from fast_agent.commands.context import CommandContext
 from fast_agent.commands.handlers import mcp_runtime
 from fast_agent.commands.results import CommandMessage
+from fast_agent.mcp.experimental_session_client import SessionJarEntry
 from fast_agent.mcp.mcp_aggregator import MCPAttachResult, MCPDetachResult
 from fast_agent.mcp.oauth_client import OAuthEvent
 
@@ -50,6 +51,94 @@ class _Provider:
     async def list_prompts(self, namespace: str | None, agent_name: str | None = None):
         del namespace, agent_name
         return {}
+
+
+class _SessionClientStub:
+    async def list_jar(self):
+        return [
+            SessionJarEntry(
+                server_name="demo",
+                server_identity="demo-server",
+                cookie={"id": "sess-123", "data": {"title": "Demo"}},
+                cookies=(
+                    {
+                        "id": "sess-123",
+                        "title": "Demo",
+                        "expiry": "2026-02-23T12:34:56Z",
+                        "updatedAt": "2026-02-23T10:00:00Z",
+                        "active": True,
+                    },
+                    {
+                        "id": "sess-abc",
+                        "title": None,
+                        "expiry": None,
+                        "updatedAt": "2026-02-20T10:00:00Z",
+                        "active": False,
+                    },
+                ),
+                last_used_id="sess-123",
+                title="Demo",
+                supported=True,
+                features=("create", "list", "delete"),
+                connected=True,
+            )
+        ]
+
+    async def resolve_server_name(self, server_identifier: str | None):
+        del server_identifier
+        return "demo"
+
+    async def list_sessions(self, server_identifier: str | None):
+        del server_identifier
+        return "demo", [
+            {"id": "sess-123", "data": {"title": "Demo"}, "expiry": "2026-02-23T12:34:56Z"},
+            {"id": "sess-abc"},
+        ]
+
+    async def list_server_cookies(self, server_identifier: str | None):
+        del server_identifier
+        return "demo", "demo-server", "sess-123", [
+            {
+                "id": "sess-123",
+                "title": "Demo",
+                "expiry": "2026-02-23T12:34:56Z",
+                "updatedAt": "2026-02-23T10:00:00Z",
+                "active": True,
+            },
+            {
+                "id": "sess-abc",
+                "title": None,
+                "expiry": None,
+                "updatedAt": "2026-02-20T10:00:00Z",
+                "active": False,
+            },
+        ]
+
+    async def create_session(self, server_identifier: str | None, *, title: str | None = None):
+        del server_identifier
+        return "demo", {"id": "sess-created", "data": {"title": title or "Demo"}}
+
+    async def resume_session(self, server_identifier: str | None, *, session_id: str):
+        del server_identifier
+        return "demo", {"id": session_id}
+
+    async def clear_cookie(self, server_identifier: str | None):
+        del server_identifier
+        return "demo"
+
+    async def clear_all_cookies(self):
+        return ["demo"]
+
+
+class _SessionAgent:
+    def __init__(self) -> None:
+        self.aggregator = type("_Aggregator", (), {"experimental_sessions": _SessionClientStub()})()
+
+
+class _SessionProvider(_Provider):
+    def _agent(self, name: str):
+        del name
+        return _SessionAgent()
 
 
 class _Manager:
@@ -577,3 +666,78 @@ async def test_handle_mcp_connect_defaults_url_no_oauth_timeout_to_10_seconds() 
 
     assert manager.last_options is not None
     assert manager.last_options.startup_timeout_seconds == 10.0
+
+
+@pytest.mark.asyncio
+async def test_handle_mcp_session_jar_renders_compact_rows() -> None:
+    ctx = CommandContext(agent_provider=_SessionProvider(), current_agent_name="main", io=_IO())
+
+    outcome = await mcp_runtime.handle_mcp_session(
+        ctx,
+        agent_name="main",
+        action="jar",
+        server_identity=None,
+        session_id=None,
+        title=None,
+        clear_all=False,
+    )
+
+    message_text = "\n".join(str(msg.text) for msg in outcome.messages)
+    assert "[1]" in message_text
+    assert "demo-server" in message_text
+    assert "connected" in message_text
+    assert "…s-123" in message_text
+    assert "v2" in message_text
+    assert "cookies:" in message_text
+
+
+@pytest.mark.asyncio
+async def test_handle_mcp_session_list_marks_active_session() -> None:
+    ctx = CommandContext(agent_provider=_SessionProvider(), current_agent_name="main", io=_IO())
+
+    outcome = await mcp_runtime.handle_mcp_session(
+        ctx,
+        agent_name="main",
+        action="list",
+        server_identity="demo-server",
+        session_id=None,
+        title=None,
+        clear_all=False,
+    )
+
+    message_text = "\n".join(str(msg.text) for msg in outcome.messages)
+    assert "server=demo identity=demo-server" in message_text
+    assert "active=sess-123" in message_text
+    assert "…s-123 ▶" in message_text
+    assert "23/02/26 12:34" in message_text
+
+
+@pytest.mark.asyncio
+async def test_handle_mcp_session_new_and_clear_all() -> None:
+    ctx = CommandContext(agent_provider=_SessionProvider(), current_agent_name="main", io=_IO())
+
+    new_outcome = await mcp_runtime.handle_mcp_session(
+        ctx,
+        agent_name="main",
+        action="new",
+        server_identity="demo-server",
+        session_id=None,
+        title="Demo Run",
+        clear_all=False,
+    )
+    clear_outcome = await mcp_runtime.handle_mcp_session(
+        ctx,
+        agent_name="main",
+        action="clear",
+        server_identity=None,
+        session_id=None,
+        title=None,
+        clear_all=True,
+    )
+
+    new_text = "\n".join(str(msg.text) for msg in new_outcome.messages)
+    clear_text = "\n".join(str(msg.text) for msg in clear_outcome.messages)
+
+    assert "Created experimental session" in new_text
+    assert "sess-created" in new_text
+    assert "Cleared experimental session cookies" in clear_text

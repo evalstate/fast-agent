@@ -1,6 +1,5 @@
 mcp:
-  servers:
+  targets:
     # name used in agent servers array
-    creativity:
-      command: "uv"
-      args: ["run", "mcp_server.py"]
+    - name: creativity
+      target: "uv run mcp_server.py"

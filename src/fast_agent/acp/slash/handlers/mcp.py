@@ -220,6 +220,95 @@ async def handle_mcp(handler: "SlashCommandHandler", arguments: str | None = Non
             await handler._acp_context.send_available_commands_update()
         return handler._format_outcome_as_markdown(outcome, heading, io=io)
 
+    if subcmd == "session":
+        session_tokens = tokens[1:]
+        action = "list"
+        server_identity: str | None = None
+        session_id: str | None = None
+        title: str | None = None
+        clear_all = False
+
+        if session_tokens:
+            action = session_tokens[0].lower()
+            args = session_tokens[1:]
+
+            if action == "list":
+                if len(args) > 1:
+                    return f"{heading}\n\nUsage: /mcp session list [<server_or_identity>]"
+                server_identity = args[0] if args else None
+            elif action == "jar":
+                if len(args) > 1:
+                    return f"{heading}\n\nUsage: /mcp session jar [<server_or_identity>]"
+                server_identity = args[0] if args else None
+            elif action in {"new", "create"}:
+                idx = 0
+                while idx < len(args):
+                    token = args[idx]
+                    if token == "--title":
+                        idx += 1
+                        if idx >= len(args):
+                            return f"{heading}\n\nMissing value for --title"
+                        title = args[idx]
+                    elif token.startswith("--title="):
+                        title = token.split("=", 1)[1] or None
+                        if title is None:
+                            return f"{heading}\n\nMissing value for --title"
+                    elif token.startswith("--"):
+                        return f"{heading}\n\nUnknown flag: {token}"
+                    elif server_identity is None:
+                        server_identity = token
+                    else:
+                        return f"{heading}\n\nUnexpected argument: {token}"
+                    idx += 1
+                action = "new"
+            elif action in {"resume", "use"}:
+                if len(args) != 2:
+                    return (
+                        f"{heading}\n\n"
+                        "Usage: /mcp session use <server_or_identity> <session_id>"
+                    )
+                server_identity, session_id = args
+                action = "use"
+            elif action == "clear":
+                for token in args:
+                    if token == "--all":
+                        clear_all = True
+                        continue
+                    if token.startswith("--"):
+                        return f"{heading}\n\nUnknown flag: {token}"
+                    if server_identity is None:
+                        server_identity = token
+                    else:
+                        return f"{heading}\n\nUnexpected argument: {token}"
+
+                if clear_all and server_identity is not None:
+                    return f"{heading}\n\nUse either --all or a specific server, not both"
+
+                if not clear_all and server_identity is None:
+                    clear_all = True
+            else:
+                if args:
+                    return (
+                        f"{heading}\n\n"
+                        "Usage: /mcp session [list [server]|jar [server]|new [server] [--title <title>]"
+                        "|use <server> <session_id>|clear [server|--all]]"
+                    )
+                server_identity = action
+                action = "list"
+
+        session_action = cast("mcp_runtime_handlers.McpSessionAction", action)
+
+        outcome = await mcp_runtime_handlers.handle_mcp_session(
+            ctx,
+            agent_name=handler.current_agent_name,
+            action=session_action,
+            server_identity=server_identity,
+            session_id=session_id,
+            title=title,
+            clear_all=clear_all,
+        )
+        return handler._format_outcome_as_markdown(outcome, heading, io=io)
+
     if subcmd == "disconnect":
         if handler._detach_mcp_server_callback is None:
             return "mcp\n\nRuntime MCP server detachment is not available."
@@ -246,5 +335,6 @@ async def handle_mcp(handler: "SlashCommandHandler", arguments: str | None = Non
         "- /mcp list\n"
         "- /mcp connect <target> [--name <server>] [--auth <token>] [--timeout <seconds>] "
         "[--oauth|--no-oauth] [--reconnect|--no-reconnect]\n"
+        "- /mcp session [list [server]|jar [server]|new [server] [--title <title>]|use <server> <session_id>|clear [server|--all]]\n"
         "- /mcp disconnect <server_name>"
     )

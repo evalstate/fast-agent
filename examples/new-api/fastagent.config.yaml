@@ -1,8 +1,6 @@
 mcp:
-  servers:
-    filesystem:
-      command: "npx"
-      args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
-    fetch:
-      command: "uvx"
-      args: ["mcp-server-fetch"]
+  targets:
+    - target: "npx -y @modelcontextprotocol/server-filesystem ."
+      name: filesystem
+    - target: "uvx mcp-server-fetch"
+      name: fetch

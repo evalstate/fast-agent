@@ -21,7 +21,7 @@ logger:
 
 # MCP Servers
 mcp:
-  servers:
-    agent_one:
+  targets:
+    - name: agent_one
+      target: "http://localhost:8001/mcp"
       transport: http
-      url: http://localhost:8001/mcp

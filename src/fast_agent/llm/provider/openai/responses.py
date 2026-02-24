@@ -495,11 +495,11 @@ class ResponsesLLM(
                 )
                 self._last_transport_used = "websocket"
         except ResponsesWebSocketError as error:
-            should_fallback_to_sse = transport in {"auto", "websocket"} and not error.stream_started
+            should_fallback_to_sse = transport == "auto" and not error.stream_started
             if should_fallback_to_sse:
                 self.logger.warning(
                     "WebSocket transport failed before stream start; falling back to SSE "
-                    "(experimental transport safeguard)",
+                    "(auto transport safeguard)",
                     data={
                         "model": model_name,
                         "requested_transport": transport,
@@ -718,7 +718,7 @@ class ResponsesLLM(
                         raise TimeoutError(
                             f"Streaming did not complete within {timeout} seconds."
                         ) from exc
-                planner.commit(arguments, planned_request)
+                planner.commit(arguments, planned_request, response)
                 keep_connection = True
                 if reconnected:
                     try:
@@ -745,7 +745,16 @@ class ResponsesLLM(
                 planner.rollback(error, stream_started=error.stream_started)
                 last_error = error
                 retry_after_release = (
-                    attempt == 0 and reused_existing_connection and not error.stream_started
+                    attempt == 0
+                    and not error.stream_started
+                    and (
+                        reused_existing_connection
+                        or error.error_code
+                        in {
+                            "previous_response_not_found",
+                            "websocket_connection_limit_reached",
+                        }
+                    )
                 )
                 if retry_after_release:
                     reconnect_diagnostics = self._websocket_retry_diagnostics(connection, error)
@@ -766,7 +775,7 @@ class ResponsesLLM(
                 )
                 last_error = wrapped_error
                 retry_after_release = (
-                    attempt == 0 and reused_existing_connection and not stream_started
+                    attempt == 0 and not stream_started and reused_existing_connection
                 )
                 if retry_after_release:
                     reconnect_diagnostics = self._websocket_retry_diagnostics(

@@ -1,0 +1,10 @@
+schema_version: 1
+name: smart
+kind: card
+install:
+  agent_cards:
+    - agent-cards/smart.md
+  tool_cards:
+    - tool-cards/ripgrep-search.md
+  files:
+    - hooks/fix_ripgrep_tool_calls.py

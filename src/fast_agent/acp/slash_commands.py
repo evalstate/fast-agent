@@ -322,13 +322,14 @@ class SlashCommandHandler:
             ),
             "mcp": AvailableCommand(
                 name="mcp",
-                description="Manage runtime MCP servers (list/connect/disconnect)",
+                description="Manage runtime MCP servers and experimental sessions",
                 input=AvailableCommandInput(
                     root=UnstructuredCommandInput(
                         hint=(
                             "list | connect <target> [--name <server>] [--auth <token>] "
                             "[--timeout <seconds>] [--oauth|--no-oauth] "
-                            "[--reconnect|--no-reconnect] | disconnect <server>"
+                            "[--reconnect|--no-reconnect] | session [show|table|list|new|resume|clear] | "
+                            "disconnect <server>"
                         )
                     )
                 ),

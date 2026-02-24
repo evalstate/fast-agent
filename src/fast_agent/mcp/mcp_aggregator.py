@@ -41,6 +41,7 @@ from fast_agent.core.logging.progress_payloads import build_progress_payload
 from fast_agent.core.model_resolution import HARDCODED_DEFAULT_MODEL, resolve_model_spec
 from fast_agent.event_progress import ProgressAction
 from fast_agent.mcp.common import SEP, create_namespaced_name, is_namespaced_name
+from fast_agent.mcp.experimental_session_client import ExperimentalSessionClient
 from fast_agent.mcp.gen_client import gen_client
 from fast_agent.mcp.interfaces import ServerRegistryProtocol
 from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
@@ -317,6 +318,9 @@ class MCPAggregator(ContextDependent):
         # Track discovered Skybridge configurations per server
         self._skybridge_configs: dict[str, SkybridgeServerConfig] = {}
 
+        # Focused API for experimental mcp/session cookie controls.
+        self.experimental_sessions = ExperimentalSessionClient(self)
+
     def _require_context(self) -> "Context":
         if self.context is None:
             raise RuntimeError("MCPAggregator requires a context")
@@ -471,7 +475,7 @@ class MCPAggregator(ContextDependent):
                 elicitation_handler = self.config.elicitation_handler
                 api_key = self.config.api_key
 
-            return MCPAgentClientSession(
+            session = MCPAgentClientSession(
                 read_stream,
                 write_stream,
                 read_timeout,
@@ -483,6 +487,12 @@ class MCPAggregator(ContextDependent):
                 tool_list_changed_callback=self._handle_tool_list_changed,
                 **kwargs,  # Pass through any additional kwargs like server_config
             )
+
+            bootstrap_cookie = self.experimental_sessions.bootstrap_cookie_for_server(server_name)
+            if isinstance(bootstrap_cookie, dict):
+                session.set_experimental_session_cookie(bootstrap_cookie)
+
+            return session
 
         return session_factory
 

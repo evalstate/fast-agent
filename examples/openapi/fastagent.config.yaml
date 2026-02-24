@@ -33,12 +33,10 @@ logger:
 
 # MCP Servers
 mcp:
-  servers:
-    petstore:
-      command: "uv"
-      args: ["run","openapi_mcp_server.py","petstore.yaml"]
-    filesystem:
-      command: "npx"
-      args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
-    huggingface:
-      url: "https://huggingface.co/mcp?login"
+  targets:
+    - name: petstore
+      target: "uv run openapi_mcp_server.py petstore.yaml"
+    - name: filesystem
+      target: "npx -y @modelcontextprotocol/server-filesystem ."
+    - name: huggingface
+      target: "https://huggingface.co/mcp?login"

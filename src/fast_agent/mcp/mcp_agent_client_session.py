@@ -91,10 +91,32 @@ class _SessionCreateRequest(BaseModel):
     params: _SessionCreateParams | None = None
 
 
+class _SessionListRequest(BaseModel):
+    method: Literal["session/list"] = "session/list"
+    params: RequestParams | None = None
+
+
 class _SessionCreateResult(Result):
     id: str | None = None
     expiry: str | None = None
     data: dict[str, str] | None = None
+
+
+class _SessionListResult(Result):
+    sessions: list[dict[str, Any]] | None = None
+
+
+class _SessionDeleteParams(RequestParams):
+    id: str | None = None
+
+
+class _SessionDeleteRequest(BaseModel):
+    method: Literal["session/delete"] = "session/delete"
+    params: _SessionDeleteParams | None = None
+
+
+class _SessionDeleteResult(Result):
+    deleted: bool | None = None
 
 
 async def list_roots(context: RequestContext[ClientSession, None]) -> ListRootsResult:
@@ -295,6 +317,65 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                 return title.strip()
         return None
 
+    def set_experimental_session_cookie(self, cookie: dict[str, Any] | None) -> None:
+        """Override the in-memory experimental session cookie for this connection."""
+        if cookie is None:
+            self._experimental_session_cookie = None
+            return
+        self._experimental_session_cookie = dict(cookie)
+
+    async def experimental_session_create(
+        self,
+        *,
+        title: str | None = None,
+        data: dict[str, str] | None = None,
+    ) -> dict[str, Any] | None:
+        """Create a new experimental session and return the active cookie."""
+        resolved_title = title.strip() if isinstance(title, str) and title.strip() else None
+        hints_data: dict[str, str] = dict(data or {})
+        if resolved_title is not None and "title" not in hints_data:
+            hints_data["title"] = resolved_title
+
+        request = _SessionCreateRequest(
+            params=_SessionCreateParams(
+                hints=_SessionCreateHints(label=resolved_title, data=hints_data),
+            )
+        )
+
+        result = await self.send_request(
+            cast("ClientRequest", request),
+            _SessionCreateResult,
+        )
+
+        if self._experimental_session_cookie is None and result.id:
+            cookie: dict[str, Any] = {"id": result.id}
+            if result.expiry:
+                cookie["expiry"] = result.expiry
+            if result.data:
+                cookie["data"] = dict(result.data)
+            self._experimental_session_cookie = cookie
+
+        return self.experimental_session_cookie
+
+    async def experimental_session_list(self) -> list[dict[str, Any]]:
+        """List experimental sessions advertised by the server (when supported)."""
+        request = _SessionListRequest(params=RequestParams())
+        result = await self.send_request(
+            cast("ClientRequest", request),
+            _SessionListResult,
+        )
+        sessions = result.sessions or []
+        return [dict(item) for item in sessions if isinstance(item, dict)]
+
+    async def experimental_session_delete(self, session_id: str | None = None) -> bool:
+        """Delete an experimental session and return whether deletion succeeded."""
+        request = _SessionDeleteRequest(params=_SessionDeleteParams(id=session_id))
+        result = await self.send_request(
+            cast("ClientRequest", request),
+            _SessionDeleteResult,
+        )
+        return bool(result.deleted)
+
     async def initialize(self) -> InitializeResult:
         result = await super().initialize()
         capabilities = getattr(result, "capabilities", None)
@@ -358,42 +439,14 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         if "create" not in self._experimental_session_features:
             return
 
-        title = self._build_experimental_session_title()
-        hints_data = {"title": title}
-        request = _SessionCreateRequest(
-            params=_SessionCreateParams(
-                hints=_SessionCreateHints(label=title, data=hints_data),
-            )
-        )
-
         try:
-            result = await self.send_request(
-                cast("ClientRequest", request),
-                _SessionCreateResult,
-            )
+            await self.experimental_session_create()
         except Exception as exc:
             logger.debug(
                 "Failed to establish experimental MCP session",
                 server=self.session_server_name,
                 error=str(exc),
             )
-            return
-
-        # If a server returns a result payload without _meta, retain a minimal cookie.
-        if self._experimental_session_cookie is None and result.id:
-            cookie: dict[str, Any] = {"id": result.id}
-            if result.expiry:
-                cookie["expiry"] = result.expiry
-            if result.data:
-                cookie["data"] = dict(result.data)
-            self._experimental_session_cookie = cookie
-
-    def _build_experimental_session_title(self) -> str:
-        agent_name = (self.agent_name or "fast-agent").strip() or "fast-agent"
-        server_name = (self.session_server_name or "").strip()
-        if server_name and server_name != agent_name:
-            return f"{agent_name} · {server_name}"
-        return agent_name
 
     def _build_advertised_experimental_session_capability(self) -> dict[str, object] | None:
         cfg = self.server_config

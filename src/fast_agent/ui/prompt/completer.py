@@ -64,7 +64,7 @@ class AgentCompleter(Completer):
         self.noenv_mode = noenv_mode
         # Map commands to their descriptions for better completion hints
         self.commands = {
-            "mcp": "Manage MCP runtime servers (/mcp list|connect|disconnect)",
+            "mcp": "Manage MCP runtime servers (/mcp list|connect|disconnect|session)",
             "connect": "Alias for /mcp connect with target auto-detection",
             "history": "Show conversation history overview (or /history save|load|clear|rewind|review|fix)",
             "tools": "List tools",
@@ -862,6 +862,42 @@ class AgentCompleter(Completer):
                 names.add(str(server_name))
 
         return sorted(names)
+
+    async def _list_server_session_cookie_choices(
+        self,
+        server_identifier: str | None,
+    ) -> list[tuple[str, str | None, bool]]:
+        agent = self._current_agent_object()
+        if agent is None:
+            return []
+
+        aggregator = getattr(agent, "aggregator", None)
+        if aggregator is None:
+            return []
+
+        session_client = getattr(aggregator, "experimental_sessions", None)
+        list_server_cookies = getattr(session_client, "list_server_cookies", None)
+        if not callable(list_server_cookies):
+            return []
+
+        try:
+            _server_name, _identity, active_id, cookies = await list_server_cookies(server_identifier)
+        except Exception:
+            return []
+
+        choices: list[tuple[str, str | None, bool]] = []
+        for cookie in cookies:
+            if not isinstance(cookie, dict):
+                continue
+            cookie_id = cookie.get("id")
+            if not isinstance(cookie_id, str) or not cookie_id:
+                continue
+            title = cookie.get("title")
+            title_text = title if isinstance(title, str) and title.strip() else None
+            is_active = cookie_id == active_id
+            choices.append((cookie_id, title_text, is_active))
+
+        return choices
 
     def _completion_cache_get(self, key: tuple[Any, ...]) -> tuple[Completion, ...] | None:
         cached = self._mention_cache.get(key)
