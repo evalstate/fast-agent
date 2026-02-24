@@ -257,14 +257,11 @@ class ExperimentalSessionClient:
     async def clear_all_cookies(self) -> list[str]:
         status_map = await self._aggregator.collect_server_status()
         cleared: list[str] = []
-        store_snapshot = self._load_store()
         for server_name in sorted(status_map):
             session = await self._get_live_session(server_name)
             session.set_experimental_session_cookie(None)
-            store_key = self._store_key(server_name, status_map[server_name].implementation_name)
-            store_snapshot.pop(store_key, None)
             cleared.append(server_name)
-        self._save_store(store_snapshot)
+        self._save_store({})
         return cleared
 
     async def create_session(

@@ -92,7 +92,6 @@ def build_server() -> FastMCP:
                     text=f"Session: {session_id}, calls: {info['tool_calls']}",
                 )
             ],
-            structuredContent=info,
             _meta=cookie_meta(cookie),
         )
 

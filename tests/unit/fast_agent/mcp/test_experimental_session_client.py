@@ -116,6 +116,7 @@ async def test_clear_all_cookies_clears_each_server_entry() -> None:
         {
             "demo-alpha": {"server_name": "alpha", "cookies": [{"id": "sess-a", "cookie": {"id": "sess-a"}}]},
             "demo-beta": {"server_name": "beta", "cookies": [{"id": "sess-b", "cookie": {"id": "sess-b"}}]},
+            "stale-server": {"server_name": "stale", "cookies": [{"id": "sess-stale", "cookie": {"id": "sess-stale"}}]},
         }
     )
     client = ExperimentalSessionClient(aggregator, cookie_store=store)

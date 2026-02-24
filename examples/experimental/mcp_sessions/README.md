@@ -36,12 +36,12 @@ Demonstrates stateful, multi-turn, session-scoped data.
 
 **Tools:** `notebook_append(text)`, `notebook_read()`, `notebook_clear()`, `notebook_status()`
 
-### 4. `hashcheck_server.py` — Per-session hash KV store
+### 4. `hashcheck_server.py` — Cookie-carried hash KV store
 
-Hashes strings and stores digests in a per-session key-value store.
-A reconnecting client with the same session cookie can verify strings
-against previously stored hashes — the strongest demo of why
-application-level sessions matter beyond transport-level `Mcp-Session-Id`.
+Hashes strings and stores digests in the session cookie payload itself
+(`_meta["mcp/session"].data`). A reconnecting client with the same cookie can
+verify strings against previously stored hashes without relying on server-side
+in-memory session records.
 
 **Tools:** `hashcheck_store(key, text)`, `hashcheck_verify(key, text)`, `hashcheck_list()`, `hashcheck_delete(key)`
 
@@ -157,10 +157,10 @@ Client                              Server
 ## What these demos prove
 
 1. **Session enforcement**: Servers can require sessions before allowing tool access
-2. **Session-scoped state**: Each session gets isolated data (notebook, KV store)
+2. **Session-scoped state**: Each session gets isolated data (notebook, cookie-carried KV store)
 3. **Session persistence**: State survives across tool calls within a session
 4. **Reconnection**: The hashcheck server demonstrates that a client reconnecting
-   with the same session cookie retains access to previously stored data
+   with the same session cookie payload retains access to previously stored data
 5. **Cookie lifecycle**: Create -> echo -> update -> revoke -> re-establish
 6. **Selective enforcement**: `selective_session_server.py` shows that servers can
    require sessions only for specific tools while allowing others without sessions

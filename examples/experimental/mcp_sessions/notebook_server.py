@@ -100,12 +100,6 @@ def build_server() -> FastMCP:
                     text=f"Note added (#{count}): {text}",
                 )
             ],
-            structuredContent={
-                "action": "append",
-                "note_number": count,
-                "text": text,
-                "session_id": session_id,
-            },
             _meta=cookie_meta(cookie),
         )
 
@@ -126,12 +120,6 @@ def build_server() -> FastMCP:
             text = f"Notebook ({len(notes)} notes):\n" + "\n".join(lines)
         return types.CallToolResult(
             content=[types.TextContent(type="text", text=text)],
-            structuredContent={
-                "action": "read",
-                "session_id": session_id,
-                "notes": notes,
-                "count": len(notes),
-            },
             _meta=cookie_meta(cookie),
         )
 
@@ -150,11 +138,6 @@ def build_server() -> FastMCP:
                     text=f"Notebook cleared ({removed} notes removed).",
                 )
             ],
-            structuredContent={
-                "action": "clear",
-                "session_id": session_id,
-                "removed": removed,
-            },
             _meta=cookie_meta(cookie),
         )
 
@@ -178,7 +161,6 @@ def build_server() -> FastMCP:
                     text=f"Session {session_id}: {count} notes, {info['tool_calls']} calls",
                 )
             ],
-            structuredContent=info,
             _meta=cookie_meta(cookie),
         )
 

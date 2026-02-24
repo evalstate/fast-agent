@@ -796,5 +796,5 @@ async def test_handle_mcp_session_list_marks_invalidated_session() -> None:
     )
 
     message_text = "\n".join(str(msg.text) for msg in outcome.messages)
-    assert "✖ sess-invalid" in message_text
+    assert "○ sess-invalid" in message_text
     assert "invalid" in message_text

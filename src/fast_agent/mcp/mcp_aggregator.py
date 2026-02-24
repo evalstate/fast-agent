@@ -1496,9 +1496,18 @@ class MCPAggregator(ContextDependent):
                 # For call_tool method, check if we need to add progress_callback
                 if method_name == "call_tool" and progress_callback:
                     # The call_tool method signature includes progress_callback parameter
-                    return await method(progress_callback=progress_callback, **kwargs)
+                    result = await method(progress_callback=progress_callback, **kwargs)
                 else:
-                    return await method(**(kwargs or {}))
+                    result = await method(**(kwargs or {}))
+
+                if method_name == "call_tool":
+                    self._maybe_mark_rejected_session_cookie_from_tool_result(
+                        server_name=server_name,
+                        client=client,
+                        result=result,
+                    )
+
+                return result
             except ConnectionError:
                 # Let ConnectionError pass through for reconnection logic
                 raise
@@ -1607,6 +1616,70 @@ class MCPAggregator(ContextDependent):
         if not self._is_session_required_error(exc):
             return
 
+        error_data = getattr(exc, "error", None)
+        reason = getattr(error_data, "message", None)
+        reason_text = str(reason) if isinstance(reason, str) and reason else None
+
+        self._invalidate_session_cookie(
+            server_name=server_name,
+            client=client,
+            reason=reason_text,
+        )
+
+    def _maybe_mark_rejected_session_cookie_from_tool_result(
+        self,
+        *,
+        server_name: str,
+        client: ClientSession,
+        result: Any,
+    ) -> None:
+        if not self._is_session_required_tool_error_result(result):
+            return
+
+        self._invalidate_session_cookie(
+            server_name=server_name,
+            client=client,
+            reason=self._extract_tool_error_text(result),
+        )
+
+    @staticmethod
+    def _extract_tool_error_text(result: Any) -> str | None:
+        content = getattr(result, "content", None)
+        if not isinstance(content, list):
+            return None
+
+        for item in content:
+            if isinstance(item, TextContent):
+                text = item.text.strip()
+                if text:
+                    return text
+                continue
+
+            text = getattr(item, "text", None)
+            if isinstance(text, str) and text.strip():
+                return text.strip()
+
+        return None
+
+    @classmethod
+    def _is_session_required_tool_error_result(cls, result: Any) -> bool:
+        if not bool(getattr(result, "isError", False)):
+            return False
+
+        text = cls._extract_tool_error_text(result)
+        if not text:
+            return False
+
+        normalized = text.lower()
+        return "session required" in normalized or "send session/create" in normalized
+
+    def _invalidate_session_cookie(
+        self,
+        *,
+        server_name: str,
+        client: ClientSession,
+        reason: str | None,
+    ) -> None:
         session_id = getattr(client, "experimental_session_id", None)
         if not isinstance(session_id, str) or not session_id:
             return
@@ -1623,15 +1696,11 @@ class MCPAggregator(ContextDependent):
                     exc_info=True,
                 )
 
-        error_data = getattr(exc, "error", None)
-        reason = getattr(error_data, "message", None)
-        reason_text = str(reason) if isinstance(reason, str) and reason else None
-
         try:
             self.experimental_sessions.mark_cookie_invalidated(
                 server_name,
                 session_id=session_id,
-                reason=reason_text,
+                reason=reason,
             )
         except Exception:
             logger.debug(

@@ -95,7 +95,6 @@ def build_server() -> FastMCP:
                     text=f"public tool ok: {text}",
                 )
             ],
-            structuredContent={"tool": "public_echo", "text": text, "session_required": False},
             _meta=maybe_meta,
         )
 
@@ -111,11 +110,6 @@ def build_server() -> FastMCP:
                     text=f"new session started: {record.session_id}",
                 )
             ],
-            structuredContent={
-                "tool": "session_start",
-                "session_required": False,
-                "session": cookie,
-            },
             _meta=cookie_meta(cookie),
         )
 
@@ -136,12 +130,6 @@ def build_server() -> FastMCP:
                     ),
                 )
             ],
-            structuredContent={
-                "tool": "session_reset",
-                "session_required": False,
-                "deleted": deleted,
-                "session_id": session_id,
-            },
             _meta=cookie_meta(None),
         )
 
@@ -157,12 +145,6 @@ def build_server() -> FastMCP:
                     text=f"session counter for {session_id}: {value}",
                 )
             ],
-            structuredContent={
-                "tool": "session_counter_inc",
-                "session_required": True,
-                "session_id": session_id,
-                "counter": value,
-            },
             _meta=cookie_meta(cookie),
         )
 
@@ -178,12 +160,6 @@ def build_server() -> FastMCP:
                     text=f"session counter for {session_id}: {value}",
                 )
             ],
-            structuredContent={
-                "tool": "session_counter_get",
-                "session_required": True,
-                "session_id": session_id,
-                "counter": value,
-            },
             _meta=cookie_meta(cookie),
         )
 

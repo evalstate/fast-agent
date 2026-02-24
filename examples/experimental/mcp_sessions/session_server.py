@@ -325,11 +325,6 @@ def build_demo_server() -> FastMCP:
                         ),
                     )
                 ],
-                structuredContent={
-                    "action": action,
-                    "revoked": True,
-                    "session_id": record.session_id,
-                },
                 _meta=_cookie_meta(None),
             )
 
@@ -350,12 +345,6 @@ def build_demo_server() -> FastMCP:
                     ),
                 )
             ],
-            structuredContent={
-                "action": action,
-                "session": cookie,
-                "calls": record.tool_calls,
-                "note": detail,
-            },
             _meta=_cookie_meta(cookie),
         )
 

@@ -1,13 +1,12 @@
-"""Hashcheck MCP server — per-session hash KV store.
+"""Hashcheck MCP server — cookie-carried hash KV store.
 
-A server that hashes strings and stores them in a per-session key-value store.
-A reconnecting client presenting the same session cookie can verify strings
-against previously stored hashes — demonstrating session persistence across
-connection boundaries.
+A server that hashes strings and stores key/value hashes in the session cookie
+payload itself (``_meta["mcp/session"].data``). A reconnecting client that
+presents the same cookie can verify strings against previously stored hashes
+without requiring server-side in-memory session state.
 
-This is the strongest demo of why application-level sessions matter beyond
-transport-level ``Mcp-Session-Id``: the client can disconnect, reconnect
-with the same session cookie, and the server-side state is still available.
+This demo emphasizes a permissive, client-first model: state is transferred
+from client to server on each call via cookie metadata.
 
 Tools:
   - ``hashcheck_store(key, text)``  — hash ``text`` with SHA-256, store under ``key``.
@@ -20,49 +19,43 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
+import secrets
 from typing import Any
 
 import mcp.types as types
 from _session_base import (
-    SESSION_REQUIRED_ERROR_CODE,
     SessionStore,
     add_transport_args,
     cookie_meta,
     register_session_handlers,
     run_server,
     session_cookie_from_meta,
-    session_id_from_cookie,
 )
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.shared.exceptions import McpError
 
 HASH_ALGORITHM = "sha256"
+HASHES_COOKIE_KEY = "hashes"
 
 
 class HashKVStore:
-    """Per-session key -> hash storage."""
-
-    def __init__(self) -> None:
-        self._stores: dict[str, dict[str, str]] = {}
+    """Cookie-backed key -> hash storage."""
 
     def _hash(self, text: str) -> str:
         return hashlib.new(HASH_ALGORITHM, text.encode("utf-8")).hexdigest()
 
-    def store(self, session_id: str, key: str, text: str) -> str:
+    def store(self, kv: dict[str, str], key: str, text: str) -> str:
         """Hash text and store under key. Returns the hex digest."""
-        if session_id not in self._stores:
-            self._stores[session_id] = {}
         digest = self._hash(text)
-        self._stores[session_id][key] = digest
+        kv[key] = digest
         return digest
 
-    def verify(self, session_id: str, key: str, text: str) -> dict[str, Any]:
+    def verify(self, kv: dict[str, str], key: str, text: str) -> dict[str, Any]:
         """Verify text against stored hash.
 
         Returns dict with ``match`` bool, ``stored_hash``, ``provided_hash``,
         and ``found`` (whether the key exists).
         """
-        kv = self._stores.get(session_id, {})
         stored = kv.get(key)
         provided = self._hash(text)
         if stored is None:
@@ -81,32 +74,70 @@ class HashKVStore:
             "provided_hash": provided,
         }
 
-    def list_keys(self, session_id: str) -> dict[str, str]:
-        """Return all key -> hash entries for a session."""
-        return dict(self._stores.get(session_id, {}))
+    @staticmethod
+    def list_keys(kv: dict[str, str]) -> dict[str, str]:
+        """Return all key -> hash entries for the cookie state."""
+        return dict(kv)
 
-    def delete(self, session_id: str, key: str) -> bool:
-        kv = self._stores.get(session_id, {})
+    @staticmethod
+    def delete(kv: dict[str, str], key: str) -> bool:
         return kv.pop(key, None) is not None
 
-    def count(self, session_id: str) -> int:
-        return len(self._stores.get(session_id, {}))
+    @staticmethod
+    def count(kv: dict[str, str]) -> int:
+        return len(kv)
 
 
-def _require_session(
-    ctx: Context, store: SessionStore
-) -> tuple[dict[str, Any], str]:
-    """Extract and validate the session cookie, or raise McpError."""
-    cookie = session_cookie_from_meta(ctx.request_context.meta)
-    session_id = session_id_from_cookie(cookie)
-    if not session_id or store.get(session_id) is None:
-        raise McpError(
-            types.ErrorData(
-                code=SESSION_REQUIRED_ERROR_CODE,
-                message="Session required. Send session/create before using hashcheck.",
-            )
-        )
-    return cookie, session_id  # type: ignore[return-value]
+def _new_session_id() -> str:
+    return f"sess-{secrets.token_hex(6)}"
+
+
+def _parse_hashes(data: dict[str, Any]) -> dict[str, str]:
+    raw = data.get(HASHES_COOKIE_KEY)
+    if not isinstance(raw, str) or not raw.strip():
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+
+    hashes: dict[str, str] = {}
+    for key, value in parsed.items():
+        if isinstance(key, str) and isinstance(value, str):
+            hashes[key] = value
+    return hashes
+
+
+def _cookie_state_from_request(ctx: Context) -> tuple[dict[str, Any], str, dict[str, str]]:
+    """Get or create a cookie state snapshot from request metadata."""
+    source_cookie = session_cookie_from_meta(ctx.request_context.meta)
+    cookie = dict(source_cookie) if isinstance(source_cookie, dict) else {}
+
+    raw_id = cookie.get("id")
+    session_id = raw_id if isinstance(raw_id, str) and raw_id else _new_session_id()
+
+    raw_data = cookie.get("data")
+    data = dict(raw_data) if isinstance(raw_data, dict) else {}
+    hashes = _parse_hashes(data)
+
+    return cookie, session_id, hashes
+
+
+def _cookie_with_hashes(
+    cookie: dict[str, Any],
+    *,
+    session_id: str,
+    hashes: dict[str, str],
+) -> dict[str, Any]:
+    data = cookie.get("data")
+    normalized_data = dict(data) if isinstance(data, dict) else {}
+    normalized_data[HASHES_COOKIE_KEY] = json.dumps(hashes, ensure_ascii=False, sort_keys=True)
+    return {
+        "id": session_id,
+        "data": normalized_data,
+    }
 
 
 def build_server() -> FastMCP:
@@ -120,11 +151,9 @@ def build_server() -> FastMCP:
         ctx: Context, key: str, text: str
     ) -> types.CallToolResult:
         """Hash a text string and store the digest under the given key."""
-        cookie, session_id = _require_session(ctx, sessions)
-        record = sessions.get(session_id)
-        if record:
-            record.tool_calls += 1
-        digest = hashes.store(session_id, key, text)
+        cookie, session_id, kv = _cookie_state_from_request(ctx)
+        digest = hashes.store(kv, key, text)
+        updated_cookie = _cookie_with_hashes(cookie, session_id=session_id, hashes=kv)
         return types.CallToolResult(
             content=[
                 types.TextContent(
@@ -132,14 +161,7 @@ def build_server() -> FastMCP:
                     text=f"Stored {HASH_ALGORITHM}('{key}') = {digest[:16]}...",
                 )
             ],
-            structuredContent={
-                "action": "store",
-                "key": key,
-                "algorithm": HASH_ALGORITHM,
-                "hash": digest,
-                "session_id": session_id,
-            },
-            _meta=cookie_meta(cookie),
+            _meta=cookie_meta(updated_cookie),
         )
 
     @mcp.tool(name="hashcheck_verify")
@@ -147,11 +169,8 @@ def build_server() -> FastMCP:
         ctx: Context, key: str, text: str
     ) -> types.CallToolResult:
         """Verify a text string against a previously stored hash."""
-        cookie, session_id = _require_session(ctx, sessions)
-        record = sessions.get(session_id)
-        if record:
-            record.tool_calls += 1
-        result = hashes.verify(session_id, key, text)
+        cookie, session_id, kv = _cookie_state_from_request(ctx)
+        result = hashes.verify(kv, key, text)
 
         if not result["found"]:
             msg = f"Key '{key}' not found in session store."
@@ -162,18 +181,14 @@ def build_server() -> FastMCP:
 
         return types.CallToolResult(
             content=[types.TextContent(type="text", text=msg)],
-            structuredContent={**result, "algorithm": HASH_ALGORITHM},
-            _meta=cookie_meta(cookie),
+            _meta=cookie_meta(_cookie_with_hashes(cookie, session_id=session_id, hashes=kv)),
         )
 
     @mcp.tool(name="hashcheck_list")
     async def hashcheck_list(ctx: Context) -> types.CallToolResult:
         """List all stored keys and their hashes."""
-        cookie, session_id = _require_session(ctx, sessions)
-        record = sessions.get(session_id)
-        if record:
-            record.tool_calls += 1
-        entries = hashes.list_keys(session_id)
+        cookie, session_id, kv = _cookie_state_from_request(ctx)
+        entries = hashes.list_keys(kv)
         if not entries:
             text = "(no hashes stored)"
         else:
@@ -181,13 +196,7 @@ def build_server() -> FastMCP:
             text = f"Hash store ({len(entries)} entries):\n" + "\n".join(lines)
         return types.CallToolResult(
             content=[types.TextContent(type="text", text=text)],
-            structuredContent={
-                "action": "list",
-                "session_id": session_id,
-                "entries": entries,
-                "count": len(entries),
-            },
-            _meta=cookie_meta(cookie),
+            _meta=cookie_meta(_cookie_with_hashes(cookie, session_id=session_id, hashes=kv)),
         )
 
     @mcp.tool(name="hashcheck_delete")
@@ -195,11 +204,8 @@ def build_server() -> FastMCP:
         ctx: Context, key: str
     ) -> types.CallToolResult:
         """Delete a stored hash entry."""
-        cookie, session_id = _require_session(ctx, sessions)
-        record = sessions.get(session_id)
-        if record:
-            record.tool_calls += 1
-        deleted = hashes.delete(session_id, key)
+        cookie, session_id, kv = _cookie_state_from_request(ctx)
+        deleted = hashes.delete(kv, key)
         msg = (
             f"Deleted key '{key}'."
             if deleted
@@ -207,13 +213,7 @@ def build_server() -> FastMCP:
         )
         return types.CallToolResult(
             content=[types.TextContent(type="text", text=msg)],
-            structuredContent={
-                "action": "delete",
-                "key": key,
-                "deleted": deleted,
-                "session_id": session_id,
-            },
-            _meta=cookie_meta(cookie),
+            _meta=cookie_meta(_cookie_with_hashes(cookie, session_id=session_id, hashes=kv)),
         )
 
     return mcp

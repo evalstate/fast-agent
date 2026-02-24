@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 from mcp.shared.exceptions import McpError
-from mcp.types import ErrorData
+from mcp.types import CallToolResult, ErrorData, TextContent
 
 from fast_agent.llm.fastagent_llm import _mcp_metadata_var
 from fast_agent.mcp.mcp_aggregator import MCPAggregator
@@ -15,11 +15,11 @@ class _RecordingSession:
     def __init__(self) -> None:
         self.last_kwargs: dict[str, Any] | None = None
 
-    async def call_tool(self, **kwargs: Any) -> str:
+    async def call_tool(self, **kwargs: Any) -> Any:
         self.last_kwargs = dict(kwargs)
         return "ok-call"
 
-    async def read_resource(self, **kwargs: Any) -> str:
+    async def read_resource(self, **kwargs: Any) -> Any:
         self.last_kwargs = dict(kwargs)
         return "ok-read"
 
@@ -73,6 +73,36 @@ class _InvalidationRecorder:
     ) -> bool:
         self.calls.append((server_name, session_id, reason))
         return True
+
+
+class _ToolErrorResultSession(_RecordingSession):
+    def __init__(self) -> None:
+        super().__init__()
+        self.experimental_session_cookie: dict[str, Any] | None = {"id": "sess-tool-error"}
+
+    @property
+    def experimental_session_id(self) -> str | None:
+        cookie = self.experimental_session_cookie
+        if isinstance(cookie, dict):
+            session_id = cookie.get("id")
+            if isinstance(session_id, str) and session_id:
+                return session_id
+        return None
+
+    def set_experimental_session_cookie(self, cookie: dict[str, Any] | None) -> None:
+        self.experimental_session_cookie = dict(cookie) if isinstance(cookie, dict) else None
+
+    async def call_tool(self, **kwargs: Any) -> CallToolResult:
+        self.last_kwargs = dict(kwargs)
+        return CallToolResult(
+            isError=True,
+            content=[
+                TextContent(
+                    type="text",
+                    text="Session required. Send session/create before using the notebook.",
+                )
+            ],
+        )
 
 
 @pytest.mark.asyncio
@@ -148,6 +178,34 @@ async def test_execute_on_server_marks_rejected_experimental_cookie_invalid() ->
         (
             "demo",
             "sess-rejected",
+            "Session required. Send session/create before using the notebook.",
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_execute_on_server_marks_rejected_cookie_from_tool_error_result() -> None:
+    session = _ToolErrorResultSession()
+    aggregator = MCPAggregator(server_names=[], connection_persistence=True, context=None)
+    setattr(aggregator, "_persistent_connection_manager", _FakeConnectionManager(session))
+    recorder = _InvalidationRecorder()
+    aggregator.experimental_sessions = recorder  # type: ignore[assignment]
+
+    result = await aggregator._execute_on_server(
+        server_name="demo",
+        operation_type="tools/call",
+        operation_name="notebook_status",
+        method_name="call_tool",
+        method_args={"name": "notebook_status", "arguments": {}},
+    )
+
+    assert isinstance(result, CallToolResult)
+    assert result.isError is True
+    assert session.experimental_session_cookie is None
+    assert recorder.calls == [
+        (
+            "demo",
+            "sess-tool-error",
             "Session required. Send session/create before using the notebook.",
         )
     ]

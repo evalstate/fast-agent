@@ -73,6 +73,7 @@ class SessionClientProtocol(Protocol):
 
     async def clear_all_cookies(self) -> list[str]: ...
 
+
 @dataclass(frozen=True, slots=True)
 class ParsedMcpConnectInput:
     target_text: str
@@ -84,9 +85,7 @@ class ParsedMcpConnectInput:
     auth_token: str | None
 
 
-_AUTH_ENV_BRACED_RE = re.compile(
-    r"^\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?::(?P<default>.*))?\}$"
-)
+_AUTH_ENV_BRACED_RE = re.compile(r"^\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?::(?P<default>.*))?\}$")
 _AUTH_ENV_SIMPLE_RE = re.compile(r"^\$(?P<name>[A-Za-z_][A-Za-z0-9_]*)$")
 
 
@@ -371,12 +370,12 @@ def _resolve_session_client(ctx, *, agent_name: str) -> SessionClientProtocol:
     required_methods = (
         "list_jar",
         "resolve_server_name",
-            "list_server_cookies",
-            "create_session",
-            "resume_session",
-            "clear_cookie",
-            "clear_all_cookies",
-        )
+        "list_server_cookies",
+        "create_session",
+        "resume_session",
+        "clear_cookie",
+        "clear_all_cookies",
+    )
     if isinstance(client, ExperimentalSessionClient) or all(
         hasattr(client, method) for method in required_methods
     ):
@@ -389,9 +388,7 @@ def _resolve_session_client(ctx, *, agent_name: str) -> SessionClientProtocol:
     ):
         return cast("SessionClientProtocol", fallback)
 
-    raise RuntimeError(
-        f"Agent '{agent_name}' does not expose experimental session controls."
-    )
+    raise RuntimeError(f"Agent '{agent_name}' does not expose experimental session controls.")
 
 
 def _render_cookie(cookie: dict[str, Any] | None) -> str:
@@ -402,7 +399,9 @@ def _render_cookie(cookie: dict[str, Any] | None) -> str:
 
 def _render_jar_entry(entry: SessionJarEntry) -> str:
     features = ", ".join(entry.features) if entry.features else "none"
-    supported = "yes" if entry.supported is True else "no" if entry.supported is False else "unknown"
+    supported = (
+        "yes" if entry.supported is True else "no" if entry.supported is False else "unknown"
+    )
     identity = entry.server_identity or "(unset)"
     title = entry.title or "(none)"
 
@@ -586,7 +585,9 @@ def _render_jar_table(entries: list[SessionJarEntry]) -> Text:
             expiry = _format_expiry_compact(raw_expiry if isinstance(raw_expiry, str) else None)
         if isinstance(active_summary, dict):
             raw_expiry = active_summary.get("expiry")
-            active_expiry = _format_expiry_compact(raw_expiry if isinstance(raw_expiry, str) else None)
+            active_expiry = _format_expiry_compact(
+                raw_expiry if isinstance(raw_expiry, str) else None
+            )
             if active_expiry != "-":
                 expiry = active_expiry
 
@@ -597,12 +598,16 @@ def _render_jar_table(entries: list[SessionJarEntry]) -> Text:
         else:
             time_display = None
 
-        connection_state = "connected" if any(e.connected is True for e in grouped_entries) else "disconnected"
+        connection_state = (
+            "connected" if any(e.connected is True for e in grouped_entries) else "disconnected"
+        )
         version_display = version if version != "-" else "unknown"
 
         summary_title = active_summary.get("title") if isinstance(active_summary, dict) else None
         title_raw = (
-            summary_title if isinstance(summary_title, str) and summary_title.strip() else (primary.title or "")
+            summary_title
+            if isinstance(summary_title, str) and summary_title.strip()
+            else (primary.title or "")
         )
         title_text = title_raw.strip() if isinstance(title_raw, str) else ""
         if not title_text:
@@ -676,11 +681,13 @@ def _render_server_cookies_table(
 
         for index, item in enumerate(cookies, 1):
             raw_session_id = item.get("id")
-            session_id = raw_session_id if isinstance(raw_session_id, str) and raw_session_id else "-"
+            session_id = (
+                raw_session_id if isinstance(raw_session_id, str) and raw_session_id else "-"
+            )
             is_active = active_session_id is not None and session_id == active_session_id
             is_invalidated = bool(item.get("invalidated"))
             if is_invalidated:
-                marker = "✖"
+                marker = "○"
                 marker_style = "dim red"
                 session_style = "dim"
             elif is_active:
@@ -692,7 +699,9 @@ def _render_server_cookies_table(
                 marker_style = "dim"
                 session_style = "white"
 
-            updated_value = item.get("updatedAt") if isinstance(item.get("updatedAt"), str) else None
+            updated_value = (
+                item.get("updatedAt") if isinstance(item.get("updatedAt"), str) else None
+            )
             updated_compact = _format_expiry_compact(updated_value)
             expiry_compact = _format_expiry_compact(_extract_session_expiry(item))
             title_raw = _extract_session_title(item)
@@ -710,7 +719,13 @@ def _render_server_cookies_table(
                 invalid_segment.append(" • invalid", style="dim red")
 
             title_prefix = Text(" • ", style="dim")
-            reserved = line.cell_len + title_prefix.cell_len + invalid_segment.cell_len + 1 + len(window_display)
+            reserved = (
+                line.cell_len
+                + title_prefix.cell_len
+                + invalid_segment.cell_len
+                + 1
+                + len(window_display)
+            )
             title_width = max(12, width - reserved)
             title_display = _truncate_cell(title_raw, max_len=title_width)
 
@@ -834,9 +849,12 @@ async def handle_mcp_session(
         if action == "list":
             if server_identity is None:
                 try:
-                    _server_name, server_id, active_session_id, cookies = await session_client.list_server_cookies(
-                        None
-                    )
+                    (
+                        _server_name,
+                        server_id,
+                        active_session_id,
+                        cookies,
+                    ) = await session_client.list_server_cookies(None)
                 except ValueError as exc:
                     if "Multiple MCP servers are attached" not in str(exc):
                         raise
@@ -848,9 +866,12 @@ async def handle_mcp_session(
                     )
                     return outcome
             else:
-                _server_name, server_id, active_session_id, cookies = await session_client.list_server_cookies(
-                    server_identity
-                )
+                (
+                    _server_name,
+                    server_id,
+                    active_session_id,
+                    cookies,
+                ) = await session_client.list_server_cookies(server_identity)
             outcome.add_message(
                 _render_server_cookies_table(
                     server_identity=server_id,
@@ -981,7 +1002,9 @@ async def handle_mcp_connect(
             return
 
         if event.event_type == "wait_start":
-            await emit_progress(event.message or "Waiting for OAuth callback (startup timer paused)…")
+            await emit_progress(
+                event.message or "Waiting for OAuth callback (startup timer paused)…"
+            )
             return
 
         if event.event_type == "wait_end":
@@ -989,7 +1012,9 @@ async def handle_mcp_connect(
             return
 
         if event.event_type == "callback_received":
-            await emit_progress(event.message or "OAuth callback received. Completing token exchange…")
+            await emit_progress(
+                event.message or "OAuth callback received. Completing token exchange…"
+            )
             return
 
         if event.event_type == "oauth_error" and event.message:
@@ -1010,7 +1035,9 @@ async def handle_mcp_connect(
     )
 
     mode = "configured" if configured_alias is not None else infer_connect_mode(parsed.target_text)
-    server_name = configured_alias or parsed.server_name or infer_server_name(parsed.target_text, mode)
+    server_name = (
+        configured_alias or parsed.server_name or infer_server_name(parsed.target_text, mode)
+    )
     await emit_progress(f"Connecting MCP server '{server_name}' via {mode}…")
 
     trigger_oauth = True if parsed.trigger_oauth is None else parsed.trigger_oauth
@@ -1092,7 +1119,9 @@ async def handle_mcp_connect(
                     agent_name=agent_name,
                 )
 
-        if oauth_related and (fallback_disabled or oauth_timeout or not oauth_paste_fallback_enabled):
+        if oauth_related and (
+            fallback_disabled or oauth_timeout or not oauth_paste_fallback_enabled
+        ):
             outcome.add_message(
                 (
                     "OAuth could not be completed in this connection mode. "
@@ -1125,9 +1154,7 @@ async def handle_mcp_connect(
     tools_added_count = len(tools_added)
     prompts_added_count = len(prompts_added)
     tools_refreshed_count = (
-        tools_total
-        if isinstance(tools_total, int) and tools_total >= 0
-        else tools_added_count
+        tools_total if isinstance(tools_total, int) and tools_total >= 0 else tools_added_count
     )
     prompts_refreshed_count = (
         prompts_total
