@@ -378,18 +378,21 @@ class ModelFactory:
                     "WebSocket transport is experimental and currently supported only for "
                     "the codexresponses and responses providers."
                 )
-            if provider != Provider.RESPONSES:
-                response_transports = ModelDatabase.get_response_transports(model_name_str)
-                if not response_transports or "websocket" not in response_transports:
-                    raise ModelConfigError(
-                        f"Transport '{query_transport}' is not supported for model '{model_name_str}'."
-                    )
-                websocket_providers = ModelDatabase.get_response_websocket_providers(model_name_str)
-                if websocket_providers is not None and provider not in websocket_providers:
-                    raise ModelConfigError(
-                        f"Transport '{query_transport}' is not supported for model '{model_name_str}' "
-                        f"with provider '{provider.value}'."
-                    )
+            supports_transport = ModelDatabase.supports_response_transport(
+                model_name_str, "websocket"
+            )
+            if supports_transport is False:
+                raise ModelConfigError(
+                    f"Transport '{query_transport}' is not supported for model '{model_name_str}'."
+                )
+            supports_provider = ModelDatabase.supports_response_websocket_provider(
+                model_name_str, provider
+            )
+            if supports_provider is False:
+                raise ModelConfigError(
+                    f"Transport '{query_transport}' is not supported for model '{model_name_str}' "
+                    f"with provider '{provider.value}'."
+                )
 
         return ModelConfig(
             provider=provider,

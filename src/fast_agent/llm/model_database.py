@@ -927,6 +927,28 @@ class ModelDatabase:
         return params.response_websocket_providers if params else None
 
     @classmethod
+    def supports_response_transport(
+        cls, model: str, transport: Literal["sse", "websocket"]
+    ) -> bool | None:
+        """Return transport support for a model, or None when unconstrained.
+
+        A `None` return means the model has no explicit transport metadata and callers
+        may apply provider-level defaults.
+        """
+        transports = cls.get_response_transports(model)
+        if transports is None:
+            return None
+        return transport in transports
+
+    @classmethod
+    def supports_response_websocket_provider(cls, model: str, provider: Provider) -> bool | None:
+        """Return websocket provider support for a model, or None when unconstrained."""
+        providers = cls.get_response_websocket_providers(model)
+        if providers is None:
+            return None
+        return provider in providers
+
+    @classmethod
     def get_anthropic_web_search_version(cls, model: str) -> str | None:
         """Get Anthropic web_search tool version for a model, if available."""
         params = cls.get_model_params(model)

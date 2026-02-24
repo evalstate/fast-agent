@@ -208,9 +208,14 @@ def test_transport_query_allows_responses_codex_model():
     assert config.transport == "websocket"
 
 
-def test_transport_query_allows_responses_provider_for_codex_spark():
-    config = ModelFactory.parse_model_string("responses.gpt-5.3-codex-spark?transport=ws")
-    assert config.provider == Provider.RESPONSES
+def test_transport_query_rejects_responses_provider_for_codex_spark():
+    with pytest.raises(ModelConfigError):
+        ModelFactory.parse_model_string("responses.gpt-5.3-codex-spark?transport=ws")
+
+
+def test_transport_query_allows_codexresponses_provider_for_codex_spark():
+    config = ModelFactory.parse_model_string("codexresponses.gpt-5.3-codex-spark?transport=ws")
+    assert config.provider == Provider.CODEX_RESPONSES
     assert config.model_name == "gpt-5.3-codex-spark"
     assert config.transport == "websocket"
 

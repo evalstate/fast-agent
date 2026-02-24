@@ -250,6 +250,24 @@ def test_model_database_response_transports():
     assert ModelDatabase.get_response_transports("gpt-5.3-codex") == ("sse", "websocket")
     assert ModelDatabase.get_response_transports("gpt-5.3-codex-spark") == ("sse", "websocket")
     assert ModelDatabase.get_response_transports("gpt-4o") is None
+    assert ModelDatabase.supports_response_transport("gpt-5.3-codex", "websocket") is True
+    assert ModelDatabase.supports_response_transport("gpt-4o", "websocket") is None
+
+
+def test_model_database_response_websocket_provider_support() -> None:
+    assert (
+        ModelDatabase.supports_response_websocket_provider(
+            "gpt-5.3-codex-spark", Provider.CODEX_RESPONSES
+        )
+        is True
+    )
+    assert (
+        ModelDatabase.supports_response_websocket_provider(
+            "gpt-5.3-codex-spark", Provider.RESPONSES
+        )
+        is False
+    )
+    assert ModelDatabase.supports_response_websocket_provider("gpt-4o", Provider.RESPONSES) is None
 
 
 def test_model_database_reasoning_modes():
