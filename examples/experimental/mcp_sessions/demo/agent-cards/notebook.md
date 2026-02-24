@@ -1,6 +1,5 @@
 ---
 type: agent
-name: sessions_notebook
 model: $system.demo
 skills: []
 servers:

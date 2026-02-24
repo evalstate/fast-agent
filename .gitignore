@@ -215,3 +215,7 @@ upskill
 .fast-agent
 
 /fastagent.config.yaml
+
+# Experimental MCP sessions demo runtime artifacts
+examples/experimental/mcp_sessions/demo/sessions/
+examples/experimental/mcp_sessions/demo/mcp-cookie.json

@@ -1,6 +1,5 @@
 ---
 type: agent
-name: sessions_selective
 model: $system.demo
 skills: []
 servers:

@@ -1,6 +1,5 @@
 ---
 type: agent
-name: sessions_probe
 model: $system.demo
 skills: []
 default: true

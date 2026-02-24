@@ -1,6 +1,5 @@
 ---
 type: agent
-name: sessions_hashcheck
 model: $system.demo
 skills: []
 servers:

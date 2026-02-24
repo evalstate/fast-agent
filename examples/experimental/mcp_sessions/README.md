@@ -93,42 +93,42 @@ uv run python examples/experimental/mcp_sessions/demo_all_sessions.py selective
 
 This directory now includes a ready-to-run fast-agent environment:
 
-- Environment root: `examples/experimental/mcp_sessions/fast-agent-env/`
-- Agent cards: `examples/experimental/mcp_sessions/fast-agent-env/agent-cards/`
-- MCP server wiring: `examples/experimental/mcp_sessions/fast-agent-env/fastagent.config.yaml`
+- Environment root: `examples/experimental/mcp_sessions/demo/`
+- Agent cards: `examples/experimental/mcp_sessions/demo/agent-cards/`
+- MCP server wiring: `examples/experimental/mcp_sessions/demo/fastagent.config.yaml`
 
 Cards included:
 
-- `sessions_probe` (default)
-- `sessions_required`
-- `sessions_notebook`
-- `sessions_hashcheck`
-- `sessions_selective`
+- `probe` (default)
+- `session_required`
+- `notebook`
+- `check_kv`
+- `session_selective`
 
 From the repository root:
 
 ```bash
-# run the default card (sessions_probe)
+# run the default card (probe)
 uv run fast-agent go \
-  --env examples/experimental/mcp_sessions/fast-agent-env \
+  --env examples/experimental/mcp_sessions/demo \
   --message 'Call session_probe with action=status and note=first'
 
 # target a specific scenario card
 uv run fast-agent go \
-  --env examples/experimental/mcp_sessions/fast-agent-env \
-  --agent sessions_selective \
+  --env examples/experimental/mcp_sessions/demo \
+  --agent session_selective \
   --message 'Start a session labeled demo and then increment the session counter'
 
 uv run fast-agent go \
-  --env examples/experimental/mcp_sessions/fast-agent-env \
-  --agent sessions_selective \
+  --env examples/experimental/mcp_sessions/demo \
+  --agent session_selective \
   --message 'Get the current session counter value'
 ```
 
 Notes:
 
 - These cards use `model: $system.demo`.
-- `fast-agent-env/fastagent.config.yaml` defines `model_aliases.system.demo: haiku`.
+- `demo/fastagent.config.yaml` defines `model_aliases.system.demo: kimi`.
 - Run interactive mode (omit `--message`) and use `/mcp` to inspect `exp sess` and cookie state.
 
 ## Session flow

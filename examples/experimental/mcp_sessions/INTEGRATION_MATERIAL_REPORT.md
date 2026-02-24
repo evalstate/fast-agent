@@ -81,7 +81,7 @@ session protocol wiring.
 
 ### D. fast-agent environment + per-scenario server cards
 
-- **`fast-agent-env/fastagent.config.yaml`**
+- **`demo/fastagent.config.yaml`**
   - Configures one MCP server entry per scenario:
     - `mcp_sessions_probe`
     - `mcp_sessions_required`
@@ -90,15 +90,15 @@ session protocol wiring.
     - `mcp_sessions_selective`
   - Uses stdio launches via `uv run python <server>.py`
 
-- **`fast-agent-env/agent-cards/`**
-  - `sessions_probe` (default)
-  - `sessions_required`
-  - `sessions_notebook`
-  - `sessions_hashcheck`
-  - `sessions_selective`
+- **`demo/agent-cards/`**
+  - `probe` (default)
+  - `session_required`
+  - `notebook`
+  - `check_kv`
+  - `session_selective`
   - Each card is wired to exactly one scenario server for focused demos
   - Cards use `model: $system.demo`
-  - `fast-agent-env/fastagent.config.yaml` defines `model_aliases.system.demo: haiku`
+  - `demo/fastagent.config.yaml` defines `model_aliases.system.demo: kimi`
 
 ---
 
@@ -181,15 +181,15 @@ uv run python examples/experimental/mcp_sessions/demo_all_sessions.py selective
 # Run any server directly
 uv run python examples/experimental/mcp_sessions/selective_session_server.py
 
-# Run default fast-agent environment card (sessions_probe)
+# Run default fast-agent environment card (probe)
 uv run fast-agent go \
-  --env examples/experimental/mcp_sessions/fast-agent-env \
+  --env examples/experimental/mcp_sessions/demo \
   --message 'Call session_probe with action=status and note=first'
 
 # Run selective-policy card
 uv run fast-agent go \
-  --env examples/experimental/mcp_sessions/fast-agent-env \
-  --agent sessions_selective \
+  --env examples/experimental/mcp_sessions/demo \
+  --agent session_selective \
   --message 'Start a session labeled demo and increment the session counter'
 ```
 
@@ -202,3 +202,126 @@ uv run fast-agent go \
   server bridge (`ExperimentalServerSession` path), which is intentional for experimentation.
 - `scripts/cpd.py --check` currently reports pre-existing repository duplications not
   specific to this session material.
+
+---
+
+## 7) Supplement (2026-02-24): Experimental session protocol contract
+
+This supplement is intentionally scoped to **protocol/runtime semantics**.
+It excludes display-only/UI formatting updates.
+
+### 7.1 Cookie envelope and metadata key
+
+- Session state is carried in `_meta["mcp/session"]`.
+- Cookie payload shape:
+  - `id: str` (required for a usable session)
+  - `expiry: str | null` (optional lease end)
+  - `data: object` (optional server-defined metadata; commonly title/createdAt)
+
+### 7.2 Capability negotiation contract
+
+- Server advertises experimental session support via
+  `capabilities.experimental.session`.
+- fast-agent currently treats **version 2** as the supported protocol version.
+- If server advertises an unsupported version, the client ignores session capability
+  for that connection.
+- Client-side capability hinting is optional and controlled by:
+  - `experimental_session_advertise`
+  - `experimental_session_advertise_version`
+
+### 7.3 Lifecycle + metadata propagation contract
+
+- If server supports sessions and includes feature `create`, fast-agent may
+  auto-establish a session (`session/create`) when no cookie is present.
+- Outbound MCP requests merge the active cookie into `_meta["mcp/session"]`
+  when not already set by the caller.
+- Inbound responses update local cookie state when `_meta["mcp/session"]` is present:
+  - object => replace active cookie with server-returned value
+  - `null` => revoke/clear active cookie
+
+### 7.4 Lease / expiry contract
+
+- `expiry` is a **server lease hint**, not a hard client guarantee.
+- Server is authoritative for validity and may reject a session before expiry
+  (restart, eviction, revocation, policy change).
+- Server **may extend lease** by returning a refreshed cookie (same id with later
+  expiry, or rotated id) in `_meta["mcp/session"]`.
+- Client should always treat server-returned cookie as canonical and replace local state.
+- Recommended semantics:
+  - `expiry` missing or `null` => non-expiring lease (conceptually `∞`)
+  - `expiry` present => best-effort resumability window, server-enforced
+
+### 7.5 Resume semantics
+
+- Resume is semantic/session-cookie based (not transport `Mcp-Session-Id` based).
+- fast-agent can restore a previously used cookie from its local jar before
+  initialize/connect completes, reducing unnecessary `session/create` calls.
+- When `/mcp session use <id>` is used:
+  - client prefers canonical payload from `session/list` when available
+  - otherwise falls back to `{"id": <id>}` and lets server accept/reject on use
+
+### 7.6 Persistence contract (client jar)
+
+- Cookie jar path: `.fast-agent/mcp-cookie.json`
+- On-disk format version: `2`
+- Records are keyed by server identity (initialize name) when available,
+  otherwise server alias.
+- Jar stores cookie history + active selection metadata (`last_used_id`, `updatedAt`, hash).
+
+---
+
+## 8) Protocol-level delta matrix (runtime capability changes)
+
+The following summarizes protocol/runtime capability work that is now in-repo,
+excluding display tweaks.
+
+1. **Session capability parsing + version gating**
+   - `src/fast_agent/mcp/mcp_agent_client_session.py`
+   - Captures `experimental.session` capability, features, and version handling.
+
+2. **Optional client capability advertisement**
+   - `src/fast_agent/mcp/mcp_agent_client_session.py`
+   - Injects client experimental session hint during initialize when configured.
+
+3. **Automatic session establishment when supported**
+   - `src/fast_agent/mcp/mcp_agent_client_session.py`
+   - Calls `session/create` opportunistically when supported and feature `create` is advertised.
+
+4. **Cookie propagation + canonical server update semantics**
+   - `src/fast_agent/mcp/mcp_agent_client_session.py`
+   - Merges outbound cookie metadata and applies inbound updates/revocation (`null`).
+
+5. **Persistent session jar + identity-aware resume state**
+   - `src/fast_agent/mcp/experimental_session_client.py`
+   - Adds JSON-backed store (v2), per-identity records, active cookie selection,
+     and disconnected-server cookie visibility.
+
+6. **Connection bootstrap from jar cookies**
+   - `src/fast_agent/mcp/mcp_aggregator.py`
+   - Hydrates new MCP sessions with best-effort prior cookie before first calls.
+
+7. **Programmatic session control surface**
+   - `src/fast_agent/mcp/experimental_session_client.py`
+   - `list_jar`, `list_server_cookies`, `create_session`, `resume_session`,
+     `clear_cookie`, `clear_all_cookies`, `list_sessions`, `resolve_server_name`.
+
+8. **Runtime command surface for operators**
+   - `src/fast_agent/commands/handlers/mcp_runtime.py`
+   - `src/fast_agent/acp/slash/handlers/mcp.py`
+   - Exposes protocol operations via `/mcp session [list|jar|new|use|clear]`.
+
+9. **Session termination handling**
+   - `src/fast_agent/mcp/mcp_agent_client_session.py`
+   - Maps terminated-session server errors into explicit runtime exceptions.
+
+10. **Protocol lab servers for policy experimentation**
+    - `examples/experimental/mcp_sessions/_session_base.py` and scenario servers
+    - Covers global gatekeeping, selective enforcement, session-scoped state,
+      revocation, and cookie rotation flows.
+
+### 8.1 Important note about current demo expiry behavior
+
+- Current demo `SessionStore` implementations stamp `expiry` and `createdAt`, but do
+  not yet enforce TTL eviction/validation in `get/ensure_from_cookie`.
+- This means demo expiry is currently illustrative metadata unless explicitly
+  enforced by a server variant.

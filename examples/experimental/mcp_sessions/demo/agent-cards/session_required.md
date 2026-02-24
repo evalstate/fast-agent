@@ -1,6 +1,5 @@
 ---
 type: agent
-name: sessions_required
 model: $system.demo
 skills: []
 servers:
