@@ -765,6 +765,28 @@ def test_get_completions_for_mcp_session_use_cookie_ids() -> None:
     assert "sess-456" in names
 
 
+def test_get_completions_for_mcp_session_use_shows_connected_session_shortcuts() -> None:
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(_McpSessionAgentStub())),
+    )
+
+    doc = Document("/mcp session use ", cursor_position=len("/mcp session use "))
+    completions = list(completer.get_completions(doc, None))
+
+    completion_texts = [completion.text for completion in completions]
+    assert "demo sess-123" in completion_texts
+    assert "demo sess-456" in completion_texts
+
+    display_values = [completion.display_text for completion in completions]
+    assert any(display.startswith("1-sess-") for display in display_values)
+
+    display_meta_values = [completion.display_meta_text for completion in completions]
+    assert any("demo-server" in value for value in display_meta_values)
+    assert any("Current" in value for value in display_meta_values)
+
+
 def test_get_completions_for_mcp_session_use_cookie_ids_partial() -> None:
     completer = AgentCompleter(
         agents=["agent1"],
@@ -780,6 +802,19 @@ def test_get_completions_for_mcp_session_use_cookie_ids_partial() -> None:
     names = [c.text for c in completions]
 
     assert names == ["sess-456"]
+
+
+def test_get_completions_for_mcp_session_jar_suppresses_single_server_noise() -> None:
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(_McpSessionAgentStub())),
+    )
+
+    doc = Document("/mcp session jar ", cursor_position=len("/mcp session jar "))
+    completions = list(completer.get_completions(doc, None))
+
+    assert completions == []
 
 
 def test_get_completions_for_mcp_connect_configured_servers(monkeypatch) -> None:

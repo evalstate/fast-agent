@@ -81,6 +81,8 @@ def _progress_trace(message: str) -> None:
 T = TypeVar("T")
 R = TypeVar("R")
 
+SESSION_REQUIRED_ERROR_CODE = -32002
+
 
 class NamespacedTool(BaseModel):
     """
@@ -1504,6 +1506,7 @@ class MCPAggregator(ContextDependent):
                 # Let ServerSessionTerminatedError pass through for reconnection logic
                 raise
             except Exception as e:
+                self._maybe_mark_rejected_session_cookie(server_name=server_name, client=client, exc=e)
                 error_msg = (
                     f"Failed to {method_name} '{operation_name}' on server '{server_name}': {e}"
                 )
@@ -1580,6 +1583,63 @@ class MCPAggregator(ContextDependent):
                 return error_factory(error_msg)
             raise RuntimeError(error_msg)
         return result
+
+    @staticmethod
+    def _is_session_required_error(exc: Exception) -> bool:
+        from mcp.shared.exceptions import McpError
+
+        if not isinstance(exc, McpError):
+            return False
+
+        error_data = getattr(exc, "error", None)
+        if error_data is None:
+            return False
+
+        return getattr(error_data, "code", None) == SESSION_REQUIRED_ERROR_CODE
+
+    def _maybe_mark_rejected_session_cookie(
+        self,
+        *,
+        server_name: str,
+        client: ClientSession,
+        exc: Exception,
+    ) -> None:
+        if not self._is_session_required_error(exc):
+            return
+
+        session_id = getattr(client, "experimental_session_id", None)
+        if not isinstance(session_id, str) or not session_id:
+            return
+
+        clear_cookie = getattr(client, "set_experimental_session_cookie", None)
+        if callable(clear_cookie):
+            try:
+                clear_cookie(None)
+            except Exception:
+                logger.debug(
+                    "Failed clearing rejected experimental session cookie",
+                    server_name=server_name,
+                    session_id=session_id,
+                    exc_info=True,
+                )
+
+        error_data = getattr(exc, "error", None)
+        reason = getattr(error_data, "message", None)
+        reason_text = str(reason) if isinstance(reason, str) and reason else None
+
+        try:
+            self.experimental_sessions.mark_cookie_invalidated(
+                server_name,
+                session_id=session_id,
+                reason=reason_text,
+            )
+        except Exception:
+            logger.debug(
+                "Failed marking experimental session cookie invalidated",
+                server_name=server_name,
+                session_id=session_id,
+                exc_info=True,
+            )
 
     async def _handle_connection_error(
         self,

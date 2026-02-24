@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Iterable
 
@@ -44,6 +43,11 @@ class Colours:
     TOKEN_DISABLED = "dim"
     TOKEN_HIGHLIGHTED = "bright_yellow"
     TOKEN_ENABLED = "bright_green"
+
+    # MCP capability token states (reverse for visibility across themes)
+    CAP_TOKEN_CAUTION = "reverse bright_yellow"
+    CAP_TOKEN_HIGHLIGHTED = "reverse bright_yellow"
+    CAP_TOKEN_ENABLED = "reverse bright_green"
 
     # Text elements
     TEXT_DIM = "dim"
@@ -154,28 +158,99 @@ def _format_session_id(session_id: str | None) -> Text:
         text.append("local", style="cyan")
         return text
 
-    # Only trim if excessively long (>24 chars)
-    value = session_id
-    if len(session_id) > 24:
-        # Trim middle to preserve start and end
-        value = f"{session_id[:10]}...{session_id[-10:]}"
+    value = _truncate_middle(session_id, max_length=24, edge_length=10)
     text.append(value, style="green")
     return text
+
+
+def _truncate_middle(value: str, *, max_length: int, edge_length: int) -> str:
+    if len(value) <= max_length:
+        return value
+    return f"{value[:edge_length]}...{value[-edge_length:]}"
+
+
+def _cookie_string_field(cookie: dict[str, object] | None, key: str) -> str | None:
+    if not isinstance(cookie, dict):
+        return None
+    raw_value = cookie.get(key)
+    if not isinstance(raw_value, str):
+        return None
+    value = raw_value.strip()
+    return value or None
+
+
+def _cookie_timestamp_field(cookie: dict[str, object] | None, *keys: str) -> str | None:
+    if not isinstance(cookie, dict):
+        return None
+
+    for key in keys:
+        value = _cookie_string_field(cookie, key)
+        if value:
+            return value
+
+    data = cookie.get("data")
+    if isinstance(data, dict):
+        key_set = set(keys)
+        for data_key, raw_value in data.items():
+            if data_key not in key_set or not isinstance(raw_value, str):
+                continue
+            if raw_value.strip():
+                return raw_value.strip()
+
+    return None
+
+
+def _format_cookie_timestamp_local(timestamp: str) -> str:
+    try:
+        parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        return _truncate_middle(timestamp, max_length=32, edge_length=14)
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    parsed = parsed.astimezone()
+
+    return parsed.strftime("%d/%m/%y %H:%M")
 
 
 def _format_experimental_session_status(status: ServerStatus) -> Text:
     text = Text()
     supported = status.experimental_session_supported
     if supported is True:
-        text.append("enabled", style=Colours.TEXT_SUCCESS)
-        features = status.experimental_session_features or []
-        if features:
+        cookie_id = _cookie_string_field(status.session_cookie, "id")
+        created = _cookie_timestamp_field(
+            status.session_cookie,
+            "created",
+            "created_at",
+            "createdAt",
+        )
+        expiry = _cookie_timestamp_field(
+            status.session_cookie,
+            "expiry",
+            "expires",
+            "expires_at",
+            "expiresAt",
+        )
+
+        if cookie_id:
+            text.append(
+                _truncate_middle(cookie_id, max_length=32, edge_length=14),
+                style=Colours.TEXT_SUCCESS,
+            )
+        else:
+            text.append("none", style=Colours.TEXT_DIM)
+
+        if created or expiry:
             text.append(" (", style=Colours.TEXT_DIM)
-            text.append(", ".join(features), style=Colours.TEXT_DEFAULT)
+            if created:
+                text.append(_format_cookie_timestamp_local(created), style=Colours.TEXT_DEFAULT)
+            if created and expiry:
+                text.append(" → ", style=Colours.TEXT_DIM)
+            if expiry:
+                text.append(_format_cookie_timestamp_local(expiry), style=Colours.TEXT_DEFAULT)
             text.append(")", style=Colours.TEXT_DIM)
-        if status.session_title:
-            text.append("  title=", style=Colours.TEXT_DIM)
-            text.append(status.session_title, style=Colours.TEXT_DEFAULT)
+        else:
+            text.append(" (unknown)", style=Colours.TEXT_DIM)
         return text
 
     if supported is False:
@@ -184,28 +259,6 @@ def _format_experimental_session_status(status: ServerStatus) -> Text:
 
     text.append("unknown", style=Colours.TEXT_DIM)
     return text
-
-
-def _format_session_cookie(cookie: dict[str, object] | None) -> Text:
-    text = Text()
-    if not cookie:
-        text.append("none", style=Colours.TEXT_DIM)
-        return text
-
-    ordered: dict[str, object] = {}
-    if "id" in cookie:
-        ordered["id"] = cookie["id"]
-    for key in sorted(cookie):
-        if key == "id":
-            continue
-        ordered[key] = cookie[key]
-
-    raw = json.dumps(ordered, separators=(",", ":"), ensure_ascii=False)
-    if len(raw) > 120:
-        raw = raw[:117] + "..."
-    text.append(raw, style=Colours.TEXT_DEFAULT)
-    return text
-
 
 def _build_aligned_field(
     label: str, value: Text | str, *, label_width: int = 9, value_style: str = Colours.TEXT_DEFAULT
@@ -319,12 +372,12 @@ def _format_capability_shorthand(
         if supported == "blue":
             return Colours.TOKEN_WARNING
         if supported == "warn":
-            return Colours.TOKEN_CAUTION
+            return Colours.CAP_TOKEN_CAUTION
         if not supported:
             return Colours.TOKEN_DISABLED
         if highlighted:
-            return Colours.TOKEN_HIGHLIGHTED
-        return Colours.TOKEN_ENABLED
+            return Colours.CAP_TOKEN_HIGHLIGHTED
+        return Colours.CAP_TOKEN_ENABLED
 
     tokens = [
         (label, token_style(supported, highlighted)) for label, supported, highlighted in entries
@@ -833,7 +886,9 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
             if metrics_style == Colours.TEXT_DIM:
                 line.append(f"  {req} {resp} {notif} {ping}", style=metrics_style)
             else:
-                ping_style = Colours.TEXT_DEFAULT if channel and channel.ping_count else Colours.TEXT_DIM
+                ping_style = (
+                    Colours.TEXT_DEFAULT if channel and channel.ping_count else Colours.TEXT_DIM
+                )
                 line.append("  ", style="dim")
                 line.append(req, style=metrics_style)
                 line.append(" ", style="dim")
@@ -1028,14 +1083,9 @@ async def render_mcp_status(agent, indent: str = "") -> None:
         experimental_session_line = Text(indent + "  ")
         experimental_session_text = _format_experimental_session_status(status)
         experimental_session_line.append_text(
-            _build_aligned_field("exp sess", experimental_session_text)
+            _build_aligned_field("sess v2", experimental_session_text)
         )
         console.console.print(experimental_session_line)
-
-        cookie_line = Text(indent + "  ")
-        cookie_text = _format_session_cookie(status.session_cookie)
-        cookie_line.append_text(_build_aligned_field("cookie", cookie_text))
-        console.console.print(cookie_line)
 
         health_text = _build_health_text(status)
         if health_text is not None:
@@ -1123,3 +1173,6 @@ async def render_mcp_status(agent, indent: str = "") -> None:
 
         if index != len(server_items):
             console.console.print()
+
+    # Keep a trailing spacer after the MCP server block for readability.
+    console.console.print()

@@ -257,6 +257,6 @@ async def test_slash_command_mcp_session_jar() -> None:
     )
 
     rendered = await handler.execute_command("mcp", "session jar")
-    assert "[1]" in rendered
+    assert "[ 1]" in rendered
     assert "connected" in rendered
-    assert "…ess-1" in rendered
+    assert "active: sess-1" in rendered

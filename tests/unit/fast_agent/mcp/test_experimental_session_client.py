@@ -235,3 +235,82 @@ def test_bootstrap_cookie_for_server_prefers_identity_record() -> None:
     cookie = client.bootstrap_cookie_for_server("alpha")
 
     assert cookie == {"id": "sess-new", "data": {"title": "Latest"}}
+
+
+def test_mark_cookie_invalidated_clears_last_used_and_skips_bootstrap() -> None:
+    aggregator = _AggregatorStub()
+    store = InMemorySessionCookieStore(
+        {
+            "demo-alpha": {
+                "server_name": "alpha",
+                "last_used_id": "sess-rejected",
+                "cookies": [
+                    {
+                        "id": "sess-rejected",
+                        "cookie": {"id": "sess-rejected"},
+                        "updatedAt": "2026-02-24T00:00:00Z",
+                    },
+                    {
+                        "id": "sess-fallback",
+                        "cookie": {"id": "sess-fallback"},
+                        "updatedAt": "2026-02-23T00:00:00Z",
+                    },
+                ],
+            }
+        }
+    )
+    client = ExperimentalSessionClient(aggregator, cookie_store=store)
+
+    changed = client.mark_cookie_invalidated(
+        "alpha",
+        session_id="sess-rejected",
+        reason="Session required",
+    )
+
+    assert changed is True
+
+    payload = store.load()["demo-alpha"]
+    assert payload["last_used_id"] is None
+
+    rejected_entry = next(item for item in payload["cookies"] if item["id"] == "sess-rejected")
+    assert isinstance(rejected_entry.get("invalidatedAt"), str)
+    assert rejected_entry.get("invalidatedReason") == "Session required"
+
+    assert client.bootstrap_cookie_for_server("alpha") == {"id": "sess-fallback"}
+
+
+@pytest.mark.asyncio
+async def test_list_server_cookies_includes_invalidation_flag() -> None:
+    aggregator = _AggregatorStub()
+    aggregator._statuses["alpha"] = ServerStatus(
+        server_name="alpha",
+        implementation_name="demo-alpha",
+        session_cookie=None,
+        experimental_session_supported=True,
+    )
+    store = InMemorySessionCookieStore(
+        {
+            "demo-alpha": {
+                "server_name": "alpha",
+                "last_used_id": None,
+                "cookies": [
+                    {
+                        "id": "sess-invalid",
+                        "cookie": {"id": "sess-invalid"},
+                        "updatedAt": "2026-02-24T00:00:00Z",
+                        "invalidatedAt": "2026-02-24T01:00:00Z",
+                        "invalidatedReason": "Session required",
+                    }
+                ],
+            }
+        }
+    )
+    client = ExperimentalSessionClient(aggregator, cookie_store=store)
+
+    _server, _identity, active_id, cookies = await client.list_server_cookies("alpha")
+
+    assert active_id is None
+    assert len(cookies) == 1
+    assert cookies[0]["id"] == "sess-invalid"
+    assert cookies[0]["invalidated"] is True
+    assert cookies[0]["invalidatedReason"] == "Session required"

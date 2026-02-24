@@ -4,6 +4,8 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from mcp.shared.exceptions import McpError
+from mcp.types import ErrorData
 
 from fast_agent.llm.fastagent_llm import _mcp_metadata_var
 from fast_agent.mcp.mcp_aggregator import MCPAggregator
@@ -29,6 +31,48 @@ class _FakeConnectionManager:
     async def get_server(self, server_name: str, client_session_factory) -> SimpleNamespace:
         del server_name, client_session_factory
         return SimpleNamespace(session=self._session)
+
+
+class _RejectingSession(_RecordingSession):
+    def __init__(self) -> None:
+        super().__init__()
+        self.experimental_session_cookie: dict[str, Any] | None = {"id": "sess-rejected"}
+
+    @property
+    def experimental_session_id(self) -> str | None:
+        cookie = self.experimental_session_cookie
+        if isinstance(cookie, dict):
+            session_id = cookie.get("id")
+            if isinstance(session_id, str) and session_id:
+                return session_id
+        return None
+
+    def set_experimental_session_cookie(self, cookie: dict[str, Any] | None) -> None:
+        self.experimental_session_cookie = dict(cookie) if isinstance(cookie, dict) else None
+
+    async def call_tool(self, **kwargs: Any) -> str:
+        self.last_kwargs = dict(kwargs)
+        raise McpError(
+            ErrorData(
+                code=-32002,
+                message="Session required. Send session/create before using the notebook.",
+            )
+        )
+
+
+class _InvalidationRecorder:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, str | None]] = []
+
+    def mark_cookie_invalidated(
+        self,
+        server_name: str,
+        *,
+        session_id: str,
+        reason: str | None = None,
+    ) -> bool:
+        self.calls.append((server_name, session_id, reason))
+        return True
 
 
 @pytest.mark.asyncio
@@ -79,3 +123,31 @@ async def test_execute_on_server_keeps__meta_for_read_resource() -> None:
     assert session.last_kwargs is not None
     assert session.last_kwargs.get("_meta") == metadata
     assert "meta" not in session.last_kwargs
+
+
+@pytest.mark.asyncio
+async def test_execute_on_server_marks_rejected_experimental_cookie_invalid() -> None:
+    session = _RejectingSession()
+    aggregator = MCPAggregator(server_names=[], connection_persistence=True, context=None)
+    setattr(aggregator, "_persistent_connection_manager", _FakeConnectionManager(session))
+    recorder = _InvalidationRecorder()
+    aggregator.experimental_sessions = recorder  # type: ignore[assignment]
+
+    result = await aggregator._execute_on_server(
+        server_name="demo",
+        operation_type="tools/call",
+        operation_name="notebook_read",
+        method_name="call_tool",
+        method_args={"name": "notebook_read", "arguments": {}},
+        error_factory=lambda message: message,
+    )
+
+    assert "Failed to call_tool 'notebook_read' on server 'demo'" in result
+    assert session.experimental_session_cookie is None
+    assert recorder.calls == [
+        (
+            "demo",
+            "sess-rejected",
+            "Session required. Send session/create before using the notebook.",
+        )
+    ]

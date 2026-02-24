@@ -347,7 +347,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             _SessionCreateResult,
         )
 
-        if self._experimental_session_cookie is None and result.id:
+        if result.id:
             cookie: dict[str, Any] = {"id": result.id}
             if result.expiry:
                 cookie["expiry"] = result.expiry
@@ -369,7 +369,11 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
 
     async def experimental_session_delete(self, session_id: str | None = None) -> bool:
         """Delete an experimental session and return whether deletion succeeded."""
-        request = _SessionDeleteRequest(params=_SessionDeleteParams(id=session_id))
+        merged_meta = self._merge_experimental_session_meta(None)
+        params_kwargs: dict[str, Any] = {"id": session_id}
+        if merged_meta is not None:
+            params_kwargs["_meta"] = RequestParams.Meta(**merged_meta)
+        request = _SessionDeleteRequest(params=_SessionDeleteParams(**params_kwargs))
         result = await self.send_request(
             cast("ClientRequest", request),
             _SessionDeleteResult,
@@ -431,6 +435,16 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         self._experimental_session_supported = True
         self._experimental_session_features = tuple(sorted(set(features)))
 
+    def _build_experimental_session_title(self) -> str:
+        """Build a stable default title used for automatic session/create."""
+        agent = self.agent_name.strip() if isinstance(self.agent_name, str) and self.agent_name.strip() else "fast-agent"
+        server = (
+            self.session_server_name.strip()
+            if isinstance(self.session_server_name, str) and self.session_server_name.strip()
+            else "mcp-server"
+        )
+        return f"{agent} · {server}"
+
     async def _maybe_establish_experimental_session(self) -> None:
         if not self._experimental_session_supported:
             return
@@ -440,7 +454,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             return
 
         try:
-            await self.experimental_session_create()
+            await self.experimental_session_create(title=self._build_experimental_session_title())
         except Exception as exc:
             logger.debug(
                 "Failed to establish experimental MCP session",

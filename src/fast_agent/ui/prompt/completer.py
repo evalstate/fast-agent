@@ -899,6 +899,86 @@ class AgentCompleter(Completer):
 
         return choices
 
+    async def _list_connected_mcp_servers_with_identity(self) -> list[tuple[str, str | None]]:
+        agent = self._current_agent_object()
+        if agent is None:
+            return []
+
+        aggregator = getattr(agent, "aggregator", None)
+        if aggregator is None:
+            return []
+
+        collect_status = getattr(aggregator, "collect_server_status", None)
+        if callable(collect_status):
+            try:
+                status_map = await collect_status()
+            except Exception:
+                status_map = None
+            if isinstance(status_map, dict):
+                connected: list[tuple[str, str | None]] = []
+                for server_name, status in sorted(status_map.items()):
+                    if getattr(status, "is_connected", None) is not True:
+                        continue
+                    identity = getattr(status, "implementation_name", None)
+                    identity_name = identity if isinstance(identity, str) and identity.strip() else None
+                    connected.append((str(server_name), identity_name))
+                if connected:
+                    return connected
+
+        list_attached = getattr(aggregator, "list_attached_servers", None)
+        if not callable(list_attached):
+            return []
+        try:
+            attached = list_attached()
+        except Exception:
+            return []
+
+        return [(str(server_name), None) for server_name in attached]
+
+    async def _list_attached_session_cookie_choices(
+        self,
+    ) -> list[tuple[str, str | None, str, str | None, bool]]:
+        agent = self._current_agent_object()
+        if agent is None:
+            return []
+
+        aggregator = getattr(agent, "aggregator", None)
+        session_client = getattr(aggregator, "experimental_sessions", None) if aggregator else None
+        list_server_cookies = getattr(session_client, "list_server_cookies", None)
+        if not callable(list_server_cookies):
+            return []
+
+        choices: list[tuple[str, str | None, str, str | None, bool]] = []
+        servers = await self._list_connected_mcp_servers_with_identity()
+        for server_name, fallback_identity in servers:
+            try:
+                _resolved_name, identity, active_id, cookies = await list_server_cookies(server_name)
+            except Exception:
+                continue
+
+            display_identity = (
+                identity if isinstance(identity, str) and identity.strip() else fallback_identity
+            )
+            for cookie in cookies:
+                if not isinstance(cookie, dict):
+                    continue
+                cookie_id = cookie.get("id")
+                if not isinstance(cookie_id, str) or not cookie_id:
+                    continue
+                title = cookie.get("title")
+                title_text = title if isinstance(title, str) and title.strip() else None
+                choices.append(
+                    (
+                        server_name,
+                        display_identity,
+                        cookie_id,
+                        title_text,
+                        cookie_id == active_id,
+                    )
+                )
+
+        return choices
+
     def _completion_cache_get(self, key: tuple[Any, ...]) -> tuple[Completion, ...] | None:
         cached = self._mention_cache.get(key)
         if cached is None:

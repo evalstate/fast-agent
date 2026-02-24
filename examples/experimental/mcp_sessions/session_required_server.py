@@ -30,6 +30,7 @@ from _session_base import (
     session_id_from_cookie,
 )
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.shared.exceptions import McpError
 
 
 def _require_session(
@@ -44,11 +45,13 @@ def _require_session(
     session_id = session_id_from_cookie(cookie)
 
     if not session_id or store.get(session_id) is None:
-        raise types.McpError(
-            code=SESSION_REQUIRED_ERROR_CODE,
-            message=(
-                "Session required. Send session/create before calling tools."
-            ),
+        raise McpError(
+            types.ErrorData(
+                code=SESSION_REQUIRED_ERROR_CODE,
+                message=(
+                    "Session required. Send session/create before calling tools."
+                ),
+            )
         )
     return cookie, session_id  # type: ignore[return-value]
 

@@ -328,7 +328,7 @@ class SlashCommandHandler:
                         hint=(
                             "list | connect <target> [--name <server>] [--auth <token>] "
                             "[--timeout <seconds>] [--oauth|--no-oauth] "
-                            "[--reconnect|--no-reconnect] | session [show|table|list|new|resume|clear] | "
+                            "[--reconnect|--no-reconnect] | session [list|jar|new|use|clear] | "
                             "disconnect <server>"
                         )
                     )

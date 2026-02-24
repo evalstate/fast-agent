@@ -141,6 +141,36 @@ class _SessionProvider(_Provider):
         return _SessionAgent()
 
 
+class _InvalidatedSessionClientStub(_SessionClientStub):
+    async def list_server_cookies(self, server_identifier: str | None):
+        del server_identifier
+        return "demo", "demo-server", None, [
+            {
+                "id": "sess-invalid",
+                "title": "Old Session",
+                "expiry": None,
+                "updatedAt": "2026-02-23T10:00:00Z",
+                "active": False,
+                "invalidated": True,
+            }
+        ]
+
+
+class _InvalidatedSessionAgent:
+    def __init__(self) -> None:
+        self.aggregator = type(
+            "_Aggregator",
+            (),
+            {"experimental_sessions": _InvalidatedSessionClientStub()},
+        )()
+
+
+class _InvalidatedSessionProvider(_Provider):
+    def _agent(self, name: str):
+        del name
+        return _InvalidatedSessionAgent()
+
+
 class _Manager:
     def __init__(self) -> None:
         self.attached = ["local"]
@@ -683,10 +713,10 @@ async def test_handle_mcp_session_jar_renders_compact_rows() -> None:
     )
 
     message_text = "\n".join(str(msg.text) for msg in outcome.messages)
-    assert "[1]" in message_text
+    assert "[ 1]" in message_text
     assert "demo-server" in message_text
     assert "connected" in message_text
-    assert "…s-123" in message_text
+    assert "active: sess-123" in message_text
     assert "v2" in message_text
     assert "cookies:" in message_text
 
@@ -706,10 +736,14 @@ async def test_handle_mcp_session_list_marks_active_session() -> None:
     )
 
     message_text = "\n".join(str(msg.text) for msg in outcome.messages)
-    assert "server=demo identity=demo-server" in message_text
-    assert "active=sess-123" in message_text
-    assert "…s-123 ▶" in message_text
-    assert "23/02/26 12:34" in message_text
+    assert "MCP sessions:" in message_text
+    assert "[ 1]" in message_text
+    assert "[ 2]" in message_text
+    assert "▶ sess-123" in message_text
+    assert "• sess-abc" in message_text
+    assert "(23/02/26 10:00 → 23/02/26 12:34)" in message_text
+    assert "identity: demo-server" in message_text
+    assert "cookies: 2" in message_text
 
 
 @pytest.mark.asyncio
@@ -741,3 +775,26 @@ async def test_handle_mcp_session_new_and_clear_all() -> None:
     assert "Created experimental session" in new_text
     assert "sess-created" in new_text
     assert "Cleared experimental session cookies" in clear_text
+
+
+@pytest.mark.asyncio
+async def test_handle_mcp_session_list_marks_invalidated_session() -> None:
+    ctx = CommandContext(
+        agent_provider=_InvalidatedSessionProvider(),
+        current_agent_name="main",
+        io=_IO(),
+    )
+
+    outcome = await mcp_runtime.handle_mcp_session(
+        ctx,
+        agent_name="main",
+        action="list",
+        server_identity="demo-server",
+        session_id=None,
+        title=None,
+        clear_all=False,
+    )
+
+    message_text = "\n".join(str(msg.text) for msg in outcome.messages)
+    assert "✖ sess-invalid" in message_text
+    assert "invalid" in message_text

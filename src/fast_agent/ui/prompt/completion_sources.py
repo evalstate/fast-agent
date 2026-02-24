@@ -605,6 +605,10 @@ def command_completions(
                 return []
             if "--title" in partial.lower():
                 return []
+            if subcmd == "jar" and not tail_tokens and not partial and len(attached) <= 1:
+                # Avoid noisy single-option completion popups for the common
+                # `/mcp session jar` case with one connected server.
+                return []
             if subcmd == "new" and (not tail_tokens or tail.endswith(" ")):
                 completions = [
                     Completion(
@@ -630,8 +634,33 @@ def command_completions(
             return completions
 
         if subcmd in {"use", "resume"}:
+            if not tail_tokens:
+                session_choices = completer._run_async_completion(
+                    completer._list_attached_session_cookie_choices()
+                )
+                if isinstance(session_choices, list) and session_choices:
+                    completions: list[Completion] = []
+                    for index, choice in enumerate(session_choices, start=1):
+                        server_name, identity, cookie_id, title, is_active = choice
+                        completion_text = f"{server_name} {cookie_id}"
+                        display = f"{index}-{cookie_id}"
+                        meta_parts = [identity or server_name]
+                        if title:
+                            meta_parts.append(title)
+                        meta_text = ", ".join(meta_parts)
+                        state = "active" if is_active else "stored"
+                        completions.append(
+                            Completion(
+                                completion_text,
+                                start_position=0,
+                                display=display,
+                                display_meta=f"{state} cookie | {meta_text}",
+                            )
+                        )
+                    return completions
+
             if len(tail_tokens) <= 1 and not tail.endswith(" "):
-                return [
+                server_completions = [
                     Completion(
                         server,
                         start_position=-len(partial),
@@ -641,6 +670,41 @@ def command_completions(
                     for server in attached
                     if server.lower().startswith(partial.lower())
                 ]
+
+                session_choices = completer._run_async_completion(
+                    completer._list_attached_session_cookie_choices()
+                )
+                if not isinstance(session_choices, list) or not session_choices:
+                    return server_completions
+
+                partial_lower = partial.lower()
+                session_completions: list[Completion] = []
+                for index, choice in enumerate(session_choices, start=1):
+                    server_name, identity, cookie_id, title, is_active = choice
+                    display = f"{index}-{cookie_id}"
+                    if partial and not (
+                        display.lower().startswith(partial_lower)
+                        or cookie_id.lower().startswith(partial_lower)
+                        or server_name.lower().startswith(partial_lower)
+                    ):
+                        continue
+
+                    completion_text = f"{server_name} {cookie_id}"
+                    meta_parts = [identity or server_name]
+                    if title:
+                        meta_parts.append(title)
+                    meta_text = ", ".join(meta_parts)
+                    state = "active" if is_active else "stored"
+                    session_completions.append(
+                        Completion(
+                            completion_text,
+                            start_position=-len(partial),
+                            display=display,
+                            display_meta=f"{state} cookie | {meta_text}",
+                        )
+                    )
+
+                return session_completions + server_completions
 
             if not tail_tokens:
                 return []

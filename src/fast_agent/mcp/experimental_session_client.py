@@ -472,6 +472,80 @@ class ExperimentalSessionClient:
             self._save_store(store)
         return server_name, identity, self._last_used_id(record), list(self._cookie_summaries(record))
 
+    def mark_cookie_invalidated(
+        self,
+        server_name: str,
+        *,
+        session_id: str,
+        reason: str | None = None,
+    ) -> bool:
+        """Mark a stored session cookie as invalidated after server rejection."""
+        if not session_id:
+            return False
+
+        snapshot = self._load_store()
+        identity = self._lookup_server_identity(server_name)
+        store_key = self._store_key(server_name, identity)
+        if store_key not in snapshot:
+            for candidate_key, candidate_value in snapshot.items():
+                if not isinstance(candidate_value, dict):
+                    continue
+                candidate_name = candidate_value.get("server_name")
+                if isinstance(candidate_name, str) and candidate_name == server_name:
+                    store_key = candidate_key
+                    break
+        record = self._normalize_store_record(
+            snapshot.get(store_key),
+            server_name=server_name,
+            server_identity=identity,
+        )
+
+        cookies = record.get("cookies")
+        if not isinstance(cookies, list):
+            cookies = []
+            record["cookies"] = cookies
+
+        now = self._now_iso()
+        changed = False
+        for item in cookies:
+            if not isinstance(item, dict):
+                continue
+            if item.get("id") != session_id:
+                continue
+
+            item["invalidatedAt"] = now
+            if reason:
+                item["invalidatedReason"] = reason
+            else:
+                item.pop("invalidatedReason", None)
+            changed = True
+            break
+
+        if not changed:
+            cookie = {"id": session_id}
+            entry: dict[str, Any] = {
+                "id": session_id,
+                "cookie": cookie,
+                "hash": self._cookie_hash(cookie),
+                "updatedAt": now,
+                "invalidatedAt": now,
+            }
+            if reason:
+                entry["invalidatedReason"] = reason
+            cookies.append(entry)
+            changed = True
+
+        if record.get("last_used_id") == session_id:
+            record["last_used_id"] = None
+            changed = True
+
+        if not changed:
+            return False
+
+        snapshot[store_key] = record
+        self._save_store(snapshot)
+        return True
+
     def bootstrap_cookie_for_server(self, server_name: str) -> dict[str, Any] | None:
         """Return a best-effort last-used cookie for a server before connect/initialize.
 
@@ -619,6 +693,8 @@ class ExperimentalSessionClient:
         if last_used:
             for item in cookies:
                 if isinstance(item, dict) and item.get("id") == last_used:
+                    if cls._is_cookie_invalidated(item):
+                        continue
                     payload = item.get("cookie")
                     if isinstance(payload, dict):
                         return dict(payload)
@@ -627,6 +703,8 @@ class ExperimentalSessionClient:
         latest_ts = ""
         for item in cookies:
             if not isinstance(item, dict):
+                continue
+            if cls._is_cookie_invalidated(item):
                 continue
             payload = item.get("cookie")
             if not isinstance(payload, dict):
@@ -653,6 +731,10 @@ class ExperimentalSessionClient:
             payload = item.get("cookie")
             if not isinstance(session_id, str) or not session_id or not isinstance(payload, dict):
                 continue
+            invalidated_at = item.get("invalidatedAt") if isinstance(item.get("invalidatedAt"), str) else None
+            invalidated_reason = (
+                item.get("invalidatedReason") if isinstance(item.get("invalidatedReason"), str) else None
+            )
             summaries.append(
                 {
                     "id": session_id,
@@ -660,10 +742,18 @@ class ExperimentalSessionClient:
                     "expiry": payload.get("expiry") if isinstance(payload.get("expiry"), str) else None,
                     "updatedAt": item.get("updatedAt") if isinstance(item.get("updatedAt"), str) else None,
                     "active": session_id == active_id,
+                    "invalidated": invalidated_at is not None,
+                    "invalidatedAt": invalidated_at,
+                    "invalidatedReason": invalidated_reason,
                 }
             )
         summaries.sort(key=lambda value: str(value.get("updatedAt") or ""), reverse=True)
         return tuple(summaries)
+
+    @staticmethod
+    def _is_cookie_invalidated(item: dict[str, Any]) -> bool:
+        invalidated_at = item.get("invalidatedAt")
+        return isinstance(invalidated_at, str) and bool(invalidated_at)
 
     @classmethod
     def _active_cookie_updated_at(cls, record: dict[str, Any]) -> str:

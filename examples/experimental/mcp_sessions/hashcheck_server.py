@@ -34,6 +34,7 @@ from _session_base import (
     session_id_from_cookie,
 )
 from mcp.server.fastmcp import Context, FastMCP
+from mcp.shared.exceptions import McpError
 
 HASH_ALGORITHM = "sha256"
 
@@ -99,9 +100,11 @@ def _require_session(
     cookie = session_cookie_from_meta(ctx.request_context.meta)
     session_id = session_id_from_cookie(cookie)
     if not session_id or store.get(session_id) is None:
-        raise types.McpError(
-            code=SESSION_REQUIRED_ERROR_CODE,
-            message="Session required. Send session/create before using hashcheck.",
+        raise McpError(
+            types.ErrorData(
+                code=SESSION_REQUIRED_ERROR_CODE,
+                message="Session required. Send session/create before using hashcheck.",
+            )
         )
     return cookie, session_id  # type: ignore[return-value]
 

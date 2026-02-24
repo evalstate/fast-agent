@@ -278,6 +278,16 @@ class AsyncEventBus:
     @classmethod
     def get(cls, transport: EventTransport | None = None) -> "AsyncEventBus":
         """Get the singleton instance of the event bus."""
+        if cls._instance is not None:
+            task = cls._instance._task
+            # Drop stale singleton instances whose worker task loop is gone.
+            if task is not None:
+                try:
+                    if task.get_loop().is_closed():
+                        cls._instance = None
+                except Exception:
+                    cls._instance = None
+
         if cls._instance is None:
             cls._instance = cls(transport=transport)
         elif transport is not None:
@@ -295,6 +305,14 @@ class AsyncEventBus:
         if cls._instance:
             # Signal shutdown
             cls._instance._running = False
+
+            # Best-effort task cancellation to avoid pending-task warnings in tests.
+            task = cls._instance._task
+            if task is not None and not task.done():
+                try:
+                    task.cancel()
+                except Exception:
+                    pass
 
             # Clear the singleton instance
             cls._instance = None
@@ -317,25 +335,37 @@ class AsyncEventBus:
         self._running = True
         self._task = asyncio.create_task(self._process_events())
 
+    @staticmethod
+    def _is_task_on_current_loop(task: asyncio.Task | None) -> bool:
+        if task is None:
+            return True
+        try:
+            return task.get_loop() is asyncio.get_running_loop()
+        except Exception:
+            return False
+
     async def stop(self) -> None:
         """Stop the event bus and all lifecycle-aware listeners."""
         if not self._running:
             if self._task and not self._task.done():
                 self._task.cancel()
-                try:
-                    await asyncio.wait_for(self._task, timeout=5.0)
-                except (asyncio.CancelledError, asyncio.TimeoutError):
-                    pass  # Task was cancelled or timed out
-                except Exception as e:
-                    print(f"Error cancelling process task: {e}")
+                if self._is_task_on_current_loop(self._task):
+                    try:
+                        await asyncio.wait_for(self._task, timeout=5.0)
+                    except (asyncio.CancelledError, asyncio.TimeoutError):
+                        pass  # Task was cancelled or timed out
+                    except Exception as e:
+                        print(f"Error cancelling process task: {e}")
             self._task = None
             return
 
         # Signal processing to stop
         self._running = False
 
-        # Try to process remaining items with a timeout
-        if self._queue is not None and not self._queue.empty():
+        same_loop_task = self._is_task_on_current_loop(self._task)
+
+        # Try to process remaining items with a timeout (only when queue/task are on this loop)
+        if same_loop_task and self._queue is not None and not self._queue.empty():
             try:
                 # Give some time for remaining items to be processed
                 await asyncio.wait_for(self._queue.join(), timeout=5.0)
@@ -354,13 +384,14 @@ class AsyncEventBus:
         # Cancel and wait for task with timeout
         if self._task and not self._task.done():
             self._task.cancel()
-            try:
-                # Wait for task to complete with timeout
-                await asyncio.wait_for(self._task, timeout=5.0)
-            except (asyncio.CancelledError, asyncio.TimeoutError):
-                pass  # Task was cancelled or timed out
-            except Exception as e:
-                print(f"Error cancelling process task: {e}")
+            if same_loop_task:
+                try:
+                    # Wait for task to complete with timeout
+                    await asyncio.wait_for(self._task, timeout=5.0)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    pass  # Task was cancelled or timed out
+                except Exception as e:
+                    print(f"Error cancelling process task: {e}")
         self._task = None
 
         # Stop each lifecycle-aware listener
@@ -393,7 +424,11 @@ class AsyncEventBus:
 
         # Then queue for listeners
         if self._queue is not None:
-            await self._queue.put(event)
+            try:
+                await self._queue.put(event)
+            except RuntimeError:
+                # Event loop may be closing during shutdown/test teardown.
+                return
 
     def add_listener(self, name: str, listener: EventListener) -> None:
         """Add a listener to the event bus."""
