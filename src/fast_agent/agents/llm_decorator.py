@@ -2,6 +2,7 @@
 Decorator for LlmAgent, normalizes PromptMessageExtended, allows easy extension of Agents
 """
 
+import inspect
 import json
 from collections import Counter, defaultdict
 from copy import deepcopy
@@ -232,7 +233,30 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
     async def _finalize_shutdown(self, *, run_hook: bool = True) -> None:
         if run_hook:
             await self._run_lifecycle_hook("on_shutdown")
+        await self._close_llm_resources()
         self.initialized = False
+
+    async def _close_llm_resources(self) -> None:
+        """Close optional LLM-owned resources (for example persistent transports)."""
+
+        llm = self._llm
+        if llm is None:
+            return
+
+        close_method = getattr(llm, "close", None)
+        if not callable(close_method):
+            return
+
+        try:
+            close_result = close_method()
+            if inspect.isawaitable(close_result):
+                await close_result
+        except Exception as exc:
+            logger.debug(
+                "Failed to close LLM resources during agent shutdown",
+                name=self._name,
+                error=str(exc),
+            )
 
     def _load_lifecycle_hooks(self) -> "AgentLifecycleHooks":
         if self._lifecycle_hooks is not None:

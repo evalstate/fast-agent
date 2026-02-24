@@ -373,16 +373,23 @@ class ModelFactory:
             reasoning_effort = ReasoningEffortSetting(kind="toggle", value=not query_instant)
 
         if query_transport in {"websocket", "auto"}:
-            response_transports = ModelDatabase.get_response_transports(model_name_str)
-            if not response_transports or "websocket" not in response_transports:
-                raise ModelConfigError(
-                    f"Transport '{query_transport}' is not supported for model '{model_name_str}'."
-                )
-            if provider != Provider.CODEX_RESPONSES:
+            if provider not in {Provider.CODEX_RESPONSES, Provider.RESPONSES}:
                 raise ModelConfigError(
                     "WebSocket transport is experimental and currently supported only for "
-                    "the codexresponses provider."
+                    "the codexresponses and responses providers."
                 )
+            if provider != Provider.RESPONSES:
+                response_transports = ModelDatabase.get_response_transports(model_name_str)
+                if not response_transports or "websocket" not in response_transports:
+                    raise ModelConfigError(
+                        f"Transport '{query_transport}' is not supported for model '{model_name_str}'."
+                    )
+                websocket_providers = ModelDatabase.get_response_websocket_providers(model_name_str)
+                if websocket_providers is not None and provider not in websocket_providers:
+                    raise ModelConfigError(
+                        f"Transport '{query_transport}' is not supported for model '{model_name_str}' "
+                        f"with provider '{provider.value}'."
+                    )
 
         return ModelConfig(
             provider=provider,

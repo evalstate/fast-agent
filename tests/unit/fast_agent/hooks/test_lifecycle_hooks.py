@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
@@ -76,3 +76,24 @@ async def start_hook(ctx: AgentLifecycleContext) -> None:
 @pytest.mark.unit
 def test_valid_lifecycle_hook_types_constant() -> None:
     assert VALID_LIFECYCLE_HOOK_TYPES == {"on_start", "on_shutdown"}
+
+
+class _CloseTrackingLLM:
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_shutdown_closes_llm_resources_when_supported() -> None:
+    config = AgentConfig("test-agent")
+    agent = LlmDecorator(config=config)
+    llm = _CloseTrackingLLM()
+    agent._llm = cast("Any", llm)
+
+    await agent.shutdown()
+
+    assert llm.closed

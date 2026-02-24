@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 from typing import Any, Literal
 
 from mcp import Tool
@@ -32,7 +33,7 @@ from fast_agent.llm.provider.openai.responses_websocket import (
     ManagedWebSocketConnection,
     ResponsesWebSocketError,
     ResponsesWsRequestPlanner,
-    StatelessResponsesWsPlanner,
+    StatefulContinuationResponsesWsPlanner,
     WebSocketConnectionManager,
     WebSocketResponsesStream,
     build_ws_headers,
@@ -99,10 +100,17 @@ class ResponsesLLM(
         self._seen_tool_call_ids: set[str] = set()
         self._tool_call_diagnostics: dict[str, Any] | None = None
         self._last_ws_request_type: str | None = None
+        self._last_ws_request_mode: Literal["create", "continuation"] | None = None
         self._file_id_cache: dict[str, str] = {}
         self._transport: ResponsesTransport = "sse"
         self._last_transport_used: Literal["sse", "websocket"] | None = None
         self._ws_connections = WebSocketConnectionManager(idle_timeout_seconds=300.0)
+        self._ws_debug_inline = os.getenv("FAST_AGENT_DEBUG_RESPONSES_WS", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
         self._web_search_override: bool | None = (
             bool(web_search_override) if isinstance(web_search_override, bool) else None
         )
@@ -191,7 +199,7 @@ class ResponsesLLM(
 
     def _supports_websocket_transport(self) -> bool:
         """Provider-level websocket support flag (opt-in while experimental)."""
-        return False
+        return True
 
     def _validate_transport_support(
         self,
@@ -205,10 +213,23 @@ class ResponsesLLM(
         if not model_to_check:
             raise ModelConfigError("WebSocket transport requires a resolved model name.")
 
+        if self.provider == Provider.RESPONSES:
+            if not self._supports_websocket_transport():
+                raise ModelConfigError(
+                    "WebSocket transport is experimental and not enabled for this provider."
+                )
+            return
+
         response_transports = ModelDatabase.get_response_transports(model_to_check)
         if not response_transports or "websocket" not in response_transports:
             raise ModelConfigError(
                 f"Transport '{transport}' is not supported for model '{model_to_check}'."
+            )
+        websocket_providers = ModelDatabase.get_response_websocket_providers(model_to_check)
+        if websocket_providers is not None and self.provider not in websocket_providers:
+            raise ModelConfigError(
+                f"Transport '{transport}' is not supported for model '{model_to_check}' "
+                f"with provider '{self.provider.value}'."
             )
         if not self._supports_websocket_transport():
             raise ModelConfigError(
@@ -233,7 +254,7 @@ class ResponsesLLM(
         return await connect_websocket(url=url, headers=headers, timeout_seconds=timeout_seconds)
 
     def _new_ws_request_planner(self) -> ResponsesWsRequestPlanner:
-        return StatelessResponsesWsPlanner()
+        return StatefulContinuationResponsesWsPlanner()
 
     def _websocket_retry_diagnostics(
         self,
@@ -259,6 +280,92 @@ class ResponsesLLM(
         if idle_age_seconds is not None:
             diagnostics["idle_age_seconds"] = round(idle_age_seconds, 3)
         return diagnostics
+
+    def _ws_input_count(self, payload: dict[str, Any]) -> int | None:
+        input_items = payload.get("input")
+        if not isinstance(input_items, list):
+            return None
+        return len(input_items)
+
+    def _payload_size_bytes(self, payload: dict[str, Any]) -> int | None:
+        try:
+            compact = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+        except Exception:
+            return None
+        return len(compact.encode("utf-8"))
+
+    def _report_ws_request_plan(
+        self,
+        *,
+        model_name: str,
+        ws_url: str,
+        planned_request: Any,
+        full_arguments: dict[str, Any],
+        reused_existing_connection: bool,
+    ) -> None:
+        continuation_id = planned_request.arguments.get("previous_response_id")
+        request_mode: Literal["create", "continuation"] = (
+            "continuation" if isinstance(continuation_id, str) and continuation_id else "create"
+        )
+        self._last_ws_request_mode = request_mode
+        sent_input_count = self._ws_input_count(planned_request.arguments)
+        full_input_count = self._ws_input_count(full_arguments)
+        sent_payload_bytes = self._payload_size_bytes(planned_request.arguments)
+        full_payload_bytes = self._payload_size_bytes(full_arguments)
+        payload_saved_bytes: int | None = None
+        payload_saved_ratio: float | None = None
+        if sent_payload_bytes is not None and full_payload_bytes and full_payload_bytes > 0:
+            payload_saved_bytes = max(0, full_payload_bytes - sent_payload_bytes)
+            payload_saved_ratio = payload_saved_bytes / full_payload_bytes
+
+        self.logger.info(
+            "Responses websocket request plan",
+            data={
+                "model": model_name,
+                "url": ws_url,
+                "request_type": planned_request.event_type,
+                "request_mode": request_mode,
+                "reused_connection": reused_existing_connection,
+                "sent_input_items": sent_input_count,
+                "total_input_items": full_input_count,
+                "sent_payload_bytes": sent_payload_bytes,
+                "total_payload_bytes": full_payload_bytes,
+                "payload_saved_bytes": payload_saved_bytes,
+                "payload_saved_ratio": payload_saved_ratio,
+                "uses_previous_response_id": request_mode == "continuation",
+                "previous_response_id": continuation_id if request_mode == "continuation" else None,
+            },
+        )
+
+        if not self._ws_debug_inline:
+            return
+
+        try:
+            from rich.text import Text
+
+            item_counts = ""
+            if sent_input_count is not None and full_input_count is not None:
+                item_counts = f" {sent_input_count}/{full_input_count} items"
+            byte_counts = ""
+            if sent_payload_bytes is not None and full_payload_bytes is not None:
+                if payload_saved_bytes is not None and payload_saved_ratio is not None:
+                    percent_saved = round(payload_saved_ratio * 100.0)
+                    byte_counts = (
+                        f" {sent_payload_bytes}/{full_payload_bytes}B"
+                        f" ({percent_saved}% saved)"
+                    )
+                else:
+                    byte_counts = f" {sent_payload_bytes}/{full_payload_bytes}B"
+            prev_suffix = f" prev={continuation_id}" if request_mode == "continuation" else ""
+            reuse_suffix = " reused-conn" if reused_existing_connection else ""
+            self.display.show_status_message(
+                Text.from_markup(
+                    f"[dim]WS {request_mode}{item_counts}{byte_counts}{prev_suffix}{reuse_suffix}[/dim]"
+                )
+            )
+        except Exception:
+            # UI status notification should never affect completion flow.
+            pass
 
     def _resolve_reasoning_effort(self) -> str | None:
         setting = self.reasoning_effort
@@ -476,6 +583,7 @@ class ResponsesLLM(
 
         self._log_chat_progress(self.chat_turn(), model=display_model)
         self._last_ws_request_type = None
+        self._last_ws_request_mode = None
 
         try:
             if transport == "sse":
@@ -555,6 +663,8 @@ class ResponsesLLM(
             diagnostics_payload["transport"] = self._last_transport_used or "unknown"
             if self._last_transport_used == "websocket" and self._last_ws_request_type:
                 diagnostics_payload["websocket_request_type"] = self._last_ws_request_type
+                if self._last_ws_request_mode is not None:
+                    diagnostics_payload["websocket_request_mode"] = self._last_ws_request_mode
             if channels is None:
                 channels = {}
             channels[RESPONSES_DIAGNOSTICS_CHANNEL] = [
@@ -695,6 +805,13 @@ class ResponsesLLM(
                 )
                 planned_request = planner.plan(arguments)
                 self._last_ws_request_type = planned_request.event_type
+                self._report_ws_request_plan(
+                    model_name=model_name,
+                    ws_url=ws_url,
+                    planned_request=planned_request,
+                    full_arguments=arguments,
+                    reused_existing_connection=reused_existing_connection,
+                )
                 await send_response_request(connection.websocket, planned_request)
                 stream = WebSocketResponsesStream(connection.websocket)
                 if timeout is None:
@@ -825,9 +942,15 @@ class ResponsesLLM(
             return build_stream_failure_response(self.provider, error, model_name)
         return None
 
+    async def close(self) -> None:
+        """Release long-lived websocket resources used by Responses transport."""
+
+        await self._ws_connections.close()
+
     def clear(self, *, clear_prompts: bool = False) -> None:
         super().clear(clear_prompts=clear_prompts)
         self._tool_call_id_map.clear()
         self._seen_tool_call_ids.clear()
         self._tool_call_diagnostics = None
         self._last_ws_request_type = None
+        self._last_ws_request_mode = None

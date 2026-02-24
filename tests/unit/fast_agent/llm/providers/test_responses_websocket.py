@@ -131,6 +131,14 @@ class _SequenceConnectionManager:
         self.release_keep_values.append(keep)
 
 
+class _CloseTrackingConnectionManager:
+    def __init__(self) -> None:
+        self.close_calls = 0
+
+    async def close(self) -> None:
+        self.close_calls += 1
+
+
 class _CapturingLogger:
     def __init__(self) -> None:
         self.info_messages: list[str] = []
@@ -501,6 +509,17 @@ async def test_websocket_connection_manager_invalidation_on_error() -> None:
     assert second is not first
 
 
+@pytest.mark.asyncio
+async def test_responses_llm_close_closes_websocket_manager() -> None:
+    harness = _TransportHarness(transport="websocket")
+    close_manager = _CloseTrackingConnectionManager()
+    harness._ws_connections = cast("Any", close_manager)
+
+    await harness.close()
+
+    assert close_manager.close_calls == 1
+
+
 class _TransportHarness(ResponsesLLM):
     def __init__(self, **kwargs: Any) -> None:
         self.ws_error: ResponsesWebSocketError | None = None
@@ -770,6 +789,12 @@ def test_codex_responses_llm_uses_continuation_ws_planner() -> None:
     assert isinstance(planner, StatefulContinuationResponsesWsPlanner)
 
 
+def test_responses_llm_uses_continuation_ws_planner() -> None:
+    llm = ResponsesLLM(provider=Provider.RESPONSES, model="gpt-5.3-codex")
+    planner = llm._new_ws_request_planner()
+    assert isinstance(planner, StatefulContinuationResponsesWsPlanner)
+
+
 @pytest.mark.asyncio
 async def test_websocket_completion_ws_uses_create_on_first_turn() -> None:
     harness = _ContinuationConnectionLifecycleHarness()
@@ -813,6 +838,38 @@ async def test_websocket_completion_ws_uses_previous_response_id_on_second_turn(
     assert second_payload["type"] == RESPONSES_CREATE_EVENT_TYPE
     assert second_payload["previous_response_id"] == "resp_1"
     assert second_payload["input"] == _ws_input_items("next")
+
+
+@pytest.mark.asyncio
+async def test_websocket_debug_status_reports_continuation_efficiency() -> None:
+    harness = _ContinuationConnectionLifecycleHarness()
+    harness._ws_debug_inline = True
+    params = RequestParams(model="gpt-5.3-codex")
+
+    await harness._responses_completion_ws(
+        input_items=_ws_input_items("hello"),
+        request_params=params,
+        tools=None,
+        model_name="gpt-5.3-codex",
+    )
+    await harness._responses_completion_ws(
+        input_items=_ws_input_items("hello", "next"),
+        request_params=params,
+        tools=None,
+        model_name="gpt-5.3-codex",
+    )
+
+    assert any(
+        "WS create 1/1 items" in message for message in harness._capturing_display.status_messages
+    )
+    assert any(
+        "WS continuation 1/2 items" in message
+        for message in harness._capturing_display.status_messages
+    )
+    assert any(
+        "WS continuation" in message and "% saved" in message
+        for message in harness._capturing_display.status_messages
+    )
 
 
 @pytest.mark.asyncio

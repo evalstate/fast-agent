@@ -57,6 +57,9 @@ class ModelParameters(BaseModel):
     response_transports: tuple[Literal["sse", "websocket"], ...] | None = None
     """Supported transports for Responses APIs, if the model exposes alternatives."""
 
+    response_websocket_providers: tuple[Provider, ...] | None = None
+    """Providers allowed to use websocket transport for this Responses model."""
+
     anthropic_web_search_version: str | None = None
     """Anthropic built-in web_search tool version, if supported by the model."""
 
@@ -340,6 +343,7 @@ class ModelDatabase:
         reasoning_effort_spec=OPENAI_GPT_5_CODEX_CLASS_REASONING,
         text_verbosity_spec=OPENAI_TEXT_VERBOSITY_SPEC,
         response_transports=("sse", "websocket"),
+        response_websocket_providers=(Provider.RESPONSES, Provider.CODEX_RESPONSES),
         default_provider=Provider.RESPONSES,
     )
 
@@ -349,6 +353,7 @@ class ModelDatabase:
         tokenizes=TEXT_ONLY,
         # Spark does not support reasoning effort or text verbosity controls.
         response_transports=("sse", "websocket"),
+        response_websocket_providers=(Provider.CODEX_RESPONSES,),
         default_provider=Provider.CODEX_RESPONSES,
     )
 
@@ -638,7 +643,12 @@ class ModelDatabase:
         "gpt-5.2-codex": OPENAI_GPT_CODEX,
         "gpt-5.3-codex": OPENAI_GPT_CODEX,
         "gpt-5.3-codex-spark": _with_fast(OPENAI_GPT_CODEX_SPARK),
-        "gpt-5.2": OPENAI_GPT_5,
+        "gpt-5.2": OPENAI_GPT_5_2.model_copy(
+            update={
+                "response_transports": ("sse", "websocket"),
+                "response_websocket_providers": (Provider.RESPONSES,),
+            }
+        ),
         # Anthropic Models
         "claude-3-haiku": ANTHROPIC_35_SERIES,
         "claude-3-haiku-20240307": ANTHROPIC_LEGACY,
@@ -909,6 +919,12 @@ class ModelDatabase:
         """Get supported Responses transports for a model, if explicitly defined."""
         params = cls.get_model_params(model)
         return params.response_transports if params else None
+
+    @classmethod
+    def get_response_websocket_providers(cls, model: str) -> tuple[Provider, ...] | None:
+        """Get providers that may use websocket transport for this model."""
+        params = cls.get_model_params(model)
+        return params.response_websocket_providers if params else None
 
     @classmethod
     def get_anthropic_web_search_version(cls, model: str) -> str | None:

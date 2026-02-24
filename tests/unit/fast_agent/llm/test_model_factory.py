@@ -187,14 +187,37 @@ def test_invalid_transport_query():
         ModelFactory.parse_model_string("codexplan?transport=websock")
 
 
-def test_transport_query_rejects_unsupported_model():
-    with pytest.raises(ModelConfigError):
-        ModelFactory.parse_model_string("gpt-5?transport=ws")
+def test_transport_query_allows_responses_default_model():
+    config = ModelFactory.parse_model_string("gpt-5?transport=ws")
+    assert config.provider == Provider.RESPONSES
+    assert config.model_name == "gpt-5"
+    assert config.transport == "websocket"
 
 
-def test_transport_query_rejects_unsupported_provider():
+def test_transport_query_allows_responses_gpt_5_2() -> None:
+    config = ModelFactory.parse_model_string("responses.gpt-5.2?transport=ws")
+    assert config.provider == Provider.RESPONSES
+    assert config.model_name == "gpt-5.2"
+    assert config.transport == "websocket"
+
+
+def test_transport_query_allows_responses_codex_model():
+    config = ModelFactory.parse_model_string("responses.gpt-5.3-codex?transport=ws")
+    assert config.provider == Provider.RESPONSES
+    assert config.model_name == "gpt-5.3-codex"
+    assert config.transport == "websocket"
+
+
+def test_transport_query_allows_responses_provider_for_codex_spark():
+    config = ModelFactory.parse_model_string("responses.gpt-5.3-codex-spark?transport=ws")
+    assert config.provider == Provider.RESPONSES
+    assert config.model_name == "gpt-5.3-codex-spark"
+    assert config.transport == "websocket"
+
+
+def test_transport_query_rejects_openai_provider_even_with_responses_model():
     with pytest.raises(ModelConfigError):
-        ModelFactory.parse_model_string("responses.gpt-5.3-codex?transport=ws")
+        ModelFactory.parse_model_string("openai.gpt-5?transport=ws")
 
 
 def test_transport_query_composes_with_reasoning_and_verbosity():
@@ -208,6 +231,14 @@ def test_factory_passes_transport_to_responses_llm():
     factory = ModelFactory.create_factory("codexplan?transport=ws")
     llm = factory(LlmAgent(AgentConfig(name="Test Agent")))
     assert isinstance(llm, ResponsesLLM)
+    assert llm._transport == "websocket"
+
+
+def test_factory_passes_transport_to_responses_llm_for_openai_responses_model() -> None:
+    factory = ModelFactory.create_factory("responses.gpt-5?transport=ws")
+    llm = factory(LlmAgent(AgentConfig(name="Test Agent")))
+    assert isinstance(llm, ResponsesLLM)
+    assert llm.provider == Provider.RESPONSES
     assert llm._transport == "websocket"
 
 
