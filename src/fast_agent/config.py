@@ -1214,6 +1214,56 @@ def resolve_environment_config_file(
     return env_root / "fastagent.config.yaml"
 
 
+def resolve_layered_config_file(
+    start_path: Path,
+    *,
+    env_dir: str | Path | None = None,
+) -> Path | None:
+    """Return the effective config path using project + env precedence.
+
+    Precedence is project config first, then environment config overlay when
+    the env config file exists.
+    """
+
+    project_config = find_project_config_file(start_path)
+    env_config = resolve_environment_config_file(start_path, env_dir=env_dir)
+
+    if env_config.exists():
+        return env_config
+    return project_config
+
+
+def load_layered_settings(
+    *,
+    start_path: Path,
+    env_dir: str | Path | None = None,
+) -> tuple[dict[str, Any], Path | None]:
+    """Load merged settings from project config with env overlay.
+
+    Precedence: project config < environment config.
+
+    Returns:
+        A tuple of ``(merged_settings, effective_config_path)`` where
+        ``effective_config_path`` is the last-applied config path (env when
+        present, else project), or ``None`` when neither exists.
+    """
+
+    merged: dict[str, Any] = {}
+    effective_config: Path | None = None
+
+    project_config = find_project_config_file(start_path)
+    if project_config and project_config.exists():
+        merged = deep_merge(merged, load_yaml_mapping(project_config))
+        effective_config = project_config
+
+    env_config = resolve_environment_config_file(start_path, env_dir=env_dir)
+    if env_config.exists():
+        merged = deep_merge(merged, load_yaml_mapping(env_config))
+        effective_config = env_config
+
+    return merged, effective_config
+
+
 def load_layered_model_settings(
     *,
     start_path: Path,
@@ -1225,26 +1275,14 @@ def load_layered_model_settings(
     ``model_aliases`` uses deep-merge semantics, while ``default_model`` uses
     scalar replacement semantics.
     """
+    layered_settings, _ = load_layered_settings(start_path=start_path, env_dir=env_dir)
     layered: dict[str, Any] = {}
 
-    for config_path in (
-        find_project_config_file(start_path),
-        resolve_environment_config_file(start_path, env_dir=env_dir),
-    ):
-        payload = load_yaml_mapping(config_path)
-        if not payload:
-            continue
+    if "default_model" in layered_settings:
+        layered["default_model"] = layered_settings["default_model"]
 
-        if "default_model" in payload:
-            layered["default_model"] = payload["default_model"]
-
-        if "model_aliases" in payload:
-            aliases_payload = payload["model_aliases"]
-            existing_aliases = layered.get("model_aliases")
-            if isinstance(existing_aliases, dict) and isinstance(aliases_payload, dict):
-                layered["model_aliases"] = deep_merge(existing_aliases, aliases_payload)
-            else:
-                layered["model_aliases"] = aliases_payload
+    if "model_aliases" in layered_settings:
+        layered["model_aliases"] = layered_settings["model_aliases"]
 
     return layered
 
@@ -1451,6 +1489,7 @@ def get_settings(config_path: str | os.PathLike[str] | None = None) -> Settings:
     # Handle config path - convert string to Path if needed
     config_file: Path | None
     secrets_file: Path | None
+    merged_settings: dict[str, Any]
     if config_path:
         config_file = Path(config_path)
         # If it's a relative path and doesn't exist, try finding it
@@ -1464,27 +1503,21 @@ def get_settings(config_path: str | os.PathLike[str] | None = None) -> Settings:
         secrets_file = None
         if config_file.exists():
             _, secrets_file = find_fastagent_config_files(config_file.parent)
+
+        merged_settings = {}
+        # Load main config if it exists
+        if config_file and config_file.exists():
+            merged_settings = load_yaml_mapping(config_file)
+        elif config_file and not config_file.exists():
+            print(f"Warning: Specified config file does not exist: {config_file}")
     else:
-        # Use standardized discovery for both config and secrets
+        # Use standardized discovery for secrets and layered loading for config.
         search_root = resolve_config_search_root(Path.cwd())
-        config_file, secrets_file = find_fastagent_config_files(search_root)
-
-    merged_settings: dict[str, Any] = {}
-
-    # Load main config if it exists
-    if config_file and config_file.exists():
-        merged_settings = load_yaml_mapping(config_file)
-    elif config_file and not config_file.exists():
-        print(f"Warning: Specified config file does not exist: {config_file}")
-
-    # Model settings layering is deterministic and independent of whichever
-    # single config file happened to be discovered first.
-    if config_path is None:
-        layered_model_settings = load_layered_model_settings(
+        _, secrets_file = find_fastagent_config_files(search_root)
+        merged_settings, config_file = load_layered_settings(
             start_path=Path.cwd(),
             env_dir=os.getenv("ENVIRONMENT_DIR"),
         )
-        merged_settings = deep_merge(merged_settings, layered_model_settings)
 
     # Load secrets file if found (regardless of whether config file exists)
     if secrets_file and secrets_file.exists():

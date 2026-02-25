@@ -132,3 +132,108 @@ def test_get_settings_keeps_secrets_last_for_model_settings(tmp_path: Path) -> N
             os.environ.pop("ENVIRONMENT_DIR", None)
         else:
             os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+
+
+def test_get_settings_loads_default_env_config_for_full_settings(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    env_dir = workspace / ".fast-agent"
+    workspace.mkdir(parents=True)
+
+    _write_yaml(
+        env_dir / "fastagent.config.yaml",
+        {
+            "logger": {"show_tools": False},
+            "mcp": {
+                "servers": {
+                    "env_fetch": {
+                        "transport": "stdio",
+                        "command": "uvx",
+                        "args": ["mcp-server-fetch"],
+                    }
+                }
+            },
+        },
+    )
+
+    previous_cwd = Path.cwd()
+    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
+    previous_settings = config_module._settings
+    try:
+        os.chdir(workspace)
+        os.environ.pop("ENVIRONMENT_DIR", None)
+        config_module._settings = None
+
+        settings = get_settings()
+
+        assert settings.logger.show_tools is False
+        assert settings.mcp is not None
+        assert settings.mcp.servers is not None
+        assert "env_fetch" in settings.mcp.servers
+        assert settings._config_file == str(env_dir / "fastagent.config.yaml")
+    finally:
+        os.chdir(previous_cwd)
+        config_module._settings = previous_settings
+        if previous_env_dir is None:
+            os.environ.pop("ENVIRONMENT_DIR", None)
+        else:
+            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+
+
+def test_get_settings_layers_project_and_env_for_full_settings(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    env_dir = workspace / ".fast-agent"
+    workspace.mkdir(parents=True)
+
+    _write_yaml(
+        workspace / "fastagent.config.yaml",
+        {
+            "mcp": {
+                "servers": {
+                    "project_fetch": {
+                        "transport": "stdio",
+                        "command": "uvx",
+                        "args": ["mcp-server-fetch"],
+                    }
+                }
+            },
+            "logger": {"show_chat": True},
+        },
+    )
+    _write_yaml(
+        env_dir / "fastagent.config.yaml",
+        {
+            "mcp": {
+                "servers": {
+                    "env_remote": {
+                        "transport": "http",
+                        "url": "https://example.test/mcp",
+                    }
+                }
+            },
+            "logger": {"show_chat": False},
+        },
+    )
+
+    previous_cwd = Path.cwd()
+    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
+    previous_settings = config_module._settings
+    try:
+        os.chdir(workspace)
+        os.environ.pop("ENVIRONMENT_DIR", None)
+        config_module._settings = None
+
+        settings = get_settings()
+
+        assert settings.logger.show_chat is False
+        assert settings.mcp is not None
+        assert settings.mcp.servers is not None
+        assert "project_fetch" in settings.mcp.servers
+        assert "env_remote" in settings.mcp.servers
+        assert settings._config_file == str(env_dir / "fastagent.config.yaml")
+    finally:
+        os.chdir(previous_cwd)
+        config_module._settings = previous_settings
+        if previous_env_dir is None:
+            os.environ.pop("ENVIRONMENT_DIR", None)
+        else:
+            os.environ["ENVIRONMENT_DIR"] = previous_env_dir

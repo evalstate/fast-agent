@@ -25,7 +25,11 @@ from fast_agent.config import (
     update_global_settings,
 )
 from fast_agent.session import get_session_manager, reset_session_manager
-from fast_agent.skills.manager import InstalledSkillSource, write_installed_skill_source
+from fast_agent.skills.manager import (
+    DEFAULT_SKILL_REGISTRIES,
+    InstalledSkillSource,
+    write_installed_skill_source,
+)
 from fast_agent.ui.enhanced_prompt import AgentCompleter
 
 if TYPE_CHECKING:
@@ -833,9 +837,36 @@ def test_get_completions_for_mcp_connect_configured_servers(monkeypatch) -> None
     doc = Document("/mcp connect d", cursor_position=len("/mcp connect d"))
     completions = list(completer.get_completions(doc, None))
     names = [c.text for c in completions]
+    docs_completion = next((c for c in completions if c.text == "docs"), None)
 
     assert "docs" in names
     assert "--name" not in names
+    assert docs_completion is not None
+    assert docs_completion.display_meta_text == "echo"
+
+
+def test_get_completions_for_mcp_connect_configured_url_server_shows_url(monkeypatch) -> None:
+    settings = Settings(
+        mcp=MCPSettings(
+            servers={
+                "docs": MCPServerSettings(
+                    name="docs",
+                    transport="http",
+                    url="https://example.test/mcp/docs",
+                ),
+            }
+        )
+    )
+    monkeypatch.setattr(config_module, "_settings", settings)
+
+    completer = AgentCompleter(agents=["agent1"])
+
+    doc = Document("/mcp connect d", cursor_position=len("/mcp connect d"))
+    completions = list(completer.get_completions(doc, None))
+    docs_completion = next((c for c in completions if c.text == "docs"), None)
+
+    assert docs_completion is not None
+    assert docs_completion.display_meta_text == "https://example.test/mcp/docs"
 
 
 def test_get_completions_for_mcp_connect_shows_target_hint_first(monkeypatch) -> None:
@@ -856,6 +887,37 @@ def test_get_completions_for_mcp_connect_shows_target_hint_first(monkeypatch) ->
     assert completions
     assert completions[0].display_text == "[url|npx|uvx]"
     assert completions[0].display_meta_text == "enter url or npx/uvx cmd"
+
+
+def test_get_completions_for_connect_alias_shows_target_hint_and_servers(monkeypatch) -> None:
+    settings = Settings(
+        mcp=MCPSettings(
+            servers={
+                "docs": MCPServerSettings(name="docs", transport="stdio", command="echo"),
+            }
+        )
+    )
+    monkeypatch.setattr(config_module, "_settings", settings)
+
+    completer = AgentCompleter(agents=["agent1"])
+
+    doc = Document("/connect d", cursor_position=len("/connect d"))
+    completions = list(completer.get_completions(doc, None))
+
+    assert completions
+    assert completions[0].display_text == "[url|npx|uvx]"
+    assert completions[0].display_meta_text == "enter url or npx/uvx cmd"
+    assert any(completion.text == "docs" for completion in completions)
+
+
+def test_get_completions_for_connect_alias_connect_flags() -> None:
+    completer = AgentCompleter(agents=["agent1"])
+
+    doc = Document("/connect npx demo-server --re", cursor_position=len("/connect npx demo-server --re"))
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert "--reconnect" in names
 
 
 def test_get_completions_for_skills_remove(monkeypatch):
@@ -896,6 +958,60 @@ def test_get_completions_for_skills_registry(monkeypatch):
 
     assert "1" in names
     assert "2" in names
+
+
+def test_get_completions_for_skills_registry_keeps_distinct_active_source() -> None:
+    old_settings = get_settings()
+    override = old_settings.model_copy(
+        update={
+            "skills": SkillsSettings(
+                marketplace_urls=list(DEFAULT_SKILL_REGISTRIES),
+                marketplace_url="https://raw.githubusercontent.com/huggingface/skills/main/marketplace.json",
+            )
+        }
+    )
+    update_global_settings(override)
+    try:
+        completer = AgentCompleter(agents=["agent1"])
+        doc = Document("/skills registry ", cursor_position=len("/skills registry "))
+        completions = list(completer.get_completions(doc, None))
+
+        names = [completion.text for completion in completions]
+        display_meta = [completion.display_meta_text for completion in completions]
+
+        assert names == ["1", "2", "3", "4"]
+        assert display_meta.count("https://github.com/huggingface/skills") == 2
+    finally:
+        update_global_settings(old_settings)
+
+
+def test_get_completions_for_skills_registry_supports_file_paths(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    marketplace_file = tmp_path / "marketplace.json"
+    marketplace_file.write_text("{}", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    old_settings = get_settings()
+    override = old_settings.model_copy(
+        update={
+            "skills": SkillsSettings(
+                marketplace_urls=["https://example.com/registry-one.json"],
+            )
+        }
+    )
+    update_global_settings(override)
+    try:
+        completer = AgentCompleter(agents=["agent1"])
+        doc = Document("/skills registry mar", cursor_position=len("/skills registry mar"))
+        completions = list(completer.get_completions(doc, None))
+
+        names = [completion.text for completion in completions]
+
+        assert "marketplace.json" in names
+    finally:
+        update_global_settings(old_settings)
 
 
 def test_get_completions_for_skills_update_only_managed():
@@ -974,6 +1090,34 @@ def test_get_completions_for_cards_registry() -> None:
 
         assert "1" in names
         assert "2" in names
+    finally:
+        update_global_settings(old_settings)
+
+
+def test_get_completions_for_cards_registry_keeps_distinct_active_source() -> None:
+    old_settings = get_settings()
+    override = old_settings.model_copy(
+        update={
+            "cards": CardsSettings(
+                marketplace_urls=["https://github.com/fast-agent-ai/card-packs"],
+                marketplace_url="https://raw.githubusercontent.com/fast-agent-ai/card-packs/main/marketplace.json",
+            )
+        }
+    )
+    update_global_settings(override)
+    try:
+        completer = AgentCompleter(agents=["agent1"])
+        doc = Document("/cards registry ", cursor_position=len("/cards registry "))
+        completions = list(completer.get_completions(doc, None))
+
+        names = [completion.text for completion in completions]
+        display_meta = [completion.display_meta_text for completion in completions]
+
+        assert names == ["1", "2"]
+        assert display_meta == [
+            "https://github.com/fast-agent-ai/card-packs",
+            "https://github.com/fast-agent-ai/card-packs",
+        ]
     finally:
         update_global_settings(old_settings)
 

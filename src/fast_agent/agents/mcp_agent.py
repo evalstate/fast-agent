@@ -385,7 +385,7 @@ class McpAgent(ABC, ToolAgent):
         Apply template substitution to the instruction, including server instructions.
         This is called during initialization after servers are connected.
         """
-        from fast_agent.core.instruction_refresh import build_instruction
+        from fast_agent.core.instruction_refresh import build_instruction, format_agent_skills
 
         if not self._instruction_template:
             return
@@ -401,10 +401,17 @@ class McpAgent(ABC, ToolAgent):
         )
         self.set_instruction(new_instruction)
 
-        # Warn if skills configured but placeholder missing
+        # Warn when skills are configured but not surfaced in the final instruction.
+        # This check must use the rendered instruction to account for internal
+        # templates like {{internal:smart_prompt}} that include {{agentSkills}}.
         if self._skill_manifests and "{{agentSkills}}" not in self._instruction_template:
-            warning_message = f"[dim]Agent '{self._name}' skills are configured but no {{{{agentSkills}}}} in system prompt.[/dim]"
-            self._record_warning(warning_message, surface="startup_once")
+            formatted_skills = format_agent_skills(
+                self._skill_manifests,
+                self.has_filesystem_runtime,
+            )
+            if formatted_skills and formatted_skills not in new_instruction:
+                warning_message = f"[dim]Agent '{self._name}' skills are configured but no {{{{agentSkills}}}} in system prompt.[/dim]"
+                self._record_warning(warning_message, surface="startup_once")
 
         self.logger.debug(f"Applied instruction templates for agent {self._name}")
 

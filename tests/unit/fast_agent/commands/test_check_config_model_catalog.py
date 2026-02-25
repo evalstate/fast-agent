@@ -98,6 +98,37 @@ def test_show_models_overview_includes_provider_args_and_named_aliases(
     assert "responses.gpt-5-mini?reasoning=low" in output
 
 
+def test_show_models_overview_uses_default_env_config_aliases(tmp_path: Path, capsys) -> None:
+    env_dir = tmp_path / ".fast-agent"
+    env_dir.mkdir(parents=True)
+    (env_dir / "fastagent.config.yaml").write_text(
+        "\n".join(
+            [
+                "model_aliases:",
+                "  system:",
+                "    envfast: responses.gpt-5-mini?reasoning=low",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    cwd = Path.cwd()
+    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
+    try:
+        os.environ.pop("ENVIRONMENT_DIR", None)
+        os.chdir(tmp_path)
+        show_models_overview(env_dir=None)
+    finally:
+        os.chdir(cwd)
+        if previous_env_dir is None:
+            os.environ.pop("ENVIRONMENT_DIR", None)
+        else:
+            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+
+    output = capsys.readouterr().out
+    assert "$system.envfast" in output
+
+
 def test_show_provider_model_catalog_rejects_unknown_provider() -> None:
     with pytest.raises(ValueError, match="Unknown provider"):
         show_provider_model_catalog("not-a-provider")

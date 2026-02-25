@@ -3,22 +3,22 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import os
 import shutil
 import subprocess
 import tempfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import urlparse
-from uuid import uuid4
 
-import httpx
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from fast_agent.config import Settings, get_settings
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.marketplace import formatting as marketplace_formatting
+from fast_agent.marketplace import registry_urls as marketplace_registry_urls
+from fast_agent.marketplace import source_utils as marketplace_source_utils
 from fast_agent.paths import default_skill_paths
 from fast_agent.skills.registry import SkillManifest, SkillRegistry
 
@@ -207,20 +207,11 @@ class MarketplacePayloadModel(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _normalize_payload(cls, data: Any, info: Any) -> Any:
-        entries = _extract_marketplace_entries(data)
-        context = getattr(info, "context", None) or {}
-        source_url = context.get("source_url")
-        repo_url = context.get("repo_url")
-        repo_ref = context.get("repo_ref")
-        for entry in entries:
-            if isinstance(entry, dict):
-                if source_url and "source_url" not in entry:
-                    entry["source_url"] = source_url
-                if repo_url and "repo_url" not in entry and "repo" not in entry:
-                    entry["repo_url"] = repo_url
-                if repo_ref and "repo_ref" not in entry and "ref" not in entry:
-                    entry["repo_ref"] = repo_ref
-        return {"entries": entries}
+        return marketplace_source_utils.normalize_marketplace_payload(
+            data,
+            info,
+            extract_entries=_extract_marketplace_entries,
+        )
 
 
 def get_manager_directory(
@@ -260,18 +251,19 @@ def get_marketplace_url(settings: Settings | None = None) -> str:
 
 
 def format_marketplace_display_url(url: str) -> str:
-    parsed = urlparse(url)
-    if parsed.netloc == "raw.githubusercontent.com":
-        parts = parsed.path.strip("/").split("/")
-        if len(parts) >= 4:
-            org, repo = parts[:2]
-            return f"https://github.com/{org}/{repo}"
-    if parsed.netloc in {"github.com", "www.github.com"}:
-        parts = parsed.path.strip("/").split("/")
-        if len(parts) >= 2:
-            org, repo = parts[:2]
-            return f"https://github.com/{org}/{repo}"
-    return url
+    return marketplace_registry_urls.format_marketplace_display_url(url)
+
+
+def resolve_skill_registries(settings: Settings | None = None) -> list[str]:
+    resolved_settings = settings or get_settings()
+    skills_settings = getattr(resolved_settings, "skills", None)
+    configured = getattr(skills_settings, "marketplace_urls", None) if skills_settings else None
+    active = getattr(skills_settings, "marketplace_url", None) if skills_settings else None
+    return marketplace_registry_urls.resolve_registry_urls(
+        configured,
+        default_urls=DEFAULT_SKILL_REGISTRIES,
+        active_url=active,
+    )
 
 
 def resolve_skill_directories(
@@ -401,30 +393,11 @@ def format_skill_provenance(skill_dir: Path) -> str:
 
 
 def format_revision_short(revision: str | None) -> str:
-    if revision is None:
-        return "?"
-    trimmed = revision.strip()
-    if not trimmed:
-        return "?"
-    normalized = trimmed.lower()
-    if len(normalized) >= 8 and all(ch in "0123456789abcdef" for ch in normalized):
-        return trimmed[:7]
-    return trimmed
+    return marketplace_formatting.format_revision_short(revision)
 
 
 def format_installed_at_display(installed_at: str | None) -> str:
-    if not installed_at:
-        return "unknown"
-    normalized = installed_at.strip()
-    if not normalized:
-        return "unknown"
-    if normalized.endswith("Z"):
-        normalized = f"{normalized[:-1]}+00:00"
-    try:
-        parsed = datetime.fromisoformat(normalized)
-    except ValueError:
-        return installed_at
-    return parsed.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S")
+    return marketplace_formatting.format_installed_at_display(installed_at)
 
 
 def format_skill_provenance_details(skill_dir: Path) -> tuple[str, str | None]:
@@ -612,25 +585,16 @@ async def fetch_marketplace_skills(url: str) -> list[MarketplaceSkill]:
 async def fetch_marketplace_skills_with_source(
     url: str,
 ) -> tuple[list[MarketplaceSkill], str]:
-    candidates = _candidate_marketplace_urls(url)
-    last_error: Exception | None = None
-    for candidate in candidates:
-        normalized = _normalize_marketplace_url(candidate)
-        local_payload = _load_local_marketplace_payload(normalized)
-        if local_payload is not None:
-            return _parse_marketplace_payload(local_payload, source_url=normalized), normalized
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                response = await client.get(normalized)
-                response.raise_for_status()
-                data = response.json()
-            return _parse_marketplace_payload(data, source_url=normalized), normalized
-        except Exception as exc:  # noqa: BLE001
-            last_error = exc
-            continue
-    if last_error is not None:
-        raise last_error
-    return [], _normalize_marketplace_url(url)
+    return await marketplace_source_utils.fetch_marketplace_entries_with_source(
+        url,
+        candidate_urls=_candidate_marketplace_urls,
+        normalize_url=_normalize_marketplace_url,
+        load_local_payload=_load_local_marketplace_payload,
+        parse_payload=lambda payload, source_url: _parse_marketplace_payload(
+            payload,
+            source_url=source_url,
+        ),
+    )
 
 
 async def install_marketplace_skill(
@@ -703,74 +667,11 @@ def reload_skill_manifests(
 
 
 def _normalize_marketplace_url(url: str) -> str:
-    parsed = urlparse(url)
-    if parsed.netloc in {"github.com", "www.github.com"}:
-        parts = parsed.path.strip("/").split("/")
-        if len(parts) >= 5 and parts[2] == "blob":
-            org, repo, _, ref = parts[:4]
-            file_path = "/".join(parts[4:])
-            return f"https://raw.githubusercontent.com/{org}/{repo}/{ref}/{file_path}"
-    return url
+    return marketplace_source_utils.normalize_marketplace_url(url)
 
 
 def _candidate_marketplace_urls(url: str) -> list[str]:
-    normalized = url.strip()
-    if not normalized:
-        return []
-
-    parsed = urlparse(normalized)
-    if parsed.scheme in {"file", ""} and parsed.netloc == "":
-        path = Path(parsed.path).expanduser()
-        if path.exists() and path.is_dir():
-            claude_plugin = path / ".claude-plugin" / "marketplace.json"
-            if claude_plugin.exists():
-                return [claude_plugin.as_posix()]
-            fallback = path / "marketplace.json"
-            if fallback.exists():
-                return [fallback.as_posix()]
-        return [normalized]
-
-    if parsed.netloc in {"github.com", "www.github.com"}:
-        parts = parsed.path.strip("/").split("/")
-        if len(parts) >= 2:
-            org, repo = parts[:2]
-            if len(parts) >= 4 and parts[2] in {"tree", "blob"}:
-                ref = parts[3]
-                base_path = "/".join(parts[4:])
-                return _github_marketplace_candidates(org, repo, ref, base_path)
-            if len(parts) == 2:
-                return [
-                    *_github_marketplace_candidates(org, repo, "main", ""),
-                    *_github_marketplace_candidates(org, repo, "master", ""),
-                ]
-    return [normalized]
-
-
-def _github_marketplace_candidates(
-    org: str, repo: str, ref: str, base_path: str
-) -> list[str]:
-    suffixes = _marketplace_path_candidates(base_path)
-    return [
-        f"https://raw.githubusercontent.com/{org}/{repo}/{ref}/{suffix}"
-        for suffix in suffixes
-    ]
-
-
-def _marketplace_path_candidates(base_path: str) -> list[str]:
-    cleaned = base_path.strip().strip("/")
-    if not cleaned:
-        return [".claude-plugin/marketplace.json", "marketplace.json"]
-
-    path = PurePosixPath(cleaned)
-    if path.name.lower() == "marketplace.json":
-        return [str(path)]
-    if path.name == ".claude-plugin":
-        return [str(path / "marketplace.json")]
-
-    return [
-        str(path / ".claude-plugin" / "marketplace.json"),
-        str(path / "marketplace.json"),
-    ]
+    return marketplace_source_utils.candidate_marketplace_urls(url)
 
 
 def candidate_marketplace_urls(url: str) -> list[str]:
@@ -783,12 +684,12 @@ def _parse_marketplace_payload(
     repo_url = None
     repo_ref = None
     if source_url:
-        parsed = _parse_github_url(source_url)
+        parsed = marketplace_source_utils.parse_github_url(source_url)
         if parsed:
             repo_url, repo_ref, _ = parsed
         else:
             # Check if source_url is a local path and derive repo root
-            local_repo = _derive_local_repo_root(source_url)
+            local_repo = marketplace_source_utils.derive_local_repo_root(source_url)
             if local_repo:
                 repo_url = local_repo
     try:
@@ -975,22 +876,7 @@ def _clean_relative_path(value: str | None) -> str | None:
 
 
 def _parse_github_url(url: str | None) -> tuple[str, str | None, str] | None:
-    if not url:
-        return None
-    parsed = urlparse(url)
-    if parsed.netloc in {"github.com", "www.github.com"}:
-        parts = parsed.path.strip("/").split("/")
-        if len(parts) >= 5 and parts[2] in {"blob", "tree"}:
-            org, repo, _, ref = parts[:4]
-            file_path = "/".join(parts[4:])
-            return f"https://github.com/{org}/{repo}", ref, file_path
-    if parsed.netloc == "raw.githubusercontent.com":
-        parts = parsed.path.strip("/").split("/")
-        if len(parts) >= 4:
-            org, repo, ref = parts[:3]
-            file_path = "/".join(parts[3:])
-            return f"https://github.com/{org}/{repo}", ref, file_path
-    return None
+    return marketplace_source_utils.parse_github_url(url)
 
 
 def _is_probable_url(value: str | None) -> bool:
@@ -1384,21 +1270,7 @@ def _parse_ls_remote_commit(output: str) -> str | None:
 
     For annotated tags, prefer the peeled commit (`refs/tags/<tag>^{}`) when present.
     """
-    fallback: str | None = None
-    for raw_line in output.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        parts = line.split(maxsplit=1)
-        commit = parts[0].strip()
-        if not commit:
-            continue
-        ref = parts[1].strip() if len(parts) > 1 else ""
-        if ref.endswith("^{}"):
-            return commit
-        if fallback is None:
-            fallback = commit
-    return fallback
+    return marketplace_source_utils.parse_ls_remote_commit(output)
 
 
 def _resolve_source_path_oid(
@@ -1409,155 +1281,39 @@ def _resolve_source_path_oid(
         tuple[str | None, SkillUpdateStatus | None, str | None],
     ],
 ) -> tuple[str | None, SkillUpdateStatus | None, str | None]:
-    cache_key = (source.repo_url, source.repo_ref, source.repo_path, commit)
-    cached = path_cache.get(cache_key)
-    if cached is not None:
-        return cached
-
-    local_repo = _resolve_local_repo(source.repo_url)
-    if local_repo is not None:
-        path_oid = _resolve_git_path_oid(local_repo, commit, source.repo_path)
-        if path_oid is None:
-            resolved = (
-                None,
-                "source_path_missing",
-                f"path missing at revision {commit}: {source.repo_path}",
-            )
-            path_cache[cache_key] = resolved
-            return resolved
-        resolved = (path_oid, None, None)
-        path_cache[cache_key] = resolved
-        return resolved
-
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        tmp_path = Path(tmp_dir)
-        clone_args = [
-            "git",
-            "clone",
-            "--depth",
-            "1",
-            "--filter=blob:none",
-            "--sparse",
-        ]
-        if source.repo_ref:
-            clone_args.extend(["--branch", source.repo_ref])
-        clone_args.extend([source.repo_url, str(tmp_path)])
-
-        result = subprocess.run(clone_args, capture_output=True, text=True, check=False)
-        if result.returncode != 0:
-            stderr = result.stderr.strip() or result.stdout.strip()
-            if source.repo_ref and "Remote branch" in stderr and "not found" in stderr:
-                resolved = (
-                    None,
-                    "source_ref_missing",
-                    f"ref not found: {source.repo_ref}",
-                )
-            else:
-                resolved = (None, "source_unreachable", stderr or "unable to reach source")
-            path_cache[cache_key] = resolved
-            return resolved
-
-        path_oid = _resolve_git_path_oid(tmp_path, commit, source.repo_path)
-        if path_oid is None:
-            resolved = (
-                None,
-                "source_path_missing",
-                f"path missing at revision {commit}: {source.repo_path}",
-            )
-            path_cache[cache_key] = resolved
-            return resolved
-
-    resolved = (path_oid, None, None)
-    path_cache[cache_key] = resolved
-    return resolved
+    resolved = marketplace_source_utils.resolve_source_path_oid(
+        repo_url=source.repo_url,
+        repo_ref=source.repo_ref,
+        repo_path=source.repo_path,
+        commit=commit,
+        path_cache=path_cache,
+        resolve_local_repo_fn=_resolve_local_repo,
+        resolve_git_path_oid_fn=_resolve_git_path_oid,
+    )
+    path_oid, status, detail = resolved
+    return path_oid, cast("SkillUpdateStatus | None", status), detail
 
 
 def _parse_installed_skill_source(payload: dict[str, Any]) -> InstalledSkillSource:
-    schema_version = payload.get("schema_version")
-    if schema_version != SKILL_SOURCE_SCHEMA_VERSION:
-        raise ValueError(f"unsupported schema_version: {schema_version}")
-
-    installed_via = payload.get("installed_via")
-    if not isinstance(installed_via, str) or installed_via.strip() != "marketplace":
-        raise ValueError("installed_via must be 'marketplace'")
-
-    source_origin_raw = payload.get("source_origin")
-    if source_origin_raw not in {"remote", "local"}:
-        raise ValueError("source_origin must be 'remote' or 'local'")
-    source_origin = source_origin_raw
-
-    repo_url = payload.get("repo_url")
-    if not isinstance(repo_url, str) or not repo_url.strip():
-        raise ValueError("repo_url is required")
-
-    repo_ref_value = payload.get("repo_ref")
-    repo_ref: str | None
-    if repo_ref_value is None:
-        repo_ref = None
-    elif isinstance(repo_ref_value, str):
-        repo_ref = repo_ref_value.strip() or None
-    else:
-        raise ValueError("repo_ref must be a string or null")
-
-    repo_path_raw = payload.get("repo_path")
-    if not isinstance(repo_path_raw, str):
-        raise ValueError("repo_path is required")
-    repo_path = _normalize_repo_path(repo_path_raw)
-    if not repo_path:
-        raise ValueError("repo_path is invalid")
-
-    source_url_value = payload.get("source_url")
-    source_url: str | None
-    if source_url_value is None:
-        source_url = None
-    elif isinstance(source_url_value, str):
-        source_url = source_url_value.strip() or None
-    else:
-        raise ValueError("source_url must be a string or null")
-
-    installed_commit_value = payload.get("installed_commit")
-    installed_commit: str | None
-    if installed_commit_value is None:
-        installed_commit = None
-    elif isinstance(installed_commit_value, str) and installed_commit_value.strip():
-        installed_commit = installed_commit_value.strip()
-    else:
-        raise ValueError("installed_commit must be a non-empty string or null")
-
-    installed_path_oid_value = payload.get("installed_path_oid")
-    installed_path_oid: str | None
-    if installed_path_oid_value is None:
-        installed_path_oid = None
-    elif isinstance(installed_path_oid_value, str) and installed_path_oid_value.strip():
-        installed_path_oid = installed_path_oid_value.strip()
-    else:
-        raise ValueError("installed_path_oid must be a non-empty string or null")
-
-    installed_revision = payload.get("installed_revision")
-    if not isinstance(installed_revision, str) or not installed_revision.strip():
-        raise ValueError("installed_revision is required")
-
-    installed_at = payload.get("installed_at")
-    if not isinstance(installed_at, str) or not installed_at.strip():
-        raise ValueError("installed_at is required")
-
-    content_fingerprint = payload.get("content_fingerprint")
-    if not isinstance(content_fingerprint, str) or not content_fingerprint.startswith("sha256:"):
-        raise ValueError("content_fingerprint must be a sha256 fingerprint")
+    parsed = marketplace_source_utils.parse_installed_source_fields(
+        payload,
+        expected_schema_version=SKILL_SOURCE_SCHEMA_VERSION,
+        normalize_repo_path=_normalize_repo_path,
+    )
 
     return InstalledSkillSource(
         schema_version=SKILL_SOURCE_SCHEMA_VERSION,
         installed_via="marketplace",
-        source_origin=source_origin,
-        repo_url=repo_url.strip(),
-        repo_ref=repo_ref,
-        repo_path=repo_path,
-        source_url=source_url,
-        installed_commit=installed_commit,
-        installed_path_oid=installed_path_oid,
-        installed_revision=installed_revision.strip(),
-        installed_at=installed_at.strip(),
-        content_fingerprint=content_fingerprint,
+        source_origin=parsed.source_origin,
+        repo_url=parsed.repo_url,
+        repo_ref=parsed.repo_ref,
+        repo_path=parsed.repo_path,
+        source_url=parsed.source_url,
+        installed_commit=parsed.installed_commit,
+        installed_path_oid=parsed.installed_path_oid,
+        installed_revision=parsed.installed_revision,
+        installed_at=parsed.installed_at,
+        content_fingerprint=parsed.content_fingerprint,
     )
 
 
@@ -1694,132 +1450,39 @@ def _copy_skill_from_marketplace_source(
 
 
 def _atomic_replace_directory(*, existing_dir: Path, staged_dir: Path) -> None:
-    existing_dir = existing_dir.resolve()
-    staged_dir = staged_dir.resolve()
-    parent = existing_dir.parent
-    backup_dir = parent / f".{existing_dir.name}.backup-{uuid4().hex}"
-
-    os.replace(existing_dir, backup_dir)
-    try:
-        os.replace(staged_dir, existing_dir)
-    except Exception:
-        os.replace(backup_dir, existing_dir)
-        raise
-    shutil.rmtree(backup_dir)
+    marketplace_source_utils.atomic_replace_directory(
+        existing_dir=existing_dir,
+        staged_dir=staged_dir,
+    )
 
 
 def _resolve_git_commit(repo_root: Path, revision: str | None) -> str | None:
-    rev = revision or "HEAD"
-    result = subprocess.run(
-        ["git", "-C", str(repo_root), "rev-parse", f"{rev}^{{commit}}"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        return None
-    commit = result.stdout.strip().splitlines()
-    if not commit:
-        return None
-    value = commit[0].strip()
-    return value or None
+    return marketplace_source_utils.resolve_git_commit(repo_root, revision)
 
 
 def _resolve_git_path_oid(repo_root: Path, commit: str, repo_path: str) -> str | None:
-    result = subprocess.run(
-        ["git", "-C", str(repo_root), "rev-parse", f"{commit}:{repo_path}"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        return None
-    values = result.stdout.strip().splitlines()
-    if not values:
-        return None
-    path_oid = values[0].strip()
-    return path_oid or None
+    return marketplace_source_utils.resolve_git_path_oid(repo_root, commit, repo_path)
 
 
 def _run_git(args: list[str]) -> None:
-    result = subprocess.run(args, capture_output=True, text=True, check=False)
-    if result.returncode != 0:
-        stderr = result.stderr.strip() or result.stdout.strip()
-        raise RuntimeError(f"Git command failed: {' '.join(args)}\n{stderr}")
+    marketplace_source_utils.run_git(args)
 
 
 def _load_local_marketplace_payload(url: str) -> Any | None:
-    parsed = urlparse(url)
-    if parsed.scheme == "file":
-        path = Path(parsed.path)
-        return _read_json_file(path)
-    if parsed.scheme in {"http", "https"}:
-        return None
-    candidate = Path(url).expanduser()
-    if candidate.exists():
-        return _read_json_file(candidate)
-    return None
+    return marketplace_source_utils.load_local_marketplace_payload(url)
 
 
 def _read_json_file(path: Path) -> Any:
-    content = path.read_text(encoding="utf-8")
-    return json.loads(content)
+    return marketplace_source_utils.read_json_file(path)
 
 
 def _resolve_local_repo(repo_url: str) -> Path | None:
-    parsed = urlparse(repo_url)
-    if parsed.scheme == "file":
-        repo_path = Path(parsed.path)
-    elif parsed.scheme in {"http", "https", "ssh"}:
-        return None
-    else:
-        repo_path = Path(repo_url)
-
-    repo_path = repo_path.expanduser()
-    if not repo_path.is_absolute():
-        repo_path = repo_path.resolve()
-    if repo_path.exists():
-        return repo_path
-    return None
+    return marketplace_source_utils.resolve_local_repo(repo_url)
 
 
 def _derive_local_repo_root(source_url: str) -> str | None:
-    """Derive the local repo root from a marketplace.json source URL.
-
-    For a local path like `/path/to/repo/.claude-plugin/marketplace.json`,
-    returns `/path/to/repo` so skills can be installed from the local repo.
-    """
-    parsed = urlparse(source_url)
-    if parsed.scheme in {"http", "https", "ssh"}:
-        return None
-
-    if parsed.scheme == "file":
-        path = Path(parsed.path)
-    else:
-        path = Path(source_url)
-
-    path = path.expanduser()
-    if not path.is_absolute():
-        path = path.resolve()
-
-    if not path.exists():
-        return None
-
-    # If it's a marketplace.json file, find the repo root
-    if path.is_file() and path.name == "marketplace.json":
-        # Check if inside .claude-plugin directory
-        if path.parent.name == ".claude-plugin":
-            repo_root = path.parent.parent
-        else:
-            repo_root = path.parent
-        if repo_root.exists():
-            return str(repo_root)
-
-    # If it's a directory, use it directly
-    if path.is_dir():
-        return str(path)
-
-    return None
+    """Derive the local repo root from a marketplace source path/URL."""
+    return marketplace_source_utils.derive_local_repo_root(source_url)
 
 
 def _resolve_repo_subdir(repo_root: Path, repo_subdir: str) -> Path:

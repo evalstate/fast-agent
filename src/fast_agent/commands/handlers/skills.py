@@ -14,7 +14,6 @@ from fast_agent.commands.results import CommandMessage, CommandOutcome
 from fast_agent.core.instruction_refresh import rebuild_agent_instruction
 from fast_agent.skills import SKILLS_DEFAULT
 from fast_agent.skills.manager import (
-    DEFAULT_SKILL_REGISTRIES,
     SkillUpdateInfo,
     apply_skill_updates,
     check_skill_updates,
@@ -32,6 +31,7 @@ from fast_agent.skills.manager import (
     reload_skill_manifests,
     remove_local_skill,
     resolve_skill_directories,
+    resolve_skill_registries,
     select_manifest_by_name_or_index,
     select_skill_by_name_or_index,
     select_skill_updates,
@@ -413,9 +413,7 @@ async def handle_set_skills_registry(
 ) -> CommandOutcome:
     outcome = CommandOutcome()
     settings = ctx.resolve_settings()
-    configured_urls = (settings.skills.marketplace_urls if settings.skills else None) or list(
-        DEFAULT_SKILL_REGISTRIES
-    )
+    configured_urls = resolve_skill_registries(settings)
 
     if not argument:
         current = get_marketplace_url(settings)

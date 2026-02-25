@@ -7,6 +7,7 @@ from mcp.types import TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
+from fast_agent.constants import SMART_AGENT_INSTRUCTION
 from fast_agent.context import Context
 from fast_agent.skills import SKILLS_DEFAULT
 from fast_agent.skills.registry import SkillRegistry, format_skills_for_prompt
@@ -228,6 +229,30 @@ async def test_agent_skills_missing_placeholder_warns(tmp_path: Path) -> None:
     mock_console_print.assert_not_called()
     mock_add_warning.assert_called_once()
     assert "Agent 'test' skills are configured" in mock_warning.call_args[0][0]
+
+
+@pytest.mark.asyncio
+async def test_agent_skills_internal_smart_prompt_does_not_warn(tmp_path: Path) -> None:
+    skills_root = tmp_path / "skills"
+    create_skill(skills_root, "delta", description="Delta desc")
+
+    manifests = SkillRegistry.load_directory(skills_root)
+    context = Context()
+
+    config = AgentConfig(
+        name="test",
+        instruction=SMART_AGENT_INSTRUCTION,
+        servers=[],
+        skills=skills_root,
+    )
+    config.skill_manifests = manifests
+
+    agent = McpAgent(config=config, context=context)
+    await agent._apply_instruction_templates()
+
+    assert "<available_skills>" in agent.instruction
+    assert "<name>delta</name>" in agent.instruction
+    assert all("no {{agentSkills}}" not in warning for warning in agent.warnings)
 
 
 def test_skills_absolute_dir_outside_cwd(tmp_path: Path) -> None:

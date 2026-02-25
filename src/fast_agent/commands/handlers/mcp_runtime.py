@@ -238,6 +238,53 @@ def _build_server_config(
     )
 
 
+def _describe_server_config_source(server_config: Any) -> str | None:
+    """Return a concise url/command description for an MCP server config."""
+
+    if isinstance(server_config, dict):
+        url_value = server_config.get("url")
+        command_value = server_config.get("command")
+        args_value = server_config.get("args")
+    else:
+        url_value = getattr(server_config, "url", None)
+        command_value = getattr(server_config, "command", None)
+        args_value = getattr(server_config, "args", None)
+
+    if isinstance(url_value, str):
+        url = url_value.strip()
+        if url:
+            return url
+
+    if isinstance(command_value, str):
+        command = command_value.strip()
+        if command:
+            args: list[str] = []
+            if isinstance(args_value, list):
+                args = [str(value) for value in args_value]
+            return shlex.join([command, *args])
+
+    return None
+
+
+def _resolve_configured_source_from_context(ctx, server_name: str) -> str | None:
+    """Resolve configured server description from runtime settings."""
+
+    try:
+        settings = ctx.resolve_settings()
+    except Exception:
+        return None
+
+    mcp_settings = getattr(settings, "mcp", None)
+    server_map = getattr(mcp_settings, "servers", None)
+    if not isinstance(server_map, dict):
+        return None
+
+    server_config = server_map.get(server_name)
+    if server_config is None:
+        return None
+    return _describe_server_config_source(server_config)
+
+
 async def _resolve_configured_server_alias(
     *,
     manager: McpRuntimeManager,
@@ -970,7 +1017,6 @@ async def handle_mcp_connect(
     on_progress: Callable[[str], Awaitable[None]] | None = None,
     on_oauth_event: Callable[[OAuthEvent], Awaitable[None]] | None = None,
 ) -> CommandOutcome:
-    del ctx
     outcome = CommandOutcome()
 
     async def emit_progress(message: str) -> None:
@@ -1038,7 +1084,12 @@ async def handle_mcp_connect(
     server_name = (
         configured_alias or parsed.server_name or infer_server_name(parsed.target_text, mode)
     )
-    await emit_progress(f"Connecting MCP server '{server_name}' via {mode}…")
+    if mode == "configured":
+        await emit_progress(
+            f"Connecting MCP server '{server_name}' from config file…"
+        )
+    else:
+        await emit_progress(f"Connecting MCP server '{server_name}' via {mode}…")
 
     trigger_oauth = True if parsed.trigger_oauth is None else parsed.trigger_oauth
     startup_timeout_seconds = parsed.timeout_seconds
@@ -1175,8 +1226,16 @@ async def handle_mcp_connect(
         await emit_progress(f"MCP server '{server_name}' is already connected.")
     else:
         action = "Reconnected" if already_attached and parsed.force_reconnect else "Connected"
+        if mode == "configured":
+            configured_source = _resolve_configured_source_from_context(ctx, server_name)
+            source_text = configured_source or parsed.target_text
+            message_text = (
+                f"{action} MCP server '{server_name}' from configuration: {source_text}."
+            )
+        else:
+            message_text = f"{action} MCP server '{server_name}' ({mode})."
         outcome.add_message(
-            f"{action} MCP server '{server_name}' ({mode}).",
+            message_text,
             right_info="mcp",
             agent_name=agent_name,
         )

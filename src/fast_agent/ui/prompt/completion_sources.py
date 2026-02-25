@@ -13,6 +13,50 @@ if TYPE_CHECKING:
     from fast_agent.ui.prompt.completer import AgentCompleter
 
 
+def _mcp_connect_completions(completer: "AgentCompleter", remainder: str) -> list[Completion]:
+    connect_flags = {
+        "--name": "set attached server name",
+        "--auth": "set bearer token for URL servers",
+        "--timeout": "set startup timeout in seconds",
+        "--oauth": "enable oauth flow",
+        "--no-oauth": "disable oauth flow",
+        "--reconnect": "force reconnect and refresh tools",
+        "--no-reconnect": "disable reconnect-on-disconnect",
+    }
+
+    context, target_count, partial = completer._mcp_connect_context(remainder)
+
+    if context in {"target", "new_token"} and target_count == 0:
+        results = [completer._mcp_connect_target_hint(partial)]
+        results.extend(list(completer._complete_configured_mcp_servers(partial)))
+        return results
+
+    if context == "new_token" and target_count > 0:
+        return [
+            Completion(
+                flag,
+                start_position=0,
+                display=flag,
+                display_meta=description,
+            )
+            for flag, description in connect_flags.items()
+        ]
+
+    if context == "flag" and target_count > 0:
+        return [
+            Completion(
+                flag,
+                start_position=-len(partial),
+                display=flag,
+                display_meta=description,
+            )
+            for flag, description in connect_flags.items()
+            if flag.startswith(partial.lower())
+        ]
+
+    return []
+
+
 def command_completions(
     completer: "AgentCompleter",
     text: str,
@@ -199,6 +243,7 @@ def command_completions(
             return results
         if subcmd in {"registry", "marketplace", "source"}:
             results.extend(list(completer._complete_skill_registries(argument)))
+            results.extend(list(completer._complete_registry_paths(argument)))
             return results
         return results
 
@@ -530,45 +575,11 @@ def command_completions(
 
     if text_lower.startswith("/mcp connect "):
         remainder = text[len("/mcp connect ") :]
-        connect_flags = {
-            "--name": "set attached server name",
-            "--auth": "set bearer token for URL servers",
-            "--timeout": "set startup timeout in seconds",
-            "--oauth": "enable oauth flow",
-            "--no-oauth": "disable oauth flow",
-            "--reconnect": "force reconnect and refresh tools",
-            "--no-reconnect": "disable reconnect-on-disconnect",
-        }
+        return _mcp_connect_completions(completer, remainder)
 
-        context, target_count, partial = completer._mcp_connect_context(remainder)
-
-        if context in {"target", "new_token"} and target_count == 0:
-            results = [completer._mcp_connect_target_hint(partial)]
-            results.extend(list(completer._complete_configured_mcp_servers(partial)))
-            return results
-
-        if context == "new_token" and target_count > 0:
-            return [
-                Completion(
-                    flag,
-                    start_position=0,
-                    display=flag,
-                    display_meta=description,
-                )
-                for flag, description in connect_flags.items()
-            ]
-
-        if context == "flag" and target_count > 0:
-            return [
-                Completion(
-                    flag,
-                    start_position=-len(partial),
-                    display=flag,
-                    display_meta=description,
-                )
-                for flag, description in connect_flags.items()
-                if flag.startswith(partial.lower())
-            ]
+    if text_lower.startswith("/connect "):
+        remainder = text[len("/connect ") :]
+        return _mcp_connect_completions(completer, remainder)
 
     if text_lower.startswith("/mcp session "):
         remainder = text[len("/mcp session ") :]

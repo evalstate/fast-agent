@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import shlex
 import time
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
@@ -441,34 +442,32 @@ class AgentCompleter(Completer):
 
     def _complete_skill_registries(self, partial: str):
         """Generate completions for configured skills registries."""
-        from fast_agent.config import get_settings
         from fast_agent.skills.manager import (
-            DEFAULT_SKILL_REGISTRIES,
             format_marketplace_display_url,
+            resolve_skill_registries,
         )
 
-        settings = get_settings()
-        skills_settings = getattr(settings, "skills", None)
-        configured_urls = (
-            getattr(skills_settings, "marketplace_urls", None) if skills_settings else None
-        ) or list(DEFAULT_SKILL_REGISTRIES)
-        active_url = getattr(skills_settings, "marketplace_url", None) if skills_settings else None
-        if active_url and active_url not in configured_urls:
-            configured_urls.append(active_url)
+        configured_urls = resolve_skill_registries(get_settings())
+        yield from self._complete_registry_urls(
+            partial,
+            configured_urls=configured_urls,
+            display_formatter=format_marketplace_display_url,
+        )
 
-        unique_urls: list[str] = []
-        seen_urls = set()
-        for url in configured_urls:
-            if url in seen_urls:
-                continue
-            seen_urls.add(url)
-            unique_urls.append(url)
-
+    def _complete_registry_urls(
+        self,
+        partial: str,
+        *,
+        configured_urls: "Sequence[str]",
+        display_formatter: "Callable[[str], str]",
+    ):
+        """Generate index/url completions for a registry URL list."""
         partial_lower = partial.lower()
         include_numbers = not partial or partial.isdigit()
         include_urls = bool(partial) and not partial.isdigit()
-        for index, url in enumerate(unique_urls, 1):
-            display = format_marketplace_display_url(url)
+
+        for index, url in enumerate(configured_urls, 1):
+            display = display_formatter(url)
             index_text = str(index)
             if include_numbers and index_text.startswith(partial):
                 yield Completion(
@@ -484,6 +483,14 @@ class AgentCompleter(Completer):
                     display=index_text,
                     display_meta=display,
                 )
+
+    def _complete_registry_paths(self, partial: str):
+        """Generate filesystem path completions for registry arguments."""
+        candidate = partial.strip()
+        if not candidate or "://" in candidate:
+            return
+
+        yield from self._complete_shell_paths(candidate, len(candidate))
 
     def _complete_local_card_pack_names(
         self,
@@ -528,45 +535,14 @@ class AgentCompleter(Completer):
 
     def _complete_card_registries(self, partial: str):
         """Generate completions for configured card registries."""
-        from fast_agent.cards.manager import DEFAULT_CARD_REGISTRIES, format_marketplace_display_url
+        from fast_agent.cards.manager import format_marketplace_display_url, resolve_card_registries
 
-        settings = get_settings()
-        cards_settings = getattr(settings, "cards", None)
-        configured_urls = (
-            getattr(cards_settings, "marketplace_urls", None) if cards_settings else None
-        ) or list(DEFAULT_CARD_REGISTRIES)
-        active_url = getattr(cards_settings, "marketplace_url", None) if cards_settings else None
-        if active_url and active_url not in configured_urls:
-            configured_urls.append(active_url)
-
-        unique_urls: list[str] = []
-        seen_urls = set()
-        for url in configured_urls:
-            if url in seen_urls:
-                continue
-            seen_urls.add(url)
-            unique_urls.append(url)
-
-        partial_lower = partial.lower()
-        include_numbers = not partial or partial.isdigit()
-        include_urls = bool(partial) and not partial.isdigit()
-        for index, url in enumerate(unique_urls, 1):
-            display = format_marketplace_display_url(url)
-            index_text = str(index)
-            if include_numbers and index_text.startswith(partial):
-                yield Completion(
-                    index_text,
-                    start_position=-len(partial),
-                    display=index_text,
-                    display_meta=display,
-                )
-            if include_urls and url.lower().startswith(partial_lower):
-                yield Completion(
-                    url,
-                    start_position=-len(partial),
-                    display=index_text,
-                    display_meta=display,
-                )
+        configured_urls = resolve_card_registries(get_settings())
+        yield from self._complete_registry_urls(
+            partial,
+            configured_urls=configured_urls,
+            display_formatter=format_marketplace_display_url,
+        )
 
     def _complete_executables(self, partial: str, max_results: int = 100):
         """Complete executable names from PATH.
@@ -681,9 +657,50 @@ class AgentCompleter(Completer):
                         display_meta=description,
                     )
 
-    def _list_configured_mcp_servers(self) -> list[str]:
+    @staticmethod
+    def _configured_mcp_server_target(server_config: Any) -> str | None:
+        url_value: Any
+        if isinstance(server_config, dict):
+            url_value = server_config.get("url")
+        else:
+            url_value = getattr(server_config, "url", None)
+
+        if isinstance(url_value, str):
+            normalized = url_value.strip()
+            if normalized:
+                return normalized
+
+        command_value: Any
+        args_value: Any
+        if isinstance(server_config, dict):
+            command_value = server_config.get("command")
+            args_value = server_config.get("args")
+        else:
+            command_value = getattr(server_config, "command", None)
+            args_value = getattr(server_config, "args", None)
+
+        if isinstance(command_value, str):
+            command = command_value.strip()
+            if command:
+                args: list[str] = []
+                if isinstance(args_value, list):
+                    args = [str(value) for value in args_value]
+                return shlex.join([command, *args])
+
+        return None
+
+    @staticmethod
+    def _format_mcp_server_meta(target: str | None) -> str:
+        if not target:
+            return ""
+        if len(target) > 80:
+            return f"{target[:79]}…"
+        return target
+
+    def _list_configured_mcp_servers(self) -> list[tuple[str, str | None]]:
         configured: set[str] = set()
         attached: set[str] = set()
+        server_targets: dict[str, str] = {}
 
         # Prefer the runtime aggregator when available so completions include
         # both config-backed entries and runtime-attached server names.
@@ -703,7 +720,12 @@ class AgentCompleter(Completer):
                 server_registry = getattr(context, "server_registry", None)
                 registry_data = getattr(server_registry, "registry", None)
                 if isinstance(registry_data, dict):
-                    configured.update(str(name) for name in registry_data)
+                    for name, server_config in registry_data.items():
+                        server_name = str(name)
+                        configured.add(server_name)
+                        target = self._configured_mcp_server_target(server_config)
+                        if target is not None:
+                            server_targets[server_name] = target
             except Exception:
                 pass
 
@@ -714,25 +736,30 @@ class AgentCompleter(Completer):
             mcp_settings = getattr(settings, "mcp", None)
             server_map = getattr(mcp_settings, "servers", None)
             if isinstance(server_map, dict):
-                configured.update(str(name) for name in server_map)
+                for name, server_config in server_map.items():
+                    server_name = str(name)
+                    configured.add(server_name)
+                    target = self._configured_mcp_server_target(server_config)
+                    if target is not None:
+                        server_targets[server_name] = target
         except Exception:
             pass
 
         if attached:
             configured.difference_update(attached)
 
-        return sorted(configured)
+        return [(server_name, server_targets.get(server_name)) for server_name in sorted(configured)]
 
     def _complete_configured_mcp_servers(self, partial: str):
         partial_lower = partial.lower()
-        for server_name in self._list_configured_mcp_servers():
+        for server_name, server_url in self._list_configured_mcp_servers():
             if partial and not server_name.lower().startswith(partial_lower):
                 continue
             yield Completion(
                 server_name,
                 start_position=-len(partial),
                 display=server_name,
-                display_meta="configured mcp server",
+                display_meta=self._format_mcp_server_meta(server_url),
             )
 
     def _mcp_connect_target_hint(self, partial: str) -> Completion:

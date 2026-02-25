@@ -21,7 +21,6 @@ from fast_agent.config import get_settings
 from fast_agent.core.instruction_refresh import rebuild_agent_instruction
 from fast_agent.skills import SKILLS_DEFAULT
 from fast_agent.skills.manager import (
-    DEFAULT_SKILL_REGISTRIES,
     candidate_marketplace_urls,
     fetch_marketplace_skills,
     fetch_marketplace_skills_with_source,
@@ -32,6 +31,7 @@ from fast_agent.skills.manager import (
     order_skill_directories_for_display,
     reload_skill_manifests,
     resolve_skill_directories,
+    resolve_skill_registries,
 )
 from fast_agent.skills.registry import format_skills_for_prompt
 
@@ -68,7 +68,7 @@ async def handle_skills_registry(handler: "SlashCommandHandler", argument: str) 
     argument = argument.strip()
 
     settings = get_settings()
-    configured_urls = settings.skills.marketplace_urls or list(DEFAULT_SKILL_REGISTRIES)
+    configured_urls = resolve_skill_registries(settings)
 
     if not argument:
         current = get_marketplace_url(settings)

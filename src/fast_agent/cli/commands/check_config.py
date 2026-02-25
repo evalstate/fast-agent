@@ -192,10 +192,15 @@ def _resolve_active_model_providers(
 
 def find_config_files(start_path: Path, env_dir: Path | None = None) -> dict[str, Path | None]:
     """Find FastAgent configuration files, preferring secrets file next to config file."""
-    from fast_agent.config import find_fastagent_config_files, resolve_config_search_root
+    from fast_agent.config import (
+        find_fastagent_config_files,
+        resolve_config_search_root,
+        resolve_layered_config_file,
+    )
 
     search_root = resolve_config_search_root(start_path, env_dir=env_dir)
-    config_path, secrets_path = find_fastagent_config_files(search_root)
+    config_path = resolve_layered_config_file(start_path, env_dir=env_dir)
+    _, secrets_path = find_fastagent_config_files(search_root)
     return {
         "config": config_path,
         "secrets": secrets_path,
@@ -524,15 +529,10 @@ def get_config_summary(config_path: Path | None) -> dict:
 
 
 def _load_catalog_config(env_dir: Path | None) -> dict[str, Any] | None:
-    config_files = find_config_files(Path.cwd(), env_dir=env_dir)
-    config_summary = get_config_summary(config_files["config"])
-    if config_summary.get("status") != "parsed":
-        return None
+    from fast_agent.config import load_layered_settings
 
-    config_payload = config_summary.get("config")
-    if isinstance(config_payload, dict):
-        return config_payload
-    return None
+    config_payload, _ = load_layered_settings(start_path=Path.cwd(), env_dir=env_dir)
+    return config_payload or None
 
 
 def show_models_overview(env_dir: Path | None = None) -> None:
@@ -869,19 +869,12 @@ def _validate_effective_settings(
     from fast_agent.config import (
         Settings,
         deep_merge,
-        load_layered_model_settings,
+        load_layered_settings,
         load_yaml_mapping,
     )
 
     try:
-        merged_settings: dict[str, Any] = {}
-
-        config_path = config_files.get("config")
-        if isinstance(config_path, Path):
-            merged_settings = load_yaml_mapping(config_path)
-
-        layered_model_settings = load_layered_model_settings(start_path=cwd, env_dir=env_override)
-        merged_settings = deep_merge(merged_settings, layered_model_settings)
+        merged_settings, _ = load_layered_settings(start_path=cwd, env_dir=env_override)
 
         secrets_path = config_files.get("secrets")
         if isinstance(secrets_path, Path):

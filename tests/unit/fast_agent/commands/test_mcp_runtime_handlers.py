@@ -6,6 +6,7 @@ import pytest
 from fast_agent.commands.context import CommandContext
 from fast_agent.commands.handlers import mcp_runtime
 from fast_agent.commands.results import CommandMessage
+from fast_agent.config import MCPServerSettings, MCPSettings, Settings
 from fast_agent.mcp.experimental_session_client import SessionJarEntry
 from fast_agent.mcp.mcp_aggregator import MCPAttachResult, MCPDetachResult
 from fast_agent.mcp.oauth_client import OAuthEvent
@@ -425,16 +426,44 @@ async def test_handle_mcp_connect_scoped_package_uses_npx_command() -> None:
 @pytest.mark.asyncio
 async def test_handle_mcp_connect_configured_name_uses_existing_registry_entry() -> None:
     manager = _Manager()
-    ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())
+    progress_updates: list[str] = []
+    ctx = CommandContext(
+        agent_provider=_Provider(),
+        current_agent_name="main",
+        io=_IO(),
+        settings=Settings(
+            mcp=MCPSettings(
+                servers={
+                    "docs": MCPServerSettings(
+                        name="docs",
+                        transport="http",
+                        url="https://docs.example.com/mcp",
+                    )
+                }
+            )
+        ),
+    )
+
+    async def _capture_progress(message: str) -> None:
+        progress_updates.append(message)
 
     outcome = await mcp_runtime.handle_mcp_connect(
         ctx,
         manager=cast("mcp_runtime.McpRuntimeManager", manager),
         agent_name="main",
         target_text="docs",
+        on_progress=_capture_progress,
     )
 
-    assert any("Connected MCP server 'docs' (configured)." in str(msg.text) for msg in outcome.messages)
+    assert any(
+        "Connected MCP server 'docs' from configuration: https://docs.example.com/mcp."
+        in str(msg.text)
+        for msg in outcome.messages
+    )
+    assert any(
+        "Connecting MCP server 'docs' from config file" in item
+        for item in progress_updates
+    )
     assert manager.last_config is None
 
 
