@@ -172,7 +172,7 @@ class _FakeACPContext:
 
 
 @pytest.mark.asyncio
-async def test_slash_command_mcp_list_connect_disconnect() -> None:
+async def test_slash_command_mcp_list_connect_reconnect_disconnect() -> None:
     app = _App()
     instance = AgentInstance(
         app=cast("AgentApp", app),
@@ -194,6 +194,9 @@ async def test_slash_command_mcp_list_connect_disconnect() -> None:
 
     connected = await handler.execute_command("mcp", "connect npx demo-server --name demo")
     assert "Connected MCP server 'demo'" in connected
+
+    reconnected = await handler.execute_command("mcp", "reconnect demo")
+    assert "Reconnected MCP server 'demo'" in reconnected
 
     disconnected = await handler.execute_command("mcp", "disconnect demo")
     assert "Disconnected MCP server 'demo'" in disconnected

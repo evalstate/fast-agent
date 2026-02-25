@@ -13,6 +13,34 @@ if TYPE_CHECKING:
     from fast_agent.ui.prompt.completer import AgentCompleter
 
 
+def _attached_mcp_servers_for_completion(completer: "AgentCompleter") -> list[str]:
+    attached: list[str] = []
+    if completer.agent_provider is not None and completer.current_agent:
+        try:
+            agent = completer.agent_provider._agent(completer.current_agent)
+            aggregator = getattr(agent, "aggregator", None)
+            list_attached = getattr(aggregator, "list_attached_servers", None)
+            if callable(list_attached):
+                attached = list_attached()
+        except Exception:
+            attached = []
+    return attached
+
+
+def _complete_attached_mcp_servers(completer: "AgentCompleter", partial: str) -> list[Completion]:
+    attached = _attached_mcp_servers_for_completion(completer)
+    return [
+        Completion(
+            server,
+            start_position=-len(partial),
+            display=server,
+            display_meta="attached mcp server",
+        )
+        for server in attached
+        if server.lower().startswith(partial.lower())
+    ]
+
+
 def _mcp_connect_completions(completer: "AgentCompleter", remainder: str) -> list[Completion]:
     connect_flags = {
         "--name": "set attached server name",
@@ -552,26 +580,11 @@ def command_completions(
 
     if text_lower.startswith("/mcp disconnect "):
         partial = text[len("/mcp disconnect ") :]
-        attached: list[str] = []
-        if completer.agent_provider is not None and completer.current_agent:
-            try:
-                agent = completer.agent_provider._agent(completer.current_agent)
-                aggregator = getattr(agent, "aggregator", None)
-                list_attached = getattr(aggregator, "list_attached_servers", None)
-                if callable(list_attached):
-                    attached = list_attached()
-            except Exception:
-                attached = []
-        return [
-            Completion(
-                server,
-                start_position=-len(partial),
-                display=server,
-                display_meta="attached mcp server",
-            )
-            for server in attached
-            if server.lower().startswith(partial.lower())
-        ]
+        return _complete_attached_mcp_servers(completer, partial)
+
+    if text_lower.startswith("/mcp reconnect "):
+        partial = text[len("/mcp reconnect ") :]
+        return _complete_attached_mcp_servers(completer, partial)
 
     if text_lower.startswith("/mcp connect "):
         remainder = text[len("/mcp connect ") :]
@@ -769,6 +782,7 @@ def command_completions(
             "list": "List currently attached MCP servers",
             "connect": "Connect a new MCP server",
             "disconnect": "Disconnect an attached MCP server",
+            "reconnect": "Reconnect an attached MCP server",
             "session": "Inspect and control experimental session cookies",
         }
         return list(completer._complete_subcommands(parts, remainder, subcommands))

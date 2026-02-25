@@ -24,7 +24,7 @@ The original demo server with a single `session_probe` tool that supports
 ### 2. `session_required_server.py` — Gatekeeper pattern
 
 A minimal server that **rejects** any tool call with a JSON-RPC error
-(`-32002`) if no session has been established. Demonstrates enforcing
+(`-32043`) if no session has been established. Demonstrates enforcing
 session-first access control.
 
 **Tools:** `echo(text)`, `whoami()`

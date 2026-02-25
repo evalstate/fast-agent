@@ -44,6 +44,7 @@ from fast_agent.ui.command_payloads import (
     McpConnectCommand,
     McpDisconnectCommand,
     McpListCommand,
+    McpReconnectCommand,
     McpSessionCommand,
     ModelReasoningCommand,
     ModelsCommand,
@@ -343,6 +344,19 @@ async def dispatch_command_payload(
                 rich_print(f"[red]{error or 'Server name is required'}[/red]")
                 return result
             outcome = await mcp_runtime_handlers.handle_mcp_disconnect(
+                context,
+                manager=prompt_provider,
+                agent_name=agent,
+                server_name=server_name,
+            )
+            await emit_command_outcome(context, outcome)
+            return result
+        case McpReconnectCommand(server_name=server_name, error=error):
+            context = build_command_context(prompt_provider, agent)
+            if error or not server_name:
+                rich_print(f"[red]{error or 'Server name is required'}[/red]")
+                return result
+            outcome = await mcp_runtime_handlers.handle_mcp_reconnect(
                 context,
                 manager=prompt_provider,
                 agent_name=agent,

@@ -47,7 +47,7 @@ session protocol wiring.
 
 - **`session_required_server.py`**
   - Global gatekeeper model
-  - Rejects tool calls without valid session (`-32002`)
+  - Rejects tool calls without valid session (`-32043`)
   - Tools: `echo`, `whoami`
 
 - **`notebook_server.py`**
@@ -267,6 +267,22 @@ It excludes display-only/UI formatting updates.
 - Records are keyed by server identity (initialize name) when available,
   otherwise server alias.
 - Jar stores cookie history + active selection metadata (`last_used_id`, `updatedAt`, hash).
+
+### 7.7 Error code selection (session-required)
+
+The demo servers use **`-32043`** for `SESSION_REQUIRED`.
+
+| Code | Name | Status |
+| ---: | --- | --- |
+| -32000 | CONNECTION_CLOSED | Python SDK internal |
+| -32001 | REQUEST_TIMEOUT | Python/TS SDK internal |
+| -32002 | Resource not found | MCP spec docs |
+| -32042 | URL_ELICITATION_REQUIRED | Schema formal |
+| -32043 | SESSION_REQUIRED | Experimental proposal (this demo) |
+
+Rationale: `-3204x` is treated as the "protocol-level, structured client action
+required" neighborhood. URL elicitation (`-32042`) and session establishment
+(`-32043`) both fit that interaction pattern.
 
 ---
 

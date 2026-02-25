@@ -57,7 +57,10 @@ SESSION_CAPABILITIES: dict[str, dict[str, Any]] = {
 }
 
 # JSON-RPC error code for "session required but not established"
-SESSION_REQUIRED_ERROR_CODE = -32002
+#
+# Chosen to live alongside -32042 (URL_ELICITATION_REQUIRED), which is used for
+# protocol-level interactive client-action-required conditions.
+SESSION_REQUIRED_ERROR_CODE = -32043
 
 
 # ---------------------------------------------------------------------------

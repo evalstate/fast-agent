@@ -4,6 +4,7 @@ from fast_agent.ui.command_payloads import (
     McpConnectCommand,
     McpDisconnectCommand,
     McpListCommand,
+    McpReconnectCommand,
     McpSessionCommand,
     ShowMcpStatusCommand,
 )
@@ -51,6 +52,13 @@ def test_parse_mcp_connect_preserves_quoted_target_arguments() -> None:
 def test_parse_mcp_disconnect() -> None:
     result = parse_special_input("/mcp disconnect local")
     assert isinstance(result, McpDisconnectCommand)
+    assert result.server_name == "local"
+    assert result.error is None
+
+
+def test_parse_mcp_reconnect() -> None:
+    result = parse_special_input("/mcp reconnect local")
+    assert isinstance(result, McpReconnectCommand)
     assert result.server_name == "local"
     assert result.error is None
 

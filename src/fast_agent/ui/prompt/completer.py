@@ -65,7 +65,7 @@ class AgentCompleter(Completer):
         self.noenv_mode = noenv_mode
         # Map commands to their descriptions for better completion hints
         self.commands = {
-            "mcp": "Manage MCP runtime servers (/mcp list|connect|disconnect|session)",
+            "mcp": "Manage MCP runtime servers (/mcp list|connect|disconnect|reconnect|session)",
             "connect": "Alias for /mcp connect with target auto-detection",
             "history": "Show conversation history overview (or /history save|load|clear|rewind|review|fix)",
             "tools": "List tools",

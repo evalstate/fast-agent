@@ -30,6 +30,7 @@ from fast_agent.ui.command_payloads import (
     McpConnectMode,
     McpDisconnectCommand,
     McpListCommand,
+    McpReconnectCommand,
     McpSessionCommand,
     ModelReasoningCommand,
     ModelsCommand,
@@ -98,6 +99,12 @@ def _rebuild_mcp_target_text(tokens: list[str]) -> str:
         else:
             rebuilt_parts.append(token)
     return " ".join(rebuilt_parts)
+
+
+def _parse_mcp_single_server_name(tokens: list[str], *, usage: str) -> tuple[str | None, str | None]:
+    name = tokens[1] if len(tokens) > 1 else None
+    error = None if name else usage
+    return name, error
 
 
 def parse_special_input(text: str) -> str | CommandPayload:
@@ -392,9 +399,17 @@ def parse_special_input(text: str) -> str | CommandPayload:
             if subcmd == "list":
                 return McpListCommand()
             if subcmd == "disconnect":
-                name = tokens[1] if len(tokens) > 1 else None
-                error = None if name else "Usage: /mcp disconnect <server_name>"
+                name, error = _parse_mcp_single_server_name(
+                    tokens,
+                    usage="Usage: /mcp disconnect <server_name>",
+                )
                 return McpDisconnectCommand(server_name=name, error=error)
+            if subcmd == "reconnect":
+                name, error = _parse_mcp_single_server_name(
+                    tokens,
+                    usage="Usage: /mcp reconnect <server_name>",
+                )
+                return McpReconnectCommand(server_name=name, error=error)
             if subcmd == "session":
                 session_tokens = tokens[1:]
                 if not session_tokens:

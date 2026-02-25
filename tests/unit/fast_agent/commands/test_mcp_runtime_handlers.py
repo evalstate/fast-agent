@@ -390,6 +390,42 @@ async def test_handle_mcp_connect_and_disconnect() -> None:
 
 
 @pytest.mark.asyncio
+async def test_handle_mcp_reconnect_attached_server() -> None:
+    manager = _AlreadyAttachedManager()
+    manager.attached.append("demo")
+    ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())
+
+    outcome = await mcp_runtime.handle_mcp_reconnect(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        server_name="demo",
+    )
+
+    message_text = "\n".join(str(message.text) for message in outcome.messages)
+    assert "Reconnected MCP server 'demo'." in message_text
+    assert "Refreshed 2 tools and 4 prompts (0 new)." in message_text
+    assert manager.last_options is not None
+    assert manager.last_options.force_reconnect is True
+
+
+@pytest.mark.asyncio
+async def test_handle_mcp_reconnect_requires_attached_server() -> None:
+    manager = _Manager()
+    ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())
+
+    outcome = await mcp_runtime.handle_mcp_reconnect(
+        ctx,
+        manager=cast("mcp_runtime.McpRuntimeManager", manager),
+        agent_name="main",
+        server_name="missing",
+    )
+
+    message_text = "\n".join(str(message.text) for message in outcome.messages)
+    assert "is not currently attached" in message_text
+
+
+@pytest.mark.asyncio
 async def test_handle_mcp_list_reports_attached_and_detached() -> None:
     manager = _Manager()
     ctx = CommandContext(agent_provider=_Provider(), current_agent_name="main", io=_IO())

@@ -1317,3 +1317,79 @@ async def handle_mcp_disconnect(
     )
 
     return outcome
+
+
+async def handle_mcp_reconnect(
+    ctx,
+    *,
+    manager: McpRuntimeManager,
+    agent_name: str,
+    server_name: str,
+) -> CommandOutcome:
+    del ctx
+    outcome = CommandOutcome()
+
+    try:
+        attached_servers = await manager.list_attached_mcp_servers(agent_name)
+    except Exception as exc:
+        outcome.add_message(f"Failed to list attached MCP servers: {exc}", channel="error")
+        return outcome
+
+    if server_name not in attached_servers:
+        outcome.add_message(
+            (
+                f"MCP server '{server_name}' is not currently attached. "
+                "Use `/mcp connect <target>` to attach it first."
+            ),
+            channel="warning",
+            right_info="mcp",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    try:
+        result = await manager.attach_mcp_server(
+            agent_name,
+            server_name,
+            server_config=None,
+            options=MCPAttachOptions(force_reconnect=True),
+        )
+    except Exception as exc:
+        outcome.add_message(f"Failed to reconnect MCP server: {exc}", channel="error")
+        return outcome
+
+    tools_added = getattr(result, "tools_added", [])
+    prompts_added = getattr(result, "prompts_added", [])
+    tools_total = getattr(result, "tools_total", None)
+    prompts_total = getattr(result, "prompts_total", None)
+    warnings = getattr(result, "warnings", [])
+
+    tools_added_count = len(tools_added)
+    prompts_added_count = len(prompts_added)
+    tools_refreshed_count = (
+        tools_total if isinstance(tools_total, int) and tools_total >= 0 else tools_added_count
+    )
+    prompts_refreshed_count = (
+        prompts_total if isinstance(prompts_total, int) and prompts_total >= 0 else prompts_added_count
+    )
+
+    outcome.add_message(
+        f"Reconnected MCP server '{server_name}'.",
+        right_info="mcp",
+        agent_name=agent_name,
+    )
+    outcome.add_message(
+        _format_refreshed_summary(
+            tools_refreshed_count=tools_refreshed_count,
+            prompts_refreshed_count=prompts_refreshed_count,
+            tools_added_count=tools_added_count,
+            prompts_added_count=prompts_added_count,
+        ),
+        right_info="mcp",
+        agent_name=agent_name,
+    )
+
+    for warning in warnings:
+        outcome.add_message(warning, channel="warning", right_info="mcp", agent_name=agent_name)
+
+    return outcome

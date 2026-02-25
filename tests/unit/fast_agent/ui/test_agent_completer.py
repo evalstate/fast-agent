@@ -703,6 +703,7 @@ def test_get_completions_for_mcp_subcommands() -> None:
     assert "list" in names
     assert "connect" in names
     assert "disconnect" in names
+    assert "reconnect" in names
     assert "session" in names
 
 
@@ -715,6 +716,21 @@ def test_get_completions_for_mcp_disconnect_servers() -> None:
     )
 
     doc = Document("/mcp disconnect d", cursor_position=len("/mcp disconnect d"))
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert "docs" in names
+
+
+def test_get_completions_for_mcp_reconnect_servers() -> None:
+    provider = _ProviderStub(_McpAgentStub(["local", "docs"]))
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", provider),
+    )
+
+    doc = Document("/mcp reconnect d", cursor_position=len("/mcp reconnect d"))
     completions = list(completer.get_completions(doc, None))
     names = [c.text for c in completions]
 

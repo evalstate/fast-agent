@@ -55,6 +55,13 @@ class McpDisconnectCommand(CommandBase):
     kind: Literal["mcp_disconnect"] = "mcp_disconnect"
 
 
+@dataclass(frozen=True, slots=True)
+class McpReconnectCommand(CommandBase):
+    server_name: str | None
+    error: str | None
+    kind: Literal["mcp_reconnect"] = "mcp_reconnect"
+
+
 McpSessionAction = Literal["jar", "new", "use", "clear", "list"]
 
 
@@ -311,6 +318,7 @@ CommandPayload = (
     | McpListCommand
     | McpConnectCommand
     | McpDisconnectCommand
+    | McpReconnectCommand
     | McpSessionCommand
     | ListToolsCommand
     | ListPromptsCommand

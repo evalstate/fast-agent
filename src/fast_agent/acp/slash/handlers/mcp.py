@@ -16,6 +16,28 @@ if TYPE_CHECKING:
     from fast_agent.acp.slash_commands import SlashCommandHandler
 
 
+def _parse_mcp_server_name_argument(
+    tokens: list[str],
+    *,
+    heading: str,
+    subcommand: str,
+) -> str | None:
+    if len(tokens) < 2:
+        return f"{heading}\n\nUsage: /mcp {subcommand} <server_name>"
+    return None
+
+
+async def _refresh_acp_instruction_cache(handler: "SlashCommandHandler") -> None:
+    if not handler._acp_context:
+        return
+    agent = handler._get_current_agent()
+    await handler._acp_context.invalidate_instruction_cache(
+        handler.current_agent_name,
+        getattr(agent, "instruction", None) if agent else None,
+    )
+    await handler._acp_context.send_available_commands_update()
+
+
 async def handle_mcp(handler: "SlashCommandHandler", arguments: str | None = None) -> str:
     heading = "mcp"
     args = (arguments or "").strip()
@@ -312,21 +334,39 @@ async def handle_mcp(handler: "SlashCommandHandler", arguments: str | None = Non
     if subcmd == "disconnect":
         if handler._detach_mcp_server_callback is None:
             return "mcp\n\nRuntime MCP server detachment is not available."
-        if len(tokens) < 2:
-            return f"{heading}\n\nUsage: /mcp disconnect <server_name>"
+        usage_error = _parse_mcp_server_name_argument(
+            tokens,
+            heading=heading,
+            subcommand="disconnect",
+        )
+        if usage_error:
+            return usage_error
         outcome = await mcp_runtime_handlers.handle_mcp_disconnect(
             ctx,
             manager=manager,
             agent_name=handler.current_agent_name,
             server_name=tokens[1],
         )
-        if handler._acp_context:
-            agent = handler._get_current_agent()
-            await handler._acp_context.invalidate_instruction_cache(
-                handler.current_agent_name,
-                getattr(agent, "instruction", None) if agent else None,
-            )
-            await handler._acp_context.send_available_commands_update()
+        await _refresh_acp_instruction_cache(handler)
+        return handler._format_outcome_as_markdown(outcome, heading, io=io)
+
+    if subcmd == "reconnect":
+        if handler._attach_mcp_server_callback is None:
+            return "mcp\n\nRuntime MCP server attachment is not available."
+        usage_error = _parse_mcp_server_name_argument(
+            tokens,
+            heading=heading,
+            subcommand="reconnect",
+        )
+        if usage_error:
+            return usage_error
+        outcome = await mcp_runtime_handlers.handle_mcp_reconnect(
+            ctx,
+            manager=manager,
+            agent_name=handler.current_agent_name,
+            server_name=tokens[1],
+        )
+        await _refresh_acp_instruction_cache(handler)
         return handler._format_outcome_as_markdown(outcome, heading, io=io)
 
     return (
@@ -336,5 +376,6 @@ async def handle_mcp(handler: "SlashCommandHandler", arguments: str | None = Non
         "- /mcp connect <target> [--name <server>] [--auth <token>] [--timeout <seconds>] "
         "[--oauth|--no-oauth] [--reconnect|--no-reconnect]\n"
         "- /mcp session [list [server]|jar [server]|new [server] [--title <title>]|use <server> <session_id>|clear [server|--all]]\n"
-        "- /mcp disconnect <server_name>"
+        "- /mcp disconnect <server_name>\n"
+        "- /mcp reconnect <server_name>"
     )

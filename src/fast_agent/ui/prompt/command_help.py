@@ -37,6 +37,7 @@ def render_help_lines(*, show_webclear_help: bool) -> list[str]:
         "  /mcp connect <target> - Connect MCP server at runtime",
         "      [dim]flags: --name --auth <token-value> --timeout --oauth/--no-oauth --reconnect[/dim]",
         "  /mcp disconnect <name> - Disconnect attached MCP server",
+        "  /mcp reconnect <name> - Reconnect attached MCP server",
         "  /mcp session [server] - List cookies for a server identity (active marker ▶)",
         "  /mcp session list [server] - List cookies for a server identity",
         "  /mcp session jar [server] - Show grouped cookie jar entries",
