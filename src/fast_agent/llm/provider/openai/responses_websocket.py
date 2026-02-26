@@ -249,6 +249,7 @@ class StatefulContinuationResponsesWsPlanner:
             return self._planned_create(full_arguments)
 
         incremental_items = copy.deepcopy(input_items[len(prior_input) :])
+        incremental_items = _strip_replayed_response_items(incremental_items)
         if not incremental_items:
             return self._planned_create(full_arguments)
 
@@ -394,6 +395,36 @@ def _extract_input_items(arguments: Mapping[str, Any]) -> list[Any] | None:
     if not isinstance(input_items, list):
         return None
     return input_items
+
+
+def _strip_replayed_response_items(items: list[Any]) -> list[Any]:
+    """Drop replayed assistant output from the front of continuation input.
+
+    When using ``previous_response_id`` the service already has prior model output
+    in the response chain. Re-sending assistant output items (reasoning,
+    function-call items, assistant messages) can trigger duplicate item-id
+    errors, so continuation payloads should start from the first new client item.
+    """
+    first_new_index = 0
+    for item in items:
+        if _is_replayed_response_item(item):
+            first_new_index += 1
+            continue
+        break
+    return items[first_new_index:]
+
+
+def _is_replayed_response_item(item: Any) -> bool:
+    if not isinstance(item, Mapping):
+        return False
+    item_type = item.get("type")
+    if item_type == "reasoning":
+        return True
+    if item_type == "function_call":
+        return True
+    if item_type == "message":
+        return item.get("role") == "assistant"
+    return False
 
 
 def _fingerprint_input_items(input_items: list[Any] | None) -> list[str] | None:

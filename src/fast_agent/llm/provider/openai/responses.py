@@ -101,6 +101,13 @@ class ResponsesLLM(
         self._tool_call_diagnostics: dict[str, Any] | None = None
         self._last_ws_request_type: str | None = None
         self._last_ws_request_mode: Literal["create", "continuation"] | None = None
+        self._last_ws_turn_outcome: Literal["fresh", "reused", "reconnected"] | None = None
+        self._ws_turn_counters: dict[str, int] = {
+            "total": 0,
+            "fresh": 0,
+            "reused": 0,
+            "reconnected": 0,
+        }
         self._file_id_cache: dict[str, str] = {}
         self._transport: ResponsesTransport = "sse"
         self._last_transport_used: Literal["sse", "websocket"] | None = None
@@ -172,6 +179,45 @@ class ResponsesLLM(
     def configured_transport(self) -> ResponsesTransport:
         """Return configured transport preference for this LLM instance."""
         return self._transport
+
+    @property
+    def websocket_turn_indicator(self) -> str | None:
+        """Small glyph representing the websocket outcome for the last turn."""
+        if self._last_ws_turn_outcome is None:
+            return None
+        if self._last_ws_turn_outcome == "reconnected":
+            return "↗"
+        if self._last_ws_turn_outcome == "reused":
+            return "↔"
+        if self._last_ws_turn_outcome == "fresh":
+            return "↗"
+        return None
+
+    @property
+    def websocket_turn_metrics(self) -> dict[str, int] | None:
+        """Cumulative websocket turn counters for this LLM instance."""
+        if self._ws_turn_counters["total"] <= 0:
+            return None
+        return dict(self._ws_turn_counters)
+
+    def _record_ws_turn_outcome(self, outcome: Literal["fresh", "reused", "reconnected"]) -> None:
+        self._last_ws_turn_outcome = outcome
+        self._ws_turn_counters["total"] += 1
+        self._ws_turn_counters[outcome] += 1
+
+    def _websocket_diagnostics_payload(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {"transport": self._last_transport_used or "unknown"}
+        if self._last_transport_used != "websocket":
+            return payload
+        if self._last_ws_request_type:
+            payload["websocket_request_type"] = self._last_ws_request_type
+        if self._last_ws_request_mode is not None:
+            payload["websocket_request_mode"] = self._last_ws_request_mode
+        if self._last_ws_turn_outcome is not None:
+            payload["websocket_turn_outcome"] = self._last_ws_turn_outcome
+        if metrics := self.websocket_turn_metrics:
+            payload["websocket_turn_metrics"] = metrics
+        return payload
 
     def _resolve_transport_setting(self, raw_value: Any, settings: Any) -> ResponsesTransport:
         value = raw_value
@@ -280,6 +326,59 @@ class ResponsesLLM(
         if idle_age_seconds is not None:
             diagnostics["idle_age_seconds"] = round(idle_age_seconds, 3)
         return diagnostics
+
+    def _websocket_retry_status_suffix(
+        self,
+        *,
+        error: ResponsesWebSocketError | None,
+        diagnostics: dict[str, Any] | None,
+    ) -> str:
+        parts: list[str] = []
+        if error is not None:
+            if error.error_code:
+                parts.append(f"code={error.error_code}")
+            if error.status is not None:
+                parts.append(f"status={error.status}")
+            if error.error_param:
+                parts.append(f"param={error.error_param}")
+            error_text = self._websocket_retry_error_preview(str(error))
+            if error_text:
+                parts.append(f"err={error_text}")
+
+        if diagnostics is not None:
+            close_code = diagnostics.get("websocket_close_code")
+            if close_code is not None:
+                parts.append(f"close={close_code}")
+
+            websocket_closed = diagnostics.get("websocket_closed")
+            if isinstance(websocket_closed, bool):
+                parts.append(f"ws_closed={'yes' if websocket_closed else 'no'}")
+
+            idle_age = diagnostics.get("idle_age_seconds")
+            if isinstance(idle_age, (float, int)):
+                parts.append(f"idle={idle_age:.3f}s")
+
+        return " ".join(parts)
+
+    @staticmethod
+    def _websocket_retry_error_preview(value: str, *, limit: int = 120) -> str:
+        compact = " ".join(value.split())
+        if not compact:
+            return ""
+        if len(compact) <= limit:
+            return compact
+        return f"{compact[:limit - 3]}..."
+
+    def _show_ws_debug_status(self, message: str) -> None:
+        if not self._ws_debug_inline:
+            return
+        try:
+            from rich.text import Text
+
+            self.display.show_status_message(Text(message, style="dim"))
+        except Exception:
+            # UI status notification should never affect completion flow.
+            pass
 
     def _ws_input_count(self, payload: dict[str, Any]) -> int | None:
         input_items = payload.get("input")
@@ -584,6 +683,7 @@ class ResponsesLLM(
         self._log_chat_progress(self.chat_turn(), model=display_model)
         self._last_ws_request_type = None
         self._last_ws_request_mode = None
+        self._last_ws_turn_outcome = None
 
         try:
             if transport == "sse":
@@ -658,13 +758,14 @@ class ResponsesLLM(
 
         tool_calls = self._extract_tool_calls(response)
         tool_call_diagnostics = self._consume_tool_call_diagnostics()
-        if tool_call_diagnostics:
-            diagnostics_payload = dict(tool_call_diagnostics)
-            diagnostics_payload["transport"] = self._last_transport_used or "unknown"
-            if self._last_transport_used == "websocket" and self._last_ws_request_type:
-                diagnostics_payload["websocket_request_type"] = self._last_ws_request_type
-                if self._last_ws_request_mode is not None:
-                    diagnostics_payload["websocket_request_mode"] = self._last_ws_request_mode
+        diagnostics_payload = dict(tool_call_diagnostics) if tool_call_diagnostics else None
+        websocket_diagnostics = self._websocket_diagnostics_payload()
+        if diagnostics_payload is not None:
+            diagnostics_payload.update(websocket_diagnostics)
+        elif self._last_transport_used == "websocket":
+            diagnostics_payload = websocket_diagnostics
+
+        if diagnostics_payload:
             if channels is None:
                 channels = {}
             channels[RESPONSES_DIAGNOSTICS_CHANNEL] = [
@@ -786,6 +887,7 @@ class ResponsesLLM(
 
         last_error: ResponsesWebSocketError | None = None
         reconnected = False
+        reconnect_status_suffix = ""
         for attempt in range(2):
             connection, is_reusable = await self._ws_connections.acquire(_create_connection)
             reused_existing_connection = is_reusable and connection.last_used_monotonic > 0.0
@@ -838,25 +940,33 @@ class ResponsesLLM(
                 planner.commit(arguments, planned_request, response)
                 keep_connection = True
                 if reconnected:
+                    self._record_ws_turn_outcome("reconnected")
                     try:
                         from rich.text import Text
 
+                        reconnect_message = "WebSocket reconnected"
+                        if self._ws_debug_inline and reconnect_status_suffix:
+                            reconnect_message += f" ({reconnect_status_suffix})"
                         self.display.show_status_message(
-                            Text.from_markup("[dim]WebSocket reconnected[/dim]")
+                            Text(reconnect_message, style="dim")
                         )
                     except Exception:
                         # UI status notification should never affect completion flow.
                         pass
                 elif reused_existing_connection:
-                    try:
-                        from rich.text import Text
+                    self._record_ws_turn_outcome("reused")
+                    if self._ws_debug_inline:
+                        try:
+                            from rich.text import Text
 
-                        self.display.show_status_message(
-                            Text.from_markup("[dim]WebSocket reused[/dim]")
-                        )
-                    except Exception:
-                        # UI status notification should never affect completion flow.
-                        pass
+                            self.display.show_status_message(
+                                Text.from_markup("[dim]WebSocket reused[/dim]")
+                            )
+                        except Exception:
+                            # UI status notification should never affect completion flow.
+                            pass
+                else:
+                    self._record_ws_turn_outcome("fresh")
                 return response, streamed_summary, normalized_input
             except ResponsesWebSocketError as error:
                 planner.rollback(error, stream_started=error.stream_started)
@@ -913,6 +1023,10 @@ class ResponsesLLM(
 
             if retry_after_release:
                 reconnected = True
+                reconnect_status_suffix = self._websocket_retry_status_suffix(
+                    error=last_error,
+                    diagnostics=reconnect_diagnostics,
+                )
                 retry_data: dict[str, Any] = {
                     "model": model_name,
                     "url": ws_url,
@@ -925,6 +1039,10 @@ class ResponsesLLM(
                     "Reusable Responses websocket connection unavailable; re-establishing connection",
                     data=retry_data,
                 )
+                if reconnect_status_suffix:
+                    self._show_ws_debug_status(f"WS reconnecting {reconnect_status_suffix}")
+                else:
+                    self._show_ws_debug_status("WS reconnecting")
                 continue
 
         if last_error is not None:
@@ -954,3 +1072,10 @@ class ResponsesLLM(
         self._tool_call_diagnostics = None
         self._last_ws_request_type = None
         self._last_ws_request_mode = None
+        self._last_ws_turn_outcome = None
+        self._ws_turn_counters = {
+            "total": 0,
+            "fresh": 0,
+            "reused": 0,
+            "reconnected": 0,
+        }

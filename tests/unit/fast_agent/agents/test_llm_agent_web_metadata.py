@@ -3,13 +3,16 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from mcp.types import TextContent
+from mcp.types import CallToolRequest, CallToolRequestParams, TextContent
 from rich.text import Text
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.agents.llm_decorator import RemovedContentSummary
 from fast_agent.constants import ANTHROPIC_CITATIONS_CHANNEL, ANTHROPIC_SERVER_TOOLS_CHANNEL
+from fast_agent.llm.provider.openai.responses import ResponsesLLM
+from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.usage_tracking import FastAgentUsage, TurnUsage
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.console_display import ConsoleDisplay
@@ -148,6 +151,64 @@ async def test_show_assistant_message_renders_web_metadata_for_final_turn() -> N
     plain = additional.plain
     assert "Sources" in plain
     assert "Web activity: web_search x1" in plain
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_show_assistant_message_appends_websocket_indicator_to_model() -> None:
+    agent = LlmAgent(AgentConfig("websocket-indicator"))
+    capture_display = _CaptureDisplay()
+    agent.display = capture_display
+    llm = ResponsesLLM(provider=Provider.RESPONSES, model="gpt-5.3-codex")
+    llm._record_ws_turn_outcome("reused")
+    agent._llm = llm
+
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="done")],
+        stop_reason=LlmStopReason.END_TURN,
+    )
+
+    await agent.show_assistant_message(message)
+
+    assert len(capture_display.calls) == 1
+    call = capture_display.calls[0]
+    assert call.get("model") == "gpt-5.3-codex ↔"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_show_assistant_message_places_websocket_indicator_before_context_percentage() -> None:
+    agent = LlmAgent(AgentConfig("websocket-indicator-context"))
+    capture_display = _CaptureDisplay()
+    agent.display = capture_display
+    llm = ResponsesLLM(provider=Provider.RESPONSES, model="gpt-5.3-codex")
+    llm._record_ws_turn_outcome("reused")
+    llm.usage_accumulator.set_context_window_override(1000)
+    llm.usage_accumulator.add_turn(
+        TurnUsage.from_fast_agent(
+            FastAgentUsage(input_chars=90, output_chars=10, model_type="test"),
+            model="gpt-5.3-codex",
+        )
+    )
+    agent._llm = llm
+
+    tool_call = CallToolRequest(
+        method="tools/call",
+        params=CallToolRequestParams(name="demo-tool", arguments={}),
+    )
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="need tool")],
+        tool_calls={"call_1": tool_call},
+        stop_reason=LlmStopReason.TOOL_USE,
+    )
+
+    await agent.show_assistant_message(message)
+
+    assert len(capture_display.calls) == 1
+    call = capture_display.calls[0]
+    assert call.get("model") == "gpt-5.3-codex ↔ (10.0%)"
 
 
 @pytest.mark.unit

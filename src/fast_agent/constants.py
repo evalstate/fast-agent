@@ -45,8 +45,8 @@ DEFAULT_STREAMING_TIMEOUT = 300.0
 DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT = 8192
 """Baseline byte limit for ACP terminal output when no model info exists."""
 
-TERMINAL_OUTPUT_TOKEN_RATIO = 0.25
-"""Target fraction of model max output tokens to budget for terminal output."""
+TERMINAL_OUTPUT_TOKEN_RATIO = 0.83
+"""Target fraction of model max output tokens to budget for terminal output (~2/3 after headroom)."""
 
 TERMINAL_OUTPUT_TOKEN_HEADROOM_RATIO = 0.2
 """Leave headroom for tool wrapper text and other turn data."""
@@ -55,8 +55,8 @@ TERMINAL_OUTPUT_TOKEN_HEADROOM_RATIO = 0.2
 TERMINAL_BYTES_PER_TOKEN = 3.3
 """Bytes-per-token estimate for terminal output limits and display."""
 
-MAX_TERMINAL_OUTPUT_BYTE_LIMIT = 32768
-"""Hard cap on default ACP terminal output to avoid oversized tool payloads."""
+MAX_TERMINAL_OUTPUT_BYTE_LIMIT = 100000
+"""Hard cap on default ACP terminal output (~30k tokens with TERMINAL_BYTES_PER_TOKEN=3.3)."""
 
 DEFAULT_AGENT_INSTRUCTION = """You are a helpful AI Agent.
 

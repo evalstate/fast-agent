@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from mcp.types import CallToolResult, Tool
 
-from fast_agent.constants import DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+from fast_agent.constants import DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT, TERMINAL_BYTES_PER_TOKEN
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.helpers.content_helpers import text_content
 
@@ -232,6 +232,9 @@ class ACPTerminalRuntime:
                 create_params["outputByteLimit"] = arguments["outputByteLimit"]
             else:
                 create_params["outputByteLimit"] = self._default_output_byte_limit
+            output_byte_limit = create_params["outputByteLimit"]
+            if not isinstance(output_byte_limit, int) or output_byte_limit <= 0:
+                output_byte_limit = self._default_output_byte_limit
 
             create_result = await self.connection._conn.send_request(
                 "terminal/create", create_params
@@ -326,7 +329,15 @@ class ACPTerminalRuntime:
             result_text = output_text
 
             if truncated:
-                result_text = f"[Output truncated]\n{result_text}"
+                estimated_tokens = max(int(output_byte_limit / TERMINAL_BYTES_PER_TOKEN), 1)
+                result_text = "\n".join(
+                    [
+                        "[Output truncated by ACP terminal outputByteLimit: "
+                        f"{output_byte_limit} bytes (~{estimated_tokens} tokens). "
+                        "Client returned partial output only.]",
+                        result_text,
+                    ]
+                )
 
             if signal:
                 result_text = f"{result_text}\n\n[Terminated by signal: {signal}]"

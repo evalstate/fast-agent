@@ -298,6 +298,7 @@ class ShellRuntime:
 
                 output_segments: list[str] = []
                 output_bytes = 0
+                total_output_bytes = 0
                 output_truncated = False
                 truncation_notice_printed = False
                 had_stream_output = False
@@ -313,7 +314,8 @@ class ShellRuntime:
                 watchdog_task = None
 
                 async def stream_output(stream, style: str | None, is_stderr: bool = False) -> None:
-                    nonlocal output_bytes, output_truncated, truncation_notice_printed
+                    nonlocal output_bytes, total_output_bytes, output_truncated
+                    nonlocal truncation_notice_printed
                     nonlocal displayed_line_count, display_ellipsis_printed
                     nonlocal had_stream_output
                     if not stream:
@@ -325,8 +327,9 @@ class ShellRuntime:
                         had_stream_output = True
                         text = line.decode(errors="replace")
                         output_text = text if not is_stderr else f"[stderr] {text}"
+                        output_blob = output_text.encode("utf-8", errors="replace")
+                        total_output_bytes += len(output_blob)
                         if not output_truncated:
-                            output_blob = output_text.encode("utf-8", errors="replace")
                             remaining = self._output_byte_limit - output_bytes
                             if remaining > 0:
                                 if len(output_blob) <= remaining:
@@ -350,12 +353,17 @@ class ShellRuntime:
                                 estimated_tokens = int(
                                     self._output_byte_limit / TERMINAL_BYTES_PER_TOKEN
                                 )
-                                message = Text(
-                                    "▶ Shell to agent output truncated (> ~", style="black on red"
+                                console.console.print(
+                                    " ".join(
+                                        [
+                                            "▶ Shell to agent output reached",
+                                            f"{self._output_byte_limit} bytes",
+                                            f"(~{estimated_tokens} tokens);",
+                                            "additional output omitted from tool result.",
+                                        ]
+                                    ),
+                                    style="black on red",
                                 )
-                                message.append(str(estimated_tokens))
-                                message.append(" tokens)", style="black on red")
-                                console.console.print(message)
                             truncation_notice_printed = True
 
                         if use_live_shell_display:
@@ -506,14 +514,25 @@ class ShellRuntime:
                         return_code = -1
 
                 # Build result based on timeout or normal completion
+                truncation_summary: str | None = None
+                if output_truncated:
+                    retained_tokens = max(int(output_bytes / TERMINAL_BYTES_PER_TOKEN), 1)
+                    total_tokens = max(int(total_output_bytes / TERMINAL_BYTES_PER_TOKEN), 1)
+                    omitted_bytes = max(total_output_bytes - output_bytes, 0)
+                    truncation_summary = (
+                        "[Output truncated: retained "
+                        f"{output_bytes} of {total_output_bytes} bytes "
+                        f"(~{retained_tokens} of ~{total_tokens} tokens); "
+                        f"omitted {omitted_bytes} bytes. "
+                        "Increase shell_execution.output_byte_limit to retain more.]"
+                    )
+
                 if timeout_occurred[0]:
                     combined_output = "".join(output_segments)
                     if combined_output and not combined_output.endswith("\n"):
                         combined_output += "\n"
-                    if output_truncated:
-                        combined_output += (
-                            f"[Output truncated after {self._output_byte_limit} bytes]\n"
-                        )
+                    if truncation_summary:
+                        combined_output += f"{truncation_summary}\n"
                     combined_output += (
                         f"(timeout after {self._timeout_seconds}s - process terminated)"
                     )
@@ -533,10 +552,8 @@ class ShellRuntime:
                     # Add explicit exit code message for the LLM
                     if combined_output and not combined_output.endswith("\n"):
                         combined_output += "\n"
-                    if output_truncated:
-                        combined_output += (
-                            f"[Output truncated after {self._output_byte_limit} bytes]\n"
-                        )
+                    if truncation_summary:
+                        combined_output += f"{truncation_summary}\n"
                     combined_output += f"process exit code was {return_code}"
 
                     result = CallToolResult(

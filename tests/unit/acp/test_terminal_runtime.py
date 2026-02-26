@@ -3,6 +3,7 @@
 from types import SimpleNamespace
 
 import pytest
+from mcp.types import TextContent
 
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
 from fast_agent.constants import DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
@@ -180,6 +181,28 @@ async def test_custom_default_output_byte_limit_overrides_baseline():
 
     _, create_params = conn.calls[0]
     assert create_params["outputByteLimit"] == custom_limit
+
+
+@pytest.mark.asyncio
+async def test_truncated_output_includes_limit_context() -> None:
+    custom_limit = 12000
+    runtime, _ = build_runtime(
+        responses=[
+            {"terminalId": "terminal-truncated"},
+            {"exitCode": 0, "signal": None},
+            {"output": "partial output", "truncated": True, "exitCode": 0},
+            {},
+        ],
+        default_limit=custom_limit,
+    )
+
+    result = await runtime.execute({"command": "echo test"})
+
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    text = result.content[0].text
+    assert "[Output truncated by ACP terminal outputByteLimit" in text
+    assert "12000 bytes" in text
 
 
 @pytest.mark.asyncio

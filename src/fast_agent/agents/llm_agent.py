@@ -266,6 +266,11 @@ class LlmAgent(LlmDecorator):
         display_name = name if name is not None else self.name
         display_model = model if model is not None else (self.llm.model_name if self.llm else None)
 
+        if display_model is not None and self.llm is not None:
+            websocket_indicator = getattr(self.llm, "websocket_turn_indicator", None)
+            if isinstance(websocket_indicator, str) and websocket_indicator:
+                display_model = f"{display_model} {websocket_indicator}"
+
         if message.tool_calls and display_model is not None:
             usage_accumulator = self.usage_accumulator
             context_percentage = (

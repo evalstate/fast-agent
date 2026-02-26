@@ -19,9 +19,17 @@ def test_default_terminal_output_limit_falls_back_for_unknown_model() -> None:
 def test_default_terminal_output_limit_scaled_for_large_output_models() -> None:
     # gpt-4.1 is defined in ModelDatabase with max_output_tokens=32768.
     # With the current budgeting constants this should be well above the baseline,
-    # but still comfortably below 64KB.
+    # and still below the hard cap.
     limit = AgentACPServer._calculate_terminal_output_limit_for_model("gpt-4.1")
-    assert DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT < limit < 65536
+    assert DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT < limit < MAX_TERMINAL_OUTPUT_BYTE_LIMIT
+
+
+def test_default_terminal_output_limit_targets_two_thirds_of_model_output() -> None:
+    # openai/gpt-oss-120b has max_output_tokens=32766 in ModelDatabase.
+    # Budgeting should retain roughly ~2/3 after headroom and remain under hard cap.
+    limit = AgentACPServer._calculate_terminal_output_limit_for_model("openai/gpt-oss-120b")
+    assert limit > 70000
+    assert limit < MAX_TERMINAL_OUTPUT_BYTE_LIMIT
 
 
 def test_default_terminal_output_limit_is_capped() -> None:
@@ -30,4 +38,3 @@ def test_default_terminal_output_limit_is_capped() -> None:
         AgentACPServer._calculate_terminal_output_limit_for_model("o3")
         == MAX_TERMINAL_OUTPUT_BYTE_LIMIT
     )
-

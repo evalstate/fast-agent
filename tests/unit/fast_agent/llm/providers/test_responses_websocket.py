@@ -199,6 +199,30 @@ def _build_input_message(text: str) -> dict[str, Any]:
     }
 
 
+def _build_assistant_message(text: str) -> dict[str, Any]:
+    return {
+        "type": "message",
+        "role": "assistant",
+        "content": [{"type": "output_text", "text": text}],
+    }
+
+
+def _build_reasoning_item(reasoning_id: str) -> dict[str, Any]:
+    return {
+        "type": "reasoning",
+        "id": reasoning_id,
+        "encrypted_content": "enc",
+    }
+
+
+def _build_tool_result(call_id: str, output: str) -> dict[str, Any]:
+    return {
+        "type": "function_call_output",
+        "call_id": call_id,
+        "output": output,
+    }
+
+
 def test_stateless_planner_always_create() -> None:
     planner = StatelessResponsesWsPlanner()
     first = planner.plan(_build_ws_arguments([_build_input_message("one")]))
@@ -227,6 +251,47 @@ def test_continuation_planner_prefix_extension_uses_previous_response_id() -> No
     assert planned.arguments["previous_response_id"] == "resp_1"
     assert planned.arguments["input"] == [_build_input_message("two")]
     assert planned.arguments["model"] == "gpt-5.3-codex"
+
+
+def test_continuation_planner_strips_replayed_assistant_items_from_incremental_input() -> None:
+    planner = StatefulContinuationResponsesWsPlanner()
+    first_arguments = _build_ws_arguments([_build_input_message("one")])
+    planner.commit(first_arguments, planner.plan(first_arguments), {"id": "resp_1"})
+
+    second_arguments = _build_ws_arguments(
+        [
+            _build_input_message("one"),
+            _build_reasoning_item("rs_1"),
+            _build_assistant_message("answer"),
+            _build_tool_result("call_1", "ok"),
+            _build_input_message("two"),
+        ]
+    )
+    planned = planner.plan(second_arguments)
+
+    assert planned.arguments["previous_response_id"] == "resp_1"
+    assert planned.arguments["input"] == [
+        _build_tool_result("call_1", "ok"),
+        _build_input_message("two"),
+    ]
+
+
+def test_continuation_planner_replayed_assistant_only_suffix_forces_create() -> None:
+    planner = StatefulContinuationResponsesWsPlanner()
+    first_arguments = _build_ws_arguments([_build_input_message("one")])
+    planner.commit(first_arguments, planner.plan(first_arguments), {"id": "resp_1"})
+
+    replay_only = _build_ws_arguments(
+        [
+            _build_input_message("one"),
+            _build_reasoning_item("rs_2"),
+            _build_assistant_message("answer"),
+        ]
+    )
+    planned = planner.plan(replay_only)
+
+    assert planned.event_type == RESPONSES_CREATE_EVENT_TYPE
+    assert "previous_response_id" not in planned.arguments
 
 
 def test_continuation_planner_non_prefix_forces_create() -> None:
@@ -1164,6 +1229,7 @@ async def test_websocket_success_keeps_connection_for_reuse() -> None:
     assert streamed_summary == []
     assert normalized_input == input_items
     assert harness._release_manager.release_keep_values == [True]
+    assert harness.websocket_turn_indicator == "↗"
 
 
 @pytest.mark.asyncio
@@ -1192,6 +1258,7 @@ async def test_websocket_streaming_timeout_releases_reusable_connection() -> Non
 @pytest.mark.asyncio
 async def test_websocket_reused_connection_shows_status_message() -> None:
     harness = _ConnectionLifecycleHarness()
+    harness._ws_debug_inline = True
     harness._release_manager.connection.last_used_monotonic = 42.0
     params = RequestParams(model="gpt-5.3-codex")
     input_items = [
@@ -1213,6 +1280,27 @@ async def test_websocket_reused_connection_shows_status_message() -> None:
     assert streamed_summary == []
     assert normalized_input == input_items
     assert "WebSocket reused" in harness._capturing_display.status_messages
+    assert harness.websocket_turn_indicator == "↔"
+
+
+@pytest.mark.asyncio
+async def test_websocket_reused_connection_suppresses_status_message_without_debug() -> None:
+    harness = _ConnectionLifecycleHarness()
+    harness._release_manager.connection.last_used_monotonic = 42.0
+    params = RequestParams(model="gpt-5.3-codex")
+
+    response, streamed_summary, normalized_input = await harness._responses_completion_ws(
+        input_items=_ws_input_items("hello"),
+        request_params=params,
+        tools=None,
+        model_name="gpt-5.3-codex",
+    )
+
+    assert getattr(response, "status", None) == "completed"
+    assert streamed_summary == []
+    assert normalized_input == _ws_input_items("hello")
+    assert "WebSocket reused" not in harness._capturing_display.status_messages
+    assert harness.websocket_turn_indicator == "↔"
 
 
 @pytest.mark.asyncio
@@ -1263,6 +1351,44 @@ async def test_websocket_reestablishes_stale_reused_socket_once() -> None:
     assert reconnect_log_data.get("stream_started") is False
     assert reconnect_log_data.get("websocket_closed") is False
     assert "WebSocket reconnected" in harness._capturing_display.status_messages
+    assert harness.websocket_turn_indicator == "↗"
+
+
+@pytest.mark.asyncio
+async def test_websocket_reestablish_debug_status_includes_diagnostics() -> None:
+    harness = _ConnectionLifecycleHarness()
+    harness._ws_debug_inline = True
+    stale_reused = ManagedWebSocketConnection(
+        session=_FakeSession(),
+        websocket=_FakeWebSocket(fail_send_times=1),
+        last_used_monotonic=123.0,
+    )
+    fresh = ManagedWebSocketConnection(session=_FakeSession(), websocket=_FakeWebSocket())
+    harness._ws_connections = _SequenceConnectionManager([stale_reused, fresh])
+    params = RequestParams(model="gpt-5.3-codex")
+
+    response, streamed_summary, normalized_input = await harness._responses_completion_ws(
+        input_items=_ws_input_items("hello"),
+        request_params=params,
+        tools=None,
+        model_name="gpt-5.3-codex",
+    )
+
+    assert getattr(response, "status", None) == "completed"
+    assert streamed_summary == []
+    assert normalized_input == _ws_input_items("hello")
+    assert any(
+        "WS reconnecting" in message
+        and "ws_closed=no" in message
+        and "err=socket closed" in message
+        for message in harness._capturing_display.status_messages
+    )
+    assert any(
+        "WebSocket reconnected" in message
+        and "ws_closed=no" in message
+        and "err=socket closed" in message
+        for message in harness._capturing_display.status_messages
+    )
 
 
 @pytest.mark.asyncio
@@ -1275,6 +1401,7 @@ async def test_websocket_reestablishes_stale_reused_socket_once() -> None:
 )
 async def test_websocket_retries_on_recoverable_server_error_codes(error_code: str) -> None:
     harness = _ContinuationConnectionLifecycleHarness()
+    harness._ws_debug_inline = True
     first_connection = ManagedWebSocketConnection(session=_FakeSession(), websocket=_FakeWebSocket())
     second_connection = ManagedWebSocketConnection(session=_FakeSession(), websocket=_FakeWebSocket())
     manager = _PlannedAcquireConnectionManager(
@@ -1309,3 +1436,15 @@ async def test_websocket_retries_on_recoverable_server_error_codes(error_code: s
     assert first_payload["type"] == RESPONSES_CREATE_EVENT_TYPE
     assert second_payload["type"] == RESPONSES_CREATE_EVENT_TYPE
     assert "previous_response_id" not in second_payload
+    assert any(
+        "WS reconnecting" in message
+        and f"code={error_code}" in message
+        and "err=recoverable websocket error" in message
+        for message in harness._capturing_display.status_messages
+    )
+    assert any(
+        "WebSocket reconnected" in message
+        and f"code={error_code}" in message
+        and "err=recoverable websocket error" in message
+        for message in harness._capturing_display.status_messages
+    )

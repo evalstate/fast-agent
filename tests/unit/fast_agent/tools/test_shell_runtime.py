@@ -161,6 +161,27 @@ async def test_execute_command_with_exit_code() -> None:
 
 
 @pytest.mark.asyncio
+async def test_execute_reports_informative_truncation_summary() -> None:
+    logger = logging.getLogger("shell-runtime-test")
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logger,
+        timeout_seconds=10,
+        output_byte_limit=120,
+    )
+
+    long_echo = "echo " + ("x" * 2000)
+    result = await runtime.execute({"command": long_echo})
+
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    text = result.content[0].text
+    assert "[Output truncated: retained" in text
+    assert "Increase shell_execution.output_byte_limit to retain more." in text
+    assert "omitted" in text
+
+
+@pytest.mark.asyncio
 async def test_execute_with_missing_working_directory_returns_actionable_error(
     tmp_path: Path,
 ) -> None:
