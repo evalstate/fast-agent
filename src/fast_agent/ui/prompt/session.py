@@ -9,6 +9,7 @@ import platform
 import shlex
 import shutil
 import time
+from dataclasses import dataclass
 from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -19,6 +20,7 @@ from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import InMemoryHistory
 from rich import print as rich_print
+from rich.text import Text
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
@@ -55,6 +57,7 @@ from fast_agent.ui.command_payloads import (
     SwitchAgentCommand,
 )
 from fast_agent.ui.mcp_display import render_mcp_status
+from fast_agent.ui.message_primitives import MessageType
 from fast_agent.ui.model_display import format_model_display
 from fast_agent.ui.prompt.alert_flags import _resolve_alert_flags_from_history
 from fast_agent.ui.prompt.completer import AgentCompleter
@@ -304,13 +307,42 @@ help_message_shown: bool = False
 # Track which agents have shown their info
 _agent_info_shown = set()
 
+
+@dataclass(slots=True)
+class StartupNotice:
+    text: str
+    render_markdown: bool = False
+    title: str | None = None
+    right_info: str | None = None
+    agent_name: str | None = None
+
+
 # One-off notices to render at the top of the prompt UI
-_startup_notices: list[str] = []
+_startup_notices: list[str | StartupNotice] = []
 
 
 def queue_startup_notice(notice: str) -> None:
     if notice:
         _startup_notices.append(notice)
+
+
+def queue_startup_markdown_notice(
+    notice: str,
+    *,
+    title: str | None = None,
+    right_info: str | None = None,
+    agent_name: str | None = None,
+) -> None:
+    if notice:
+        _startup_notices.append(
+            StartupNotice(
+                text=notice,
+                render_markdown=True,
+                title=title,
+                right_info=right_info,
+                agent_name=agent_name,
+            )
+        )
 
 
 async def show_mcp_status(agent_name: str, agent_provider: "AgentApp | None") -> None:
@@ -1204,6 +1236,30 @@ async def get_enhanced_input(
 
             if agent_provider and not is_human_input and _startup_notices:
                 for notice in _startup_notices:
+                    if isinstance(notice, StartupNotice) and notice.render_markdown:
+                        target_agent_name = notice.agent_name or agent_name
+                        target_display = None
+                        try:
+                            target_agent = agent_provider._agent(target_agent_name)
+                            target_display = getattr(target_agent, "display", None)
+                        except Exception:
+                            target_display = None
+
+                        if target_display is not None:
+                            if notice.title:
+                                target_display.show_status_message(Text(notice.title, style="bold"))
+                            target_display.display_message(
+                                content=notice.text,
+                                message_type=MessageType.ASSISTANT,
+                                name=target_agent_name,
+                                right_info=notice.right_info or "",
+                                truncate_content=False,
+                                render_markdown=True,
+                            )
+                        else:
+                            rich_print(notice.text)
+                        continue
+
                     rich_print(notice)
                 _startup_notices.clear()
 

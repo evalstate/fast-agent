@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import typer
-from rich.markup import escape as escape_markup
 
 from fast_agent.cli.commands.server_helpers import add_servers_to_config
 from fast_agent.cli.constants import RESUME_LATEST_SENTINEL
@@ -157,7 +156,10 @@ async def _resume_session_if_requested(agent_app, request: AgentRunRequest) -> N
         return
 
     from fast_agent.session import get_session_manager
-    from fast_agent.ui.enhanced_prompt import queue_startup_notice
+    from fast_agent.ui.enhanced_prompt import (
+        queue_startup_markdown_notice,
+        queue_startup_notice,
+    )
 
     manager = get_session_manager()
     session_id = None if request.resume in ("", RESUME_LATEST_SENTINEL) else request.resume
@@ -230,8 +232,12 @@ async def _resume_session_if_requested(agent_app, request: AgentRunRequest) -> N
     assistant_text = _find_last_assistant_text(list(preview_history))
     if assistant_text:
         if interactive_notice:
-            queue_startup_notice("[dim]Last assistant message:[/dim]")
-            queue_startup_notice(escape_markup(assistant_text))
+            queue_startup_markdown_notice(
+                assistant_text,
+                title="Last assistant message",
+                right_info="session",
+                agent_name=getattr(preview_agent, "name", None),
+            )
         else:
             typer.echo("Last assistant message:", err=True)
             typer.echo(assistant_text, err=True)
