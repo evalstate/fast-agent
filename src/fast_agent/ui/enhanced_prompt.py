@@ -18,6 +18,7 @@ from fast_agent.ui.prompt.keybindings import AgentKeyBindings, create_keybinding
 from fast_agent.ui.prompt.parser import parse_special_input
 from fast_agent.ui.prompt.session import (
     ShellPrefixLexer,
+    StartupNotice,
     _display_agent_info_helper,
     get_argument_input,
     get_selection_input,
@@ -53,7 +54,7 @@ _copy_notice: str | None = None
 _copy_notice_until: float = 0.0
 help_message_shown: bool = False
 _agent_info_shown: set[str] = set()
-_startup_notices: list[str] = []
+_startup_notices: list[str | StartupNotice] = []
 
 
 def _sync_to_session() -> None:
@@ -102,6 +103,27 @@ def queue_startup_notice(notice: str) -> None:
     _sync_from_session()
 
 
+def queue_startup_markdown_notice(
+    notice: str,
+    *,
+    title: str | None = None,
+    right_info: str | None = None,
+    agent_name: str | None = None,
+) -> None:
+    from fast_agent.ui.prompt.session import (
+        queue_startup_markdown_notice as _queue_startup_markdown_notice,
+    )
+
+    _sync_to_session()
+    _queue_startup_markdown_notice(
+        notice,
+        title=title,
+        right_info=right_info,
+        agent_name=agent_name,
+    )
+    _sync_from_session()
+
+
 async def get_enhanced_input(*args, **kwargs) -> str | CommandPayload:
     _sync_to_session()
     result = await _get_enhanced_input(*args, **kwargs)
@@ -130,6 +152,7 @@ __all__ = [
     "handle_special_commands",
     "parse_special_input",
     "queue_startup_notice",
+    "queue_startup_markdown_notice",
     "set_last_copyable_output",
     "show_mcp_status",
     "_can_fit_shell_path_and_version",

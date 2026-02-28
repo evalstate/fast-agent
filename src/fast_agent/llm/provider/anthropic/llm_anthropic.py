@@ -97,6 +97,10 @@ INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14"
 # TODO: Remove beta header once Anthropic promotes 1M context to GA.
 LONG_CONTEXT_BETA = "context-1m-2025-08-07"
 
+# Beta for fine-grained tool streaming - enables incremental tool input streaming
+# https://docs.anthropic.com/en/docs/build-with-claude/tool-use#streaming-tool-inputs
+FINE_GRAINED_TOOL_STREAMING_BETA = "fine-grained-tool-streaming-2025-05-14"
+
 # Stream capture mode - when enabled, saves all streaming chunks to files for debugging
 # Set FAST_AGENT_LLM_TRACE=1 (or any non-empty value) to enable
 STREAM_CAPTURE_ENABLED = bool(os.environ.get("FAST_AGENT_LLM_TRACE"))
@@ -1257,6 +1261,9 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             beta_flags.append(INTERLEAVED_THINKING_BETA)
         if self._long_context:
             beta_flags.append(LONG_CONTEXT_BETA)
+        # Enable fine-grained tool streaming when tools are present
+        if request_tools:
+            beta_flags.append(FINE_GRAINED_TOOL_STREAMING_BETA)
         beta_flags.extend(web_tool_betas)
         beta_flags = dedupe_preserve_order(beta_flags)
         if beta_flags:

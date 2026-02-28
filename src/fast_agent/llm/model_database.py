@@ -638,6 +638,7 @@ class ModelDatabase:
         "gpt-5": OPENAI_GPT_5,
         "gpt-5-mini": _with_fast(OPENAI_GPT_5),
         "gpt-5-nano": _with_fast(OPENAI_GPT_5),
+        "gpt-5-nano-2025-08-07": _with_fast(OPENAI_GPT_5),
         "gpt-5.1": OPENAI_GPT_5_2,
         "gpt-5.1-codex": OPENAI_GPT_CODEX,
         "gpt-5.2-codex": OPENAI_GPT_CODEX,
