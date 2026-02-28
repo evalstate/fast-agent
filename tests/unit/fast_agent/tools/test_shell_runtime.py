@@ -3,6 +3,7 @@ import logging
 import platform
 import signal
 import subprocess
+import sys
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,7 @@ from typing import Any
 import pytest
 from mcp.types import TextContent
 
+from fast_agent.config import Settings, ShellSettings
 from fast_agent.event_progress import ProgressAction
 from fast_agent.tools.shell_runtime import ShellRuntime
 from fast_agent.ui import console
@@ -277,6 +279,40 @@ async def test_execute_no_output_shows_compact_exit_banner_detail() -> None:
     assert "exit code 0" in rendered
     assert "(no output)" in rendered
     assert "id: call_" in rendered
+
+
+@pytest.mark.asyncio
+async def test_execute_live_display_truncates_with_head_and_tail_windows() -> None:
+    """Live shell display should show head + marker + tail when line-limited."""
+    logger = logging.getLogger("shell-runtime-test")
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logger,
+        timeout_seconds=10,
+        config=Settings(shell_execution=ShellSettings(output_display_lines=6, show_bash=True)),
+    )
+
+    command = (
+        f'"{sys.executable}" -c "for i in range(1, 11): '
+        "print('out-{0:02d}'.format(i))\""
+    )
+
+    with console.console.capture() as capture:
+        result = await runtime.execute({"command": command})
+
+    assert result.isError is False
+    rendered = capture.get()
+    assert "out-01" in rendered
+    assert "out-02" in rendered
+    assert "out-03" in rendered
+    assert "out-08" in rendered
+    assert "out-09" in rendered
+    assert "out-10" in rendered
+    assert "out-04" not in rendered
+    assert "out-05" not in rendered
+    assert "out-06" not in rendered
+    assert "out-07" not in rendered
+    assert "..." in rendered
 
 
 @pytest.mark.asyncio

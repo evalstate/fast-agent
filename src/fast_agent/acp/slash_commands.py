@@ -43,6 +43,7 @@ from fast_agent.acp.slash.handlers import session as session_slash_handlers
 from fast_agent.acp.slash.handlers import skills as skills_slash_handlers
 from fast_agent.acp.slash.handlers import status as status_slash_handlers
 from fast_agent.acp.slash.handlers import tools as tools_slash_handlers
+from fast_agent.commands.command_catalog import command_action_names
 from fast_agent.commands.context import CommandContext
 from fast_agent.commands.handlers import model as model_handlers
 from fast_agent.commands.protocols import ACPCommandAllowlistProvider
@@ -228,6 +229,15 @@ class SlashCommandHandler:
         self._noenv = noenv
         self._acp_context: ACPContext | None = None
 
+        skills_action_hint = "|".join(
+            action for action in command_action_names("skills") if action != "list"
+        ) or "add|remove|update|registry"
+        cards_action_hint = "|".join(
+            action for action in command_action_names("cards") if action != "list"
+        ) or "add|remove|update|publish|registry"
+        models_action_hint = "|".join(command_action_names("models")) or "doctor|aliases|catalog"
+        models_catalog_hint = models_action_hint.replace("catalog", "catalog <provider> [--all]")
+
         # Session-level commands (always available, operate on current agent)
         self._session_commands: dict[str, AvailableCommand] = {
             "status": AvailableCommand(
@@ -247,7 +257,9 @@ class SlashCommandHandler:
                 description="List or manage local skills (add/remove/update/registry)",
                 input=AvailableCommandInput(
                     root=UnstructuredCommandInput(
-                        hint="[add|remove|update|registry] [name|number|all|url] [--force] [--yes]"
+                        hint=(
+                            f"[{skills_action_hint}] [name|number|all|url] [--force] [--yes]"
+                        )
                     )
                 ),
             ),
@@ -257,7 +269,7 @@ class SlashCommandHandler:
                 input=AvailableCommandInput(
                     root=UnstructuredCommandInput(
                         hint=(
-                            "[add|remove|update|publish|registry] "
+                            f"[{cards_action_hint}] "
                             "[name|number|all|url] "
                             "[--force|--yes|--no-push|--message|--temp-dir|--keep-temp]"
                         )
@@ -281,7 +293,7 @@ class SlashCommandHandler:
                 description="Inspect model onboarding state (doctor/aliases/catalog)",
                 input=AvailableCommandInput(
                     root=UnstructuredCommandInput(
-                        hint="[doctor|aliases|catalog <provider> [--all]]"
+                        hint=f"[{models_catalog_hint}]"
                     )
                 ),
             ),

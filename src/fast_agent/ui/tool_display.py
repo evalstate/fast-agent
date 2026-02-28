@@ -10,6 +10,7 @@ from rich.text import Text
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.ui import console
 from fast_agent.ui.message_primitives import MESSAGE_CONFIGS, MessageType
+from fast_agent.ui.shell_output_truncation import truncate_shell_output_lines
 
 if TYPE_CHECKING:
     from mcp.types import CallToolResult
@@ -201,9 +202,7 @@ class ToolDisplay:
         if line_limit >= len(lines_without_exit):
             return text
 
-        output_lines = lines_without_exit[:line_limit]
-        if len(lines_without_exit) > line_limit:
-            output_lines.append("...")
+        output_lines, _ = truncate_shell_output_lines(lines_without_exit, line_limit)
         if exit_line:
             output_lines.append(exit_line)
         return "\n".join(output_lines)

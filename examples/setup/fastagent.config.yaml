@@ -50,7 +50,8 @@ anthropic:
 #  warning_interval_seconds: 5
 # use a PTY for interactive prompt shell commands (colors, full-screen tools)
 #  interactive_use_pty: true
-# max number of output lines to display for shell tool results (0 = exit code only)
+# max number of output lines to display for shell tool results
+# (shows head + ... + tail when truncated; 0 = exit code only)
 #  output_display_lines: 5  # default
 # show shell command output in console (false to suppress bash output)
 #  show_bash: true

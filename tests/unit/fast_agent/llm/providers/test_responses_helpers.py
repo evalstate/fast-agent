@@ -29,6 +29,7 @@ from fast_agent.llm.provider.openai.responses_content import ResponsesContentMix
 from fast_agent.llm.provider.openai.responses_files import ResponsesFileMixin
 from fast_agent.llm.provider.openai.responses_output import ResponsesOutputMixin
 from fast_agent.llm.provider.openai.responses_streaming import ResponsesStreamingMixin
+from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
@@ -72,12 +73,18 @@ class _StreamingHarness(ResponsesStreamingMixin):
 
 
 class _OutputHarness(ResponsesOutputMixin):
-    def __init__(self) -> None:
+    def __init__(self, provider: Provider = Provider.RESPONSES) -> None:
         self.logger = get_logger("test.responses.output")
         self._tool_call_id_map = {}
+        self._provider = provider
+        self.captured_usages: list[Any] = []
 
-    def _finalize_turn_usage(self, usage) -> None:  # pragma: no cover
-        return None
+    @property
+    def provider(self) -> Provider:
+        return self._provider
+
+    def _finalize_turn_usage(self, usage) -> None:
+        self.captured_usages.append(usage)
 
     def _normalize_tool_ids(self, tool_use_id: str | None) -> tuple[str, str]:
         tool_use_id = tool_use_id or ""
@@ -100,6 +107,17 @@ class _LoggerSpy:
 
     def warning(self, message: str, **data: Any) -> None:
         self.warning_calls.append((message, data))
+
+
+def test_record_usage_uses_harness_provider() -> None:
+    harness = _OutputHarness(provider=Provider.CODEX_RESPONSES)
+
+    usage = SimpleNamespace(input_tokens=12, output_tokens=8, total_tokens=20)
+    harness._record_usage(usage, "gpt-5.3-codex")
+
+    assert len(harness.captured_usages) == 1
+    recorded = harness.captured_usages[0]
+    assert recorded.provider == Provider.CODEX_RESPONSES
 
 
 class _FakeResponsesStream:

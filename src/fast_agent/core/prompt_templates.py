@@ -9,6 +9,10 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Mapping, MutableMapping, Sequence
 
+from fast_agent.core.internal_resources import (
+    format_internal_resources_for_prompt,
+    list_internal_resources,
+)
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.template_escape import protect_escaped_braces, restore_escaped_braces
 
@@ -187,6 +191,9 @@ def enrich_with_environment_context(
         skill_manifests = load_skills_for_context(cwd, skills_directory_override)
         skills_text = format_skills_for_prompt(skill_manifests, read_tool_name="read_text_file")
         context["agentSkills"] = skills_text
+
+    internal_resources = list_internal_resources()
+    context["agentInternalResources"] = format_internal_resources_for_prompt(internal_resources)
 
     env_lines: list[str] = []
     if cwd:

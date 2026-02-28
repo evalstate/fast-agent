@@ -56,6 +56,7 @@ You can insert these in the **body** or `instruction:`.
 | `\{{agentCardDir}}` | Directory containing the source AgentCard |
 | `\{{serverInstructions}}` | MCP server instructions (if any) |
 | `\{{agentSkills}}` | Formatted skill descriptions |
+| `\{{agentInternalResources}}` | Bundled internal resource index |
 
 ---
 

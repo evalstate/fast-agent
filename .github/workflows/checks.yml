@@ -51,6 +51,9 @@ jobs:
       - name: Run ty
         run: uv run scripts/typecheck.py
 
+      - name: Validate internal resources
+        run: uv run scripts/check_internal_resources.py
+
   unit-test:
     runs-on: ubuntu-latest
     steps:

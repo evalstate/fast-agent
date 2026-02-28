@@ -322,7 +322,7 @@ async def handle_resume_session(
             outcome.add_message("No sessions found.", channel="warning")
         return outcome
 
-    session, loaded, missing_agents = result
+    session, loaded, missing_agents, usage_notices = result
     if loaded:
         loaded_list = ", ".join(sorted(loaded.keys()))
         outcome.add_message(
@@ -345,6 +345,13 @@ async def handle_resume_session(
         missing_list = ", ".join(sorted(missing_agents))
         outcome.add_message(
             f"Missing agents from session: {missing_list}",
+            channel="warning",
+            right_info="session",
+        )
+
+    for usage_notice in usage_notices:
+        outcome.add_message(
+            usage_notice,
             channel="warning",
             right_info="session",
         )

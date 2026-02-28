@@ -1,0 +1,11 @@
+[
+  {
+    "uri": "internal://fast-agent/smart-agent-cards",
+    "title": "Smart Agent Card Guidance",
+    "description": "AgentCard schema, placeholders, and execution behavior reference.",
+    "why": "Use when creating, validating, or loading AgentCards through the smart workflow.",
+    "mime_type": "text/markdown",
+    "source": "smart_agent_cards.md",
+    "tags": ["smart", "agent-cards", "reference"]
+  }
+]

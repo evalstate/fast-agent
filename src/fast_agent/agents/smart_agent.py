@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import shlex
+import sys
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping, Protocol, Sequence
+from typing import TYPE_CHECKING, Any, Protocol
 
 from mcp.types import BlobResourceContents, ReadResourceResult, TextResourceContents
 
@@ -15,7 +19,18 @@ from fast_agent.agents.workflow.agents_as_tools_agent import (
     AgentsAsToolsAgent,
     AgentsAsToolsOptions,
 )
+from fast_agent.commands.command_catalog import (
+    SmartCommandOperation,
+    parse_smart_operation,
+    smart_operation_help_entries,
+)
+from fast_agent.commands.context import CommandContext
+from fast_agent.commands.handlers import cards_manager as cards_handlers
 from fast_agent.commands.handlers import mcp_runtime as mcp_runtime_handlers
+from fast_agent.commands.handlers import models_manager as models_handlers
+from fast_agent.commands.handlers import skills as skills_handlers
+from fast_agent.commands.renderers.command_markdown import render_command_outcome_markdown
+from fast_agent.commands.results import CommandMessage, CommandOutcome
 from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.agent_card_loader import load_agent_cards
 from fast_agent.core.agent_card_validation import AgentCardScanResult, scan_agent_card_path
@@ -25,6 +40,12 @@ from fast_agent.core.direct_factory import (
 )
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.instruction_utils import apply_instruction_context
+from fast_agent.core.internal_resources import (
+    InternalResource,
+    get_internal_resource,
+    list_internal_resources,
+    read_internal_resource,
+)
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt_templates import enrich_with_environment_context
 from fast_agent.core.validation import validate_provider_keys_post_creation
@@ -36,14 +57,17 @@ from fast_agent.tools.function_tool_loader import FastMCPTool
 
 if TYPE_CHECKING:
     from fast_agent.agents.llm_agent import LlmAgent
-    from fast_agent.commands.results import CommandOutcome
     from fast_agent.config import MCPServerSettings
     from fast_agent.context import Context
     from fast_agent.core.agent_card_types import AgentCardData
     from fast_agent.interfaces import AgentProtocol
+    from fast_agent.llm.usage_tracking import UsageAccumulator
     from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
+    from fast_agent.types import PromptMessageExtended
 
 logger = get_logger(__name__)
+
+_INTERNAL_RESOURCE_SERVER = "internal"
 
 
 @dataclass(frozen=True)
@@ -124,6 +148,98 @@ class _SmartToolMcpManager:
         return sorted(self._configured_server_names - attached)
 
 
+class _SmartCommandAgentProvider:
+    """Minimal agent-provider adapter for smart command handlers."""
+
+    def __init__(self, agents: Mapping[str, object]) -> None:
+        self._agents = agents
+
+    def _agent(self, name: str) -> object:
+        return self._agents[name]
+
+    def agent_names(self) -> Iterable[str]:
+        return list(self._agents.keys())
+
+    async def list_prompts(
+        self,
+        namespace: str | None,
+        agent_name: str | None = None,
+    ) -> object:
+        del namespace, agent_name
+        return {}
+
+
+@dataclass(slots=True)
+class _SmartCommandIO:
+    """Non-interactive command IO that buffers emitted messages."""
+
+    messages: list[CommandMessage]
+
+    async def emit(self, message: CommandMessage) -> None:
+        self.messages.append(message)
+
+    async def prompt_text(
+        self,
+        prompt: str,
+        *,
+        default: str | None = None,
+        allow_empty: bool = True,
+    ) -> str | None:
+        del prompt, allow_empty
+        return default
+
+    async def prompt_selection(
+        self,
+        prompt: str,
+        *,
+        options: Sequence[str],
+        allow_cancel: bool = False,
+        default: str | None = None,
+    ) -> str | None:
+        del prompt, options, allow_cancel, default
+        return None
+
+    async def prompt_argument(
+        self,
+        arg_name: str,
+        *,
+        description: str | None = None,
+        required: bool = True,
+    ) -> str | None:
+        del arg_name, description, required
+        return None
+
+    async def display_history_turn(
+        self,
+        agent_name: str,
+        turn: list[PromptMessageExtended],
+        *,
+        turn_index: int | None = None,
+        total_turns: int | None = None,
+    ) -> None:
+        del agent_name, turn, turn_index, total_turns
+
+    async def display_history_overview(
+        self,
+        agent_name: str,
+        history: list[PromptMessageExtended],
+        usage: UsageAccumulator | None = None,
+    ) -> None:
+        del agent_name, history, usage
+
+    async def display_usage_report(self, agents: dict[str, object]) -> None:
+        del agents
+
+    async def display_system_prompt(
+        self,
+        agent_name: str,
+        system_prompt: str,
+        *,
+        server_count: int = 0,
+    ) -> None:
+        del agent_name, system_prompt, server_count
+
+
 def _resolve_default_agent_name(
     agents: Mapping[str, AgentProtocol],
     *,
@@ -161,6 +277,134 @@ def _format_command_outcome(outcome: "CommandOutcome") -> str:
         if text:
             lines.append(text)
     return "\n".join(lines) if lines else "Done."
+
+
+def _resolve_smart_command_agent_map(agent: Any) -> dict[str, object]:
+    registry = getattr(agent, "agent_registry", None)
+    agents: dict[str, object] = {}
+    if isinstance(registry, Mapping):
+        agents.update({str(name): member for name, member in registry.items()})
+
+    agent_name = str(getattr(agent, "name", ""))
+    if agent_name:
+        agents.setdefault(agent_name, agent)
+    return agents
+
+
+def _build_smart_command_context(agent: Any) -> tuple[CommandContext, _SmartCommandIO]:
+    context = getattr(agent, "context", None)
+    settings = context.config if context else None
+    agent_name = str(getattr(agent, "name", ""))
+    if not agent_name:
+        raise AgentConfigError("Smart command requires named agent", "Agent has no name")
+
+    io = _SmartCommandIO(messages=[])
+    provider = _SmartCommandAgentProvider(_resolve_smart_command_agent_map(agent))
+    return (
+        CommandContext(
+            agent_provider=provider,
+            current_agent_name=agent_name,
+            io=io,
+            settings=settings,
+        ),
+        io,
+    )
+
+
+def _render_smart_command_outcome(
+    outcome: CommandOutcome,
+    *,
+    heading: str,
+    io: _SmartCommandIO,
+) -> str:
+    return render_command_outcome_markdown(
+        outcome,
+        heading=heading,
+        extra_messages=io.messages,
+    )
+
+
+async def _run_check_subprocess(argument: str | None) -> CommandOutcome:
+    command = [
+        sys.executable,
+        "-m",
+        "fast_agent.cli.main",
+        "--no-color",
+        "check",
+    ]
+    if argument and argument.strip():
+        try:
+            command.extend(shlex.split(argument))
+        except ValueError as exc:
+            raise AgentConfigError("Invalid check arguments", str(exc)) from exc
+
+    process = await asyncio.create_subprocess_exec(
+        *command,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await process.communicate()
+
+    outcome = CommandOutcome()
+    stdout_text = stdout.decode("utf-8", errors="replace").strip()
+    stderr_text = stderr.decode("utf-8", errors="replace").strip()
+    if stdout_text:
+        outcome.add_message(stdout_text)
+    if stderr_text:
+        channel = "error" if process.returncode else "warning"
+        outcome.add_message(stderr_text, channel=channel)
+    if process.returncode != 0 and not stderr_text:
+        outcome.add_message(
+            f"fast-agent check exited with status code {process.returncode}.",
+            channel="error",
+        )
+    return outcome
+
+
+async def _run_smart_command_call(
+    agent: Any,
+    operation: SmartCommandOperation,
+    argument: str | None,
+) -> str:
+    try:
+        command_name, action = parse_smart_operation(operation)
+    except ValueError as exc:
+        raise AgentConfigError("Unknown smart command operation", str(exc)) from exc
+    if command_name == "check":
+        outcome = await _run_check_subprocess(argument)
+        return render_command_outcome_markdown(outcome, heading="check")
+
+    context, io = _build_smart_command_context(agent)
+    agent_name = context.current_agent_name
+
+    if command_name == "skills":
+        outcome = await skills_handlers.handle_skills_command(
+            context,
+            agent_name=agent_name,
+            action=action,
+            argument=argument,
+        )
+    elif command_name == "cards":
+        outcome = await cards_handlers.handle_cards_command(
+            context,
+            agent_name=agent_name,
+            action=action,
+            argument=argument,
+        )
+    elif command_name == "models":
+        outcome = await models_handlers.handle_models_command(
+            context,
+            agent_name=agent_name,
+            action=action,
+            argument=argument,
+        )
+    else:
+        raise AgentConfigError(
+            "Unsupported smart command operation",
+            f"Operation '{operation}' resolved to unsupported command '{command_name}'.",
+        )
+
+    return _render_smart_command_outcome(outcome, heading=operation, io=io)
 
 
 def _context_server_names(context: "Context | None") -> set[str]:
@@ -400,11 +644,24 @@ def _extract_read_resource_text(result: ReadResourceResult, *, max_chars: int = 
 def _format_smart_resource_listing(
     resources: Mapping[str, list[str]],
     templates: Mapping[str, Sequence[Any]],
+    *,
+    internal_resources: Sequence[InternalResource] = (),
 ) -> str:
     lines: list[str] = []
     server_names = sorted(set(resources.keys()) | set(templates.keys()))
-    if not server_names:
+    if not server_names and not internal_resources:
         return "No resources available."
+
+    if internal_resources:
+        lines.append(f"[{_INTERNAL_RESOURCE_SERVER}]")
+        lines.append("resources:")
+        for resource in internal_resources:
+            lines.append(f"  - {resource.uri}")
+            lines.append(f"    description: {resource.description}")
+            lines.append(f"    why: {resource.why}")
+        lines.append("templates: []")
+        if server_names:
+            lines.append("")
 
     for server_name in server_names:
         lines.append(f"[{server_name}]")
@@ -430,6 +687,51 @@ def _format_smart_resource_listing(
             lines.append("templates: []")
 
     return "\n".join(lines)
+
+
+def _include_internal_resources(server_name: str | None) -> bool:
+    return server_name is None or server_name == _INTERNAL_RESOURCE_SERVER
+
+
+def _include_mcp_resources(server_name: str | None) -> bool:
+    return server_name != _INTERNAL_RESOURCE_SERVER
+
+
+def _is_internal_resource_uri(uri: str) -> bool:
+    return uri.strip().startswith("internal://")
+
+
+async def _run_current_agent_list_resources_call(
+    agent: Any,
+    *,
+    server_name: str | None = None,
+) -> str:
+    resources: Mapping[str, list[str]] = {}
+    templates: Mapping[str, Sequence[Any]] = {}
+    if _include_mcp_resources(server_name):
+        resources = await agent.list_resources(namespace=server_name)
+
+        aggregator = getattr(agent, "aggregator", None)
+        list_templates = getattr(aggregator, "list_resource_templates", None)
+        if callable(list_templates):
+            templates = await list_templates(server_name)
+
+    internal_resources: Sequence[InternalResource] = ()
+    if _include_internal_resources(server_name):
+        internal_resources = list_internal_resources()
+
+    return _format_smart_resource_listing(
+        resources,
+        templates,
+        internal_resources=internal_resources,
+    )
+
+
+async def _run_internal_resource_read_call(uri: str) -> str:
+    resource = get_internal_resource(uri)
+    content = read_internal_resource(resource.uri)
+    header = f"Resource: {resource.uri}\nTitle: {resource.title}"
+    return f"{header}\n\n{content}" if content else header
 
 
 async def _run_smart_call(
@@ -506,35 +808,60 @@ async def _run_smart_list_resources_call(
     server_name: str | None = None,
     mcp_connect: Sequence[str] | None = None,
 ) -> str:
-    agents_map, _bundle, default_agent_name, tool_only_agents = await _create_smart_tool_agents(
-        context,
-        agent_card_path,
-    )
-    try:
-        app = AgentApp(agents_map, tool_only_agents=tool_only_agents)
-        if mcp_connect:
-            await _apply_runtime_mcp_connections(
-                context=context,
-                agents_map=agents_map,
-                target_agent_name=default_agent_name,
-                mcp_connect=mcp_connect,
+    resources: Mapping[str, list[str]] = {}
+    templates: Mapping[str, Sequence[Any]] = {}
+
+    if _include_mcp_resources(server_name):
+        agents_map, _bundle, default_agent_name, tool_only_agents = await _create_smart_tool_agents(
+            context,
+            agent_card_path,
+        )
+        try:
+            app = AgentApp(agents_map, tool_only_agents=tool_only_agents)
+            if mcp_connect:
+                await _apply_runtime_mcp_connections(
+                    context=context,
+                    agents_map=agents_map,
+                    target_agent_name=default_agent_name,
+                    mcp_connect=mcp_connect,
+                )
+
+            resources = await app.list_resources(
+                server_name=server_name,
+                agent_name=default_agent_name,
             )
 
-        resources = await app.list_resources(
-            server_name=server_name,
-            agent_name=default_agent_name,
-        )
+            default_agent = agents_map.get(default_agent_name)
+            aggregator = getattr(default_agent, "aggregator", None) if default_agent else None
+            list_templates = getattr(aggregator, "list_resource_templates", None)
+            if callable(list_templates):
+                templates = await list_templates(server_name)
+        finally:
+            await _shutdown_agents(agents_map)
 
-        templates: dict[str, Sequence[Any]] = {}
-        default_agent = agents_map.get(default_agent_name)
-        aggregator = getattr(default_agent, "aggregator", None) if default_agent else None
-        list_templates = getattr(aggregator, "list_resource_templates", None)
-        if callable(list_templates):
-            templates = await list_templates(server_name)
+    internal_resources: Sequence[InternalResource] = ()
+    if _include_internal_resources(server_name):
+        internal_resources = list_internal_resources()
 
-        return _format_smart_resource_listing(resources, templates)
-    finally:
-        await _shutdown_agents(agents_map)
+    return _format_smart_resource_listing(
+        resources,
+        templates,
+        internal_resources=internal_resources,
+    )
+
+
+async def _run_current_agent_get_resource_call(
+    agent: Any,
+    resource_uri: str,
+    *,
+    server_name: str | None = None,
+) -> str:
+    result = await agent.get_resource(resource_uri=resource_uri, namespace=server_name)
+    body = _extract_read_resource_text(result)
+    header = f"Resource: {resource_uri}"
+    if server_name:
+        header += f" (server={server_name})"
+    return f"{header}\n\n{body}" if body else header
 
 
 async def _run_smart_get_resource_call(
@@ -683,15 +1010,27 @@ async def _run_smart_complete_resource_argument_call(
         await _shutdown_agents(agents_map)
 
 
+def _smart_command_tool_description() -> str:
+    lines = [
+        "Run a shared fast-agent command operation by operation key.",
+        "",
+        "Supported operations:",
+    ]
+    for operation, help_text in smart_operation_help_entries():
+        lines.append(f"- `{operation}`: {help_text}")
+    return "\n".join(lines)
+
+
 def _enable_smart_tooling(agent: Any) -> None:
     """Register smart tool endpoints on a smart-capable agent."""
     setattr(agent, "_parallel_smart_tool_calls", False)
     smart_tool_names = {
         "smart",
+        "smart_command",
         "validate",
         "mcp_connect",
-        "smart_list_resources",
-        "smart_get_resource",
+        "list_resources",
+        "get_resource",
         "smart_with_resource",
         "smart_complete_resource_argument",
     }
@@ -713,6 +1052,11 @@ def _enable_smart_tooling(agent: Any) -> None:
         name="validate",
         description="Validate AgentCard files using the same checks as fast-agent check.",
     )
+    smart_command_tool = FastMCPTool.from_function(
+        agent.smart_command,
+        name="smart_command",
+        description=_smart_command_tool_description(),
+    )
     mcp_connect_tool = FastMCPTool.from_function(
         agent.mcp_connect,
         name="mcp_connect",
@@ -725,21 +1069,20 @@ def _enable_smart_tooling(agent: Any) -> None:
             "(optional `Bearer ` input is normalized)."
         ),
     )
-    smart_list_resources_tool = FastMCPTool.from_function(
-        agent.smart_list_resources,
-        name="smart_list_resources",
+    resource_list_tool = FastMCPTool.from_function(
+        agent.resource_list,
+        name="list_resources",
         description=(
-            "Load AgentCards and list MCP resources/resource templates available to the "
-            "resolved default agent. Optional `mcp_connect` entries use `/mcp connect` "
-            "style target strings before listing."
+            "List resources available to this smart agent, including bundled internal "
+            "resources and attached MCP resources/templates."
         ),
     )
-    smart_get_resource_tool = FastMCPTool.from_function(
-        agent.smart_get_resource,
-        name="smart_get_resource",
+    resource_read_tool = FastMCPTool.from_function(
+        agent.resource_read,
+        name="get_resource",
         description=(
-            "Load AgentCards and fetch a specific MCP resource for inspection. "
-            "Use `server_name` to disambiguate when needed."
+            "Read a resource by URI. `internal://` URIs are read directly from bundled "
+            "resources; other URIs are fetched from attached MCP resources."
         ),
     )
     smart_with_resource_tool = FastMCPTool.from_function(
@@ -759,10 +1102,11 @@ def _enable_smart_tooling(agent: Any) -> None:
         ),
     )
     agent.add_tool(smart_tool)
+    agent.add_tool(smart_command_tool)
     agent.add_tool(validate_tool)
     agent.add_tool(mcp_connect_tool)
-    agent.add_tool(smart_list_resources_tool)
-    agent.add_tool(smart_get_resource_tool)
+    agent.add_tool(resource_list_tool)
+    agent.add_tool(resource_read_tool)
     agent.add_tool(smart_with_resource_tool)
     agent.add_tool(smart_complete_resource_argument_tool)
 
@@ -784,6 +1128,14 @@ async def _dispatch_smart_tool(
     )
 
 
+async def _dispatch_smart_command_tool(
+    agent: Any,
+    operation: SmartCommandOperation,
+    argument: str | None = None,
+) -> str:
+    return await _run_smart_command_call(agent, operation, argument)
+
+
 async def _dispatch_validate_tool(agent: Any, agent_card_path: str) -> str:
     context = getattr(agent, "context", None)
     return await _run_validate_call(context, agent_card_path)
@@ -791,6 +1143,27 @@ async def _dispatch_validate_tool(agent: Any, agent_card_path: str) -> str:
 
 async def _dispatch_mcp_connect_tool(agent: Any, target: str) -> str:
     return await _run_mcp_connect_call(agent, target)
+
+
+async def _dispatch_resource_list_tool(
+    agent: Any,
+    server_name: str | None = None,
+) -> str:
+    return await _run_current_agent_list_resources_call(agent, server_name=server_name)
+
+
+async def _dispatch_resource_read_tool(
+    agent: Any,
+    uri: str,
+    server_name: str | None = None,
+) -> str:
+    if _is_internal_resource_uri(uri):
+        return await _run_internal_resource_read_call(uri)
+    return await _run_current_agent_get_resource_call(
+        agent,
+        uri,
+        server_name=server_name,
+    )
 
 
 async def _dispatch_smart_list_resources_tool(
@@ -815,6 +1188,9 @@ async def _dispatch_smart_get_resource_tool(
     server_name: str | None = None,
     mcp_connect: list[str] | None = None,
 ) -> str:
+    if _is_internal_resource_uri(resource_uri):
+        return await _run_internal_resource_read_call(resource_uri)
+
     context = getattr(agent, "context", None)
     return await _run_smart_get_resource_call(
         context,
@@ -897,6 +1273,18 @@ class SmartAgent(McpAgent):
             mcp_connect=mcp_connect,
         )
 
+    async def smart_command(
+        self,
+        operation: SmartCommandOperation,
+        argument: str | None = None,
+    ) -> str:
+        """Run a shared command operation exposed by the smart command bridge."""
+        return await _dispatch_smart_command_tool(
+            self,
+            operation=operation,
+            argument=argument,
+        )
+
     async def validate(self, agent_card_path: str) -> str:
         """Validate AgentCard files for the provided path."""
         return await _dispatch_validate_tool(self, agent_card_path)
@@ -905,13 +1293,21 @@ class SmartAgent(McpAgent):
         """Connect an MCP server to this agent at runtime."""
         return await _dispatch_mcp_connect_tool(self, target)
 
+    async def resource_list(self, server_name: str | None = None) -> str:
+        """List internal and attached MCP resources for this smart agent."""
+        return await _dispatch_resource_list_tool(self, server_name=server_name)
+
+    async def resource_read(self, uri: str, server_name: str | None = None) -> str:
+        """Read an internal resource or attached MCP resource by URI."""
+        return await _dispatch_resource_read_tool(self, uri, server_name=server_name)
+
     async def smart_list_resources(
         self,
         agent_card_path: str,
         mcp_connect: list[str] | None = None,
         server_name: str | None = None,
     ) -> str:
-        """List MCP resources/templates exposed by the resolved default card agent."""
+        """List card-agent resources and bundled internal resources."""
         return await _dispatch_smart_list_resources_tool(
             self,
             agent_card_path,
@@ -926,7 +1322,7 @@ class SmartAgent(McpAgent):
         server_name: str | None = None,
         mcp_connect: list[str] | None = None,
     ) -> str:
-        """Fetch and summarize a specific MCP resource exposed by a card agent."""
+        """Read a card-agent resource or bundled internal resource by URI."""
         return await _dispatch_smart_get_resource_tool(
             self,
             agent_card_path,
@@ -1015,11 +1411,28 @@ class SmartAgentsAsToolsAgent(AgentsAsToolsAgent):
             mcp_connect=mcp_connect,
         )
 
+    async def smart_command(
+        self,
+        operation: SmartCommandOperation,
+        argument: str | None = None,
+    ) -> str:
+        return await _dispatch_smart_command_tool(
+            self,
+            operation=operation,
+            argument=argument,
+        )
+
     async def validate(self, agent_card_path: str) -> str:
         return await _dispatch_validate_tool(self, agent_card_path)
 
     async def mcp_connect(self, target: str) -> str:
         return await _dispatch_mcp_connect_tool(self, target)
+
+    async def resource_list(self, server_name: str | None = None) -> str:
+        return await _dispatch_resource_list_tool(self, server_name=server_name)
+
+    async def resource_read(self, uri: str, server_name: str | None = None) -> str:
+        return await _dispatch_resource_read_tool(self, uri, server_name=server_name)
 
     async def smart_list_resources(
         self,

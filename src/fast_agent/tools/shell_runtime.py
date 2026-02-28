@@ -7,6 +7,7 @@ import shutil
 import signal
 import subprocess
 import time
+from collections import deque
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -27,6 +28,7 @@ from fast_agent.event_progress import ProgressAction
 from fast_agent.ui import console
 from fast_agent.ui.console_display import ConsoleDisplay
 from fast_agent.ui.progress_display import progress_display
+from fast_agent.ui.shell_output_truncation import split_shell_output_line_limit
 from fast_agent.utils.async_utils import gather_with_cancel
 
 
@@ -306,8 +308,19 @@ class ShellRuntime:
                     self._show_bash_output and not defer_display_to_tool_result
                 )
                 display_line_limit = self._output_display_lines
-                displayed_line_count = 0
+                displayed_head_count = 0
+                display_total_line_count = 0
+                display_overflowed = False
                 display_ellipsis_printed = False
+                display_head_limit, display_tail_limit = (0, 0)
+                display_tail_buffer: deque[tuple[int, str, str | None]] = deque(maxlen=1)
+                if display_line_limit is not None and display_line_limit > 0:
+                    display_head_limit, display_tail_limit = split_shell_output_line_limit(
+                        display_line_limit
+                    )
+                    display_tail_buffer = deque(
+                        maxlen=max(display_tail_limit, 1),
+                    )
                 # Track last output time in a mutable container for sharing across coroutines
                 last_output_time = [time.time()]
                 timeout_occurred = [False]
@@ -316,7 +329,8 @@ class ShellRuntime:
                 async def stream_output(stream, style: str | None, is_stderr: bool = False) -> None:
                     nonlocal output_bytes, total_output_bytes, output_truncated
                     nonlocal truncation_notice_printed
-                    nonlocal displayed_line_count, display_ellipsis_printed
+                    nonlocal displayed_head_count, display_total_line_count, display_overflowed
+                    nonlocal display_ellipsis_printed
                     nonlocal had_stream_output
                     if not stream:
                         return
@@ -374,15 +388,23 @@ class ShellRuntime:
                                 )
                             elif display_line_limit <= 0:
                                 pass
-                            elif displayed_line_count < display_line_limit:
-                                console.console.print(
-                                    self._render_display_line(text, style),
-                                    markup=False,
-                                )
-                                displayed_line_count += 1
-                            elif not display_ellipsis_printed:
-                                console.console.print("...", style="dim", markup=False)
-                                display_ellipsis_printed = True
+                            else:
+                                display_total_line_count += 1
+                                current_line_index = display_total_line_count
+                                if displayed_head_count < display_head_limit:
+                                    console.console.print(
+                                        self._render_display_line(text, style),
+                                        markup=False,
+                                    )
+                                    displayed_head_count += 1
+                                else:
+                                    if display_tail_limit > 0:
+                                        display_tail_buffer.append((current_line_index, text, style))
+                                    if current_line_index > display_line_limit:
+                                        display_overflowed = True
+                                        if not display_ellipsis_printed:
+                                            console.console.print("...", style="dim", markup=False)
+                                            display_ellipsis_printed = True
 
                         # Update last output time whenever we receive a line
                         last_output_time[0] = time.time()
@@ -567,6 +589,18 @@ class ShellRuntime:
                     )
                     completion_state = "completed" if return_code == 0 else "failed"
                     completion_details = f"{completion_state} (exit {return_code})"
+
+                if use_live_shell_display and display_line_limit is not None and display_line_limit > 0:
+                    if display_overflowed:
+                        if not display_ellipsis_printed:
+                            console.console.print("...", style="dim", markup=False)
+                        for buffered_index, buffered_text, buffered_style in display_tail_buffer:
+                            if buffered_index <= display_line_limit:
+                                continue
+                            console.console.print(
+                                self._render_display_line(buffered_text, buffered_style),
+                                markup=False,
+                            )
 
                 # Display bottom separator with exit code
                 if use_live_shell_display:

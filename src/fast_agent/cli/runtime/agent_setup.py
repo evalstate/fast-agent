@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import typer
+from rich.markup import escape as escape_markup
 
 from fast_agent.cli.commands.server_helpers import add_servers_to_config
 from fast_agent.cli.constants import RESUME_LATEST_SENTINEL

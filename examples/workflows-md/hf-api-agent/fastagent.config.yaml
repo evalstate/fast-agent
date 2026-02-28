@@ -32,7 +32,8 @@ mcp_timeline:
 #  timeout_seconds: 20
 # warning interval if no output seen
 #  warning_seconds: 5
-# max number of output lines to display for shell tool results (0 = exit code only)
+# max number of output lines to display for shell tool results
+# (shows head + ... + tail when truncated; 0 = exit code only)
 #  output_display_lines: 5  # default
 # show shell command output in console (false to suppress bash output)
 #  show_bash: true

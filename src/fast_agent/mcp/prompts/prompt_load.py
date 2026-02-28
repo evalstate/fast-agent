@@ -1,5 +1,6 @@
+import json
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from mcp.server.fastmcp.prompts.base import (
     AssistantMessage,
@@ -8,9 +9,13 @@ from mcp.server.fastmcp.prompts.base import (
 )
 from mcp.types import PromptMessage, TextContent
 
+from fast_agent.constants import FAST_AGENT_USAGE
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import AgentProtocol
+from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.usage_tracking import FastAgentUsage, TurnUsage
 from fast_agent.mcp import mime_utils, resource_utils
+from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompts.prompt_template import (
     PromptContent,
 )
@@ -19,6 +24,9 @@ from fast_agent.types import PromptMessageExtended
 # Define message role type
 MessageRole = Literal["user", "assistant"]
 logger = get_logger("prompt_load")
+_RESPONSES_USAGE_PROVIDERS = frozenset(
+    {Provider.RESPONSES, Provider.CODEX_RESPONSES, Provider.OPENRESPONSES}
+)
 
 
 def cast_message_role(role: str) -> MessageRole:
@@ -161,7 +169,144 @@ def load_prompt_as_get_prompt_result(file: Path):
     return to_get_prompt_result(messages)
 
 
-def load_history_into_agent(agent: AgentProtocol, file_path: Path) -> None:
+def _extract_usage_payloads(messages: list[PromptMessageExtended]) -> list[dict[str, Any]]:
+    payloads: list[dict[str, Any]] = []
+    for message in messages:
+        channels = message.channels
+        if not isinstance(channels, dict):
+            continue
+
+        usage_blocks = channels.get(FAST_AGENT_USAGE)
+        if not isinstance(usage_blocks, list):
+            continue
+
+        for block in usage_blocks:
+            block_text = get_text(block)
+            if not block_text:
+                continue
+            try:
+                payload = json.loads(block_text)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(payload, dict):
+                payloads.append(payload)
+
+    return payloads
+
+
+def _payload_model(payload: dict[str, Any]) -> str | None:
+    summary = payload.get("summary")
+    if isinstance(summary, dict):
+        summary_model = summary.get("model")
+        if isinstance(summary_model, str) and summary_model:
+            return summary_model
+
+    turn = payload.get("turn")
+    if isinstance(turn, dict):
+        turn_model = turn.get("model")
+        if isinstance(turn_model, str) and turn_model:
+            return turn_model
+
+    return None
+
+
+def _payload_provider(payload: dict[str, Any]) -> Provider | None:
+    turn = payload.get("turn")
+    if not isinstance(turn, dict):
+        return None
+
+    provider_value = turn.get("provider")
+    if isinstance(provider_value, Provider):
+        return provider_value
+    if not isinstance(provider_value, str) or not provider_value:
+        return None
+
+    try:
+        return Provider(provider_value)
+    except ValueError:
+        return None
+
+
+def _coerce_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _turn_usage_from_payload(payload: dict[str, Any]) -> TurnUsage | None:
+    turn_data = payload.get("turn")
+    if not isinstance(turn_data, dict):
+        return None
+
+    turn_snapshot = dict(turn_data)
+    input_tokens = _coerce_int(turn_snapshot.get("input_tokens"))
+    output_tokens = _coerce_int(turn_snapshot.get("output_tokens"))
+    turn_snapshot["raw_usage"] = FastAgentUsage(
+        input_chars=input_tokens,
+        output_chars=output_tokens,
+        model_type="rehydrated",
+    )
+
+    try:
+        return TurnUsage.model_validate(turn_snapshot)
+    except Exception:
+        return None
+
+
+def _rehydrate_responses_usage(
+    agent: AgentProtocol,
+    messages: list[PromptMessageExtended],
+) -> str | None:
+    llm = agent.llm
+    if llm is None or llm.provider not in _RESPONSES_USAGE_PROVIDERS:
+        return None
+
+    payloads = _extract_usage_payloads(messages)
+    usage_accumulator = llm.usage_accumulator
+    if usage_accumulator is None:
+        return None
+
+    usage_accumulator.turns = []
+    usage_accumulator.model = None
+    usage_accumulator.last_cache_activity_time = None
+
+    if not payloads:
+        return None
+
+    history_provider = _payload_provider(payloads[-1])
+    current_provider = llm.provider
+    switched_responses_provider = (
+        history_provider in _RESPONSES_USAGE_PROVIDERS
+        and history_provider != current_provider
+    )
+
+    history_model = _payload_model(payloads[-1])
+    current_model = llm.model_name
+    if (
+        not switched_responses_provider
+        and isinstance(history_model, str)
+        and history_model
+        and isinstance(current_model, str)
+        and current_model
+        and history_model != current_model
+    ):
+        notice = (
+            f"Model changed from {history_model} to {current_model} -- usage info not available"
+        )
+        logger.warning(notice)
+        return notice
+
+    for payload in payloads:
+        turn_usage = _turn_usage_from_payload(payload)
+        if turn_usage is None:
+            continue
+        usage_accumulator.add_turn(turn_usage)
+
+    return None
+
+
+def load_history_into_agent(agent: AgentProtocol, file_path: Path) -> str | None:
     """
     Load conversation history directly into agent without triggering LLM call.
 
@@ -176,6 +321,9 @@ def load_history_into_agent(agent: AgentProtocol, file_path: Path) -> None:
         - The agent's history is cleared before loading
         - Provider diagnostic history will be updated on the next API call
         - Templates are NOT cleared by this function
+
+    Returns:
+        Optional resume notice string when usage state cannot be restored.
     """
     messages = load_prompt(file_path)
 
@@ -184,3 +332,4 @@ def load_history_into_agent(agent: AgentProtocol, file_path: Path) -> None:
     agent.message_history.extend(messages)
 
     # Note: Provider diagnostic history will be updated on next API call
+    return _rehydrate_responses_usage(agent, messages)

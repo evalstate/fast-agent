@@ -171,7 +171,10 @@ class ShellSettings(BaseModel):
     )
     output_display_lines: int | None = Field(
         default=5,
-        description="Maximum output lines to display (None = no limit)",
+        description=(
+            "Maximum shell output lines to display "
+            "(head/tail with an ellipsis when truncated; None = no limit)"
+        ),
     )
     show_bash: bool = Field(
         default=True,

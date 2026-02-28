@@ -23,6 +23,7 @@ Context placeholders (set by caller):
     {{agentCardDir}} - Source AgentCard directory (if available)
     {{serverInstructions}} - MCP server instructions
     {{agentSkills}} - Agent skill descriptions
+    {{agentInternalResources}} - Internal resource index
 
 Usage:
     builder = InstructionBuilder(template="You are helpful. {{currentDate}}")
@@ -96,15 +97,6 @@ def _load_internal_resource(resource_id: str) -> str:
             "Resource ID must not be empty",
         )
 
-    resource_path = (
-        files("fast_agent")
-        .joinpath("resources")
-        .joinpath("shared")
-        .joinpath(f"{normalized_id}.md")
-    )
-    if resource_path.is_file():
-        return resource_path.read_text(encoding="utf-8")
-
     # Source checkout fallback for local development/testing.
     source_resource_path = (
         Path(__file__).resolve().parents[3]
@@ -114,6 +106,15 @@ def _load_internal_resource(resource_id: str) -> str:
     )
     if source_resource_path.is_file():
         return source_resource_path.read_text(encoding="utf-8")
+
+    resource_path = (
+        files("fast_agent")
+        .joinpath("resources")
+        .joinpath("shared")
+        .joinpath(f"{normalized_id}.md")
+    )
+    if resource_path.is_file():
+        return resource_path.read_text(encoding="utf-8")
 
     raise AgentConfigError(
         "Unknown internal resource for template placeholder",

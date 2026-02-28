@@ -32,6 +32,9 @@ class ResponsesOutputMixin:
 
         def _normalize_tool_ids(self, tool_use_id: str | None) -> tuple[str, str]: ...
 
+        @property
+        def provider(self) -> Provider: ...
+
     def _consume_tool_call_diagnostics(self) -> dict[str, Any] | None:
         diagnostics = getattr(self, "_tool_call_diagnostics", None)
         self._tool_call_diagnostics = None
@@ -50,6 +53,8 @@ class ResponsesOutputMixin:
 
     def _record_usage(self, usage: Any, model_name: str) -> None:
         try:
+            provider_value = getattr(self, "provider", Provider.RESPONSES)
+            provider = provider_value if isinstance(provider_value, Provider) else Provider.RESPONSES
             input_tokens = getattr(usage, "input_tokens", 0) or 0
             output_tokens = getattr(usage, "output_tokens", 0) or 0
             total_tokens = getattr(usage, "total_tokens", 0) or (input_tokens + output_tokens)
@@ -64,7 +69,7 @@ class ResponsesOutputMixin:
 
             cache_usage = CacheUsage(cache_hit_tokens=cached_tokens)
             turn_usage = TurnUsage(
-                provider=Provider.RESPONSES,
+                provider=provider,
                 model=model_name,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
