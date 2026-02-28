@@ -182,7 +182,7 @@ async def _resume_session_if_requested(agent_app, request: AgentRunRequest) -> N
             )
         return
 
-    session, loaded, missing_agents = result
+    session, loaded, missing_agents, usage_notices = result
     session_time = session.info.last_activity.strftime("%y-%m-%d %H:%M")
     resume_notice = (
         f"[dim]Resumed session[/dim] [cyan]{session.info.name}[/cyan] [dim]({session_time})[/dim]"
@@ -201,6 +201,13 @@ async def _resume_session_if_requested(agent_app, request: AgentRunRequest) -> N
             queue_startup_notice(missing_notice)
         else:
             typer.echo(f"Missing agents from session: {missing_list}", err=True)
+
+    for usage_notice in usage_notices:
+        if interactive_notice:
+            queue_startup_notice(f"[yellow]{escape_markup(usage_notice)}[/yellow]")
+        else:
+            typer.echo(usage_notice, err=True)
+
     if missing_agents or not loaded:
         from fast_agent.session import format_history_summary, summarize_session_histories
 
