@@ -37,6 +37,11 @@ class ModelConfig(BaseModel):
     web_search: bool | None = None
     web_fetch: bool | None = None
     temperature: float | None = None
+    top_p: float | None = None
+    top_k: int | None = None
+    min_p: float | None = None
+    presence_penalty: float | None = None
+    repetition_penalty: float | None = None
 
 
 class ModelFactory:
@@ -90,6 +95,16 @@ class ModelFactory:
         "deepseek32": "hf.deepseek-ai/DeepSeek-V3.2:fireworks-ai",
         "kimi25": "hf.moonshotai/Kimi-K2.5:fireworks-ai",
         "kimi-2.5": "hf.moonshotai/Kimi-K2.5:fireworks-ai",
+        "qwen35": (
+            "hf.Qwen/Qwen3.5-397B-A17B:novita"
+            "?temperature=0.6&top_p=0.95&top_k=20&min_p=0.0"
+            "&presence_penalty=0.0&repetition_penalty=1.0&reasoning=on"
+        ),
+        "qwen35instruct": (
+            "hf.Qwen/Qwen3.5-397B-A17B:novita"
+            "?temperature=0.7&top_p=0.8&top_k=20&min_p=0.0"
+            "&presence_penalty=1.5&repetition_penalty=1.0&reasoning=off"
+        ),
     }
 
     @staticmethod
@@ -181,6 +196,60 @@ class ModelFactory:
         query_web_search: bool | None = None
         query_web_fetch: bool | None = None
         query_temperature: float | None = None
+        query_top_p: float | None = None
+        query_top_k: int | None = None
+        query_min_p: float | None = None
+        query_presence_penalty: float | None = None
+        query_repetition_penalty: float | None = None
+
+        def _parse_float_query(
+            query_params: dict[str, list[str]],
+            model_spec: str,
+            *,
+            keys: tuple[str, ...],
+            label: str,
+        ) -> float | None:
+            values: list[str] = []
+            for key in keys:
+                values.extend(query_params.get(key) or [])
+            if not values:
+                return None
+
+            raw_value = values[-1]
+            try:
+                parsed_value = float(raw_value)
+            except ValueError as exc:
+                raise ModelConfigError(
+                    f"Invalid {label} query value: '{raw_value}' in '{model_spec}'"
+                ) from exc
+
+            if not math.isfinite(parsed_value):
+                raise ModelConfigError(
+                    f"Invalid {label} query value: '{raw_value}' in '{model_spec}'"
+                )
+
+            return parsed_value
+
+        def _parse_int_query(
+            query_params: dict[str, list[str]],
+            model_spec: str,
+            *,
+            keys: tuple[str, ...],
+            label: str,
+        ) -> int | None:
+            values: list[str] = []
+            for key in keys:
+                values.extend(query_params.get(key) or [])
+            if not values:
+                return None
+
+            raw_value = values[-1]
+            try:
+                return int(raw_value)
+            except ValueError as exc:
+                raise ModelConfigError(
+                    f"Invalid {label} query value: '{raw_value}' in '{model_spec}'"
+                ) from exc
 
         def _parse_on_off_query(raw_value: str, query_key: str) -> bool:
             parsed = parse_reasoning_setting(raw_value)
@@ -191,42 +260,71 @@ class ModelFactory:
                 "Use on/off (or true/false, 1/0)."
             )
 
-        if "?" in model_string:
-            model_string, _, query = model_string.partition("?")
-            query_params = parse_qs(query)
+        def _apply_query_params(
+            query_params: dict[str, list[str]],
+            model_spec: str,
+            *,
+            allow_override: bool,
+        ) -> None:
+            nonlocal query_setting
+            nonlocal query_structured
+            nonlocal query_text_verbosity
+            nonlocal query_instant
+            nonlocal query_long_context
+            nonlocal query_transport
+            nonlocal query_web_search
+            nonlocal query_web_fetch
+            nonlocal query_temperature
+            nonlocal query_top_p
+            nonlocal query_top_k
+            nonlocal query_min_p
+            nonlocal query_presence_penalty
+            nonlocal query_repetition_penalty
+
             if "reasoning" in query_params:
                 values = query_params.get("reasoning") or []
                 raw_value = values[-1] if values else ""
-                query_setting = parse_reasoning_setting(raw_value)
-                if query_setting is None:
+                parsed_reasoning = parse_reasoning_setting(raw_value)
+                if parsed_reasoning is None:
                     raise ModelConfigError(
-                        f"Invalid reasoning query value: '{raw_value}' in '{model_string}'"
+                        f"Invalid reasoning query value: '{raw_value}' in '{model_spec}'"
                     )
+                if allow_override or query_setting is None:
+                    query_setting = parsed_reasoning
+
             if "verbosity" in query_params:
                 values = query_params.get("verbosity") or []
                 raw_value = values[-1] if values else ""
-                query_text_verbosity = parse_text_verbosity(raw_value)
-                if query_text_verbosity is None:
+                parsed_verbosity = parse_text_verbosity(raw_value)
+                if parsed_verbosity is None:
                     raise ModelConfigError(
-                        f"Invalid verbosity query value: '{raw_value}' in '{model_string}'"
+                        f"Invalid verbosity query value: '{raw_value}' in '{model_spec}'"
                     )
+                if allow_override or query_text_verbosity is None:
+                    query_text_verbosity = parsed_verbosity
+
             if "structured" in query_params:
                 values = query_params.get("structured") or []
                 raw_value = values[-1] if values else ""
-                query_structured = parse_structured_output_mode(raw_value)
-                if query_structured is None:
+                parsed_structured = parse_structured_output_mode(raw_value)
+                if parsed_structured is None:
                     raise ModelConfigError(
-                        f"Invalid structured query value: '{raw_value}' in '{model_string}'"
+                        f"Invalid structured query value: '{raw_value}' in '{model_spec}'"
                     )
+                if allow_override or query_structured is None:
+                    query_structured = parsed_structured
+
             if "instant" in query_params:
                 values = query_params.get("instant") or []
                 raw_value = values[-1] if values else ""
                 instant_setting = parse_reasoning_setting(raw_value)
                 if instant_setting is None or instant_setting.kind != "toggle":
                     raise ModelConfigError(
-                        f"Invalid instant query value: '{raw_value}' in '{model_string}'"
+                        f"Invalid instant query value: '{raw_value}' in '{model_spec}'"
                     )
-                query_instant = bool(instant_setting.value)
+                if allow_override or query_instant is None:
+                    query_instant = bool(instant_setting.value)
+
             if "context" in query_params:
                 values = query_params.get("context") or []
                 raw_value = (values[-1] if values else "").strip().lower()
@@ -236,6 +334,7 @@ class ModelFactory:
                     raise ModelConfigError(
                         f"Invalid context query value: '{raw_value}' \u2014 only '1m' is supported"
                     )
+
             if "transport" in query_params:
                 values = query_params.get("transport") or []
                 raw_value = (values[-1] if values else "").strip().lower()
@@ -248,32 +347,86 @@ class ModelFactory:
                 normalized_transport = transport_aliases.get(raw_value)
                 if normalized_transport is None:
                     raise ModelConfigError(
-                        f"Invalid transport query value: '{raw_value}' in '{model_string}'"
+                        f"Invalid transport query value: '{raw_value}' in '{model_spec}'"
                     )
-                query_transport = normalized_transport
+                if allow_override or query_transport is None:
+                    query_transport = normalized_transport
+
             if "web_search" in query_params:
                 values = query_params.get("web_search") or []
                 raw_value = values[-1] if values else ""
-                query_web_search = _parse_on_off_query(raw_value, "web_search")
+                parsed_web_search = _parse_on_off_query(raw_value, "web_search")
+                if allow_override or query_web_search is None:
+                    query_web_search = parsed_web_search
+
             if "web_fetch" in query_params:
                 values = query_params.get("web_fetch") or []
                 raw_value = values[-1] if values else ""
-                query_web_fetch = _parse_on_off_query(raw_value, "web_fetch")
-            if "temperature" in query_params or "temp" in query_params:
-                values = query_params.get("temperature") or query_params.get("temp") or []
-                raw_value = values[-1] if values else ""
-                try:
-                    parsed_temperature = float(raw_value)
-                except ValueError as exc:
-                    raise ModelConfigError(
-                        f"Invalid temperature query value: '{raw_value}' in '{model_string}'"
-                    ) from exc
+                parsed_web_fetch = _parse_on_off_query(raw_value, "web_fetch")
+                if allow_override or query_web_fetch is None:
+                    query_web_fetch = parsed_web_fetch
 
-                if not math.isfinite(parsed_temperature):
-                    raise ModelConfigError(
-                        f"Invalid temperature query value: '{raw_value}' in '{model_string}'"
-                    )
+            parsed_temperature = _parse_float_query(
+                query_params,
+                model_spec,
+                keys=("temperature", "temp"),
+                label="temperature",
+            )
+            if parsed_temperature is not None and (allow_override or query_temperature is None):
                 query_temperature = parsed_temperature
+
+            parsed_top_p = _parse_float_query(
+                query_params,
+                model_spec,
+                keys=("top_p", "topP"),
+                label="top_p",
+            )
+            if parsed_top_p is not None and (allow_override or query_top_p is None):
+                query_top_p = parsed_top_p
+
+            parsed_top_k = _parse_int_query(
+                query_params,
+                model_spec,
+                keys=("top_k", "topK"),
+                label="top_k",
+            )
+            if parsed_top_k is not None and (allow_override or query_top_k is None):
+                query_top_k = parsed_top_k
+
+            parsed_min_p = _parse_float_query(
+                query_params,
+                model_spec,
+                keys=("min_p", "minP"),
+                label="min_p",
+            )
+            if parsed_min_p is not None and (allow_override or query_min_p is None):
+                query_min_p = parsed_min_p
+
+            parsed_presence_penalty = _parse_float_query(
+                query_params,
+                model_spec,
+                keys=("presence_penalty", "presencePenalty"),
+                label="presence_penalty",
+            )
+            if parsed_presence_penalty is not None and (
+                allow_override or query_presence_penalty is None
+            ):
+                query_presence_penalty = parsed_presence_penalty
+
+            parsed_repetition_penalty = _parse_float_query(
+                query_params,
+                model_spec,
+                keys=("repetition_penalty", "repetitionPenalty"),
+                label="repetition_penalty",
+            )
+            if parsed_repetition_penalty is not None and (
+                allow_override or query_repetition_penalty is None
+            ):
+                query_repetition_penalty = parsed_repetition_penalty
+
+        if "?" in model_string:
+            model_string, _, query = model_string.partition("?")
+            _apply_query_params(parse_qs(query), model_string, allow_override=True)
 
         suffix: str | None = None
         if ":" in model_string:
@@ -282,6 +435,10 @@ class ModelFactory:
                 model_string = base
 
         model_string = aliases.get(model_string, model_string)
+
+        if "?" in model_string:
+            model_string, _, alias_query = model_string.partition("?")
+            _apply_query_params(parse_qs(alias_query), model_string, allow_override=False)
 
         # If user provided a suffix (e.g., kimi:groq), strip any existing suffix
         # from the resolved alias (e.g., hf.model:cerebras -> hf.model)
@@ -405,6 +562,11 @@ class ModelFactory:
             web_search=query_web_search,
             web_fetch=query_web_fetch,
             temperature=query_temperature,
+            top_p=query_top_p,
+            top_k=query_top_k,
+            min_p=query_min_p,
+            presence_penalty=query_presence_penalty,
+            repetition_penalty=query_repetition_penalty,
         )
 
     @classmethod
@@ -440,12 +602,28 @@ class ModelFactory:
         ) -> FastAgentLLMProtocol:
             effective_request_params = request_params
 
+            sampling_overrides: dict[str, float | int] = {}
             if config.temperature is not None:
+                sampling_overrides["temperature"] = config.temperature
+            if config.top_p is not None:
+                sampling_overrides["top_p"] = config.top_p
+            if config.top_k is not None:
+                sampling_overrides["top_k"] = config.top_k
+            if config.min_p is not None:
+                sampling_overrides["min_p"] = config.min_p
+            if config.presence_penalty is not None:
+                sampling_overrides["presence_penalty"] = config.presence_penalty
+            if config.repetition_penalty is not None:
+                sampling_overrides["repetition_penalty"] = config.repetition_penalty
+
+            if sampling_overrides:
                 if effective_request_params is None:
-                    effective_request_params = RequestParams(temperature=config.temperature)
+                    effective_request_params = RequestParams().model_copy(
+                        update=sampling_overrides
+                    )
                 else:
                     effective_request_params = effective_request_params.model_copy(
-                        update={"temperature": config.temperature}
+                        update=sampling_overrides
                     )
 
             if config.reasoning_effort:

@@ -6,6 +6,8 @@
 #   - hf.moonshotai/Kimi-K2-Instruct-0905
 #   - hf.moonshotai/Kimi-K2-Instruct-0905:groq
 #   - hf.MiniMaxAI/MiniMax-M2
+#   - qwen35
+#   - qwen35instruct
 default_model: kimi
 
 # MCP Servers configuration

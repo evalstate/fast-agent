@@ -267,6 +267,14 @@ def _add_model_details(
             right_info="model",
         )
 
+    sampling_overrides = _render_sampling_overrides(llm)
+    if sampling_overrides:
+        outcome.add_message(
+            _styled_model_line("Sampling overrides", sampling_overrides),
+            channel="system",
+            right_info="model",
+        )
+
     response_transports = ModelDatabase.get_response_transports(model_name) if model_name else None
     if response_transports:
         allowed_transport_values = ", ".join(response_transports)
@@ -382,6 +390,33 @@ def _resolve_toggle_to_default(
         budget = spec.min_budget_tokens or 1024
         return ReasoningEffortSetting(kind="budget", value=budget)
     return ReasoningEffortSetting(kind="toggle", value=True)
+
+
+def _render_sampling_overrides(llm: object) -> str | None:
+    request_params = getattr(llm, "default_request_params", None)
+    if request_params is None:
+        return None
+
+    sampling_fields = (
+        ("temperature", "temperature"),
+        ("top_p", "top_p"),
+        ("top_k", "top_k"),
+        ("min_p", "min_p"),
+        ("presence_penalty", "presence_penalty"),
+        ("frequency_penalty", "frequency_penalty"),
+        ("repetition_penalty", "repetition_penalty"),
+    )
+
+    parts: list[str] = []
+    for attribute, label in sampling_fields:
+        value = getattr(request_params, attribute, None)
+        if value is None:
+            continue
+        parts.append(f"{label}={value}")
+
+    if not parts:
+        return None
+    return ", ".join(parts)
 
 
 async def handle_model_reasoning(

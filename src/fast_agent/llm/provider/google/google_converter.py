@@ -403,27 +403,34 @@ class GoogleConverter:
         """
         Converts fast-agent RequestParams to google.genai types.GenerateContentConfig.
         """
+
+        def _param_value(*names: str) -> Any:
+            for name in names:
+                if hasattr(request_params, name):
+                    value = getattr(request_params, name)
+                    if value is not None:
+                        return value
+            return None
+
         config_args: dict[str, Any] = {}
         if request_params.temperature is not None:
             config_args["temperature"] = request_params.temperature
         if request_params.maxTokens is not None:
             config_args["max_output_tokens"] = request_params.maxTokens
-        if hasattr(request_params, "topK") and request_params.topK is not None:
-            config_args["top_k"] = request_params.topK
-        if hasattr(request_params, "topP") and request_params.topP is not None:
-            config_args["top_p"] = request_params.topP
+        top_k = _param_value("top_k", "topK")
+        if top_k is not None:
+            config_args["top_k"] = top_k
+        top_p = _param_value("top_p", "topP")
+        if top_p is not None:
+            config_args["top_p"] = top_p
         if hasattr(request_params, "stopSequences") and request_params.stopSequences is not None:
             config_args["stop_sequences"] = request_params.stopSequences
-        if (
-            hasattr(request_params, "presencePenalty")
-            and request_params.presencePenalty is not None
-        ):
-            config_args["presence_penalty"] = request_params.presencePenalty
-        if (
-            hasattr(request_params, "frequencyPenalty")
-            and request_params.frequencyPenalty is not None
-        ):
-            config_args["frequency_penalty"] = request_params.frequencyPenalty
+        presence_penalty = _param_value("presence_penalty", "presencePenalty")
+        if presence_penalty is not None:
+            config_args["presence_penalty"] = presence_penalty
+        frequency_penalty = _param_value("frequency_penalty", "frequencyPenalty")
+        if frequency_penalty is not None:
+            config_args["frequency_penalty"] = frequency_penalty
         if request_params.systemPrompt is not None:
             config_args["system_instruction"] = request_params.systemPrompt
         return types.GenerateContentConfig(**config_args)

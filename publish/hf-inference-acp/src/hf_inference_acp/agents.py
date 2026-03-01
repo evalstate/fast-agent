@@ -83,11 +83,15 @@ def _resolve_alias_display(model: str) -> tuple[str, str] | None:
     if not alias_target:
         return None
 
-    resolved = alias_target
+    resolved_base, sep, resolved_query = alias_target.partition("?")
+    resolved = resolved_base
     if alias_suffix:
         if ":" in resolved:
             resolved = resolved.rsplit(":", 1)[0]
         resolved = f"{resolved}:{alias_suffix}"
+
+    if sep:
+        resolved = f"{resolved}?{resolved_query}"
 
     return model, resolved
 

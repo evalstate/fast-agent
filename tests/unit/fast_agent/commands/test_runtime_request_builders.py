@@ -238,6 +238,82 @@ def test_resolve_smart_agent_enabled_disables_smart_for_multi_model_even_when_fo
     ) is False
 
 
+def test_build_agent_run_request_rejects_multi_model_with_explicit_cards() -> None:
+    with pytest.raises(typer.BadParameter, match="Cannot use multiple models with AgentCards"):
+        build_agent_run_request(
+            name="test-agent",
+            instruction="instruction",
+            config_path=None,
+            servers=None,
+            urls=None,
+            auth=None,
+            client_metadata_url=None,
+            agent_cards=["./cards"],
+            card_tools=None,
+            model="gpt-4.1,claude-sonnet-4-5",
+            message=None,
+            prompt_file=None,
+            result_file=None,
+            resume=None,
+            stdio_commands=None,
+            agent_name="agent",
+            target_agent_name=None,
+            skills_directory=None,
+            environment_dir=None,
+            shell_enabled=False,
+            mode="interactive",
+            transport="http",
+            host="127.0.0.1",
+            port=8000,
+            tool_description=None,
+            tool_name_template=None,
+            instance_scope="shared",
+            permissions_enabled=True,
+            reload=False,
+            watch=False,
+        )
+
+
+def test_build_agent_run_request_rejects_multi_model_with_implicit_cards(tmp_path: Path) -> None:
+    agent_cards_dir = tmp_path / "agent-cards"
+    agent_cards_dir.mkdir(parents=True)
+    (agent_cards_dir / "demo.md").write_text("---\nname: demo\n---\n")
+
+    with pytest.raises(typer.BadParameter, match="Implicit cards were found in your environment"):
+        build_agent_run_request(
+            name="test-agent",
+            instruction="instruction",
+            config_path=None,
+            servers=None,
+            urls=None,
+            auth=None,
+            client_metadata_url=None,
+            agent_cards=None,
+            card_tools=None,
+            model="gpt-4.1,claude-sonnet-4-5",
+            message=None,
+            prompt_file=None,
+            result_file=None,
+            resume=None,
+            stdio_commands=None,
+            agent_name="agent",
+            target_agent_name=None,
+            skills_directory=None,
+            environment_dir=tmp_path,
+            shell_enabled=False,
+            mode="interactive",
+            transport="http",
+            host="127.0.0.1",
+            port=8000,
+            tool_description=None,
+            tool_name_template=None,
+            instance_scope="shared",
+            permissions_enabled=True,
+            reload=False,
+            watch=False,
+        )
+
+
 def test_build_agent_run_request_noenv_keeps_explicit_cards_only() -> None:
     request = build_agent_run_request(
         name="test-agent",

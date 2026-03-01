@@ -18,6 +18,7 @@ def test_model_database_context_windows():
     assert ModelDatabase.get_context_window("claude-sonnet-4-0") == 200000
     assert ModelDatabase.get_context_window("gpt-4o") == 128000
     assert ModelDatabase.get_context_window("gemini-2.0-flash") == 1048576
+    assert ModelDatabase.get_context_window("Qwen/Qwen3.5-397B-A17B") == 262144
 
     # Test unknown model
     assert ModelDatabase.get_context_window("unknown-model") is None
@@ -60,6 +61,7 @@ def test_model_database_default_provider_lookup():
     assert ModelDatabase.get_default_provider("claude-sonnet-4-6") == Provider.ANTHROPIC
     assert ModelDatabase.get_default_provider("openai.gpt-4.1") == Provider.OPENAI
     assert ModelDatabase.get_default_provider("gpt-5?reasoning=low") == Provider.RESPONSES
+    assert ModelDatabase.get_default_provider("Qwen/Qwen3.5-397B-A17B") == Provider.HUGGINGFACE
     assert ModelDatabase.get_default_provider("unknown-model") is None
 
 
@@ -104,6 +106,7 @@ def test_model_database_max_tokens():
     assert ModelDatabase.get_default_max_tokens("claude-sonnet-4-0") == 64000  # ANTHROPIC_SONNET
     assert ModelDatabase.get_default_max_tokens("gpt-4o") == 16384  # OPENAI_STANDARD
     assert ModelDatabase.get_default_max_tokens("o1") == 100000  # High max_output_tokens
+    assert ModelDatabase.get_default_max_tokens("Qwen/Qwen3.5-397B-A17B:novita") == 65536
 
     # Test fallbacks
     assert ModelDatabase.get_default_max_tokens("unknown-model") == 2048
@@ -127,6 +130,10 @@ def test_model_database_tokenizes():
 
     # Test unknown model
     assert ModelDatabase.get_tokenizes("unknown-model") is None
+
+    qwen_tokenizes = ModelDatabase.get_tokenizes("Qwen/Qwen3.5-397B-A17B")
+    assert qwen_tokenizes is not None
+    assert "image/jpeg" in qwen_tokenizes
 
 
 def test_model_database_supports_mime_basic():
@@ -278,6 +285,7 @@ def test_model_database_reasoning_modes():
     assert ModelDatabase.get_reasoning("gpt-5.3-codex-spark") is None
     assert ModelDatabase.get_reasoning("claude-opus-4-6") == "anthropic_thinking"
     assert ModelDatabase.get_reasoning("zai-org/glm-4.6") == "reasoning_content"
+    assert ModelDatabase.get_reasoning("Qwen/Qwen3.5-397B-A17B") == "reasoning_content"
     assert ModelDatabase.get_reasoning("gpt-4o") is None
 
 
@@ -411,6 +419,63 @@ def test_huggingface_kimi25_default_reasoning_toggle_enabled():
     extra_body = args.get("extra_body")
     assert isinstance(extra_body, dict)
     assert extra_body["thinking"] == {"type": "enabled"}
+
+
+def test_huggingface_qwen35_reasoning_toggle_uses_chat_template_kwargs_disabled():
+    llm = _make_hf_llm_with_reasoning("Qwen/Qwen3.5-397B-A17B", reasoning=False)
+
+    args = _hf_request_args(llm)
+    extra_body = args.get("extra_body")
+    assert isinstance(extra_body, dict)
+    assert extra_body["chat_template_kwargs"] == {"enable_thinking": False}
+
+
+def test_huggingface_qwen35_reasoning_toggle_uses_chat_template_kwargs_enabled():
+    llm = _make_hf_llm_with_reasoning("Qwen/Qwen3.5-397B-A17B", reasoning=True)
+
+    args = _hf_request_args(llm)
+    extra_body = args.get("extra_body")
+    assert isinstance(extra_body, dict)
+    assert extra_body["chat_template_kwargs"] == {"enable_thinking": True}
+
+
+def test_huggingface_qwen35_default_reasoning_emits_chat_template_kwargs_enabled():
+    llm = _make_hf_llm("Qwen/Qwen3.5-397B-A17B")
+
+    args = _hf_request_args(llm)
+    extra_body = args.get("extra_body")
+    assert isinstance(extra_body, dict)
+    assert extra_body["chat_template_kwargs"] == {"enable_thinking": True}
+
+
+def test_huggingface_qwen35_reasoning_stream_hidden_when_disabled():
+    llm = _make_hf_llm_with_reasoning("Qwen/Qwen3.5-397B-A17B", reasoning=False)
+
+    segments: list[str] = []
+    active = llm._handle_reasoning_delta(
+        reasoning_mode="reasoning_content",
+        reasoning_text="hidden reasoning",
+        reasoning_active=False,
+        reasoning_segments=segments,
+    )
+
+    assert active is False
+    assert segments == []
+
+
+def test_huggingface_qwen35_reasoning_stream_visible_when_enabled():
+    llm = _make_hf_llm_with_reasoning("Qwen/Qwen3.5-397B-A17B", reasoning=True)
+
+    segments: list[str] = []
+    active = llm._handle_reasoning_delta(
+        reasoning_mode="reasoning_content",
+        reasoning_text="visible reasoning",
+        reasoning_active=False,
+        reasoning_segments=segments,
+    )
+
+    assert active is False
+    assert segments == ["visible reasoning"]
 
 
 def test_model_database_runtime_model_params_registration():

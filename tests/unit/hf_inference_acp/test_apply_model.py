@@ -51,3 +51,17 @@ async def test_apply_model_does_not_override_request_params_model(monkeypatch) -
     assert agent.config.default_request_params is not None
     assert "model" not in agent.config.default_request_params.model_dump(exclude_unset=True)
     assert calls and calls[-1]["model"] == "hf.moonshotai/Kimi-K2-Instruct-0905:groq"
+
+
+def test_alias_display_preserves_query_when_overriding_provider_suffix() -> None:
+    pytest.importorskip("ruamel.yaml")
+    _ensure_hf_inference_acp_on_path()
+
+    from hf_inference_acp.agents import _resolve_alias_display  # ty: ignore[unresolved-import]
+
+    resolved = _resolve_alias_display("qwen35:groq")
+    assert resolved is not None
+    _alias, target = resolved
+    assert target.startswith("hf.Qwen/Qwen3.5-397B-A17B:groq?")
+    assert "temperature=0.6" in target
+    assert "top_k=20" in target

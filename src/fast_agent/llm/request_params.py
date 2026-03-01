@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from mcp import SamplingMessage
 from mcp.types import CreateMessageRequestParams
-from pydantic import Field
+from pydantic import AliasChoices, Field
 
 from fast_agent.constants import DEFAULT_MAX_ITERATIONS, DEFAULT_STREAMING_TIMEOUT
 
@@ -79,3 +79,39 @@ class RequestParams(CreateMessageRequestParams):
     """
     Maximum time in seconds to wait for streaming completion. Set to None to disable.
     """
+
+    top_p: float | None = Field(
+        default=None,
+        validation_alias=AliasChoices("top_p", "topP"),
+    )
+    """Optional nucleus sampling parameter (provider support varies)."""
+
+    top_k: int | None = Field(
+        default=None,
+        validation_alias=AliasChoices("top_k", "topK"),
+    )
+    """Optional top-k sampling parameter (provider support varies)."""
+
+    min_p: float | None = Field(
+        default=None,
+        validation_alias=AliasChoices("min_p", "minP"),
+    )
+    """Optional minimum probability threshold for sampling (provider support varies)."""
+
+    presence_penalty: float | None = Field(
+        default=None,
+        validation_alias=AliasChoices("presence_penalty", "presencePenalty"),
+    )
+    """Optional presence penalty (provider support varies)."""
+
+    frequency_penalty: float | None = Field(
+        default=None,
+        validation_alias=AliasChoices("frequency_penalty", "frequencyPenalty"),
+    )
+    """Optional frequency penalty (provider support varies)."""
+
+    repetition_penalty: float | None = Field(
+        default=None,
+        validation_alias=AliasChoices("repetition_penalty", "repetitionPenalty"),
+    )
+    """Optional repetition penalty (provider support varies)."""

@@ -134,6 +134,44 @@ def test_model_query_temp_alias():
     assert config.temperature == 0.2
 
 
+def test_model_query_sampling_parameters():
+    config = ModelFactory.parse_model_string(
+        "hf.Qwen/Qwen3.5-397B-A17B:novita"
+        "?temperature=0.6&top_p=0.95&top_k=20&min_p=0.0"
+        "&presence_penalty=0.0&repetition_penalty=1.0"
+    )
+
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == "Qwen/Qwen3.5-397B-A17B:novita"
+    assert config.temperature == 0.6
+    assert config.top_p == 0.95
+    assert config.top_k == 20
+    assert config.min_p == 0.0
+    assert config.presence_penalty == 0.0
+    assert config.repetition_penalty == 1.0
+
+
+def test_alias_sampling_defaults_allow_user_query_overrides() -> None:
+    config = ModelFactory.parse_model_string("qwen35?temperature=0.9&top_p=0.7")
+
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == "Qwen/Qwen3.5-397B-A17B:novita"
+    assert config.temperature == 0.9
+    assert config.top_p == 0.7
+    assert config.top_k == 20
+    assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=True)
+
+
+def test_alias_sampling_defaults_preserve_user_provider_suffix_override() -> None:
+    config = ModelFactory.parse_model_string("qwen35:nebius")
+
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == "Qwen/Qwen3.5-397B-A17B:nebius"
+    assert config.temperature == 0.6
+    assert config.top_p == 0.95
+    assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=True)
+
+
 def test_model_query_transport_websocket_alias():
     config = ModelFactory.parse_model_string("codexplan?transport=ws")
     assert config.provider == Provider.CODEX_RESPONSES
@@ -551,6 +589,67 @@ def test_factory_passes_temperature_query_to_request_params():
     agent = LlmAgent(AgentConfig(name="test"))
     llm = factory(agent)
     assert llm.default_request_params.temperature == 0.42
+
+
+def test_factory_passes_sampling_query_to_request_params() -> None:
+    factory = ModelFactory.create_factory("qwen35")
+    agent = LlmAgent(AgentConfig(name="test"))
+    llm = factory(agent)
+
+    assert llm.default_request_params.model == "Qwen/Qwen3.5-397B-A17B"
+    assert llm.default_request_params.temperature == 0.6
+    assert llm.default_request_params.top_p == 0.95
+    assert llm.default_request_params.top_k == 20
+    assert llm.default_request_params.min_p == 0.0
+    assert llm.default_request_params.presence_penalty == 0.0
+    assert llm.default_request_params.repetition_penalty == 1.0
+    assert llm.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=True)
+
+
+def test_hf_sampling_overrides_route_non_openai_fields_to_extra_body() -> None:
+    factory = ModelFactory.create_factory("qwen35")
+    agent = LlmAgent(AgentConfig(name="test"))
+    llm = factory(agent)
+
+    assert isinstance(llm, HuggingFaceLLM)
+
+    args = llm._prepare_api_request(
+        [{"role": "user", "content": "hi"}],
+        None,
+        llm.default_request_params,
+    )
+
+    assert args["temperature"] == 0.6
+    assert args["top_p"] == 0.95
+    assert args["presence_penalty"] == 0.0
+    assert "top_k" not in args
+    assert "min_p" not in args
+    assert "repetition_penalty" not in args
+
+    extra_body = args.get("extra_body")
+    assert isinstance(extra_body, dict)
+    assert extra_body["top_k"] == 20
+    assert extra_body["min_p"] == 0.0
+    assert extra_body["repetition_penalty"] == 1.0
+    assert extra_body["chat_template_kwargs"] == {"enable_thinking": True}
+
+
+def test_hf_qwen35_instruct_alias_disables_thinking_via_chat_template_kwargs() -> None:
+    factory = ModelFactory.create_factory("qwen35instruct")
+    agent = LlmAgent(AgentConfig(name="test"))
+    llm = factory(agent)
+
+    assert isinstance(llm, HuggingFaceLLM)
+
+    args = llm._prepare_api_request(
+        [{"role": "user", "content": "hi"}],
+        None,
+        llm.default_request_params,
+    )
+
+    extra_body = args.get("extra_body")
+    assert isinstance(extra_body, dict)
+    assert extra_body["chat_template_kwargs"] == {"enable_thinking": False}
 
 
 def test_runtime_model_provider_registration():

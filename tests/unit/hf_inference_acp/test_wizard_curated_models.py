@@ -32,3 +32,14 @@ async def test_wizard_model_selection_uses_curated_ids() -> None:
     assert llm._state.selected_model == CURATED_MODELS[0].id
     assert llm._state.stage == WizardStage.MCP_CONNECT
     assert "Step 3" in response
+
+
+def test_wizard_curated_models_include_qwen35_profiles() -> None:
+    pytest.importorskip("ruamel.yaml")
+    _ensure_hf_inference_acp_on_path()
+
+    import hf_inference_acp.wizard.model_catalog as model_catalog  # ty: ignore[unresolved-import]
+
+    ids = {entry.id for entry in model_catalog.CURATED_MODELS}
+    assert "qwen35" in ids
+    assert "qwen35instruct" in ids

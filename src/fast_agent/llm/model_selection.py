@@ -85,6 +85,22 @@ class ModelSelectionCatalog:
             CatalogModelEntry(alias="glm5", model="hf.zai-org/GLM-5:novita"),
             CatalogModelEntry(alias="glm", model="hf.zai-org/GLM-5:novita"),
             CatalogModelEntry(alias="qwen3", model="hf.Qwen/Qwen3-Next-80B-A3B-Instruct:together"),
+            CatalogModelEntry(
+                alias="qwen35",
+                model=(
+                    "hf.Qwen/Qwen3.5-397B-A17B:novita"
+                    "?temperature=0.6&top_p=0.95&top_k=20&min_p=0.0"
+                    "&presence_penalty=0.0&repetition_penalty=1.0&reasoning=on"
+                ),
+            ),
+            CatalogModelEntry(
+                alias="qwen35instruct",
+                model=(
+                    "hf.Qwen/Qwen3.5-397B-A17B:novita"
+                    "?temperature=0.7&top_p=0.8&top_k=20&min_p=0.0"
+                    "&presence_penalty=1.5&repetition_penalty=1.0&reasoning=off"
+                ),
+            ),
             CatalogModelEntry(alias="deepseek31", model="hf.deepseek-ai/DeepSeek-V3.1"),
             CatalogModelEntry(
                 alias="deepseek32",

@@ -10,6 +10,7 @@ from fast_agent.commands.handlers.model import (
 from fast_agent.config import Settings, ShellSettings
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, ReasoningEffortSpec
+from fast_agent.llm.request_params import RequestParams
 from fast_agent.llm.text_verbosity import TextVerbositySpec
 
 
@@ -50,9 +51,15 @@ class _StubLLM:
         web_fetch_supported: bool = False,
         web_search_default: bool = False,
         web_fetch_default: bool = False,
+        sampling_overrides: dict[str, float | int] | None = None,
     ) -> None:
         self.model_name = model_name
         self.provider = Provider.RESPONSES
+        self.default_request_params = RequestParams()
+        if sampling_overrides:
+            self.default_request_params = self.default_request_params.model_copy(
+                update=sampling_overrides
+            )
         self.reasoning_effort_spec = ReasoningEffortSpec(
             kind="effort",
             allowed_efforts=["low", "medium", "high", "max"],
@@ -210,6 +217,36 @@ async def test_model_reasoning_shows_model_details_when_reasoning_unsupported() 
     assert "Provider: responses." in text_messages
     assert "Resolved model: gpt-4.1." in text_messages
     assert "Current model does not support reasoning effort configuration." in text_messages
+
+
+@pytest.mark.asyncio
+async def test_model_reasoning_displays_sampling_overrides() -> None:
+    llm = _StubLLM(
+        "Qwen/Qwen3.5-397B-A17B",
+        sampling_overrides={
+            "temperature": 0.6,
+            "top_p": 0.95,
+            "top_k": 20,
+            "min_p": 0.0,
+            "presence_penalty": 0.0,
+            "repetition_penalty": 1.0,
+        },
+    )
+    provider = _StubAgentProvider(_StubAgent(llm, shell_limit=None))
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+    )
+
+    outcome = await handle_model_reasoning(ctx, agent_name="test", value=None)
+    text_messages = [str(m.text) for m in outcome.messages]
+
+    assert (
+        "Sampling overrides: temperature=0.6, top_p=0.95, top_k=20, min_p=0.0, "
+        "presence_penalty=0.0, repetition_penalty=1.0."
+    ) in text_messages
 
 
 @pytest.mark.asyncio

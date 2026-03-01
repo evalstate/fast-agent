@@ -584,6 +584,15 @@ class ModelDatabase:
         context_window=262_000, max_output_tokens=8192, tokenizes=TEXT_ONLY
     )
 
+    HF_PROVIDER_QWEN35 = ModelParameters(
+        context_window=262_144,
+        max_output_tokens=65_536,
+        tokenizes=QWEN_MULTIMODAL,
+        reasoning="reasoning_content",
+        reasoning_effort_spec=GLM_REASONING_TOGGLE_SPEC,
+        default_provider=Provider.HUGGINGFACE,
+    )
+
     ALIYUN_QWEN3_MODERN = ModelParameters(
         context_window=256_000,
         max_output_tokens=64_000,
@@ -728,6 +737,7 @@ class ModelDatabase:
         "minimaxai/minimax-m2": GLM_46,
         "minimaxai/minimax-m2.1": MINIMAX_21,
         "qwen/qwen3-next-80b-a3b-instruct": HF_PROVIDER_QWEN3_NEXT,
+        "qwen/qwen3.5-397b-a17b": HF_PROVIDER_QWEN35,
         "deepseek-ai/deepseek-v3.1": HF_PROVIDER_DEEPSEEK31,
         "deepseek-ai/deepseek-v3.2": HF_PROVIDER_DEEPSEEK32,
         # aliyun modern

@@ -120,6 +120,37 @@ def validate_noenv_conflicts(
         raise typer.BadParameter("Cannot combine --noenv with --resume.")
 
 
+def validate_multi_model_card_conflicts(
+    *,
+    model: str | None,
+    merged_agent_cards: list[str] | None,
+    merged_card_tools: list[str] | None,
+    explicit_agent_cards: bool,
+    explicit_card_tools: bool,
+) -> None:
+    """Reject unsupported combinations of multi-model mode and card loading."""
+    if not is_multi_model(model):
+        return
+
+    if not merged_agent_cards and not merged_card_tools:
+        return
+
+    message = (
+        "Cannot use multiple models with AgentCards or card tools. "
+        "Multi-model mode (--model a,b) uses automatic parallel fan-out and requires no cards."
+    )
+
+    if explicit_agent_cards or explicit_card_tools:
+        message += " Remove --agent-cards/--card-tool, or use a single --model value."
+    else:
+        message += (
+            " Implicit cards were found in your environment; re-run with --noenv "
+            "(or --env pointing to a directory without cards)."
+        )
+
+    raise typer.BadParameter(message, param_hint="--model")
+
+
 def resolve_instruction_option(
     instruction: str | None,
     model: str | None,
@@ -328,6 +359,14 @@ def build_agent_run_request(
         normalize_explicit_card_sources(card_tools)
         if noenv
         else merge_card_sources(card_tools, default_tool_cards_dir)
+    )
+
+    validate_multi_model_card_conflicts(
+        model=model,
+        merged_agent_cards=merged_agent_cards,
+        merged_card_tools=merged_card_tools,
+        explicit_agent_cards=bool(agent_cards),
+        explicit_card_tools=bool(card_tools),
     )
 
     effective_permissions_enabled = (

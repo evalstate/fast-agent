@@ -36,6 +36,23 @@ This package provides an ACP-compatible agent for Hugging Face Inference API. It
 
 4. In **Hugging Face** mode, use `/connect` to connect to the Hugging Face MCP server for model/dataset search tools.
 
+## Curated Model Aliases
+
+`/set-model` supports short aliases from fast-agent's curated Hugging Face list, including:
+
+- `kimi`
+- `glm`
+- `minimax`
+- `deepseek32`
+- `kimi25`
+- `qwen35` (thinking profile)
+- `qwen35instruct` (instruct profile)
+
+Qwen 3.5 aliases resolve to `hf.Qwen/Qwen3.5-397B-A17B:novita` with curated sampling defaults:
+
+- `qwen35`: `temperature=0.6, top_p=0.95, top_k=20, min_p=0.0, presence_penalty=0.0, repetition_penalty=1.0`
+- `qwen35instruct`: `temperature=0.7, top_p=0.8, top_k=20, min_p=0.0, presence_penalty=1.5, repetition_penalty=1.0`
+
 ## Configuration
 
 Configuration is stored at `~/.config/hf-inference/hf.config.yaml`:

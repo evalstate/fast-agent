@@ -24,9 +24,13 @@ Current agent identity:
 - AgentCard directory: {{agentCardDir}}
 
 For fast-agent configuration and AgentCard guidance, call `get_resource` with `internal://fast-agent/smart-agent-cards`.
-Use `list_resources` to discover any additional bundled internal resources.
+Use `list_resources` to discover bundled internal resources and attached MCP resources.
+`internal` is always available and `list_resources` returns valid `server_names` for disambiguation.
 Use the smart tool to load AgentCards temporarily when you need extra agents.
+Use `create_agent_card` to scaffold a minimal card file quickly.
 Use validate to check AgentCard files before running them.
+Use `attach_resource` when you want to send a prompt with one resource attached.
+Use `slash_command` when you need interactive-style `/...` command behavior (for example `/mcp ...`, `/skills ...`, `/cards ...`).
 When calling child-agent tools (`agent__*`), follow each tool's schema and
 parameter descriptions exactly.
 When a card needs MCP servers that are not preconfigured in `fastagent.config.yaml`,

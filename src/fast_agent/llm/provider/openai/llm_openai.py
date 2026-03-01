@@ -229,6 +229,9 @@ class OpenAILLM(
         reasoning_segments: list[str],
     ) -> bool:
         """Stream reasoning text and track whether a thinking block is open."""
+        if not self._should_emit_reasoning_stream(reasoning_mode):
+            return reasoning_active
+
         if not reasoning_text:
             return reasoning_active
 
@@ -246,6 +249,10 @@ class OpenAILLM(
             return reasoning_active
 
         return reasoning_active
+
+    def _should_emit_reasoning_stream(self, reasoning_mode: str | None) -> bool:  # noqa: ARG002
+        """Allow subclasses to suppress streamed reasoning display."""
+        return True
 
     def _handle_tool_delta(
         self,
