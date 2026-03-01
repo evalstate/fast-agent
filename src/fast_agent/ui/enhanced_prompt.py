@@ -18,7 +18,6 @@ from fast_agent.ui.prompt.keybindings import AgentKeyBindings, create_keybinding
 from fast_agent.ui.prompt.parser import parse_special_input
 from fast_agent.ui.prompt.session import (
     ShellPrefixLexer,
-    StartupNotice,
     _display_agent_info_helper,
     get_argument_input,
     get_selection_input,
@@ -54,7 +53,7 @@ _copy_notice: str | None = None
 _copy_notice_until: float = 0.0
 help_message_shown: bool = False
 _agent_info_shown: set[str] = set()
-_startup_notices: list[str | StartupNotice] = []
+_startup_notices: list[object] = []
 
 
 def _sync_to_session() -> None:
@@ -95,7 +94,7 @@ def set_last_copyable_output(output: str) -> None:
     _sync_to_session()
 
 
-def queue_startup_notice(notice: str) -> None:
+def queue_startup_notice(notice: object) -> None:
     from fast_agent.ui.prompt.session import queue_startup_notice as _queue_startup_notice
 
     _sync_to_session()
@@ -104,9 +103,10 @@ def queue_startup_notice(notice: str) -> None:
 
 
 def queue_startup_markdown_notice(
-    notice: str,
+    text: str,
     *,
     title: str | None = None,
+    style: str | None = None,
     right_info: str | None = None,
     agent_name: str | None = None,
 ) -> None:
@@ -116,8 +116,9 @@ def queue_startup_markdown_notice(
 
     _sync_to_session()
     _queue_startup_markdown_notice(
-        notice,
+        text,
         title=title,
+        style=style,
         right_info=right_info,
         agent_name=agent_name,
     )

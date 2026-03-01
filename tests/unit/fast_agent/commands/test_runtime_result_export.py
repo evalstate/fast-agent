@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 import typer
@@ -22,6 +23,7 @@ from fast_agent.cli.runtime.agent_setup import (
 )
 from fast_agent.cli.runtime.run_request import AgentRunRequest
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+from fast_agent.session import ResumeSessionAgentsResult
 
 
 class _DummyAgent:
@@ -134,61 +136,6 @@ def test_find_last_assistant_text_returns_none_without_assistant_messages() -> N
 
 
 @pytest.mark.asyncio
-async def test_resume_session_interactive_queues_markdown_preview(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    request = _make_request(result_file=None, message=None, prompt_file=None)
-    request.resume = "latest"
-
-    assistant_message = PromptMessageExtended(
-        role="assistant",
-        content=[TextContent(type="text", text="## Welcome back\n\n- item")],
-    )
-
-    alpha = _DummyAgent("alpha")
-    alpha.message_history = [assistant_message]
-    beta = _DummyAgent("beta")
-
-    app = _DummyAgentApp(["alpha", "beta"], default_agent="beta")
-    app._agents["alpha"] = alpha
-    app._agents["beta"] = beta
-
-    session = SimpleNamespace(
-        info=SimpleNamespace(
-            name="session-1",
-            last_activity=datetime(2026, 2, 26, 12, 0, 0),
-        )
-    )
-    manager = SimpleNamespace(
-        resume_session_agents=lambda *args, **kwargs: (session, {"alpha": object()}, set())
-    )
-
-    markdown_notices: list[tuple[str, dict[str, str | None]]] = []
-    plain_notices: list[str] = []
-
-    def _capture_markdown_notice(text: str, **kwargs: str | None) -> None:
-        markdown_notices.append((text, kwargs))
-
-    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda: manager)
-    monkeypatch.setattr("fast_agent.ui.enhanced_prompt.queue_startup_notice", plain_notices.append)
-    monkeypatch.setattr(
-        "fast_agent.ui.enhanced_prompt.queue_startup_markdown_notice",
-        _capture_markdown_notice,
-    )
-
-    await _resume_session_if_requested(app, request)
-
-    assert plain_notices
-    assert any("Resumed session" in notice for notice in plain_notices)
-    assert len(markdown_notices) == 1
-    text, kwargs = markdown_notices[0]
-    assert text == "## Welcome back\n\n- item"
-    assert kwargs["title"] == "Last assistant message"
-    assert kwargs["right_info"] == "session"
-    assert kwargs["agent_name"] == "alpha"
-
-
-@pytest.mark.asyncio
 async def test_export_result_histories_single_agent_exact_filename(tmp_path: Path) -> None:
     app = _DummyAgentApp(["agent"])
     output = tmp_path / "out.json"
@@ -247,6 +194,106 @@ async def test_export_result_histories_exits_nonzero_on_write_error(
     assert exc_info.value.exit_code == 1
     captured = capsys.readouterr()
     assert "Error exporting result file" in captured.err
+
+
+@pytest.mark.asyncio
+async def test_resume_session_interactive_queues_markdown_preview(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = _make_request(result_file=None, message=None, prompt_file=None)
+    request.resume = "latest"
+
+    assistant_message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="## Welcome back\n\n- item")],
+    )
+
+    alpha = _DummyAgent("alpha")
+    alpha.message_history = [assistant_message]
+    beta = _DummyAgent("beta")
+
+    app = _DummyAgentApp(["alpha", "beta"], default_agent="beta")
+    app._agents["alpha"] = alpha
+    app._agents["beta"] = beta
+
+    session = SimpleNamespace(
+        info=SimpleNamespace(
+            name="session-1",
+            last_activity=datetime(2026, 2, 26, 12, 0, 0),
+        )
+    )
+    manager = SimpleNamespace(
+        resume_session_agents=lambda *args, **kwargs: ResumeSessionAgentsResult(
+            session=cast("Any", session),
+            loaded={"alpha": Path("history_alpha.json")},
+            missing_agents=[],
+        )
+    )
+
+    markdown_notices: list[tuple[str, dict[str, str | None]]] = []
+    plain_notices: list[str] = []
+
+    def _capture_markdown_notice(text: str, **kwargs: str | None) -> None:
+        markdown_notices.append((text, kwargs))
+
+    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda: manager)
+    monkeypatch.setattr("fast_agent.ui.enhanced_prompt.queue_startup_notice", plain_notices.append)
+    monkeypatch.setattr(
+        "fast_agent.ui.enhanced_prompt.queue_startup_markdown_notice",
+        _capture_markdown_notice,
+    )
+
+    await _resume_session_if_requested(app, request)
+
+    assert any("Resumed session" in notice for notice in plain_notices)
+    assert any("Last assistant message" in notice for notice in plain_notices)
+    assert markdown_notices
+    assert markdown_notices[0][0] == "## Welcome back\n\n- item"
+
+
+@pytest.mark.asyncio
+async def test_resume_session_interactive_handles_usage_notices_from_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = _make_request(result_file=None, message=None, prompt_file=None)
+    request.resume = "latest"
+
+    assistant_message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="done")],
+    )
+    agent = _DummyAgent("agent")
+    agent.message_history = [assistant_message]
+    app = _DummyAgentApp(["agent"], default_agent="agent")
+    app._agents["agent"] = agent
+
+    session = SimpleNamespace(
+        info=SimpleNamespace(
+            name="session-2",
+            last_activity=datetime(2026, 2, 26, 12, 0, 0),
+        )
+    )
+    manager = SimpleNamespace(
+        resume_session_agents=lambda *args, **kwargs: ResumeSessionAgentsResult(
+            session=cast("Any", session),
+            loaded={"agent": Path("history_agent.json")},
+            missing_agents=[],
+            usage_notices=["[dim]Usage restored[/dim]"],
+        )
+    )
+
+    plain_notices: list[str] = []
+
+    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda: manager)
+    monkeypatch.setattr("fast_agent.ui.enhanced_prompt.queue_startup_notice", plain_notices.append)
+    monkeypatch.setattr(
+        "fast_agent.ui.enhanced_prompt.queue_startup_markdown_notice",
+        lambda *args, **kwargs: None,
+    )
+
+    await _resume_session_if_requested(app, request)
+
+    assert any("Usage restored" in notice for notice in plain_notices)
 
 
 @pytest.mark.asyncio

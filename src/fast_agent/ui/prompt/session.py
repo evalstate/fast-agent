@@ -318,31 +318,43 @@ class StartupNotice:
 
 
 # One-off notices to render at the top of the prompt UI
-_startup_notices: list[str | StartupNotice] = []
+_startup_notices: list[object] = []
 
 
-def queue_startup_notice(notice: str) -> None:
+def queue_startup_notice(notice: object) -> None:
     if notice:
         _startup_notices.append(notice)
 
 
 def queue_startup_markdown_notice(
-    notice: str,
+    text: str,
     *,
     title: str | None = None,
+    style: str | None = None,
     right_info: str | None = None,
     agent_name: str | None = None,
 ) -> None:
-    if notice:
-        _startup_notices.append(
-            StartupNotice(
-                text=notice,
-                render_markdown=True,
-                title=title,
-                right_info=right_info,
-                agent_name=agent_name,
-            )
+    """Queue a markdown notice for display at next interactive prompt render."""
+    if not text:
+        return
+
+    if style is not None and right_info is None and agent_name is None:
+        from rich.markdown import Markdown
+
+        if title:
+            queue_startup_notice(title)
+        queue_startup_notice(Markdown(text, style=style or ""))
+        return
+
+    _startup_notices.append(
+        StartupNotice(
+            text=text,
+            render_markdown=True,
+            title=title,
+            right_info=right_info,
+            agent_name=agent_name,
         )
+    )
 
 
 async def show_mcp_status(agent_name: str, agent_provider: "AgentApp | None") -> None:

@@ -50,8 +50,10 @@ class StubAgent:
         additional_message: Text | None = None,
         render_markdown: bool | None = None,
         show_hook_indicator: bool = False,
+        render_message: bool = True,
     ) -> None:
         """Stub implementation with correct signature."""
+        _ = render_message
         pass
 
 
