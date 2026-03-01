@@ -129,7 +129,8 @@ class StreamSegmentBuffer:
     def consume_reasoning_gap(self) -> None:
         gap = self._consume_reasoning_gap()
         if gap:
-            self._append_to_segment("plain", gap)
+            target_kind: SegmentKind = "markdown" if self._base_kind == "markdown" else "plain"
+            self._append_to_segment(target_kind, gap)
 
     def _append_plain(
         self,

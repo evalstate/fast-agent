@@ -304,6 +304,8 @@ class AgentProtocol(LlmAgentProtocol, Protocol):
         model: str | None = None,
         additional_message: Text | None = None,
         render_markdown: bool | None = None,
+        show_hook_indicator: bool | None = None,
+        render_message: bool = True,
     ) -> None: ...
 
     async def attach_llm(

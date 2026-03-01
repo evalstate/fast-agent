@@ -88,6 +88,15 @@ class NullStreamingHandle:
     def handle_tool_event(self, _event_type: str, info: dict[str, Any] | None = None) -> None:
         return
 
+    def has_scrolled(self) -> bool:
+        return False
+
+    def preserve_final_frame(self) -> bool:
+        return False
+
+    async def wait_for_drain(self) -> None:
+        return
+
 
 class StreamingMessageHandle:
     """Helper that manages live rendering for streaming assistant responses."""
@@ -139,9 +148,6 @@ class StreamingMessageHandle:
         self._height_fudge = (
             PLAIN_STREAM_HEIGHT_FUDGE if use_plain_text else MARKDOWN_STREAM_HEIGHT_FUDGE
         )
-        initial_renderable = (
-            Text("", style=self._plain_text_style or "") if self._use_plain_text else Markdown("")
-        )
         refresh_rate = (
             PLAIN_STREAM_REFRESH_PER_SECOND
             if self._use_plain_text
@@ -167,7 +173,7 @@ class StreamingMessageHandle:
         self._stop_sentinel: object = object()
         self._worker_task: asyncio.Task[None] | None = None
         self._live: Live | None = Live(
-            initial_renderable,
+            None,
             console=console.console,
             vertical_overflow="ellipsis",
             refresh_per_second=refresh_rate,
@@ -179,6 +185,7 @@ class StreamingMessageHandle:
         self._finalized = False
         self._show_stream_cursor = True
         self._max_render_height = 0
+        self._preserve_final_frame = False
 
         if self._async_mode and self._loop and self._queue is not None:
             self._worker_task = self._loop.create_task(self._render_worker())
@@ -310,6 +317,12 @@ class StreamingMessageHandle:
         # Remove the transient cursor in the final frame before closing Live rendering.
         self._show_stream_cursor = False
 
+        if self._preserve_final_frame:
+            # Avoid carrying the anti-flicker height padding into the persisted
+            # final frame, otherwise short responses keep visible blank lines.
+            self._max_render_height = 0
+            self._height_fudge = 0
+
         # Flush any buffered reasoning content before closing the live view
         if self._segment_assembler.flush():
             self._render_current_buffer()
@@ -360,6 +373,11 @@ class StreamingMessageHandle:
         if not interval:
             return True
 
+        if not self._render_throttle_active:
+            # Keep markdown updates immediate while content still fits the viewport.
+            self._next_render_deadline = None
+            return True
+
         now = time.monotonic()
         deadline = self._next_render_deadline
         if deadline is None:
@@ -382,6 +400,10 @@ class StreamingMessageHandle:
         if not interval:
             return
 
+        if not self._render_throttle_active:
+            self._next_render_deadline = None
+            return
+
         now = time.monotonic()
         deadline = self._next_render_deadline
         if deadline is None:
@@ -400,12 +422,28 @@ class StreamingMessageHandle:
         if not interval:
             return True
 
+        if not self._render_throttle_active:
+            self._next_render_deadline = None
+            return True
+
         now = time.monotonic()
         deadline = self._next_render_deadline
         if deadline is None:
             self._next_render_deadline = now
             return True
         return now >= deadline
+
+    @property
+    def _render_throttle_active(self) -> bool:
+        """Whether frame pacing should currently throttle renders.
+
+        Markdown renders are unthrottled until truncation begins (first scroll),
+        then we switch to the configured cadence. Plain-text mode keeps its
+        existing fixed cadence.
+        """
+        if self._use_plain_text:
+            return True
+        return self._scrolling_started
 
     def _render_sync_if_due(self) -> None:
         """Render in sync mode while respecting frame-rate limits."""
@@ -463,6 +501,30 @@ class StreamingMessageHandle:
         if segment_index != total_segments - 1:
             return ""
         return STREAM_CURSOR_BLOCK
+
+    def has_scrolled(self) -> bool:
+        """Return whether viewport truncation/scrolling has started."""
+        return self._scrolling_started
+
+    def preserve_final_frame(self) -> bool:
+        """Request that closing leaves the final streamed frame visible.
+
+        Returns True when the request can be honored for this stream.
+        """
+        if not self._live:
+            return False
+        if not self._live_started and not self._segment_assembler.segments:
+            return False
+        self._preserve_final_frame = True
+        return True
+
+    async def wait_for_drain(self) -> None:
+        """Wait until all queued stream updates have been rendered."""
+        if not self._async_mode or self._queue is None:
+            return
+        if self._worker_task is None or self._worker_task.done():
+            return
+        await self._queue.join()
 
     def _render_current_buffer(self) -> None:
         if not self._active:
@@ -650,6 +712,7 @@ class StreamingMessageHandle:
                     break
 
                 if item is self._stop_sentinel:
+                    self._queue.task_done()
                     break
 
                 stop_requested = False
@@ -669,6 +732,7 @@ class StreamingMessageHandle:
                             break
                     if next_item is self._stop_sentinel:
                         stop_requested = True
+                        chunks.append(next_item)
                         break
                     chunks.append(next_item)
 
@@ -676,6 +740,8 @@ class StreamingMessageHandle:
                 queued_items: list[_QueuedItem] = []
                 batch_chars = 0
                 for chunk in chunks:
+                    if chunk is self._stop_sentinel:
+                        continue
                     payload = chunk
                     if isinstance(chunk, _QueuedItem):
                         queued_items.append(chunk)
@@ -697,6 +763,8 @@ class StreamingMessageHandle:
 
                 if should_render:
                     if not await self._wait_for_render_slot():
+                        for _ in chunks:
+                            self._queue.task_done()
                         break
                     oldest_enqueued_at = None
                     newest_enqueued_at = None
@@ -714,6 +782,9 @@ class StreamingMessageHandle:
                     self._render_current_buffer()
                     self._advance_render_deadline()
 
+                for _ in chunks:
+                    self._queue.task_done()
+
                 if stop_requested:
                     break
         except asyncio.CancelledError:
@@ -723,12 +794,18 @@ class StreamingMessageHandle:
 
     def _shutdown_live_resources(self) -> None:
         if self._live and self._live_started:
+            if self._preserve_final_frame:
+                try:
+                    self._live.transient = False
+                except Exception:
+                    pass
             try:
                 self._live.__exit__(None, None, None)
             except Exception:
                 pass
             self._live = None
             self._live_started = False
+        self._preserve_final_frame = False
 
         self._resume_progress_display()
         self._active = False
@@ -786,3 +863,9 @@ class StreamingHandle(Protocol):
     def close(self) -> None: ...
 
     def handle_tool_event(self, event_type: str, info: dict[str, Any] | None = None) -> None: ...
+
+    def has_scrolled(self) -> bool: ...
+
+    def preserve_final_frame(self) -> bool: ...
+
+    async def wait_for_drain(self) -> None: ...

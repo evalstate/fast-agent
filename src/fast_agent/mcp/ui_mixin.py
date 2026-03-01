@@ -100,6 +100,8 @@ class McpUIMixin:
         model: str | None = None,
         additional_message: "Text" | None = None,
         render_markdown: bool | None = None,
+        show_hook_indicator: bool | None = None,
+        render_message: bool = True,
     ) -> None:
         """Override to display UI resources after showing assistant message."""
         # Show the assistant message normally via parent
@@ -112,6 +114,8 @@ class McpUIMixin:
             model=model,
             additional_message=additional_message,
             render_markdown=render_markdown,
+            show_hook_indicator=show_hook_indicator,
+            render_message=render_message,
         )
 
         # Handle any pending UI resources from the previous user message

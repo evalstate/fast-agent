@@ -753,15 +753,26 @@ class ConsoleDisplay:
         )
 
         # Handle mermaid diagrams separately (after the main message)
-        # Extract plain text for mermaid detection
-        plain_text = display_text
-        if isinstance(display_text, Text):
-            plain_text = display_text.plain
+        self.show_mermaid_diagrams_from_message_text(message_text)
 
-        if isinstance(plain_text, str):
-            diagrams = extract_mermaid_diagrams(plain_text)
-            if diagrams:
-                self._display_mermaid_diagrams(diagrams)
+    def show_mermaid_diagrams_from_message_text(
+        self,
+        message_text: Union[str, Text, "PromptMessageExtended"],
+    ) -> None:
+        """Display mermaid links extracted from assistant text payload."""
+        from fast_agent.types import PromptMessageExtended
+
+        plain_text = ""
+        if isinstance(message_text, PromptMessageExtended):
+            plain_text = message_text.all_text() or message_text.last_text() or ""
+        elif isinstance(message_text, Text):
+            plain_text = message_text.plain
+        elif isinstance(message_text, str):
+            plain_text = message_text
+
+        diagrams = extract_mermaid_diagrams(plain_text)
+        if diagrams:
+            self._display_mermaid_diagrams(diagrams)
 
     @contextmanager
     def streaming_assistant_message(

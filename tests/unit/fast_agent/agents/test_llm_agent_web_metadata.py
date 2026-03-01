@@ -82,6 +82,7 @@ class _SummaryHarnessAgent(LlmAgent):
         additional_message: Text | None = None,
         render_markdown: bool | None = None,
         show_hook_indicator: bool | None = None,
+        render_message: bool = True,
     ) -> None:
         self.additional_messages.append(additional_message)
 

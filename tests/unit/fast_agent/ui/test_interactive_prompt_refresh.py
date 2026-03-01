@@ -183,3 +183,4 @@ async def test_prompt_loop_preserves_pinned_tool_only_agent(monkeypatch, capsys:
 
     capsys.readouterr()
     assert enhanced_prompt.available_agents == {"tool-only", "vertex-rag"}
+

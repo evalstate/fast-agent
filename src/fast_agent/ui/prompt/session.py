@@ -1101,7 +1101,7 @@ async def get_enhanced_input(
             rich_print("[dim]Type /help for commands. Ctrl+T toggles multiline mode.[/dim]")
         else:
             rich_print(
-                "[dim]Use '/' for commands, '!' for shell. '#' to query, '@' to switch agents\nCTRL+T multiline, CTRL+Y copy last message, CTRL+E external editor.[/dim]\n"
+                "[dim]Use '/' for commands, '!' for shell. '#' to query, '@' to switch agents\nCTRL+T multiline, CTRL+Y copy last message, CTRL+E external editor.[/dim]"
             )
 
         if shell_enabled:

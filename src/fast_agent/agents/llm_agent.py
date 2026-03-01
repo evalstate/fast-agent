@@ -114,6 +114,7 @@ class LlmAgent(LlmDecorator):
         additional_message: Optional[Text] = None,
         render_markdown: bool | None = None,
         show_hook_indicator: bool | None = None,
+        render_message: bool = True,
     ) -> None:
         """Display an assistant message with appropriate styling based on stop reason.
 
@@ -126,6 +127,7 @@ class LlmAgent(LlmDecorator):
             model: Optional model name to display
             additional_message: Optional additional message to display
             render_markdown: Force markdown rendering (True) or plain rendering (False)
+            render_message: When False, skip reprinting body text and only show post-turn output
         """
 
         # Determine display content based on stop reason if not provided
@@ -299,17 +301,22 @@ class LlmAgent(LlmDecorator):
             if show_hook_indicator is not None
             else getattr(self, "has_after_llm_call_hook", False)
         )
-        await self.display.show_assistant_message(
-            message_text,
-            bottom_items=bottom_items,
-            highlight_index=highlight_index,
-            max_item_length=max_item_length,
-            name=display_name,
-            model=display_model,
-            additional_message=additional_message_text,
-            render_markdown=render_markdown,
-            show_hook_indicator=hook_indicator,
-        )
+        if render_message:
+            await self.display.show_assistant_message(
+                message_text,
+                bottom_items=bottom_items,
+                highlight_index=highlight_index,
+                max_item_length=max_item_length,
+                name=display_name,
+                model=display_model,
+                additional_message=additional_message_text,
+                render_markdown=render_markdown,
+                show_hook_indicator=hook_indicator,
+            )
+        else:
+            if additional_message_text is not None:
+                self.display.show_status_message(additional_message_text)
+            self.display.show_mermaid_diagrams_from_message_text(message_text)
         self._display_url_elicitations_from_history(display_name)
 
     def _summary_text_for_result(
@@ -320,6 +327,29 @@ class LlmAgent(LlmDecorator):
         if summary is None or message.stop_reason == LlmStopReason.TOOL_USE:
             return None
         return Text(f"\n\n{summary.message}", style="dim red italic")
+
+    def _can_preserve_streamed_final_frame(
+        self,
+        *,
+        message: PromptMessageExtended,
+        summary_text: Text | None,
+        streaming_mode: str,
+        stream_handle: "StreamingHandle",
+    ) -> bool:
+        """Return True when the streamed frame can replace final reprint safely."""
+        if streaming_mode != "markdown":
+            return False
+        if summary_text is not None:
+            return False
+        if message.stop_reason != LlmStopReason.END_TURN:
+            return False
+        if stream_handle.has_scrolled():
+            return False
+
+        display_text = message.all_text() or message.last_text() or ""
+        if not display_text.strip():
+            return False
+        return True
 
     def _display_url_elicitations_from_history(self, agent_name: str | None) -> None:
         """Display deferred URL elicitations from the previous tool-result turn."""
@@ -550,15 +580,30 @@ class LlmAgent(LlmDecorator):
 
                 summary_text = self._summary_text_for_result(result, summary)
 
+                await stream_handle.wait_for_drain()
                 self._maybe_close_streaming_for_tool_calls(result)
+                preserve_streamed_frame = self._can_preserve_streamed_final_frame(
+                    message=result,
+                    summary_text=summary_text,
+                    streaming_mode=streaming_mode,
+                    stream_handle=stream_handle,
+                ) and stream_handle.preserve_final_frame()
                 stream_handle.finalize(result)
                 self._active_stream_handle = None
 
-            await self.show_assistant_message(
-                result,
-                additional_message=summary_text,
-                render_markdown=render_markdown,
-            )
+            if preserve_streamed_frame:
+                await self.show_assistant_message(
+                    result,
+                    additional_message=summary_text,
+                    render_markdown=render_markdown,
+                    render_message=False,
+                )
+            else:
+                await self.show_assistant_message(
+                    result,
+                    additional_message=summary_text,
+                    render_markdown=render_markdown,
+                )
         else:
             result, summary = await self._generate_with_summary(messages, request_params, tools)
             summary_text = self._summary_text_for_result(result, summary)

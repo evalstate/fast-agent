@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TextIO
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.styles import Style
@@ -17,6 +18,34 @@ from fast_agent.ui.prompt_marks import emit_prompt_mark
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+
+_ERASE_PREVIOUS_LINE_SEQ = "\x1b[1A\x1b[2K\r"
+
+
+def _clear_prompt_echo_line(result: str, *, stream: TextIO | None = None) -> None:
+    """Erase the just-submitted prompt echo for regular chat input.
+
+    Slash (`/`) and shell (`!`) commands are intentionally left visible because
+    we explicitly reprint those command lines below.
+    """
+    stripped = result.lstrip()
+    if not stripped:
+        return
+    if stripped.startswith("/") or stripped.startswith("!"):
+        return
+    if "\n" in result:
+        return
+
+    target = stream or sys.stdout
+    if not hasattr(target, "isatty") or not target.isatty():
+        return
+
+    try:
+        target.write(_ERASE_PREVIOUS_LINE_SEQ)
+        target.flush()
+    except Exception:
+        return
 
 
 def build_prompt_style() -> Style:
@@ -85,6 +114,8 @@ async def run_prompt_once(
         )
         prompt_returned_at = time.perf_counter()
         emit_prompt_mark("B")
+
+        _clear_prompt_echo_line(result)
 
         stripped = result.lstrip()
         accepted_at = accept_state.get("accepted_at")
