@@ -83,7 +83,7 @@ def main() -> int:
     )
     provider = snapshot.providers[chosen_provider_index - 1].provider
 
-    use_all = Confirm.ask("Show all static catalog models?", default=False)
+    use_all = Confirm.ask("Show all catalog models?", default=False)
     source = "all" if use_all else "curated"
 
     model_options = model_options_for_provider(snapshot, provider, source=source)

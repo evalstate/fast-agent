@@ -167,7 +167,7 @@ class SplitListPicker:
     def _render_status_bar(self) -> StyleFragments:
         provider = self.current_provider
         provider_status = "available" if provider.active else "not configured"
-        model_scope = "curated" if self.state.source == "curated" else "all static"
+        model_scope = "curated" if self.state.source == "curated" else "all catalog"
 
         focus_hint = "providers" if self.state.focus == "providers" else "models"
         warning = ""
