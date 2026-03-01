@@ -513,7 +513,11 @@ class StreamingMessageHandle:
         """
         if not self._live:
             return False
-        if not self._live_started and not self._segment_assembler.segments:
+        if (
+            not self._live_started
+            and not self._segment_assembler.segments
+            and not self._segment_assembler.has_pending_content()
+        ):
             return False
         self._preserve_final_frame = True
         return True

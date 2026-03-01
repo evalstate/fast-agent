@@ -34,6 +34,7 @@ class StubAgent:
         self._ui_mode = ui_mode
         self.display = StubDisplay()
         self.message_history = []
+        self.assistant_calls = []
 
     async def run_tools(self, request, request_params=None):
         """Stub implementation that returns the request unchanged."""
@@ -53,8 +54,20 @@ class StubAgent:
         render_message: bool = True,
     ) -> None:
         """Stub implementation with correct signature."""
-        _ = render_message
-        pass
+        self.assistant_calls.append(
+            {
+                "message": message,
+                "bottom_items": bottom_items,
+                "highlight_index": highlight_index,
+                "max_item_length": max_item_length,
+                "name": name,
+                "model": model,
+                "additional_message": additional_message,
+                "render_markdown": render_markdown,
+                "show_hook_indicator": show_hook_indicator,
+                "render_message": render_message,
+            }
+        )
 
 
 class UIAgentForTesting(McpUIMixin, StubAgent):
@@ -257,6 +270,18 @@ async def test_show_assistant_message_displays_ui_resources(ui_agent):
         # Restore original functions
         setattr(ui_mixin_module, "ui_links_from_channel", original_ui_links_from_channel)
         setattr(ui_mixin_module, "open_links_in_browser", original_open_links_in_browser)
+
+
+@pytest.mark.asyncio
+async def test_show_assistant_message_forwards_render_message_flag(ui_agent):
+    assistant_msg = PromptMessageExtended(
+        role="assistant", content=[TextContent(type="text", text="response")]
+    )
+
+    await ui_agent.show_assistant_message(assistant_msg, render_message=False)
+
+    assert ui_agent.assistant_calls
+    assert ui_agent.assistant_calls[-1]["render_message"] is False
 
 
 def test_is_ui_embedded_resource(ui_agent):

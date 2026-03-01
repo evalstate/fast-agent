@@ -189,6 +189,12 @@ def test_preserve_final_frame_requires_rendered_content() -> None:
     assert handle.preserve_final_frame() is False
 
 
+def test_preserve_final_frame_allows_pending_reasoning_content() -> None:
+    handle = _make_handle("markdown")
+    handle.update_chunk(StreamChunk("<think>"))
+    assert handle.preserve_final_frame() is True
+
+
 def test_preserve_final_frame_sets_live_non_transient() -> None:
     class _FakeLive:
         def __init__(self) -> None:

@@ -327,6 +327,17 @@ class StreamSegmentAssembler:
     def pending_table_row(self) -> str:
         return self._buffer.pending_table_row
 
+    def has_pending_content(self) -> bool:
+        """Return True when buffered stream state can still emit content on flush."""
+        if self._buffer.pending_table_row:
+            return True
+        if self._reasoning_parser.in_think:
+            return True
+        for state in self._tool_states.values():
+            if state.raw_text or state.display_text:
+                return True
+        return False
+
     def handle_stream_chunk(self, chunk: StreamChunk) -> bool:
         if not chunk.text:
             return False
