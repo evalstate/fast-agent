@@ -1,4 +1,5 @@
 from fast_agent.ui.shell_output_truncation import (
+    SHELL_OUTPUT_TRUNCATION_MARKER,
     split_shell_output_line_limit,
     truncate_shell_output_lines,
 )
@@ -21,7 +22,7 @@ def test_truncate_shell_output_lines_uses_head_marker_tail() -> None:
         "line-1",
         "line-2",
         "line-3",
-        "...",
+        SHELL_OUTPUT_TRUNCATION_MARKER,
         "line-8",
         "line-9",
         "line-10",

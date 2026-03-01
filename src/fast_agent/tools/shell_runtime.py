@@ -28,7 +28,10 @@ from fast_agent.event_progress import ProgressAction
 from fast_agent.ui import console
 from fast_agent.ui.console_display import ConsoleDisplay
 from fast_agent.ui.progress_display import progress_display
-from fast_agent.ui.shell_output_truncation import split_shell_output_line_limit
+from fast_agent.ui.shell_output_truncation import (
+    SHELL_OUTPUT_TRUNCATION_MARKER,
+    split_shell_output_line_limit,
+)
 from fast_agent.utils.async_utils import gather_with_cancel
 
 
@@ -310,6 +313,7 @@ class ShellRuntime:
                 display_line_limit = self._output_display_lines
                 displayed_head_count = 0
                 display_total_line_count = 0
+                output_line_count = 0
                 display_overflowed = False
                 display_ellipsis_printed = False
                 display_head_limit, display_tail_limit = (0, 0)
@@ -332,6 +336,7 @@ class ShellRuntime:
                     nonlocal displayed_head_count, display_total_line_count, display_overflowed
                     nonlocal display_ellipsis_printed
                     nonlocal had_stream_output
+                    nonlocal output_line_count
                     if not stream:
                         return
                     while True:
@@ -339,6 +344,7 @@ class ShellRuntime:
                         if not line:
                             break
                         had_stream_output = True
+                        output_line_count += 1
                         text = line.decode(errors="replace")
                         output_text = text if not is_stderr else f"[stderr] {text}"
                         output_blob = output_text.encode("utf-8", errors="replace")
@@ -403,7 +409,11 @@ class ShellRuntime:
                                     if current_line_index > display_line_limit:
                                         display_overflowed = True
                                         if not display_ellipsis_printed:
-                                            console.console.print("...", style="dim", markup=False)
+                                            console.console.print(
+                                                SHELL_OUTPUT_TRUNCATION_MARKER,
+                                                style="dim",
+                                                markup=False,
+                                            )
                                             display_ellipsis_printed = True
 
                         # Update last output time whenever we receive a line
@@ -593,7 +603,11 @@ class ShellRuntime:
                 if use_live_shell_display and display_line_limit is not None and display_line_limit > 0:
                     if display_overflowed:
                         if not display_ellipsis_printed:
-                            console.console.print("...", style="dim", markup=False)
+                            console.console.print(
+                                SHELL_OUTPUT_TRUNCATION_MARKER,
+                                style="dim",
+                                markup=False,
+                            )
                         for buffered_index, buffered_text, buffered_style in display_tail_buffer:
                             if buffered_index <= display_line_limit:
                                 continue
@@ -607,6 +621,7 @@ class ShellRuntime:
                     self._display.show_shell_exit_code(
                         return_code,
                         no_output=not had_stream_output,
+                        output_line_count=output_line_count if had_stream_output else None,
                         tool_call_id=tool_use_id if show_tool_call_id else None,
                     )
 
@@ -615,6 +630,7 @@ class ShellRuntime:
                     suppress_display = False
                 setattr(result, "_suppress_display", suppress_display)
                 setattr(result, "exit_code", return_code)
+                setattr(result, "output_line_count", output_line_count)
 
                 self._emit_progress_event(
                     action=ProgressAction.TOOL_PROGRESS,

@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+SHELL_OUTPUT_TRUNCATION_MARKER = ".....▲▼....."
+
+
+def format_shell_output_line_count(line_count: int) -> str:
+    """Return a human-friendly shell output line-count label."""
+    noun = "line" if line_count == 1 else "lines"
+    return f"{line_count} {noun}"
+
 
 def split_shell_output_line_limit(line_limit: int) -> tuple[int, int]:
     """Split a line limit into head/tail windows.
@@ -21,7 +29,7 @@ def truncate_shell_output_lines(
     lines: list[str],
     line_limit: int,
     *,
-    marker: str = "...",
+    marker: str = SHELL_OUTPUT_TRUNCATION_MARKER,
 ) -> tuple[list[str], bool]:
     """Truncate shell output to head + marker + tail windows.
 

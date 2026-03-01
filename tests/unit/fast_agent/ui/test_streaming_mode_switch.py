@@ -235,3 +235,24 @@ def test_preserve_final_frame_finalize_disables_padding(monkeypatch) -> None:
     handle.finalize("short response")
 
     assert captured == [(0, 0)]
+
+
+def test_close_incomplete_code_blocks_keeps_closed_fence_with_trailing_text() -> None:
+    handle = _make_handle("markdown")
+    text = """Here is code:\n```python\nprint(1)\n```\nAnd more text."""
+
+    assert handle._close_incomplete_code_blocks(text) == text
+
+
+def test_close_incomplete_code_blocks_closes_unterminated_fence() -> None:
+    handle = _make_handle("markdown")
+    text = """Here is code:\n```python\nprint(1)"""
+
+    assert handle._close_incomplete_code_blocks(text) == text + "\n```\n"
+
+
+def test_close_incomplete_code_blocks_supports_tilde_fences() -> None:
+    handle = _make_handle("markdown")
+    text = """Here is code:\n~~~json\n{\"a\": 1}"""
+
+    assert handle._close_incomplete_code_blocks(text) == text + "\n~~~\n"

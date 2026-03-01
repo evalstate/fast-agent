@@ -10,7 +10,10 @@ from rich.text import Text
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.ui import console
 from fast_agent.ui.message_primitives import MESSAGE_CONFIGS, MessageType
-from fast_agent.ui.shell_output_truncation import truncate_shell_output_lines
+from fast_agent.ui.shell_output_truncation import (
+    format_shell_output_line_count,
+    truncate_shell_output_lines,
+)
 
 if TYPE_CHECKING:
     from mcp.types import CallToolResult
@@ -133,26 +136,47 @@ class ToolDisplay:
 
         return None
 
-    def _shell_exit_detail(self, *, no_output: bool, tool_call_id: str | None) -> str | None:
-        detail = ""
+    def _shell_exit_detail(
+        self,
+        *,
+        no_output: bool,
+        tool_call_id: str | None,
+        output_line_count: int | None,
+    ) -> str | None:
+        detail_parts: list[str] = []
+        if output_line_count is not None and output_line_count > 0:
+            detail_parts.append(format_shell_output_line_count(output_line_count))
         if no_output:
-            detail += " (no output)"
+            detail_parts.append("(no output)")
 
         formatted_id = self._format_tool_call_id(tool_call_id)
         if formatted_id:
-            if detail:
-                detail += f" id: {formatted_id}"
-            else:
-                detail += f"id: {formatted_id}"
+            detail_parts.append(f"id: {formatted_id}")
 
-        return detail or None
+        if not detail_parts:
+            return None
+        return f" {' '.join(detail_parts)}"
+
+    @staticmethod
+    def _shell_output_line_count_from_content(content) -> int | None:
+        from fast_agent.mcp.helpers.content_helpers import get_text, is_text_content
+
+        if not content or len(content) != 1 or not is_text_content(content[0]):
+            return None
+
+        text = get_text(content[0]) or ""
+        lines = cast("list[str]", text.splitlines())
+        lines_without_exit, _ = ToolDisplay._extract_exit_code_line(lines)
+        return len(lines_without_exit)
 
     def _build_shell_exit_additional_message(
         self,
         *,
         content,
+        source_content,
         tool_name: str | None,
         tool_call_id: str | None,
+        output_line_count: int | None = None,
     ):
         from mcp.types import TextContent
 
@@ -174,8 +198,18 @@ class ToolDisplay:
         if exit_code is None:
             return content, None
 
+        line_count = output_line_count
+        if line_count is None:
+            line_count = self._shell_output_line_count_from_content(source_content)
+        if line_count is None:
+            line_count = len(lines_without_exit)
+
         no_output = not any(line.strip() for line in lines_without_exit)
-        detail = self._shell_exit_detail(no_output=no_output, tool_call_id=tool_call_id)
+        detail = self._shell_exit_detail(
+            no_output=no_output,
+            tool_call_id=tool_call_id,
+            output_line_count=line_count,
+        )
         additional_message = self._display.style.shell_exit_line(
             exit_code,
             console.console.size.width,
@@ -247,6 +281,7 @@ class ToolDisplay:
             content = result.content
             structured_content = getattr(result, "structuredContent", None)
             has_structured = structured_content is not None
+            source_content = content
             display_content = content
             if truncate_content:
                 show_bash_output = self._shell_show_bash(tool_name)
@@ -330,8 +365,10 @@ class ToolDisplay:
             display_content, shell_exit_additional_message = (
                 self._build_shell_exit_additional_message(
                     content=display_content,
+                    source_content=source_content,
                     tool_name=tool_name,
                     tool_call_id=tool_call_id,
+                    output_line_count=getattr(result, "output_line_count", None),
                 )
             )
 

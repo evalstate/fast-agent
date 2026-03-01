@@ -24,6 +24,7 @@ from fast_agent.ui.mermaid_utils import (
 from fast_agent.ui.message_primitives import MESSAGE_CONFIGS, MessageType
 from fast_agent.ui.message_styles import MessageStyle, resolve_message_style
 from fast_agent.ui.model_display import format_model_display
+from fast_agent.ui.shell_output_truncation import format_shell_output_line_count
 from fast_agent.ui.streaming import (
     NullStreamingHandle as _NullStreamingHandle,
 )
@@ -202,24 +203,27 @@ class ConsoleDisplay:
         exit_code: int,
         *,
         no_output: bool = False,
+        output_line_count: int | None = None,
         tool_call_id: str | None = None,
     ) -> None:
         """Display a shell-style exit code banner."""
-        detail = ""
+        detail_parts: list[str] = []
+        if output_line_count is not None and output_line_count > 0:
+            detail_parts.append(format_shell_output_line_count(output_line_count))
+
         if no_output:
-            detail += " (no output)"
+            detail_parts.append("(no output)")
 
         formatted_id = ToolDisplay._format_tool_call_id(tool_call_id)
         if formatted_id:
-            if detail:
-                detail += f" id: {formatted_id}"
-            else:
-                detail += f"id: {formatted_id}"
+            detail_parts.append(f"id: {formatted_id}")
+
+        detail = f" {' '.join(detail_parts)}" if detail_parts else None
 
         line = self._style.shell_exit_line(
             exit_code,
             console.console.size.width,
-            detail or None,
+            detail,
         )
         console.console.print()
         console.console.print(line)

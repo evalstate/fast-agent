@@ -16,6 +16,7 @@ from fast_agent.event_progress import ProgressAction
 from fast_agent.tools.shell_runtime import ShellRuntime
 from fast_agent.ui import console
 from fast_agent.ui.progress_display import progress_display
+from fast_agent.ui.shell_output_truncation import SHELL_OUTPUT_TRUNCATION_MARKER
 
 
 class DummyStream:
@@ -312,7 +313,8 @@ async def test_execute_live_display_truncates_with_head_and_tail_windows() -> No
     assert "out-05" not in rendered
     assert "out-06" not in rendered
     assert "out-07" not in rendered
-    assert "..." in rendered
+    assert SHELL_OUTPUT_TRUNCATION_MARKER in rendered
+    assert "10 lines" in rendered
 
 
 @pytest.mark.asyncio
@@ -335,6 +337,7 @@ async def test_execute_deferred_display_suppresses_live_console_output() -> None
     assert "hello" in result.content[0].text
     assert "process exit code was 0" in result.content[0].text
     assert getattr(result, "_suppress_display", True) is False
+    assert getattr(result, "output_line_count", None) == 1
     rendered = capture.get()
     assert "hello" not in rendered
     assert "exit code" not in rendered

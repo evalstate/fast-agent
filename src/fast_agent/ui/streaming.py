@@ -53,9 +53,7 @@ def _resolve_progress_resume_debounce_seconds() -> float:
 
 STREAM_PROGRESS_RESUME_DEBOUNCE_SECONDS = _resolve_progress_resume_debounce_seconds()
 
-_FENCE_OPEN_RE = re.compile(r"^```", re.MULTILINE)
-_FENCE_CLOSE_RE = re.compile(r"^```\s*$", re.MULTILINE)
-_FENCE_TRAILING_CLOSE_RE = re.compile(r"```\s*$")
+_FENCE_OPEN_LINE_RE = re.compile(r"^\s{0,3}(?P<delim>`{3,}|~{3,})(?P<info>.*)$")
 
 
 @dataclass(frozen=True)
@@ -256,7 +254,7 @@ class StreamingMessageHandle:
 
         right_content = self._header_right.strip()
         if self._display_truncated:
-            indicator = "[black on blue]display truncated[/black on blue]"
+            indicator = "[black on blue]scrolling[/black on blue]"
             right_content = f"{right_content} {indicator}" if right_content else indicator
 
         combined = self._display._format_header_line(self._header_left, right_content)
@@ -298,17 +296,50 @@ class StreamingMessageHandle:
             self._live_started = True
 
     def _close_incomplete_code_blocks(self, text: str) -> str:
-        if "```" not in text:
+        if "```" not in text and "~~~" not in text:
+            return text
+        in_fence = False
+        fence_char = "`"
+        fence_len = 3
+
+        for line in text.splitlines():
+            stripped = line.lstrip(" ")
+            if len(line) - len(stripped) > 3:
+                continue
+
+            if not in_fence:
+                opening = _FENCE_OPEN_LINE_RE.match(line)
+                if not opening:
+                    continue
+
+                delimiter = opening.group("delim")
+                info = opening.group("info")
+                # Backtick fences cannot include backticks in the info string.
+                if delimiter[0] == "`" and "`" in info:
+                    continue
+
+                in_fence = True
+                fence_char = delimiter[0]
+                fence_len = len(delimiter)
+                continue
+
+            if not stripped or stripped[0] != fence_char:
+                continue
+
+            index = 0
+            while index < len(stripped) and stripped[index] == fence_char:
+                index += 1
+
+            if index >= fence_len and stripped[index:].strip() == "":
+                in_fence = False
+
+        if not in_fence:
             return text
 
-        opening_fences = len(_FENCE_OPEN_RE.findall(text))
-        closing_fences = len(_FENCE_CLOSE_RE.findall(text))
-
-        if opening_fences > closing_fences:
-            if not _FENCE_TRAILING_CLOSE_RE.search(text):
-                return text + "\n```\n"
-
-        return text
+        closing_fence = fence_char * fence_len
+        if text.endswith("\n"):
+            return f"{text}{closing_fence}\n"
+        return f"{text}\n{closing_fence}\n"
 
     def finalize(self, _message: "PromptMessageExtended | str") -> None:
         if not self._active or self._finalized:
