@@ -55,9 +55,14 @@ CURATED_MODELS: list[CuratedModel] = [
     ),
     CuratedModel(
         id="kimi25",
-        display_name="Kimi K2.5",
-        description="Kimi 2.5 seamlessly integrates vision and language understanding with advanced agentic capabilities, instant and thinking modes, as well as conversational and agentic paradigms.",
+        display_name="Kimi K2.5 (Thinking)",
+        description="Kimi 2.5 thinking profile with curated defaults (temp=1.0, top_p=0.95).",
     ),
+    # CuratedModel(
+    #     id="kimi25instant",
+    #     display_name="Kimi K2.5 Instant",
+    #     description="Kimi 2.5 instant profile with thinking disabled (temp=0.6, top_p=0.95).",
+    # ),
     CuratedModel(
         id="qwen35",
         display_name="Qwen 3.5 (Thinking)",
@@ -145,6 +150,7 @@ def format_model_list_help() -> str:
             "**Examples:**",
             "- `/set-model kimi` - Use the Kimi K2 model",
             "- `/set-model glm` - Use GLM 4.6",
+            # "- `/set-model kimi25instant` - Use Kimi 2.5 instant profile",
             "- `/set-model qwen35instruct` - Use Qwen 3.5 with instruct sampling profile",
             "- `/set-model moonshotai/Kimi-K2-Thinking` - Set model (autoroute) and show providers",
             "",

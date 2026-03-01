@@ -99,10 +99,10 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
             return
 
         disable_reasoning = not bool(effective.value)
-        uses_kimi_toggle = self._uses_kimi_thinking_toggle(arguments.get("model"))
+        uses_kimi_chat_toggle = self._uses_kimi_chat_template_toggle(arguments.get("model"))
         uses_qwen_chat_toggle = self._uses_qwen_chat_template_toggle(arguments.get("model"))
         if (
-            not uses_kimi_toggle
+            not uses_kimi_chat_toggle
             and not uses_qwen_chat_toggle
             and not disable_reasoning
             and self.reasoning_effort is None
@@ -111,9 +111,16 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
 
         extra_body_raw = arguments.get("extra_body", {})
         extra_body: dict[str, Any] = extra_body_raw if isinstance(extra_body_raw, dict) else {}
-        if uses_kimi_toggle:
-            thinking_type = "disabled" if disable_reasoning else "enabled"
-            extra_body["thinking"] = {"type": thinking_type}
+        if uses_kimi_chat_toggle:
+            # Kimi 2.5 defaults to thinking-enabled on the provider side.
+            # Only send the explicit instant-mode disable flag when reasoning is off.
+            if disable_reasoning:
+                chat_kwargs_raw = extra_body.get("chat_template_kwargs", {})
+                chat_kwargs = chat_kwargs_raw if isinstance(chat_kwargs_raw, dict) else {}
+                chat_kwargs["thinking"] = False
+                extra_body["chat_template_kwargs"] = chat_kwargs
+                arguments["extra_body"] = extra_body
+            return
         elif uses_qwen_chat_toggle:
             chat_kwargs_raw = extra_body.get("chat_template_kwargs", {})
             chat_kwargs = chat_kwargs_raw if isinstance(chat_kwargs_raw, dict) else {}
@@ -141,7 +148,7 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
         return True
 
     @staticmethod
-    def _uses_kimi_thinking_toggle(model: str | None) -> bool:
+    def _uses_kimi_chat_template_toggle(model: str | None) -> bool:
         if not model:
             return False
         return ModelDatabase.normalize_model_name(model) == "moonshotai/kimi-k2.5"

@@ -8,6 +8,7 @@
 #   - hf.MiniMaxAI/MiniMax-M2
 #   - qwen35
 #   - qwen35instruct
+#   - kimi25
 default_model: kimi
 
 # MCP Servers configuration

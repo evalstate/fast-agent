@@ -172,6 +172,26 @@ def test_alias_sampling_defaults_preserve_user_provider_suffix_override() -> Non
     assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=True)
 
 
+def test_kimi25_alias_sets_thinking_sampling_defaults() -> None:
+    config = ModelFactory.parse_model_string("kimi25")
+
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == "moonshotai/Kimi-K2.5:fireworks-ai"
+    assert config.temperature == 1.0
+    assert config.top_p == 0.95
+    assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=True)
+
+
+def test_minimax25_alias_sets_sampling_defaults() -> None:
+    config = ModelFactory.parse_model_string("minimax25")
+
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == "MiniMaxAI/MiniMax-M2.5:novita"
+    assert config.temperature == 1.0
+    assert config.top_p == 0.95
+    assert config.top_k == 40
+
+
 def test_model_query_transport_websocket_alias():
     config = ModelFactory.parse_model_string("codexplan?transport=ws")
     assert config.provider == Provider.CODEX_RESPONSES
@@ -650,6 +670,29 @@ def test_hf_qwen35_instruct_alias_disables_thinking_via_chat_template_kwargs() -
     extra_body = args.get("extra_body")
     assert isinstance(extra_body, dict)
     assert extra_body["chat_template_kwargs"] == {"enable_thinking": False}
+
+
+def test_hf_kimi25_alias_does_not_emit_chat_template_kwargs_for_thinking_mode() -> None:
+    factory = ModelFactory.create_factory("kimi25")
+    agent = LlmAgent(AgentConfig(name="test"))
+    llm = factory(agent)
+
+    assert isinstance(llm, HuggingFaceLLM)
+
+    args = llm._prepare_api_request(
+        [{"role": "user", "content": "hi"}],
+        None,
+        llm.default_request_params,
+    )
+
+    assert args["temperature"] == 1.0
+    assert args["top_p"] == 0.95
+
+    extra_body = args.get("extra_body")
+    if isinstance(extra_body, dict):
+        assert "chat_template_kwargs" not in extra_body
+    else:
+        assert extra_body is None
 
 
 def test_runtime_model_provider_registration():

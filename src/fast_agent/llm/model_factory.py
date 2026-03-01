@@ -82,7 +82,10 @@ class ModelFactory:
         "grok-4-fast": "xai.grok-4-fast-non-reasoning",
         "grok-4-fast-reasoning": "xai.grok-4-fast-reasoning",
         "kimigroq": "groq.moonshotai/kimi-k2-instruct-0905",
-        "minimax": "hf.MiniMaxAI/MiniMax-M2.1:novita",
+        "minimax": "hf.MiniMaxAI/MiniMax-M2.5:novita",
+        "minimax25": "hf.MiniMaxAI/MiniMax-M2.5:novita?temperature=1.0&top_p=0.95&top_k=40",
+        "minimax2.5": "hf.MiniMaxAI/MiniMax-M2.5:novita?temperature=1.0&top_p=0.95&top_k=40",
+        "minimax21": "hf.MiniMaxAI/MiniMax-M2.1:novita",
         "kimi": "hf.moonshotai/Kimi-K2-Instruct-0905:groq",
         "gpt-oss": "hf.openai/gpt-oss-120b:cerebras",
         "gpt-oss-20b": "hf.openai/gpt-oss-20b",
@@ -93,8 +96,14 @@ class ModelFactory:
         "deepseek31": "hf.deepseek-ai/DeepSeek-V3.1",
         "kimithink": "hf.moonshotai/Kimi-K2-Thinking:together",
         "deepseek32": "hf.deepseek-ai/DeepSeek-V3.2:fireworks-ai",
-        "kimi25": "hf.moonshotai/Kimi-K2.5:fireworks-ai",
-        "kimi-2.5": "hf.moonshotai/Kimi-K2.5:fireworks-ai",
+        "kimi25": ("hf.moonshotai/Kimi-K2.5:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on"),
+        # "kimi25instant": (
+        #     "hf.moonshotai/Kimi-K2.5:fireworks-ai"
+        #     "?temperature=0.6&top_p=0.95&reasoning=off"
+        # ),
+        "kimi-2.5": (
+            "hf.moonshotai/Kimi-K2.5:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on"
+        ),
         "qwen35": (
             "hf.Qwen/Qwen3.5-397B-A17B:novita"
             "?temperature=0.6&top_p=0.95&top_k=20&min_p=0.0"
@@ -618,9 +627,7 @@ class ModelFactory:
 
             if sampling_overrides:
                 if effective_request_params is None:
-                    effective_request_params = RequestParams().model_copy(
-                        update=sampling_overrides
-                    )
+                    effective_request_params = RequestParams().model_copy(update=sampling_overrides)
                 else:
                     effective_request_params = effective_request_params.model_copy(
                         update=sampling_overrides

@@ -1221,7 +1221,8 @@ class FastAgent(DecoratorMixin):
 
         # Store the model source for UI display
         config = self.context.config
-        model_source = get_default_model_source(
+        model_source_override = getattr(self.args, "model_source_override", None)
+        model_source = model_source_override or get_default_model_source(
             config_default_model=config.default_model if config else None,
             cli_model=cli_model_override,
             model_aliases=config.model_aliases if config else None,

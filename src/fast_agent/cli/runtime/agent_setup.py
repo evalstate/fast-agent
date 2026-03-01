@@ -7,7 +7,7 @@ import re
 import sys
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Mapping, cast
 
 import typer
 
@@ -43,6 +43,63 @@ def _find_last_assistant_text(history: list[Any]) -> str | None:
 
 def _is_interactive_startup_notice_context(request: AgentRunRequest) -> bool:
     return request.mode == "interactive" and request.message is None and request.prompt_file is None
+
+
+def _should_prompt_for_model_picker(
+    request: AgentRunRequest,
+    *,
+    stdin_is_tty: bool,
+    stdout_is_tty: bool,
+) -> bool:
+    """Return True when interactive startup can safely prompt for model selection."""
+    if not _is_interactive_startup_notice_context(request):
+        return False
+    if request.agent_cards or request.card_tools:
+        # Phase 1: only use picker for plain CLI bootstrap (no AgentCards).
+        return False
+    return stdin_is_tty and stdout_is_tty
+
+
+def _resolve_model_without_hardcoded_default(
+    *,
+    model: str | None,
+    config_default_model: str | None,
+    model_aliases: Mapping[str, Mapping[str, str]] | None,
+) -> tuple[str | None, str | None]:
+    """Resolve model precedence without falling back to the hardcoded system default."""
+    from fast_agent.core.model_resolution import resolve_model_spec
+
+    return resolve_model_spec(
+        context=None,
+        model=model,
+        default_model=config_default_model,
+        cli_model=model,
+        fallback_to_hardcoded=False,
+        model_aliases=model_aliases,
+    )
+
+
+async def _select_model_from_picker(request: AgentRunRequest) -> str:
+    """Prompt user for model selection and return a resolved model string."""
+    from fast_agent.ui.model_picker import run_model_picker_async
+
+    config_path = Path(request.config_path) if request.config_path else None
+
+    while True:
+        picker_result = await run_model_picker_async(config_path=config_path)
+        if picker_result is None:
+            typer.echo("Model selection cancelled.", err=True)
+            raise typer.Exit(1)
+
+        if picker_result.refer_to_docs or not picker_result.resolved_model:
+            typer.echo(
+                "Selected provider requires manual model IDs/options. "
+                "Please choose a concrete model (or press q to cancel).",
+                err=True,
+            )
+            continue
+
+        return picker_result.resolved_model
 
 
 def _emit_startup_notice(request: AgentRunRequest, message: str) -> None:
@@ -428,6 +485,26 @@ async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -
 
 async def run_agent_request(request: AgentRunRequest) -> None:
     """Run the normalized CLI request."""
+    picker_model_source_override: str | None = None
+
+    if request.model is None:
+        from fast_agent.config import get_settings
+
+        settings = get_settings(request.config_path)
+        _, explicit_source = _resolve_model_without_hardcoded_default(
+            model=request.model,
+            config_default_model=getattr(settings, "default_model", None),
+            model_aliases=getattr(settings, "model_aliases", None),
+        )
+
+        if explicit_source is None and _should_prompt_for_model_picker(
+            request,
+            stdin_is_tty=sys.stdin.isatty(),
+            stdout_is_tty=sys.stdout.isatty(),
+        ):
+            request.model = await _select_model_from_picker(request)
+            picker_model_source_override = "model picker"
+
     serve_permissions_enabled = request.permissions_enabled and not (
         request.noenv and request.mode == "serve"
     )
@@ -470,6 +547,8 @@ async def run_agent_request(request: AgentRunRequest) -> None:
 
     if request.model:
         fast.args.model = request.model
+    if picker_model_source_override:
+        fast.args.model_source_override = picker_model_source_override
     fast.args.noenv = request.noenv
     fast.args.reload = request.reload
     fast.args.watch = request.watch

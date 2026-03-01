@@ -409,7 +409,7 @@ def test_huggingface_kimi25_disable_reasoning_toggle():
     args = _hf_request_args(llm)
     extra_body = args.get("extra_body")
     assert isinstance(extra_body, dict)
-    assert extra_body["thinking"] == {"type": "disabled"}
+    assert extra_body["chat_template_kwargs"] == {"thinking": False}
 
 
 def test_huggingface_kimi25_default_reasoning_toggle_enabled():
@@ -417,8 +417,10 @@ def test_huggingface_kimi25_default_reasoning_toggle_enabled():
 
     args = _hf_request_args(llm)
     extra_body = args.get("extra_body")
-    assert isinstance(extra_body, dict)
-    assert extra_body["thinking"] == {"type": "enabled"}
+    if isinstance(extra_body, dict):
+        assert "chat_template_kwargs" not in extra_body
+    else:
+        assert extra_body is None
 
 
 def test_huggingface_qwen35_reasoning_toggle_uses_chat_template_kwargs_disabled():

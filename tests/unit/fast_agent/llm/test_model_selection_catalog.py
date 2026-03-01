@@ -23,6 +23,9 @@ def test_legacy_aliases_are_listed_but_not_curated() -> None:
     curated_aliases = ModelSelectionCatalog.list_curated_aliases(Provider.HUGGINGFACE)
     legacy_aliases = ModelSelectionCatalog.list_non_current_aliases(Provider.HUGGINGFACE)
 
+    assert "minimax25" in curated_aliases
+    assert "minimax2.5" in legacy_aliases
+    assert "minimax2.5" not in curated_aliases
     assert "qwen35" in curated_aliases
     assert "qwen35instruct" in curated_aliases
     assert "glm47" in legacy_aliases
@@ -38,7 +41,7 @@ def test_list_fast_models_uses_explicit_curated_designation() -> None:
 
     hf_fast = ModelSelectionCatalog.list_fast_models(Provider.HUGGINGFACE)
     assert "hf.openai/gpt-oss-120b:cerebras" in hf_fast
-    assert "hf.moonshotai/Kimi-K2.5:fireworks-ai" in hf_fast
+    assert "hf.moonshotai/Kimi-K2.5:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on" in hf_fast
 
 
 def test_is_fast_model_normalizes_provider_prefix() -> None:

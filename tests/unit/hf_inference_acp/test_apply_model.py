@@ -65,3 +65,4 @@ def test_alias_display_preserves_query_when_overriding_provider_suffix() -> None
     assert target.startswith("hf.Qwen/Qwen3.5-397B-A17B:groq?")
     assert "temperature=0.6" in target
     assert "top_k=20" in target
+
