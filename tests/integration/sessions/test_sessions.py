@@ -121,7 +121,7 @@ async def test_resume_latest_session(tmp_path, monkeypatch):
                 default_agent_name=agent_obj.name,
             )
             assert result is not None
-            _, loaded, _ = result
+            loaded = result.loaded
             assert agent_obj.name in loaded
             assert len(agent_obj.message_history) == len(saved_messages)
             assert agent_obj.message_history[-1].all_text() == saved_messages[-1].all_text()
@@ -164,7 +164,8 @@ async def test_resume_warns_on_missing_agents(tmp_path, monkeypatch):
                 default_agent_name="foo",
             )
             assert result is not None
-            _, loaded, missing = result
+            loaded = result.loaded
+            missing = result.missing_agents
             assert "foo" in loaded
             assert "bar" in missing
 
