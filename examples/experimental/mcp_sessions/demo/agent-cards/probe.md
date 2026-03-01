@@ -7,12 +7,11 @@ servers:
   - mcp_sessions_probe
 ---
 
-Session lifecycle probe demo.
+Data-layer session probe demo (draft).
 
-Use tools normally via natural language prompts. Good starter requests:
+Use `session_probe` with a `note` argument, for example:
 
-- "Call session_probe with action=status and note=first."
-- "Now call session_probe with action=revoke and note=clear."
-- "Call session_probe with action=new and note=rotate."
+- "Call session_probe with note=first turn."
+- "Call session_probe with note=second turn."
 
-Use `/mcp` to inspect `exp sess` and cookie state.
+Use `/mcp` to inspect session metadata.

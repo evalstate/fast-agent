@@ -9,6 +9,7 @@ import re
 import shlex
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from shutil import get_terminal_size
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal, Protocol, cast
 
@@ -435,7 +436,7 @@ def _resolve_session_client(ctx, *, agent_name: str) -> SessionClientProtocol:
     ):
         return cast("SessionClientProtocol", fallback)
 
-    raise RuntimeError(f"Agent '{agent_name}' does not expose experimental session controls.")
+    raise RuntimeError(f"Agent '{agent_name}' does not expose MCP session controls.")
 
 
 def _render_cookie(cookie: dict[str, Any] | None) -> str:
@@ -449,17 +450,20 @@ def _render_jar_entry(entry: SessionJarEntry) -> str:
     supported = (
         "yes" if entry.supported is True else "no" if entry.supported is False else "unknown"
     )
-    identity = entry.server_identity or "(unset)"
+    mcp_name = entry.server_identity or "(unset)"
+    target = entry.target or "(unset)"
     title = entry.title or "(none)"
 
     return (
         f"server={entry.server_name}\n"
-        f"identity={identity}\n"
+        f"target={target}\n"
+        f"session={_extract_cookie_id(entry.cookie) or '-'}\n"
+        f"mcp_name={mcp_name}\n"
         f"exp_session_supported={supported}\n"
         f"features={features}\n"
         f"title={title}\n"
         f"last_used_id={entry.last_used_id or '-'}\n"
-        f"cookie=\n{_render_cookie(entry.cookie)}"
+        f"session=\n{_render_cookie(entry.cookie)}"
     )
 
 
@@ -471,10 +475,79 @@ def _truncate_cell(value: str, max_len: int = 28) -> str:
     return value[: max_len - 3] + "..."
 
 
+def _left_truncate_with_ellipsis(text: str, max_length: int) -> str:
+    if max_length <= 0:
+        return ""
+    if len(text) <= max_length:
+        return text
+    if max_length == 1:
+        return "…"
+    return f"…{text[-(max_length - 1) :]}"
+
+
+def _format_parent_current_path(path_text: str) -> str:
+    normalized = os.path.normpath(path_text)
+    path = Path(normalized)
+    current = path.name or normalized
+    parent = path.parent.name
+    if parent:
+        return f"{parent}/{current}"
+    return current
+
+
+def _fit_path_for_display(path_text: str, max_length: int) -> str:
+    if max_length <= 0:
+        return ""
+
+    compact = _format_parent_current_path(path_text)
+    if len(compact) <= max_length:
+        return compact
+
+    current = Path(path_text).name or path_text
+    if len(current) <= max_length:
+        return current
+
+    return _left_truncate_with_ellipsis(current, max_length)
+
+
+def _format_target_for_display(
+    target: str | None,
+    *,
+    width: int,
+) -> tuple[str, str | None]:
+    if not target:
+        return "-", None
+
+    if target.startswith("cmd:"):
+        payload = target[4:].strip()
+        command, separator, cwd = payload.partition(" @ ")
+        command_display = f"cmd: {command}" if command else "cmd"
+        if not separator or not cwd:
+            return command_display, None
+
+        path_width = max(12, width - len("cwd: "))
+        return command_display, f"cwd: {_fit_path_for_display(cwd, path_width)}"
+
+    if target.startswith("url:"):
+        url = target[4:].strip()
+        path_width = max(12, width)
+        return f"url: {_left_truncate_with_ellipsis(url, path_width)}", None
+
+    display_width = max(12, width)
+    return _left_truncate_with_ellipsis(target, display_width), None
+
+
+def _cookie_size_display(summary: dict[str, Any]) -> str:
+    raw_size = summary.get("cookieSizeBytes")
+    if isinstance(raw_size, int) and raw_size > 0:
+        return f"{raw_size} bytes"
+    return "-"
+
+
 def _extract_cookie_id(cookie: dict[str, Any] | None) -> str | None:
     if not isinstance(cookie, dict):
         return None
-    raw_id = cookie.get("id")
+    raw_id = cookie.get("sessionId")
     if isinstance(raw_id, str) and raw_id:
         return raw_id
     return None
@@ -495,7 +568,7 @@ def _extract_session_title(payload: dict[str, Any]) -> str:
 
 
 def _extract_session_expiry(payload: dict[str, Any]) -> str:
-    expiry = payload.get("expiry")
+    expiry = payload.get("expiresAt")
     if isinstance(expiry, str) and expiry:
         return expiry
     return "-"
@@ -514,7 +587,7 @@ def _extract_session_created(payload: dict[str, Any]) -> str:
             if isinstance(raw, str) and raw:
                 return raw
 
-    session_id = payload.get("id")
+    session_id = payload.get("sessionId")
     if isinstance(session_id, str):
         match = re.match(r"^(\d{10})-[A-Za-z0-9]+$", session_id)
         if match:
@@ -556,39 +629,39 @@ def _resolve_terminal_width() -> int:
     return width
 
 
-def _session_suffix(session_id: str | None, *, digits: int = 5) -> str:
-    if not session_id:
-        return "none"
-    if len(session_id) <= digits:
-        return session_id
-    return f"…{session_id[-digits:]}"
-
-
-def _experimental_version(entry: SessionJarEntry) -> str:
-    if entry.supported is not True:
+def _resolve_store_size_display(session_client: SessionClientProtocol) -> str:
+    size_getter = getattr(session_client, "store_size_bytes", None)
+    if not callable(size_getter):
         return "-"
-    feature_set = {feature.strip().lower() for feature in entry.features}
-    return "v2" if {"create", "delete", "list"}.issubset(feature_set) else "v1"
+    try:
+        size = size_getter()
+    except Exception:
+        return "-"
+    if not isinstance(size, int) or size < 0:
+        return "-"
+    return f"{size} bytes"
 
 
-def _render_jar_table(entries: list[SessionJarEntry]) -> Text:
+def _render_jar_table(entries: list[SessionJarEntry], *, store_size_display: str) -> Text:
     if not entries:
         return Text("No MCP session jar entries available.", style="dim")
 
     grouped: dict[str, list[SessionJarEntry]] = {}
     for entry in entries:
-        key = entry.server_identity or entry.server_name
+        key = entry.target or entry.server_identity or entry.server_name
         grouped.setdefault(key, []).append(entry)
 
     labels = sorted(grouped)
+    target_word = "target" if len(labels) == 1 else "targets"
     content = Text()
-    content.append("MCP session jar:", style="bold")
+    content.append(f"▎ MCP session jar ({len(labels)} {target_word}):", style="bold")
     content.append("\n\n")
-    width = _resolve_terminal_width()
-    index_width = max(2, len(str(len(labels))))
 
     for index, label in enumerate(labels, 1):
         grouped_entries = grouped[label]
+        unsupported_connected = any(
+            entry.connected is True and entry.supported is False for entry in grouped_entries
+        )
         primary = next(
             (
                 entry
@@ -600,130 +673,132 @@ def _render_jar_table(entries: list[SessionJarEntry]) -> Text:
                 grouped_entries[0],
             ),
         )
-        version = _experimental_version(primary)
 
-        active_summary: dict[str, Any] | None = None
-        if primary.cookies:
-            active_summary = next(
+        combined_cookies: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        for entry in grouped_entries:
+            for summary in entry.cookies:
+                if not isinstance(summary, dict):
+                    continue
+                raw_id = summary.get("id")
+                if not isinstance(raw_id, str) or not raw_id:
+                    continue
+                if raw_id in seen_ids:
+                    continue
+                seen_ids.add(raw_id)
+                combined_cookies.append(dict(summary))
+
+        combined_cookies.sort(key=lambda item: str(item.get("updatedAt") or ""), reverse=True)
+
+        active_session_id = primary.last_used_id
+        if active_session_id is None:
+            active_session_id = next(
                 (
-                    summary
-                    for summary in primary.cookies
-                    if isinstance(summary, dict) and summary.get("active") is True
+                    item.get("id")
+                    for item in combined_cookies
+                    if isinstance(item.get("id"), str) and item.get("active") is True
                 ),
-                primary.cookies[0] if isinstance(primary.cookies[0], dict) else None,
+                None,
             )
 
-        active_cookie_id = _extract_cookie_id(primary.cookie)
-        if isinstance(active_summary, dict):
-            raw_id = active_summary.get("id")
-            if isinstance(raw_id, str) and raw_id:
-                active_cookie_id = raw_id
+        if active_session_id is not None:
+            for item in combined_cookies:
+                item_id = item.get("id")
+                item["active"] = isinstance(item_id, str) and item_id == active_session_id
 
-        updated = "-"
-        if isinstance(active_summary, dict):
-            raw_updated = active_summary.get("updatedAt")
-            updated = _format_expiry_compact(raw_updated if isinstance(raw_updated, str) else None)
+        section_header = Text()
+        section_header.append("▎ ", style="dim")
+        section_header.append(primary.server_name, style="white")
+        if primary.server_identity:
+            section_header.append(" • ", style="dim")
+            section_header.append(primary.server_identity, style="dim")
+        section_header.append(" • ", style="dim")
+        is_connected = any(entry.connected is True for entry in grouped_entries)
+        section_header.append(
+            "connected" if is_connected else "disconnected",
+            style="bright_green" if is_connected else "dim",
+        )
+        if unsupported_connected:
+            section_header.append(" • ", style="dim")
+            section_header.append("unsupported", style="dim red")
+        content.append_text(section_header)
+        content.append("\n")
 
-        created = "-"
-        expiry = "-"
-        if isinstance(primary.cookie, dict):
-            created = _format_expiry_compact(_extract_session_created(primary.cookie))
-            raw_expiry = primary.cookie.get("expiry")
-            expiry = _format_expiry_compact(raw_expiry if isinstance(raw_expiry, str) else None)
-        if isinstance(active_summary, dict):
-            raw_expiry = active_summary.get("expiry")
-            active_expiry = _format_expiry_compact(
-                raw_expiry if isinstance(raw_expiry, str) else None
-            )
-            if active_expiry != "-":
-                expiry = active_expiry
-
-        if created != "-":
-            time_display = created
-        elif updated != "-":
-            time_display = updated
+        sessions_supported: bool | None
+        if unsupported_connected:
+            sessions_supported = False
         else:
-            time_display = None
+            sessions_supported = primary.supported
 
-        connection_state = (
-            "connected" if any(e.connected is True for e in grouped_entries) else "disconnected"
+        table = _render_server_cookies_table(
+            server_name=primary.server_name,
+            server_identity=primary.server_identity,
+            target=primary.target,
+            sessions_supported=sessions_supported,
+            cookies=combined_cookies,
+            active_session_id=active_session_id if isinstance(active_session_id, str) else None,
+            store_size_display=store_size_display,
+            include_store=False,
+            include_mcp_name=False,
         )
-        version_display = version if version != "-" else "unknown"
-
-        summary_title = active_summary.get("title") if isinstance(active_summary, dict) else None
-        title_raw = (
-            summary_title
-            if isinstance(summary_title, str) and summary_title.strip()
-            else (primary.title or "")
-        )
-        title_text = title_raw.strip() if isinstance(title_raw, str) else ""
-        if not title_text:
-            title_text = "(untitled)"
-
-        window_display = _format_session_window(time_display, expiry)
-
-        active_display = "none"
-        if isinstance(active_cookie_id, str) and active_cookie_id:
-            active_display = (
-                active_cookie_id
-                if len(active_cookie_id) <= 24
-                else f"{active_cookie_id[:10]}…{active_cookie_id[-6:]}"
-            )
-
-        cookie_count = sum(len(entry.cookies) for entry in grouped_entries)
-
-        header = Text()
-        header.append(f"[{index:>{index_width}}] ", style="dim cyan")
-        header.append(_truncate_cell(label, max_len=30), style="white")
-        header.append(" • ", style="dim")
-        header.append(
-            connection_state,
-            style="bright_green" if connection_state == "connected" else "dim",
-        )
-        header.append(" • ", style="dim")
-        header.append(version_display, style="cyan" if version_display != "unknown" else "dim")
-        content.append_text(header)
-        content.append("\n")
-
-        meta = Text()
-        meta.append("active: ", style="dim")
-        meta.append(active_display, style="white")
-        meta.append(" • ", style="dim")
-        meta.append("cookies: ", style="dim")
-        meta.append(str(cookie_count), style="white")
-        content.append_text(meta)
-        content.append("\n")
-
-        details = Text()
-        title_reserved = details.cell_len + 1 + len(window_display)
-        title_width = max(12, width - title_reserved)
-        details.append(_truncate_cell(title_text, max_len=title_width), style="white")
-        details.append(" ", style="dim")
-        details.append(window_display, style="dim")
-        content.append_text(details)
-        content.append("\n")
+        content.append_text(table)
 
         if index != len(labels):
             content.append("\n")
+
+    content.append("\n")
+    content.append("▎  ", style="dim")
+    content.append("store file: ", style="dim")
+    content.append(store_size_display, style="white")
 
     return content
 
 
 def _render_server_cookies_table(
     *,
+    server_name: str | None,
     server_identity: str | None,
+    target: str | None,
+    sessions_supported: bool | None,
     cookies: list[dict[str, Any]],
     active_session_id: str | None,
+    store_size_display: str,
+    include_store: bool = True,
+    include_mcp_name: bool = True,
 ) -> Text:
     content = Text()
-    content.append("MCP sessions:", style="bold")
-    content.append("\n\n")
+    width = _resolve_terminal_width()
+    command_display, path_display = _format_target_for_display(target, width=width - 6)
 
-    if not cookies:
-        content.append("No session cookies found for this server.", style="dim")
+    content.append("▎  ", style="dim")
+    content.append(f"target: {command_display}", style="bold")
+    content.append("\n")
+    if path_display:
+        content.append("▎    ", style="dim")
+        content.append(path_display, style="dim")
+        content.append("\n")
+
+    content.append("▎  ", style="dim")
+    if include_mcp_name:
+        content.append("mcp name: ", style="dim")
+        content.append(server_identity or server_name or "-", style="white")
+        content.append(" • ", style="dim")
+    content.append("cookies: ", style="dim")
+    content.append(str(len(cookies)), style="white")
+    if include_store:
+        content.append("\n")
+        content.append("▎  ", style="dim")
+        content.append("store file: ", style="dim")
+        content.append(store_size_display, style="white")
+    content.append("\n")
+
+    if sessions_supported is False:
+        content.append("Experimental sessions feature not supported.", style="dim red")
+        content.append("\n")
+    elif not cookies:
+        content.append("No sessions found for this server.", style="dim")
         content.append("\n")
     else:
-        width = _resolve_terminal_width()
         index_width = max(2, len(str(len(cookies))))
 
         for index, item in enumerate(cookies, 1):
@@ -751,95 +826,133 @@ def _render_server_cookies_table(
             )
             updated_compact = _format_expiry_compact(updated_value)
             expiry_compact = _format_expiry_compact(_extract_session_expiry(item))
-            title_raw = _extract_session_title(item)
-            if title_raw == "-":
-                title_raw = "(untitled)"
             window_display = _format_session_window(updated_compact, expiry_compact)
+            store_display = _cookie_size_display(item)
 
             line = Text()
             line.append(f"[{index:>{index_width}}] ", style="dim cyan")
             line.append(f"{marker} ", style=marker_style)
             line.append(session_id, style=session_style)
-
-            invalid_segment = Text()
-            if is_invalidated:
-                invalid_segment.append(" • invalid", style="dim red")
-
-            title_prefix = Text(" • ", style="dim")
-            reserved = (
-                line.cell_len
-                + title_prefix.cell_len
-                + invalid_segment.cell_len
-                + 1
-                + len(window_display)
-            )
-            title_width = max(12, width - reserved)
-            title_display = _truncate_cell(title_raw, max_len=title_width)
-
-            line.append_text(title_prefix)
-            line.append(title_display, style="white")
-            line.append_text(invalid_segment)
             line.append(" ", style="dim")
             line.append(window_display, style="dim")
+            line.append(" • ", style="dim")
+            line.append("store: ", style="dim")
+            line.append(store_display, style="white")
+            if is_invalidated:
+                line.append(" • invalid", style="dim red")
             content.append_text(line)
             content.append("\n")
-
-    content.append("\n")
-    content.append("▎• ", style="dim")
-    content.append("identity: ", style="dim")
-    content.append(server_identity or "-", style="white")
-    content.append(" • ", style="dim")
-    content.append("cookies: ", style="dim")
-    content.append(str(len(cookies)), style="white")
 
     return content
 
 
-def _render_single_cookie_result(
+def _render_connected_server_cookies_table(
+    rows: list[tuple[str, str | None, str | None, bool | None, str | None, list[dict[str, Any]]]],
+) -> Text:
+    content = Text()
+    server_word = "server" if len(rows) == 1 else "servers"
+    content.append(f"▎ MCP sessions ({len(rows)} connected {server_word}):", style="bold")
+    content.append("\n\n")
+
+    for index, (server_name, server_identity, target, supported, active_session_id, cookies) in enumerate(rows, 1):
+        section_header = Text()
+        section_header.append("▎ ", style="dim")
+        section_header.append(server_name, style="white")
+        if server_identity:
+            section_header.append(" • ", style="dim")
+            section_header.append(server_identity, style="dim")
+        content.append_text(section_header)
+        content.append("\n")
+
+        table = _render_server_cookies_table(
+            server_name=server_name,
+            server_identity=server_identity,
+            target=target,
+            sessions_supported=supported,
+            cookies=cookies,
+            active_session_id=active_session_id,
+            store_size_display="-",
+            include_store=False,
+            include_mcp_name=False,
+        )
+        content.append_text(table)
+        if index != len(rows):
+            content.append("\n\n")
+
+    return content
+
+
+def _render_session_action_result(
     *,
     heading: str,
     server_name: str,
-    cookie: dict[str, Any] | None,
+    server_identity: str | None,
+    target: str | None,
+    sessions_supported: bool | None,
+    cookies: list[dict[str, Any]],
+    active_session_id: str | None,
 ) -> Text:
     content = Text()
     content.append(heading, style="bold")
     content.append("\n\n")
-
-    if isinstance(cookie, dict):
-        session_id = _extract_cookie_id(cookie) or "-"
-        title_raw = _extract_session_title(cookie)
-        created = _format_expiry_compact(_extract_session_created(cookie))
-        expiry = _format_expiry_compact(_extract_session_expiry(cookie))
-        window_display = _format_session_window(created, expiry)
-
-        width = _resolve_terminal_width()
-        reserved = 5 + len(session_id) + 3 + 1 + len(window_display)
-        title_width = max(12, width - reserved)
-        title = _truncate_cell(title_raw, max_len=title_width)
-
-        line = Text()
-        line.append("[ 1] ", style="dim cyan")
-        line.append("▶ ", style="bright_green")
-        line.append(session_id, style="bright_green")
-        line.append(" • ", style="dim")
-        line.append(title, style="white")
-        line.append(" ", style="dim")
-        line.append(window_display, style="dim")
-        content.append_text(line)
-        content.append("\n\n")
-    else:
-        content.append("No session cookie returned.", style="dim")
-        content.append("\n\n")
-
-    content.append("▎• ", style="dim")
-    content.append("server: ", style="dim")
-    content.append(server_name, style="white")
+    content.append_text(
+        _render_server_cookies_table(
+            server_name=server_name,
+            server_identity=server_identity,
+            target=target,
+            sessions_supported=sessions_supported,
+            cookies=cookies,
+            active_session_id=active_session_id,
+            store_size_display="-",
+            include_store=False,
+        )
+    )
     return content
+def _target_by_server(entries: list[SessionJarEntry]) -> dict[str, str]:
+    targets: dict[str, str] = {}
+    for entry in entries:
+        if entry.server_name not in targets and isinstance(entry.target, str) and entry.target:
+            targets[entry.server_name] = entry.target
+    return targets
+
+
+def _target_for_identity_or_name(
+    entries: list[SessionJarEntry],
+    *,
+    server_name: str | None,
+    server_identity: str | None,
+) -> str | None:
+    if server_name:
+        by_server = _target_by_server(entries)
+        target = by_server.get(server_name)
+        if target:
+            return target
+
+    if server_identity:
+        for entry in entries:
+            if entry.server_identity == server_identity and isinstance(entry.target, str) and entry.target:
+                return entry.target
+
+    return None
+
+
+def _support_for_identity_or_name(
+    entries: list[SessionJarEntry],
+    *,
+    server_name: str | None,
+    server_identity: str | None,
+) -> bool | None:
+    for entry in entries:
+        if server_name is not None and entry.server_name == server_name:
+            return entry.supported
+        if server_identity is not None and entry.server_identity == server_identity:
+            return entry.supported
+    return None
 
 
 def _render_clear_all_result(servers: list[str]) -> Text:
     content = Text()
-    content.append("Cleared experimental session cookies:", style="bold")
+    content.append("Cleared MCP session entries:", style="bold")
     content.append("\n\n")
 
     index_width = max(2, len(str(len(servers))))
@@ -870,6 +983,8 @@ async def handle_mcp_session(
         return outcome
 
     try:
+        store_size_display = _resolve_store_size_display(session_client)
+
         if action == "jar":
             entries = await session_client.list_jar()
             if server_identity:
@@ -885,7 +1000,7 @@ async def handle_mcp_session(
                 )
                 return outcome
 
-            rendered = _render_jar_table(entries)
+            rendered = _render_jar_table(entries, store_size_display=store_size_display)
             outcome.add_message(
                 rendered,
                 right_info="mcp",
@@ -894,36 +1009,97 @@ async def handle_mcp_session(
             return outcome
 
         if action == "list":
+            target: str | None = None
+            sessions_supported: bool | None = None
             if server_identity is None:
-                try:
-                    (
-                        _server_name,
-                        server_id,
-                        active_session_id,
-                        cookies,
-                    ) = await session_client.list_server_cookies(None)
-                except ValueError as exc:
-                    if "Multiple MCP servers are attached" not in str(exc):
-                        raise
-                    entries = await session_client.list_jar()
+                entries = await session_client.list_jar()
+                targets_by_server = _target_by_server(entries)
+                support_by_server = {
+                    entry.server_name: entry.supported
+                    for entry in entries
+                    if isinstance(entry.server_name, str) and entry.server_name
+                }
+                connected_servers = sorted(
+                    {
+                        entry.server_name
+                        for entry in entries
+                        if isinstance(entry.server_name, str)
+                        and entry.server_name
+                        and entry.connected is True
+                    }
+                )
+
+                if not connected_servers:
                     outcome.add_message(
-                        _render_jar_table(entries),
+                        "No connected MCP servers available.",
+                        channel="warning",
                         right_info="mcp",
                         agent_name=agent_name,
                     )
                     return outcome
+
+                rows: list[
+                    tuple[
+                        str,
+                        str | None,
+                        str | None,
+                        bool | None,
+                        str | None,
+                        list[dict[str, Any]],
+                    ]
+                ] = []
+                for connected_server in connected_servers:
+                    (
+                        listed_server,
+                        listed_identity,
+                        listed_active_session,
+                        listed_cookies,
+                    ) = await session_client.list_server_cookies(connected_server)
+                    rows.append(
+                        (
+                            listed_server,
+                            listed_identity,
+                            targets_by_server.get(listed_server),
+                            support_by_server.get(listed_server),
+                            listed_active_session,
+                            listed_cookies,
+                        )
+                    )
+
+                outcome.add_message(
+                    _render_connected_server_cookies_table(rows),
+                    right_info="mcp",
+                    agent_name=agent_name,
+                )
+                return outcome
             else:
                 (
-                    _server_name,
+                    listed_server,
                     server_id,
                     active_session_id,
                     cookies,
                 ) = await session_client.list_server_cookies(server_identity)
+                entries = await session_client.list_jar()
+                target = _target_for_identity_or_name(
+                    entries,
+                    server_name=listed_server,
+                    server_identity=server_id,
+                )
+                sessions_supported = _support_for_identity_or_name(
+                    entries,
+                    server_name=listed_server,
+                    server_identity=server_id,
+                )
             outcome.add_message(
                 _render_server_cookies_table(
+                    server_name=listed_server,
                     server_identity=server_id,
+                    target=target,
+                    sessions_supported=sessions_supported,
                     cookies=cookies,
                     active_session_id=active_session_id,
+                    store_size_display=store_size_display,
+                    include_store=False,
                 ),
                 right_info="mcp",
                 agent_name=agent_name,
@@ -931,12 +1107,33 @@ async def handle_mcp_session(
             return outcome
 
         if action == "new":
-            server_name, cookie = await session_client.create_session(server_identity, title=title)
+            server_name, _cookie = await session_client.create_session(server_identity, title=title)
+            (
+                listed_server,
+                listed_identity,
+                active_session_id,
+                cookies,
+            ) = await session_client.list_server_cookies(server_name)
+            entries = await session_client.list_jar()
+            target = _target_for_identity_or_name(
+                entries,
+                server_name=listed_server,
+                server_identity=listed_identity,
+            )
+            sessions_supported = _support_for_identity_or_name(
+                entries,
+                server_name=listed_server,
+                server_identity=listed_identity,
+            )
             outcome.add_message(
-                _render_single_cookie_result(
-                    heading=f"Created experimental session for {server_name}.",
-                    server_name=server_name,
-                    cookie=cookie,
+                _render_session_action_result(
+                    heading=f"Created new MCP session for {server_name}.",
+                    server_name=listed_server,
+                    server_identity=listed_identity,
+                    target=target,
+                    sessions_supported=sessions_supported,
+                    cookies=cookies,
+                    active_session_id=active_session_id,
                 ),
                 right_info="mcp",
                 agent_name=agent_name,
@@ -946,15 +1143,36 @@ async def handle_mcp_session(
         if action == "use":
             if not session_id:
                 raise ValueError("Session id is required for use.")
-            server_name, cookie = await session_client.resume_session(
+            server_name, _cookie = await session_client.resume_session(
                 server_identity,
                 session_id=session_id,
             )
+            (
+                listed_server,
+                listed_identity,
+                active_session_id,
+                cookies,
+            ) = await session_client.list_server_cookies(server_name)
+            entries = await session_client.list_jar()
+            target = _target_for_identity_or_name(
+                entries,
+                server_name=listed_server,
+                server_identity=listed_identity,
+            )
+            sessions_supported = _support_for_identity_or_name(
+                entries,
+                server_name=listed_server,
+                server_identity=listed_identity,
+            )
             outcome.add_message(
-                _render_single_cookie_result(
-                    heading=f"Selected experimental session cookie for {server_name}.",
-                    server_name=server_name,
-                    cookie=cookie,
+                _render_session_action_result(
+                    heading=f"Selected MCP session for {server_name}.",
+                    server_name=listed_server,
+                    server_identity=listed_identity,
+                    target=target,
+                    sessions_supported=sessions_supported,
+                    cookies=cookies,
+                    active_session_id=active_session_id,
                 ),
                 right_info="mcp",
                 agent_name=agent_name,
@@ -980,11 +1198,32 @@ async def handle_mcp_session(
                 return outcome
 
             server_name = await session_client.clear_cookie(server_identity)
+            (
+                listed_server,
+                listed_identity,
+                active_session_id,
+                cookies,
+            ) = await session_client.list_server_cookies(server_name)
+            entries = await session_client.list_jar()
+            target = _target_for_identity_or_name(
+                entries,
+                server_name=listed_server,
+                server_identity=listed_identity,
+            )
+            sessions_supported = _support_for_identity_or_name(
+                entries,
+                server_name=listed_server,
+                server_identity=listed_identity,
+            )
             outcome.add_message(
-                _render_single_cookie_result(
-                    heading=f"Cleared experimental session cookie for {server_name}.",
-                    server_name=server_name,
-                    cookie=None,
+                _render_session_action_result(
+                    heading=f"Cleared MCP session entry for {server_name}.",
+                    server_name=listed_server,
+                    server_identity=listed_identity,
+                    target=target,
+                    sessions_supported=sessions_supported,
+                    cookies=cookies,
+                    active_session_id=active_session_id,
                 ),
                 right_info="mcp",
                 agent_name=agent_name,
@@ -1085,9 +1324,7 @@ async def handle_mcp_connect(
         configured_alias or parsed.server_name or infer_server_name(parsed.target_text, mode)
     )
     if mode == "configured":
-        await emit_progress(
-            f"Connecting MCP server '{server_name}' from config file…"
-        )
+        await emit_progress(f"Connecting MCP server '{server_name}' from config file…")
     else:
         await emit_progress(f"Connecting MCP server '{server_name}' via {mode}…")
 
@@ -1176,7 +1413,7 @@ async def handle_mcp_connect(
             outcome.add_message(
                 (
                     "OAuth could not be completed in this connection mode. "
-                    "Run `fast-agent auth login <server-name-or-identity>` on the fast-agent host, "
+                    "Run `fast-agent auth login <server-name-or-mcp-name>` on the fast-agent host, "
                     "then retry `/mcp connect ...`."
                 ),
                 channel="warning",
@@ -1229,9 +1466,7 @@ async def handle_mcp_connect(
         if mode == "configured":
             configured_source = _resolve_configured_source_from_context(ctx, server_name)
             source_text = configured_source or parsed.target_text
-            message_text = (
-                f"{action} MCP server '{server_name}' from configuration: {source_text}."
-            )
+            message_text = f"{action} MCP server '{server_name}' from configuration: {source_text}."
         else:
             message_text = f"{action} MCP server '{server_name}' ({mode})."
         outcome.add_message(
@@ -1370,7 +1605,9 @@ async def handle_mcp_reconnect(
         tools_total if isinstance(tools_total, int) and tools_total >= 0 else tools_added_count
     )
     prompts_refreshed_count = (
-        prompts_total if isinstance(prompts_total, int) and prompts_total >= 0 else prompts_added_count
+        prompts_total
+        if isinstance(prompts_total, int) and prompts_total >= 0
+        else prompts_added_count
     )
 
     outcome.add_message(

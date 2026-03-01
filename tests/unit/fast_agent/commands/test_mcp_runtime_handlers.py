@@ -55,17 +55,21 @@ class _Provider:
 
 
 class _SessionClientStub:
+    def store_size_bytes(self) -> int:
+        return 343
+
     async def list_jar(self):
         return [
             SessionJarEntry(
                 server_name="demo",
                 server_identity="demo-server",
-                cookie={"id": "sess-123", "data": {"title": "Demo"}},
+                target="cmd:python demo.py",
+                cookie={"sessionId": "sess-123", "data": {"title": "Demo"}},
                 cookies=(
                     {
                         "id": "sess-123",
                         "title": "Demo",
-                        "expiry": "2026-02-23T12:34:56Z",
+                        "expiresAt": "2026-02-23T12:34:56Z",
                         "updatedAt": "2026-02-23T10:00:00Z",
                         "active": True,
                     },
@@ -92,36 +96,50 @@ class _SessionClientStub:
     async def list_sessions(self, server_identifier: str | None):
         del server_identifier
         return "demo", [
-            {"id": "sess-123", "data": {"title": "Demo"}, "expiry": "2026-02-23T12:34:56Z"},
-            {"id": "sess-abc"},
+            {
+                "sessionId": "sess-123",
+                "data": {"title": "Demo"},
+                "expiresAt": "2026-02-23T12:34:56Z",
+            },
+            {"sessionId": "sess-abc"},
         ]
 
     async def list_server_cookies(self, server_identifier: str | None):
         del server_identifier
-        return "demo", "demo-server", "sess-123", [
-            {
-                "id": "sess-123",
-                "title": "Demo",
-                "expiry": "2026-02-23T12:34:56Z",
-                "updatedAt": "2026-02-23T10:00:00Z",
-                "active": True,
-            },
-            {
-                "id": "sess-abc",
-                "title": None,
-                "expiry": None,
-                "updatedAt": "2026-02-20T10:00:00Z",
-                "active": False,
-            },
-        ]
+        return (
+            "demo",
+            "demo-server",
+            "sess-123",
+            [
+                {
+                    "id": "sess-123",
+                    "title": "Demo",
+                    "expiresAt": "2026-02-23T12:34:56Z",
+                    "updatedAt": "2026-02-23T10:00:00Z",
+                    "active": True,
+                    "cookieSizeBytes": 162,
+                },
+                {
+                    "id": "sess-abc",
+                    "title": None,
+                    "expiry": None,
+                    "updatedAt": "2026-02-20T10:00:00Z",
+                    "active": False,
+                    "cookieSizeBytes": 98,
+                },
+            ],
+        )
 
     async def create_session(self, server_identifier: str | None, *, title: str | None = None):
         del server_identifier
-        return "demo", {"id": "sess-created", "data": {"title": title or "Demo"}}
+        return "demo", {
+            "sessionId": "sess-created",
+            "data": {"title": title or "Demo"},
+        }
 
     async def resume_session(self, server_identifier: str | None, *, session_id: str):
         del server_identifier
-        return "demo", {"id": session_id}
+        return "demo", {"sessionId": session_id}
 
     async def clear_cookie(self, server_identifier: str | None):
         del server_identifier
@@ -129,6 +147,121 @@ class _SessionClientStub:
 
     async def clear_all_cookies(self):
         return ["demo"]
+
+
+class _MultiServerSessionClientStub(_SessionClientStub):
+    async def list_jar(self):
+        return [
+            SessionJarEntry(
+                server_name="demo",
+                server_identity="demo-server",
+                target="url:https://demo.local/mcp",
+                cookie={"sessionId": "sess-123", "data": {"title": "Demo"}},
+                cookies=(
+                    {
+                        "id": "sess-123",
+                        "title": "Demo",
+                        "expiresAt": "2026-02-23T12:34:56Z",
+                        "updatedAt": "2026-02-23T10:00:00Z",
+                        "active": True,
+                    },
+                ),
+                last_used_id="sess-123",
+                title="Demo",
+                supported=True,
+                features=("create", "list", "delete"),
+                connected=True,
+            ),
+            SessionJarEntry(
+                server_name="docs",
+                server_identity="docs-server",
+                target="url:https://docs.local/mcp",
+                cookie={"sessionId": "sess-docs", "data": {"title": "Docs"}},
+                cookies=(
+                    {
+                        "id": "sess-docs",
+                        "title": "Docs",
+                        "expiresAt": "2026-02-24T12:34:56Z",
+                        "updatedAt": "2026-02-24T10:00:00Z",
+                        "active": True,
+                    },
+                ),
+                last_used_id="sess-docs",
+                title="Docs",
+                supported=True,
+                features=("create", "list", "delete"),
+                connected=True,
+            ),
+        ]
+
+    async def list_server_cookies(self, server_identifier: str | None):
+        if server_identifier == "docs":
+            return (
+                "docs",
+                "docs-server",
+                "sess-docs",
+                [
+                    {
+                        "id": "sess-docs",
+                        "title": "Docs",
+                        "expiresAt": "2026-02-24T12:34:56Z",
+                        "updatedAt": "2026-02-24T10:00:00Z",
+                        "active": True,
+                        "cookieSizeBytes": 151,
+                    }
+                ],
+            )
+
+        return (
+            "demo",
+            "demo-server",
+            "sess-123",
+            [
+                {
+                    "id": "sess-123",
+                    "title": "Demo",
+                    "expiresAt": "2026-02-23T12:34:56Z",
+                    "updatedAt": "2026-02-23T10:00:00Z",
+                    "active": True,
+                    "cookieSizeBytes": 162,
+                },
+                {
+                    "id": "sess-abc",
+                    "title": None,
+                    "expiry": None,
+                    "updatedAt": "2026-02-20T10:00:00Z",
+                    "active": False,
+                    "cookieSizeBytes": 98,
+                },
+            ],
+        )
+
+
+class _UnsupportedSessionClientStub(_SessionClientStub):
+    async def list_jar(self):
+        return [
+            SessionJarEntry(
+                server_name="docs",
+                server_identity="docs-server",
+                target="url:https://docs.local/mcp",
+                cookie=None,
+                cookies=(),
+                last_used_id=None,
+                title=None,
+                supported=False,
+                features=(),
+                connected=True,
+            )
+        ]
+
+    async def list_server_cookies(self, server_identifier: str | None):
+        del server_identifier
+        return (
+            "docs",
+            "docs-server",
+            None,
+            [],
+        )
 
 
 class _SessionAgent:
@@ -142,19 +275,99 @@ class _SessionProvider(_Provider):
         return _SessionAgent()
 
 
+class _MultiServerSessionAgent:
+    def __init__(self) -> None:
+        self.aggregator = type(
+            "_Aggregator",
+            (),
+            {"experimental_sessions": _MultiServerSessionClientStub()},
+        )()
+
+
+class _MultiServerSessionProvider(_Provider):
+    def _agent(self, name: str):
+        del name
+        return _MultiServerSessionAgent()
+
+
+class _UnsupportedSessionAgent:
+    def __init__(self) -> None:
+        self.aggregator = type(
+            "_Aggregator",
+            (),
+            {"experimental_sessions": _UnsupportedSessionClientStub()},
+        )()
+
+
+class _UnsupportedSessionProvider(_Provider):
+    def _agent(self, name: str):
+        del name
+        return _UnsupportedSessionAgent()
+
+
+class _LongPathSessionClientStub(_SessionClientStub):
+    async def list_jar(self):
+        return [
+            SessionJarEntry(
+                server_name="demo",
+                server_identity="demo-server",
+                target=(
+                    "cmd:npx super-long-command --flag value "
+                    "@ /Users/alex/projects/fast-agent/demo-server/very/deep/workspace"
+                ),
+                cookie={"sessionId": "sess-123", "data": {"title": "Demo"}},
+                cookies=(
+                    {
+                        "id": "sess-123",
+                        "title": "Demo",
+                        "expiresAt": "2026-02-23T12:34:56Z",
+                        "updatedAt": "2026-02-23T10:00:00Z",
+                        "active": True,
+                    },
+                ),
+                last_used_id="sess-123",
+                title="Demo",
+                supported=True,
+                features=("create", "list", "delete"),
+                connected=True,
+            )
+        ]
+
+
+class _LongPathSessionAgent:
+    def __init__(self) -> None:
+        self.aggregator = type(
+            "_Aggregator",
+            (),
+            {"experimental_sessions": _LongPathSessionClientStub()},
+        )()
+
+
+class _LongPathSessionProvider(_Provider):
+    def _agent(self, name: str):
+        del name
+        return _LongPathSessionAgent()
+
+
 class _InvalidatedSessionClientStub(_SessionClientStub):
     async def list_server_cookies(self, server_identifier: str | None):
         del server_identifier
-        return "demo", "demo-server", None, [
-            {
-                "id": "sess-invalid",
-                "title": "Old Session",
-                "expiry": None,
-                "updatedAt": "2026-02-23T10:00:00Z",
-                "active": False,
-                "invalidated": True,
-            }
-        ]
+        return (
+            "demo",
+            "demo-server",
+            None,
+            [
+                {
+                    "id": "sess-invalid",
+                    "title": "Old Session",
+                    "expiry": None,
+                    "updatedAt": "2026-02-23T10:00:00Z",
+                    "active": False,
+                    "invalidated": True,
+                    "cookieSizeBytes": 101,
+                }
+            ],
+        )
 
 
 class _InvalidatedSessionAgent:
@@ -333,7 +546,9 @@ def test_parse_connect_input_resolves_auth_env_reference_with_default(monkeypatc
 
 
 def test_parse_connect_input_normalizes_bearer_prefix() -> None:
-    parsed = mcp_runtime.parse_connect_input("https://example.com/api --auth 'Bearer token-from-cli'")
+    parsed = mcp_runtime.parse_connect_input(
+        "https://example.com/api --auth 'Bearer token-from-cli'"
+    )
 
     assert parsed.auth_token == "token-from-cli"
 
@@ -342,7 +557,9 @@ def test_parse_connect_input_normalizes_bearer_prefix_before_env_resolution() ->
     original_token = os.environ.get("DEMO_TOKEN")
     os.environ["DEMO_TOKEN"] = "token-from-env"
     try:
-        parsed = mcp_runtime.parse_connect_input("https://example.com/api --auth 'Bearer $DEMO_TOKEN'")
+        parsed = mcp_runtime.parse_connect_input(
+            "https://example.com/api --auth 'Bearer $DEMO_TOKEN'"
+        )
     finally:
         if original_token is None:
             os.environ.pop("DEMO_TOKEN", None)
@@ -496,10 +713,7 @@ async def test_handle_mcp_connect_configured_name_uses_existing_registry_entry()
         in str(msg.text)
         for msg in outcome.messages
     )
-    assert any(
-        "Connecting MCP server 'docs' from config file" in item
-        for item in progress_updates
-    )
+    assert any("Connecting MCP server 'docs' from config file" in item for item in progress_updates)
     assert manager.last_config is None
 
 
@@ -778,12 +992,13 @@ async def test_handle_mcp_session_jar_renders_compact_rows() -> None:
     )
 
     message_text = "\n".join(str(msg.text) for msg in outcome.messages)
-    assert "[ 1]" in message_text
+    assert "▎ MCP session jar (1 target):" in message_text
+    assert "▎ demo • demo-server • connected" in message_text
+    assert "target: cmd: python demo.py" in message_text
     assert "demo-server" in message_text
-    assert "connected" in message_text
-    assert "active: sess-123" in message_text
-    assert "v2" in message_text
     assert "cookies:" in message_text
+    assert "▶ sess-123" in message_text
+    assert "store file: 343 bytes" in message_text
 
 
 @pytest.mark.asyncio
@@ -801,14 +1016,136 @@ async def test_handle_mcp_session_list_marks_active_session() -> None:
     )
 
     message_text = "\n".join(str(msg.text) for msg in outcome.messages)
-    assert "MCP sessions:" in message_text
+    assert "target: cmd: python demo.py" in message_text
     assert "[ 1]" in message_text
     assert "[ 2]" in message_text
     assert "▶ sess-123" in message_text
     assert "• sess-abc" in message_text
     assert "(23/02/26 10:00 → 23/02/26 12:34)" in message_text
-    assert "identity: demo-server" in message_text
+    assert "mcp name: demo-server" in message_text
+    assert "target: cmd: python demo.py" in message_text
     assert "cookies: 2" in message_text
+    assert "store: 162 bytes" in message_text
+    assert "store: 98 bytes" in message_text
+
+
+@pytest.mark.asyncio
+async def test_handle_mcp_session_list_defaults_to_connected_header_for_single_server() -> None:
+    ctx = CommandContext(agent_provider=_SessionProvider(), current_agent_name="main", io=_IO())
+
+    outcome = await mcp_runtime.handle_mcp_session(
+        ctx,
+        agent_name="main",
+        action="list",
+        server_identity=None,
+        session_id=None,
+        title=None,
+        clear_all=False,
+    )
+
+    message_text = "\n".join(str(msg.text) for msg in outcome.messages)
+    assert "▎ MCP sessions (1 connected server):" in message_text
+    assert "▎ demo • demo-server" in message_text
+
+
+@pytest.mark.asyncio
+async def test_handle_mcp_session_list_defaults_to_connected_servers() -> None:
+    ctx = CommandContext(
+        agent_provider=_MultiServerSessionProvider(),
+        current_agent_name="main",
+        io=_IO(),
+    )
+
+    outcome = await mcp_runtime.handle_mcp_session(
+        ctx,
+        agent_name="main",
+        action="list",
+        server_identity=None,
+        session_id=None,
+        title=None,
+        clear_all=False,
+    )
+
+    message_text = "\n".join(str(msg.text) for msg in outcome.messages)
+    assert "▎ MCP sessions (2 connected servers):" in message_text
+    assert "▎ demo • demo-server" in message_text
+    assert "▎ docs • docs-server" in message_text
+    assert "target: url" in message_text
+    assert "https://demo.local/mcp" in message_text
+    assert "https://docs.local/mcp" in message_text
+    assert "store: 151 bytes" in message_text
+
+
+@pytest.mark.asyncio
+async def test_handle_mcp_session_jar_marks_unsupported_capability() -> None:
+    ctx = CommandContext(
+        agent_provider=_UnsupportedSessionProvider(),
+        current_agent_name="main",
+        io=_IO(),
+    )
+
+    outcome = await mcp_runtime.handle_mcp_session(
+        ctx,
+        agent_name="main",
+        action="jar",
+        server_identity=None,
+        session_id=None,
+        title=None,
+        clear_all=False,
+    )
+
+    message_text = "\n".join(str(msg.text) for msg in outcome.messages)
+    assert "target: url: https://docs.local/mcp" in message_text
+    assert "unsupported" in message_text
+    assert "Experimental sessions feature not supported" in message_text
+
+
+@pytest.mark.asyncio
+async def test_handle_mcp_session_list_marks_unsupported_server() -> None:
+    ctx = CommandContext(
+        agent_provider=_UnsupportedSessionProvider(),
+        current_agent_name="main",
+        io=_IO(),
+    )
+
+    outcome = await mcp_runtime.handle_mcp_session(
+        ctx,
+        agent_name="main",
+        action="list",
+        server_identity=None,
+        session_id=None,
+        title=None,
+        clear_all=False,
+    )
+
+    message_text = "\n".join(str(msg.text) for msg in outcome.messages)
+    assert "▎ docs • docs-server" in message_text
+    assert "target: url" in message_text
+    assert "Experimental sessions feature not supported." in message_text
+
+
+@pytest.mark.asyncio
+async def test_handle_mcp_session_list_compacts_long_target_paths() -> None:
+    ctx = CommandContext(
+        agent_provider=_LongPathSessionProvider(),
+        current_agent_name="main",
+        io=_IO(),
+    )
+
+    outcome = await mcp_runtime.handle_mcp_session(
+        ctx,
+        agent_name="main",
+        action="list",
+        server_identity="demo-server",
+        session_id=None,
+        title=None,
+        clear_all=False,
+    )
+
+    message_text = "\n".join(str(msg.text) for msg in outcome.messages)
+    assert "cmd: npx super-long-command --flag value" in message_text
+    assert "cwd: deep/workspace" in message_text
+    assert "/Users/alex/projects/fast-agent/demo-server/very/deep/workspace" not in message_text
 
 
 @pytest.mark.asyncio
@@ -837,9 +1174,9 @@ async def test_handle_mcp_session_new_and_clear_all() -> None:
     new_text = "\n".join(str(msg.text) for msg in new_outcome.messages)
     clear_text = "\n".join(str(msg.text) for msg in clear_outcome.messages)
 
-    assert "Created experimental session" in new_text
-    assert "sess-created" in new_text
-    assert "Cleared experimental session cookies" in clear_text
+    assert "Created new MCP session" in new_text
+    assert "cookies: 2" in new_text
+    assert "Cleared MCP session entries" in clear_text
 
 
 @pytest.mark.asyncio

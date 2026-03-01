@@ -36,13 +36,15 @@ class _FakeConnectionManager:
 class _RejectingSession(_RecordingSession):
     def __init__(self) -> None:
         super().__init__()
-        self.experimental_session_cookie: dict[str, Any] | None = {"id": "sess-rejected"}
+        self.experimental_session_cookie: dict[str, Any] | None = {
+            "sessionId": "sess-rejected"
+        }
 
     @property
     def experimental_session_id(self) -> str | None:
         cookie = self.experimental_session_cookie
         if isinstance(cookie, dict):
-            session_id = cookie.get("id")
+            session_id = cookie.get("sessionId")
             if isinstance(session_id, str) and session_id:
                 return session_id
         return None
@@ -54,8 +56,8 @@ class _RejectingSession(_RecordingSession):
         self.last_kwargs = dict(kwargs)
         raise McpError(
             ErrorData(
-                code=-32002,
-                message="Session required. Send session/create before using the notebook.",
+                code=-32043,
+                message="Session not found",
             )
         )
 
@@ -78,13 +80,15 @@ class _InvalidationRecorder:
 class _ToolErrorResultSession(_RecordingSession):
     def __init__(self) -> None:
         super().__init__()
-        self.experimental_session_cookie: dict[str, Any] | None = {"id": "sess-tool-error"}
+        self.experimental_session_cookie: dict[str, Any] | None = {
+            "sessionId": "sess-tool-error"
+        }
 
     @property
     def experimental_session_id(self) -> str | None:
         cookie = self.experimental_session_cookie
         if isinstance(cookie, dict):
-            session_id = cookie.get("id")
+            session_id = cookie.get("sessionId")
             if isinstance(session_id, str) and session_id:
                 return session_id
         return None
@@ -99,7 +103,7 @@ class _ToolErrorResultSession(_RecordingSession):
             content=[
                 TextContent(
                     type="text",
-                    text="Session required. Send session/create before using the notebook.",
+                    text="Session not found",
                 )
             ],
         )
@@ -111,7 +115,12 @@ async def test_execute_on_server_uses_meta_for_call_tool() -> None:
     aggregator = MCPAggregator(server_names=[], connection_persistence=True, context=None)
     setattr(aggregator, "_persistent_connection_manager", _FakeConnectionManager(session))
 
-    metadata = {"mcp/session": {"id": "sess-123"}}
+    metadata = {
+        "io.modelcontextprotocol/session": {
+            "sessionId": "sess-123",
+            "state": "token",
+        }
+    }
     token = _mcp_metadata_var.set(metadata)
     try:
         result = await aggregator._execute_on_server(
@@ -136,7 +145,12 @@ async def test_execute_on_server_keeps__meta_for_read_resource() -> None:
     aggregator = MCPAggregator(server_names=[], connection_persistence=True, context=None)
     setattr(aggregator, "_persistent_connection_manager", _FakeConnectionManager(session))
 
-    metadata = {"mcp/session": {"id": "sess-123"}}
+    metadata = {
+        "io.modelcontextprotocol/session": {
+            "sessionId": "sess-123",
+            "state": "token",
+        }
+    }
     token = _mcp_metadata_var.set(metadata)
     try:
         result = await aggregator._execute_on_server(
@@ -178,7 +192,7 @@ async def test_execute_on_server_marks_rejected_experimental_cookie_invalid() ->
         (
             "demo",
             "sess-rejected",
-            "Session required. Send session/create before using the notebook.",
+            "Session not found",
         )
     ]
 
@@ -206,6 +220,6 @@ async def test_execute_on_server_marks_rejected_cookie_from_tool_error_result() 
         (
             "demo",
             "sess-tool-error",
-            "Session required. Send session/create before using the notebook.",
+            "Session not found",
         )
     ]

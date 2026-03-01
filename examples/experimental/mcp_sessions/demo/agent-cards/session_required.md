@@ -13,5 +13,5 @@ Try:
 - "Call whoami."
 - "Call echo with text hello."
 
-The server enforces session establishment before allowing tool calls.
-Use `/mcp` to inspect cookie/session state.
+The server enforces active data-layer sessions before allowing tool calls.
+Use `/mcp` to inspect session metadata.

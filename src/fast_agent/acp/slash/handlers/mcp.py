@@ -149,7 +149,7 @@ async def handle_mcp(handler: "SlashCommandHandler", arguments: str | None = Non
                     message = (
                         f"{message}\n"
                         "If the browser cannot reach the callback host, run "
-                        "`fast-agent auth login <server-name-or-identity>` on the "
+                        "`fast-agent auth login <server-name-or-mcp-name>` on the "
                         "fast-agent host, then retry `/mcp connect ...`."
                     )
 
@@ -273,11 +273,11 @@ async def handle_mcp(handler: "SlashCommandHandler", arguments: str | None = Non
 
             if action == "list":
                 if len(args) > 1:
-                    return f"{heading}\n\nUsage: /mcp session list [<server_or_identity>]"
+                    return f"{heading}\n\nUsage: /mcp session list [<server_or_mcp_name>]"
                 server_identity = args[0] if args else None
             elif action == "jar":
                 if len(args) > 1:
-                    return f"{heading}\n\nUsage: /mcp session jar [<server_or_identity>]"
+                    return f"{heading}\n\nUsage: /mcp session jar [<server_or_mcp_name>]"
                 server_identity = args[0] if args else None
             elif action in {"new", "create"}:
                 idx = 0
@@ -304,7 +304,7 @@ async def handle_mcp(handler: "SlashCommandHandler", arguments: str | None = Non
                 if len(args) != 2:
                     return (
                         f"{heading}\n\n"
-                        "Usage: /mcp session use <server_or_identity> <session_id>"
+                        "Usage: /mcp session use <server_or_mcp_name> <session_id>"
                     )
                 server_identity, session_id = args
                 action = "use"

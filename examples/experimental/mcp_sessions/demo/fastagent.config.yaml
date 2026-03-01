@@ -34,3 +34,8 @@ mcp:
       command: uv
       args: [run, python, selective_session_server.py]
       cwd: "${ENVIRONMENT_DIR:examples/experimental/mcp_sessions/demo}/.."
+
+    mcp_sessions_client_notes:
+      command: uv
+      args: [run, python, client_notes_server.py]
+      cwd: "${ENVIRONMENT_DIR:examples/experimental/mcp_sessions/demo}/.."

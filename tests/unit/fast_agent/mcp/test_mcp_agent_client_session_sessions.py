@@ -17,6 +17,15 @@ from fast_agent.config import MCPServerSettings
 from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 
 
+class _SessionPayload:
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self._payload = dict(payload)
+
+    def model_dump(self, *, exclude_none: bool = False) -> dict[str, Any]:
+        del exclude_none
+        return dict(self._payload)
+
+
 def _new_session() -> MCPAgentClientSession:
     session = object.__new__(MCPAgentClientSession)
     session._experimental_session_supported = False
@@ -40,32 +49,48 @@ def _initialize_request() -> ClientRequest:
     )
 
 
-def test_capture_experimental_session_capability() -> None:
+def test_capture_experimental_session_capability_data_layer_sessions() -> None:
+    session = _new_session()
+
+    session._capture_experimental_session_capability({"sessions": {}})
+
+    assert session.experimental_session_supported is True
+    assert session.experimental_session_features == ("create", "delete")
+
+
+def test_capture_experimental_session_capability_requires_sessions_capability() -> None:
     session = _new_session()
 
     session._capture_experimental_session_capability(
         {
-            "session": {
-                "version": 2,
-                "features": ["create", "list", "delete"],
+            "experimental": {
+                "session": {
+                    "features": ["create", "list", "delete"],
+                }
             }
         }
     )
 
-    assert session.experimental_session_supported is True
-    assert session.experimental_session_features == ("create", "delete", "list")
+    assert session.experimental_session_supported is False
+    assert session.experimental_session_features == ()
 
 
 def test_merge_experimental_session_meta_preserves_input() -> None:
     session = _new_session()
-    session._experimental_session_cookie = {"id": "sess-123"}
+    session._experimental_session_cookie = {
+        "sessionId": "sess-123",
+        "state": "token-123",
+    }
 
     source: dict[str, Any] = {"custom": {"value": "x"}}
     merged = session._merge_experimental_session_meta(source)
 
     assert merged == {
         "custom": {"value": "x"},
-        "mcp/session": {"id": "sess-123"},
+        "io.modelcontextprotocol/session": {
+            "sessionId": "sess-123",
+            "state": "token-123",
+        },
     }
     assert source == {"custom": {"value": "x"}}
 
@@ -75,24 +100,68 @@ def test_update_experimental_session_cookie_from_meta_and_revocation() -> None:
 
     session._update_experimental_session_cookie(
         {
-            "mcp/session": {
-                "id": "sess-xyz",
-                "data": {"title": "Session Title"},
+            "io.modelcontextprotocol/session": {
+                "sessionId": "sess-xyz",
+                "state": "state-1",
+                "expiresAt": "2026-03-01T00:00:00Z",
             }
         }
     )
 
     assert session.experimental_session_cookie == {
-        "id": "sess-xyz",
-        "data": {"title": "Session Title"},
+        "sessionId": "sess-xyz",
+        "state": "state-1",
+        "expiresAt": "2026-03-01T00:00:00Z",
     }
     assert session.experimental_session_id == "sess-xyz"
-    assert session.experimental_session_title == "Session Title"
 
-    session._update_experimental_session_cookie({"mcp/session": None})
+    session._update_experimental_session_cookie(
+        {"io.modelcontextprotocol/session": None}
+    )
     assert session.experimental_session_cookie is None
     assert session.experimental_session_id is None
-    assert session.experimental_session_title is None
+
+
+def test_update_experimental_session_cookie_without_state_keeps_session_only() -> None:
+    session = _new_session()
+
+    session._update_experimental_session_cookie(
+        {
+            "io.modelcontextprotocol/session": {
+                "sessionId": "sess-no-state",
+                "expiresAt": "2026-03-01T00:00:00Z",
+            }
+        }
+    )
+
+    assert session.experimental_session_cookie == {
+        "sessionId": "sess-no-state",
+        "expiresAt": "2026-03-01T00:00:00Z",
+    }
+
+
+def test_update_experimental_session_cookie_without_state_does_not_mutate_existing_state() -> None:
+    session = _new_session()
+    session._experimental_session_cookie = {
+        "sessionId": "sess-xyz",
+        "state": "state-1",
+        "expiresAt": "2026-03-01T00:00:00Z",
+    }
+
+    session._update_experimental_session_cookie(
+        {
+            "io.modelcontextprotocol/session": {
+                "sessionId": "sess-xyz",
+                "expiresAt": "2026-03-01T12:00:00Z",
+            }
+        }
+    )
+
+    assert session.experimental_session_cookie == {
+        "sessionId": "sess-xyz",
+        "state": "state-1",
+        "expiresAt": "2026-03-01T12:00:00Z",
+    }
 
 
 def test_maybe_advertise_experimental_session_capability_disabled_by_default() -> None:
@@ -127,10 +196,8 @@ def test_maybe_advertise_experimental_session_capability_in_initialize_request()
     assert params is not None
     experimental = params.capabilities.experimental
     assert isinstance(experimental, dict)
-    session_payload = experimental.get("session")
-    assert isinstance(session_payload, dict)
-    assert session_payload.get("version") == 2
-    assert "features" not in session_payload
+    session_payload = experimental.get("experimental/sessions")
+    assert session_payload == {}
 
 
 def test_maybe_advertise_experimental_session_capability_preserves_existing_session_payload() -> None:
@@ -147,7 +214,7 @@ def test_maybe_advertise_experimental_session_capability_preserves_existing_sess
             params=InitializeRequestParams(
                 protocolVersion=LATEST_PROTOCOL_VERSION,
                 capabilities=ClientCapabilities(
-                    experimental={"session": {"version": 99, "features": ["custom"]}}
+                    experimental={"experimental/sessions": {"mode": "custom"}}
                 ),
                 clientInfo=Implementation(name="test-client", version="1.0.0"),
             )
@@ -161,7 +228,7 @@ def test_maybe_advertise_experimental_session_capability_preserves_existing_sess
     assert params is not None
     experimental = params.capabilities.experimental
     assert isinstance(experimental, dict)
-    assert experimental.get("session") == {"version": 99, "features": ["custom"]}
+    assert experimental.get("experimental/sessions") == {"mode": "custom"}
 
 
 @pytest.mark.asyncio
@@ -170,11 +237,18 @@ async def test_maybe_establish_experimental_session_sends_create_request() -> No
         async def send_request(self, request, result_type, **kwargs):  # type: ignore[override]
             del result_type, kwargs
             self.recorded_request = request
-            return SimpleNamespace(id="sess-created", expiry=None, data={"title": "demo"})
+            return SimpleNamespace(
+                session=_SessionPayload(
+                    {
+                        "sessionId": "sess-created",
+                        "state": "state-created",
+                    }
+                )
+            )
 
     session = object.__new__(_RecordingSession)
     session._experimental_session_supported = True
-    session._experimental_session_features = ("create", "list")
+    session._experimental_session_features = ("create", "delete")
     session._experimental_session_cookie = None
     session.agent_name = "demo-agent"
     session.session_server_name = "demo-server"
@@ -183,24 +257,20 @@ async def test_maybe_establish_experimental_session_sends_create_request() -> No
     await session._maybe_establish_experimental_session()
 
     assert session.recorded_request is not None
-    assert getattr(session.recorded_request, "method", None) == "session/create"
-    params = getattr(session.recorded_request, "params", None)
-    hints = getattr(params, "hints", None)
-    assert getattr(hints, "label", None) == "demo-agent · demo-server"
-    assert getattr(hints, "data", None) == {"title": "demo-agent · demo-server"}
+    assert getattr(session.recorded_request, "method", None) == "sessions/create"
+    assert getattr(session.recorded_request, "params", None) is None
     assert session.experimental_session_cookie == {
-        "id": "sess-created",
-        "data": {"title": "demo"},
+        "sessionId": "sess-created",
+        "state": "state-created",
     }
 
 
-def test_set_experimental_session_cookie_accepts_manual_override() -> None:
+def test_set_experimental_session_cookie_requires_session_id() -> None:
     session = _new_session()
 
-    session.set_experimental_session_cookie({"id": "sess-manual", "data": {"title": "Manual"}})
+    session.set_experimental_session_cookie({"sessionId": "sess-manual"})
     assert session.experimental_session_cookie == {
-        "id": "sess-manual",
-        "data": {"title": "Manual"},
+        "sessionId": "sess-manual",
     }
 
     session.set_experimental_session_cookie(None)
@@ -208,47 +278,43 @@ def test_set_experimental_session_cookie_accepts_manual_override() -> None:
 
 
 @pytest.mark.asyncio
-async def test_experimental_session_list_and_delete_requests() -> None:
-    class _RecordingSession(MCPAgentClientSession):
-        async def send_request(self, request, result_type, **kwargs):  # type: ignore[override]
-            del result_type, kwargs
-            method = getattr(request, "method", None)
-            if method == "session/list":
-                return SimpleNamespace(sessions=[{"id": "sess-a"}, {"id": "sess-b"}])
-            if method == "session/delete":
-                return SimpleNamespace(deleted=True)
-            raise AssertionError(f"Unexpected method: {method}")
-
-    session = object.__new__(_RecordingSession)
-    session._experimental_session_cookie = {"id": "sess-current"}
-    session._experimental_session_supported = True
-    session._experimental_session_features = ("list", "delete")
-    session.agent_name = "demo-agent"
-    session.session_server_name = "demo-server"
+async def test_experimental_session_list_returns_active_session_snapshot() -> None:
+    session = _new_session()
+    session._experimental_session_cookie = {
+        "sessionId": "sess-current",
+        "state": "state-current",
+    }
 
     listed = await session.experimental_session_list()
-    deleted = await session.experimental_session_delete("sess-a")
 
-    assert listed == [{"id": "sess-a"}, {"id": "sess-b"}]
-    assert deleted is True
+    assert listed == [
+        {
+            "sessionId": "sess-current",
+            "state": "state-current",
+        }
+    ]
 
 
 @pytest.mark.asyncio
-async def test_experimental_session_delete_includes_cookie_meta() -> None:
+async def test_experimental_session_delete_includes_session_meta() -> None:
     class _RecordingSession(MCPAgentClientSession):
         async def send_request(self, request, result_type, **kwargs):  # type: ignore[override]
             del result_type, kwargs
             method = getattr(request, "method", None)
-            if method == "session/delete":
+            if method == "sessions/delete":
                 params = getattr(request, "params", None)
                 assert params is not None
                 dumped = params.model_dump(by_alias=True, exclude_none=True)
-                assert dumped.get("_meta") == {"mcp/session": {"id": "sess-current"}}
+                assert dumped.get("_meta") == {
+                    "io.modelcontextprotocol/session": {
+                        "sessionId": "sess-current"
+                    }
+                }
                 return SimpleNamespace(deleted=True)
             raise AssertionError(f"Unexpected method: {method}")
 
     session = object.__new__(_RecordingSession)
-    session._experimental_session_cookie = {"id": "sess-current"}
+    session._experimental_session_cookie = {"sessionId": "sess-current"}
     session._experimental_session_supported = True
     session._experimental_session_features = ("delete",)
     session.agent_name = "demo-agent"
@@ -257,6 +323,7 @@ async def test_experimental_session_delete_includes_cookie_meta() -> None:
     deleted = await session.experimental_session_delete()
 
     assert deleted is True
+    assert session.experimental_session_cookie is None
 
 
 @pytest.mark.asyncio
@@ -265,13 +332,20 @@ async def test_experimental_session_create_replaces_existing_cookie() -> None:
         async def send_request(self, request, result_type, **kwargs):  # type: ignore[override]
             del request, result_type, kwargs
             return SimpleNamespace(
-                id="sess-new",
-                expiry="2026-02-24T12:00:00Z",
-                data={"title": "fresh"},
+                session=_SessionPayload(
+                    {
+                        "sessionId": "sess-new",
+                        "expiresAt": "2026-02-24T12:00:00Z",
+                        "state": "state-new",
+                    }
+                )
             )
 
     session = object.__new__(_RecordingSession)
-    session._experimental_session_cookie = {"id": "sess-old", "data": {"title": "stale"}}
+    session._experimental_session_cookie = {
+        "sessionId": "sess-old",
+        "state": "state-old",
+    }
     session._experimental_session_supported = True
     session._experimental_session_features = ("create",)
     session.agent_name = "demo-agent"
@@ -280,7 +354,7 @@ async def test_experimental_session_create_replaces_existing_cookie() -> None:
     cookie = await session.experimental_session_create(title="ignored-by-test")
 
     assert cookie == {
-        "id": "sess-new",
-        "expiry": "2026-02-24T12:00:00Z",
-        "data": {"title": "fresh"},
+        "sessionId": "sess-new",
+        "expiresAt": "2026-02-24T12:00:00Z",
+        "state": "state-new",
     }

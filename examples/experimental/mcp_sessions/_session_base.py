@@ -1,123 +1,58 @@
-"""Shared session infrastructure for experimental MCP session demo servers.
+"""Shared draft data-layer session helpers for experimental MCP demos.
 
-Extracts the common plumbing from session_server.py so that multiple demo
-servers can reuse session lifecycle management without duplication.
+This module is intentionally small and stdio-focused.
 """
 
 from __future__ import annotations
 
 import argparse
-import logging
+import base64
+import json
 import secrets
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal
-from uuid import uuid4
 
 import anyio
 import mcp.types as types
-from mcp.server.fastmcp.server import StreamableHTTPASGIApp
 from mcp.server.session import InitializationState, ServerSession
 from mcp.server.stdio import stdio_server
-from mcp.server.streamable_http import StreamableHTTPServerTransport
-from mcp.server.streamable_http_manager import (
-    INVALID_REQUEST,
-    MCP_SESSION_ID_HEADER,
-    ErrorData,
-    JSONRPCError,
-    StreamableHTTPSessionManager,
-)
+from mcp.shared.exceptions import McpError
 from mcp.shared.session import BaseSession
 from pydantic import BaseModel
-from starlette.applications import Starlette
-from starlette.requests import Request
-from starlette.responses import Response
-from starlette.routing import Route
-
-LOGGER = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from anyio.abc import TaskStatus
-    from mcp.server.fastmcp import FastMCP
+    from mcp.server.fastmcp import Context, FastMCP
     from mcp.server.models import InitializationOptions
     from mcp.shared.message import SessionMessage
-    from starlette.types import Receive, Scope, Send
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-SESSION_META_KEY = "mcp/session"
-SESSION_CAPABILITIES: dict[str, dict[str, Any]] = {
-    "session": {
-        "version": 2,
-        "features": ["create", "list", "delete"],
-    }
-}
-
-# JSON-RPC error code for "session required but not established"
-#
-# Chosen to live alongside -32042 (URL_ELICITATION_REQUIRED), which is used for
-# protocol-level interactive client-action-required conditions.
-SESSION_REQUIRED_ERROR_CODE = -32043
+SESSION_META_KEY = "io.modelcontextprotocol/session"
+SESSION_NOT_FOUND_ERROR_CODE = -32043
 
 
-# ---------------------------------------------------------------------------
-# Pydantic models for session/* requests
-# ---------------------------------------------------------------------------
+class SessionMetadata(BaseModel):
+    sessionId: str
+    expiresAt: str | None = None
+    state: str | None = None
 
 
-class SessionCreateHints(BaseModel):
-    label: str | None = None
-    data: dict[str, str] | None = None
-
-
-class SessionCreateParams(types.RequestParams):
-    hints: SessionCreateHints | None = None
-
-
-class SessionCreateRequest(types.Request):
-    method: Literal["session/create"] = "session/create"
-    params: SessionCreateParams | None = None
-
-
-class SessionListRequest(types.Request):
-    method: Literal["session/list"] = "session/list"
+class CreateSessionRequest(types.Request):
+    method: Literal["sessions/create"] = "sessions/create"
     params: types.RequestParams | None = None
 
 
-class SessionCookie(BaseModel):
-    id: str
-    expiry: str | None = None
-    data: dict[str, str] | None = None
+class DeleteSessionRequest(types.Request):
+    method: Literal["sessions/delete"] = "sessions/delete"
+    params: types.RequestParams | None = None
 
 
-class SessionDeleteParams(types.RequestParams):
-    id: str | None = None
+class DataLayerClientRequest(types.ClientRequest):
+    root: types.ClientRequestType | CreateSessionRequest | DeleteSessionRequest
 
 
-class SessionDeleteRequest(types.Request):
-    method: Literal["session/delete"] = "session/delete"
-    params: SessionDeleteParams | None = None
-
-
-class ExperimentalClientRequest(types.ClientRequest):
-    root: (
-        types.ClientRequestType
-        | SessionCreateRequest
-        | SessionListRequest
-        | SessionDeleteRequest
-    )
-
-
-# ---------------------------------------------------------------------------
-# ExperimentalServerSession — accepts session/* requests
-# ---------------------------------------------------------------------------
-
-
-class ExperimentalServerSession(ServerSession):
-    """ServerSession variant that accepts ``ExperimentalClientRequest``."""
+class DataLayerServerSession(ServerSession):
+    """ServerSession variant that accepts sessions/* requests."""
 
     def __init__(
         self,
@@ -126,20 +61,15 @@ class ExperimentalServerSession(ServerSession):
         ],
         write_stream: anyio.streams.memory.MemoryObjectSendStream[SessionMessage],
         init_options: InitializationOptions,
-        stateless: bool = False,
     ) -> None:
         BaseSession.__init__(
             self,
             read_stream,
             write_stream,
-            ExperimentalClientRequest,
+            DataLayerClientRequest,
             types.ClientNotification,
         )
-        self._initialization_state = (
-            InitializationState.Initialized
-            if stateless
-            else InitializationState.NotInitialized
-        )
+        self._initialization_state = InitializationState.NotInitialized
         self._init_options = init_options
         (
             self._incoming_message_stream_writer,
@@ -150,446 +80,227 @@ class ExperimentalServerSession(ServerSession):
         )
 
 
-# ---------------------------------------------------------------------------
-# SessionStore — in-memory session record storage
-# ---------------------------------------------------------------------------
-
-
 @dataclass(slots=True)
 class SessionRecord:
     session_id: str
-    expiry: str
-    data: dict[str, str]
+    state: str | None
+    expires_at: str
+    label: str
     tool_calls: int = 0
 
 
 @dataclass(slots=True)
 class SessionStore:
-    """Tiny in-memory store for demo session cookies."""
+    """Small in-memory store used by experimental demo servers."""
 
     _sessions: dict[str, SessionRecord] = field(default_factory=dict)
+    include_state: bool = True
 
-    def create(self, title: str, *, reason: str) -> SessionRecord:
+    def create(self, title: str = "experimental-session", *, reason: str = "") -> SessionRecord:
+        del reason
         session_id = f"sess-{secrets.token_hex(6)}"
-        expiry = (datetime.now(UTC) + timedelta(minutes=30)).isoformat()
-        data = {
-            "title": title,
-            "reason": reason,
-            "createdAt": datetime.now(UTC).isoformat(),
-        }
-        record = SessionRecord(session_id=session_id, expiry=expiry, data=data)
+        initial_state = _encode_state(call_count=0) if self.include_state else None
+        record = SessionRecord(
+            session_id=session_id,
+            state=initial_state,
+            expires_at=_future_expiry(minutes=30),
+            label=title,
+        )
         self._sessions[session_id] = record
         return record
 
     def get(self, session_id: str | None) -> SessionRecord | None:
-        if not session_id:
-            return None
-        return self._sessions.get(session_id)
-
-    def ensure_from_cookie(
-        self, cookie: dict[str, Any] | None
-    ) -> SessionRecord | None:
-        if not cookie:
-            return None
-        session_id = cookie.get("id")
         if not isinstance(session_id, str) or not session_id:
             return None
         return self._sessions.get(session_id)
 
-    def list_cookies(self) -> list[SessionCookie]:
-        return [
-            SessionCookie(
-                id=record.session_id,
-                expiry=record.expiry,
-                data=dict(record.data),
-            )
-            for record in self._sessions.values()
-        ]
-
     def delete(self, session_id: str | None) -> bool:
-        if not session_id:
+        if not isinstance(session_id, str) or not session_id:
             return False
         return self._sessions.pop(session_id, None) is not None
 
-    def to_cookie(self, record: SessionRecord) -> dict[str, Any]:
-        return {
-            "id": record.session_id,
-            "expiry": record.expiry,
-            "data": dict(record.data),
+    def to_metadata(self, record: SessionRecord) -> dict[str, str]:
+        metadata: dict[str, str] = {
+            "sessionId": record.session_id,
+            "expiresAt": record.expires_at,
         }
+        if self.include_state and isinstance(record.state, str) and record.state:
+            metadata["state"] = record.state
+        return metadata
+
+    def touch(self, record: SessionRecord) -> None:
+        record.tool_calls += 1
+        if self.include_state:
+            record.state = _encode_state(call_count=record.tool_calls)
+        record.expires_at = _future_expiry(minutes=30)
 
 
-# ---------------------------------------------------------------------------
-# Metadata / cookie helpers
-# ---------------------------------------------------------------------------
+
+def _future_expiry(*, minutes: int) -> str:
+    expiry = datetime.now(UTC) + timedelta(minutes=minutes)
+    return expiry.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+
+def _encode_state(*, call_count: int) -> str:
+    payload = json.dumps({"callCount": call_count}, separators=(",", ":"), sort_keys=True)
+    # Use padded base64 to match the draft examples and keep tokens copy-pastable.
+    return base64.b64encode(payload.encode("utf-8")).decode("ascii")
+
 
 
 def meta_dict(meta: types.RequestParams.Meta | None) -> dict[str, Any]:
     if meta is None:
         return {}
     dumped = meta.model_dump(by_alias=True, exclude_none=False)
-    if isinstance(dumped, dict):
-        return dumped
-    return {}
+    return dumped if isinstance(dumped, dict) else {}
 
 
-def session_cookie_from_meta(
+
+def session_metadata_from_meta(
     meta: types.RequestParams.Meta | None,
 ) -> dict[str, Any] | None:
     payload = meta_dict(meta)
-    raw_cookie = payload.get(SESSION_META_KEY)
-    if isinstance(raw_cookie, dict):
-        return dict(raw_cookie)
+    raw = payload.get(SESSION_META_KEY)
+    if isinstance(raw, dict):
+        return dict(raw)
     return None
 
 
-def session_id_from_cookie(cookie: dict[str, Any] | None) -> str | None:
-    if not cookie:
+
+def session_id_from_metadata(metadata: dict[str, Any] | None) -> str | None:
+    if not isinstance(metadata, dict):
         return None
-    raw_id = cookie.get("id")
-    if isinstance(raw_id, str) and raw_id:
-        return raw_id
+    raw = metadata.get("sessionId")
+    if isinstance(raw, str) and raw:
+        return raw
     return None
 
 
-def title_from_create_request(request: SessionCreateRequest) -> str:
-    hints = request.params.hints if request.params else None
-    if hints is not None and hints.data is not None:
-        title = hints.data.get("title")
-        if isinstance(title, str) and title.strip():
-            return title.strip()
-    if hints is not None and hints.label is not None and hints.label.strip():
-        return hints.label.strip()
-    return "experimental-session"
+
+def session_id_from_meta(meta: types.RequestParams.Meta | None) -> str | None:
+    return session_id_from_metadata(session_metadata_from_meta(meta))
 
 
-def cookie_meta(cookie: dict[str, Any] | None) -> dict[str, Any]:
-    return {SESSION_META_KEY: cookie}
+
+def session_meta(record: SessionRecord, store: SessionStore) -> dict[str, Any]:
+    return {SESSION_META_KEY: store.to_metadata(record)}
 
 
-def cookie_text(cookie: dict[str, Any]) -> str:
-    session_id = session_id_from_cookie(cookie) or "unknown"
-    data = cookie.get("data")
-    title = None
-    if isinstance(data, dict):
-        raw_title = data.get("title")
-        if isinstance(raw_title, str) and raw_title.strip():
-            title = raw_title.strip()
-    if title:
-        return f"id={session_id}, title={title}"
-    return f"id={session_id}"
+
+def raise_session_not_found(session_id: str | None) -> None:
+    raise McpError(
+        types.ErrorData(
+            code=SESSION_NOT_FOUND_ERROR_CODE,
+            message="Session not found",
+            data={"sessionId": session_id or ""},
+        )
+    )
 
 
-# ---------------------------------------------------------------------------
-# Standard session/* request handlers — wire these into any server
-# ---------------------------------------------------------------------------
+
+def require_session(ctx: Context, store: SessionStore) -> SessionRecord:
+    session_id = session_id_from_meta(ctx.request_context.meta)
+    record = store.get(session_id)
+    if record is None:
+        raise_session_not_found(session_id)
+    return record
+
+
+
+def optional_session(ctx: Context, store: SessionStore) -> SessionRecord | None:
+    metadata = session_metadata_from_meta(ctx.request_context.meta)
+    if metadata is None:
+        return None
+    session_id = session_id_from_metadata(metadata)
+    record = store.get(session_id)
+    if record is None:
+        raise_session_not_found(session_id)
+    return record
+
 
 
 def register_session_handlers(
     lowlevel: Any,
     store: SessionStore,
 ) -> None:
-    """Register session/create, session/list, session/delete on a low-level server."""
+    """Register draft `sessions/create` and `sessions/delete` handlers."""
 
-    async def handle_session_create(
-        request: SessionCreateRequest,
-    ) -> types.ServerResult:
-        title = title_from_create_request(request)
-        record = store.create(title=title, reason="session/create")
-        cookie = store.to_cookie(record)
-        return types.ServerResult(
-            types.EmptyResult(
-                _meta=cookie_meta(cookie),
-                id=record.session_id,
-                expiry=record.expiry,
-                data=dict(record.data),
-            )
-        )
-
-    async def handle_session_list(
-        _request: SessionListRequest,
-    ) -> types.ServerResult:
-        cookies = [
-            cookie.model_dump(exclude_none=True) for cookie in store.list_cookies()
-        ]
-        return types.ServerResult(types.EmptyResult(sessions=cookies))
-
-    async def handle_session_delete(
-        request: SessionDeleteRequest,
-    ) -> types.ServerResult:
-        cookie = session_cookie_from_meta(lowlevel.request_context.meta)
-        cookie_id = session_id_from_cookie(cookie)
-        requested_id = request.params.id if request.params else None
-        target_id = requested_id or cookie_id
-        deleted = store.delete(target_id)
-        result_meta: dict[str, Any] | None = None
-        if deleted and target_id == cookie_id:
-            result_meta = cookie_meta(None)
-        elif cookie is not None:
-            result_meta = cookie_meta(cookie)
-        kwargs: dict[str, Any] = {}
-        if result_meta is not None:
-            kwargs["_meta"] = result_meta
-        return types.ServerResult(types.EmptyResult(deleted=deleted, **kwargs))
-
-    lowlevel.request_handlers[SessionCreateRequest] = handle_session_create
-    lowlevel.request_handlers[SessionListRequest] = handle_session_list
-    lowlevel.request_handlers[SessionDeleteRequest] = handle_session_delete
-
-
-# ---------------------------------------------------------------------------
-# Low-level server runner with experimental session support
-# ---------------------------------------------------------------------------
-
-
-async def run_lowlevel_with_experimental_session(
-    lowlevel: Any,
-    read_stream: anyio.streams.memory.MemoryObjectReceiveStream[
-        SessionMessage | Exception
-    ],
-    write_stream: anyio.streams.memory.MemoryObjectSendStream[SessionMessage],
-    *,
-    stateless: bool,
-) -> None:
-    init_options = lowlevel.create_initialization_options(
-        experimental_capabilities=SESSION_CAPABILITIES,
-    )
-
-    async with AsyncExitStack() as stack:
-        lifespan_context = await stack.enter_async_context(
-            lowlevel.lifespan(lowlevel)
-        )
-        session = await stack.enter_async_context(
-            ExperimentalServerSession(
-                read_stream,
-                write_stream,
-                init_options,
-                stateless=stateless,
-            )
-        )
-
-        task_support = (
-            lowlevel._experimental_handlers.task_support
-            if lowlevel._experimental_handlers is not None
-            else None
-        )
-        if task_support is not None:
-            task_support.configure_session(session)
-            await stack.enter_async_context(task_support.run())
-
-        async with anyio.create_task_group() as tg:
-            async for message in session.incoming_messages:
-                tg.start_soon(
-                    lowlevel._handle_message,
-                    message,
-                    session,
-                    lifespan_context,
-                    False,
+    async def handle_session_create(_request: CreateSessionRequest) -> types.ServerResult:
+        if session_metadata_from_meta(lowlevel.request_context.meta) is not None:
+            raise McpError(
+                types.ErrorData(
+                    code=-32602,
+                    message=(
+                        "sessions/create MUST NOT include "
+                        "_meta['io.modelcontextprotocol/session']"
+                    ),
                 )
+            )
 
+        record = store.create(reason="sessions/create")
+        return types.ServerResult(types.EmptyResult(session=store.to_metadata(record)))
 
-# ---------------------------------------------------------------------------
-# Transport runners
-# ---------------------------------------------------------------------------
+    async def handle_session_delete(_request: DeleteSessionRequest) -> types.ServerResult:
+        session_id = session_id_from_meta(lowlevel.request_context.meta)
+        deleted = store.delete(session_id)
+        if not deleted:
+            raise_session_not_found(session_id)
+        return types.ServerResult(types.EmptyResult())
+
+    lowlevel.request_handlers[CreateSessionRequest] = handle_session_create
+    lowlevel.request_handlers[DeleteSessionRequest] = handle_session_delete
 
 
 async def run_stdio_server(mcp: FastMCP) -> None:
+    lowlevel = mcp._mcp_server
+    init_options = lowlevel.create_initialization_options(experimental_capabilities={})
+    capabilities_extra = init_options.capabilities.model_extra
+    if isinstance(capabilities_extra, dict):
+        capabilities_extra["sessions"] = {}
+
     async with stdio_server() as (read_stream, write_stream):
-        await run_lowlevel_with_experimental_session(
-            mcp._mcp_server,
-            read_stream,
-            write_stream,
-            stateless=False,
-        )
+        async with AsyncExitStack() as stack:
+            lifespan_context = await stack.enter_async_context(lowlevel.lifespan(lowlevel))
+            session = await stack.enter_async_context(
+                DataLayerServerSession(
+                    read_stream,
+                    write_stream,
+                    init_options,
+                )
+            )
 
-
-class ExperimentalStreamableHTTPSessionManager(StreamableHTTPSessionManager):
-    """StreamableHTTP manager that uses ExperimentalServerSession."""
-
-    async def _handle_stateless_request(
-        self,
-        scope: Scope,
-        receive: Receive,
-        send: Send,
-    ) -> None:
-        http_transport = StreamableHTTPServerTransport(
-            mcp_session_id=None,
-            is_json_response_enabled=self.json_response,
-            event_store=None,
-            security_settings=self.security_settings,
-        )
-
-        async def run_stateless_server(
-            *,
-            task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
-        ) -> None:
-            async with http_transport.connect() as streams:
-                read_stream, write_stream = streams
-                task_status.started()
-                try:
-                    await run_lowlevel_with_experimental_session(
-                        self.app,
-                        read_stream,
-                        write_stream,
-                        stateless=True,
+            async with anyio.create_task_group() as tg:
+                async for message in session.incoming_messages:
+                    tg.start_soon(
+                        lowlevel._handle_message,
+                        message,
+                        session,
+                        lifespan_context,
+                        False,
                     )
-                except Exception:
-                    LOGGER.exception("Stateless session crashed")
 
-        assert self._task_group is not None
-        await self._task_group.start(run_stateless_server)
-        await http_transport.handle_request(scope, receive, send)
-        await http_transport.terminate()
-
-    async def _handle_stateful_request(
-        self,
-        scope: Scope,
-        receive: Receive,
-        send: Send,
-    ) -> None:
-        request = Request(scope, receive)
-        request_mcp_session_id = request.headers.get(MCP_SESSION_ID_HEADER)
-
-        if (
-            request_mcp_session_id is not None
-            and request_mcp_session_id in self._server_instances
-        ):
-            transport = self._server_instances[request_mcp_session_id]
-            await transport.handle_request(scope, receive, send)
-            return
-
-        if request_mcp_session_id is None:
-            async with self._session_creation_lock:
-                new_session_id = uuid4().hex
-                http_transport = StreamableHTTPServerTransport(
-                    mcp_session_id=new_session_id,
-                    is_json_response_enabled=self.json_response,
-                    event_store=self.event_store,
-                    security_settings=self.security_settings,
-                    retry_interval=self.retry_interval,
-                )
-
-                assert http_transport.mcp_session_id is not None
-                self._server_instances[http_transport.mcp_session_id] = (
-                    http_transport
-                )
-
-                async def run_server(
-                    *,
-                    task_status: TaskStatus[None] = anyio.TASK_STATUS_IGNORED,
-                ) -> None:
-                    async with http_transport.connect() as streams:
-                        read_stream, write_stream = streams
-                        task_status.started()
-                        try:
-                            await run_lowlevel_with_experimental_session(
-                                self.app,
-                                read_stream,
-                                write_stream,
-                                stateless=False,
-                            )
-                        except Exception as exc:
-                            LOGGER.exception(
-                                "Session %s crashed: %s",
-                                http_transport.mcp_session_id,
-                                exc,
-                            )
-                        finally:
-                            if (
-                                http_transport.mcp_session_id
-                                and http_transport.mcp_session_id
-                                in self._server_instances
-                                and not http_transport.is_terminated
-                            ):
-                                del self._server_instances[
-                                    http_transport.mcp_session_id
-                                ]
-
-                assert self._task_group is not None
-                await self._task_group.start(run_server)
-                await http_transport.handle_request(scope, receive, send)
-        else:
-            error_response = JSONRPCError(
-                jsonrpc="2.0",
-                id="server-error",
-                error=ErrorData(
-                    code=INVALID_REQUEST,
-                    message="Session not found",
-                ),
-            )
-            response = Response(
-                content=error_response.model_dump_json(
-                    by_alias=True, exclude_none=True
-                ),
-                status_code=404,
-                media_type="application/json",
-            )
-            await response(scope, receive, send)
-
-
-async def run_streamable_http_server(
-    mcp: FastMCP,
-    *,
-    host: str,
-    port: int,
-    path: str,
-) -> None:
-    import uvicorn
-
-    manager = ExperimentalStreamableHTTPSessionManager(
-        app=mcp._mcp_server,
-        event_store=None,
-        json_response=False,
-        stateless=False,
-        security_settings=None,
-        retry_interval=None,
-    )
-    app = Starlette(
-        debug=False,
-        routes=[Route(path, endpoint=StreamableHTTPASGIApp(manager))],
-        lifespan=lambda _app: manager.run(),
-    )
-
-    config = uvicorn.Config(app, host=host, port=port, log_level="warning")
-    server = uvicorn.Server(config)
-    await server.serve()
-
-
-# ---------------------------------------------------------------------------
-# CLI helpers
-# ---------------------------------------------------------------------------
 
 
 def add_transport_args(parser: argparse.ArgumentParser) -> None:
-    """Add standard --transport / --host / --port / --path arguments."""
+    """Kept for compatibility with existing demo entrypoints."""
     parser.add_argument(
         "--transport",
-        choices=("stdio", "streamable-http"),
+        choices=("stdio",),
         default="stdio",
         help="Server transport mode (default: stdio)",
     )
-    parser.add_argument("--host", default="127.0.0.1", help="HTTP host")
-    parser.add_argument("--port", type=int, default=8765, help="HTTP port")
-    parser.add_argument("--path", default="/mcp", help="HTTP MCP path")
+
 
 
 def run_server(mcp: FastMCP, args: argparse.Namespace | None = None) -> None:
-    """Run a FastMCP server with experimental session support."""
+    """Run a FastMCP server with draft data-layer session support."""
     if args is None:
         parser = argparse.ArgumentParser()
         add_transport_args(parser)
         args = parser.parse_args()
 
-    if args.transport == "stdio":
-        anyio.run(run_stdio_server, mcp)
-        return
+    if args.transport != "stdio":
+        raise ValueError("Only stdio transport is supported by this draft demo.")
 
-    async def _run_http() -> None:
-        await run_streamable_http_server(
-            mcp,
-            host=args.host,
-            port=args.port,
-            path=args.path,
-        )
-
-    anyio.run(_run_http)
+    anyio.run(run_stdio_server, mcp)

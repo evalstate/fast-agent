@@ -328,10 +328,10 @@ class MCPServerSettings(BaseModel):
     implementation: Implementation | None = None
 
     experimental_session_advertise: bool = False
-    """Advertise experimental session capability in client initialize payload."""
+    """Advertise MCP session test capability in client initialize payload."""
 
     experimental_session_advertise_version: int = 2
-    """Version used when advertising experimental session capability."""
+    """Reserved compatibility knob for session test capability advertisement."""
 
     @field_validator("experimental_session_advertise_version", mode="after")
     @classmethod

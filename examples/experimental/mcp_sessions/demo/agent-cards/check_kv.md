@@ -6,11 +6,11 @@ servers:
   - mcp_sessions_hashcheck
 ---
 
-Per-session hash KV demo.
+Per-session hash set demo.
 
 Try:
 
-- "Store hash key k1 for text hello."
-- "Verify hash key k1 with text hello."
-- "List stored hash keys."
-- "Delete hash key k1."
+- "Store hash for text hello."
+- "Verify hash for text hello."
+- "List stored hashes."
+- "Delete hash for text hello."

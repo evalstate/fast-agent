@@ -22,19 +22,19 @@ class _SessionStub:
         self.client_info = SimpleNamespace(name="fast-agent-mcp", version="1.0.0")
         self.effective_elicitation_mode = "none"
         self.experimental_session_supported = True
-        self.experimental_session_features = ("create", "list")
+        self.experimental_session_features = ("create", "delete")
         self.experimental_session_cookie = {
-            "id": "sess-cookie-1",
-            "data": {"title": "Demo Session"},
+            "sessionId": "sess-cookie-1",
+            "state": "state-1",
         }
-        self.experimental_session_title = "Demo Session"
+        self.experimental_session_title = None
 
 
 class _ServerConnStub:
     def __init__(self, config: MCPServerSettings) -> None:
         self.server_implementation = SimpleNamespace(name="demo-server", version="0.1.0")
         self.server_capabilities = None
-        self.client_capabilities = {"experimental": {"session": {"version": 2}}}
+        self.client_capabilities = {"experimental": {"experimental/sessions": {}}}
         self.session = _SessionStub()
         self._initialized_event = SimpleNamespace(is_set=lambda: True)
         self._error_message = None
@@ -85,11 +85,10 @@ async def test_collect_server_status_includes_experimental_session_cookie() -> N
     status = status_map["demo"]
 
     assert status.experimental_session_supported is True
-    assert status.experimental_session_features == ["create", "list"]
+    assert status.experimental_session_features == ["create", "delete"]
     assert status.session_cookie == {
-        "id": "sess-cookie-1",
-        "data": {"title": "Demo Session"},
+        "sessionId": "sess-cookie-1",
+        "state": "state-1",
     }
-    assert status.session_title == "Demo Session"
+    assert status.session_title is None
     assert status.session_id == "local"
-

@@ -81,7 +81,8 @@ def _progress_trace(message: str) -> None:
 T = TypeVar("T")
 R = TypeVar("R")
 
-SESSION_REQUIRED_ERROR_CODE = -32002
+SESSION_NOT_FOUND_ERROR_CODE = -32043
+LEGACY_SESSION_REQUIRED_ERROR_CODE = -32002
 
 
 class NamespacedTool(BaseModel):
@@ -320,7 +321,7 @@ class MCPAggregator(ContextDependent):
         # Track discovered Skybridge configurations per server
         self._skybridge_configs: dict[str, SkybridgeServerConfig] = {}
 
-        # Focused API for experimental mcp/session cookie controls.
+        # Focused API for experimental data-layer session metadata controls.
         self.experimental_sessions = ExperimentalSessionClient(self)
 
     def _require_context(self) -> "Context":
@@ -1604,7 +1605,11 @@ class MCPAggregator(ContextDependent):
         if error_data is None:
             return False
 
-        return getattr(error_data, "code", None) == SESSION_REQUIRED_ERROR_CODE
+        code = getattr(error_data, "code", None)
+        return code in {
+            SESSION_NOT_FOUND_ERROR_CODE,
+            LEGACY_SESSION_REQUIRED_ERROR_CODE,
+        }
 
     def _maybe_mark_rejected_session_cookie(
         self,
@@ -1671,7 +1676,11 @@ class MCPAggregator(ContextDependent):
             return False
 
         normalized = text.lower()
-        return "session required" in normalized or "send session/create" in normalized
+        return (
+            "session not found" in normalized
+            or "session required" in normalized
+            or "send sessions/create" in normalized
+        )
 
     def _invalidate_session_cookie(
         self,
@@ -1690,7 +1699,7 @@ class MCPAggregator(ContextDependent):
                 clear_cookie(None)
             except Exception:
                 logger.debug(
-                    "Failed clearing rejected experimental session cookie",
+                    "Failed clearing rejected MCP session metadata",
                     server_name=server_name,
                     session_id=session_id,
                     exc_info=True,
@@ -1704,7 +1713,7 @@ class MCPAggregator(ContextDependent):
             )
         except Exception:
             logger.debug(
-                "Failed marking experimental session cookie invalidated",
+                "Failed marking MCP session entry invalidated",
                 server_name=server_name,
                 session_id=session_id,
                 exc_info=True,

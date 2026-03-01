@@ -13,6 +13,68 @@ from fast_agent.utils.async_utils import configure_uvloop, ensure_event_loop
 
 # if the arguments would work with "go" we'll just route to it
 
+_OPTIONS_WITHOUT_VALUES = {
+    "--noenv",
+    "--no-env",
+    "--shell",
+    "--watch",
+    "--reload",
+    "--smart",
+    "-x",
+}
+
+_LONG_OPTIONS_WITH_VALUES = {
+    option
+    for option in GO_SPECIFIC_OPTIONS
+    if option.startswith("--") and option not in _OPTIONS_WITHOUT_VALUES
+}
+
+_SHORT_OPTIONS_WITH_VALUES = {
+    option
+    for option in GO_SPECIFIC_OPTIONS
+    if option.startswith("-") and not option.startswith("--") and option not in _OPTIONS_WITHOUT_VALUES
+}
+
+
+def _first_positional_argument(arguments: list[str]) -> str | None:
+    """Return the first positional token, skipping option values.
+
+    We need this for auto-routing because values of options like
+    ``--env demo`` or ``-m serve`` may equal known command names.
+    """
+    index = 0
+    while index < len(arguments):
+        arg = arguments[index]
+
+        if arg == "--":
+            return arguments[index + 1] if index + 1 < len(arguments) else None
+
+        if arg.startswith("--"):
+            if "=" in arg:
+                index += 1
+                continue
+            if arg in _LONG_OPTIONS_WITH_VALUES:
+                index += 2
+                continue
+            index += 1
+            continue
+
+        if arg.startswith("-") and arg != "-":
+            option = arg[:2]
+            if option in _SHORT_OPTIONS_WITH_VALUES:
+                # Short options with attached value (e.g., ``-mhello``) consume one token.
+                if len(arg) > 2:
+                    index += 1
+                else:
+                    index += 2
+                continue
+            index += 1
+            continue
+
+        return arg
+
+    return None
+
 
 def main():
     """Main entry point that handles auto-routing to 'go' command."""
@@ -43,10 +105,7 @@ def main():
         # Detect explicit subcommands even when global options (like --env)
         # appear before the command name.
         known_commands = set(KNOWN_SUBCOMMANDS) | set(LAZY_SUBCOMMANDS.keys())
-        explicit_subcommand = next(
-            (arg for arg in sys.argv[1:] if arg in known_commands),
-            None,
-        )
+        explicit_subcommand = _first_positional_argument(sys.argv[1:])
 
         # Only auto-route if any known go-specific options are present
         has_go_options = any(

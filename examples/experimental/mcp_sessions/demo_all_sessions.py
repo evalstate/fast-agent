@@ -1,4 +1,4 @@
-"""End-to-end demo of all experimental session servers.
+"""End-to-end demo of all MCP data-layer session servers.
 
 No LLM API key required. Runs each server demo as a separate subprocess
 to avoid Python 3.13/uvloop child-watcher limitations with multiple
@@ -131,17 +131,16 @@ async def demo_notebook() -> None:
 
 async def demo_hashcheck() -> None:
     await _run_demo(
-        "DEMO 3: hashcheck (per-session hash KV store)",
+        "DEMO 3: hashcheck (per-session hash set)",
         "hashcheck",
         "hashcheck_server.py",
         [
-            ("store 'password'='secret123'", "hashcheck_store", {"key": "password", "text": "secret123"}),
-            ("store 'api-key'='sk-abc'", "hashcheck_store", {"key": "api-key", "text": "sk-abc"}),
+            ("store 'secret123'", "hashcheck_store", {"text": "secret123"}),
+            ("store 'sk-abc'", "hashcheck_store", {"text": "sk-abc"}),
             ("list stored hashes", "hashcheck_list", {}),
-            ("verify password (correct)", "hashcheck_verify", {"key": "password", "text": "secret123"}),
-            ("verify password (WRONG)", "hashcheck_verify", {"key": "password", "text": "wrong-password"}),
-            ("verify missing key", "hashcheck_verify", {"key": "nonexistent", "text": "anything"}),
-            ("delete api-key", "hashcheck_delete", {"key": "api-key"}),
+            ("verify secret123 (correct)", "hashcheck_verify", {"text": "secret123"}),
+            ("verify wrong-password (missing)", "hashcheck_verify", {"text": "wrong-password"}),
+            ("delete sk-abc", "hashcheck_delete", {"text": "sk-abc"}),
             ("list after delete", "hashcheck_list", {}),
         ],
     )
@@ -154,6 +153,7 @@ async def demo_selective() -> None:
         "selective_session_server.py",
         [
             ("public echo (no session required)", "public_echo", {"text": "hello from public"}),
+            ("session counter get (with active session)", "session_counter_get", {}),
             ("reset current session", "session_reset", {}),
             (
                 "session counter get (expected error: session missing)",
@@ -167,15 +167,33 @@ async def demo_selective() -> None:
     )
 
 
+async def demo_client_notes() -> None:
+    await _run_demo(
+        "DEMO 5: client-notes (notes encoded in session state)",
+        "client-notes",
+        "client_notes_server.py",
+        [
+            ("add: buy milk", "client_notes_add", {"text": "buy milk"}),
+            ("add: review PR", "client_notes_add", {"text": "review PR"}),
+            ("list client notes", "client_notes_list", {}),
+            ("status", "client_notes_status", {}),
+            ("clear notes", "client_notes_clear", {}),
+            ("list after clear", "client_notes_list", {}),
+        ],
+    )
+
+
 DEMOS = {
     "1": demo_session_required,
     "2": demo_notebook,
     "3": demo_hashcheck,
     "4": demo_selective,
+    "5": demo_client_notes,
     "session-required": demo_session_required,
     "notebook": demo_notebook,
     "hashcheck": demo_hashcheck,
     "selective": demo_selective,
+    "client-notes": demo_client_notes,
 }
 
 
@@ -193,10 +211,12 @@ async def main() -> None:
             "2",
             "3",
             "4",
+            "5",
             "session-required",
             "notebook",
             "hashcheck",
             "selective",
+            "client-notes",
         ],
         help="Which demo to run (default: all — runs sequentially via subprocesses)",
     )
@@ -204,7 +224,7 @@ async def main() -> None:
 
     if args.demo == "all":
         # Run each demo as a separate subprocess to avoid uvloop child-watcher issue
-        for num in ["1", "2", "3", "4"]:
+        for num in ["1", "2", "3", "4", "5"]:
             proc = await asyncio.create_subprocess_exec(
                 sys.executable, str(Path(__file__)), num,
                 stdout=None, stderr=None,  # inherit parent stdio

@@ -217,7 +217,7 @@ def _format_experimental_session_status(status: ServerStatus) -> Text:
     text = Text()
     supported = status.experimental_session_supported
     if supported is True:
-        cookie_id = _cookie_string_field(status.session_cookie, "id")
+        cookie_id = _cookie_string_field(status.session_cookie, "sessionId")
         created = _cookie_timestamp_field(
             status.session_cookie,
             "created",
@@ -1083,7 +1083,7 @@ async def render_mcp_status(agent, indent: str = "") -> None:
         experimental_session_line = Text(indent + "  ")
         experimental_session_text = _format_experimental_session_status(status)
         experimental_session_line.append_text(
-            _build_aligned_field("sess v2", experimental_session_text)
+            _build_aligned_field("sessions", experimental_session_text)
         )
         console.console.print(experimental_session_line)
 

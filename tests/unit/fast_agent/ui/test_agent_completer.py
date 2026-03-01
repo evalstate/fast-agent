@@ -770,6 +770,20 @@ def test_get_completions_for_mcp_session_subcommands() -> None:
     assert "clear" in names
 
 
+def test_get_completions_for_mcp_session_list_without_space_only_completes_subcommand() -> None:
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(_McpAgentStub(["docs", "local"]))),
+    )
+
+    doc = Document("/mcp session list", cursor_position=len("/mcp session list"))
+    completions = list(completer.get_completions(doc, None))
+    names = [completion.text for completion in completions]
+
+    assert names == ["list"]
+
+
 def test_get_completions_for_mcp_session_use_cookie_ids() -> None:
     completer = AgentCompleter(
         agents=["agent1"],

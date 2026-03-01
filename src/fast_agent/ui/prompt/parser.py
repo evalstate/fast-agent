@@ -433,7 +433,7 @@ def parse_special_input(text: str) -> str | CommandPayload:
                             session_id=None,
                             title=None,
                             clear_all=False,
-                            error="Usage: /mcp session list [<server_or_identity>]",
+                            error="Usage: /mcp session list [<server_or_mcp_name>]",
                         )
                     return McpSessionCommand(
                         action="list",
@@ -452,7 +452,7 @@ def parse_special_input(text: str) -> str | CommandPayload:
                             session_id=None,
                             title=None,
                             clear_all=False,
-                            error="Usage: /mcp session jar [<server_or_identity>]",
+                            error="Usage: /mcp session jar [<server_or_mcp_name>]",
                         )
                     return McpSessionCommand(
                         action="jar",
@@ -508,7 +508,7 @@ def parse_special_input(text: str) -> str | CommandPayload:
                             session_id=None,
                             title=None,
                             clear_all=False,
-                            error="Usage: /mcp session use <server_or_identity> <session_id>",
+                            error="Usage: /mcp session use <server_or_mcp_name> <session_id>",
                         )
                     return McpSessionCommand(
                         action="use",
@@ -527,7 +527,7 @@ def parse_special_input(text: str) -> str | CommandPayload:
                             session_id=None,
                             title=None,
                             clear_all=False,
-                            error="Usage: /mcp session use <server_or_identity> <session_id>",
+                            error="Usage: /mcp session use <server_or_mcp_name> <session_id>",
                         )
                     return McpSessionCommand(
                         action="use",

@@ -600,27 +600,18 @@ def command_completions(
     if text_lower.startswith("/mcp session "):
         remainder = text[len("/mcp session ") :]
         parts = remainder.split(maxsplit=1) if remainder else []
+        subcommands = {
+            "list": "List sessions (all connected servers by default) and highlight active",
+            "jar": "Show all stored sessions grouped by target/mcp name",
+            "new": "Create a new MCP session",
+            "use": "Switch active session to an existing session id",
+            "clear": "Clear one session entry or the full local store",
+        }
+        results = list(completer._complete_subcommands(parts, remainder, subcommands))
+        if not parts or (len(parts) == 1 and not remainder.endswith(" ")):
+            return results
 
-        attached: list[str] = []
-        if completer.agent_provider is not None and completer.current_agent:
-            try:
-                agent = completer.agent_provider._agent(completer.current_agent)
-                aggregator = getattr(agent, "aggregator", None)
-                list_attached = getattr(aggregator, "list_attached_servers", None)
-                if callable(list_attached):
-                    attached = list_attached()
-            except Exception:
-                attached = []
-
-        if not parts:
-            subcommands = {
-                "list": "List cookies for a server identity and highlight active cookie",
-                "jar": "Show all stored cookies grouped by server identity",
-                "new": "Create a new experimental session",
-                "use": "Switch active cookie to an existing session id",
-                "clear": "Clear one cookie or the full jar",
-            }
-            return list(completer._complete_subcommands(parts, remainder, subcommands))
+        attached = _attached_mcp_servers_for_completion(completer)
 
         subcmd = parts[0].lower()
         tail = parts[1] if len(parts) > 1 else ""
@@ -681,10 +672,10 @@ def command_completions(
                                 completion_text,
                                 start_position=0,
                                 display=display,
-                                display_meta=f"{state} cookie | {meta_text}",
+                                display_meta=f"{state} session | {meta_text}",
                             )
                         )
-                    return completions
+                return completions
 
             if len(tail_tokens) <= 1 and not tail.endswith(" "):
                 server_completions = [
@@ -727,7 +718,7 @@ def command_completions(
                             completion_text,
                             start_position=-len(partial),
                             display=display,
-                            display_meta=f"{state} cookie | {meta_text}",
+                            display_meta=f"{state} session | {meta_text}",
                         )
                     )
 
@@ -757,7 +748,7 @@ def command_completions(
                     start_position=-len(cookie_partial),
                     display=cookie_id,
                     display_meta=(
-                        f"{'active' if is_active else 'stored'} cookie"
+                        f"{'active' if is_active else 'stored'} session"
                         + (f" · {title}" if isinstance(title, str) and title else "")
                     ),
                 )
@@ -772,7 +763,7 @@ def command_completions(
                     option,
                     start_position=-len(partial),
                     display=option,
-                    display_meta=("clear full jar" if option == "--all" else "attached mcp server"),
+                    display_meta=("clear full session store" if option == "--all" else "attached mcp server"),
                 )
                 for option in options
                 if option.lower().startswith(partial.lower())
@@ -786,7 +777,7 @@ def command_completions(
             "connect": "Connect a new MCP server",
             "disconnect": "Disconnect an attached MCP server",
             "reconnect": "Reconnect an attached MCP server",
-            "session": "Inspect and control experimental session cookies",
+            "session": "Inspect and control MCP data-layer sessions",
         }
         return list(completer._complete_subcommands(parts, remainder, subcommands))
 

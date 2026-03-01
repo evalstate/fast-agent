@@ -1,8 +1,12 @@
-"""Run an end-to-end fast-agent demo against the experimental session server.
+"""Reference client demo for draft MCP data-layer sessions.
 
-This script does not require an LLM API key. It talks to MCP directly via
-``MCPAggregator`` and prints status snapshots using the same renderer used by
-``/mcp`` in interactive mode.
+This demo uses fast-agent's MCPAggregator directly (no LLM key required) and
+shows:
+
+1. Automatic `sessions/create` after initialize.
+2. Session metadata echo/update on tool calls.
+3. Explicit `sessions/delete`.
+4. Session-not-found behavior after deletion.
 """
 
 from __future__ import annotations
@@ -19,6 +23,7 @@ from fast_agent.config import MCPServerSettings
 from fast_agent.context import Context
 from fast_agent.core.logging.logger import LoggingConfig
 from fast_agent.core.logging.transport import AsyncEventBus
+from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 from fast_agent.mcp.mcp_aggregator import MCPAggregator
 from fast_agent.mcp_server_registry import ServerRegistry
 from fast_agent.ui.mcp_display import render_mcp_status
@@ -37,6 +42,7 @@ class _StatusAdapter:
         return await self._aggregator.collect_server_status()
 
 
+
 def _extract_text(result: CallToolResult) -> str:
     parts = [
         item.text
@@ -50,9 +56,6 @@ async def _print_status(aggregator: MCPAggregator, label: str) -> None:
     print(f"\n=== {label} ===")
     await render_mcp_status(_StatusAdapter(aggregator), indent="  ")
 
-
-def _server_settings() -> MCPServerSettings:
-    return _server_settings_stdio(advertise_session_capability=False)
 
 
 def _server_settings_stdio(*, advertise_session_capability: bool) -> MCPServerSettings:
@@ -68,49 +71,36 @@ def _server_settings_stdio(*, advertise_session_capability: bool) -> MCPServerSe
     )
 
 
-def _server_settings_http(url: str, *, advertise_session_capability: bool) -> MCPServerSettings:
-    return MCPServerSettings(
-        name=SERVER_NAME,
-        transport="http",
-        url=url,
-        experimental_session_advertise=advertise_session_capability,
-    )
-
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="fast-agent MCP experimental sessions demo")
-    parser.add_argument(
-        "--transport",
-        choices=("stdio", "http"),
-        default="stdio",
-        help="MCP server transport used by the demo client",
-    )
-    parser.add_argument(
-        "--url",
-        default="http://127.0.0.1:8765/mcp",
-        help="Streamable HTTP server URL used when --transport=http",
-    )
+    parser = argparse.ArgumentParser(description="fast-agent MCP draft sessions demo")
     parser.add_argument(
         "--advertise-session-capability",
         action="store_true",
         help=(
-            "Advertise experimental session capability from the client in initialize, "
-            "so you can compare server-first vs client-first style negotiation."
+            "Advertise client test capability (experimental/sessions) during initialize."
         ),
     )
     return parser.parse_args()
 
 
+async def _live_session(aggregator: MCPAggregator, server_name: str) -> MCPAgentClientSession:
+    manager = aggregator._require_connection_manager()  # noqa: SLF001
+    server_conn = await manager.get_server(
+        server_name,
+        client_session_factory=aggregator._create_session_factory(server_name),  # noqa: SLF001
+    )
+    session = server_conn.session
+    if isinstance(session, MCPAgentClientSession):
+        return session
+    raise RuntimeError(f"Server '{server_name}' did not return MCPAgentClientSession")
+
+
 async def main() -> None:
     args = _parse_args()
 
-    server_settings = (
-        _server_settings_stdio(advertise_session_capability=args.advertise_session_capability)
-        if args.transport == "stdio"
-        else _server_settings_http(
-            args.url,
-            advertise_session_capability=args.advertise_session_capability,
-        )
+    server_settings = _server_settings_stdio(
+        advertise_session_capability=args.advertise_session_capability
     )
 
     registry = ServerRegistry()
@@ -126,25 +116,38 @@ async def main() -> None:
 
     try:
         async with aggregator:
-            await _print_status(aggregator, "after initialize")
+            await _print_status(aggregator, "after initialize (auto-create)")
 
-            steps = [
-                ("status", "first turn"),
-                ("status", "second turn"),
-                ("revoke", "clear cookie"),
-                ("status", "after revoke"),
-                ("new", "rotate session"),
-            ]
-
-            for action, note in steps:
+            for note in ("first turn", "second turn"):
                 result = await aggregator.call_tool(
                     "session_probe",
-                    {"action": action, "note": note},
+                    {"note": note},
                 )
-                print(f"\n[action={action}] {_extract_text(result)}")
-                await _print_status(aggregator, f"post {action}")
+                print(f"\n[probe note={note!r}] {_extract_text(result)}")
+                await _print_status(aggregator, f"post probe ({note})")
+
+            session = await _live_session(aggregator, SERVER_NAME)
+            deleted = await session.experimental_session_delete()
+            print(f"\n[sessions/delete] deleted={deleted}")
+            await _print_status(aggregator, "after sessions/delete")
+
+            post_delete = await aggregator.call_tool(
+                "session_probe",
+                {"note": "after-delete"},
+            )
+            if post_delete.isError:
+                print(f"\n[expected error after delete] {_extract_text(post_delete)}")
+
+            created = await session.experimental_session_create()
+            print(f"\n[sessions/create] {created}")
+
+            result = await aggregator.call_tool(
+                "session_probe",
+                {"note": "after-recreate"},
+            )
+            print(f"\n[probe after recreate] {_extract_text(result)}")
+            await _print_status(aggregator, "final")
     finally:
-        # Allow any in-flight logging emissions scheduled by teardown paths to drain.
         await asyncio.sleep(0.05)
         await LoggingConfig.shutdown()
         await AsyncEventBus.get().stop()

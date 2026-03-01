@@ -341,7 +341,7 @@ class SlashCommandHandler:
             ),
             "mcp": AvailableCommand(
                 name="mcp",
-                description="Manage runtime MCP servers and experimental sessions",
+                description="Manage runtime MCP servers and MCP data-layer sessions",
                 input=AvailableCommandInput(
                     root=UnstructuredCommandInput(
                         hint=(

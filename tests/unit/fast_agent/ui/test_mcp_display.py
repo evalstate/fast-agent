@@ -34,9 +34,9 @@ def test_experimental_session_status_shows_created_to_expiry_range() -> None:
         server_name="test",
         experimental_session_supported=True,
         session_cookie={
-            "id": "sess-cookie-id-1234567890abcdefghijklmnop",
+            "sessionId": "sess-cookie-id-1234567890abcdefghijklmnop",
             "created": created_iso,
-            "expiry": expiry_iso,
+            "expiresAt": expiry_iso,
         },
     )
 
@@ -51,3 +51,18 @@ def test_experimental_session_status_shows_created_to_expiry_range() -> None:
     assert expected_expiry in rendered.plain
     assert "T12:34:56" not in rendered.plain
     assert "..." in rendered.plain
+
+
+def test_experimental_session_status_uses_session_id_field() -> None:
+    status = ServerStatus(
+        server_name="test",
+        experimental_session_supported=True,
+        session_cookie={
+            "sessionId": "sess-new-format-1234567890",
+            "expiresAt": "2026-02-24T12:34:56.000000+00:00",
+        },
+    )
+
+    rendered = _format_experimental_session_status(status)
+
+    assert "sess-new-format" in rendered.plain
