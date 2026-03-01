@@ -9,6 +9,7 @@ from .formatting import (
     format_session_entries,
 )
 from .session_manager import (
+    ResumeSessionAgentsResult,
     Session,
     SessionInfo,
     SessionManager,
@@ -22,6 +23,7 @@ from .session_manager import (
 )
 
 __all__ = [
+    "ResumeSessionAgentsResult",
     "Session",
     "SessionInfo",
     "SessionManager",

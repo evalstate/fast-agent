@@ -1762,7 +1762,9 @@ class AgentACPServer(ACPAgent):
                 },
             )
 
-        session, loaded, missing_agents = result
+        session = result.session
+        loaded = result.loaded
+        missing_agents = result.missing_agents
         if missing_agents:
             logger.warning(
                 "Missing agents while loading session",

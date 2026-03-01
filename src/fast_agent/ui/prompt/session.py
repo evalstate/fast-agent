@@ -305,12 +305,29 @@ help_message_shown: bool = False
 _agent_info_shown = set()
 
 # One-off notices to render at the top of the prompt UI
-_startup_notices: list[str] = []
+_startup_notices: list[object] = []
 
 
-def queue_startup_notice(notice: str) -> None:
+def queue_startup_notice(notice: object) -> None:
     if notice:
         _startup_notices.append(notice)
+
+
+def queue_startup_markdown_notice(
+    text: str,
+    *,
+    title: str | None = None,
+    style: str | None = None,
+) -> None:
+    """Queue a markdown notice for display at next interactive prompt render."""
+    if not text:
+        return
+
+    from rich.markdown import Markdown
+
+    if title:
+        queue_startup_notice(title)
+    queue_startup_notice(Markdown(text, style=style or ""))
 
 
 async def show_mcp_status(agent_name: str, agent_provider: "AgentApp | None") -> None:
