@@ -27,6 +27,20 @@ def _parse_mcp_server_name_argument(
     return None
 
 
+def _mcp_usage_text(heading: str) -> str:
+    return (
+        f"{heading}\n\n"
+        "Usage:\n"
+        "- /mcp list\n"
+        "- /mcp connect <target> [--name <server>] [--auth <token>] [--timeout <seconds>] "
+        "[--oauth|--no-oauth] [--reconnect|--no-reconnect]\n"
+        "- /mcp session [list [server]|jar [server]|new [server] [--title <title>]|"
+        "use <server> <session_id>|clear [server|--all]]\n"
+        "- /mcp disconnect <server_name>\n"
+        "- /mcp reconnect <server_name>"
+    )
+
+
 async def _refresh_acp_instruction_cache(handler: "SlashCommandHandler") -> None:
     if not handler._acp_context:
         return
@@ -52,6 +66,9 @@ async def handle_mcp(handler: "SlashCommandHandler", arguments: str | None = Non
     if not tokens:
         tokens = ["list"]
     subcmd = tokens[0].lower()
+
+    if subcmd in {"help", "--help", "-h"}:
+        return _mcp_usage_text(heading)
 
     ctx = handler._build_command_context()
     io = cast("ACPCommandIO", ctx.io)
@@ -369,13 +386,4 @@ async def handle_mcp(handler: "SlashCommandHandler", arguments: str | None = Non
         await _refresh_acp_instruction_cache(handler)
         return handler._format_outcome_as_markdown(outcome, heading, io=io)
 
-    return (
-        f"{heading}\n\n"
-        "Usage:\n"
-        "- /mcp list\n"
-        "- /mcp connect <target> [--name <server>] [--auth <token>] [--timeout <seconds>] "
-        "[--oauth|--no-oauth] [--reconnect|--no-reconnect]\n"
-        "- /mcp session [list [server]|jar [server]|new [server] [--title <title>]|use <server> <session_id>|clear [server|--all]]\n"
-        "- /mcp disconnect <server_name>\n"
-        "- /mcp reconnect <server_name>"
-    )
+    return _mcp_usage_text(heading)

@@ -35,6 +35,7 @@ from fast_agent.acp.slash.command_catalog import apply_dynamic_session_hints
 from fast_agent.acp.slash.handlers import cards as cards_slash_handlers
 from fast_agent.acp.slash.handlers import cards_manager as cards_manager_slash_handlers
 from fast_agent.acp.slash.handlers import clear as clear_slash_handlers
+from fast_agent.acp.slash.handlers import commands as commands_slash_handlers
 from fast_agent.acp.slash.handlers import history as history_slash_handlers
 from fast_agent.acp.slash.handlers import mcp as mcp_slash_handlers
 from fast_agent.acp.slash.handlers import model as model_slash_handlers
@@ -229,9 +230,6 @@ class SlashCommandHandler:
         self._noenv = noenv
         self._acp_context: ACPContext | None = None
 
-        skills_action_hint = "|".join(
-            action for action in command_action_names("skills") if action != "list"
-        ) or "add|remove|update|registry"
         cards_action_hint = "|".join(
             action for action in command_action_names("cards") if action != "list"
         ) or "add|remove|update|publish|registry"
@@ -252,13 +250,22 @@ class SlashCommandHandler:
                 description="List available tools",
                 input=None,
             ),
+            "commands": AvailableCommand(
+                name="commands",
+                description="Discover slash commands and usage",
+                input=AvailableCommandInput(
+                    root=UnstructuredCommandInput(hint="[<command>] [--json]")
+                ),
+            ),
             "skills": AvailableCommand(
                 name="skills",
-                description="List or manage local skills (add/remove/update/registry)",
+                description="List, browse, search, or manage local skills",
                 input=AvailableCommandInput(
                     root=UnstructuredCommandInput(
                         hint=(
-                            f"[{skills_action_hint}] [name|number|all|url] [--force] [--yes]"
+                            "[list|available|search <query>|add <name|number>|"
+                            "remove <name|number>|update <name|number|all> [--force] [--yes]|"
+                            "registry [number|url|path]|help]"
                         )
                     )
                 ),
@@ -691,6 +698,9 @@ class SlashCommandHandler:
 
     async def _handle_tools(self) -> str:
         return await tools_slash_handlers.handle_tools(self)
+
+    async def _handle_commands(self, arguments: str | None = None) -> str:
+        return await commands_slash_handlers.handle_commands(self, arguments)
 
     async def _handle_skills(self, arguments: str | None = None) -> str:
         return await skills_slash_handlers.handle_skills(self, arguments)

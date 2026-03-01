@@ -66,19 +66,19 @@ async def test_smart_resource_tools_with_runtime_mcp_attach(fast_agent) -> None:
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_smart_command_tool_operations(fast_agent) -> None:
+async def test_smart_slash_command_tool_operations(fast_agent) -> None:
     fast = fast_agent
 
     @fast.smart(name="smart_ops", model="passthrough", skills=[])
     async def smart_ops():
         async with fast.run() as app:
-            skills_result = await app.smart_ops.smart_command(operation="skills.list")
+            skills_result = await app.smart_ops.slash_command("/skills list")
             assert "# skills.list" in skills_result
 
-            cards_result = await app.smart_ops.smart_command(operation="cards.list")
+            cards_result = await app.smart_ops.slash_command("/cards list")
             assert "# cards.list" in cards_result
 
-            models_result = await app.smart_ops.smart_command(operation="models.doctor")
+            models_result = await app.smart_ops.slash_command("/models doctor")
             assert "# models.doctor" in models_result
 
     await smart_ops()

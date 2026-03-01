@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from rich.text import Text
 
+from fast_agent.commands.command_catalog import suggest_command_action
 from fast_agent.commands.results import CommandOutcome
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.model_resolution import resolve_model_alias
@@ -41,6 +42,7 @@ _ALIASES_USAGE = (
     "[list|set <token> <model-spec> [--target env|project] [--dry-run]|"
     "unset <token> [--target env|project] [--dry-run]]"
 )
+_MODELS_USAGE = "Usage: /models [doctor|aliases|catalog|help] [args]"
 
 
 @dataclass(frozen=True)
@@ -105,6 +107,11 @@ def _a3_error_block(title: str, message: str) -> Text:
     _append_line(content)
     _append_line(content, _a3_bullet(message, style="red"))
     return content
+
+
+def _is_help_flag(value: str | None) -> bool:
+    token = (value or "").strip().lower()
+    return token in {"help", "--help", "-h"}
 
 
 def _all_agent_names(ctx: "CommandContext") -> list[str]:
@@ -459,6 +466,13 @@ async def handle_models_command(
 ) -> CommandOutcome:
     del agent_name
 
+    if _is_help_flag(action) or _is_help_flag(argument):
+        outcome = CommandOutcome()
+        outcome.add_message(_a3_header("models help"), right_info="models")
+        outcome.add_message(_MODELS_USAGE, right_info="models")
+        outcome.add_message("Examples: /models doctor, /models aliases list, /models catalog openai", right_info="models")
+        return outcome
+
     normalized_action = (action or "doctor").strip().lower()
     if normalized_action in {"", "list"}:
         normalized_action = "doctor"
@@ -469,12 +483,24 @@ async def handle_models_command(
         return await _handle_models_aliases(ctx, argument=argument)
     if normalized_action == "catalog":
         return await _handle_models_catalog(ctx, argument=argument)
+    if normalized_action == "help":
+        outcome = CommandOutcome()
+        outcome.add_message(_MODELS_USAGE, right_info="models")
+        return outcome
 
     outcome = CommandOutcome()
+    suggestions = suggest_command_action("models", normalized_action)
+    suggestion_text = ""
+    if suggestions:
+        suggestion_text = " Did you mean: " + ", ".join(f"`{name}`" for name in suggestions)
     outcome.add_message(
         _a3_error_block(
             "models",
-            "Unknown /models action. Use /models, /models doctor, /models aliases, or /models catalog <provider> [--all].",
+            (
+                "Unknown /models action. "
+                "Use /models, /models doctor, /models aliases, "
+                f"/models catalog <provider> [--all], or /models help.{suggestion_text}"
+            ),
         ),
         channel="error",
         right_info="models",

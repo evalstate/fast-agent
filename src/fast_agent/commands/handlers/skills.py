@@ -127,9 +127,11 @@ def _format_local_skills_by_directory(manifests_by_dir: dict[Path, list[SkillMan
             _append_manifest_entry(content, manifest, skill_index)
 
     if total_skills == 0:
-        content.append_text(Text("Use /skills add to install a skill", style="dim"))
+        content.append_text(Text("Browse marketplace skills with /skills available", style="dim"))
     else:
-        content.append_text(Text("Use /skills add to install a skill", style="dim"))
+        content.append_text(Text("Browse marketplace skills with /skills available", style="dim"))
+        content.append("\n")
+        content.append_text(Text("Search marketplace skills with /skills search <query>", style="dim"))
         content.append("\n")
         content.append_text(Text("Remove a skill with /skills remove <number|name>", style="dim"))
 
@@ -197,6 +199,57 @@ def _format_marketplace_skills(marketplace: Sequence[object]) -> Text:
         content.append("\n")
 
     return content
+
+
+def _skills_usage_lines() -> list[str]:
+    return [
+        "Usage: /skills [list|available|search|add|remove|update|registry|help] [args]",
+        "",
+        "Examples:",
+        "- /skills available",
+        "- /skills search docker",
+        "- /skills add <number|name>",
+        "- /skills registry",
+    ]
+
+
+def _is_help_flag(value: str | None) -> bool:
+    token = (value or "").strip().lower()
+    return token in {"help", "--help", "-h"}
+
+
+def _marketplace_search_tokens(query: str) -> list[str]:
+    try:
+        tokens = shlex.split(query)
+    except ValueError:
+        tokens = query.split()
+    return [token.lower() for token in tokens if token.strip()]
+
+
+def _filter_marketplace_skills(marketplace: Sequence[object], query: str) -> list[object]:
+    tokens = _marketplace_search_tokens(query)
+    if not tokens:
+        return list(marketplace)
+
+    filtered: list[object] = []
+    for entry in marketplace:
+        haystack = " ".join(
+            str(getattr(entry, attr, ""))
+            for attr in ("name", "description", "bundle_name", "bundle_description")
+        ).lower()
+        if all(token in haystack for token in tokens):
+            filtered.append(entry)
+    return filtered
+
+
+def _marketplace_repository_hint(marketplace: Sequence[object]) -> str | None:
+    if not marketplace:
+        return None
+    repo_url = getattr(marketplace[0], "repo_url", None)
+    if not repo_url:
+        return None
+    repo_ref = getattr(marketplace[0], "repo_ref", None)
+    return f"{repo_url}@{repo_ref}" if repo_ref else str(repo_url)
 
 
 def _format_install_result(skill_name: str, install_path: Path) -> Text:
@@ -489,6 +542,83 @@ async def handle_set_skills_registry(
     return outcome
 
 
+def handle_skills_help(*, agent_name: str) -> CommandOutcome:
+    outcome = CommandOutcome()
+    outcome.add_message(
+        "\n".join(_skills_usage_lines()),
+        right_info="skills",
+        agent_name=agent_name,
+    )
+    return outcome
+
+
+async def handle_list_marketplace_skills(
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+    query: str | None = None,
+) -> CommandOutcome:
+    outcome = CommandOutcome()
+
+    marketplace_url = get_marketplace_url(ctx.resolve_settings())
+    try:
+        marketplace = await fetch_marketplace_skills(marketplace_url)
+    except Exception as exc:  # noqa: BLE001
+        outcome.add_message(f"Failed to load marketplace: {exc}", channel="error")
+        return outcome
+
+    if not marketplace:
+        outcome.add_message("No skills found in the marketplace.", channel="warning")
+        return outcome
+
+    selected_marketplace: Sequence[object] = marketplace
+    if query and query.strip():
+        selected_marketplace = _filter_marketplace_skills(marketplace, query)
+
+    content = Text()
+    heading = "Marketplace skills:"
+    if query and query.strip():
+        heading = f"Marketplace skills (search: {query.strip()}):"
+    _append_heading(content, heading)
+
+    repo_hint = _marketplace_repository_hint(marketplace)
+    if repo_hint:
+        content.append_text(
+            Text(
+                f"Repository: {format_marketplace_display_url(repo_hint)}",
+                style="dim",
+            )
+        )
+        content.append("\n\n")
+
+    if not selected_marketplace:
+        content.append_text(Text("No matching skills found.", style="yellow"))
+        outcome.add_message(content, right_info="skills", agent_name=agent_name)
+        outcome.add_message(
+            "Try `/skills available` to browse all skills.",
+            channel="info",
+            right_info="skills",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    content.append_text(_format_marketplace_skills(selected_marketplace))
+    outcome.add_message(content, right_info="skills", agent_name=agent_name)
+    outcome.add_message(
+        "Install with `/skills add <number|name>`.",
+        channel="info",
+        right_info="skills",
+        agent_name=agent_name,
+    )
+    outcome.add_message(
+        "Search with `/skills search <query>`.",
+        channel="info",
+        right_info="skills",
+        agent_name=agent_name,
+    )
+    return outcome
+
+
 async def handle_add_skill(
     ctx: CommandContext,
     *,
@@ -514,12 +644,7 @@ async def handle_add_skill(
     if not selection:
         content = Text()
         _append_heading(content, "Marketplace skills:")
-        repo_hint = None
-        if marketplace:
-            repo_url = getattr(marketplace[0], "repo_url", None)
-            if repo_url:
-                repo_ref = getattr(marketplace[0], "repo_ref", None)
-                repo_hint = f"{repo_url}@{repo_ref}" if repo_ref else repo_url
+        repo_hint = _marketplace_repository_hint(marketplace)
         if repo_hint:
             content.append_text(
                 Text(
@@ -534,6 +659,18 @@ async def handle_add_skill(
             outcome.add_message(content, right_info="skills", agent_name=agent_name)
             outcome.add_message(
                 "Install with `/skills add <number|name>`.",
+                channel="info",
+                right_info="skills",
+                agent_name=agent_name,
+            )
+            outcome.add_message(
+                "Browse marketplace with `/skills available`.",
+                channel="info",
+                right_info="skills",
+                agent_name=agent_name,
+            )
+            outcome.add_message(
+                "Search marketplace with `/skills search <query>`.",
                 channel="info",
                 right_info="skills",
                 agent_name=agent_name,
@@ -559,6 +696,12 @@ async def handle_add_skill(
     skill = select_skill_by_name_or_index(marketplace, selection)
     if not skill:
         outcome.add_message(f"Skill not found: {selection}", channel="error")
+        outcome.add_message(
+            "Run `/skills available` to browse skills or `/skills search <query>` to filter.",
+            channel="info",
+            right_info="skills",
+            agent_name=agent_name,
+        )
         return outcome
 
     try:
@@ -711,11 +854,31 @@ async def handle_skills_command(
 ) -> CommandOutcome:
     normalized = str(action or "list").lower()
 
+    if _is_help_flag(action) or _is_help_flag(argument):
+        return handle_skills_help(agent_name=agent_name)
+
+    if normalized in {"help"}:
+        return handle_skills_help(agent_name=agent_name)
+
     if normalized in {"list", ""}:
         return await handle_list_skills(ctx, agent_name=agent_name)
+    if normalized in {"available", "marketplace", "browse"}:
+        return await handle_list_marketplace_skills(ctx, agent_name=agent_name, query=None)
+    if normalized in {"search", "find"}:
+        query = argument.strip() if argument else ""
+        if not query:
+            outcome = CommandOutcome()
+            outcome.add_message(
+                "Usage: /skills search <query>",
+                channel="warning",
+                right_info="skills",
+                agent_name=agent_name,
+            )
+            return outcome
+        return await handle_list_marketplace_skills(ctx, agent_name=agent_name, query=query)
     if normalized in {"add", "install"}:
         return await handle_add_skill(ctx, agent_name=agent_name, argument=argument)
-    if normalized in {"registry", "marketplace", "source"}:
+    if normalized in {"registry", "source"}:
         return await handle_set_skills_registry(ctx, argument=argument)
     if normalized in {"remove", "rm", "delete", "uninstall"}:
         return await handle_remove_skill(ctx, agent_name=agent_name, argument=argument)
@@ -724,7 +887,18 @@ async def handle_skills_command(
 
     outcome = CommandOutcome()
     outcome.add_message(
-        f"Unknown /skills action: {normalized}. Use list/add/remove/update/registry.",
+        (
+            f"Unknown /skills action: {normalized}. "
+            "Use list/available/search/add/remove/update/registry/help."
+        ),
         channel="warning",
+        right_info="skills",
+        agent_name=agent_name,
+    )
+    outcome.add_message(
+        "\n".join(_skills_usage_lines()),
+        channel="info",
+        right_info="skills",
+        agent_name=agent_name,
     )
     return outcome

@@ -110,11 +110,15 @@ def render_skills_by_directory(
             )
 
     if total_skills == 0:
-        lines.append("Use `/skills add` to list available skills to install.")
+        lines.append("Use `/skills available` to browse marketplace skills.")
+        lines.append("")
+        lines.append("Search with `/skills search <query>`.")
     else:
         lines.append("Remove a skill with `/skills remove <number|name>`.")
         lines.append("")
-        lines.append("Use `/skills add` to list available skills to install")
+        lines.append("Use `/skills available` to browse marketplace skills.")
+        lines.append("")
+        lines.append("Search with `/skills search <query>`.")
         lines.append("")
         lines.append("Change skills registry with `/skills registry <number|url|path>`.")
 
@@ -206,6 +210,7 @@ def render_marketplace_skills(
         )
 
     lines.append("Install with `/skills add <number|name>`. ")
+    lines.append("Search with `/skills search <query>`. ")
     lines.append("Change registry with `/skills registry`.")
 
     return "\n".join(lines)

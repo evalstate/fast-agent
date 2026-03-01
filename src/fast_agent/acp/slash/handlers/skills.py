@@ -39,6 +39,90 @@ if TYPE_CHECKING:
     from fast_agent.acp.command_io import ACPCommandIO
     from fast_agent.acp.slash_commands import SlashCommandHandler
     from fast_agent.interfaces import AgentProtocol
+    from fast_agent.skills.manager import MarketplaceSkill
+
+
+def _skills_usage_text() -> str:
+    return (
+        "Usage: /skills [list|available|search|add|remove|update|registry|help] [args]\n\n"
+        "Examples:\n"
+        "- /skills available\n"
+        "- /skills search docker\n"
+        "- /skills add <number|name>\n"
+        "- /skills registry"
+    )
+
+
+def _marketplace_search_tokens(query: str) -> list[str]:
+    return [token.lower() for token in query.split() if token.strip()]
+
+
+def _filter_marketplace(marketplace: list[MarketplaceSkill], query: str) -> list[MarketplaceSkill]:
+    tokens = _marketplace_search_tokens(query)
+    if not tokens:
+        return marketplace
+
+    filtered: list[MarketplaceSkill] = []
+    for entry in marketplace:
+        haystack = " ".join(
+            str(getattr(entry, attr, ""))
+            for attr in ("name", "description", "bundle_name", "bundle_description")
+        ).lower()
+        if all(token in haystack for token in tokens):
+            filtered.append(entry)
+    return filtered
+
+
+async def handle_skills_available(
+    handler: "SlashCommandHandler",
+    *,
+    query: str | None = None,
+) -> str:
+    heading = "skills available" if not query else "skills search"
+    marketplace_url = get_marketplace_url(get_settings())
+    display_url = format_marketplace_display_url(marketplace_url)
+    try:
+        marketplace = await fetch_marketplace_skills(marketplace_url)
+    except Exception as exc:  # noqa: BLE001
+        return (
+            f"# {heading}\n\n"
+            f"Failed to load marketplace: {exc}\n\n"
+            f"Repository: `{display_url}`"
+        )
+
+    if not marketplace:
+        return f"# {heading}\n\nNo skills found in the marketplace."
+
+    selected_marketplace: list[MarketplaceSkill] = list(marketplace)
+    if query and query.strip():
+        selected_marketplace = _filter_marketplace(list(marketplace), query)
+        if not selected_marketplace:
+            return (
+                "# skills search\n\n"
+                f"No skills matched query `{query.strip()}`.\n\n"
+                "Try `/skills available` to browse all skills."
+            )
+
+    repository = display_url
+    repo_url = getattr(marketplace[0], "repo_url", None)
+    if repo_url:
+        repo_ref = getattr(marketplace[0], "repo_ref", None)
+        repository = f"{repo_url}@{repo_ref}" if repo_ref else repo_url
+
+    rendered = render_marketplace_skills(
+        selected_marketplace,
+        heading=heading,
+        repository=repository,
+    )
+    if query and query.strip():
+        rendered = "\n".join(
+            [
+                rendered,
+                "",
+                "Install filtered results with `/skills add <name>`. ",
+            ]
+        )
+    return rendered
 
 
 async def handle_skills(handler: "SlashCommandHandler", arguments: str | None = None) -> str:
@@ -46,11 +130,23 @@ async def handle_skills(handler: "SlashCommandHandler", arguments: str | None = 
     action = tokens[0].lower() if tokens else "list"
     remainder = tokens[1] if len(tokens) > 1 else ""
 
+    if action in {"help", "--help", "-h"}:
+        return _skills_usage_text()
+
     if action in {"list", ""}:
+        if remainder.strip().lower() in {"help", "--help", "-h"}:
+            return _skills_usage_text()
         return handle_skills_list(handler)
+    if action in {"available", "browse", "marketplace"}:
+        return await handle_skills_available(handler)
+    if action in {"search", "find"}:
+        query = remainder.strip()
+        if not query:
+            return "# skills search\n\nUsage: /skills search <query>"
+        return await handle_skills_available(handler, query=query)
     if action in {"add", "install"}:
         return await handle_skills_add(handler, remainder)
-    if action in {"registry", "marketplace", "source"}:
+    if action in {"registry", "source"}:
         return await handle_skills_registry(handler, remainder)
     if action in {"remove", "rm", "delete", "uninstall"}:
         return await handle_skills_remove(handler, remainder)
@@ -59,7 +155,8 @@ async def handle_skills(handler: "SlashCommandHandler", arguments: str | None = 
 
     return (
         "Unknown /skills action. "
-        "Use `/skills`, `/skills add`, `/skills remove`, or `/skills update`."
+        "Use `/skills list`, `/skills available`, `/skills search`, `/skills add`, "
+        "`/skills remove`, `/skills update`, or `/skills registry`."
     )
 
 

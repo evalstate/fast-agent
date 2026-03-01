@@ -6,7 +6,6 @@ import pytest
 
 import fast_agent.agents.smart_agent as smart_agent
 from fast_agent.agents.smart_agent import _enable_smart_tooling
-from fast_agent.commands.command_catalog import tool_exposed_operations
 
 
 class _SmartToolHarness:
@@ -24,7 +23,11 @@ class _SmartToolHarness:
         del args, kwargs
         return ""
 
-    async def smart_command(self, *args, **kwargs):
+    async def create_agent_card(self, *args, **kwargs):
+        del args, kwargs
+        return ""
+
+    async def slash_command(self, *args, **kwargs):
         del args, kwargs
         return ""
 
@@ -37,6 +40,10 @@ class _SmartToolHarness:
         return ""
 
     async def resource_read(self, *args, **kwargs):
+        del args, kwargs
+        return ""
+
+    async def attach_resource(self, *args, **kwargs):
         del args, kwargs
         return ""
 
@@ -64,20 +71,19 @@ def test_enable_smart_tooling_registers_resource_tools() -> None:
 
     names = {getattr(tool, "name", "") for tool in harness.tools}
     assert "smart" in names
-    assert "smart_command" in names
+    assert "slash_command" in names
     assert "validate" in names
+    assert "create_agent_card" in names
     assert "mcp_connect" in names
     assert "list_resources" in names
     assert "get_resource" in names
-    assert "smart_with_resource" in names
-    assert "smart_complete_resource_argument" in names
+    assert "attach_resource" in names
 
-    smart_command_tool = next(
-        tool for tool in harness.tools if getattr(tool, "name", "") == "smart_command"
-    )
-    description = str(getattr(smart_command_tool, "description", ""))
-    for operation in tool_exposed_operations():
-        assert operation in description
+    slash_tool = next(tool for tool in harness.tools if getattr(tool, "name", "") == "slash_command")
+    description = str(getattr(slash_tool, "description", ""))
+    assert "/skills" in description
+    assert "/cards" in description
+    assert "/models" in description
 
 
 @pytest.mark.asyncio

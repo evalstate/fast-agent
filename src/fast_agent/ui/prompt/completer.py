@@ -77,7 +77,11 @@ class AgentCompleter(Completer):
                 "Inspect model onboarding "
                 "(/models, /models doctor, /models aliases [list|set|unset], /models catalog <provider>)"
             ),
-            "skills": "Manage skills (/skills, /skills add, /skills remove, /skills update, /skills registry)",
+            "skills": (
+                "Manage skills "
+                "(/skills, /skills available, /skills search, /skills add, "
+                "/skills remove, /skills update, /skills registry, /skills help)"
+            ),
             "cards": (
                 "Manage card packs "
                 "(/cards, /cards add, /cards remove, /cards update, /cards publish, /cards registry)"

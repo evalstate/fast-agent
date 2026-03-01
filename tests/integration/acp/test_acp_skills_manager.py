@@ -197,6 +197,82 @@ skills:
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_skills_available_lists_marketplace(tmp_path: Path) -> None:
+    repo_root = tmp_path / "repo"
+    skill_dir = repo_root / "skills" / "test-skill"
+    skill_dir.mkdir(parents=True)
+
+    skill_manifest = skill_dir / "SKILL.md"
+    skill_manifest.write_text(
+        """---
+name: test-skill
+description: MAGIC_SKILL
+---
+
+Test skill body.
+""",
+        encoding="utf-8",
+    )
+
+    marketplace_path = tmp_path / "marketplace.json"
+    marketplace_payload = {
+        "plugins": [
+            {
+                "name": "test-skill",
+                "description": "MAGIC_SKILL",
+                "repo_url": repo_root.as_posix(),
+                "repo_path": "skills/test-skill",
+            }
+        ]
+    }
+    marketplace_path.write_text(
+        json.dumps(marketplace_payload),
+        encoding="utf-8",
+    )
+
+    config_path = tmp_path / "fastagent.config.yaml"
+    config_path.write_text(
+        """default_model: passthrough
+skills:
+  marketplace_url: '{marketplace_url}'
+""".format(marketplace_url=marketplace_path.as_posix()),
+        encoding="utf-8",
+    )
+
+    get_settings(config_path=str(config_path))
+    try:
+        agent = SkillAgent(name="test-agent")
+        instance = StubAgentInstance(agents={"test-agent": agent})
+        handler = _handler(instance, "test-agent")
+
+        response = await handler.execute_command("skills", "available")
+        assert "test-skill" in response
+        assert "MAGIC_SKILL" in response
+        assert repo_root.as_posix() in response
+    finally:
+        get_settings(config_path=str(Path(__file__).parent / "fastagent.config.yaml"))
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_skills_help_shows_usage(tmp_path: Path) -> None:
+    config_path = tmp_path / "fastagent.config.yaml"
+    config_path.write_text("default_model: passthrough\n", encoding="utf-8")
+
+    get_settings(config_path=str(config_path))
+    try:
+        agent = SkillAgent(name="test-agent")
+        instance = StubAgentInstance(agents={"test-agent": agent})
+        handler = _handler(instance, "test-agent")
+
+        response = await handler.execute_command("skills", "--help")
+        assert "Usage: /skills [list|available|search|add|remove|update|registry|help]" in response
+    finally:
+        get_settings(config_path=str(Path(__file__).parent / "fastagent.config.yaml"))
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_skills_remove_lists_local_skills(tmp_path: Path) -> None:
     manager_dir = tmp_path / "managed-skills"
     skill_dir = manager_dir / "test-skill"

@@ -73,6 +73,27 @@ async def test_slash_command_models_registered_in_available_commands(tmp_path: P
         os.chdir(previous_cwd)
 
     assert "models" in command_names
+    assert "commands" in command_names
+
+
+@pytest.mark.asyncio
+async def test_slash_command_commands_index() -> None:
+    app = _App()
+    instance = AgentInstance(
+        app=cast("AgentApp", app),
+        agents={"main": cast("AgentProtocol", _Agent())},
+        registry_version=0,
+    )
+    handler = SlashCommandHandler(
+        session_id="s1",
+        instance=instance,
+        primary_agent_name="main",
+    )
+
+    output = await handler.execute_command("commands", "")
+
+    assert "# commands" in output
+    assert "`/skills`" in output
 
 
 @pytest.mark.asyncio
@@ -99,7 +120,8 @@ async def test_slash_command_hints_use_catalog_actions() -> None:
     cards_hint_text = cards_hint.root.hint
     assert skills_hint_text is not None
     assert cards_hint_text is not None
-    assert "add|remove|update|registry" in skills_hint_text
+    assert "available|search <query>" in skills_hint_text
+    assert "add <name|number>" in skills_hint_text
     assert "add|remove|update|publish|registry" in cards_hint_text
 
 

@@ -217,10 +217,13 @@ def command_completions(
         parts = remainder.split(maxsplit=1)
         subcommands = {
             "list": "List local skills",
+            "available": "Browse marketplace skills",
+            "search": "Search marketplace skills",
             "add": "Install a skill",
             "remove": "Remove a local skill",
             "update": "Check or apply skill updates",
             "registry": "Set skills registry",
+            "help": "Show skills command usage",
         }
         results = list(completer._complete_subcommands(parts, remainder, subcommands))
         if not parts or (len(parts) == 1 and not remainder.endswith(" ")):

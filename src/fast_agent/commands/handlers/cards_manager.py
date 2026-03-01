@@ -30,6 +30,7 @@ from fast_agent.cards.manager import (
     select_card_pack_updates,
     select_installed_card_pack_by_name_or_index,
 )
+from fast_agent.commands.command_catalog import suggest_command_action
 from fast_agent.commands.results import CommandMessage, CommandOutcome
 from fast_agent.paths import resolve_environment_paths
 
@@ -51,6 +52,22 @@ def _append_wrapped_text(content: Text, value: str, *, indent: str = "") -> None
         content.append(indent)
         content.append_text(Text(line))
         content.append("\n")
+
+
+def _cards_usage_lines() -> list[str]:
+    return [
+        "Usage: /cards [list|add|remove|update|publish|registry|help] [args]",
+        "",
+        "Examples:",
+        "- /cards add <number|name>",
+        "- /cards update all --yes",
+        "- /cards registry",
+    ]
+
+
+def _is_help_flag(value: str | None) -> bool:
+    token = (value or "").strip().lower()
+    return token in {"help", "--help", "-h"}
 
 
 def _format_local_card_packs(*, environment_paths, packs) -> Text:
@@ -797,6 +814,11 @@ async def handle_cards_command(
 ) -> CommandOutcome:
     normalized = str(action or "list").lower()
 
+    if _is_help_flag(action) or _is_help_flag(argument):
+        outcome = CommandOutcome()
+        outcome.add_message("\n".join(_cards_usage_lines()), channel="info", right_info="cards")
+        return outcome
+
     if normalized in {"list", ""}:
         return await handle_list_cards(ctx, agent_name=agent_name)
     if normalized in {"add", "install"}:
@@ -811,8 +833,21 @@ async def handle_cards_command(
         return await handle_publish_card_pack(ctx, agent_name=agent_name, argument=argument)
 
     outcome = CommandOutcome()
+    suggestions = suggest_command_action("cards", normalized)
+    suggestion_text = ""
+    if suggestions:
+        suggestion_text = " Did you mean: " + ", ".join(f"`{name}`" for name in suggestions)
     outcome.add_message(
-        f"Unknown /cards action: {normalized}. Use list/add/remove/update/publish/registry.",
+        (
+            f"Unknown /cards action: {normalized}. "
+            f"Use list/add/remove/update/publish/registry/help.{suggestion_text}"
+        ),
         channel="warning",
+        right_info="cards",
+    )
+    outcome.add_message(
+        "\n".join(_cards_usage_lines()),
+        channel="info",
+        right_info="cards",
     )
     return outcome
