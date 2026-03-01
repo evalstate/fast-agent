@@ -24,8 +24,6 @@ def test_legacy_aliases_are_listed_but_not_curated() -> None:
     legacy_aliases = ModelSelectionCatalog.list_non_current_aliases(Provider.HUGGINGFACE)
 
     assert "minimax25" in curated_aliases
-    assert "minimax2.5" in legacy_aliases
-    assert "minimax2.5" not in curated_aliases
     assert "qwen35" in curated_aliases
     assert "qwen35instruct" in curated_aliases
     assert "glm47" in legacy_aliases

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import shutil
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Literal
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.application.current import get_app_or_none
+from prompt_toolkit.data_structures import Point
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import HSplit, Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
@@ -17,55 +18,16 @@ from prompt_toolkit.widgets import Frame
 if TYPE_CHECKING:
     from pathlib import Path
 
-from fast_agent.config import get_settings
-from fast_agent.llm.model_database import ModelDatabase
-from fast_agent.llm.model_factory import ModelFactory
-from fast_agent.llm.model_selection import CatalogModelEntry, ModelSelectionCatalog
-from fast_agent.llm.provider_key_manager import ProviderKeyManager
-from fast_agent.llm.provider_types import Provider
+from fast_agent.ui.model_picker_common import (
+    REFER_TO_DOCS_PROVIDERS,
+    ModelOption,
+    ModelSource,
+    ProviderOption,
+    build_snapshot,
+    model_options_for_provider,
+)
 
-ModelSource = Literal["curated", "all"]
 StyleFragments = list[tuple[str, str]]
-
-PICKER_PROVIDER_ORDER: tuple[Provider, ...] = (
-    Provider.RESPONSES,
-    Provider.CODEX_RESPONSES,
-    Provider.HUGGINGFACE,
-    Provider.ANTHROPIC,
-    Provider.OPENAI,
-    Provider.GOOGLE,
-    Provider.XAI,
-    Provider.GROQ,
-    Provider.DEEPSEEK,
-    Provider.ALIYUN,
-    Provider.OPENROUTER,
-    Provider.AZURE,
-    Provider.BEDROCK,
-)
-
-REFER_TO_DOCS_PROVIDERS: tuple[Provider, ...] = (
-    Provider.OPENROUTER,
-    Provider.AZURE,
-    Provider.BEDROCK,
-)
-
-
-@dataclass(frozen=True)
-class ProviderOption:
-    provider: Provider
-    active: bool
-    curated_entries: tuple[CatalogModelEntry, ...]
-
-
-@dataclass(frozen=True)
-class ModelOption:
-    spec: str
-    label: str
-
-
-@dataclass(frozen=True)
-class ModelPickerSnapshot:
-    providers: tuple[ProviderOption, ...]
 
 
 @dataclass(frozen=True)
@@ -87,139 +49,6 @@ class PickerState:
     source: ModelSource
 
 
-def _provider_is_active(provider: Provider, config_payload: dict[str, Any]) -> bool:
-    config_key = ProviderKeyManager.get_config_file_key(provider.config_name, config_payload)
-    if config_key:
-        return True
-
-    if ProviderKeyManager.get_env_var(provider.config_name):
-        return True
-
-    if provider == Provider.GOOGLE:
-        google_cfg = config_payload.get("google")
-        if isinstance(google_cfg, dict):
-            vertex_cfg = google_cfg.get("vertex_ai")
-            if isinstance(vertex_cfg, dict) and bool(vertex_cfg.get("enabled")):
-                return True
-
-    if provider == Provider.AZURE:
-        azure_cfg = config_payload.get("azure")
-        if isinstance(azure_cfg, dict):
-            use_default = bool(azure_cfg.get("use_default_azure_credential"))
-            base_url = azure_cfg.get("base_url")
-            if use_default and isinstance(base_url, str) and bool(base_url.strip()):
-                return True
-
-    if provider == Provider.CODEX_RESPONSES:
-        try:
-            from fast_agent.llm.provider.openai.codex_oauth import get_codex_token_status
-
-            status = get_codex_token_status()
-            if bool(status.get("present")):
-                return True
-        except Exception:
-            pass
-
-    return False
-
-
-def build_snapshot(config_path: Path | None = None) -> ModelPickerSnapshot:
-    settings = get_settings(str(config_path) if config_path else None)
-    config_payload = settings.model_dump()
-
-    active_providers = set(ModelSelectionCatalog.configured_providers(config_payload))
-    for provider in PICKER_PROVIDER_ORDER:
-        if _provider_is_active(provider, config_payload):
-            active_providers.add(provider)
-
-    providers: list[ProviderOption] = []
-    for provider in PICKER_PROVIDER_ORDER:
-        entries = ModelSelectionCatalog.CATALOG_ENTRIES_BY_PROVIDER.get(provider, ())
-        providers.append(
-            ProviderOption(
-                provider=provider,
-                active=provider in active_providers,
-                curated_entries=entries,
-            )
-        )
-
-    return ModelPickerSnapshot(providers=tuple(providers))
-
-
-def _model_identity(model_spec: str) -> tuple[Provider, str] | None:
-    try:
-        parsed = ModelFactory.parse_model_string(model_spec)
-    except Exception:
-        return None
-    return parsed.provider, parsed.model_name
-
-
-def _static_provider_models(provider: Provider) -> list[str]:
-    models: list[str] = []
-    for model in ModelDatabase.list_models():
-        if ModelDatabase.get_default_provider(model) != provider:
-            continue
-        models.append(f"{provider.config_name}.{model}")
-    return models
-
-
-def model_options_for_provider(
-    snapshot: ModelPickerSnapshot,
-    provider: Provider,
-    *,
-    source: ModelSource,
-) -> list[ModelOption]:
-    if provider in REFER_TO_DOCS_PROVIDERS:
-        return [
-            ModelOption(
-                spec=f"{provider.config_name}.refer-to-docs",
-                label="Refer to docs (provider-specific setup not yet modeled)",
-            )
-        ]
-
-    provider_option: ProviderOption | None = None
-    for option in snapshot.providers:
-        if option.provider == provider:
-            provider_option = option
-            break
-
-    if provider_option is None:
-        return []
-
-    curated_options: list[ModelOption] = []
-    for entry in provider_option.curated_entries:
-        tags: list[str] = []
-        if entry.fast:
-            tags.append("fast")
-        if not entry.current:
-            tags.append("legacy")
-
-        suffix = f" ({', '.join(tags)})" if tags else ""
-        label = f"{entry.alias:<18} → {entry.model}{suffix}"
-        curated_options.append(ModelOption(spec=entry.model, label=label))
-
-    if source == "curated":
-        return curated_options
-
-    seen_identities: set[tuple[Provider, str]] = set()
-    options: list[ModelOption] = list(curated_options)
-
-    for curated in curated_options:
-        model_identity = _model_identity(curated.spec)
-        if model_identity is not None:
-            seen_identities.add(model_identity)
-
-    for spec in _static_provider_models(provider):
-        model_identity = _model_identity(spec)
-        if model_identity is not None and model_identity in seen_identities:
-            continue
-        if model_identity is not None:
-            seen_identities.add(model_identity)
-        options.append(ModelOption(spec=spec, label=f"{spec} (static catalog)"))
-
-    return options
-
-
 class _SplitListPicker:
     LIST_VISIBLE_ROWS = 13
 
@@ -237,7 +66,11 @@ class _SplitListPicker:
         )
 
         self.provider_control = FormattedTextControl(self._render_provider_panel)
-        self.model_control = FormattedTextControl(self._render_model_panel)
+        self.model_control = FormattedTextControl(
+            self._render_model_panel,
+            show_cursor=False,
+            get_cursor_position=self._model_cursor_position,
+        )
         self.status_control = FormattedTextControl(self._render_status_bar)
 
         provider_window = Window(
@@ -249,7 +82,7 @@ class _SplitListPicker:
             always_hide_cursor=True,
         )
 
-        model_window = Window(
+        self.model_window = Window(
             self.model_control,
             wrap_lines=False,
             height=Dimension.exact(self.LIST_VISIBLE_ROWS),
@@ -257,7 +90,6 @@ class _SplitListPicker:
             ignore_content_width=True,
             always_hide_cursor=True,
             right_margins=[ScrollbarMargin(display_arrows=False)],
-            get_vertical_scroll=lambda _window: self.state.model_scroll_top,
         )
 
         picker_columns = VSplit(
@@ -267,7 +99,7 @@ class _SplitListPicker:
                     title="Providers",
                     width=lambda: self._provider_width(),
                 ),
-                Frame(model_window, title="Models"),
+                Frame(self.model_window, title="Models"),
             ],
             padding=1,
         )
@@ -321,6 +153,13 @@ class _SplitListPicker:
         self._sync_model_scroll()
         return models[self.state.model_index]
 
+    def _model_cursor_position(self) -> Point | None:
+        models = self.current_models
+        if not models:
+            return None
+        self._clamp_model_index()
+        return Point(x=0, y=self.state.model_index)
+
     def _terminal_cols(self) -> int:
         app = get_app_or_none()
         if app is not None:
@@ -352,6 +191,7 @@ class _SplitListPicker:
         models = self.current_models
         if not models:
             self.state.model_scroll_top = 0
+            self.model_window.vertical_scroll = 0
             return
 
         visible = self.LIST_VISIBLE_ROWS
@@ -365,6 +205,7 @@ class _SplitListPicker:
             top = index - visible + 1
 
         self.state.model_scroll_top = max(0, min(top, max_top))
+        self.model_window.vertical_scroll = self.state.model_scroll_top
 
     def _move_provider(self, delta: int) -> None:
         count = len(self.snapshot.providers)
@@ -447,7 +288,7 @@ class _SplitListPicker:
             provider.provider.config_name,
             provider.provider.display_name,
         )
-        scope = "curated" if self.state.source == "curated" else "all static"
+        scope = "curated" if self.state.source == "curated" else "all catalog"
         status = "available" if provider.active else "not configured"
         warning = ""
         if self._provider_requires_docs_only():

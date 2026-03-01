@@ -97,9 +97,18 @@ class ModelSelectionCatalog:
                 model=(
                     "hf.moonshotai/Kimi-K2.5:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on"
                 ),
+                fast=True,
             ),
             CatalogModelEntry(alias="glm5", model="hf.zai-org/GLM-5:novita"),
-            CatalogModelEntry(alias="minimax25", model="minimax"),
+            CatalogModelEntry(
+                alias="minimax25",
+                model="hf.MiniMaxAI/MiniMax-M2.5:novita?temperature=1.0&top_p=0.95&top_k=40",
+            ),
+            CatalogModelEntry(
+                alias="minimax2.5",
+                model="hf.MiniMaxAI/MiniMax-M2.5:novita?temperature=1.0&top_p=0.95&top_k=40",
+                current=False,
+            ),
             CatalogModelEntry(
                 alias="qwen35instruct",
                 model=(
@@ -108,7 +117,7 @@ class ModelSelectionCatalog:
                     "&presence_penalty=1.5&repetition_penalty=1.0&reasoning=off"
                 ),
             ),
-            CatalogModelEntry(alias="gpt-oss", model="gpt-oss", fast=True),
+            CatalogModelEntry(alias="gpt-oss", model="hf.openai/gpt-oss-120b:cerebras", fast=True),
             CatalogModelEntry(
                 alias="glm47",
                 model="hf.zai-org/GLM-4.7:cerebras",
@@ -120,8 +129,8 @@ class ModelSelectionCatalog:
                 alias="deepseek32",
                 model="hf.deepseek-ai/DeepSeek-V3.2:fireworks-ai",
             ),
-            CatalogModelEntry(alias="kimi-k2-instruct", model="kimi"),
-            CatalogModelEntry(alias="kimi-k2-thinking", model="kimithink"),
+            CatalogModelEntry(alias="kimi-k2-instruct", model="hf.moonshotai/Kimi-K2-Instruct-0905:groq"),
+            CatalogModelEntry(alias="kimi-k2-thinking", model="hf.moonshotai/Kimi-K2-Thinking:together"),
         ),
         Provider.CODEX_RESPONSES: (
             CatalogModelEntry(
