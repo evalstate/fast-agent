@@ -105,11 +105,6 @@ class ModelSelectionCatalog:
                 model="hf.MiniMaxAI/MiniMax-M2.5:novita?temperature=1.0&top_p=0.95&top_k=40",
             ),
             CatalogModelEntry(
-                alias="minimax2.5",
-                model="hf.MiniMaxAI/MiniMax-M2.5:novita?temperature=1.0&top_p=0.95&top_k=40",
-                current=False,
-            ),
-            CatalogModelEntry(
                 alias="qwen35instruct",
                 model=(
                     "hf.Qwen/Qwen3.5-397B-A17B:novita"
@@ -129,8 +124,12 @@ class ModelSelectionCatalog:
                 alias="deepseek32",
                 model="hf.deepseek-ai/DeepSeek-V3.2:fireworks-ai",
             ),
-            CatalogModelEntry(alias="kimi-k2-instruct", model="hf.moonshotai/Kimi-K2-Instruct-0905:groq"),
-            CatalogModelEntry(alias="kimi-k2-thinking", model="hf.moonshotai/Kimi-K2-Thinking:together"),
+            CatalogModelEntry(
+                alias="kimi-k2-instruct", model="hf.moonshotai/Kimi-K2-Instruct-0905:groq"
+            ),
+            CatalogModelEntry(
+                alias="kimi-k2-thinking", model="hf.moonshotai/Kimi-K2-Thinking:together"
+            ),
         ),
         Provider.CODEX_RESPONSES: (
             CatalogModelEntry(
@@ -147,6 +146,16 @@ class ModelSelectionCatalog:
             CatalogModelEntry(
                 alias="kimigroq",
                 model="kimigroq",
+            ),
+        ),
+        Provider.FAST_AGENT: (
+            CatalogModelEntry(
+                alias="passthrough",
+                model="passthrough",
+            ),
+            CatalogModelEntry(
+                alias="playback",
+                model="playback",
             ),
         ),
     }

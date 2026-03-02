@@ -50,7 +50,7 @@ class PickerState:
 
 
 class _SplitListPicker:
-    LIST_VISIBLE_ROWS = 13
+    LIST_VISIBLE_ROWS = 15
 
     def __init__(self, *, config_path: Path | None) -> None:
         self.snapshot = build_snapshot(config_path)
@@ -242,6 +242,9 @@ class _SplitListPicker:
     def _provider_display_name(config_name: str, default_name: str) -> str:
         if config_name == "codexresponses":
             return "Codex (Plan)"
+        if config_name == "fast-agent":
+            return "fast-agent"
+
         return default_name
 
     def _render_provider_panel(self) -> StyleFragments:

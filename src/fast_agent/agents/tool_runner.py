@@ -6,6 +6,7 @@ from typing import (
     TYPE_CHECKING,
     Awaitable,
     Callable,
+    Literal,
     Protocol,
     Union,
 )
@@ -47,6 +48,25 @@ class _ToolLoopAgent(MessageHistoryAgentProtocol, Protocol):
 
 
 _logger = get_logger(__name__)
+
+
+HistoryRollbackStatus = Literal[
+    "history_disabled",
+    "history_empty",
+    "rolled_back_to_assistant",
+    "rolled_back_to_templates",
+    "history_unchanged",
+]
+
+
+@dataclass(frozen=True)
+class HistoryRollbackState:
+    """Summary of how history was handled after an interrupted tool loop."""
+
+    status: HistoryRollbackStatus
+    history_before: int
+    history_after: int
+    removed_messages: int
 
 
 @dataclass(frozen=True)
@@ -147,19 +167,26 @@ class ToolRunner:
             async for message in self:
                 last = message
         except (asyncio.CancelledError, KeyboardInterrupt) as exc:
-            try:
-                setattr(self._agent, "_last_turn_cancelled", True)
-                setattr(
-                    self._agent,
-                    "_last_turn_cancel_reason",
-                    "cancelled" if isinstance(exc, asyncio.CancelledError) else "interrupted",
-                )
-            except Exception:
-                pass
-            self._reset_history_after_cancelled_turn()
+            rollback_state = self._reset_history_after_cancelled_turn()
+            self._record_cancelled_turn(
+                reason=(
+                    "cancelled"
+                    if isinstance(exc, asyncio.CancelledError)
+                    else "interrupted"
+                ),
+                rollback_state=rollback_state,
+            )
             raise
         if last is None:
             raise RuntimeError("ToolRunner produced no messages")
+
+        if last.stop_reason == LlmStopReason.CANCELLED:
+            rollback_state = self._reset_history_after_cancelled_turn()
+            self._record_cancelled_turn(
+                reason="cancelled",
+                rollback_state=rollback_state,
+            )
+            return last
 
         # Fire after_turn_complete hook once the entire turn is done
         if self._hooks.after_turn_complete is not None:
@@ -167,10 +194,38 @@ class ToolRunner:
 
         return last
 
-    def _reset_history_after_cancelled_turn(self) -> None:
+    def _record_cancelled_turn(
+        self,
+        *,
+        reason: str,
+        rollback_state: HistoryRollbackState,
+    ) -> None:
+        try:
+            setattr(self._agent, "_last_turn_cancelled", True)
+            setattr(self._agent, "_last_turn_cancel_reason", reason)
+            setattr(self._agent, "_last_turn_history_state", rollback_state)
+        except Exception:
+            pass
+
+    def _reset_history_after_cancelled_turn(self) -> HistoryRollbackState:
         history = self._agent.message_history
+        history_before = len(history)
+
+        if not self._agent.config.use_history:
+            return HistoryRollbackState(
+                status="history_disabled",
+                history_before=history_before,
+                history_after=history_before,
+                removed_messages=0,
+            )
+
         if not history:
-            return
+            return HistoryRollbackState(
+                status="history_empty",
+                history_before=0,
+                history_after=0,
+                removed_messages=0,
+            )
 
         last_success_idx: int | None = None
         for idx in range(len(history) - 1, -1, -1):
@@ -191,10 +246,37 @@ class ToolRunner:
                     break
             if len(template_prefix) != len(history):
                 self._agent.load_message_history(template_prefix)
-            return
+                history_after = len(template_prefix)
+                return HistoryRollbackState(
+                    status="rolled_back_to_templates",
+                    history_before=history_before,
+                    history_after=history_after,
+                    removed_messages=history_before - history_after,
+                )
+
+            return HistoryRollbackState(
+                status="history_unchanged",
+                history_before=history_before,
+                history_after=history_before,
+                removed_messages=0,
+            )
 
         if last_success_idx < len(history) - 1:
             self._agent.load_message_history(history[: last_success_idx + 1])
+            history_after = last_success_idx + 1
+            return HistoryRollbackState(
+                status="rolled_back_to_assistant",
+                history_before=history_before,
+                history_after=history_after,
+                removed_messages=history_before - history_after,
+            )
+
+        return HistoryRollbackState(
+            status="history_unchanged",
+            history_before=history_before,
+            history_after=history_before,
+            removed_messages=0,
+        )
 
     def _build_tool_error_response(
         self, request: PromptMessageExtended, error_message: str

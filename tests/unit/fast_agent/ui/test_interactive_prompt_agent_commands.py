@@ -343,6 +343,7 @@ async def test_history_fix_notice_on_cancelled_turn(monkeypatch, capsys: Any) ->
 
     output = capsys.readouterr().out
     assert "Previous turn was cancelled" in output
+    assert "Use /history" in output
 
 
 @pytest.mark.asyncio
@@ -466,10 +467,14 @@ async def test_cancelled_turn_auto_fixes_pending_tool_call(monkeypatch, capsys: 
     )
 
     output = capsys.readouterr().out
-    assert "Removed pending tool call from history" in output
+    assert "The user interrupted this tool call" in output
     history = agent_app._agent("test").message_history
-    assert len(history) == 1
+    assert len(history) == 3
     assert history[0].role == "user"
+    assert history[1].role == "assistant"
+    assert history[2].role == "user"
+    assert history[2].tool_results is not None
+    assert "call-1" in history[2].tool_results
 
 
 @pytest.mark.asyncio

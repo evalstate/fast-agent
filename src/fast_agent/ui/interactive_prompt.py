@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Union, cast
 
-from mcp.types import PromptMessage
+from mcp.types import CallToolResult, PromptMessage
 from rich import print as rich_print
 
 if TYPE_CHECKING:
@@ -39,6 +39,7 @@ from fast_agent.commands.handlers import mcp_runtime as mcp_runtime_handlers  # 
 from fast_agent.commands.handlers import prompts as prompt_handlers
 from fast_agent.config import get_settings
 from fast_agent.core.exceptions import PromptExitError
+from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui import enhanced_prompt
@@ -293,7 +294,7 @@ class InteractivePrompt:
                     pass
 
         def _auto_fix_pending_tool_call(agent_obj: Any) -> bool:
-            """Remove a dangling assistant TOOL_USE message at end of history."""
+            """Insert an interrupted tool result if history ends with pending TOOL_USE."""
             history = getattr(agent_obj, "message_history", None)
             if not isinstance(history, list) or not history:
                 return False
@@ -306,19 +307,63 @@ class InteractivePrompt:
             ):
                 return False
 
-            trimmed_history = history[:-1]
+            tool_calls = getattr(last_message, "tool_calls", None) or {}
+            tool_results: dict[str, CallToolResult] = {}
+            for tool_call_id in tool_calls.keys():
+                tool_results[tool_call_id] = CallToolResult(
+                    content=[text_content("**The user interrupted this tool call**")],
+                    isError=True,
+                )
+
+            interrupted_result = PromptMessageExtended(
+                role="user",
+                content=[text_content("**The user interrupted this tool call**")],
+                tool_results=tool_results,
+            )
+            repaired_history = [*history, interrupted_result]
+
             load_history = getattr(agent_obj, "load_message_history", None)
             if callable(load_history):
-                load_history(trimmed_history)
+                load_history(repaired_history)
                 return True
 
             existing_history = getattr(agent_obj, "message_history", None)
             if isinstance(existing_history, list):
                 existing_history.clear()
-                existing_history.extend(trimmed_history)
+                existing_history.extend(repaired_history)
                 return True
 
             return False
+
+        def _describe_cancelled_history_state(history_state: object | None) -> str:
+            status = getattr(history_state, "status", None)
+            removed_messages = getattr(history_state, "removed_messages", 0)
+
+            if status == "history_disabled":
+                return (
+                    "Agent history is configured with use_history=false, so no per-turn "
+                    "history was persisted."
+                )
+
+            if status == "history_empty":
+                return "History was already empty."
+
+            if status == "rolled_back_to_assistant":
+                return (
+                    f"Rolled back the interrupted turn and removed {removed_messages} "
+                    "message(s), returning to the previous completed assistant turn."
+                )
+
+            if status == "rolled_back_to_templates":
+                return (
+                    f"Rolled back to template-only history and removed {removed_messages} "
+                    "message(s)."
+                )
+
+            if status == "history_unchanged":
+                return "History was already at a stable boundary; no rollback was needed."
+
+            return "History rollback completed."
 
         while True:
             # Variables for hash command - sent after input handling
@@ -342,20 +387,33 @@ class InteractivePrompt:
             if agent_obj is not None and getattr(agent_obj, "_last_turn_cancelled", False):
                 reason = getattr(agent_obj, "_last_turn_cancel_reason", "cancelled")
                 setattr(agent_obj, "_last_turn_cancelled", False)
-                pending_tool_call_removed = False
-                try:
-                    pending_tool_call_removed = _auto_fix_pending_tool_call(agent_obj)
-                except Exception:
-                    pending_tool_call_removed = False
+                history_state = getattr(agent_obj, "_last_turn_history_state", None)
+                setattr(agent_obj, "_last_turn_history_state", None)
+                pending_tool_call_repaired = False
+                if getattr(history_state, "status", None) != "history_disabled":
+                    try:
+                        pending_tool_call_repaired = _auto_fix_pending_tool_call(agent_obj)
+                    except Exception:
+                        pending_tool_call_repaired = False
 
-                if pending_tool_call_removed:
+                state_message = _describe_cancelled_history_state(history_state)
+                if pending_tool_call_repaired:
                     rich_print(
-                        "[yellow]Previous turn was {reason}. Removed pending tool call from history.[/yellow]".format(
-                            reason=reason
+                        "[yellow]Previous turn was {reason}. {state} Added an interrupted "
+                        "tool-result marker ('**The user interrupted this tool call**'). "
+                        "Use /history to inspect or manipulate history.[/yellow]".format(
+                            reason=reason,
+                            state=state_message,
                         )
                     )
                 else:
-                    rich_print("[yellow]Previous turn was {reason}.[/yellow]".format(reason=reason))
+                    rich_print(
+                        "[yellow]Previous turn was {reason}. {state} "
+                        "Use /history to inspect or manipulate history.[/yellow]".format(
+                            reason=reason,
+                            state=state_message,
+                        )
+                    )
 
             if refreshed:
                 available_agents = _merge_pinned_agents(list(prompt_provider.agent_names()))

@@ -33,6 +33,7 @@ PICKER_PROVIDER_ORDER: tuple[Provider, ...] = (
     Provider.OPENROUTER,
     Provider.AZURE,
     Provider.BEDROCK,
+    Provider.FAST_AGENT,
 )
 
 REFER_TO_DOCS_PROVIDERS: tuple[Provider, ...] = (
@@ -111,6 +112,9 @@ def _provider_is_active(provider: Provider, config_payload: dict[str, Any]) -> b
                 return True
         except Exception:
             pass
+
+    if Provider.FAST_AGENT == provider:
+        return True
 
     return False
 
