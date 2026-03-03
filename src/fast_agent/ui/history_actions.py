@@ -29,6 +29,8 @@ async def display_history_turn(
     from fast_agent.ui.message_display_helpers import (
         build_tool_use_additional_message,
         build_user_message_display,
+        tool_use_requests_file_read_access,
+        tool_use_requests_shell_access,
     )
 
     display = ConsoleDisplay(config=config)
@@ -49,6 +51,13 @@ async def display_history_turn(
         if isinstance(raw_args, Mapping):
             return dict(raw_args)
         return None
+
+    def _is_read_text_file_tool_name(tool_name: str) -> bool:
+        normalized = tool_name.lower()
+        for sep in ("/", ".", ":"):
+            if sep in normalized:
+                normalized = normalized.rsplit(sep, 1)[-1]
+        return normalized == "read_text_file" or normalized.endswith("__read_text_file")
 
     def flush_user_group() -> None:
         if not user_group:
@@ -80,7 +89,19 @@ async def display_history_turn(
 
         if message.role == "assistant":
             last_text = message.last_text()
-            additional_message = build_tool_use_additional_message(message, last_text)
+            shell_access = tool_use_requests_shell_access(
+                message,
+                # History replay has no runtime tool registry. Treating
+                # "execute" as shell here matches the live local-shell UX.
+                assume_execute_is_shell=True,
+            )
+            read_file_access = tool_use_requests_file_read_access(message)
+            additional_message = build_tool_use_additional_message(
+                message,
+                last_text,
+                shell_access=shell_access,
+                file_read=read_file_access,
+            )
             display_message = message
 
             badges = web_tool_badges(message)
@@ -100,20 +121,28 @@ async def display_history_turn(
                     else Text.assemble(additional_message, sources_text)
                 )
 
+            bottom_items = badges or None
+            highlight_index = 0 if badges else None
+            if shell_access or read_file_access:
+                bottom_items = None
+                highlight_index = None
+
             message_payload: str | PromptMessageExtended = display_message
             if last_text is None and additional_message is None and not badges:
                 message_payload = "<no text>"
             await display.show_assistant_message(
                 message_text=message_payload,
                 name=agent_name,
-                bottom_items=badges or None,
-                highlight_index=0 if badges else None,
+                bottom_items=bottom_items,
+                highlight_index=highlight_index,
                 additional_message=additional_message,
             )
 
             if tool_calls:
                 for call_id, call in tool_calls.items():
                     tool_name = tool_name_lookup.get(call_id, call_id)
+                    if _is_read_text_file_tool_name(tool_name):
+                        continue
                     tool_args = _tool_args_from_call(call)
                     display.show_tool_call(
                         tool_name=tool_name,

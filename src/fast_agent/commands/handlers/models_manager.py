@@ -24,6 +24,7 @@ from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.model_selection import ModelSelectionCatalog
 from fast_agent.llm.provider_types import Provider
+from fast_agent.ui.a3_headers import build_a3_section_header
 
 if TYPE_CHECKING:
     from fast_agent.commands.context import CommandContext
@@ -73,11 +74,7 @@ def _append_line(content: Text, line: str | Text = "") -> None:
 
 
 def _a3_header(title: str, *, color: str = "blue") -> Text:
-    header = Text()
-    header.append("▎", style=color)
-    header.append("• ", style=f"dim {color}")
-    header.append(title, style=color)
-    return header
+    return build_a3_section_header(title, color=color, include_dot=False)
 
 
 def _a3_section(title: str) -> Text:

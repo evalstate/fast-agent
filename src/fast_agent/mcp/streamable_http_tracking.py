@@ -63,6 +63,20 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
         super().__init__(url)
         self._channel_hook = channel_hook
 
+    def _open_sse_connection(
+        self,
+        client: httpx.AsyncClient,
+        method: str,
+        url: str,
+        *,
+        headers: dict[str, str],
+    ):
+        """Wrapper for SSE connections so tests can provide deterministic transports."""
+        return aconnect_sse(client, method, url, headers=headers)
+
+    async def _sleep_before_reconnect(self, delay_ms: int) -> None:
+        await anyio.sleep(delay_ms / 1000.0)
+
     def _emit_channel_event(
         self,
         channel: ChannelName,
@@ -210,7 +224,7 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
                 if last_event_id:
                     headers[LAST_EVENT_ID] = last_event_id  # pragma: no cover
 
-                async with aconnect_sse(
+                async with self._open_sse_connection(
                     client,
                     "GET",
                     self.url,
@@ -219,6 +233,8 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
                     event_source.response.raise_for_status()
                     self._emit_channel_event("get", "connect")
                     connected = True
+                    # Reset reconnection error budget once a retry successfully reconnects.
+                    attempt = 0
 
                     async for sse in event_source.aiter_sse():
                         if sse.id:
@@ -231,8 +247,6 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
                             sse,
                             read_stream_writer,
                         )
-
-                    attempt = 0
 
             except Exception as exc:  # pragma: no cover - non fatal stream errors
                 logger.debug("GET stream error: %s", exc)
@@ -260,7 +274,7 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
                 retry_interval_ms if retry_interval_ms is not None else DEFAULT_RECONNECTION_DELAY_MS
             )
             logger.info("GET stream disconnected, reconnecting in %sms...", delay_ms)
-            await anyio.sleep(delay_ms / 1000.0)
+            await self._sleep_before_reconnect(delay_ms)
 
     async def _handle_resumption_request(  # type: ignore[override]
         self,
@@ -347,7 +361,7 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
             return
 
         delay_ms = retry_interval_ms if retry_interval_ms is not None else DEFAULT_RECONNECTION_DELAY_MS
-        await anyio.sleep(delay_ms / 1000.0)
+        await self._sleep_before_reconnect(delay_ms)
 
         headers = self._prepare_headers()
         headers[LAST_EVENT_ID] = last_event_id
@@ -357,7 +371,7 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
             original_request_id = ctx.session_message.message.root.id
 
         try:
-            async with aconnect_sse(
+            async with self._open_sse_connection(
                 ctx.client,
                 "GET",
                 self.url,
@@ -365,6 +379,7 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
             ) as event_source:
                 event_source.response.raise_for_status()
                 logger.info("Reconnected to SSE stream")
+                attempt = 0
 
                 reconnect_last_event_id: str = last_event_id
                 reconnect_retry_ms = retry_interval_ms

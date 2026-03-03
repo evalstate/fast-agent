@@ -17,6 +17,19 @@ if TYPE_CHECKING:
 _ELLIPSIS = "…"
 
 
+def _format_context_usage_percent_for_toolbar(pct: float | None) -> str | None:
+    """Format context usage for toolbar display with stable width."""
+    if pct is None:
+        return None
+
+    safe_pct = max(pct, 0.0)
+    if safe_pct >= 100.0:
+        return "100%+"
+    if safe_pct < 10.0:
+        return f"{min(safe_pct, 9.99):.2f}%"
+    return f"{min(safe_pct, 99.9):.1f}%"
+
+
 def _left_truncate_with_ellipsis(text: str, max_length: int) -> str:
     """Truncate text from the left using a single-character ellipsis."""
     if max_length <= 0:

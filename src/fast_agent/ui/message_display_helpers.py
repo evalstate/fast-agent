@@ -68,6 +68,9 @@ def build_user_message_display(
 def build_tool_use_additional_message(
     message: "PromptMessageExtended",
     last_text: str | None = None,
+    *,
+    shell_access: bool = False,
+    file_read: bool = False,
 ) -> Text | None:
     if message.stop_reason != LlmStopReason.TOOL_USE:
         return None
@@ -75,11 +78,90 @@ def build_tool_use_additional_message(
         last_text = message.last_text()
     if last_text is not None:
         return None
-    return Text("The assistant requested tool calls", style="dim green italic")
+    if shell_access:
+        message_text = "The assistant requested shell access"
+    elif file_read:
+        return None
+    else:
+        message_text = "The assistant requested tool calls"
+    return Text(message_text, style="dim green italic")
+
+
+def tool_use_requests_shell_access(
+    message: "PromptMessageExtended",
+    *,
+    shell_tool_name: str | None = None,
+    assume_execute_is_shell: bool = False,
+) -> bool:
+    """Return True when this TOOL_USE turn only requests local shell execution."""
+    if message.stop_reason != LlmStopReason.TOOL_USE:
+        return False
+
+    tool_calls = message.tool_calls
+    if not tool_calls:
+        return False
+
+    built_in_aliases = {"bash", "zsh", "sh", "pwsh", "powershell", "cmd", "shell"}
+    if assume_execute_is_shell:
+        built_in_aliases.add("execute")
+
+    def _is_shell_tool(tool_name: str) -> bool:
+        normalized = tool_name.lower()
+        for sep in ("/", ".", ":"):
+            if sep in normalized:
+                normalized = normalized.rsplit(sep, 1)[-1]
+
+        if shell_tool_name and tool_name == shell_tool_name:
+            return True
+
+        return normalized in built_in_aliases
+
+    for call in tool_calls.values():
+        params = getattr(call, "params", None)
+        tool_name = getattr(params, "name", None) if params is not None else None
+        if not tool_name or not _is_shell_tool(tool_name):
+            return False
+
+    return True
+
+
+def tool_use_requests_file_read_access(
+    message: "PromptMessageExtended",
+    *,
+    read_tool_name: str | None = None,
+) -> bool:
+    """Return True when this TOOL_USE turn only requests read_text_file calls."""
+    if message.stop_reason != LlmStopReason.TOOL_USE:
+        return False
+
+    tool_calls = message.tool_calls
+    if not tool_calls:
+        return False
+
+    def _is_read_tool(tool_name: str) -> bool:
+        normalized = tool_name.lower()
+        for sep in ("/", ".", ":"):
+            if sep in normalized:
+                normalized = normalized.rsplit(sep, 1)[-1]
+
+        if read_tool_name and tool_name == read_tool_name:
+            return True
+
+        return normalized == "read_text_file" or normalized.endswith("__read_text_file")
+
+    for call in tool_calls.values():
+        params = getattr(call, "params", None)
+        tool_name = getattr(params, "name", None) if params is not None else None
+        if not tool_name or not _is_read_tool(tool_name):
+            return False
+
+    return True
 
 
 __all__ = [
     "build_tool_use_additional_message",
     "build_user_message_display",
     "extract_user_attachments",
+    "tool_use_requests_file_read_access",
+    "tool_use_requests_shell_access",
 ]

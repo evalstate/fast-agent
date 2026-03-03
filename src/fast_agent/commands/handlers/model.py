@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Callable, cast
 from rich.text import Text
 
 from fast_agent.commands.results import CommandOutcome
-from fast_agent.constants import TERMINAL_BYTES_PER_TOKEN
+from fast_agent.constants import REASONING_LABEL, TERMINAL_BYTES_PER_TOKEN
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.reasoning_effort import (
     ReasoningEffortLevel,
@@ -199,7 +199,9 @@ async def _handle_model_web_tool(
 
     if value is None:
         outcome.add_message(
-            _styled_selected_with_allowed(label, _enabled_label(enabled_resolver(llm)), "on, off, default"),
+            _styled_selected_with_allowed(
+                label, _enabled_label(enabled_resolver(llm)), "on, off, default"
+            ),
             channel="system",
             right_info="model",
         )
@@ -306,9 +308,7 @@ def _add_model_details(
                 and configured_transport in {"websocket", "auto"}
                 and active_transport == "sse"
             ):
-                transport_value = (
-                    f"{active_transport} (websocket fallback was used for this turn)"
-                )
+                transport_value = f"{active_transport} (websocket fallback was used for this turn)"
             outcome.add_message(
                 _styled_model_line(
                     "Active transport",
@@ -454,7 +454,7 @@ async def handle_model_reasoning(
         if spec.kind == "budget" and spec.budget_presets:
             allowed = f"{allowed} (presets; any value between {spec.min_budget_tokens} and {spec.max_budget_tokens} is allowed)"
         outcome.add_message(
-            _styled_selected_with_allowed("Reasoning effort", current, allowed),
+            _styled_selected_with_allowed(REASONING_LABEL, current, allowed),
             channel="system",
             right_info="model",
         )
@@ -479,7 +479,7 @@ async def handle_model_reasoning(
         ):
             allowed = ", ".join(available_reasoning_values(spec))
             outcome.add_message(
-                f"Reasoning disable is not supported for this model. Allowed values: {allowed}.",
+                f"{REASONING_LABEL} disable is not supported for this model. Allowed values: {allowed}.",
                 channel="error",
                 right_info="model",
             )
@@ -499,7 +499,7 @@ async def handle_model_reasoning(
             return outcome
 
         outcome.add_message(
-            _styled_set_line("Reasoning effort", format_reasoning_setting(llm.reasoning_effort)),
+            _styled_set_line(REASONING_LABEL, format_reasoning_setting(llm.reasoning_effort)),
             channel="system",
             right_info="model",
         )
@@ -518,7 +518,7 @@ async def handle_model_reasoning(
 
     llm.set_reasoning_effort(parsed)
     outcome.add_message(
-        _styled_set_line("Reasoning effort", format_reasoning_setting(llm.reasoning_effort)),
+        _styled_set_line(REASONING_LABEL, format_reasoning_setting(llm.reasoning_effort)),
         channel="system",
         right_info="model",
     )

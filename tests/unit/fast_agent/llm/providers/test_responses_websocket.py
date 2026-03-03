@@ -1279,7 +1279,7 @@ async def test_websocket_reused_connection_shows_status_message() -> None:
     assert getattr(response, "status", None) == "completed"
     assert streamed_summary == []
     assert normalized_input == input_items
-    assert "WebSocket reused" in harness._capturing_display.status_messages
+    assert "WebSocket reused" not in harness._capturing_display.status_messages
     assert harness.websocket_turn_indicator == "↔"
 
 
@@ -1350,7 +1350,7 @@ async def test_websocket_reestablishes_stale_reused_socket_once() -> None:
     assert reconnect_log_data is not None
     assert reconnect_log_data.get("stream_started") is False
     assert reconnect_log_data.get("websocket_closed") is False
-    assert "WebSocket reconnected" in harness._capturing_display.status_messages
+    assert "WebSocket reconnected" not in harness._capturing_display.status_messages
     assert harness.websocket_turn_indicator == "↗"
 
 
@@ -1377,16 +1377,12 @@ async def test_websocket_reestablish_debug_status_includes_diagnostics() -> None
     assert getattr(response, "status", None) == "completed"
     assert streamed_summary == []
     assert normalized_input == _ws_input_items("hello")
-    assert any(
+    assert not any(
         "WS reconnecting" in message
-        and "ws_closed=no" in message
-        and "err=socket closed" in message
         for message in harness._capturing_display.status_messages
     )
-    assert any(
+    assert not any(
         "WebSocket reconnected" in message
-        and "ws_closed=no" in message
-        and "err=socket closed" in message
         for message in harness._capturing_display.status_messages
     )
 
@@ -1436,15 +1432,11 @@ async def test_websocket_retries_on_recoverable_server_error_codes(error_code: s
     assert first_payload["type"] == RESPONSES_CREATE_EVENT_TYPE
     assert second_payload["type"] == RESPONSES_CREATE_EVENT_TYPE
     assert "previous_response_id" not in second_payload
-    assert any(
+    assert not any(
         "WS reconnecting" in message
-        and f"code={error_code}" in message
-        and "err=recoverable websocket error" in message
         for message in harness._capturing_display.status_messages
     )
-    assert any(
+    assert not any(
         "WebSocket reconnected" in message
-        and f"code={error_code}" in message
-        and "err=recoverable websocket error" in message
         for message in harness._capturing_display.status_messages
     )

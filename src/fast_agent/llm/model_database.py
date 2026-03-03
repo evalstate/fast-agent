@@ -357,6 +357,16 @@ class ModelDatabase:
         default_provider=Provider.CODEX_RESPONSES,
     )
 
+    OPENAI_CHAT53_INSTANT = ModelParameters(
+        context_window=128000,
+        max_output_tokens=128000,
+        tokenizes=OPENAI_MULTIMODAL,
+        response_transports=("sse", "websocket"),
+        response_websocket_providers=(Provider.RESPONSES,),
+        default_provider=Provider.RESPONSES,
+        reasoning="openai",
+    )
+
     ANTHROPIC_OPUS_4_VERSIONED = ModelParameters(
         context_window=200000,
         max_output_tokens=32000,
@@ -668,6 +678,7 @@ class ModelDatabase:
                 "response_websocket_providers": (Provider.RESPONSES,),
             }
         ),
+        "gpt-5.3-chat-latest": _with_fast(params=OPENAI_CHAT53_INSTANT),
         # Anthropic Models
         "claude-3-haiku": ANTHROPIC_35_SERIES,
         "claude-3-haiku-20240307": ANTHROPIC_LEGACY,

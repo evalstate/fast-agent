@@ -95,6 +95,15 @@ def _build_shell_form(current: ShellSettings) -> FormSchema:
         current_value = getattr(current, name)
         annotation = field_info.annotation
 
+        if name == "write_text_file_mode":
+            fields[name] = string(
+                title=name.replace("_", " ").title(),
+                description=f"{desc} (auto|on|off)",
+                default=str(current_value or "auto"),
+                max_length=8,
+            )
+            continue
+
         # Determine field type and build appropriate form field
         if annotation is bool:
             fields[name] = boolean(
@@ -113,9 +122,29 @@ def _build_shell_form(current: ShellSettings) -> FormSchema:
         elif annotation == int | None:
             # Handle optional integers (like output_display_lines, output_byte_limit)
             max_val = 1000 if "lines" in name else 1048576
+            if name == "output_display_lines":
+                fields[name] = integer(
+                    title=name.replace("_", " ").title(),
+                    description=f"{desc} (-1 = show all, 0 = show none)",
+                    default=current_value if current_value is not None else -1,
+                    minimum=-1,
+                    maximum=max_val,
+                )
+                continue
+
+            if name == "output_byte_limit":
+                fields[name] = integer(
+                    title=name.replace("_", " ").title(),
+                    description=f"{desc} (0 = auto)",
+                    default=current_value if current_value is not None else 0,
+                    minimum=0,
+                    maximum=max_val,
+                )
+                continue
+
             fields[name] = integer(
                 title=name.replace("_", " ").title(),
-                description=f"{desc} (0 = auto/unlimited)",
+                description=desc,
                 default=current_value if current_value is not None else 0,
                 minimum=0,
                 maximum=max_val,
@@ -162,6 +191,45 @@ def _build_model_form(current_model: str | None, config_data: dict[str, Any]) ->
     )
 
 
+def _normalize_shell_updates(result: dict[str, Any]) -> dict[str, Any]:
+    """Normalize shell form results into config values."""
+    shell_updates: dict[str, Any] = {}
+
+    timeout_seconds = result.get("timeout_seconds")
+    if isinstance(timeout_seconds, int) and timeout_seconds > 0:
+        shell_updates["timeout_seconds"] = timeout_seconds
+
+    warning_interval_seconds = result.get("warning_interval_seconds")
+    if isinstance(warning_interval_seconds, int) and warning_interval_seconds > 0:
+        shell_updates["warning_interval_seconds"] = warning_interval_seconds
+
+    # output_display_lines: -1 means show all (None), 0 means show none, >0 means show amount.
+    output_lines = result.get("output_display_lines", -1)
+    if output_lines == -1:
+        shell_updates["output_display_lines"] = None
+    else:
+        shell_updates["output_display_lines"] = output_lines
+
+    # output_byte_limit: 0 means auto (None), >0 means explicit cap.
+    byte_limit = result.get("output_byte_limit", 0)
+    if byte_limit == 0:
+        shell_updates["output_byte_limit"] = None
+    else:
+        shell_updates["output_byte_limit"] = byte_limit
+
+    shell_updates["show_bash"] = result.get("show_bash", True)
+    shell_updates["enable_read_text_file"] = result.get("enable_read_text_file", True)
+
+    # write_text_file mode: auto|on|off (defaults to auto).
+    mode_raw = result.get("write_text_file_mode", "auto")
+    mode_value = mode_raw.strip().lower() if isinstance(mode_raw, str) else "auto"
+    if mode_value not in {"auto", "on", "off"}:
+        mode_value = "auto"
+    shell_updates["write_text_file_mode"] = mode_value
+
+    return shell_updates
+
+
 @app.command("shell")
 def config_shell(config: ConfigOption = None) -> None:
     """Configure shell execution settings interactively."""
@@ -186,29 +254,7 @@ def config_shell(config: ConfigOption = None) -> None:
         raise typer.Exit(0)
 
     # Process results - handle special cases
-    shell_updates: dict[str, Any] = {}
-
-    if result.get("timeout_seconds"):
-        shell_updates["timeout_seconds"] = result["timeout_seconds"]
-
-    if result.get("warning_interval_seconds"):
-        shell_updates["warning_interval_seconds"] = result["warning_interval_seconds"]
-
-    # Handle output_display_lines: 0 means None (unlimited)
-    output_lines = result.get("output_display_lines", 0)
-    if output_lines == 0:
-        shell_updates["output_display_lines"] = None
-    else:
-        shell_updates["output_display_lines"] = output_lines
-
-    # Handle output_byte_limit: 0 means None (auto)
-    byte_limit = result.get("output_byte_limit", 0)
-    if byte_limit == 0:
-        shell_updates["output_byte_limit"] = None
-    else:
-        shell_updates["output_byte_limit"] = byte_limit
-
-    shell_updates["show_bash"] = result.get("show_bash", True)
+    shell_updates = _normalize_shell_updates(result)
 
     # Update config
     if "shell_execution" not in config_data or config_data["shell_execution"] is None:

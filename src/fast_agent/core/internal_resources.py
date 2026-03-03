@@ -90,7 +90,11 @@ def format_internal_resources_for_prompt(resources: Sequence[InternalResource]) 
     if not resources:
         return ""
 
-    lines: list[str] = ["<available_resources>"]
+    lines: list[str] = [
+        "For detailed fast-agent/AgentCard guidance, call `get_resource` with `internal://fast-agent/smart-agent-cards`.",
+        "Use `list_resources` to discover available resources first.",
+        "<available_resources>",
+    ]
     for resource in resources:
         lines.append("  <resource>")
         lines.append(f"    <uri>{resource.uri}</uri>")

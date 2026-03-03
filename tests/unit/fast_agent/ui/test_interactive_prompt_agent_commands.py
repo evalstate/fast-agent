@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from mcp import CallToolRequest
-from mcp.types import CallToolRequestParams, TextContent
+from mcp.types import CallToolRequestParams, CallToolResult, TextContent
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.commands.results import CommandMessage, CommandOutcome
@@ -417,22 +417,42 @@ async def test_history_webclear_removes_web_channels(monkeypatch, capsys: Any) -
 
 
 @pytest.mark.asyncio
-async def test_cancelled_turn_auto_fixes_pending_tool_call(monkeypatch, capsys: Any) -> None:
+async def test_cancelled_turn_reports_interrupted_tool_marker(monkeypatch, capsys: Any) -> None:
     _patch_input(monkeypatch, ["STOP"])
 
     class _CancelledHistoryAgent(_FakeAgent):
         def __init__(self) -> None:
+            class _State:
+                status = "appended_interrupted_tool_result"
+                removed_messages = 0
+
             pending_tool_call = CallToolRequest(
                 params=CallToolRequestParams(name="fake_tool", arguments={})
             )
             self._last_turn_cancelled = True
             self._last_turn_cancel_reason = "interrupted"
+            self._last_turn_history_state = _State()
             self._message_history = [
                 Prompt.user("hello"),
                 Prompt.assistant(
                     "pending",
                     stop_reason=LlmStopReason.TOOL_USE,
                     tool_calls={"call-1": pending_tool_call},
+                ),
+                PromptMessageExtended(
+                    role="user",
+                    content=[TextContent(type="text", text="**The user interrupted this tool call**")],
+                    tool_results={
+                        "call-1": CallToolResult(
+                            content=[
+                                TextContent(
+                                    type="text",
+                                    text="**The user interrupted this tool call**",
+                                )
+                            ],
+                            isError=True,
+                        )
+                    },
                 ),
             ]
 
@@ -467,7 +487,7 @@ async def test_cancelled_turn_auto_fixes_pending_tool_call(monkeypatch, capsys: 
     )
 
     output = capsys.readouterr().out
-    assert "The user interrupted this tool call" in output
+    assert "Added an interrupted tool-result marker" in output
     history = agent_app._agent("test").message_history
     assert len(history) == 3
     assert history[0].role == "user"
@@ -812,6 +832,45 @@ async def test_prompt_loop_recovers_from_cancelled_error_during_send(
 
     output = capsys.readouterr().out
     assert "Generation cancelled by user." in output
+
+
+@pytest.mark.asyncio
+async def test_prompt_loop_recovers_from_task_cancellation_during_send(
+    monkeypatch,
+    capsys: Any,
+) -> None:
+    inputs = iter(["hello", "STOP"])
+    send_calls = {"count": 0}
+
+    async def fake_get_enhanced_input(*_args: Any, **kwargs: Any) -> str:
+        available_agent_names = kwargs.get("available_agent_names")
+        if available_agent_names is not None:
+            enhanced_prompt.available_agents = set(available_agent_names)
+        return next(inputs)
+
+    async def fake_send(*_args: Any, **_kwargs: Any) -> str:
+        send_calls["count"] += 1
+        task = asyncio.current_task()
+        assert task is not None
+        task.cancel()
+        await asyncio.sleep(0)
+        return ""
+
+    monkeypatch.setattr(interactive_prompt, "get_enhanced_input", fake_get_enhanced_input)
+
+    prompt_ui = InteractivePrompt()
+    agent_app = _FakeAgentApp(["vertex-rag"])
+
+    await prompt_ui.prompt_loop(
+        send_func=fake_send,
+        default_agent="vertex-rag",
+        available_agents=["vertex-rag"],
+        prompt_provider=cast("AgentApp", agent_app),
+    )
+
+    output = capsys.readouterr().out
+    assert "Generation cancelled by user." in output
+    assert send_calls["count"] == 1
 
 
 @pytest.mark.asyncio

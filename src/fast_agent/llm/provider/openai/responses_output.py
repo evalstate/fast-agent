@@ -193,7 +193,9 @@ class ResponsesOutputMixin:
         if reasoning_blocks:
             return reasoning_blocks
         if streamed_summary:
-            return [text_content("".join(streamed_summary))]
+            summary_text = "".join(streamed_summary).strip()
+            if summary_text:
+                return [text_content(summary_text)]
         return []
 
     def _extract_encrypted_reasoning(self, response: Any) -> list[ContentBlock]:

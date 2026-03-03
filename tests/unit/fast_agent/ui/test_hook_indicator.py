@@ -16,6 +16,15 @@ class TestBuildHeaderLeft:
         )
         assert result == "[green]▎[/green][dim green]◀[/dim green]"
 
+    def test_header_without_arrow_emits_compact_bar_only(self) -> None:
+        """System-style headers can omit the arrow glyph entirely."""
+        result = ConsoleDisplay.build_header_left(
+            block_color="yellow",
+            arrow="",
+            arrow_style="dim yellow",
+        )
+        assert result == "[yellow]▎[/yellow]"
+
     def test_header_with_name_no_hook(self) -> None:
         """Header with name but no hook indicator."""
         result = ConsoleDisplay.build_header_left(

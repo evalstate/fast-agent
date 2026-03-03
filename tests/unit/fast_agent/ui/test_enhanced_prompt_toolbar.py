@@ -5,6 +5,7 @@ from fast_agent.ui.enhanced_prompt import (
     _can_fit_shell_path_and_version,
     _fit_shell_identity_for_toolbar,
     _fit_shell_path_for_toolbar,
+    _format_context_usage_percent_for_toolbar,
     _format_parent_current_path,
     _format_toolbar_agent_identity,
     _left_truncate_with_ellipsis,
@@ -47,6 +48,29 @@ def test_fit_shell_path_for_toolbar_left_truncates_when_current_folder_too_long(
 
 def test_fit_shell_path_for_toolbar_returns_empty_when_no_space() -> None:
     assert _fit_shell_path_for_toolbar(Path("parent/current"), 0) == ""
+
+
+def test_format_context_usage_percent_for_toolbar_none() -> None:
+    assert _format_context_usage_percent_for_toolbar(None) is None
+
+
+def test_format_context_usage_percent_for_toolbar_low_usage() -> None:
+    assert _format_context_usage_percent_for_toolbar(0.9) == "0.90%"
+    assert _format_context_usage_percent_for_toolbar(3.1) == "3.10%"
+
+
+def test_format_context_usage_percent_for_toolbar_medium_usage() -> None:
+    assert _format_context_usage_percent_for_toolbar(15.1) == "15.1%"
+    assert _format_context_usage_percent_for_toolbar(99.94) == "99.9%"
+
+
+def test_format_context_usage_percent_for_toolbar_high_usage() -> None:
+    assert _format_context_usage_percent_for_toolbar(100.0) == "100%+"
+    assert _format_context_usage_percent_for_toolbar(145.2) == "100%+"
+
+
+def test_format_context_usage_percent_for_toolbar_negative_is_clamped() -> None:
+    assert _format_context_usage_percent_for_toolbar(-1) == "0.00%"
 
 
 def test_fit_shell_identity_for_toolbar_includes_version_when_room_exists() -> None:

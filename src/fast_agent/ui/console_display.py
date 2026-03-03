@@ -257,7 +257,9 @@ class ConsoleDisplay:
         Returns:
             Rich markup string for the left side of the header
         """
-        left = f"[{block_color}]▎[/{block_color}][{arrow_style}]{arrow}[/{arrow_style}]"
+        left = f"[{block_color}]▎[/{block_color}]"
+        if arrow:
+            left += f"[{arrow_style}]{arrow}[/{arrow_style}]"
         if show_hook_indicator:
             left += f" [{block_color}]{HOOK_INDICATOR_GLYPH}[/{block_color}]"
         if name:
@@ -327,6 +329,16 @@ class ConsoleDisplay:
         # Create combined separator and status line
         self._create_combined_separator_status(left, right_info)
 
+        is_empty_content = False
+        if isinstance(content, str):
+            is_empty_content = content == ""
+        elif isinstance(content, Text):
+            is_empty_content = content.plain == ""
+
+        skip_empty_content = is_empty_content and (
+            additional_message is not None or pre_content is not None
+        )
+
         # Display the content
         if pre_content:
             if isinstance(pre_content, Text):
@@ -334,14 +346,18 @@ class ConsoleDisplay:
                     console.console.print(pre_content, markup=self._markup)
             else:
                 console.console.print(pre_content, markup=self._markup)
-        self._display_content(
-            content,
-            truncate_content,
-            is_error,
-            message_type,
-            check_markdown_markers=False,
-            render_markdown=render_markdown,
-        )
+            if not skip_empty_content:
+                console.console.print()
+
+        if not skip_empty_content:
+            self._display_content(
+                content,
+                truncate_content,
+                is_error,
+                message_type,
+                check_markdown_markers=False,
+                render_markdown=render_markdown,
+            )
         if additional_message:
             console.console.print(additional_message, markup=self._markup)
 
@@ -673,7 +689,13 @@ class ConsoleDisplay:
         if not joined.strip():
             return None
 
-        # Render reasoning in dim italic and leave a blank line before main content
+        # Render reasoning in dim italic. Spacing between reasoning and main
+        # content is handled by display_message() so reasoning-only turns don't
+        # emit extra blank lines before the next header.
+        joined = joined.rstrip("\n")
+        if not joined.strip():
+            return None
+
         if self._looks_like_markdown(joined):
             try:
                 prepared = prepare_markdown_content(joined, self._escape_xml)
@@ -682,17 +704,14 @@ class ConsoleDisplay:
                     code_theme=self.code_style,
                     style="dim italic",
                 )
-                return Group(markdown, Text("\n"))
+                return Group(markdown)
             except Exception as exc:
                 logger.exception(
                     "Failed to render reasoning markdown",
                     data={"error": str(exc)},
                 )
 
-        text = joined
-        if not text.endswith("\n"):
-            text += "\n"
-        return Text(text, style="dim italic")
+        return Text(joined, style="dim italic")
 
     async def show_assistant_message(
         self,

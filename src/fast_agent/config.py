@@ -188,7 +188,20 @@ class ShellSettings(BaseModel):
         default="warn",
         description="Policy when an agent shell cwd is missing or invalid",
     )
-
+    enable_read_text_file: bool = Field(
+        default=True,
+        description=(
+            "Expose a local read_text_file tool (ACP-compatible signature) "
+            "when shell runtime is enabled"
+        ),
+    )
+    write_text_file_mode: Literal["auto", "on", "off"] | None = Field(
+        default=None,
+        description=(
+            "Control local write_text_file exposure when shell runtime is enabled "
+            "('auto' disables for Codex-family models, 'on' always exposes, 'off' disables)"
+        ),
+    )
     model_config = ConfigDict(extra="ignore")
 
     @field_validator("timeout_seconds", mode="before")
@@ -224,6 +237,32 @@ class ShellSettings(BaseModel):
         if value < 0:
             raise ValueError("output_display_lines must be a non-negative integer.")
         return value
+
+    @field_validator("write_text_file_mode", mode="before")
+    @classmethod
+    def _coerce_write_text_file_mode(
+        cls, value: Any
+    ) -> Literal["auto", "on", "off"] | None:
+        if value is None:
+            return None
+
+        if isinstance(value, bool):
+            return "on" if value else "off"
+
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized == "auto":
+                return "auto"
+            if normalized == "on":
+                return "on"
+            if normalized == "off":
+                return "off"
+            if normalized in {"true", "yes", "1"}:
+                return "on"
+            if normalized in {"false", "no", "0"}:
+                return "off"
+
+        raise ValueError("write_text_file_mode must be one of: auto, on, off")
 
 
 class MCPRootSettings(BaseModel):
@@ -422,7 +461,9 @@ class MCPSettings(BaseModel):
                 raise ValueError(f"`{source_path}` must be a non-empty string")
 
             name_value = entry.get("name")
-            if name_value is not None and (not isinstance(name_value, str) or not name_value.strip()):
+            if name_value is not None and (
+                not isinstance(name_value, str) or not name_value.strip()
+            ):
                 raise ValueError(f"`mcp.targets[{index}].name` must be a non-empty string")
 
             overrides = {key: value for key, value in entry.items() if key != "target"}
@@ -1431,16 +1472,12 @@ class Settings(BaseSettings):
 
         for namespace, entries in value.items():
             if not valid_name.fullmatch(namespace):
-                raise ValueError(
-                    "model_aliases namespace names must match [A-Za-z_][A-Za-z0-9_-]*"
-                )
+                raise ValueError("model_aliases namespace names must match [A-Za-z_][A-Za-z0-9_-]*")
 
             normalized_entries: dict[str, str] = {}
             for key, model in entries.items():
                 if not valid_name.fullmatch(key):
-                    raise ValueError(
-                        "model_aliases keys must match [A-Za-z_][A-Za-z0-9_-]*"
-                    )
+                    raise ValueError("model_aliases keys must match [A-Za-z_][A-Za-z0-9_-]*")
 
                 model_value = model.strip()
                 if not model_value:

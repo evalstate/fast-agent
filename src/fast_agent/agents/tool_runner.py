@@ -53,8 +53,7 @@ _logger = get_logger(__name__)
 HistoryRollbackStatus = Literal[
     "history_disabled",
     "history_empty",
-    "rolled_back_to_assistant",
-    "rolled_back_to_templates",
+    "appended_interrupted_tool_result",
     "history_unchanged",
 ]
 
@@ -166,16 +165,21 @@ class ToolRunner:
         try:
             async for message in self:
                 last = message
-        except (asyncio.CancelledError, KeyboardInterrupt) as exc:
+        except asyncio.CancelledError:
             rollback_state = self._reset_history_after_cancelled_turn()
             self._record_cancelled_turn(
-                reason=(
-                    "cancelled"
-                    if isinstance(exc, asyncio.CancelledError)
-                    else "interrupted"
-                ),
+                reason="cancelled",
                 rollback_state=rollback_state,
             )
+            await self._persist_cancelled_turn_state_after_task_cancel()
+            raise
+        except KeyboardInterrupt:
+            rollback_state = self._reset_history_after_cancelled_turn()
+            self._record_cancelled_turn(
+                reason="interrupted",
+                rollback_state=rollback_state,
+            )
+            await self._persist_cancelled_turn_state()
             raise
         if last is None:
             raise RuntimeError("ToolRunner produced no messages")
@@ -186,6 +190,7 @@ class ToolRunner:
                 reason="cancelled",
                 rollback_state=rollback_state,
             )
+            await self._persist_cancelled_turn_state()
             return last
 
         # Fire after_turn_complete hook once the entire turn is done
@@ -207,11 +212,62 @@ class ToolRunner:
         except Exception:
             pass
 
-    def _reset_history_after_cancelled_turn(self) -> HistoryRollbackState:
+    async def _persist_cancelled_turn_state(self) -> None:
+        """Persist reconciled history for cancelled turns when session history is enabled."""
         history = self._agent.message_history
+        if not history:
+            return
+
+        try:
+            from fast_agent.hooks.hook_context import HookContext
+            from fast_agent.hooks.session_history import save_session_history
+
+            await save_session_history(
+                HookContext(
+                    runner=self,
+                    agent=self._agent,
+                    message=history[-1],
+                    hook_type="after_turn_cancelled",
+                )
+            )
+        except Exception as exc:
+            _logger.warning(
+                "Failed to persist cancelled turn state",
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+
+    async def _persist_cancelled_turn_state_after_task_cancel(self) -> None:
+        """Persist cancelled-turn history even when this task was externally cancelled."""
+        task = asyncio.current_task()
+        if task is None:
+            await self._persist_cancelled_turn_state()
+            return
+
+        cancellation_requests = task.cancelling()
+        if cancellation_requests == 0:
+            await self._persist_cancelled_turn_state()
+            return
+
+        for _ in range(cancellation_requests):
+            task.uncancel()
+
+        try:
+            await self._persist_cancelled_turn_state()
+        finally:
+            for _ in range(cancellation_requests):
+                task.cancel()
+
+    @staticmethod
+    def reconcile_interrupted_history(
+        agent: MessageHistoryAgentProtocol,
+        *,
+        use_history: bool,
+    ) -> HistoryRollbackState:
+        history = agent.message_history
         history_before = len(history)
 
-        if not self._agent.config.use_history:
+        if not use_history:
             return HistoryRollbackState(
                 status="history_disabled",
                 history_before=history_before,
@@ -227,48 +283,19 @@ class ToolRunner:
                 removed_messages=0,
             )
 
-        last_success_idx: int | None = None
-        for idx in range(len(history) - 1, -1, -1):
-            msg = history[idx]
-            if msg.role != "assistant":
-                continue
-            if msg.stop_reason in (LlmStopReason.TOOL_USE, LlmStopReason.CANCELLED):
-                continue
-            last_success_idx = idx
-            break
-
-        if last_success_idx is None:
-            template_prefix: list[PromptMessageExtended] = []
-            for msg in history:
-                if msg.is_template:
-                    template_prefix.append(msg)
-                else:
-                    break
-            if len(template_prefix) != len(history):
-                self._agent.load_message_history(template_prefix)
-                history_after = len(template_prefix)
-                return HistoryRollbackState(
-                    status="rolled_back_to_templates",
-                    history_before=history_before,
-                    history_after=history_after,
-                    removed_messages=history_before - history_after,
-                )
-
+        last_message = history[-1]
+        if (
+            last_message.role == "assistant"
+            and (last_message.tool_calls or {})
+            and last_message.stop_reason == LlmStopReason.TOOL_USE
+        ):
+            interrupted_tool_message = ToolRunner._build_interrupted_tool_result(last_message)
+            agent.load_message_history([*history, interrupted_tool_message])
             return HistoryRollbackState(
-                status="history_unchanged",
+                status="appended_interrupted_tool_result",
                 history_before=history_before,
-                history_after=history_before,
+                history_after=history_before + 1,
                 removed_messages=0,
-            )
-
-        if last_success_idx < len(history) - 1:
-            self._agent.load_message_history(history[: last_success_idx + 1])
-            history_after = last_success_idx + 1
-            return HistoryRollbackState(
-                status="rolled_back_to_assistant",
-                history_before=history_before,
-                history_after=history_after,
-                removed_messages=history_before - history_after,
             )
 
         return HistoryRollbackState(
@@ -276,6 +303,30 @@ class ToolRunner:
             history_before=history_before,
             history_after=history_before,
             removed_messages=0,
+        )
+
+    def _reset_history_after_cancelled_turn(self) -> HistoryRollbackState:
+        return ToolRunner.reconcile_interrupted_history(
+            self._agent,
+            use_history=self._agent.config.use_history,
+        )
+
+    @staticmethod
+    def _build_interrupted_tool_result(
+        pending_request: PromptMessageExtended,
+    ) -> PromptMessageExtended:
+        interrupted_text = "**The user interrupted this tool call**"
+        tool_results: dict[str, CallToolResult] = {}
+        for tool_id in (pending_request.tool_calls or {}).keys():
+            tool_results[tool_id] = CallToolResult(
+                content=[text_content(interrupted_text)],
+                isError=True,
+            )
+
+        return PromptMessageExtended(
+            role="user",
+            content=[text_content(interrupted_text)],
+            tool_results=tool_results,
         )
 
     def _build_tool_error_response(

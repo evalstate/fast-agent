@@ -25,6 +25,7 @@ PICKER_PROVIDER_ORDER: tuple[Provider, ...] = (
     Provider.ANTHROPIC,
     Provider.HUGGINGFACE,
     Provider.OPENAI,
+    Provider.GENERIC,
     Provider.GOOGLE,
     Provider.XAI,
     Provider.GROQ,
@@ -41,6 +42,8 @@ REFER_TO_DOCS_PROVIDERS: tuple[Provider, ...] = (
     Provider.AZURE,
     Provider.BEDROCK,
 )
+
+GENERIC_CUSTOM_MODEL_SENTINEL = "generic.__custom__"
 
 
 @dataclass(frozen=True)
@@ -113,7 +116,7 @@ def _provider_is_active(provider: Provider, config_payload: dict[str, Any]) -> b
         except Exception:
             pass
 
-    if Provider.FAST_AGENT == provider:
+    if provider in {Provider.FAST_AGENT, Provider.GENERIC}:
         return True
 
     return False
@@ -185,6 +188,14 @@ def model_options_for_provider(
     *,
     source: ModelSource,
 ) -> list[ModelOption]:
+    if provider == Provider.GENERIC:
+        return [
+            ModelOption(
+                spec=GENERIC_CUSTOM_MODEL_SENTINEL,
+                label="Enter local model string (e.g. llama3.2)",
+            )
+        ]
+
     if provider in REFER_TO_DOCS_PROVIDERS:
         return [
             ModelOption(

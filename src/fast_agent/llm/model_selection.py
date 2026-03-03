@@ -47,6 +47,7 @@ class ModelSelectionCatalog:
                 fast=True,
             ),
             CatalogModelEntry(alias="gpt-5-nano", model="responses.gpt-5-nano?reasoning=medium"),
+            CatalogModelEntry(alias="gpt-5.3-chat-latest", model="chatgpt"),
         ),
         Provider.OPENAI: (
             CatalogModelEntry(alias="gpt-4.1", model="openai.gpt-4.1"),

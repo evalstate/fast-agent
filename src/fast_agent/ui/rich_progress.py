@@ -238,6 +238,34 @@ class RichProgressDisplay:
                     task.visible = False
                     break
 
+    def clear_agent_tasks(self, agent_name: str | None) -> None:
+        """Remove all progress rows for an agent, including correlated tool rows."""
+        normalized_agent = (agent_name or "").strip()
+        if not normalized_agent:
+            return
+
+        prefix = f"{normalized_agent}::"
+        with self._lock:
+            task_names = [
+                task_name
+                for task_name in list(self._taskmap)
+                if task_name == normalized_agent or task_name.startswith(prefix)
+            ]
+            if not task_names:
+                return
+
+            for task_name in task_names:
+                task_id = self._taskmap.get(task_name)
+                if task_id is None:
+                    continue
+                self._drop_task(task_name, task_id)
+
+            self._trace(
+                "clear_agent_tasks",
+                agent_name=normalized_agent,
+                cleared=len(task_names),
+            )
+
     @contextmanager
     def paused(self):
         """Context manager for temporarily pausing the display."""

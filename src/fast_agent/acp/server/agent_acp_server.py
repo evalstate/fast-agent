@@ -654,12 +654,12 @@ class AgentACPServer(ACPAgent):
 
         aggregator = None
         skill_manifests = None
-        has_filesystem_runtime = False
+        skill_read_tool_name = "read_skill"
         effective_context = dict(context)
         if isinstance(agent, McpInstructionCapable):
             aggregator = agent.aggregator
             skill_manifests = agent.skill_manifests
-            has_filesystem_runtime = agent.has_filesystem_runtime
+            skill_read_tool_name = agent.skill_read_tool_name
             if agent.instruction_context:
                 effective_context = dict(agent.instruction_context)
 
@@ -669,7 +669,7 @@ class AgentACPServer(ACPAgent):
             template,
             aggregator=aggregator,
             skill_manifests=skill_manifests,
-            has_filesystem_runtime=has_filesystem_runtime,
+            skill_read_tool_name=skill_read_tool_name,
             context=effective_context,
             source=getattr(agent, "name", None),
         )

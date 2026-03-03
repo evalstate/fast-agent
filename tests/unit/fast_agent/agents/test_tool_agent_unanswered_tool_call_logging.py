@@ -65,14 +65,16 @@ async def test_unanswered_tool_call_auto_heals_on_new_turn():
     result = await agent.generate_impl([Prompt.user("hello")], RequestParams())
 
     assert result.role == "assistant"
-    assert all(
-        not (
-            msg.role == "assistant"
-            and msg.tool_calls
-            and msg.stop_reason == LlmStopReason.TOOL_USE
-        )
-        for msg in agent.message_history
-    )
+    assert len(agent.message_history) == 4
+    assert agent.message_history[0].role == "assistant"
+    assert agent.message_history[0].stop_reason == LlmStopReason.TOOL_USE
+    interrupted = agent.message_history[1]
+    assert interrupted.role == "user"
+    assert interrupted.tool_results is not None
+    assert "call-1" in interrupted.tool_results
+    interrupted_text = interrupted.last_text()
+    assert interrupted_text is not None
+    assert "The user interrupted this tool call" in interrupted_text
 
 
 @pytest.mark.asyncio

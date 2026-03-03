@@ -93,18 +93,18 @@ async def apply_instruction_context(
         resolved_context = build_agent_instruction_context(agent, context_vars)
         aggregator = None
         skill_manifests = None
-        has_filesystem_runtime = False
+        skill_read_tool_name = "read_skill"
         if isinstance(agent, McpInstructionCapable):
             agent.set_instruction_context(dict(resolved_context))
             aggregator = agent.aggregator
             skill_manifests = agent.skill_manifests
-            has_filesystem_runtime = agent.has_filesystem_runtime
+            skill_read_tool_name = agent.skill_read_tool_name
 
         resolved = await build_instruction(
             template,
             aggregator=aggregator,
             skill_manifests=skill_manifests,
-            has_filesystem_runtime=has_filesystem_runtime,
+            skill_read_tool_name=skill_read_tool_name,
             context=dict(resolved_context),
             source=getattr(agent, "name", None),
         )

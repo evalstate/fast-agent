@@ -12,7 +12,6 @@ from typing import Any
 import typer
 import yaml
 from rich.table import Table
-from rich.text import Text
 
 from fast_agent.cli.env_helpers import resolve_environment_dir_option
 from fast_agent.config import resolve_config_search_root
@@ -25,6 +24,7 @@ from fast_agent.llm.provider_key_manager import API_KEY_HINT_TEXT, ProviderKeyMa
 from fast_agent.llm.provider_types import Provider
 from fast_agent.paths import default_skill_paths, resolve_environment_paths
 from fast_agent.skills import SkillRegistry
+from fast_agent.ui.a3_headers import build_a3_section_header
 from fast_agent.ui.console import console
 
 app = typer.Typer(
@@ -142,9 +142,7 @@ def _resolve_provider_catalog_scope(provider_name: str) -> ProviderCatalogScope:
 
 def _print_section_header(title: str, color: str = "blue") -> None:
     """Render section headers with compact a3 styling."""
-    header = Text.from_markup(
-        f"[{color}]▎[/{color}][dim {color}]•[/dim {color}] [{color}]{title}[/{color}]"
-    )
+    header = build_a3_section_header(title, color=color, include_dot=False)
     console.print()
     console.print(header)
     console.print()

@@ -285,6 +285,29 @@ def test_dedupes_duplicate_reasoning_ids():
     assert len(reasoning_items) == 1
 
 
+def test_extract_reasoning_summary_trims_streamed_fallback() -> None:
+    harness = _OutputHarness()
+    response = SimpleNamespace(output=[])
+
+    blocks = harness._extract_reasoning_summary(
+        response,
+        ["Inspecting interactive prompt for error handling", "\n\n"],
+    )
+
+    assert len(blocks) == 1
+    assert isinstance(blocks[0], TextContent)
+    assert blocks[0].text == "Inspecting interactive prompt for error handling"
+
+
+def test_extract_reasoning_summary_omits_whitespace_only_streamed_fallback() -> None:
+    harness = _OutputHarness()
+    response = SimpleNamespace(output=[])
+
+    blocks = harness._extract_reasoning_summary(response, ["\n", "   ", "\t"])
+
+    assert blocks == []
+
+
 def test_responses_tool_use_id_prefers_call_id_when_available():
     """
     Responses streaming emits tool_use_id=call_id; tool execution must use the same

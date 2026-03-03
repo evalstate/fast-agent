@@ -38,6 +38,8 @@ from fast_agent.ui.console_display import ConsoleDisplay
 from fast_agent.ui.message_display_helpers import (
     build_tool_use_additional_message,
     build_user_message_display,
+    tool_use_requests_file_read_access,
+    tool_use_requests_shell_access,
 )
 from fast_agent.workflow_telemetry import (
     NoOpWorkflowTelemetryProvider,
@@ -132,6 +134,11 @@ class LlmAgent(LlmDecorator):
 
         # Determine display content based on stop reason if not provided
         additional_segments: List[Text] = []
+        shell_only_tool_use = tool_use_requests_shell_access(
+            message,
+            shell_tool_name=self._shell_tool_name_for_display(),
+        )
+        read_only_tool_use = tool_use_requests_file_read_access(message)
 
         # Generate additional message based on stop reason
         match message.stop_reason:
@@ -168,7 +175,11 @@ class LlmAgent(LlmDecorator):
                 )
 
             case LlmStopReason.TOOL_USE:
-                tool_use_message = build_tool_use_additional_message(message)
+                tool_use_message = build_tool_use_additional_message(
+                    message,
+                    shell_access=shell_only_tool_use,
+                    file_read=read_only_tool_use,
+                )
                 if tool_use_message is not None:
                     additional_segments.append(tool_use_message)
 
@@ -282,6 +293,10 @@ class LlmAgent(LlmDecorator):
                 display_model = f"{display_model} ({context_percentage:.1f}%)"
 
         # Convert highlight_items to highlight_index
+        if shell_only_tool_use or read_only_tool_use:
+            bottom_items = None
+            highlight_items = None
+
         highlight_index = None
         if highlight_items and bottom_items:
             if isinstance(highlight_items, str):
@@ -318,6 +333,10 @@ class LlmAgent(LlmDecorator):
                 self.display.show_status_message(additional_message_text)
             self.display.show_mermaid_diagrams_from_message_text(message_text)
         self._display_url_elicitations_from_history(display_name)
+
+    def _shell_tool_name_for_display(self) -> str | None:
+        """Return the tool name used for local shell execution, if any."""
+        return None
 
     def _summary_text_for_result(
         self,

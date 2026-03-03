@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Union, cast
 
-from mcp.types import CallToolResult, PromptMessage
+from mcp.types import PromptMessage
 from rich import print as rich_print
 
 if TYPE_CHECKING:
@@ -39,7 +39,6 @@ from fast_agent.commands.handlers import mcp_runtime as mcp_runtime_handlers  # 
 from fast_agent.commands.handlers import prompts as prompt_handlers
 from fast_agent.config import get_settings
 from fast_agent.core.exceptions import PromptExitError
-from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui import enhanced_prompt
@@ -209,8 +208,41 @@ class InteractivePrompt:
             """Handle Ctrl+C/Cancel while generation or tool calling is active."""
             nonlocal ctrl_c_deadline
 
+            task = asyncio.current_task()
+            if task is not None:
+                while task.uncancel() > 0:
+                    pass
+
             ctrl_c_deadline = None
             rich_print("[yellow]Generation cancelled by user.[/yellow]")
+
+        def _clear_progress_for_agent(agent_name: str | None) -> None:
+            """Remove stale progress rows after an interrupted/cancelled send."""
+            try:
+                progress_display.clear_agent_tasks(agent_name)
+            except Exception:
+                pass
+
+        def _last_assistant_message_cancelled(agent_name: str | None) -> bool:
+            """Return True when an agent's latest history message is assistant CANCELLED."""
+            if not agent_name:
+                return False
+
+            try:
+                agent_obj = prompt_provider._agent(agent_name)
+            except Exception:
+                return False
+
+            try:
+                history = getattr(agent_obj, "message_history", [])
+                last_message = history[-1] if history else None
+                return bool(
+                    last_message is not None
+                    and getattr(last_message, "role", None) == "assistant"
+                    and getattr(last_message, "stop_reason", None) == LlmStopReason.CANCELLED
+                )
+            except Exception:
+                return False
 
         def _emit_startup_warning_digest_once() -> None:
             nonlocal startup_warning_digest_checked
@@ -293,48 +325,6 @@ class InteractivePrompt:
                 except Exception:
                     pass
 
-        def _auto_fix_pending_tool_call(agent_obj: Any) -> bool:
-            """Insert an interrupted tool result if history ends with pending TOOL_USE."""
-            history = getattr(agent_obj, "message_history", None)
-            if not isinstance(history, list) or not history:
-                return False
-
-            last_message = history[-1]
-            if not (
-                getattr(last_message, "role", None) == "assistant"
-                and getattr(last_message, "tool_calls", None)
-                and getattr(last_message, "stop_reason", None) == LlmStopReason.TOOL_USE
-            ):
-                return False
-
-            tool_calls = getattr(last_message, "tool_calls", None) or {}
-            tool_results: dict[str, CallToolResult] = {}
-            for tool_call_id in tool_calls.keys():
-                tool_results[tool_call_id] = CallToolResult(
-                    content=[text_content("**The user interrupted this tool call**")],
-                    isError=True,
-                )
-
-            interrupted_result = PromptMessageExtended(
-                role="user",
-                content=[text_content("**The user interrupted this tool call**")],
-                tool_results=tool_results,
-            )
-            repaired_history = [*history, interrupted_result]
-
-            load_history = getattr(agent_obj, "load_message_history", None)
-            if callable(load_history):
-                load_history(repaired_history)
-                return True
-
-            existing_history = getattr(agent_obj, "message_history", None)
-            if isinstance(existing_history, list):
-                existing_history.clear()
-                existing_history.extend(repaired_history)
-                return True
-
-            return False
-
         def _describe_cancelled_history_state(history_state: object | None) -> str:
             status = getattr(history_state, "status", None)
             removed_messages = getattr(history_state, "removed_messages", 0)
@@ -348,22 +338,19 @@ class InteractivePrompt:
             if status == "history_empty":
                 return "History was already empty."
 
-            if status == "rolled_back_to_assistant":
+            if status == "appended_interrupted_tool_result":
                 return (
-                    f"Rolled back the interrupted turn and removed {removed_messages} "
-                    "message(s), returning to the previous completed assistant turn."
-                )
-
-            if status == "rolled_back_to_templates":
-                return (
-                    f"Rolled back to template-only history and removed {removed_messages} "
-                    "message(s)."
+                    "Added an interrupted tool-result marker "
+                    "('**The user interrupted this tool call**')."
                 )
 
             if status == "history_unchanged":
-                return "History was already at a stable boundary; no rollback was needed."
+                return "No dangling tool call was found; history was left unchanged."
 
-            return "History rollback completed."
+            return (
+                f"History reconciliation completed (removed {removed_messages} "
+                "message(s))."
+            )
 
         while True:
             # Variables for hash command - sent after input handling
@@ -385,35 +372,19 @@ class InteractivePrompt:
                 agent_obj = None
 
             if agent_obj is not None and getattr(agent_obj, "_last_turn_cancelled", False):
+                _clear_progress_for_agent(agent)
                 reason = getattr(agent_obj, "_last_turn_cancel_reason", "cancelled")
                 setattr(agent_obj, "_last_turn_cancelled", False)
                 history_state = getattr(agent_obj, "_last_turn_history_state", None)
                 setattr(agent_obj, "_last_turn_history_state", None)
-                pending_tool_call_repaired = False
-                if getattr(history_state, "status", None) != "history_disabled":
-                    try:
-                        pending_tool_call_repaired = _auto_fix_pending_tool_call(agent_obj)
-                    except Exception:
-                        pending_tool_call_repaired = False
-
                 state_message = _describe_cancelled_history_state(history_state)
-                if pending_tool_call_repaired:
-                    rich_print(
-                        "[yellow]Previous turn was {reason}. {state} Added an interrupted "
-                        "tool-result marker ('**The user interrupted this tool call**'). "
-                        "Use /history to inspect or manipulate history.[/yellow]".format(
-                            reason=reason,
-                            state=state_message,
-                        )
+                rich_print(
+                    "[yellow]Previous turn was {reason}. {state} "
+                    "Use /history to inspect or manipulate history.[/yellow]".format(
+                        reason=reason,
+                        state=state_message,
                     )
-                else:
-                    rich_print(
-                        "[yellow]Previous turn was {reason}. {state} "
-                        "Use /history to inspect or manipulate history.[/yellow]".format(
-                            reason=reason,
-                            state=state_message,
-                        )
-                    )
+                )
 
             if refreshed:
                 available_agents = _merge_pinned_agents(list(prompt_provider.agent_names()))
@@ -574,6 +545,7 @@ class InteractivePrompt:
                     progress_display.resume()
                     response_text = await send_func(hash_send_message, hash_send_target)
                 except (KeyboardInterrupt, asyncio.CancelledError):
+                    _clear_progress_for_agent(hash_send_target)
                     _handle_inflight_cancel()
                     continue
                 except Exception as exc:
@@ -582,6 +554,10 @@ class InteractivePrompt:
                 finally:
                     progress_display.pause(cancel_deferred_on_noop=True)
                     emit_prompt_mark("D")
+
+                if _last_assistant_message_cancelled(hash_send_target):
+                    _clear_progress_for_agent(hash_send_target)
+                    ctrl_c_deadline = None
 
                 # Status messages after send completes
                 if response_text:
@@ -638,6 +614,7 @@ class InteractivePrompt:
             try:
                 result = await send_func(prompt_payload, agent)
             except (KeyboardInterrupt, asyncio.CancelledError):
+                _clear_progress_for_agent(agent)
                 _handle_inflight_cancel()
                 continue
             finally:
@@ -648,23 +625,9 @@ class InteractivePrompt:
                 # rich_print(result)
                 print(result)
 
-            try:
-                agent_after_send = prompt_provider._agent(agent)
-            except Exception:
-                agent_after_send = None
-
-            if agent_after_send is not None:
-                try:
-                    history = getattr(agent_after_send, "message_history", [])
-                    last_message = history[-1] if history else None
-                    if (
-                        last_message is not None
-                        and getattr(last_message, "role", None) == "assistant"
-                        and getattr(last_message, "stop_reason", None) == LlmStopReason.CANCELLED
-                    ):
-                        ctrl_c_deadline = None
-                except Exception:
-                    pass
+            if _last_assistant_message_cancelled(agent):
+                _clear_progress_for_agent(agent)
+                ctrl_c_deadline = None
 
             # Update last copyable output with assistant response for Ctrl+Y
             if result:

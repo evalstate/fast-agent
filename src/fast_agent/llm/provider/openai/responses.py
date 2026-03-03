@@ -327,59 +327,6 @@ class ResponsesLLM(
             diagnostics["idle_age_seconds"] = round(idle_age_seconds, 3)
         return diagnostics
 
-    def _websocket_retry_status_suffix(
-        self,
-        *,
-        error: ResponsesWebSocketError | None,
-        diagnostics: dict[str, Any] | None,
-    ) -> str:
-        parts: list[str] = []
-        if error is not None:
-            if error.error_code:
-                parts.append(f"code={error.error_code}")
-            if error.status is not None:
-                parts.append(f"status={error.status}")
-            if error.error_param:
-                parts.append(f"param={error.error_param}")
-            error_text = self._websocket_retry_error_preview(str(error))
-            if error_text:
-                parts.append(f"err={error_text}")
-
-        if diagnostics is not None:
-            close_code = diagnostics.get("websocket_close_code")
-            if close_code is not None:
-                parts.append(f"close={close_code}")
-
-            websocket_closed = diagnostics.get("websocket_closed")
-            if isinstance(websocket_closed, bool):
-                parts.append(f"ws_closed={'yes' if websocket_closed else 'no'}")
-
-            idle_age = diagnostics.get("idle_age_seconds")
-            if isinstance(idle_age, (float, int)):
-                parts.append(f"idle={idle_age:.3f}s")
-
-        return " ".join(parts)
-
-    @staticmethod
-    def _websocket_retry_error_preview(value: str, *, limit: int = 120) -> str:
-        compact = " ".join(value.split())
-        if not compact:
-            return ""
-        if len(compact) <= limit:
-            return compact
-        return f"{compact[:limit - 3]}..."
-
-    def _show_ws_debug_status(self, message: str) -> None:
-        if not self._ws_debug_inline:
-            return
-        try:
-            from rich.text import Text
-
-            self.display.show_status_message(Text(message, style="dim"))
-        except Exception:
-            # UI status notification should never affect completion flow.
-            pass
-
     def _ws_input_count(self, payload: dict[str, Any]) -> int | None:
         input_items = payload.get("input")
         if not isinstance(input_items, list):
@@ -887,7 +834,6 @@ class ResponsesLLM(
 
         last_error: ResponsesWebSocketError | None = None
         reconnected = False
-        reconnect_status_suffix = ""
         for attempt in range(2):
             connection, is_reusable = await self._ws_connections.acquire(_create_connection)
             reused_existing_connection = is_reusable and connection.last_used_monotonic > 0.0
@@ -941,30 +887,8 @@ class ResponsesLLM(
                 keep_connection = True
                 if reconnected:
                     self._record_ws_turn_outcome("reconnected")
-                    try:
-                        from rich.text import Text
-
-                        reconnect_message = "WebSocket reconnected"
-                        if self._ws_debug_inline and reconnect_status_suffix:
-                            reconnect_message += f" ({reconnect_status_suffix})"
-                        self.display.show_status_message(
-                            Text(reconnect_message, style="dim")
-                        )
-                    except Exception:
-                        # UI status notification should never affect completion flow.
-                        pass
                 elif reused_existing_connection:
                     self._record_ws_turn_outcome("reused")
-                    if self._ws_debug_inline:
-                        try:
-                            from rich.text import Text
-
-                            self.display.show_status_message(
-                                Text.from_markup("[dim]WebSocket reused[/dim]")
-                            )
-                        except Exception:
-                            # UI status notification should never affect completion flow.
-                            pass
                 else:
                     self._record_ws_turn_outcome("fresh")
                 return response, streamed_summary, normalized_input
@@ -1023,10 +947,6 @@ class ResponsesLLM(
 
             if retry_after_release:
                 reconnected = True
-                reconnect_status_suffix = self._websocket_retry_status_suffix(
-                    error=last_error,
-                    diagnostics=reconnect_diagnostics,
-                )
                 retry_data: dict[str, Any] = {
                     "model": model_name,
                     "url": ws_url,
@@ -1039,10 +959,6 @@ class ResponsesLLM(
                     "Reusable Responses websocket connection unavailable; re-establishing connection",
                     data=retry_data,
                 )
-                if reconnect_status_suffix:
-                    self._show_ws_debug_status(f"WS reconnecting {reconnect_status_suffix}")
-                else:
-                    self._show_ws_debug_status("WS reconnecting")
                 continue
 
         if last_error is not None:

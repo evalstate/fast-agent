@@ -74,6 +74,7 @@ from fast_agent.ui.prompt.toolbar import (
     _can_fit_shell_path_and_version,
     _fit_shell_identity_for_toolbar,
     _fit_shell_path_for_toolbar,
+    _format_context_usage_percent_for_toolbar,
     _format_toolbar_agent_identity,
     _resolve_toolbar_width,
     _toolbar_markup_width,
@@ -769,6 +770,8 @@ async def get_enhanced_input(
         model_display = None
         tdv_segment = None
         turn_count = 0
+        context_pct: float | None = None
+        usage_accumulator = None
         agent = None
         if agent_provider:
             try:
@@ -780,6 +783,12 @@ async def get_enhanced_input(
             for message in agent.message_history:
                 if message.role == "user":
                     turn_count += 1
+            try:
+                usage_accumulator = getattr(agent, "usage_accumulator", None)
+                if usage_accumulator is not None:
+                    context_pct = usage_accumulator.context_usage_percentage
+            except Exception:
+                context_pct = None
 
             # Resolve LLM reference safely (avoid assertion when unattached)
             llm = None
@@ -894,6 +903,19 @@ async def get_enhanced_input(
             if not info and model_name:
                 info = ModelInfo.from_name(model_name)
 
+            # First render often has no usage turns yet, so the accumulator may not
+            # know its model/context window. If we can resolve a window from model
+            # metadata, show 0.00% instead of falling back to "000".
+            if context_pct is None and usage_accumulator is not None:
+                try:
+                    window_size = usage_accumulator.context_window_size
+                    if (not window_size or window_size <= 0) and info:
+                        window_size = info.context_window
+                    if window_size and window_size > 0:
+                        context_pct = (usage_accumulator.current_context_tokens / window_size) * 100
+                except Exception:
+                    context_pct = None
+
             # Default to text-only if info resolution fails for any reason
             t, d, v = (True, False, False)
             if info:
@@ -941,8 +963,8 @@ async def get_enhanced_input(
                     f"{gauge_segment} <style bg='ansigreen'>{model_label}</style>{codex_suffix}"
                 )
 
-        # Add turn counter (formatted as 3 digits)
-        middle_segments.append(f"{turn_count:03d}")
+        context_chip = _format_context_usage_percent_for_toolbar(context_pct)
+        middle_segments.append(context_chip if context_chip is not None else f"{turn_count:03d}")
 
         if shortcut_text:
             middle_segments.append(shortcut_text)

@@ -10,10 +10,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping, cast
 
 import typer
+from prompt_toolkit import PromptSession
 
 from fast_agent.cli.commands.server_helpers import add_servers_to_config
 from fast_agent.cli.constants import RESUME_LATEST_SENTINEL
 from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.llm.provider_types import Provider
 
 from .request_builders import resolve_default_instruction, resolve_smart_agent_enabled
 from .shell_cwd_policy import (
@@ -79,6 +81,50 @@ def _resolve_model_without_hardcoded_default(
     )
 
 
+def _has_explicit_provider_prefix(model_spec: str) -> bool:
+    provider_names = {provider.config_name for provider in Provider}
+
+    slash_prefix, _, slash_rest = model_spec.partition("/")
+    if slash_prefix and slash_rest and slash_prefix in provider_names:
+        return True
+
+    dot_prefix, _, dot_rest = model_spec.partition(".")
+    if dot_prefix and dot_rest and dot_prefix in provider_names:
+        return True
+
+    return False
+
+
+def _normalize_generic_model_spec(raw_model: str) -> str | None:
+    candidate = raw_model.strip()
+    if not candidate:
+        return None
+
+    if _has_explicit_provider_prefix(candidate):
+        return candidate
+
+    return f"generic.{candidate}"
+
+
+async def _prompt_for_generic_model_spec(*, default_model: str = "llama3.2") -> str:
+    prompt_session = PromptSession()
+    while True:
+        try:
+            entered = await prompt_session.prompt_async(
+                "Local model (e.g. llama3.2): ",
+                default=default_model,
+            )
+        except (EOFError, KeyboardInterrupt):
+            typer.echo("Model selection cancelled.", err=True)
+            raise typer.Exit(1)
+
+        normalized = _normalize_generic_model_spec(entered)
+        if normalized:
+            return normalized
+
+        typer.echo("Please enter a non-empty model string.", err=True)
+
+
 async def _select_model_from_picker(request: AgentRunRequest) -> str:
     """Prompt user for model selection and return a resolved model string."""
     from fast_agent.ui.model_picker import run_model_picker_async
@@ -90,6 +136,12 @@ async def _select_model_from_picker(request: AgentRunRequest) -> str:
         if picker_result is None:
             typer.echo("Model selection cancelled.", err=True)
             raise typer.Exit(1)
+
+        if (
+            picker_result.provider == Provider.GENERIC.config_name
+            and picker_result.resolved_model is None
+        ):
+            return await _prompt_for_generic_model_spec()
 
         if picker_result.refer_to_docs or not picker_result.resolved_model:
             typer.echo(

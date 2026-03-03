@@ -2,6 +2,7 @@ import os
 from contextlib import contextmanager
 from pathlib import Path
 
+from fast_agent.paths import default_skill_paths
 from fast_agent.skills.registry import SkillRegistry
 
 
@@ -111,6 +112,16 @@ def test_override_missing_directory(tmp_path: Path) -> None:
     assert registry.directories == []
     assert registry.warnings
     assert str(override_dir.resolve()) in registry.warnings[0]
+
+
+def test_explicit_default_directories_are_optional(tmp_path: Path) -> None:
+    with _without_environment_dir():
+        default_dirs = default_skill_paths(cwd=tmp_path)
+        registry = SkillRegistry(base_dir=tmp_path, directories=default_dirs)
+        manifests = registry.load_manifests()
+
+    assert manifests == []
+    assert registry.warnings == []
 
 
 def test_cli_override_propagates_to_global_settings(tmp_path: Path, monkeypatch) -> None:

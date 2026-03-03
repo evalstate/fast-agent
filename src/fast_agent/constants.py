@@ -6,6 +6,8 @@ Global constants for fast_agent with minimal dependencies to avoid circular impo
 HUMAN_INPUT_TOOL_NAME = "__human_input"
 MCP_UI = "mcp-ui"
 REASONING = "reasoning"
+REASONING_LABEL = "Reasoning"
+"""UI label for reasoning effort configuration."""
 ANTHROPIC_THINKING_BLOCKS = "anthropic-thinking-raw"
 """Raw Anthropic thinking blocks with signatures for tool use passback."""
 ANTHROPIC_ASSISTANT_RAW_CONTENT = "anthropic-assistant-raw-content"
