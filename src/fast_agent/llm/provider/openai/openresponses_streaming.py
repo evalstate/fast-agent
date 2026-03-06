@@ -202,9 +202,12 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
                     part_type = getattr(part, "type", None)
                     part_text = getattr(part, "text", None)
                     if part_type in {"reasoning", "reasoning_text"} and part_text:
-                        normalized_delta = normalize_reasoning_delta(
-                            "".join(reasoning_segments), part_text
+                        last_char = (
+                            reasoning_segments[-1][-1]
+                            if reasoning_segments and reasoning_segments[-1]
+                            else None
                         )
+                        normalized_delta = normalize_reasoning_delta(last_char, part_text)
                         if not normalized_delta:
                             continue
                         reasoning_segments.append(normalized_delta)
@@ -224,7 +227,12 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
                     "response.reasoning_summary.delta",
                 }:
                     if delta:
-                        normalized_delta = normalize_reasoning_delta("".join(reasoning_segments), delta)
+                        last_char = (
+                            reasoning_segments[-1][-1]
+                            if reasoning_segments and reasoning_segments[-1]
+                            else None
+                        )
+                        normalized_delta = normalize_reasoning_delta(last_char, delta)
                         if not normalized_delta:
                             continue
                         reasoning_segments.append(normalized_delta)
@@ -244,7 +252,12 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
                     "response.reasoning_text.delta",
                 }:
                     if delta:
-                        normalized_delta = normalize_reasoning_delta("".join(reasoning_segments), delta)
+                        last_char = (
+                            reasoning_segments[-1][-1]
+                            if reasoning_segments and reasoning_segments[-1]
+                            else None
+                        )
+                        normalized_delta = normalize_reasoning_delta(last_char, delta)
                         if not normalized_delta:
                             continue
                         reasoning_segments.append(normalized_delta)

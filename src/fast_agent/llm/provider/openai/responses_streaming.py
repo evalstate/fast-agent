@@ -157,7 +157,12 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
             }:
                 delta = getattr(event, "delta", None)
                 if delta:
-                    normalized_delta = normalize_reasoning_delta("".join(reasoning_segments), delta)
+                    last_char = (
+                        reasoning_segments[-1][-1]
+                        if reasoning_segments and reasoning_segments[-1]
+                        else None
+                    )
+                    normalized_delta = normalize_reasoning_delta(last_char, delta)
                     if not normalized_delta:
                         continue
                     reasoning_segments.append(normalized_delta)

@@ -1,65 +1,31 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from collections.abc import Sequence
-
-
 _SENTENCE_PUNCTUATION = ".!?;:"
-_MARKDOWN_OR_QUOTE_PREFIXES = "\"'`*_["
-_CLOSING_DELIMITERS = ")]}\"'"
+_MARKDOWN_PREFIXES = "\"`*["
 
 
-def _needs_reasoning_separator(existing: str, incoming: str) -> bool:
-    if not existing or not incoming:
-        return False
-
-    prev = existing[-1]
-    nxt = incoming[0]
-
-    if prev.isspace() or nxt.isspace():
-        return False
-
-    if prev.islower() and nxt.isupper():
-        return True
-
-    if prev.isdigit() and nxt.isupper():
-        return True
-
-    if prev in _SENTENCE_PUNCTUATION and (nxt.isupper() or nxt in _MARKDOWN_OR_QUOTE_PREFIXES):
-        return True
-
-    if prev in _CLOSING_DELIMITERS and nxt.isupper():
-        return True
-
-    if nxt in _MARKDOWN_OR_QUOTE_PREFIXES and (prev.isalnum() or prev in _SENTENCE_PUNCTUATION):
-        return True
-
-    return False
-
-
-def append_reasoning_chunk(existing: str, incoming: str) -> str:
-    if not existing:
-        return incoming
+def _looks_like_sentence_chunk(incoming: str) -> bool:
     if not incoming:
-        return existing
-    if _needs_reasoning_separator(existing, incoming):
-        return f"{existing} {incoming}"
-    return existing + incoming
+        return False
+    if " " not in incoming:
+        return False
+    first = incoming[0]
+    return first.isupper() or first in _MARKDOWN_PREFIXES
 
 
-def join_reasoning_chunks(chunks: Sequence[str]) -> str:
-    combined = ""
-    for chunk in chunks:
-        if not chunk:
-            continue
-        combined = append_reasoning_chunk(combined, chunk)
-    return combined
+def normalize_reasoning_delta(last_char: str | None, incoming: str) -> str:
+    """Normalize one reasoning delta without rebuilding the full accumulated text.
 
-
-def normalize_reasoning_delta(existing: str, incoming: str) -> str:
+    Keep the Codex-style append-only flow, but patch the specific broken case where
+    providers split natural-language reasoning into sentence chunks without a
+    separating space, e.g. "approach." + "Specifying session retrieval format".
+    """
     if not incoming:
         return ""
-    combined = append_reasoning_chunk(existing, incoming)
-    return combined[len(existing) :]
+    if not last_char or last_char.isspace() or incoming[0].isspace():
+        return incoming
+    if last_char in _SENTENCE_PUNCTUATION and _looks_like_sentence_chunk(incoming):
+        return f" {incoming}"
+    if last_char.islower() and _looks_like_sentence_chunk(incoming):
+        return f" {incoming}"
+    return incoming
