@@ -109,6 +109,27 @@ async def test_read_text_file_supports_line_and_limit(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("field", ["line", "limit"])
+async def test_read_text_file_rejects_boolean_line_or_limit(
+    tmp_path: Path,
+    field: str,
+) -> None:
+    runtime = LocalFilesystemRuntime(logging.getLogger("local-filesystem-runtime-test"))
+    test_file = tmp_path / "sample.txt"
+    test_file.write_text("first\nsecond\nthird\n", encoding="utf-8")
+
+    result = await runtime.read_text_file({"path": str(test_file), field: True})
+
+    assert result.isError is True
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    assert (
+        result.content[0].text
+        == f"Error: '{field}' argument must be an integer greater than or equal to 1"
+    )
+
+
+@pytest.mark.asyncio
 async def test_read_text_file_resolves_relative_paths_from_working_directory(
     tmp_path: Path,
 ) -> None:

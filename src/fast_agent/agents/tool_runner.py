@@ -13,7 +13,12 @@ from typing import (
 
 from mcp.types import CallToolResult, ListToolsResult, TextContent
 
-from fast_agent.constants import DEFAULT_MAX_ITERATIONS, FAST_AGENT_ERROR_CHANNEL
+from fast_agent.constants import (
+    DEFAULT_MAX_ITERATIONS,
+    FAST_AGENT_ERROR_CHANNEL,
+    FAST_AGENT_SYNTHETIC_FINAL_CHANNEL,
+    FAST_AGENT_USAGE,
+)
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import MessageHistoryAgentProtocol
 from fast_agent.mcp.helpers.content_helpers import text_content
@@ -125,15 +130,25 @@ class ToolRunner:
 
         self._pending_tool_request: PromptMessageExtended | None = None
         self._pending_tool_response: PromptMessageExtended | None = None
+        self._staged_terminal_response: PromptMessageExtended | None = None
 
     def __aiter__(self) -> "ToolRunner":
         return self
 
     async def __anext__(self) -> PromptMessageExtended:
+        staged = self._consume_staged_terminal_response()
+        if staged is not None:
+            return staged
+
         if self._done:
             raise StopAsyncIteration
 
         await self._ensure_tool_response_staged()
+
+        staged = self._consume_staged_terminal_response()
+        if staged is not None:
+            return staged
+
         if self._done:
             raise StopAsyncIteration
 
@@ -388,14 +403,17 @@ class ToolRunner:
                 await self._hooks.after_tool_call(self, tool_message)
             except Exception as exc:
                 _logger.error("Tool hook failed after tool call", exc_info=exc)
-
-        self._stage_tool_response(tool_message)
         self._pending_tool_request = None
 
         return tool_message
 
     def set_request_params(self, params: RequestParams) -> None:
         self._request_params = params
+
+    @property
+    def request_params(self) -> RequestParams | None:
+        """Current request params driving this tool-loop turn."""
+        return self._request_params
 
     def append_messages(self, *messages: Union[str, PromptMessageExtended]) -> None:
         for message in messages:
@@ -431,12 +449,60 @@ class ToolRunner:
         return self._pending_tool_request is not None
 
     def _stage_tool_response(self, tool_message: PromptMessageExtended) -> None:
-        if self._agent.config.use_history:
+        if self._use_history_enabled():
             self._delta_messages = [tool_message]
         else:
             if self._last_message is not None:
                 self._delta_messages.append(self._last_message)
             self._delta_messages.append(tool_message)
+
+    def _consume_staged_terminal_response(self) -> PromptMessageExtended | None:
+        staged = self._staged_terminal_response
+        if staged is None:
+            return None
+
+        self._staged_terminal_response = None
+        self._last_message = staged
+        self._done = True
+        return staged
+
+    def _use_history_enabled(self) -> bool:
+        if self._request_params is not None:
+            return self._request_params.use_history
+        return self._agent.config.use_history
+
+    def _passthrough_enabled(self) -> bool:
+        if self._request_params is None:
+            return False
+        return self._request_params.tool_result_passthrough
+
+    def _append_history_messages(self, *messages: PromptMessageExtended) -> None:
+        history = list(self._agent.message_history)
+        history.extend(messages)
+        self._agent.load_message_history(history)
+
+    def _synthesize_passthrough_assistant(
+        self,
+        tool_message: PromptMessageExtended,
+    ) -> PromptMessageExtended:
+        content_blocks = [
+            content
+            for tool_result in (tool_message.tool_results or {}).values()
+            for content in tool_result.content
+        ]
+
+        channels = {FAST_AGENT_SYNTHETIC_FINAL_CHANNEL: [text_content("tool_result_passthrough")]}
+        if self._last_message is not None and self._last_message.channels:
+            usage_blocks = self._last_message.channels.get(FAST_AGENT_USAGE)
+            if usage_blocks:
+                channels[FAST_AGENT_USAGE] = list(usage_blocks)
+
+        return PromptMessageExtended(
+            role="assistant",
+            content=content_blocks,
+            channels=channels,
+            stop_reason=LlmStopReason.END_TURN,
+        )
 
     async def _ensure_tools_ready(self) -> None:
         if self._tools is None:
@@ -473,3 +539,18 @@ class ToolRunner:
         )
         if self._iteration > max_iterations:
             self._done = True
+            return
+
+        if self._passthrough_enabled():
+            terminal_message = self._synthesize_passthrough_assistant(tool_message)
+            if self._use_history_enabled():
+                self._append_history_messages(tool_message, terminal_message)
+
+            if self._hooks.after_llm_call is not None:
+                await self._hooks.after_llm_call(self, terminal_message)
+
+            self._staged_terminal_response = terminal_message
+            self._done = True
+            return
+
+        self._stage_tool_response(tool_message)

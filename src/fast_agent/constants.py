@@ -27,6 +27,7 @@ FAST_AGENT_URL_ELICITATION_CHANNEL = "fast-agent-url-elicitation"
 FAST_AGENT_TIMING = "fast-agent-timing"
 FAST_AGENT_TOOL_TIMING = "fast-agent-tool-timing"
 FAST_AGENT_USAGE = "fast-agent-usage"
+FAST_AGENT_SYNTHETIC_FINAL_CHANNEL = "fast-agent-synthetic-final"
 
 FORCE_SEQUENTIAL_TOOL_CALLS = False
 """Force tool execution to run sequentially even when multiple tool calls are present."""

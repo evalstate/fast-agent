@@ -87,6 +87,29 @@ def test_read_text_file_result_hides_content_when_line_limit_is_zero() -> None:
     for line in output_lines:
         assert line not in rendered
     assert "(+3 more lines)" in rendered
+    assert "(No lines returned)" not in rendered
+
+
+def test_read_text_file_result_shows_no_lines_message_when_empty() -> None:
+    display = ConsoleDisplay(config=Settings(shell_execution=ShellSettings(output_display_lines=4)))
+    result = CallToolResult(content=[TextContent(type="text", text="")], isError=False)
+    setattr(result, "read_text_file_path", "/tmp/one/two/example.py")
+    setattr(result, "read_text_file_line", 300)
+    setattr(result, "read_text_file_limit", 80)
+
+    with console.console.capture() as capture:
+        display.show_tool_result(
+            result,
+            name="dev",
+            tool_name="read_text_file",
+            type_label="file read",
+        )
+
+    rendered = capture.get()
+    assert "file read - two/example.py (offset 300, 80 lines)" in rendered
+    assert "(No lines returned)" in rendered
+    assert "(empty text)" not in rendered
+    assert not [line for line in rendered.splitlines() if line and not line.strip()]
 
 
 def test_read_text_file_truncation_skips_leading_blank_lines() -> None:

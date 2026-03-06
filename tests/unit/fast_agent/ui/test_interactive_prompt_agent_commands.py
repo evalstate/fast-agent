@@ -835,9 +835,8 @@ async def test_prompt_loop_recovers_from_cancelled_error_during_send(
 
 
 @pytest.mark.asyncio
-async def test_prompt_loop_recovers_from_task_cancellation_during_send(
+async def test_prompt_loop_propagates_task_cancellation_during_send(
     monkeypatch,
-    capsys: Any,
 ) -> None:
     inputs = iter(["hello", "STOP"])
     send_calls = {"count": 0}
@@ -861,16 +860,54 @@ async def test_prompt_loop_recovers_from_task_cancellation_during_send(
     prompt_ui = InteractivePrompt()
     agent_app = _FakeAgentApp(["vertex-rag"])
 
-    await prompt_ui.prompt_loop(
-        send_func=fake_send,
-        default_agent="vertex-rag",
-        available_agents=["vertex-rag"],
-        prompt_provider=cast("AgentApp", agent_app),
+    with pytest.raises(asyncio.CancelledError):
+        await prompt_ui.prompt_loop(
+            send_func=fake_send,
+            default_agent="vertex-rag",
+            available_agents=["vertex-rag"],
+            prompt_provider=cast("AgentApp", agent_app),
+        )
+
+    assert send_calls["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_prompt_loop_propagates_external_cancellation_during_send(
+    monkeypatch,
+) -> None:
+    inputs = iter(["hello", "STOP"])
+    send_started = asyncio.Event()
+
+    async def fake_get_enhanced_input(*_args: Any, **kwargs: Any) -> str:
+        available_agent_names = kwargs.get("available_agent_names")
+        if available_agent_names is not None:
+            enhanced_prompt.available_agents = set(available_agent_names)
+        return next(inputs)
+
+    async def fake_send(*_args: Any, **_kwargs: Any) -> str:
+        send_started.set()
+        await asyncio.Event().wait()
+        return ""
+
+    monkeypatch.setattr(interactive_prompt, "get_enhanced_input", fake_get_enhanced_input)
+
+    prompt_ui = InteractivePrompt()
+    agent_app = _FakeAgentApp(["vertex-rag"])
+
+    task = asyncio.create_task(
+        prompt_ui.prompt_loop(
+            send_func=fake_send,
+            default_agent="vertex-rag",
+            available_agents=["vertex-rag"],
+            prompt_provider=cast("AgentApp", agent_app),
+        )
     )
 
-    output = capsys.readouterr().out
-    assert "Generation cancelled by user." in output
-    assert send_calls["count"] == 1
+    await asyncio.wait_for(send_started.wait(), timeout=1.0)
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
 
 
 @pytest.mark.asyncio

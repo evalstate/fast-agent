@@ -214,7 +214,11 @@ class AgentMCPServer:
             structured_output=False,
             # MCP 1.10.1 turns every tool in to a structured output
         )
-        async def send_message(message: str, ctx: MCPContext) -> str:
+        async def send_message(
+            message: str,
+            ctx: MCPContext,
+            response_mode: Literal["inherit", "postprocess", "passthrough"] = "inherit",
+        ) -> str:
             """Send a message to the agent and return its response."""
             # Extract bearer token from auth context for token passthrough
             from fast_agent.mcp.auth.context import request_bearer_token
@@ -233,10 +237,16 @@ class AgentMCPServer:
             # Set the token in our contextvar for LLM provider access
             saved_token = request_bearer_token.set(bearer_token)
             report_progress = self._build_progress_reporter(ctx)
-            request_params = RequestParams(
-                tool_execution_handler=MCPToolProgressManager(report_progress),
-                emit_loop_progress=True,
-            )
+            request_param_overrides: dict[str, Any] = {
+                "tool_execution_handler": MCPToolProgressManager(report_progress),
+                "emit_loop_progress": True,
+            }
+            if response_mode == "postprocess":
+                request_param_overrides["tool_result_passthrough"] = False
+            elif response_mode == "passthrough":
+                request_param_overrides["tool_result_passthrough"] = True
+
+            request_params = RequestParams(**request_param_overrides)
             try:
                 instance = await self._acquire_instance(ctx)
                 agent = instance.app[agent_name]

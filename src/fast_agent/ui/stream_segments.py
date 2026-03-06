@@ -6,12 +6,19 @@ import json
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
+from fast_agent.ui.apply_patch_preview import (
+    build_apply_patch_preview,
+    extract_non_command_args,
+    format_apply_patch_preview,
+    is_shell_execution_tool,
+)
 from fast_agent.utils.reasoning_stream_parser import ReasoningSegment, ReasoningStreamParser
 
 if TYPE_CHECKING:
     from fast_agent.llm.stream_types import StreamChunk
 
 SegmentKind = Literal["markdown", "plain", "reasoning", "tool"]
+_JSON_PARSE_FAILED = object()
 
 
 @dataclass
@@ -264,23 +271,31 @@ class ToolStreamState:
 
         args_text = self.display_text
         if pretty and self.raw_text.strip():
-            formatted = _format_json(self.raw_text)
-            if formatted is not None:
-                args_text = formatted
+            parsed_args = _parse_json_value(self.raw_text)
+            if parsed_args is not _JSON_PARSE_FAILED:
+                args_text = json.dumps(parsed_args, indent=2, ensure_ascii=True)
+                if isinstance(parsed_args, dict) and is_shell_execution_tool(tool_name):
+                    command = parsed_args.get("command")
+                    if isinstance(command, str):
+                        preview = build_apply_patch_preview(command)
+                        if preview is not None:
+                            args_text = format_apply_patch_preview(
+                                preview,
+                                other_args=extract_non_command_args(parsed_args),
+                            )
 
         if args_text and pretty and not args_text.endswith("\n"):
             args_text += "\n"
         return header + (args_text or "")
 
 
-def _format_json(raw_text: str) -> str | None:
+def _parse_json_value(raw_text: str) -> Any:
     if not raw_text:
-        return None
+        return _JSON_PARSE_FAILED
     try:
-        parsed = json.loads(raw_text)
+        return json.loads(raw_text)
     except Exception:
-        return None
-    return json.dumps(parsed, indent=2, ensure_ascii=True)
+        return _JSON_PARSE_FAILED
 
 
 def _normalize_tool_name(tool_name: str) -> str:

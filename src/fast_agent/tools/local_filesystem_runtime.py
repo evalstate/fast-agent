@@ -110,7 +110,7 @@ class LocalFilesystemRuntime:
     def _coerce_positive_int(value: Any, field: str) -> int | None:
         if value is None:
             return None
-        if not isinstance(value, int) or value < 1:
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
             raise ValueError(
                 f"Error: '{field}' argument must be an integer greater than or equal to 1"
             )

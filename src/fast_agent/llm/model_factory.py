@@ -50,8 +50,8 @@ class ModelFactory:
     MODEL_ALIASES = {
         "gpt51": "responses.gpt-5.1",
         "gpt52": "responses.gpt-5.2",
-        "chatgpt": "responses.gpt-5.3-chat-latest",
-        "codex": "responses.gpt-5.2-codex",
+        "chatgpt": "responses.gpt-5.3-chat-latest?transport=ws",
+        "codex": "responses.gpt-5.2-codex?transport=ws",
         "codexplan": "codexresponses.gpt-5.3-codex",
         "codexplan52": "codexresponses.gpt-5.2-codex",
         "codexspark": "codexresponses.gpt-5.3-codex-spark",

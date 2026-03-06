@@ -114,6 +114,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     PARAM_MCP_METADATA = "mcp_metadata"
     PARAM_TOOL_HANDLER = "tool_execution_handler"
     PARAM_LOOP_PROGRESS = "emit_loop_progress"
+    PARAM_TOOL_RESULT_PASSTHROUGH = "tool_result_passthrough"
     PARAM_STREAMING_TIMEOUT = "streaming_timeout"
 
     # Base set of fields that should always be excluded
@@ -121,6 +122,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         PARAM_METADATA,
         PARAM_TOOL_HANDLER,
         PARAM_LOOP_PROGRESS,
+        PARAM_TOOL_RESULT_PASSTHROUGH,
         PARAM_STREAMING_TIMEOUT,
     }
 

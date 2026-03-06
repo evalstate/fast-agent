@@ -205,13 +205,8 @@ class InteractivePrompt:
             ctrl_c_deadline = None
 
         def _handle_inflight_cancel() -> None:
-            """Handle Ctrl+C/Cancel while generation or tool calling is active."""
+            """Handle user cancellation while generation or tool calling is active."""
             nonlocal ctrl_c_deadline
-
-            task = asyncio.current_task()
-            if task is not None:
-                while task.uncancel() > 0:
-                    pass
 
             ctrl_c_deadline = None
             rich_print("[yellow]Generation cancelled by user.[/yellow]")
@@ -544,8 +539,15 @@ class InteractivePrompt:
                     emit_prompt_mark("C")
                     progress_display.resume()
                     response_text = await send_func(hash_send_message, hash_send_target)
-                except (KeyboardInterrupt, asyncio.CancelledError):
+                except KeyboardInterrupt:
                     _clear_progress_for_agent(hash_send_target)
+                    _handle_inflight_cancel()
+                    continue
+                except asyncio.CancelledError:
+                    _clear_progress_for_agent(hash_send_target)
+                    task = asyncio.current_task()
+                    if task is not None and task.cancelling() > 0:
+                        raise
                     _handle_inflight_cancel()
                     continue
                 except Exception as exc:
@@ -613,8 +615,15 @@ class InteractivePrompt:
             progress_display.resume()
             try:
                 result = await send_func(prompt_payload, agent)
-            except (KeyboardInterrupt, asyncio.CancelledError):
+            except KeyboardInterrupt:
                 _clear_progress_for_agent(agent)
+                _handle_inflight_cancel()
+                continue
+            except asyncio.CancelledError:
+                _clear_progress_for_agent(agent)
+                task = asyncio.current_task()
+                if task is not None and task.cancelling() > 0:
+                    raise
                 _handle_inflight_cancel()
                 continue
             finally:

@@ -75,6 +75,11 @@ class RequestParams(CreateMessageRequestParams):
     Emit monotonic progress updates for the internal tool loop when supported.
     """
 
+    tool_result_passthrough: bool = False
+    """
+    Skip post-tool LLM synthesis and return tool results directly as assistant output.
+    """
+
     streaming_timeout: float | None = DEFAULT_STREAMING_TIMEOUT
     """
     Maximum time in seconds to wait for streaming completion. Set to None to disable.

@@ -11,6 +11,13 @@ from rich.text import Text
 
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.ui import console
+from fast_agent.ui.apply_patch_preview import (
+    build_apply_patch_preview,
+    extract_non_command_args,
+    format_apply_patch_preview,
+    is_shell_execution_tool,
+    style_apply_patch_preview_text,
+)
 from fast_agent.ui.message_primitives import MESSAGE_CONFIGS, MessageType
 from fast_agent.ui.shell_output_truncation import (
     format_shell_output_line_count,
@@ -182,10 +189,7 @@ class ToolDisplay:
         return f"[dim]{joined}[/dim]"
 
     def _shell_output_line_limit(self, tool_name: str | None) -> int | None:
-        if not tool_name:
-            return None
-        normalized = self._normalize_tool_name(tool_name)
-        if normalized not in {"execute", "bash", "shell"}:
+        if not is_shell_execution_tool(tool_name):
             return None
         return self._configured_output_line_limit()
 
@@ -195,10 +199,7 @@ class ToolDisplay:
         return self._configured_output_line_limit()
 
     def _shell_show_bash(self, tool_name: str | None) -> bool:
-        if not tool_name:
-            return True
-        normalized = self._normalize_tool_name(tool_name)
-        if normalized not in {"execute", "bash", "shell"}:
+        if not is_shell_execution_tool(tool_name):
             return True
         config = self._display.config
         if not config:
@@ -471,6 +472,21 @@ class ToolDisplay:
         return Text(f"(+{omitted_line_count} more {noun})", style="dim italic")
 
     @staticmethod
+    def _read_text_file_no_lines_message() -> Text:
+        return Text("(No lines returned)", style="dim italic")
+
+    @staticmethod
+    def _read_text_file_line_count_from_content(content) -> int | None:
+        from fast_agent.mcp.helpers.content_helpers import get_text, is_text_content
+
+        if not content or len(content) != 1 or not is_text_content(content[0]):
+            return None
+        text = get_text(content[0])
+        if text is None:
+            return None
+        return len(text.splitlines())
+
+    @staticmethod
     def _combine_additional_messages(
         first: Text | None,
         second: Text | None,
@@ -622,14 +638,23 @@ class ToolDisplay:
 
             render_markdown: bool | None = None
             read_more_lines_message: Text | None = None
+            read_no_lines_message: Text | None = None
             if self._is_read_text_file_tool(tool_name) and not result.isError:
-                markdown_content = self._format_read_text_file_content_as_markdown(
-                    display_content,
-                    path_value=getattr(result, "read_text_file_path", None),
-                )
-                if markdown_content is not None:
-                    display_content = markdown_content
-                    render_markdown = True
+                source_line_count = self._read_text_file_line_count_from_content(source_content)
+                no_lines_returned = source_line_count == 0 or not source_content
+
+                if no_lines_returned and read_omitted_line_count == 0:
+                    display_content = ""
+                    render_markdown = False
+                    read_no_lines_message = self._read_text_file_no_lines_message()
+                else:
+                    markdown_content = self._format_read_text_file_content_as_markdown(
+                        display_content,
+                        path_value=getattr(result, "read_text_file_path", None),
+                    )
+                    if markdown_content is not None:
+                        display_content = markdown_content
+                        render_markdown = True
                 read_more_lines_message = self._read_text_file_more_lines_message(
                     read_omitted_line_count
                 )
@@ -637,6 +662,10 @@ class ToolDisplay:
             additional_message = self._combine_additional_messages(
                 shell_exit_additional_message,
                 read_more_lines_message,
+            )
+            additional_message = self._combine_additional_messages(
+                additional_message,
+                read_no_lines_message,
             )
 
             if has_structured:
@@ -750,6 +779,7 @@ class ToolDisplay:
             content: Any = tool_args
             pre_content: Text | None = None
             truncate_content = True
+            render_markdown: bool | None = None
 
             if metadata.get("variant") == "shell":
                 bottom_items = list()
@@ -759,13 +789,29 @@ class ToolDisplay:
 
                 command_text = Text()
                 if command and isinstance(command, str):
-                    command_text.append("$ ", style="magenta")
-                    command_text.append(command, style="white")
+                    preview = build_apply_patch_preview(command)
+                    if preview is not None:
+                        command_text.append("$ ", style="magenta")
+                        command_text.append("apply_patch (preview)", style="white")
+                        command_text.append("\n")
+                        command_text.append_text(
+                            style_apply_patch_preview_text(
+                                format_apply_patch_preview(
+                                    preview,
+                                    other_args=extract_non_command_args(tool_args),
+                                ),
+                                default_style="white",
+                            )
+                        )
+                    else:
+                        command_text.append("$ ", style="magenta")
+                        command_text.append(command, style="white")
                 else:
                     command_text.append("$ ", style="magenta")
                     command_text.append("(no shell command provided)", style="dim")
 
                 content = command_text
+                render_markdown = False
 
                 shell_name = metadata.get("shell_name") or "shell"
                 shell_path = metadata.get("shell_path")
@@ -811,6 +857,7 @@ class ToolDisplay:
                 highlight_index=highlight_index,
                 max_item_length=max_item_length,
                 truncate_content=truncate_content,
+                render_markdown=render_markdown,
                 show_hook_indicator=show_hook_indicator,
             )
         except Exception:
