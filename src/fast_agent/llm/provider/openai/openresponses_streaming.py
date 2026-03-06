@@ -15,6 +15,7 @@ from fast_agent.llm.provider.openai.tool_stream_state import (
     OpenAIToolStreamState,
 )
 from fast_agent.llm.stream_types import StreamChunk
+from fast_agent.utils.reasoning_chunk_join import normalize_reasoning_delta
 
 if TYPE_CHECKING:
     from openai.types.responses import (
@@ -200,11 +201,16 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
                     part_type = getattr(part, "type", None)
                     part_text = getattr(part, "text", None)
                     if part_type in {"reasoning", "reasoning_text"} and part_text:
-                        reasoning_segments.append(part_text)
-                        self._notify_stream_listeners(
-                            StreamChunk(text=part_text, is_reasoning=True)
+                        normalized_delta = normalize_reasoning_delta(
+                            "".join(reasoning_segments), part_text
                         )
-                        reasoning_chars += len(part_text)
+                        if not normalized_delta:
+                            continue
+                        reasoning_segments.append(normalized_delta)
+                        self._notify_stream_listeners(
+                            StreamChunk(text=normalized_delta, is_reasoning=True)
+                        )
+                        reasoning_chars += len(normalized_delta)
                         await self._emit_streaming_progress(
                             model=f"{model} (reasoning)",
                             new_total=reasoning_chars,
@@ -217,11 +223,14 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
                     "response.reasoning_summary.delta",
                 }:
                     if delta:
-                        reasoning_segments.append(delta)
+                        normalized_delta = normalize_reasoning_delta("".join(reasoning_segments), delta)
+                        if not normalized_delta:
+                            continue
+                        reasoning_segments.append(normalized_delta)
                         self._notify_stream_listeners(
-                            StreamChunk(text=delta, is_reasoning=True)
+                            StreamChunk(text=normalized_delta, is_reasoning=True)
                         )
-                        reasoning_chars += len(delta)
+                        reasoning_chars += len(normalized_delta)
                         await self._emit_streaming_progress(
                             model=f"{model} (summary)",
                             new_total=reasoning_chars,
@@ -234,11 +243,14 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
                     "response.reasoning_text.delta",
                 }:
                     if delta:
-                        reasoning_segments.append(delta)
+                        normalized_delta = normalize_reasoning_delta("".join(reasoning_segments), delta)
+                        if not normalized_delta:
+                            continue
+                        reasoning_segments.append(normalized_delta)
                         self._notify_stream_listeners(
-                            StreamChunk(text=delta, is_reasoning=True)
+                            StreamChunk(text=normalized_delta, is_reasoning=True)
                         )
-                        reasoning_chars += len(delta)
+                        reasoning_chars += len(normalized_delta)
                         await self._emit_streaming_progress(
                             model=f"{model} (reasoning)",
                             new_total=reasoning_chars,
