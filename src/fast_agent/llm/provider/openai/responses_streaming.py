@@ -15,6 +15,7 @@ from fast_agent.llm.provider.openai._stream_capture import (
 from fast_agent.llm.provider.openai.streaming_utils import finalize_stream_response
 from fast_agent.llm.provider.openai.tool_notifications import OpenAIToolNotificationMixin
 from fast_agent.llm.stream_types import StreamChunk
+from fast_agent.utils.reasoning_chunk_join import normalize_reasoning_delta
 
 _logger = get_logger(__name__)
 
@@ -156,11 +157,14 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
             }:
                 delta = getattr(event, "delta", None)
                 if delta:
-                    reasoning_segments.append(delta)
+                    normalized_delta = normalize_reasoning_delta("".join(reasoning_segments), delta)
+                    if not normalized_delta:
+                        continue
+                    reasoning_segments.append(normalized_delta)
                     self._notify_stream_listeners(
-                        StreamChunk(text=delta, is_reasoning=True)
+                        StreamChunk(text=normalized_delta, is_reasoning=True)
                     )
-                    reasoning_chars += len(delta)
+                    reasoning_chars += len(normalized_delta)
                     await self._emit_streaming_progress(
                         model=f"{model} (summary)",
                         new_total=reasoning_chars,

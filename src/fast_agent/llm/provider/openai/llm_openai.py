@@ -52,6 +52,7 @@ from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.usage_tracking import TurnUsage
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types import LlmStopReason, PromptMessageExtended
+from fast_agent.utils.reasoning_chunk_join import normalize_reasoning_delta
 
 _logger = get_logger(__name__)
 
@@ -235,17 +236,21 @@ class OpenAILLM(
         if not reasoning_text:
             return reasoning_active
 
+        normalized_text = normalize_reasoning_delta("".join(reasoning_segments), reasoning_text)
+        if not normalized_text:
+            return reasoning_active
+
         if reasoning_mode == "tags":
             if not reasoning_active:
                 reasoning_active = True
-            self._notify_stream_listeners(StreamChunk(text=reasoning_text, is_reasoning=True))
-            reasoning_segments.append(reasoning_text)
+            self._notify_stream_listeners(StreamChunk(text=normalized_text, is_reasoning=True))
+            reasoning_segments.append(normalized_text)
             return reasoning_active
 
         if reasoning_mode in {"stream", "reasoning_content", "gpt_oss"}:
             # Emit reasoning as-is
-            self._notify_stream_listeners(StreamChunk(text=reasoning_text, is_reasoning=True))
-            reasoning_segments.append(reasoning_text)
+            self._notify_stream_listeners(StreamChunk(text=normalized_text, is_reasoning=True))
+            reasoning_segments.append(normalized_text)
             return reasoning_active
 
         return reasoning_active
