@@ -451,7 +451,9 @@ class ToolDisplay:
         )
         limit = (
             limit_value
-            if isinstance(limit_value, int) and not isinstance(limit_value, bool) and limit_value >= 1
+            if isinstance(limit_value, int)
+            and not isinstance(limit_value, bool)
+            and limit_value >= 1
             else None
         )
 
@@ -528,6 +530,21 @@ class ToolDisplay:
             has_structured = structured_content is not None
             source_content = content
             display_content = content
+            if (
+                has_structured
+                and isinstance(structured_content, (dict, list))
+                and isinstance(content, list)
+                and len(content) > 1
+                and all(is_text_content(item) for item in content)
+            ):
+                from mcp.types import TextContent
+
+                display_content = [
+                    TextContent(
+                        type="text",
+                        text=json.dumps(structured_content, ensure_ascii=False, indent=2),
+                    )
+                ]
             read_omitted_line_count = 0
             if truncate_content:
                 show_bash_output = self._shell_show_bash(tool_name)
@@ -544,9 +561,9 @@ class ToolDisplay:
                         if read_line_limit is not None:
                             display_content, read_omitted_line_count = (
                                 self._limit_read_text_output_content(
-                                content,
-                                read_line_limit,
-                            )
+                                    content,
+                                    read_line_limit,
+                                )
                             )
                             truncate_content = False
 
@@ -566,22 +583,24 @@ class ToolDisplay:
             if result.isError:
                 status = "ERROR"
             else:
-                if not content:
+                if not display_content:
                     status = "No Content"
-                elif len(content) == 1 and is_text_content(content[0]):
-                    text_content = get_text(content[0])
+                elif len(display_content) == 1 and is_text_content(display_content[0]):
+                    text_content = get_text(display_content[0])
                     char_count = len(text_content) if text_content else 0
                     status = f"text only {char_count} chars"
                 else:
-                    text_count = sum(1 for item in content if is_text_content(item))
-                    if text_count == len(content):
+                    text_count = sum(1 for item in display_content if is_text_content(item))
+                    if text_count == len(display_content):
                         status = (
-                            f"{len(content)} Text Blocks" if len(content) > 1 else "1 Text Block"
+                            f"{len(display_content)} Text Blocks"
+                            if len(display_content) > 1
+                            else "1 Text Block"
                         )
                     else:
                         status = (
-                            f"{len(content)} Content Blocks"
-                            if len(content) > 1
+                            f"{len(display_content)} Content Blocks"
+                            if len(display_content) > 1
                             else "1 Content Block"
                         )
 

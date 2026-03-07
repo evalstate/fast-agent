@@ -3,7 +3,8 @@ Helper functions for working with content objects (Fast Agent namespace).
 
 """
 
-from typing import TYPE_CHECKING, Sequence, TypeGuard, Union
+import json
+from typing import TYPE_CHECKING, Protocol, Sequence, TypeGuard, Union
 
 if TYPE_CHECKING:
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -19,6 +20,12 @@ from mcp.types import (
     TextContent,
     TextResourceContents,
 )
+
+
+class ToolResultWarningLogger(Protocol):
+    """Minimal logger interface used for best-effort tool result warnings."""
+
+    def warning(self, message: str, **data: object) -> None: ...
 
 
 def get_text(content: ContentBlock) -> str | None:
@@ -127,6 +134,64 @@ def split_thinking_content(message: str) -> tuple[str | None, str]:
 def text_content(text: str) -> TextContent:
     """Convenience to create a TextContent block from a string."""
     return TextContent(type="text", text=text)
+
+
+def canonicalize_tool_result_content_for_llm(
+    result: object,
+    logger: ToolResultWarningLogger | None = None,
+    source: str | None = None,
+) -> list[ContentBlock]:
+    """Return the canonical LLM-facing content view for a tool result.
+
+    MCP intends `content` text and `structuredContent` to agree semantically,
+    but that invariant is not enforced in practice. fast-agent therefore
+    prefers `structuredContent` for LLM-facing text when it is present so the
+    model sees the same canonical payload that the UI preview favors.
+    """
+
+    raw_content = getattr(result, "content", None)
+    content = list(raw_content) if isinstance(raw_content, list) else []
+
+    structured_content = getattr(result, "structuredContent", None)
+    if structured_content is None:
+        return content
+
+    text_blocks = [item for item in content if is_text_content(item)]
+    if logger is not None and len(text_blocks) > 1:
+        warning_data: dict[str, object] = {"text_block_count": len(text_blocks)}
+        if source is not None:
+            warning_data["source"] = source
+        logger.warning(
+            "Tool result includes multiple text blocks alongside structuredContent; "
+            "ignoring those text blocks for LLM serialization and using "
+            "structuredContent as the canonical text payload.",
+            **warning_data,
+        )
+
+    non_text_blocks = [item for item in content if not is_text_content(item)]
+    structured_text = json.dumps(
+        structured_content,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return [text_content(structured_text), *non_text_blocks]
+
+
+def tool_result_text_for_llm(
+    result: object,
+    logger: ToolResultWarningLogger | None = None,
+    source: str | None = None,
+) -> str:
+    """Return the textual LLM-facing view of a tool result."""
+
+    canonical_content = canonicalize_tool_result_content_for_llm(
+        result,
+        logger=logger,
+        source=source,
+    )
+    text_chunks = [text for item in canonical_content if (text := get_text(item)) is not None]
+    return "\n".join(chunk for chunk in text_chunks if chunk)
 
 
 def _infer_mime_type(url: str, default: str = "application/octet-stream") -> str:

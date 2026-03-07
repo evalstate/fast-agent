@@ -174,6 +174,33 @@ def test_convert_tool_results_serializes_apply_patch_as_custom_tool_call_output(
     ]
 
 
+def test_convert_tool_results_prefers_structured_content_and_keeps_attachments() -> None:
+    harness = _ContentHarness()
+    image_data = base64.b64encode(b"fake-image").decode("utf-8")
+    result = SimpleNamespace(
+        content=[
+            TextContent(type="text", text="stale summary"),
+            ImageContent(type="image", data=image_data, mimeType="image/jpeg"),
+        ],
+        isError=False,
+    )
+    setattr(result, "structuredContent", {"fresh": True})
+
+    items = harness._convert_tool_results({"call_1": result})
+
+    assert items[0]["type"] == "function_call_output"
+    assert items[0]["call_id"] == "call_1"
+    assert items[0]["output"].splitlines()[0] == '{"fresh":true}'
+    assert "stale summary" not in items[0]["output"]
+    assert items[1]["type"] == "message"
+    assert items[1]["role"] == "user"
+    attachments = items[1]["content"]
+    assert isinstance(attachments, list)
+    assert attachments == [
+        {"type": "input_image", "image_url": f"data:image/jpeg;base64,{image_data}"}
+    ]
+
+
 def test_convert_tool_calls_keeps_namespaced_apply_patch_as_function_call() -> None:
     harness = _ContentHarness()
     harness._tool_kind_map["call_patch"] = "function"

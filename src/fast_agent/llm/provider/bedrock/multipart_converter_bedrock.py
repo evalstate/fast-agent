@@ -1,5 +1,11 @@
 from typing import Any
 
+from mcp.types import TextContent
+
+from fast_agent.mcp.helpers.content_helpers import (
+    canonicalize_tool_result_content_for_llm,
+    tool_result_text_for_llm,
+)
 from fast_agent.types import PromptMessageExtended
 
 # Bedrock message format types
@@ -31,8 +37,6 @@ class BedrockConverter:
         if multipart_msg.tool_results:
             import json
 
-            from mcp.types import TextContent
-
             # Check if any tool ID indicates system prompt format
             has_system_prompt_tools = any(
                 tool_id.startswith("system_prompt_") for tool_id in multipart_msg.tool_results.keys()
@@ -42,9 +46,7 @@ class BedrockConverter:
                 # For system prompt models: format as human-readable text
                 tool_result_parts = []
                 for tool_id, tool_result in multipart_msg.tool_results.items():
-                    result_text = "".join(
-                        part.text for part in tool_result.content if isinstance(part, TextContent)
-                    )
+                    result_text = tool_result_text_for_llm(tool_result, source="bedrock.static")
                     result_payload = {
                         "tool_name": tool_id,
                         "status": "error" if tool_result.isError else "success",
@@ -59,10 +61,12 @@ class BedrockConverter:
                 # For Nova/Anthropic models: use structured tool_result format
                 for tool_id, tool_result in multipart_msg.tool_results.items():
                     result_content_blocks = []
-                    if tool_result.content:
-                        for part in tool_result.content:
-                            if isinstance(part, TextContent):
-                                result_content_blocks.append({"text": part.text})
+                    for part in canonicalize_tool_result_content_for_llm(
+                        tool_result,
+                        source="bedrock.static",
+                    ):
+                        if isinstance(part, TextContent):
+                            result_content_blocks.append({"text": part.text})
 
                     if not result_content_blocks:
                         result_content_blocks.append({"text": "[No content in tool result]"})
@@ -89,7 +93,6 @@ class BedrockConverter:
                 )
 
         # Handle regular content
-        from mcp.types import TextContent
         for content_item in multipart_msg.content:
             if isinstance(content_item, TextContent):
                 content_list.append({"type": "text", "text": content_item.text})

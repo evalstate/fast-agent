@@ -1,6 +1,6 @@
 import pytest
 from mcp import CallToolRequest
-from mcp.types import CallToolRequestParams, Tool
+from mcp.types import CallToolRequestParams, CallToolResult, Tool
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.tool_agent import ToolAgent
@@ -163,3 +163,19 @@ async def test_postprocess_mode_remains_default_behavior() -> None:
     assert llm.call_count == 2
     assert result.stop_reason == LlmStopReason.END_TURN
     assert result.last_text() == "postprocessed"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_passthrough_uses_structured_content_for_tool_result_text() -> None:
+    llm = PassthroughLLM()
+    tool_result = CallToolResult(
+        content=[text_content("stale summary")],
+        isError=False,
+    )
+    setattr(tool_result, "structuredContent", {"b": 2, "a": 1})
+    message = PromptMessageExtended(role="user", content=[], tool_results={"call_1": tool_result})
+
+    result = await llm._apply_prompt_provider_specific([message])
+
+    assert result.last_text() == '{"a":1,"b":2}'
