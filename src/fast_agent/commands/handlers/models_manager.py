@@ -745,6 +745,13 @@ def _canonicalize_alias_token(token: str) -> str:
     return f"${namespace}.{key}"
 
 
+def _normalize_interactive_alias_token(token: str) -> str:
+    stripped = token.strip()
+    if not stripped or stripped.startswith("$"):
+        return stripped
+    return f"${stripped}"
+
+
 def _infer_initial_provider_name(model_spec: str | None) -> str | None:
     if model_spec is None:
         return None
@@ -819,7 +826,7 @@ async def _prompt_for_alias_token(
         if entered is None:
             return None
         try:
-            return _canonicalize_alias_token(entered)
+            return _canonicalize_alias_token(_normalize_interactive_alias_token(entered))
         except ModelConfigError as exc:
             raise ValueError(exc.details) from exc
 

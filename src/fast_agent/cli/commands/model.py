@@ -83,6 +83,17 @@ def _normalize_write_target(value: str) -> WriteTarget:
     raise typer.BadParameter("--target must be either 'env' or 'project'.")
 
 
+def _normalize_interactive_alias_token(token: str | None) -> str | None:
+    if token is None:
+        return None
+    stripped = token.strip()
+    if not stripped:
+        return stripped
+    if stripped.startswith("$"):
+        return stripped
+    return f"${stripped}"
+
+
 async def run_model_setup(
     *,
     io: CommandIO,
@@ -140,9 +151,11 @@ async def _select_model_setup_token(
             _merge_setup_items(items, common_items)
         )
         if selected_token == CUSTOM_ALIAS_SENTINEL:
-            return await io.prompt_text(
-                "Alias token ($namespace.key):",
-                allow_empty=False,
+            return _normalize_interactive_alias_token(
+                await io.prompt_text(
+                    "Alias token ($namespace.key):",
+                    allow_empty=False,
+                )
             )
         if selected_token is not None:
             return selected_token
@@ -181,9 +194,11 @@ async def _select_model_setup_token(
 
     normalized_selection = selection.strip().lower()
     if normalized_selection == "custom":
-        return await io.prompt_text(
-            "Alias token ($namespace.key):",
-            allow_empty=False,
+        return _normalize_interactive_alias_token(
+            await io.prompt_text(
+                "Alias token ($namespace.key):",
+                allow_empty=False,
+            )
         )
     return option_labels.get(normalized_selection)
 
