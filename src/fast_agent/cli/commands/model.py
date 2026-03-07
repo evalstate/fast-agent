@@ -453,6 +453,15 @@ async def _run_model_setup_command(
                 target=target,
                 dry_run=dry_run,
             )
+            if dry_run:
+                for message in outcome.messages:
+                    await io.emit(message)
+                return
+
+            for message in outcome.messages:
+                if message.channel in {"warning", "error"}:
+                    await io.emit(message)
+            continue
         else:
             assert picker_result.token is not None
             outcome = await run_model_setup(
@@ -465,7 +474,6 @@ async def _run_model_setup_command(
 
         for message in outcome.messages:
             await io.emit(message)
-
         if dry_run:
             return
 

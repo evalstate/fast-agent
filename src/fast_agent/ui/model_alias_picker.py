@@ -86,7 +86,7 @@ class _AliasPicker:
                     "required": "ansiyellow",
                     "repair": "ansiyellow",
                     "recommended": "ansigreen",
-                    "configured": "",
+                    "configured": "ansiwhite",
                     "muted": "ansibrightblack",
                 }
             ),
