@@ -739,9 +739,13 @@ class ResponsesProviderSettingsBase(BaseModel):
         default=None,
         description="Custom headers for all API requests",
     )
-    transport: Literal["sse", "websocket", "auto"] = Field(
-        default="sse",
-        description="Responses transport mode: sse (default), websocket, or auto fallback.",
+    transport: Literal["sse", "websocket", "auto"] | None = Field(
+        default=None,
+        description=(
+            "Responses transport mode override: sse, websocket, or auto. "
+            "When unset, OpenAI Responses and Codex Responses prefer websocket "
+            "with automatic SSE fallback."
+        ),
     )
     service_tier: Literal["fast", "flex"] | None = Field(
         default=None,

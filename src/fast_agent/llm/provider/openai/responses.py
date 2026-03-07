@@ -114,7 +114,7 @@ class ResponsesLLM(
             "reconnected": 0,
         }
         self._file_id_cache: dict[str, str] = {}
-        self._transport: ResponsesTransport = "sse"
+        self._transport: ResponsesTransport = self._default_transport_setting()
         self._last_transport_used: Literal["sse", "websocket"] | None = None
         self._ws_connections = WebSocketConnectionManager(idle_timeout_seconds=300.0)
         self._ws_debug_inline = os.getenv("FAST_AGENT_DEBUG_RESPONSES_WS", "").strip().lower() in {
@@ -313,12 +313,19 @@ class ResponsesLLM(
             return "priority"
         return "flex"
 
+    def _default_transport_setting(self) -> ResponsesTransport:
+        if self.provider in {Provider.RESPONSES, Provider.CODEX_RESPONSES}:
+            return "auto"
+        return "sse"
+
     def _resolve_transport_setting(self, raw_value: Any, settings: Any) -> ResponsesTransport:
         value = raw_value
         if value is None and settings is not None:
-            value = getattr(settings, "transport", None)
+            model_fields_set = getattr(settings, "model_fields_set", set())
+            if "transport" in model_fields_set:
+                value = getattr(settings, "transport", None)
         if value is None:
-            return "sse"
+            return self._default_transport_setting()
 
         normalized = str(value).strip().lower()
         transport_aliases: dict[str, ResponsesTransport] = {
@@ -331,11 +338,12 @@ class ResponsesLLM(
         if normalized_transport is not None:
             return normalized_transport
 
+        default_transport = self._default_transport_setting()
         self.logger.warning(
-            "Invalid Responses transport setting; defaulting to SSE",
+            f"Invalid Responses transport setting; defaulting to {default_transport}",
             data={"transport": value},
         )
-        return "sse"
+        return default_transport
 
     def _supports_websocket_transport(self) -> bool:
         """Provider-level websocket support flag (opt-in while experimental)."""

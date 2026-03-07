@@ -405,6 +405,33 @@ def _build_responses_family_llm(
     return llm_class(context=context, model=model, name=f"{provider.value}-service-tier-test")
 
 
+def test_responses_provider_defaults_to_websocket_preferred_transport() -> None:
+    llm = _build_responses_family_llm(Provider.RESPONSES, model_name="gpt-5.4")
+
+    assert llm.configured_transport == "auto"
+
+
+def test_codexresponses_provider_defaults_to_websocket_preferred_transport() -> None:
+    llm = _build_responses_family_llm(Provider.CODEX_RESPONSES, model_name="gpt-5.3-codex")
+
+    assert llm.configured_transport == "auto"
+
+
+def test_openresponses_provider_keeps_sse_transport_default() -> None:
+    llm = _build_responses_family_llm(Provider.OPENRESPONSES, model_name="gpt-5-mini")
+
+    assert llm.configured_transport == "sse"
+
+
+def test_explicit_responses_transport_override_is_preserved() -> None:
+    settings = Settings(responses=OpenAISettings(api_key="test-key", transport="sse"))
+    context = Context(config=settings)
+
+    llm = ResponsesLLM(context=context, model="gpt-5.4", name="responses-explicit-sse")
+
+    assert llm.configured_transport == "sse"
+
+
 def test_openai_web_search_domain_allowlist_limit() -> None:
     domains = [f"domain-{index}.example.com" for index in range(101)]
     with pytest.raises(ValidationError):

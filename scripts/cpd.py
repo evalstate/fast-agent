@@ -25,6 +25,7 @@ import tarfile
 import urllib.request
 import zipfile
 from pathlib import Path
+from typing import Final
 
 # Tool versions and URLs
 JRE_VERSION = "17.0.9+9"
@@ -57,6 +58,17 @@ else:
 JRE_FILENAME = f"OpenJDK17U-jre_{ARCH_LABEL}_{OS_LABEL}_hotspot_{JRE_VERSION.replace('+', '_')}"
 JRE_URL = f"https://github.com/adoptium/temurin17-binaries/releases/download/jdk-{JRE_VERSION.replace('+', '%2B')}/{JRE_FILENAME}.tar.gz"
 PMD_URL = f"https://github.com/pmd/pmd/releases/download/pmd_releases%2F{PMD_VERSION}/pmd-dist-{PMD_VERSION}-bin.zip"
+
+CPD_EXCLUSIONS: Final[dict[str, str]] = {
+    "src/fast_agent/core/direct_decorators.py": (
+        "Intentional duplication preserves explicit decorator signatures for IDE autocomplete "
+        "and type completion on user-facing FastAgent decorators."
+    ),
+    "src/fast_agent/core/direct_factory.py": (
+        "Intentional duplication keeps the smart/basic agent factory branches explicit so IDEs "
+        "and readers can follow the concrete agent types without extra indirection."
+    ),
+}
 
 
 def download_file(url: str, dest: Path, desc: str) -> None:
@@ -148,6 +160,7 @@ def run_cpd(
     java_home: Path,
     pmd_dir: Path,
     src_dir: Path,
+    excluded_paths: list[Path],
     min_tokens: int = 100,
     output_format: str = "text",
 ) -> tuple[int, str]:
@@ -168,6 +181,8 @@ def run_cpd(
         "--dir", str(src_dir),
         "--format", output_format,
     ]
+    for excluded_path in excluded_paths:
+        cmd.extend(["--exclude", str(excluded_path)])
 
     result = subprocess.run(cmd, capture_output=True, text=True, env=env)
     output = result.stdout + result.stderr
@@ -211,6 +226,8 @@ def main() -> int:
         print(f"Source directory not found: {src_dir}", file=sys.stderr)
         return 1
 
+    excluded_paths = [project_root / relative_path for relative_path in CPD_EXCLUSIONS]
+
     # Ensure tools are available
     print("Checking dependencies...")
     java_home = ensure_jre()
@@ -219,12 +236,17 @@ def main() -> int:
 
     # Run CPD
     print(f"Running CPD on {src_dir} (min-tokens={args.min_tokens})...")
+    if excluded_paths:
+        print("Excluding intentional duplicates:")
+        for relative_path, reason in CPD_EXCLUSIONS.items():
+            print(f"  - {relative_path}: {reason}")
     print()
 
     exit_code, output = run_cpd(
         java_home=java_home,
         pmd_dir=pmd_dir,
         src_dir=src_dir,
+        excluded_paths=excluded_paths,
         min_tokens=args.min_tokens,
         output_format=args.format,
     )
