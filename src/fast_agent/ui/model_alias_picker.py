@@ -66,12 +66,12 @@ class _AliasPicker:
             style=Style.from_dict(
                 {
                     "selected": "reverse",
-                    "item": "#dddddd",
-                    "required": "#ffcc66",
-                    "repair": "#ff8080",
-                    "recommended": "#7fd4d4",
-                    "muted": "#777777",
-                    "status": "#dddddd",
+                    "item": "",
+                    "required": "ansiyellow",
+                    "repair": "ansiyellow",
+                    "recommended": "ansigreen",
+                    "muted": "ansibrightblack",
+                    "status": "",
                 }
             ),
             full_screen=False,
