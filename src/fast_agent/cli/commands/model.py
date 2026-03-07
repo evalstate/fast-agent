@@ -171,18 +171,17 @@ async def _select_model_setup_token(
     common_items = _build_common_setup_items(diagnostics.valid_aliases)
     if not items:
         if isinstance(io, TuiCommandIO) and common_items:
-            return await run_model_alias_picker_async(common_items)
+            return await _pick_or_prompt_alias_token(
+                io,
+                items=common_items,
+            )
         return None
 
     if isinstance(io, TuiCommandIO):
-        selected_token = await run_model_alias_picker_async(
-            _merge_setup_items(items, common_items)
+        return await _pick_or_prompt_alias_token(
+            io,
+            items=_merge_setup_items(items, common_items),
         )
-        if selected_token == CUSTOM_ALIAS_SENTINEL:
-            return await _prompt_manual_alias_token(io)
-        if selected_token is not None:
-            return selected_token
-        return None
 
     if len(items) == 1:
         item = items[0]
@@ -219,6 +218,17 @@ async def _select_model_setup_token(
     if normalized_selection == "custom":
         return await _prompt_manual_alias_token(io)
     return option_labels.get(normalized_selection)
+
+
+async def _pick_or_prompt_alias_token(
+    io: TuiCommandIO,
+    *,
+    items: tuple[ModelAliasSetupItem, ...],
+) -> str | None:
+    selected_token = await run_model_alias_picker_async(items)
+    if selected_token == CUSTOM_ALIAS_SENTINEL:
+        return await _prompt_manual_alias_token(io)
+    return selected_token
 
 
 def _render_setup_item_summary(item: ModelAliasSetupItem, *, title: str) -> Text:
