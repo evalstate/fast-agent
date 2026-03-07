@@ -90,6 +90,7 @@ class _AliasPicker:
             ),
             full_screen=False,
             mouse_support=False,
+            erase_when_done=True,
         )
         self._sync_scroll()
 
