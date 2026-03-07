@@ -71,7 +71,7 @@ class AgentCompleter(Completer):
             "tools": "List tools",
             "model": (
                 "Update model settings "
-                "(/model reasoning|verbosity|web_search|web_fetch <value>)"
+                "(/model reasoning|verbosity|fast|web_search|web_fetch <value>)"
             ),
             "models": (
                 "Inspect model onboarding "
@@ -309,6 +309,18 @@ class AgentCompleter(Completer):
         if llm is None:
             return False
         return model_handlers.model_supports_web_search(llm)
+
+    def _supports_service_tier_setting(self) -> bool:
+        llm = self._current_agent_llm()
+        if llm is None:
+            return False
+        return model_handlers.model_supports_service_tier(llm)
+
+    def _resolve_service_tier_values(self) -> list[str]:
+        llm = self._current_agent_llm()
+        if llm is None:
+            return []
+        return list(model_handlers.service_tier_command_values(llm))
 
     def _supports_web_fetch_setting(self) -> bool:
         llm = self._current_agent_llm()

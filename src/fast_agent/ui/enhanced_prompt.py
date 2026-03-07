@@ -37,6 +37,7 @@ from fast_agent.ui.prompt.toolbar import (
     _format_parent_current_path,
     _format_toolbar_agent_identity,
     _left_truncate_with_ellipsis,
+    _render_model_gauges,
 )
 
 if TYPE_CHECKING:
@@ -166,6 +167,7 @@ __all__ = [
     "_format_parent_current_path",
     "_format_toolbar_agent_identity",
     "_left_truncate_with_ellipsis",
+    "_render_model_gauges",
     "_resolve_alert_flags_from_history",
     "_display_agent_info_helper",
     "agent_histories",

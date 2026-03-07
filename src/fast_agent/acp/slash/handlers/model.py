@@ -45,6 +45,9 @@ async def handle_model(handler: "SlashCommandHandler", arguments: str | None = N
             if subcmd == "verbosity":
                 command_kind = "verbosity"
                 value = argument or None
+            elif subcmd == "fast":
+                command_kind = "fast"
+                value = argument or None
             elif subcmd == "reasoning":
                 value = argument or None
             elif subcmd == "web_search":
@@ -65,6 +68,12 @@ async def handle_model(handler: "SlashCommandHandler", arguments: str | None = N
     )
     if command_kind == "verbosity":
         outcome = await model_handlers.handle_model_verbosity(
+            ctx,
+            agent_name=handler.current_agent_name,
+            value=value,
+        )
+    elif command_kind == "fast":
+        outcome = await model_handlers.handle_model_fast(
             ctx,
             agent_name=handler.current_agent_name,
             value=value,

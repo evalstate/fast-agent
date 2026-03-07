@@ -407,6 +407,8 @@ def command_completions(
         }
         if completer._resolve_verbosity_values():
             subcommands["verbosity"] = "Set text verbosity (low/medium/high)"
+        if completer._supports_service_tier_setting():
+            subcommands["fast"] = "Set service tier (on/off/status; flex when supported)"
         if completer._supports_web_search_setting():
             subcommands["web_search"] = "Set web search tool state (on/off/default)"
         if completer._supports_web_fetch_setting():
@@ -438,6 +440,18 @@ def command_completions(
                     display_meta="verbosity",
                 )
                 for value in completer._resolve_verbosity_values()
+                if value.startswith(argument.lower())
+            )
+            return results
+        if subcmd == "fast" and completer._supports_service_tier_setting():
+            results.extend(
+                Completion(
+                    value,
+                    start_position=-len(argument),
+                    display=value,
+                    display_meta=subcmd,
+                )
+                for value in completer._resolve_service_tier_values()
                 if value.startswith(argument.lower())
             )
             return results

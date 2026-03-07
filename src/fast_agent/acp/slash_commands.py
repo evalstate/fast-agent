@@ -289,7 +289,7 @@ class SlashCommandHandler:
                 input=AvailableCommandInput(
                     root=UnstructuredCommandInput(
                         hint=(
-                            "reasoning <value> | verbosity <value> | "
+                            "reasoning <value> | verbosity <value> | fast <on|off|status|flex when supported> | "
                             "web_search <on|off|default> | web_fetch <on|off|default>"
                         )
                     )
@@ -410,13 +410,16 @@ class SlashCommandHandler:
         llm = self._get_current_llm()
         if llm is None:
             return (
-                "reasoning <value> | verbosity <value> | web_search <on|off|default> "
-                "| web_fetch <on|off|default>"
+                "reasoning <value> | verbosity <value> | fast <on|off|status|flex when supported> | "
+                "web_search <on|off|default> | web_fetch <on|off|default>"
             )
 
         options = ["reasoning <value>"]
         if model_handlers.model_supports_text_verbosity(llm):
             options.append("verbosity <value>")
+        if model_handlers.model_supports_service_tier(llm):
+            service_tier_values = "|".join(model_handlers.service_tier_command_values(llm))
+            options.append(f"fast <{service_tier_values}>")
         if model_handlers.model_supports_web_search(llm):
             options.append("web_search <on|off|default>")
         if model_handlers.model_supports_web_fetch(llm):

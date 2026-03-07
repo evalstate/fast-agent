@@ -98,7 +98,7 @@ def _build_shell_form(current: ShellSettings) -> FormSchema:
         if name == "write_text_file_mode":
             fields[name] = string(
                 title=name.replace("_", " ").title(),
-                description=f"{desc} (auto|on|off)",
+                description=f"{desc} (auto|on|off|apply_patch)",
                 default=str(current_value or "auto"),
                 max_length=8,
             )
@@ -220,10 +220,10 @@ def _normalize_shell_updates(result: dict[str, Any]) -> dict[str, Any]:
     shell_updates["show_bash"] = result.get("show_bash", True)
     shell_updates["enable_read_text_file"] = result.get("enable_read_text_file", True)
 
-    # write_text_file mode: auto|on|off (defaults to auto).
+    # write_text_file mode: auto|on|off|apply_patch (defaults to auto).
     mode_raw = result.get("write_text_file_mode", "auto")
     mode_value = mode_raw.strip().lower() if isinstance(mode_raw, str) else "auto"
-    if mode_value not in {"auto", "on", "off"}:
+    if mode_value not in {"auto", "on", "off", "apply_patch"}:
         mode_value = "auto"
     shell_updates["write_text_file_mode"] = mode_value
 

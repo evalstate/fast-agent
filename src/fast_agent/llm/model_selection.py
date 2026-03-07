@@ -40,6 +40,11 @@ class ModelSelectionCatalog:
 
     CATALOG_ENTRIES_BY_PROVIDER: dict[Provider, tuple[CatalogModelEntry, ...]] = {
         Provider.RESPONSES: (
+            CatalogModelEntry(alias="gpt-5.4", model="responses.gpt-5.4?reasoning=medium"),
+            CatalogModelEntry(
+                alias="gpt-5.3-chat-latest",
+                model="responses.gpt-5.3-chat-latest?transport=ws",
+            ),
             CatalogModelEntry(alias="gpt-5.2", model="responses.gpt-5.2?reasoning=medium"),
             CatalogModelEntry(
                 alias="gpt-5-mini",
@@ -47,7 +52,6 @@ class ModelSelectionCatalog:
                 fast=True,
             ),
             CatalogModelEntry(alias="gpt-5-nano", model="responses.gpt-5-nano?reasoning=medium"),
-            CatalogModelEntry(alias="gpt-5.3-chat-latest", model="chatgpt"),
         ),
         Provider.OPENAI: (
             CatalogModelEntry(alias="gpt-4.1", model="openai.gpt-4.1"),
@@ -135,7 +139,7 @@ class ModelSelectionCatalog:
         Provider.CODEX_RESPONSES: (
             CatalogModelEntry(
                 alias="codexplan",
-                model="codexresponses.gpt-5.3-codex?transport=ws&reasoning=high",
+                model="codexresponses.gpt-5.4?transport=ws&reasoning=high",
             ),
             CatalogModelEntry(
                 alias="codexspark",

@@ -168,13 +168,13 @@ def style_apply_patch_preview_text(
     return styled
 
 
-def build_apply_patch_preview(
-    command: str,
+
+def build_apply_patch_preview_from_input(
+    patch_text: str,
     *,
     max_lines: int | None = DEFAULT_PATCH_PREVIEW_MAX_LINES,
 ) -> ApplyPatchPreview | None:
-    patch_text = extract_apply_patch_text(command)
-    if patch_text is None:
+    if not patch_text:
         return None
 
     patch_summary = summarize_patch(patch_text)
@@ -189,3 +189,14 @@ def build_apply_patch_preview(
         file_count=patch_summary.file_count,
         operation_counts=patch_summary.operation_counts,
     )
+
+def build_apply_patch_preview(
+    command: str,
+    *,
+    max_lines: int | None = DEFAULT_PATCH_PREVIEW_MAX_LINES,
+) -> ApplyPatchPreview | None:
+    patch_text = extract_apply_patch_text(command)
+    if patch_text is None:
+        return None
+
+    return build_apply_patch_preview_from_input(patch_text, max_lines=max_lines)

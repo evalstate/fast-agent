@@ -60,6 +60,9 @@ class ModelParameters(BaseModel):
     response_websocket_providers: tuple[Provider, ...] | None = None
     """Providers allowed to use websocket transport for this Responses model."""
 
+    response_service_tiers: tuple[Literal["fast", "flex"], ...] | None = None
+    """Supported service_tier values for Responses APIs, if explicitly defined."""
+
     anthropic_web_search_version: str | None = None
     """Anthropic built-in web_search tool version, if supported by the model."""
 
@@ -322,6 +325,7 @@ class ModelDatabase:
         reasoning="openai",
         reasoning_effort_spec=OPENAI_GPT_5_CLASS_REASONING,
         text_verbosity_spec=OPENAI_TEXT_VERBOSITY_SPEC,
+        response_service_tiers=("fast", "flex"),
         default_provider=Provider.RESPONSES,
     )
 
@@ -332,6 +336,7 @@ class ModelDatabase:
         reasoning="openai",
         reasoning_effort_spec=OPENAI_GPT_51_CLASS_REASONING,
         text_verbosity_spec=OPENAI_TEXT_VERBOSITY_SPEC,
+        response_service_tiers=("fast", "flex"),
         default_provider=Provider.RESPONSES,
     )
 
@@ -344,6 +349,7 @@ class ModelDatabase:
         text_verbosity_spec=OPENAI_TEXT_VERBOSITY_SPEC,
         response_transports=("sse", "websocket"),
         response_websocket_providers=(Provider.RESPONSES, Provider.CODEX_RESPONSES),
+        response_service_tiers=("fast", "flex"),
         default_provider=Provider.RESPONSES,
     )
 
@@ -354,6 +360,7 @@ class ModelDatabase:
         # Spark does not support reasoning effort or text verbosity controls.
         response_transports=("sse", "websocket"),
         response_websocket_providers=(Provider.CODEX_RESPONSES,),
+        response_service_tiers=("fast",),
         default_provider=Provider.CODEX_RESPONSES,
     )
 
@@ -363,6 +370,7 @@ class ModelDatabase:
         tokenizes=OPENAI_MULTIMODAL,
         response_transports=("sse", "websocket"),
         response_websocket_providers=(Provider.RESPONSES,),
+        response_service_tiers=("fast",),
         default_provider=Provider.RESPONSES,
         reasoning="openai",
     )
@@ -668,9 +676,14 @@ class ModelDatabase:
         "gpt-5-nano": _with_fast(OPENAI_GPT_5),
         "gpt-5-nano-2025-08-07": _with_fast(OPENAI_GPT_5),
         "gpt-5.1": OPENAI_GPT_5_2,
-        "gpt-5.1-codex": OPENAI_GPT_CODEX,
+        "gpt-5.1-codex": OPENAI_GPT_CODEX.model_copy(
+            update={"response_service_tiers": ("fast",)}
+        ),
         "gpt-5.2-codex": OPENAI_GPT_CODEX,
-        "gpt-5.3-codex": OPENAI_GPT_CODEX,
+        "gpt-5.3-codex": OPENAI_GPT_CODEX.model_copy(
+            update={"response_service_tiers": ("fast",)}
+        ),
+        "gpt-5.4": OPENAI_GPT_CODEX,
         "gpt-5.3-codex-spark": _with_fast(OPENAI_GPT_CODEX_SPARK),
         "gpt-5.2": OPENAI_GPT_5_2.model_copy(
             update={
@@ -957,6 +970,24 @@ class ModelDatabase:
         """Get providers that may use websocket transport for this model."""
         params = cls.get_model_params(model)
         return params.response_websocket_providers if params else None
+
+    @classmethod
+    def get_response_service_tiers(cls, model: str) -> tuple[Literal["fast", "flex"], ...] | None:
+        """Get supported Responses service tiers for a model, if explicitly defined."""
+        params = cls.get_model_params(model)
+        return params.response_service_tiers if params else None
+
+    @classmethod
+    def supports_response_service_tier(
+        cls,
+        model: str,
+        service_tier: Literal["fast", "flex"],
+    ) -> bool | None:
+        """Return service-tier support for a model, or None when unconstrained."""
+        service_tiers = cls.get_response_service_tiers(model)
+        if service_tiers is None:
+            return None
+        return service_tier in service_tiers
 
     @classmethod
     def supports_response_transport(

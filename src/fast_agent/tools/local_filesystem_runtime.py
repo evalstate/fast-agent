@@ -1,15 +1,25 @@
 """Local filesystem runtime for shell-enabled agents.
 
-Provides ACP-compatible ``read_text_file`` and ``write_text_file`` tool
-implementations for non-ACP environments.
+Provides ACP-compatible ``read_text_file`` / ``write_text_file`` tool
+implementations for non-ACP environments and a local ``apply_patch`` tool for
+GPT-5 / Codex-family models.
 """
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 from typing import Any
 
 from mcp.types import CallToolResult, TextContent, Tool
+
+from fast_agent.patch.engine import apply_patch as run_apply_patch
+from fast_agent.patch.errors import ApplyPatchError
+from fast_agent.tools.apply_patch_tool import build_apply_patch_tool, extract_apply_patch_input
+from fast_agent.tools.filesystem_tool_definitions import (
+    build_read_text_file_tool,
+    build_write_text_file_tool,
+)
 
 
 class LocalFilesystemRuntime:
@@ -22,57 +32,17 @@ class LocalFilesystemRuntime:
         *,
         enable_read: bool = True,
         enable_write: bool = True,
+        enable_apply_patch: bool = False,
     ) -> None:
         self._logger = logger
         self._working_directory = working_directory
         self._enable_read = enable_read
         self._enable_write = enable_write
+        self._enable_apply_patch = enable_apply_patch
 
-        self._read_tool = Tool(
-            name="read_text_file",
-            description="Read content from a text file. Returns the file contents as a string. ",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Absolute path to the file to read.",
-                    },
-                    "line": {
-                        "type": "integer",
-                        "description": "Optional line number to start reading from (1-based).",
-                        "minimum": 1,
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Optional maximum number of lines to read.",
-                        "minimum": 1,
-                    },
-                },
-                "required": ["path"],
-                "additionalProperties": False,
-            },
-        )
-
-        self._write_tool = Tool(
-            name="write_text_file",
-            description="Write content to a text file. Creates or overwrites the file. ",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Absolute path to the file to write.",
-                    },
-                    "content": {
-                        "type": "string",
-                        "description": "The text content to write to the file.",
-                    },
-                },
-                "required": ["path", "content"],
-                "additionalProperties": False,
-            },
-        )
+        self._read_tool = build_read_text_file_tool()
+        self._write_tool = build_write_text_file_tool()
+        self._apply_patch_tool = build_apply_patch_tool()
 
     @property
     def tools(self) -> list[Tool]:
@@ -82,12 +52,21 @@ class LocalFilesystemRuntime:
             tools.append(self._read_tool)
         if self._enable_write:
             tools.append(self._write_tool)
+        if self._enable_apply_patch:
+            tools.append(self._apply_patch_tool)
         return tools
 
-    def set_enabled_tools(self, *, enable_read: bool, enable_write: bool) -> None:
+    def set_enabled_tools(
+        self,
+        *,
+        enable_read: bool,
+        enable_write: bool,
+        enable_apply_patch: bool,
+    ) -> None:
         """Update enabled filesystem tool flags."""
         self._enable_read = enable_read
         self._enable_write = enable_write
+        self._enable_apply_patch = enable_apply_patch
 
     def set_working_directory(self, working_directory: Path | None) -> None:
         """Update the base directory used for relative file paths."""
@@ -232,6 +211,52 @@ class LocalFilesystemRuntime:
             isError=False,
         )
 
+    async def apply_patch(
+        self, arguments: dict[str, Any] | None = None, tool_use_id: str | None = None
+    ) -> CallToolResult:
+        """Apply a patch using the local apply_patch engine."""
+        del tool_use_id
+
+        if not isinstance(arguments, dict):
+            return CallToolResult(
+                content=[TextContent(type="text", text="Error: arguments must be a dict")],
+                isError=True,
+            )
+
+        patch_text = extract_apply_patch_input(arguments)
+        if patch_text is None:
+            return CallToolResult(
+                content=[
+                    TextContent(
+                        type="text",
+                        text="Error: 'input' argument is required and must be a string",
+                    )
+                ],
+                isError=True,
+            )
+
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        base_directory = self._base_directory()
+        try:
+            run_apply_patch(patch_text, stdout, stderr, base_directory=base_directory)
+        except ApplyPatchError as exc:
+            self._logger.error(f"Error applying patch: {exc}")
+            error_text = stderr.getvalue().strip() or str(exc)
+            return CallToolResult(
+                content=[TextContent(type="text", text=error_text)],
+                isError=True,
+            )
+
+        output = stdout.getvalue().strip()
+        if not output:
+            output = "Success. Updated the requested files."
+        self._logger.debug("Applied local patch", base_directory=str(base_directory))
+        return CallToolResult(
+            content=[TextContent(type="text", text=output)],
+            isError=False,
+        )
+
     def metadata(self) -> dict[str, Any]:
         """Expose runtime metadata for tool displays and diagnostics."""
         tools: list[str] = []
@@ -239,6 +264,8 @@ class LocalFilesystemRuntime:
             tools.append("read_text_file")
         if self._enable_write:
             tools.append("write_text_file")
+        if self._enable_apply_patch:
+            tools.append("apply_patch")
 
         return {
             "type": "local_filesystem",

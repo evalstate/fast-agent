@@ -68,6 +68,7 @@ from fast_agent.mcp.mcp_aggregator import (
 )
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest
 from fast_agent.skills.registry import SkillRegistry
+from fast_agent.tools.apply_patch_tool import is_apply_patch_tool_name
 from fast_agent.tools.elicitation import (
     get_elicitation_tool,
     run_elicitation_form,
@@ -108,6 +109,10 @@ class FilesystemRuntime(Protocol):
     ) -> CallToolResult: ...
 
     async def write_text_file(
+        self, arguments: dict[str, Any] | None = None, tool_use_id: str | None = None
+    ) -> CallToolResult: ...
+
+    async def apply_patch(
         self, arguments: dict[str, Any] | None = None, tool_use_id: str | None = None
     ) -> CallToolResult: ...
 
@@ -552,27 +557,33 @@ class McpAgent(ABC, ToolAgent):
             return True
         return bool(getattr(shell_config, "enable_read_text_file", True))
 
-    def _shell_write_text_file_enabled(self) -> bool:
-        """Return whether shell-enabled agents should expose local write_text_file."""
+    def _resolve_shell_edit_tool_mode(self) -> Literal["write_text_file", "apply_patch", "off"]:
+        """Return which shell edit tool should be exposed for the current model/config."""
+        default_mode: Literal["write_text_file", "apply_patch"]
+        if self._prefers_apply_patch_model(self._resolve_shell_tool_model_name()):
+            default_mode = "apply_patch"
+        else:
+            default_mode = "write_text_file"
+
         if not self._context or not self._context.config:
-            return not self._is_codex_family_model(self._resolve_shell_tool_model_name())
+            return default_mode
 
         shell_config = getattr(self._context.config, "shell_execution", None)
         if shell_config is None:
-            return not self._is_codex_family_model(self._resolve_shell_tool_model_name())
+            return default_mode
 
         mode_raw = getattr(shell_config, "write_text_file_mode", None)
         mode = mode_raw.strip().lower() if isinstance(mode_raw, str) else None
         if mode == "on":
-            return True
+            return "write_text_file"
         if mode == "off":
-            return False
+            return "off"
+        if mode == "apply_patch":
+            return "apply_patch"
         if mode == "auto":
-            return not self._is_codex_family_model(self._resolve_shell_tool_model_name())
+            return default_mode
 
-        # Default policy: disable local write_text_file for Codex-family models,
-        # keep it enabled for other models (including qwen35).
-        return not self._is_codex_family_model(self._resolve_shell_tool_model_name())
+        return default_mode
 
     def _resolve_shell_tool_model_name(self) -> str | None:
         """Resolve the best-available model name for shell tool policy decisions."""
@@ -586,13 +597,13 @@ class McpAgent(ABC, ToolAgent):
         return model_name
 
     @staticmethod
-    def _is_codex_family_model(model_name: str | None) -> bool:
-        """Return True for Codex-family models where apply_patch-first workflows are preferred."""
+    def _prefers_apply_patch_model(model_name: str | None) -> bool:
+        """Return True for models where apply_patch-first workflows are preferred."""
         if not model_name:
             return False
 
         normalized = ModelDatabase.normalize_model_name(model_name)
-        return "codex" in normalized
+        return normalized.startswith("gpt-5") or "codex" in normalized
 
     def _maybe_enable_local_filesystem_runtime(self, working_directory: Path | None = None) -> None:
         """Enable local filesystem runtime when shell mode is active and configured."""
@@ -600,14 +611,17 @@ class McpAgent(ABC, ToolAgent):
             return
 
         enable_read = self._shell_read_text_file_enabled()
-        enable_write = self._shell_write_text_file_enabled()
-        if not enable_read and not enable_write:
+        edit_mode = self._resolve_shell_edit_tool_mode()
+        enable_write = edit_mode == "write_text_file"
+        enable_apply_patch = edit_mode == "apply_patch"
+        if not enable_read and not enable_write and not enable_apply_patch:
             if isinstance(self._filesystem_runtime, LocalFilesystemRuntime):
                 if working_directory is not None:
                     self._filesystem_runtime.set_working_directory(working_directory)
                 self._filesystem_runtime.set_enabled_tools(
                     enable_read=enable_read,
                     enable_write=enable_write,
+                    enable_apply_patch=enable_apply_patch,
                 )
             return
 
@@ -618,6 +632,7 @@ class McpAgent(ABC, ToolAgent):
                 self._filesystem_runtime.set_enabled_tools(
                     enable_read=enable_read,
                     enable_write=enable_write,
+                    enable_apply_patch=enable_apply_patch,
                 )
             return
 
@@ -629,6 +644,7 @@ class McpAgent(ABC, ToolAgent):
             working_directory=runtime_working_directory,
             enable_read=enable_read,
             enable_write=enable_write,
+            enable_apply_patch=enable_apply_patch,
         )
         self._filesystem_runtime = runtime
         self.logger.info(
@@ -636,6 +652,7 @@ class McpAgent(ABC, ToolAgent):
             runtime_type=type(runtime).__name__,
             read_enabled=enable_read,
             write_enabled=enable_write,
+            apply_patch_enabled=enable_apply_patch,
         )
 
     def _shell_output_limit_overridden(self) -> bool:
@@ -653,7 +670,8 @@ class McpAgent(ABC, ToolAgent):
         if isinstance(self._filesystem_runtime, LocalFilesystemRuntime):
             self._filesystem_runtime.set_enabled_tools(
                 enable_read=self._shell_read_text_file_enabled(),
-                enable_write=self._shell_write_text_file_enabled(),
+                enable_write=self._resolve_shell_edit_tool_mode() == "write_text_file",
+                enable_apply_patch=self._resolve_shell_edit_tool_mode() == "apply_patch",
             )
 
         if self._shell_runtime is None:
@@ -940,10 +958,10 @@ class McpAgent(ABC, ToolAgent):
                     # Route to the appropriate method based on tool name
                     if name == "read_text_file":
                         return await self._filesystem_runtime.read_text_file(arguments, tool_use_id)
-                    elif name == "write_text_file":
-                        return await self._filesystem_runtime.write_text_file(
-                            arguments, tool_use_id
-                        )
+                    if name == "write_text_file":
+                        return await self._filesystem_runtime.write_text_file(arguments, tool_use_id)
+                    if is_apply_patch_tool_name(name):
+                        return await self._filesystem_runtime.apply_patch(arguments, tool_use_id)
 
         # Check skill reader (non-ACP context with skills)
         if self._skill_reader and name == "read_skill":
@@ -1464,6 +1482,7 @@ class McpAgent(ABC, ToolAgent):
                     display_tool_name=display_tool_name,
                     tool_args=call["tool_args"],
                 )
+                setattr(result, "tool_name", display_tool_name)
 
                 tool_results[correlation_id] = result
                 tool_timings[correlation_id] = ToolTimingInfo(
@@ -1524,6 +1543,7 @@ class McpAgent(ABC, ToolAgent):
                     display_tool_name=display_tool_name,
                     tool_args=tool_args,
                 )
+                setattr(result, "tool_name", display_tool_name)
 
                 tool_results[correlation_id] = result
                 tool_timings[correlation_id] = ToolTimingInfo(

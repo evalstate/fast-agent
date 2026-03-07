@@ -55,6 +55,7 @@ from fast_agent.ui.enhanced_prompt import (
     parse_special_input,
     set_last_copyable_output,
 )
+from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 from fast_agent.ui.interactive_shell import run_interactive_shell_command
 from fast_agent.ui.progress_display import progress_display
 from fast_agent.ui.prompt.resource_mentions import (
@@ -69,6 +70,30 @@ SendFunc = Callable[[Union[str, PromptMessage, PromptMessageExtended], str], Awa
 
 # Type alias for the agent getter function
 AgentGetter = Callable[[str], object | None]
+
+
+def _clear_current_task_cancellation_requests() -> int:
+    """Clear pending cancellation requests on the current interactive task.
+
+    Interactive turn cancellation is user-facing recoverable behavior: after a
+    cancelled turn we return to the prompt instead of tearing down the whole
+    session. Some provider/streaming paths propagate cancellation by marking the
+    current task as cancelling even when the turn is later normalized into a
+    cancelled result. Clear that latent state before the next turn so a
+    subsequent Ctrl+C is handled as a fresh cancel instead of an immediate exit.
+    """
+    task = asyncio.current_task()
+    if task is None:
+        return 0
+
+    cleared = 0
+    while task.cancelling() > 0:
+        task.uncancel()
+        cleared += 1
+
+    if cleared:
+        write_interactive_trace("prompt.task_uncancelled", cleared=cleared)
+    return cleared
 
 
 class InteractivePrompt:
@@ -209,6 +234,8 @@ class InteractivePrompt:
             nonlocal ctrl_c_deadline
 
             ctrl_c_deadline = None
+            _clear_current_task_cancellation_requests()
+            write_interactive_trace("prompt.inflight_cancel")
             rich_print("[yellow]Generation cancelled by user.[/yellow]")
 
         def _clear_progress_for_agent(agent_name: str | None) -> None:
@@ -367,12 +394,19 @@ class InteractivePrompt:
                 agent_obj = None
 
             if agent_obj is not None and getattr(agent_obj, "_last_turn_cancelled", False):
+                _clear_current_task_cancellation_requests()
                 _clear_progress_for_agent(agent)
                 reason = getattr(agent_obj, "_last_turn_cancel_reason", "cancelled")
                 setattr(agent_obj, "_last_turn_cancelled", False)
                 history_state = getattr(agent_obj, "_last_turn_history_state", None)
                 setattr(agent_obj, "_last_turn_history_state", None)
                 state_message = _describe_cancelled_history_state(history_state)
+                write_interactive_trace(
+                    "prompt.previous_turn_cancelled",
+                    agent=agent,
+                    reason=reason,
+                    state=state_message,
+                )
                 rich_print(
                     "[yellow]Previous turn was {reason}. {state} "
                     "Use /history to inspect or manipulate history.[/yellow]".format(
@@ -537,13 +571,22 @@ class InteractivePrompt:
                     # Use the return value from send_func directly - this works even
                     # when use_history=False (e.g., for agents loaded as tools)
                     emit_prompt_mark("C")
+                    write_interactive_trace("prompt.hash_send.start", agent=hash_send_target)
                     progress_display.resume()
                     response_text = await send_func(hash_send_message, hash_send_target)
                 except KeyboardInterrupt:
+                    write_interactive_trace(
+                        "prompt.hash_send.keyboard_interrupt",
+                        agent=hash_send_target,
+                    )
                     _clear_progress_for_agent(hash_send_target)
                     _handle_inflight_cancel()
                     continue
                 except asyncio.CancelledError:
+                    write_interactive_trace(
+                        "prompt.hash_send.cancelled_error",
+                        agent=hash_send_target,
+                    )
                     _clear_progress_for_agent(hash_send_target)
                     task = asyncio.current_task()
                     if task is not None and task.cancelling() > 0:
@@ -554,10 +597,15 @@ class InteractivePrompt:
                     rich_print(f"[red]Error asking {hash_send_target}: {exc}[/red]")
                     continue
                 finally:
+                    write_interactive_trace(
+                        "prompt.hash_send.finally_pause",
+                        agent=hash_send_target,
+                    )
                     progress_display.pause(cancel_deferred_on_noop=True)
                     emit_prompt_mark("D")
 
                 if _last_assistant_message_cancelled(hash_send_target):
+                    _clear_current_task_cancellation_requests()
                     _clear_progress_for_agent(hash_send_target)
                     ctrl_c_deadline = None
 
@@ -612,14 +660,17 @@ class InteractivePrompt:
                     continue
 
             emit_prompt_mark("C")
+            write_interactive_trace("prompt.send.start", agent=agent)
             progress_display.resume()
             try:
                 result = await send_func(prompt_payload, agent)
             except KeyboardInterrupt:
+                write_interactive_trace("prompt.send.keyboard_interrupt", agent=agent)
                 _clear_progress_for_agent(agent)
                 _handle_inflight_cancel()
                 continue
             except asyncio.CancelledError:
+                write_interactive_trace("prompt.send.cancelled_error", agent=agent)
                 _clear_progress_for_agent(agent)
                 task = asyncio.current_task()
                 if task is not None and task.cancelling() > 0:
@@ -627,6 +678,7 @@ class InteractivePrompt:
                 _handle_inflight_cancel()
                 continue
             finally:
+                write_interactive_trace("prompt.send.finally_pause", agent=agent)
                 progress_display.pause(cancel_deferred_on_noop=True)
                 emit_prompt_mark("D")
 
@@ -635,6 +687,7 @@ class InteractivePrompt:
                 print(result)
 
             if _last_assistant_message_cancelled(agent):
+                _clear_current_task_cancellation_requests()
                 _clear_progress_for_agent(agent)
                 ctrl_c_deadline = None
 

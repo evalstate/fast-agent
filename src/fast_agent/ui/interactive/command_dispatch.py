@@ -46,6 +46,7 @@ from fast_agent.ui.command_payloads import (
     McpListCommand,
     McpReconnectCommand,
     McpSessionCommand,
+    ModelFastCommand,
     ModelReasoningCommand,
     ModelsCommand,
     ModelVerbosityCommand,
@@ -399,6 +400,15 @@ async def dispatch_command_payload(
         case ModelVerbosityCommand(value=value):
             context = build_command_context(prompt_provider, agent)
             outcome = await model_handlers.handle_model_verbosity(
+                context,
+                agent_name=agent,
+                value=value,
+            )
+            await emit_command_outcome(context, outcome)
+            return result
+        case ModelFastCommand(value=value):
+            context = build_command_context(prompt_provider, agent)
+            outcome = await model_handlers.handle_model_fast(
                 context,
                 agent_name=agent,
                 value=value,

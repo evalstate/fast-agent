@@ -10,9 +10,11 @@ from rich.syntax import Syntax
 from rich.text import Text
 
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.tools.apply_patch_tool import extract_apply_patch_input, is_apply_patch_tool_name
 from fast_agent.ui import console
 from fast_agent.ui.apply_patch_preview import (
     build_apply_patch_preview,
+    build_apply_patch_preview_from_input,
     extract_non_command_args,
     format_apply_patch_preview,
     is_shell_execution_tool,
@@ -841,6 +843,35 @@ class ToolDisplay:
                     bottom_items.append(
                         f"timeout: {timeout_seconds}s, warning every {warning_interval}s"
                     )
+            elif is_apply_patch_tool_name(tool_name):
+                patch_input = extract_apply_patch_input(tool_args)
+                preview = (
+                    build_apply_patch_preview_from_input(patch_input)
+                    if patch_input is not None
+                    else None
+                )
+                patch_text = Text()
+                if preview is not None:
+                    patch_text.append("apply_patch (preview)", style="white")
+                    patch_text.append("\n")
+                    patch_text.append_text(
+                        style_apply_patch_preview_text(
+                            format_apply_patch_preview(
+                                preview,
+                                other_args={
+                                    key: value for key, value in tool_args.items() if key != "input"
+                                },
+                            ),
+                            default_style="white",
+                        )
+                    )
+                elif patch_input is not None:
+                    patch_text.append(patch_input, style="white")
+                else:
+                    patch_text.append("(no apply_patch input provided)", style="dim")
+                content = patch_text
+                render_markdown = False
+                truncate_content = False
             elif self._is_read_text_file_tool(tool_name):
                 read_summary = self._read_text_file_summary(tool_args)
                 if read_summary:

@@ -5,7 +5,11 @@ from typing import TYPE_CHECKING, Any, Iterable, Mapping
 
 from mcp.types import CallToolRequest, ContentBlock, EmbeddedResource
 
-from fast_agent.constants import OPENAI_REASONING_ENCRYPTED, REASONING
+from fast_agent.constants import (
+    OPENAI_ASSISTANT_MESSAGE_ITEMS,
+    OPENAI_REASONING_ENCRYPTED,
+    REASONING,
+)
 from fast_agent.mcp.helpers.content_helpers import (
     get_image_data,
     get_resource_uri,
@@ -15,6 +19,10 @@ from fast_agent.mcp.helpers.content_helpers import (
     is_resource_link,
     is_text_content,
 )
+from fast_agent.tools.apply_patch_tool import (
+    extract_apply_patch_input,
+)
+from fast_agent.types.assistant_message_phase import AssistantMessagePhase
 
 if TYPE_CHECKING:
     from fast_agent.core.logging.logger import Logger
@@ -25,6 +33,46 @@ class ResponsesContentMixin:
     if TYPE_CHECKING:
         logger: Logger
         _tool_call_id_map: dict[str, str]
+        _tool_name_map: dict[str, str]
+        _tool_kind_map: dict[str, str]
+
+    def _tool_kind_state(self) -> dict[str, str]:
+        tool_kind_map = getattr(self, "_tool_kind_map", None)
+        if isinstance(tool_kind_map, dict):
+            return tool_kind_map
+
+        tool_kind_map = {}
+        self._tool_kind_map = tool_kind_map
+        return tool_kind_map
+
+    def _resolve_tool_call_kind(
+        self,
+        *,
+        tool_use_id: str | None,
+        fc_id: str | None,
+        call_id: str | None,
+    ) -> str:
+        tool_kind_map = self._tool_kind_state()
+        for key in (tool_use_id, fc_id, call_id):
+            if not key:
+                continue
+            kind = tool_kind_map.get(key)
+            if kind in {"custom", "function"}:
+                return kind
+        return "function"
+
+    def _record_tool_call_kind(
+        self,
+        *,
+        tool_use_id: str,
+        fc_id: str,
+        call_id: str,
+        kind: str,
+    ) -> None:
+        tool_kind_map = self._tool_kind_state()
+        tool_kind_map[tool_use_id] = kind
+        tool_kind_map[fc_id] = kind
+        tool_kind_map[call_id] = kind
 
     def _convert_extended_messages_to_provider(
         self, messages: list[PromptMessageExtended]
@@ -55,21 +103,67 @@ class ResponsesContentMixin:
         items: list[dict[str, Any]] = []
         items.extend(self._extract_encrypted_reasoning_items(msg.channels))
 
+        raw_assistant_items = self._extract_assistant_message_items(msg)
+
         if msg.tool_results:
             items.extend(self._convert_tool_results(msg.tool_results))
-            message_item = self._build_message_item(msg.role, msg.content)
-            if message_item:
-                items.append(message_item)
+            if raw_assistant_items:
+                items.extend(raw_assistant_items)
+            else:
+                message_item = self._build_message_item(msg.role, msg.content, phase=msg.phase)
+                if message_item:
+                    items.append(message_item)
             return items
 
-        message_item = self._build_message_item(msg.role, msg.content)
-        if message_item:
-            items.append(message_item)
+        if raw_assistant_items:
+            items.extend(raw_assistant_items)
+        else:
+            message_item = self._build_message_item(msg.role, msg.content, phase=msg.phase)
+            if message_item:
+                items.append(message_item)
 
         if msg.tool_calls:
             items.extend(self._convert_tool_calls(msg.tool_calls))
 
         return items
+
+    def _extract_assistant_message_items(
+        self, msg: PromptMessageExtended
+    ) -> list[dict[str, Any]]:
+        if msg.role != "assistant" or not msg.channels:
+            return []
+
+        raw_blocks = msg.channels.get(OPENAI_ASSISTANT_MESSAGE_ITEMS)
+        if not raw_blocks:
+            return []
+
+        items: list[dict[str, Any]] = []
+        for block in raw_blocks:
+            text = get_text(block)
+            if not text:
+                continue
+            try:
+                payload = json.loads(text)
+            except json.JSONDecodeError:
+                self.logger.debug("Skipping malformed OpenAI assistant message item")
+                continue
+            if not isinstance(payload, dict):
+                continue
+            if payload.get("type") != "message":
+                continue
+            payload = dict(payload)
+            payload["role"] = "assistant"
+            phase = payload.get("phase")
+            if phase is None and msg.phase is not None:
+                payload["phase"] = self._phase_to_wire_value(msg.phase)
+            items.append(payload)
+        return items
+
+    @staticmethod
+    def _phase_to_wire_value(phase: AssistantMessagePhase | str) -> str:
+        if isinstance(phase, AssistantMessagePhase):
+            return phase.value
+        return phase
 
     def _extract_encrypted_reasoning_items(
         self, channels: Mapping[str, Iterable[ContentBlock]] | None
@@ -199,18 +293,25 @@ class ResponsesContentMixin:
         return normalized
 
     def _build_message_item(
-        self, role: str, content: list[ContentBlock]
+        self,
+        role: str,
+        content: list[ContentBlock],
+        *,
+        phase: AssistantMessagePhase | None = None,
     ) -> dict[str, Any] | None:
         if not content:
             return None
         parts = self._convert_content_parts(content, role)
         if not parts:
             return None
-        return {
+        item: dict[str, Any] = {
             "type": "message",
             "role": role,
             "content": parts,
         }
+        if role == "assistant" and phase is not None:
+            item["phase"] = phase.value
+        return item
 
     def _convert_content_parts(
         self, content: list[ContentBlock], role: str
@@ -267,6 +368,30 @@ class ResponsesContentMixin:
             arguments = getattr(params, "arguments", None) or {}
             fc_id, call_id = self._normalize_tool_ids(tool_use_id)
             self._tool_call_id_map[tool_use_id] = call_id
+            self._tool_name_map[tool_use_id] = name
+            tool_kind = self._resolve_tool_call_kind(
+                tool_use_id=tool_use_id,
+                fc_id=fc_id,
+                call_id=call_id,
+            )
+            self._record_tool_call_kind(
+                tool_use_id=tool_use_id,
+                fc_id=fc_id,
+                call_id=call_id,
+                kind=tool_kind,
+            )
+            if tool_kind == "custom":
+                patch_input = extract_apply_patch_input(arguments)
+                items.append(
+                    {
+                        "type": "custom_tool_call",
+                        "call_id": call_id,
+                        "name": name,
+                        "input": patch_input or "",
+                    }
+                )
+                continue
+
             items.append(
                 {
                     "type": "function_call",
@@ -284,13 +409,28 @@ class ResponsesContentMixin:
         items: list[dict[str, Any]] = []
         for index, (tool_use_id, result) in enumerate(tool_results.items()):
             tool_use_id = tool_use_id or f"tool_{index}"
+            fc_id, normalized_call_id = self._normalize_tool_ids(tool_use_id)
             call_id = self._tool_call_id_map.get(tool_use_id)
             if not call_id:
-                call_id = self._normalize_tool_ids(tool_use_id)[1]
+                call_id = normalized_call_id
             output = self._tool_result_to_text(result)
+            tool_kind = self._resolve_tool_call_kind(
+                tool_use_id=tool_use_id,
+                fc_id=fc_id,
+                call_id=call_id,
+            )
+            self._record_tool_call_kind(
+                tool_use_id=tool_use_id,
+                fc_id=fc_id,
+                call_id=call_id,
+                kind=tool_kind,
+            )
+            output_type = (
+                "custom_tool_call_output" if tool_kind == "custom" else "function_call_output"
+            )
             items.append(
                 {
-                    "type": "function_call_output",
+                    "type": output_type,
                     "call_id": call_id,
                     "output": output,
                 }

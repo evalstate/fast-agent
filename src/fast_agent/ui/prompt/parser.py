@@ -32,6 +32,7 @@ from fast_agent.ui.command_payloads import (
     McpListCommand,
     McpReconnectCommand,
     McpSessionCommand,
+    ModelFastCommand,
     ModelReasoningCommand,
     ModelsCommand,
     ModelVerbosityCommand,
@@ -730,11 +731,16 @@ def parse_special_input(text: str) -> str | CommandPayload:
                 return ModelReasoningCommand(value=argument or None)
             if subcmd == "verbosity":
                 return ModelVerbosityCommand(value=argument or None)
+            if subcmd == "fast":
+                return ModelFastCommand(value=argument or None)
             if subcmd == "web_search":
                 return ModelWebSearchCommand(value=argument or None)
             if subcmd == "web_fetch":
                 return ModelWebFetchCommand(value=argument or None)
             return UnknownCommand(command=cmd_line)
+        if cmd == "fast":
+            remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
+            return ModelFastCommand(value=remainder or None)
         if cmd == "skills":
             remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
             if not remainder:

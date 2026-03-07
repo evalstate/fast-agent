@@ -86,6 +86,11 @@ def _accept_completion(buffer: Buffer) -> bool:
 
 def create_keybindings(
     on_toggle_multiline: Callable[[bool], None] | None = None,
+    on_cycle_service_tier: Callable[[], None] | None = None,
+    on_cycle_reasoning: Callable[[], None] | None = None,
+    on_cycle_verbosity: Callable[[], None] | None = None,
+    on_cycle_web_search: Callable[[], None] | None = None,
+    on_cycle_web_fetch: Callable[[], None] | None = None,
     app: Any | None = None,
     agent_provider: "AgentApp | None" = None,
     agent_name: str | None = None,
@@ -132,10 +137,48 @@ def create_keybindings(
         if _cycle_completion(event.current_buffer, backwards=True):
             return
 
+        if on_cycle_service_tier is not None:
+            on_cycle_service_tier()
+            if event.app:
+                event.app.invalidate()
+            elif app:
+                app.invalidate()
+            return
+
         text = event.current_buffer.document.text_before_cursor
         if not _should_start_completion(text):
             return
         event.current_buffer.start_completion(select_last=True)
+
+    def _invoke_callback(callback: Callable[[], None] | None, event) -> bool:
+        if callback is None:
+            return False
+        callback()
+        if event.app:
+            event.app.invalidate()
+        elif app:
+            app.invalidate()
+        return True
+
+    @kb.add("f6")
+    def _(event) -> None:
+        if _invoke_callback(on_cycle_reasoning, event):
+            return
+
+    @kb.add("f7")
+    def _(event) -> None:
+        if _invoke_callback(on_cycle_verbosity, event):
+            return
+
+    @kb.add("f8")
+    def _(event) -> None:
+        if _invoke_callback(on_cycle_web_search, event):
+            return
+
+    @kb.add("f9")
+    def _(event) -> None:
+        if _invoke_callback(on_cycle_web_fetch, event):
+            return
 
     @kb.add("c-m", filter=Condition(lambda: _has_any_completions()), eager=True)
     @kb.add("enter", filter=Condition(lambda: _has_any_completions()), eager=True)

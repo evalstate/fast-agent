@@ -35,6 +35,7 @@ from fast_agent.ui.citation_display import (
     web_tool_badges,
 )
 from fast_agent.ui.console_display import ConsoleDisplay
+from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 from fast_agent.ui.message_display_helpers import (
     build_tool_use_additional_message,
     build_user_message_display,
@@ -578,37 +579,49 @@ class LlmAgent(LlmDecorator):
                 model=display_model,
             ) as stream_handle:
                 self._active_stream_handle = stream_handle
+                write_interactive_trace(
+                    "llm_agent.stream_handle.attach",
+                    agent=self.name,
+                    handle_id=id(stream_handle),
+                )
                 try:
-                    remove_listener = llm.add_stream_listener(stream_handle.update_chunk)
-                    remove_tool_listener = llm.add_tool_stream_listener(
-                        stream_handle.handle_tool_event
-                    )
-                except Exception:
-                    remove_listener = None
-                    remove_tool_listener = None
+                    try:
+                        remove_listener = llm.add_stream_listener(stream_handle.update_chunk)
+                        remove_tool_listener = llm.add_tool_stream_listener(
+                            stream_handle.handle_tool_event
+                        )
+                    except Exception:
+                        remove_listener = None
+                        remove_tool_listener = None
 
-                try:
-                    result, summary = await self._generate_with_summary(
-                        messages, request_params, tools
-                    )
+                    try:
+                        result, summary = await self._generate_with_summary(
+                            messages, request_params, tools
+                        )
+                    finally:
+                        if remove_listener:
+                            remove_listener()
+                        if remove_tool_listener:
+                            remove_tool_listener()
+
+                    summary_text = self._summary_text_for_result(result, summary)
+
+                    await stream_handle.wait_for_drain()
+                    self._maybe_close_streaming_for_tool_calls(result)
+                    preserve_streamed_frame = self._can_preserve_streamed_final_frame(
+                        message=result,
+                        summary_text=summary_text,
+                        streaming_mode=streaming_mode,
+                        stream_handle=stream_handle,
+                    ) and stream_handle.preserve_final_frame()
+                    stream_handle.finalize(result)
                 finally:
-                    if remove_listener:
-                        remove_listener()
-                    if remove_tool_listener:
-                        remove_tool_listener()
-
-                summary_text = self._summary_text_for_result(result, summary)
-
-                await stream_handle.wait_for_drain()
-                self._maybe_close_streaming_for_tool_calls(result)
-                preserve_streamed_frame = self._can_preserve_streamed_final_frame(
-                    message=result,
-                    summary_text=summary_text,
-                    streaming_mode=streaming_mode,
-                    stream_handle=stream_handle,
-                ) and stream_handle.preserve_final_frame()
-                stream_handle.finalize(result)
-                self._active_stream_handle = None
+                    write_interactive_trace(
+                        "llm_agent.stream_handle.clear",
+                        agent=self.name,
+                        handle_id=id(stream_handle),
+                    )
+                    self._active_stream_handle = None
 
             if preserve_streamed_frame:
                 await self.show_assistant_message(
@@ -641,6 +654,12 @@ class LlmAgent(LlmDecorator):
                 agent_name=self.name,
                 reason=reason,
             )
+        write_interactive_trace(
+            "llm_agent.stream_handle.close",
+            agent=self.name,
+            handle_id=id(handle),
+            reason=reason,
+        )
         try:
             handle.close()
         finally:

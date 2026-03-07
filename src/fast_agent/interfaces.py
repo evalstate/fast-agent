@@ -9,6 +9,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
+    Literal,
     Mapping,
     Protocol,
     Sequence,
@@ -168,6 +169,17 @@ class FastAgentLLMProtocol(Protocol):
 
     @property
     def web_fetch_enabled(self) -> bool: ...
+
+    def set_service_tier(self, value: Literal["fast", "flex"] | None) -> None: ...
+
+    @property
+    def service_tier_supported(self) -> bool: ...
+
+    @property
+    def available_service_tiers(self) -> tuple[Literal["fast", "flex"], ...]: ...
+
+    @property
+    def service_tier(self) -> Literal["fast", "flex"] | None: ...
 
 
 @runtime_checkable

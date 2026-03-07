@@ -14,6 +14,10 @@ from mcp.types import CallToolResult, Tool
 
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.helpers.content_helpers import text_content
+from fast_agent.tools.filesystem_tool_definitions import (
+    build_read_text_file_tool,
+    build_write_text_file_tool,
+)
 
 if TYPE_CHECKING:
     from acp import AgentSideConnection
@@ -67,53 +71,8 @@ class ACPFilesystemRuntime:
         self._tool_handler = tool_handler
         self._permission_handler = permission_handler
 
-        # Tool definition for reading text files
-        self._read_tool = Tool(
-            name="read_text_file",
-            description="Read content from a text file. Returns the file contents as a string. ",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Absolute path to the file to read.",
-                    },
-                    "line": {
-                        "type": "integer",
-                        "description": "Optional line number to start reading from (1-based).",
-                        "minimum": 1,
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Optional maximum number of lines to read.",
-                        "minimum": 1,
-                    },
-                },
-                "required": ["path"],
-                "additionalProperties": False,
-            },
-        )
-
-        # Tool definition for writing text files
-        self._write_tool = Tool(
-            name="write_text_file",
-            description="Write content to a text file. Creates or overwrites the file. ",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Absolute path to the file to write.",
-                    },
-                    "content": {
-                        "type": "string",
-                        "description": "The text content to write to the file.",
-                    },
-                },
-                "required": ["path", "content"],
-                "additionalProperties": False,
-            },
-        )
+        self._read_tool = build_read_text_file_tool()
+        self._write_tool = build_write_text_file_tool()
 
         self.logger.info(
             "ACPFilesystemRuntime initialized",
@@ -446,6 +405,21 @@ class ACPFilesystemRuntime:
                 content=[text_content(f"Error writing file: {e}")],
                 isError=True,
             )
+
+
+    async def apply_patch(
+        self, arguments: dict[str, Any], tool_use_id: str | None = None
+    ) -> CallToolResult:
+        """Return an error because ACP filesystem runtime does not support apply_patch."""
+        del arguments, tool_use_id
+        return CallToolResult(
+            content=[
+                text_content(
+                    "Error: apply_patch is not supported with ACP filesystem runtime yet."
+                )
+            ],
+            isError=True,
+        )
 
     def metadata(self) -> dict[str, Any]:
         """

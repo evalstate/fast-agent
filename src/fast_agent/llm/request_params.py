@@ -2,7 +2,7 @@
 Request parameters definitions for LLM interactions.
 """
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from mcp import SamplingMessage
 from mcp.types import CreateMessageRequestParams
@@ -120,3 +120,6 @@ class RequestParams(CreateMessageRequestParams):
         validation_alias=AliasChoices("repetition_penalty", "repetitionPenalty"),
     )
     """Optional repetition penalty (provider support varies)."""
+
+    service_tier: Literal["fast", "flex"] | None = None
+    """Responses-family service tier override (fast/priority or flex)."""

@@ -115,9 +115,30 @@ from fast_agent.session import (
     get_session_manager,
 )
 from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams
+from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 from fast_agent.workflow_telemetry import ACPPlanTelemetryProvider, ToolHandlerWorkflowTelemetry
 
 logger = get_logger(__name__)
+
+
+def _clear_current_task_cancellation_requests(*, session_id: str) -> int:
+    """Clear latent cancellation requests on the active ACP prompt task."""
+    task = asyncio.current_task()
+    if task is None:
+        return 0
+
+    cleared = 0
+    while task.cancelling() > 0:
+        task.uncancel()
+        cleared += 1
+
+    if cleared:
+        write_interactive_trace(
+            "acp.prompt.task_uncancelled",
+            session_id=session_id,
+            cleared=cleared,
+        )
+    return cleared
 
 END_TURN: StopReason = "end_turn"
 REFUSAL: StopReason = "refusal"
@@ -2032,6 +2053,7 @@ class AgentACPServer(ACPAgent):
             name="acp_prompt",
             session_id=session_id,
         )
+        write_interactive_trace("acp.prompt.start", session_id=session_id)
 
         await self._maybe_refresh_shared_instance()
 
@@ -2383,6 +2405,8 @@ class AgentACPServer(ACPAgent):
             )
         except asyncio.CancelledError:
             # Task was cancelled - return appropriate response
+            _clear_current_task_cancellation_requests(session_id=session_id)
+            write_interactive_trace("acp.prompt.cancelled", session_id=session_id)
             logger.info(
                 "Prompt cancelled by user",
                 name="acp_prompt_cancelled",
@@ -2391,6 +2415,7 @@ class AgentACPServer(ACPAgent):
             return PromptResponse(stop_reason="cancelled")
         finally:
             # Always remove session from active prompts and cleanup task
+            write_interactive_trace("acp.prompt.finally", session_id=session_id)
             async with self._session_lock:
                 self._active_prompts.discard(session_id)
                 self._session_tasks.pop(session_id, None)
@@ -2417,12 +2442,14 @@ class AgentACPServer(ACPAgent):
             name="acp_cancel",
             session_id=session_id,
         )
+        write_interactive_trace("acp.cancel.request", session_id=session_id)
 
         # Get the task for this session and cancel it
         async with self._session_lock:
             task = self._session_tasks.get(session_id)
             if task and not task.done():
                 task.cancel()
+                write_interactive_trace("acp.cancel.task_cancelled", session_id=session_id)
                 logger.info(
                     "Task cancelled for session",
                     name="acp_cancel_task",

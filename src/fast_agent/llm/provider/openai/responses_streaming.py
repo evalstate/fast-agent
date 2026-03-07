@@ -75,7 +75,11 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         final_response: Any | None = None
 
         def _item_is_tool(item: Any) -> bool:
-            return getattr(item, "type", None) in {"function_call", "web_search_call"}
+            return getattr(item, "type", None) in {
+                "function_call",
+                "custom_tool_call",
+                "web_search_call",
+            }
 
         def _tool_name(item: Any) -> str:
             item_type = getattr(item, "type", None)
@@ -234,7 +238,10 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                     notified_tool_indices.add(index)
                 continue
 
-            if event_type == "response.function_call_arguments.delta":
+            if event_type in {
+                "response.function_call_arguments.delta",
+                "response.custom_tool_call_input.delta",
+            }:
                 index = getattr(event, "output_index", None)
                 if index is None:
                     continue
@@ -390,9 +397,12 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
         for index, item in enumerate(output_items):
             if index in notified_indices:
                 continue
-            if getattr(item, "type", None) != "function_call":
-                if getattr(item, "type", None) != "web_search_call":
-                    continue
+            if getattr(item, "type", None) not in {
+                "function_call",
+                "custom_tool_call",
+                "web_search_call",
+            }:
+                continue
 
             if getattr(item, "type", None) == "web_search_call":
                 tool_name = "web_search"

@@ -35,7 +35,13 @@ class AppliedPatch:
     new_contents: str
 
 
-def apply_patch(patch: str, stdout: TextIO, stderr: TextIO) -> None:
+def apply_patch(
+    patch: str,
+    stdout: TextIO,
+    stderr: TextIO,
+    *,
+    base_directory: Path | None = None,
+) -> None:
     try:
         parsed = parse_patch(patch)
     except InvalidPatchError as exc:
@@ -45,12 +51,18 @@ def apply_patch(patch: str, stdout: TextIO, stderr: TextIO) -> None:
         stderr.write(f"Invalid patch hunk on line {exc.line_number}: {exc.message}\n")
         raise
 
-    apply_hunks(parsed.hunks, stdout, stderr)
+    apply_hunks(parsed.hunks, stdout, stderr, base_directory=base_directory)
 
 
-def apply_hunks(hunks: list[Hunk], stdout: TextIO, stderr: TextIO) -> None:
+def apply_hunks(
+    hunks: list[Hunk],
+    stdout: TextIO,
+    stderr: TextIO,
+    *,
+    base_directory: Path | None = None,
+) -> None:
     try:
-        affected = apply_hunks_to_files(hunks)
+        affected = apply_hunks_to_files(hunks, base_directory=base_directory)
     except ApplyPatchError as exc:
         stderr.write(f"{exc}\n")
         raise
@@ -58,7 +70,11 @@ def apply_hunks(hunks: list[Hunk], stdout: TextIO, stderr: TextIO) -> None:
     print_summary(affected, stdout)
 
 
-def apply_hunks_to_files(hunks: list[Hunk]) -> AffectedPaths:
+def apply_hunks_to_files(
+    hunks: list[Hunk],
+    *,
+    base_directory: Path | None = None,
+) -> AffectedPaths:
     if not hunks:
         raise ApplyPatchError("No files were modified.")
 
@@ -69,30 +85,34 @@ def apply_hunks_to_files(hunks: list[Hunk]) -> AffectedPaths:
     for hunk in hunks:
         if hunk.kind == "add":
             add_hunk = cast("AddFileHunk", hunk)
-            _write_file(add_hunk.path, add_hunk.contents)
+            _write_file(_resolve_target_path(add_hunk.path, base_directory), add_hunk.contents)
             added.append(add_hunk.path)
         elif hunk.kind == "delete":
             delete_hunk = cast("DeleteFileHunk", hunk)
             try:
-                delete_hunk.path.unlink()
+                _resolve_target_path(delete_hunk.path, base_directory).unlink()
             except OSError as exc:
                 raise ApplyPatchError(f"Failed to delete file {delete_hunk.path}") from exc
             deleted.append(delete_hunk.path)
         elif hunk.kind == "update":
             update_hunk = cast("UpdateFileHunk", hunk)
-            applied = derive_new_contents_from_chunks(update_hunk.path, update_hunk.chunks)
+            applied = derive_new_contents_from_chunks(
+                update_hunk.path,
+                update_hunk.chunks,
+                base_directory=base_directory,
+            )
             destination = update_hunk.move_path
             if destination is not None:
-                _write_file(destination, applied.new_contents)
+                _write_file(_resolve_target_path(destination, base_directory), applied.new_contents)
                 try:
-                    update_hunk.path.unlink()
+                    _resolve_target_path(update_hunk.path, base_directory).unlink()
                 except OSError as exc:
                     raise ApplyPatchError(
                         f"Failed to remove original {update_hunk.path}"
                     ) from exc
                 modified.append(destination)
             else:
-                _write_file(update_hunk.path, applied.new_contents)
+                _write_file(_resolve_target_path(update_hunk.path, base_directory), applied.new_contents)
                 modified.append(update_hunk.path)
         else:
             raise ApplyPatchError(f"Unsupported hunk kind: {hunk}")
@@ -100,9 +120,14 @@ def apply_hunks_to_files(hunks: list[Hunk]) -> AffectedPaths:
     return AffectedPaths(added=added, modified=modified, deleted=deleted)
 
 
-def derive_new_contents_from_chunks(path: Path, chunks: list[UpdateFileChunk]) -> AppliedPatch:
+def derive_new_contents_from_chunks(
+    path: Path,
+    chunks: list[UpdateFileChunk],
+    *,
+    base_directory: Path | None = None,
+) -> AppliedPatch:
     try:
-        original_contents = _read_file(path)
+        original_contents = _read_file(_resolve_target_path(path, base_directory))
     except OSError as exc:
         raise IoError(
             context=f"Failed to read file to update {path}",
@@ -195,6 +220,14 @@ def print_summary(affected: AffectedPaths, out: TextIO) -> None:
         out.write(f"M {path}\n")
     for path in affected.deleted:
         out.write(f"D {path}\n")
+
+
+def _resolve_target_path(path: Path, base_directory: Path | None) -> Path:
+    if path.is_absolute():
+        return path
+    if base_directory is None:
+        return path
+    return (base_directory / path).resolve()
 
 
 def _write_file(path: Path, contents: str) -> None:

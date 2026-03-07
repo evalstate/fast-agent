@@ -124,6 +124,27 @@ def _prepare_headers_and_auth(
     return headers, oauth_auth, user_provided_auth_keys
 
 
+def _build_transport_metrics_hook(
+    server_name: str,
+    transport_metrics: TransportChannelMetrics | None,
+):
+    """Return a defensive transport-metrics callback when metrics are enabled."""
+    if transport_metrics is None:
+        return None
+
+    def channel_hook(event):
+        try:
+            transport_metrics.record_event(event)
+        except Exception:  # pragma: no cover - defensive guard
+            logger.debug(
+                "%s: transport metrics hook failed",
+                server_name,
+                exc_info=True,
+            )
+
+    return channel_hook
+
+
 class ServerConnection:
     """
     Represents a long-lived MCP server connection, including:
@@ -676,7 +697,8 @@ class MCPConnectionManager(ContextDependent):
             await self.disconnect_all()
 
             # Add a small delay to allow for clean shutdown
-            await asyncio.sleep(0.5)
+            with suppress(asyncio.CancelledError):
+                await asyncio.sleep(0.5)
 
             # Then close the task group if it's active
             if self._task_group_active:
@@ -845,6 +867,32 @@ class MCPConnectionManager(ContextDependent):
 
         def transport_context_factory():
             assert server_conn is not None
+
+            def prepare_http_transport_auth(*, suppress_transport_errors: Callable[[], None]):
+                assert server_conn is not None
+                suppress_transport_errors()
+                self._suppress_mcp_oauth_cancel_errors()
+                headers, oauth_auth, user_auth_keys = _prepare_headers_and_auth(
+                    config,
+                    trigger_oauth=trigger_oauth,
+                    oauth_event_handler=self._build_oauth_event_handler(
+                        server_conn,
+                        oauth_event_handler,
+                    ),
+                    emit_oauth_console_output=oauth_event_handler is None,
+                    oauth_abort_event=server_conn._oauth_abort_event,
+                    allow_oauth_paste_fallback=allow_oauth_paste_fallback,
+                )
+                if user_auth_keys:
+                    logger.debug(
+                        f"{server_name}: Using user-specified auth header(s); skipping OAuth provider.",
+                        user_auth_headers=sorted(user_auth_keys),
+                    )
+                return headers, oauth_auth, _build_transport_metrics_hook(
+                    server_name,
+                    transport_metrics,
+                )
+
             if config.transport == "stdio":
                 if not config.command:
                     raise ValueError(
@@ -872,37 +920,9 @@ class MCPConnectionManager(ContextDependent):
                     raise ValueError(
                         f"Server '{server_name}' uses sse transport but no url is specified"
                     )
-                # Suppress MCP library error spam
-                self._suppress_mcp_sse_errors()
-                self._suppress_mcp_oauth_cancel_errors()
-                headers, oauth_auth, user_auth_keys = _prepare_headers_and_auth(
-                    config,
-                    trigger_oauth=trigger_oauth,
-                    oauth_event_handler=self._build_oauth_event_handler(
-                        server_conn,
-                        oauth_event_handler,
-                    ),
-                    emit_oauth_console_output=oauth_event_handler is None,
-                    oauth_abort_event=server_conn._oauth_abort_event,
-                    allow_oauth_paste_fallback=allow_oauth_paste_fallback,
+                headers, oauth_auth, channel_hook = prepare_http_transport_auth(
+                    suppress_transport_errors=self._suppress_mcp_sse_errors,
                 )
-                if user_auth_keys:
-                    logger.debug(
-                        f"{server_name}: Using user-specified auth header(s); skipping OAuth provider.",
-                        user_auth_headers=sorted(user_auth_keys),
-                    )
-                channel_hook = None
-                if transport_metrics is not None:
-
-                    def channel_hook(event):
-                        try:
-                            transport_metrics.record_event(event)
-                        except Exception:  # pragma: no cover - defensive guard
-                            logger.debug(
-                                "%s: transport metrics hook failed",
-                                server_name,
-                                exc_info=True,
-                            )
 
                 return tracking_sse_client(
                     config.url,
@@ -916,36 +936,9 @@ class MCPConnectionManager(ContextDependent):
                     raise ValueError(
                         f"Server '{server_name}' uses http transport but no url is specified"
                     )
-                self._suppress_mcp_streamable_http_errors()
-                self._suppress_mcp_oauth_cancel_errors()
-                headers, oauth_auth, user_auth_keys = _prepare_headers_and_auth(
-                    config,
-                    trigger_oauth=trigger_oauth,
-                    oauth_event_handler=self._build_oauth_event_handler(
-                        server_conn,
-                        oauth_event_handler,
-                    ),
-                    emit_oauth_console_output=oauth_event_handler is None,
-                    oauth_abort_event=server_conn._oauth_abort_event,
-                    allow_oauth_paste_fallback=allow_oauth_paste_fallback,
+                headers, oauth_auth, channel_hook = prepare_http_transport_auth(
+                    suppress_transport_errors=self._suppress_mcp_streamable_http_errors,
                 )
-                if user_auth_keys:
-                    logger.debug(
-                        f"{server_name}: Using user-specified auth header(s); skipping OAuth provider.",
-                        user_auth_headers=sorted(user_auth_keys),
-                    )
-                channel_hook = None
-                if transport_metrics is not None:
-
-                    def channel_hook(event):
-                        try:
-                            transport_metrics.record_event(event)
-                        except Exception:  # pragma: no cover - defensive guard
-                            logger.debug(
-                                "%s: transport metrics hook failed",
-                                server_name,
-                                exc_info=True,
-                            )
 
                 timeout = None
                 if (
@@ -994,6 +987,52 @@ class MCPConnectionManager(ContextDependent):
         logger.info(f"{server_name}: Up and running with a persistent connection!")
         return server_conn
 
+    async def _launch_and_wait_for_server(
+        self,
+        *,
+        server_name: str,
+        client_session_factory: Callable,
+        startup_timeout_seconds: float | None,
+        trigger_oauth: bool,
+        oauth_event_handler: OAuthEventHandler | None,
+        allow_oauth_paste_fallback: bool,
+        timeout_action: str,
+    ) -> ServerConnection:
+        """Launch a server connection and wait for initialization to complete."""
+        server_conn = await self.launch_server(
+            server_name=server_name,
+            client_session_factory=client_session_factory,
+            startup_timeout_seconds=startup_timeout_seconds,
+            trigger_oauth=trigger_oauth,
+            oauth_event_handler=oauth_event_handler,
+            allow_oauth_paste_fallback=allow_oauth_paste_fallback,
+        )
+
+        try:
+            await _wait_for_initialized_with_startup_budget(server_conn, startup_timeout_seconds)
+        except asyncio.CancelledError:
+            server_conn.request_shutdown()
+            async with self._lock:
+                current = self.running_servers.get(server_name)
+                if current is server_conn:
+                    self.running_servers.pop(server_name, None)
+            raise
+        except TimeoutError as exc:
+            server_conn.request_shutdown()
+            async with self._lock:
+                current = self.running_servers.get(server_name)
+                if current is server_conn:
+                    self.running_servers.pop(server_name, None)
+            raise ServerInitializationError(
+                (
+                    f"MCP Server: '{server_name}': {timeout_action} timed out after "
+                    f"{startup_timeout_seconds:.1f}s (non-OAuth startup budget)"
+                ),
+                "Try increasing --timeout or verify server/network startup.",
+            ) from exc
+
+        return server_conn
+
     async def get_server(
         self,
         server_name: str,
@@ -1019,39 +1058,15 @@ class MCPConnectionManager(ContextDependent):
                 self.running_servers.pop(server_name)
                 server_conn.request_shutdown()
 
-        # Launch the connection
-        server_conn = await self.launch_server(
+        server_conn = await self._launch_and_wait_for_server(
             server_name=server_name,
             client_session_factory=client_session_factory,
             startup_timeout_seconds=startup_timeout_seconds,
             trigger_oauth=trigger_oauth,
             oauth_event_handler=oauth_event_handler,
             allow_oauth_paste_fallback=allow_oauth_paste_fallback,
+            timeout_action="Startup",
         )
-
-        # Wait until it's fully initialized, or an error occurs
-        try:
-            await _wait_for_initialized_with_startup_budget(server_conn, startup_timeout_seconds)
-        except asyncio.CancelledError:
-            server_conn.request_shutdown()
-            async with self._lock:
-                current = self.running_servers.get(server_name)
-                if current is server_conn:
-                    self.running_servers.pop(server_name, None)
-            raise
-        except TimeoutError as exc:
-            server_conn.request_shutdown()
-            async with self._lock:
-                current = self.running_servers.get(server_name)
-                if current is server_conn:
-                    self.running_servers.pop(server_name, None)
-            raise ServerInitializationError(
-                (
-                    f"MCP Server: '{server_name}': Startup timed out after "
-                    f"{startup_timeout_seconds:.1f}s (non-OAuth startup budget)"
-                ),
-                "Try increasing --timeout or verify server/network startup.",
-            ) from exc
 
         # Check if the server is healthy after initialization
         if not server_conn.is_healthy():
@@ -1140,39 +1155,15 @@ class MCPConnectionManager(ContextDependent):
         # Brief pause to allow cleanup
         await asyncio.sleep(0.1)
 
-        # Launch a fresh connection
-        server_conn = await self.launch_server(
+        server_conn = await self._launch_and_wait_for_server(
             server_name=server_name,
             client_session_factory=client_session_factory,
             startup_timeout_seconds=startup_timeout_seconds,
             trigger_oauth=trigger_oauth,
             oauth_event_handler=oauth_event_handler,
             allow_oauth_paste_fallback=allow_oauth_paste_fallback,
+            timeout_action="Reconnect",
         )
-
-        # Wait for initialization
-        try:
-            await _wait_for_initialized_with_startup_budget(server_conn, startup_timeout_seconds)
-        except asyncio.CancelledError:
-            server_conn.request_shutdown()
-            async with self._lock:
-                current = self.running_servers.get(server_name)
-                if current is server_conn:
-                    self.running_servers.pop(server_name, None)
-            raise
-        except TimeoutError as exc:
-            server_conn.request_shutdown()
-            async with self._lock:
-                current = self.running_servers.get(server_name)
-                if current is server_conn:
-                    self.running_servers.pop(server_name, None)
-            raise ServerInitializationError(
-                (
-                    f"MCP Server: '{server_name}': Reconnect timed out after "
-                    f"{startup_timeout_seconds:.1f}s (non-OAuth startup budget)"
-                ),
-                "Try increasing --timeout or verify server/network startup.",
-            ) from exc
 
         # Check if the reconnection was successful
         if not server_conn.is_healthy():

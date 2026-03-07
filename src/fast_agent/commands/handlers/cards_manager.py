@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import shlex
-import textwrap
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -31,6 +30,8 @@ from fast_agent.cards.manager import (
     select_installed_card_pack_by_name_or_index,
 )
 from fast_agent.commands.command_catalog import suggest_command_action
+from fast_agent.commands.handlers._marketplace_argument_parsing import parse_update_argument
+from fast_agent.commands.handlers._text_formatting import append_heading, append_wrapped_text
 from fast_agent.commands.results import CommandMessage, CommandOutcome
 from fast_agent.paths import resolve_environment_paths
 
@@ -38,22 +39,6 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from fast_agent.commands.context import CommandContext
-
-
-def _append_heading(content: Text, heading: str) -> None:
-    if content.plain:
-        content.append("\n")
-    content.append_text(Text.from_markup(f"[bold]{heading}[/bold]\n\n"))
-
-
-def _append_wrapped_text(content: Text, value: str, *, indent: str = "") -> None:
-    wrapped_lines = textwrap.wrap(value.strip(), width=72)
-    for line in wrapped_lines:
-        content.append(indent)
-        content.append_text(Text(line))
-        content.append("\n")
-
-
 def _cards_usage_lines() -> list[str]:
     return [
         "Usage: /cards [list|add|remove|update|publish|registry|help] [args]",
@@ -78,7 +63,7 @@ def _format_local_card_packs(*, environment_paths, packs) -> Text:
     except ValueError:
         display_dir = manager_dir
 
-    _append_heading(content, f"Card packs in {display_dir}:")
+    append_heading(content, f"Card packs in {display_dir}:")
     if not packs:
         content.append_text(Text("No card packs installed.", style="yellow"))
         content.append("\n")
@@ -139,7 +124,7 @@ def _format_marketplace_packs(marketplace) -> Text:
         bundle_name = getattr(entry, "bundle_name", None)
         if bundle_name and bundle_name != current_bundle:
             current_bundle = bundle_name
-            _append_heading(content, bundle_name)
+            append_heading(content, bundle_name)
 
         line = Text()
         line.append(f"[{index:2}] ", style="dim cyan")
@@ -148,7 +133,7 @@ def _format_marketplace_packs(marketplace) -> Text:
         content.append("\n")
 
         if entry.description:
-            _append_wrapped_text(content, entry.description, indent="     ")
+            append_wrapped_text(content, entry.description, indent="     ")
         content.append("     ", style="dim")
         content.append(f"kind: {entry.kind}", style="dim")
         content.append("\n")
@@ -174,38 +159,6 @@ def _format_install_result(*, pack_name: str, install_path: Path, installed_file
     content.append("\n")
     content.append(f"managed files: {len(installed_files)}", style="dim")
     return content
-
-
-def _parse_update_argument(
-    argument: str | None,
-) -> tuple[str | None, bool, bool, str | None]:
-    if argument is None:
-        return None, False, False, None
-
-    try:
-        tokens = shlex.split(argument)
-    except ValueError as exc:
-        return None, False, False, f"Invalid update arguments: {exc}"
-
-    selector: str | None = None
-    force = False
-    yes = False
-    for token in tokens:
-        if token == "--force":
-            force = True
-            continue
-        if token == "--yes":
-            yes = True
-            continue
-        if token.startswith("--"):
-            return None, False, False, f"Unknown option: {token}"
-        if selector is not None:
-            return None, False, False, "Only one selector is allowed."
-        selector = token
-
-    return selector, force, yes, None
-
-
 def _parse_publish_argument(
     argument: str | None,
 ) -> tuple[str | None, bool, str | None, Path | None, bool, str | None]:
@@ -269,7 +222,7 @@ def _parse_publish_argument(
 
 def _format_update_results(updates: Sequence[CardPackUpdateInfo], *, title: str) -> Text:
     content = Text()
-    _append_heading(content, title)
+    append_heading(content, title)
     if not updates:
         content.append_text(Text("No managed card packs found.", style="yellow"))
         return content
@@ -361,7 +314,7 @@ def _format_update_results(updates: Sequence[CardPackUpdateInfo], *, title: str)
 
 def _format_publish_result(result: CardPackPublishResult, *, title: str) -> Text:
     content = Text()
-    _append_heading(content, title)
+    append_heading(content, title)
 
     row = Text()
     row.append(result.pack_name, style="bright_blue bold")
@@ -550,7 +503,7 @@ async def handle_add_card_pack(
     selection = argument
     if not selection:
         content = Text()
-        _append_heading(content, "Marketplace card packs:")
+        append_heading(content, "Marketplace card packs:")
         content.append_text(_format_marketplace_packs(marketplace))
 
         if not interactive:
@@ -668,7 +621,7 @@ async def handle_update_card_pack(
     argument: str | None,
 ) -> CommandOutcome:
     outcome = CommandOutcome()
-    selector, force, yes, parse_error = _parse_update_argument(argument)
+    selector, force, yes, parse_error = parse_update_argument(argument)
     if parse_error:
         outcome.add_message(parse_error, channel="error")
         return outcome

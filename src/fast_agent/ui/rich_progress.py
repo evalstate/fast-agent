@@ -154,6 +154,12 @@ class RichProgressDisplay:
             live_stack = []
 
         if live_stack and any(live is not self._progress.live for live in live_stack):
+            # A concurrent Rich Live (for example, a streaming renderer that is
+            # still unwinding after cancellation) temporarily blocks the shared
+            # progress display from resuming. Keep an immediate deferred retry
+            # armed so the next update() can re-attempt resume once the other
+            # Live is gone instead of silently remaining paused for the turn.
+            self._deferred_resume_at = time.monotonic()
             self._trace("resume_locked.blocked_nested_live", live_stack=len(live_stack))
             return
         ensure_blocking_console()

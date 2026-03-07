@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from fast_agent.mcp.helpers.content_helpers import get_text
 
 # Import directly to avoid circular dependency with types/__init__.py
+from fast_agent.types.assistant_message_phase import AssistantMessagePhase
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
 
@@ -29,6 +30,7 @@ class PromptMessageExtended(BaseModel):
     tool_results: dict[str, CallToolResult] | None = None
     channels: Mapping[str, Sequence[ContentBlock]] | None = None
     stop_reason: LlmStopReason | None = None
+    phase: AssistantMessagePhase | None = None
     is_template: bool = False
 
 

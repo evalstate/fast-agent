@@ -16,6 +16,8 @@ from fast_agent.llm.provider.openai.web_tools import (
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import CacheUsage, TurnUsage
 from fast_agent.mcp.helpers.content_helpers import text_content
+from fast_agent.tools.apply_patch_tool import APPLY_PATCH_INPUT_FIELD
+from fast_agent.types.assistant_message_phase import AssistantMessagePhase
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
 
@@ -25,6 +27,8 @@ class ResponsesOutputMixin:
 
         logger: Logger
         _tool_call_id_map: dict[str, str]
+        _tool_name_map: dict[str, str]
+        _tool_kind_map: dict[str, str]
         _seen_tool_call_ids: set[str]
         _tool_call_diagnostics: dict[str, Any] | None
 
@@ -50,6 +54,110 @@ class ResponsesOutputMixin:
             seen.update(call_id for call_id in self._tool_call_id_map.values() if call_id)
 
         return seen
+
+    @staticmethod
+    def _coerce_assistant_message_phase(
+        raw_phase: object,
+    ) -> AssistantMessagePhase | None:
+        if isinstance(raw_phase, AssistantMessagePhase):
+            return raw_phase
+        if isinstance(raw_phase, str):
+            try:
+                return AssistantMessagePhase.from_string(raw_phase)
+            except ValueError:
+                return None
+        return None
+
+    @classmethod
+    def _serialize_assistant_message_item(cls, item: Any) -> dict[str, Any] | None:
+        model_dump = getattr(item, "model_dump", None)
+        if callable(model_dump):
+            try:
+                payload = model_dump(mode="json", by_alias=True, exclude_none=True)
+            except TypeError:
+                payload = model_dump()
+            except Exception:
+                payload = None
+            if isinstance(payload, dict):
+                raw_phase = payload.get("phase")
+                normalized_phase = cls._coerce_assistant_message_phase(raw_phase)
+                if normalized_phase is not None:
+                    payload["phase"] = normalized_phase.value
+                else:
+                    payload.pop("phase", None)
+                return payload
+
+        if getattr(item, "type", None) != "message":
+            return None
+
+        payload: dict[str, Any] = {
+            "type": "message",
+            "role": getattr(item, "role", None) or "assistant",
+        }
+        item_id = getattr(item, "id", None)
+        if item_id:
+            payload["id"] = item_id
+        status = getattr(item, "status", None)
+        if status:
+            payload["status"] = status
+        phase = cls._coerce_assistant_message_phase(getattr(item, "phase", None))
+        if phase is not None:
+            payload["phase"] = phase.value
+
+        serialized_content: list[dict[str, Any]] = []
+        for part in getattr(item, "content", []) or []:
+            part_model_dump = getattr(part, "model_dump", None)
+            if callable(part_model_dump):
+                try:
+                    part_payload = part_model_dump(mode="json", by_alias=True, exclude_none=True)
+                except TypeError:
+                    part_payload = part_model_dump()
+                except Exception:
+                    part_payload = None
+                if isinstance(part_payload, dict):
+                    serialized_content.append(part_payload)
+                    continue
+
+            part_type = getattr(part, "type", None)
+            if not isinstance(part_type, str) or not part_type:
+                continue
+            part_payload = {"type": part_type}
+            part_text = getattr(part, "text", None)
+            if isinstance(part_text, str):
+                part_payload["text"] = part_text
+            serialized_content.append(part_payload)
+
+        if serialized_content:
+            payload["content"] = serialized_content
+
+        return payload
+
+    def _extract_raw_assistant_message_items(
+        self,
+        response: Any,
+    ) -> tuple[list[ContentBlock], AssistantMessagePhase | None]:
+        serialized_items: list[dict[str, Any]] = []
+        phases: list[AssistantMessagePhase] = []
+
+        for output_item in getattr(response, "output", []) or []:
+            if getattr(output_item, "type", None) != "message":
+                continue
+
+            phase = self._coerce_assistant_message_phase(getattr(output_item, "phase", None))
+            if phase is not None:
+                phases.append(phase)
+
+            serialized_item = self._serialize_assistant_message_item(output_item)
+            if serialized_item is not None:
+                serialized_items.append(serialized_item)
+
+        if not phases:
+            return [], None
+
+        unique_phases = {phase.value for phase in phases}
+        message_phase = phases[0] if len(unique_phases) == 1 else None
+        blocks = [TextContent(type="text", text=json.dumps(payload)) for payload in serialized_items]
+        return blocks, message_phase
 
     def _record_usage(self, usage: Any, model_name: str) -> None:
         try:
@@ -87,23 +195,36 @@ class ResponsesOutputMixin:
         duplicate_call_ids: list[str] = []
         duplicate_call_names: dict[str, str] = {}
         seen_tool_call_ids = self._seen_tool_call_ids_state()
+        tool_kind_map = getattr(self, "_tool_kind_map", None)
+        if not isinstance(tool_kind_map, dict):
+            tool_kind_map = {}
+            self._tool_kind_map = tool_kind_map
         raw_function_call_count = 0
         model_name = getattr(response, "model", None)
         for item in getattr(response, "output", []) or []:
-            if getattr(item, "type", None) != "function_call":
+            item_type = getattr(item, "type", None)
+            if item_type not in {"function_call", "custom_tool_call"}:
                 continue
             raw_function_call_count += 1
+            tool_kind = "custom" if item_type == "custom_tool_call" else "function"
             item_id = getattr(item, "id", None)
             call_id = getattr(item, "call_id", None)
             name = getattr(item, "name", None) or "tool"
-            arguments_raw = getattr(item, "arguments", None)
-            if arguments_raw:
-                try:
-                    arguments = from_json(arguments_raw, allow_partial=True)
-                except Exception:
+            if item_type == "custom_tool_call":
+                custom_input = getattr(item, "input", None)
+                if isinstance(custom_input, str):
+                    arguments = {APPLY_PATCH_INPUT_FIELD: custom_input}
+                else:
                     arguments = {}
             else:
-                arguments = {}
+                arguments_raw = getattr(item, "arguments", None)
+                if arguments_raw:
+                    try:
+                        arguments = from_json(arguments_raw, allow_partial=True)
+                    except Exception:
+                        arguments = {}
+                else:
+                    arguments = {}
             # Use call_id as the primary tool identifier.
             #
             # Streaming tool notifications (and tool results) use call_id, while id can
@@ -122,6 +243,11 @@ class ResponsesOutputMixin:
                 continue
 
             self._tool_call_id_map[tool_use_id] = call_id
+            self._tool_name_map[tool_use_id] = name
+            tool_kind_map[tool_use_id] = tool_kind
+            tool_kind_map[call_id] = tool_kind
+            if item_id:
+                tool_kind_map[item_id] = tool_kind
             seen_tool_call_ids.add(call_id)
             tool_calls[tool_use_id] = CallToolRequest(
                 method="tools/call",

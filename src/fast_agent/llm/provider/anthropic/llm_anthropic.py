@@ -680,9 +680,9 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     @property
     def web_search_enabled(self) -> bool:
-        """Whether any Anthropic web tooling is enabled for this LLM instance."""
-        search_enabled, fetch_enabled = self.web_tools_enabled
-        return search_enabled or fetch_enabled
+        """Whether Anthropic web search is enabled for this LLM instance."""
+        search_enabled, _ = self.web_tools_enabled
+        return search_enabled
 
     def _apply_system_cache(self, base_args: dict, cache_mode: str) -> int:
         """Apply cache control to system prompt if cache mode allows it."""
