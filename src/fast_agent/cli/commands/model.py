@@ -151,6 +151,38 @@ async def run_model_setup(
     )
 
 
+async def run_model_doctor(
+    *,
+    io: CommandIO,
+    settings: Settings,
+) -> CommandOutcome:
+    """Execute the shared model doctor flow."""
+    effective_settings = settings
+    if (
+        getattr(settings, "_config_file", None) is None
+        and settings.default_model is None
+        and not settings.model_aliases
+    ):
+        effective_settings = _load_cli_settings(
+            cwd=Path.cwd(),
+            env_dir=getattr(settings, "environment_dir", None),
+        )
+
+    provider = _CliModelAgentProvider()
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="cli",
+        io=io,
+        settings=effective_settings,
+    )
+    return await models_manager.handle_models_command(
+        ctx,
+        agent_name="cli",
+        action="doctor",
+        argument=None,
+    )
+
+
 async def _select_model_setup_token(
     io: CommandIO,
     *,
@@ -493,6 +525,42 @@ async def _run_model_setup_command(
             return
 
 
+async def _run_model_doctor_command(*, settings: Settings) -> None:
+    provider = _CliModelAgentProvider()
+    io = TuiCommandIO(
+        prompt_provider=provider,
+        agent_name="cli",
+        settings=settings,
+        config_payload=_load_tolerant_config_payload(
+            cwd=Path.cwd(),
+            env_dir=getattr(settings, "environment_dir", None),
+        ),
+    )
+    outcome = await run_model_doctor(
+        io=io,
+        settings=settings,
+    )
+    for message in outcome.messages:
+        await io.emit(message)
+
+
+def _load_cli_settings(
+    *,
+    cwd: Path,
+    env_dir: str | Path | None,
+) -> Settings:
+    merged_settings, config_file = load_layered_settings(start_path=cwd, env_dir=env_dir)
+    search_root = resolve_config_search_root(cwd, env_dir=env_dir)
+    _, secrets_path = find_fastagent_config_files(search_root)
+    if secrets_path and secrets_path.exists():
+        merged_settings = deep_merge(merged_settings, load_yaml_mapping(secrets_path))
+
+    settings = Settings(**merged_settings)
+    settings._config_file = str(config_file) if config_file else None
+    settings._secrets_file = str(secrets_path) if secrets_path and secrets_path.exists() else None
+    return settings
+
+
 def _load_tolerant_config_payload(
     *,
     cwd: Path,
@@ -571,6 +639,29 @@ def model_setup(
                 token=token,
                 target=resolved_target,
                 dry_run=dry_run,
+            )
+        )
+    except ValidationError as exc:
+        _print_validation_error(exc)
+        raise typer.Exit(1) from exc
+
+
+@app.command("doctor")
+def model_doctor(
+    ctx: typer.Context,
+    env: str | None = CommonAgentOptions.env_dir(),
+) -> None:
+    """Inspect model onboarding readiness and alias resolution."""
+    resolved_env_dir = resolve_environment_dir_option(
+        ctx,
+        Path(env) if env is not None else None,
+    )
+    settings = _load_cli_settings(cwd=Path.cwd(), env_dir=resolved_env_dir)
+
+    try:
+        asyncio.run(
+            _run_model_doctor_command(
+                settings=settings,
             )
         )
     except ValidationError as exc:

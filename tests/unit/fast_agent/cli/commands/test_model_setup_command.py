@@ -227,3 +227,31 @@ async def test_run_model_setup_updates_named_alias_via_model_selector(tmp_path: 
     rendered = str(outcome.messages[0].text)
     assert "old: claude-sonnet-4-5" in rendered
     assert "new: gpt-4.1-mini" in rendered
+
+
+@pytest.mark.asyncio
+async def test_run_model_doctor_reports_unresolved_default_alias(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    env_dir = workspace / ".model-env"
+    workspace.mkdir(parents=True)
+    (workspace / "fastagent.config.yaml").write_text(
+        'default_model: "$system.default"\n',
+        encoding="utf-8",
+    )
+
+    io = _StubIO()
+
+    previous_cwd = Path.cwd()
+    try:
+        os.chdir(workspace)
+        outcome = await model_command.run_model_doctor(
+            io=io,
+            settings=Settings(environment_dir=str(env_dir)),
+        )
+    finally:
+        os.chdir(previous_cwd)
+
+    assert outcome.messages
+    rendered = str(outcome.messages[0].text)
+    assert "model doctor" in rendered
+    assert "$system.default" in rendered
