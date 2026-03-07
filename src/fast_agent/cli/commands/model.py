@@ -32,7 +32,7 @@ from fast_agent.llm.model_alias_diagnostics import (
 )
 from fast_agent.ui.adapters.tui_io import TuiCommandIO
 from fast_agent.ui.model_alias_picker import (
-    CUSTOM_ALIAS_SENTINEL,
+    ModelAliasPickerItem,
     run_model_alias_picker_async,
 )
 
@@ -214,10 +214,24 @@ async def _pick_or_prompt_alias_token(
     *,
     items: tuple[ModelAliasSetupItem, ...],
 ) -> str | None:
-    selected_token = await run_model_alias_picker_async(items)
-    if selected_token == CUSTOM_ALIAS_SENTINEL:
+    picker_items = tuple(
+        ModelAliasPickerItem(
+            token=item.token,
+            priority=item.priority,
+            status=f"{item.priority}/{item.status}",
+            summary=item.summary,
+            current_value=item.current_value,
+            references=item.references,
+            removable=False,
+        )
+        for item in items
+    )
+    result = await run_model_alias_picker_async(picker_items)
+    if result is None:
+        return None
+    if result.action == "custom":
         return await _prompt_manual_alias_token(io)
-    return selected_token
+    return result.token
 
 
 def _render_setup_item_summary(item: ModelAliasSetupItem, *, title: str) -> Text:
@@ -297,6 +311,88 @@ def _merge_setup_items(
     return tuple(merged)
 
 
+def _build_picker_items(
+    diagnostics: ModelAliasSetupDiagnostics,
+) -> tuple[ModelAliasPickerItem, ...]:
+    items: list[ModelAliasPickerItem] = []
+    seen_tokens: set[str] = set()
+
+    def _add_item(item: ModelAliasPickerItem) -> None:
+        if item.token in seen_tokens:
+            return
+        seen_tokens.add(item.token)
+        items.append(item)
+
+    for item in diagnostics.items:
+        _add_item(
+            ModelAliasPickerItem(
+                token=item.token,
+                priority=item.priority,
+                status=f"{item.priority}/{item.status}",
+                summary=item.summary,
+                current_value=item.current_value,
+                references=item.references,
+                removable=False,
+            )
+        )
+
+    for item in _build_common_setup_items(diagnostics.valid_aliases):
+        _add_item(
+            ModelAliasPickerItem(
+                token=item.token,
+                priority=item.priority,
+                status=f"{item.priority}/{item.status}",
+                summary=item.summary,
+                current_value=item.current_value,
+                references=item.references,
+                removable=False,
+            )
+        )
+
+    for namespace, entries in sorted(diagnostics.valid_aliases.items()):
+        for key, model_spec in sorted(entries.items()):
+            token = f"${namespace}.{key}"
+            _add_item(
+                ModelAliasPickerItem(
+                    token=token,
+                    priority="configured",
+                    status="configured",
+                    summary="Existing alias mapping.",
+                    current_value=model_spec,
+                    references=(),
+                    removable=True,
+                )
+            )
+
+    return tuple(items)
+
+
+async def _run_model_alias_unset(
+    *,
+    io: CommandIO,
+    settings: Settings,
+    token: str,
+    target: WriteTarget,
+    dry_run: bool,
+) -> CommandOutcome:
+    provider = _CliModelAgentProvider()
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="cli",
+        io=io,
+        settings=settings,
+    )
+    argument = f"unset {shlex.quote(token)} --target {target}"
+    if dry_run:
+        argument += " --dry-run"
+    return await models_manager.handle_models_command(
+        ctx,
+        agent_name="cli",
+        action="aliases",
+        argument=argument,
+    )
+
+
 async def _run_model_setup_command(
     *,
     settings: Settings,
@@ -315,15 +411,63 @@ async def _run_model_setup_command(
         settings=settings,
         config_payload=config_payload,
     )
-    outcome = await run_model_setup(
-        io=io,
-        settings=settings,
-        token=token,
-        target=target,
-        dry_run=dry_run,
-    )
-    for message in outcome.messages:
-        await io.emit(message)
+    if token is not None:
+        outcome = await run_model_setup(
+            io=io,
+            settings=settings,
+            token=token,
+            target=target,
+            dry_run=dry_run,
+        )
+        for message in outcome.messages:
+            await io.emit(message)
+        return
+
+    while True:
+        diagnostics = collect_model_alias_setup_diagnostics(
+            cwd=Path.cwd(),
+            env_dir=getattr(settings, "environment_dir", None),
+        )
+        picker_items = _build_picker_items(diagnostics)
+        picker_result = await run_model_alias_picker_async(picker_items)
+        if picker_result is None:
+            return
+
+        if picker_result.action == "custom":
+            selected_token = await _prompt_manual_alias_token(io)
+            if selected_token is None:
+                return
+            outcome = await run_model_setup(
+                io=io,
+                settings=settings,
+                token=selected_token,
+                target=target,
+                dry_run=dry_run,
+            )
+        elif picker_result.action == "unset":
+            assert picker_result.token is not None
+            outcome = await _run_model_alias_unset(
+                io=io,
+                settings=settings,
+                token=picker_result.token,
+                target=target,
+                dry_run=dry_run,
+            )
+        else:
+            assert picker_result.token is not None
+            outcome = await run_model_setup(
+                io=io,
+                settings=settings,
+                token=picker_result.token,
+                target=target,
+                dry_run=dry_run,
+            )
+
+        for message in outcome.messages:
+            await io.emit(message)
+
+        if dry_run:
+            return
 
 
 def _load_tolerant_config_payload(
