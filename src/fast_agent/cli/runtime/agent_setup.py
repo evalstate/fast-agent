@@ -128,17 +128,51 @@ async def _prompt_for_generic_model_spec(*, default_model: str = "llama3.2") -> 
         typer.echo("Please enter a non-empty model string.", err=True)
 
 
+def _activate_model_picker_provider(action: str) -> bool:
+    if action != "codex-login":
+        typer.echo(f"Unsupported provider activation action: {action}", err=True)
+        return False
+
+    from fast_agent.core.exceptions import ProviderKeyError, format_fast_agent_error
+    from fast_agent.llm.provider.openai.codex_oauth import login_codex_oauth
+    from fast_agent.ui import console
+
+    typer.echo("Starting Codex OAuth login...", err=True)
+    try:
+        console.ensure_blocking_console()
+        login_codex_oauth()
+    except ProviderKeyError as exc:
+        typer.echo(format_fast_agent_error(exc), err=True)
+        return False
+    except (EOFError, KeyboardInterrupt):
+        typer.echo("Codex OAuth login cancelled.", err=True)
+        return False
+
+    typer.echo("Codex OAuth login complete. Choose a Codex model to continue.", err=True)
+    return True
+
+
 async def _select_model_from_picker(request: AgentRunRequest) -> str:
     """Prompt user for model selection and return a resolved model string."""
     from fast_agent.ui.model_picker import run_model_picker_async
 
     config_path = Path(request.config_path) if request.config_path else None
+    initial_provider: str | None = None
 
     while True:
-        picker_result = await run_model_picker_async(config_path=config_path)
+        picker_result = await run_model_picker_async(
+            config_path=config_path,
+            initial_provider=initial_provider,
+        )
         if picker_result is None:
             typer.echo("Model selection cancelled.", err=True)
             raise typer.Exit(1)
+
+        initial_provider = picker_result.provider
+
+        if picker_result.activation_action is not None:
+            _activate_model_picker_provider(picker_result.activation_action)
+            continue
 
         if (
             picker_result.provider == Provider.GENERIC.config_name

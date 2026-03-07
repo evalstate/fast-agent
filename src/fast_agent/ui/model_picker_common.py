@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 ModelSource = Literal["curated", "all"]
+ProviderActivationAction = Literal["codex-login"]
 KEEP_VALUE = "__keep__"
 DEFAULT_VALUE = "__default__"
 
@@ -44,6 +45,7 @@ REFER_TO_DOCS_PROVIDERS: tuple[Provider, ...] = (
 )
 
 GENERIC_CUSTOM_MODEL_SENTINEL = "generic.__custom__"
+CODEX_LOGIN_SENTINEL = "codexresponses.__login__"
 
 
 @dataclass(frozen=True)
@@ -60,6 +62,7 @@ class ModelOption:
     alias: str | None = None
     fast: bool = False
     curated: bool = False
+    activation_action: ProviderActivationAction | None = None
 
 
 @dataclass(frozen=True)
@@ -165,6 +168,16 @@ def active_provider_names(snapshot: ModelPickerSnapshot) -> list[str]:
     return [option.provider.display_name for option in snapshot.providers if option.active]
 
 
+def provider_activation_action(
+    snapshot: ModelPickerSnapshot,
+    provider: Provider,
+) -> ProviderActivationAction | None:
+    option = find_provider(snapshot, provider.config_name)
+    if provider == Provider.CODEX_RESPONSES and not option.active:
+        return "codex-login"
+    return None
+
+
 def _model_identity(model_spec: str) -> tuple[Provider, str] | None:
     try:
         parsed = ModelFactory.parse_model_string(model_spec)
@@ -205,6 +218,15 @@ def model_options_for_provider(
         ]
 
     provider_option = find_provider(snapshot, provider.config_name)
+    activation_action = provider_activation_action(snapshot, provider)
+    if activation_action is not None:
+        return [
+            ModelOption(
+                spec=CODEX_LOGIN_SENTINEL,
+                label="Log in to enable Codex (Plan)",
+                activation_action=activation_action,
+            )
+        ]
 
     curated_options: list[ModelOption] = []
     for entry in provider_option.curated_entries:

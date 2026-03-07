@@ -23,9 +23,11 @@ from fast_agent.ui.model_picker_common import (
     REFER_TO_DOCS_PROVIDERS,
     ModelOption,
     ModelSource,
+    ProviderActivationAction,
     ProviderOption,
     build_snapshot,
     model_options_for_provider,
+    provider_activation_action,
 )
 
 StyleFragments = list[tuple[str, str]]
@@ -39,6 +41,7 @@ class ModelPickerResult:
     resolved_model: str | None
     source: ModelSource
     refer_to_docs: bool
+    activation_action: ProviderActivationAction | None = None
 
 
 @dataclass
@@ -53,10 +56,16 @@ class PickerState:
 class _SplitListPicker:
     LIST_VISIBLE_ROWS = 15
 
-    def __init__(self, *, config_path: Path | None) -> None:
+    def __init__(
+        self,
+        *,
+        config_path: Path | None,
+        initial_provider: str | None = None,
+    ) -> None:
         self.snapshot = build_snapshot(config_path)
         if not self.snapshot.providers:
             raise ValueError("No providers found in model catalog.")
+        self._initial_provider_name = initial_provider
 
         self.state = PickerState(
             provider_index=self._initial_provider_index(),
@@ -120,6 +129,7 @@ class _SplitListPicker:
                 {
                     "selected": "reverse",
                     "active": "ansigreen",
+                    "attention": "ansiyellow",
                     "inactive": "ansibrightblack",
                     "muted": "ansibrightblack",
                     "focus": "ansicyan",
@@ -137,6 +147,13 @@ class _SplitListPicker:
 
     def _provider_requires_docs_only(self) -> bool:
         return self.current_provider.provider in REFER_TO_DOCS_PROVIDERS
+
+    def _provider_activation_action(
+        self,
+        option: ProviderOption | None = None,
+    ) -> ProviderActivationAction | None:
+        provider_option = option or self.current_provider
+        return provider_activation_action(self.snapshot, provider_option.provider)
 
     @property
     def current_models(self) -> list[ModelOption]:
@@ -175,6 +192,10 @@ class _SplitListPicker:
         return max(30, min(42, cols // 3))
 
     def _initial_provider_index(self) -> int:
+        if self._initial_provider_name:
+            for index, option in enumerate(self.snapshot.providers):
+                if option.provider.config_name == self._initial_provider_name:
+                    return index
         for index, option in enumerate(self.snapshot.providers):
             if option.active:
                 return index
@@ -229,15 +250,34 @@ class _SplitListPicker:
         self.state.model_scroll_top = 0
         self._sync_model_scroll()
 
-    def _row_style(self, *, selected: bool, available: bool) -> str:
+    def _row_style(
+        self,
+        *,
+        selected: bool,
+        availability: Literal["active", "attention", "inactive"],
+    ) -> str:
         parts: list[str] = []
         if selected:
             parts.append("class:selected")
-        if available:
-            parts.append("class:active")
-        else:
-            parts.append("class:inactive")
+        parts.append(f"class:{availability}")
         return " ".join(parts)
+
+    def _provider_availability_label(self, option: ProviderOption) -> str:
+        if option.active:
+            return "available"
+        if self._provider_activation_action(option) is not None:
+            return "sign in required"
+        return "not configured"
+
+    def _provider_availability_style(
+        self,
+        option: ProviderOption,
+    ) -> Literal["active", "attention", "inactive"]:
+        if option.active:
+            return "active"
+        if self._provider_activation_action(option) is not None:
+            return "attention"
+        return "inactive"
 
     @staticmethod
     def _provider_display_name(config_name: str, default_name: str) -> str:
@@ -259,8 +299,11 @@ class _SplitListPicker:
         for index, option in enumerate(self.snapshot.providers):
             selected = index == self.state.provider_index
             cursor = "❯ " if self.state.focus == "providers" and selected else "  "
-            line_style = self._row_style(selected=selected, available=option.active)
-            availability = "available" if option.active else "not configured"
+            line_style = self._row_style(
+                selected=selected,
+                availability=self._provider_availability_style(option),
+            )
+            availability = self._provider_availability_label(option)
             provider_name = self._provider_display_name(
                 option.provider.config_name,
                 option.provider.display_name,
@@ -286,8 +329,17 @@ class _SplitListPicker:
         for index, model in enumerate(models):
             selected = index == self.state.model_index
             cursor = "❯ " if self.state.focus == "models" and selected else "  "
-            line_style = self._row_style(selected=selected, available=provider_available)
-            marker = "✓" if provider_available else "✗"
+            line_style = self._row_style(
+                selected=selected,
+                availability=(
+                    "active"
+                    if provider_available
+                    else "attention"
+                    if model.activation_action is not None
+                    else "inactive"
+                ),
+            )
+            marker = "✓" if provider_available else "!" if model.activation_action else "✗"
             fragments.append((line_style, f"{cursor}{marker} {model.label}\n"))
 
         return fragments
@@ -299,10 +351,12 @@ class _SplitListPicker:
             provider.provider.display_name,
         )
         scope = "curated" if self.state.source == "curated" else "all catalog"
-        status = "available" if provider.active else "not configured"
+        status = self._provider_availability_label(provider)
         warning = ""
         if self._provider_requires_docs_only():
             warning = " · see docs"
+        elif self._provider_activation_action(provider) is not None:
+            warning = " · press Enter to log in"
 
         models = self.current_models
         model_count = len(models)
@@ -319,7 +373,7 @@ class _SplitListPicker:
             ),
             (
                 "class:muted",
-                "Keys: ←/→ focus · ↑/↓ move · Tab swap · c scope · Enter select · q quit",
+                "Keys: ←/→ focus · ↑/↓ move · Tab swap · c scope · Enter select/log in · q quit",
             ),
         ]
 
@@ -369,6 +423,20 @@ class _SplitListPicker:
                 return
 
             provider = self.current_provider
+            if selected_model.activation_action is not None:
+                event.app.exit(
+                    result=ModelPickerResult(
+                        provider=provider.provider.config_name,
+                        provider_available=provider.active,
+                        selected_model=selected_model.spec,
+                        resolved_model=None,
+                        source=self.state.source,
+                        refer_to_docs=False,
+                        activation_action=selected_model.activation_action,
+                    )
+                )
+                return
+
             if (
                 provider.provider.config_name == "generic"
                 and selected_model.spec == GENERIC_CUSTOM_MODEL_SENTINEL
@@ -381,6 +449,7 @@ class _SplitListPicker:
                         resolved_model=None,
                         source=self.state.source,
                         refer_to_docs=False,
+                        activation_action=None,
                     )
                 )
                 return
@@ -394,6 +463,7 @@ class _SplitListPicker:
                         resolved_model=None,
                         source=self.state.source,
                         refer_to_docs=True,
+                        activation_action=None,
                     )
                 )
                 return
@@ -406,6 +476,7 @@ class _SplitListPicker:
                     resolved_model=selected_model.spec,
                     source=self.state.source,
                     refer_to_docs=False,
+                    activation_action=None,
                 )
             )
 
@@ -434,13 +505,21 @@ class _SplitListPicker:
         return None
 
 
-def run_model_picker(*, config_path: Path | None = None) -> ModelPickerResult | None:
+def run_model_picker(
+    *,
+    config_path: Path | None = None,
+    initial_provider: str | None = None,
+) -> ModelPickerResult | None:
     """Run the interactive model picker and return the selected model configuration."""
-    picker = _SplitListPicker(config_path=config_path)
+    picker = _SplitListPicker(config_path=config_path, initial_provider=initial_provider)
     return picker.run()
 
 
-async def run_model_picker_async(*, config_path: Path | None = None) -> ModelPickerResult | None:
+async def run_model_picker_async(
+    *,
+    config_path: Path | None = None,
+    initial_provider: str | None = None,
+) -> ModelPickerResult | None:
     """Run the interactive model picker from within an active asyncio event loop."""
-    picker = _SplitListPicker(config_path=config_path)
+    picker = _SplitListPicker(config_path=config_path, initial_provider=initial_provider)
     return await picker.run_async()

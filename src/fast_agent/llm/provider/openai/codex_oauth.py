@@ -558,7 +558,9 @@ def login_codex_oauth(timeout_seconds: int = 300) -> CodexOAuthTokens:
     code: str | None = None
     returned_state: str | None = None
 
+    console.ensure_blocking_console()
     console.console.print("[bold]Open this link to authorize:[/bold]")
+    console.ensure_blocking_console()
     console.console.print(f"[link={auth_url}]{auth_url}[/link]")
 
     try:
@@ -573,10 +575,12 @@ def login_codex_oauth(timeout_seconds: int = 300) -> CodexOAuthTokens:
         server.close()
 
     if not code:
+        console.ensure_blocking_console()
         console.console.print(
             "Paste the full callback URL after completing the authorization in your browser:",
             style="bold",
         )
+        console.ensure_blocking_console()
         pasted = console.console.input("Callback URL: ")
         parsed = urlparse(pasted)
         params = parse_qs(parsed.query)
