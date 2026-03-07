@@ -355,35 +355,19 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         use_history = request_params.use_history if request_params is not None else True
         has_tool_results = any(message.tool_results for message in messages)
         if use_history and not has_tool_results:
-            history = self.message_history
-            if history:
-                last_msg = history[-1]
-                if (
-                    last_msg.role == "assistant"
-                    and last_msg.tool_calls
-                    and last_msg.stop_reason == LlmStopReason.TOOL_USE
-                ):
-                    tool_call_ids = list(last_msg.tool_calls.keys())
-                    removed = self.pop_last_message()
-                    logger.warning(
-                        "History ended with unanswered tool call; auto-healed by "
-                        "dropping trailing pending tool request.",
-                        data={
-                            "tool_calls": tool_call_ids,
-                            "history_length": len(history),
-                            "auto_healed": removed is not None,
-                        },
-                    )
-                    if removed is None:
-                        logger.error(
-                            "Unable to auto-heal dangling tool call history because no "
-                            "message was removed."
-                        )
-                        raise ValueError(
-                            "Invalid conversation history: assistant message has pending "
-                            f"tool calls {tool_call_ids} but no user message with tool "
-                            "results follows. The session may have been interrupted."
-                        )
+            history_state = ToolRunner.reconcile_interrupted_history(
+                self,
+                use_history=use_history,
+            )
+            if history_state.status == "appended_interrupted_tool_result":
+                logger.warning(
+                    "History ended with unanswered tool call; auto-healed by "
+                    "appending interrupted tool result marker.",
+                    data={
+                        "history_before": history_state.history_before,
+                        "history_after": history_state.history_after,
+                    },
+                )
 
         if tools is None:
             tools = (await self.list_tools()).tools

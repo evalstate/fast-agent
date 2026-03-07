@@ -40,6 +40,11 @@ class ModelSelectionCatalog:
 
     CATALOG_ENTRIES_BY_PROVIDER: dict[Provider, tuple[CatalogModelEntry, ...]] = {
         Provider.RESPONSES: (
+            CatalogModelEntry(alias="gpt-5.4", model="responses.gpt-5.4?reasoning=medium"),
+            CatalogModelEntry(
+                alias="gpt-5.3-chat-latest",
+                model="responses.gpt-5.3-chat-latest?transport=ws",
+            ),
             CatalogModelEntry(alias="gpt-5.2", model="responses.gpt-5.2?reasoning=medium"),
             CatalogModelEntry(
                 alias="gpt-5-mini",
@@ -105,11 +110,6 @@ class ModelSelectionCatalog:
                 model="hf.MiniMaxAI/MiniMax-M2.5:novita?temperature=1.0&top_p=0.95&top_k=40",
             ),
             CatalogModelEntry(
-                alias="minimax2.5",
-                model="hf.MiniMaxAI/MiniMax-M2.5:novita?temperature=1.0&top_p=0.95&top_k=40",
-                current=False,
-            ),
-            CatalogModelEntry(
                 alias="qwen35instruct",
                 model=(
                     "hf.Qwen/Qwen3.5-397B-A17B:novita"
@@ -129,13 +129,17 @@ class ModelSelectionCatalog:
                 alias="deepseek32",
                 model="hf.deepseek-ai/DeepSeek-V3.2:fireworks-ai",
             ),
-            CatalogModelEntry(alias="kimi-k2-instruct", model="hf.moonshotai/Kimi-K2-Instruct-0905:groq"),
-            CatalogModelEntry(alias="kimi-k2-thinking", model="hf.moonshotai/Kimi-K2-Thinking:together"),
+            CatalogModelEntry(
+                alias="kimi-k2-instruct", model="hf.moonshotai/Kimi-K2-Instruct-0905:groq"
+            ),
+            CatalogModelEntry(
+                alias="kimi-k2-thinking", model="hf.moonshotai/Kimi-K2-Thinking:together"
+            ),
         ),
         Provider.CODEX_RESPONSES: (
             CatalogModelEntry(
                 alias="codexplan",
-                model="codexresponses.gpt-5.3-codex?transport=ws&reasoning=high",
+                model="codexresponses.gpt-5.4?transport=ws&reasoning=high",
             ),
             CatalogModelEntry(
                 alias="codexspark",
@@ -147,6 +151,16 @@ class ModelSelectionCatalog:
             CatalogModelEntry(
                 alias="kimigroq",
                 model="kimigroq",
+            ),
+        ),
+        Provider.FAST_AGENT: (
+            CatalogModelEntry(
+                alias="passthrough",
+                model="passthrough",
+            ),
+            CatalogModelEntry(
+                alias="playback",
+                model="playback",
             ),
         ),
     }

@@ -63,6 +63,7 @@ class FakeChildAgent(LlmAgent):
         super().__init__(AgentConfig(name))
         self._response_text = response_text
         self._delay = delay
+        self.last_request_params: RequestParams | None = None
 
     async def generate(
         self,
@@ -73,6 +74,7 @@ class FakeChildAgent(LlmAgent):
         request_params: RequestParams | None = None,
         tools: list[Tool] | None = None,
     ) -> PromptMessageExtended:
+        self.last_request_params = request_params
         if self._delay:
             await asyncio.sleep(self._delay)
         return PromptMessageExtended(
@@ -461,6 +463,60 @@ async def test_invoke_child_uses_legacy_message_input_for_message_only_schema():
 
     assert result.isError is False
     assert child.last_input_text == "hello child"
+
+
+@pytest.mark.asyncio
+async def test_child_passthrough_setting_is_inherited_from_parent_request_params() -> None:
+    child = FakeChildAgent("child")
+    agent = AgentsAsToolsAgent(AgentConfig("parent"), [child])
+    await agent.initialize()
+
+    parent_request_params = RequestParams(tool_result_passthrough=True)
+    await agent._invoke_child_agent(
+        child,
+        {"message": "hello child"},
+        request_params=parent_request_params,
+    )
+
+    assert child.last_request_params is not None
+    assert child.last_request_params.tool_result_passthrough is True
+
+
+@pytest.mark.asyncio
+async def test_child_response_mode_overrides_inherited_passthrough_and_is_stripped() -> None:
+    child = StructuredInputChild("child")
+    child.config.tool_input_schema = {
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "What to investigate",
+            },
+            "response_mode": {
+                "type": "string",
+                "enum": ["inherit", "postprocess", "passthrough"],
+            },
+        },
+        "required": ["query"],
+    }
+
+    agent = AgentsAsToolsAgent(AgentConfig("parent"), [child])
+    await agent.initialize()
+
+    parent_request_params = RequestParams(tool_result_passthrough=True)
+    await agent._invoke_child_agent(
+        child,
+        {
+            "query": "find updates",
+            "response_mode": "postprocess",
+        },
+        request_params=parent_request_params,
+    )
+
+    assert child.last_request_params is not None
+    assert child.last_request_params.tool_result_passthrough is False
+    assert child.last_input_text is not None
+    assert json.loads(child.last_input_text) == {"query": "find updates"}
 
 
 @pytest.mark.asyncio

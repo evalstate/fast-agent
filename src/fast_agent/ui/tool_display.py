@@ -1,14 +1,25 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping, cast
 
 from rich.syntax import Syntax
 from rich.text import Text
 
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.tools.apply_patch_tool import extract_apply_patch_input, is_apply_patch_tool_name
 from fast_agent.ui import console
+from fast_agent.ui.apply_patch_preview import (
+    build_apply_patch_preview,
+    build_apply_patch_preview_from_input,
+    extract_non_command_args,
+    format_apply_patch_preview,
+    is_shell_execution_tool,
+    style_apply_patch_preview_text,
+)
 from fast_agent.ui.message_primitives import MESSAGE_CONFIGS, MessageType
 from fast_agent.ui.shell_output_truncation import (
     format_shell_output_line_count,
@@ -29,6 +40,26 @@ class ToolDisplay:
     _TOOL_CALL_ID_PREFIX_LENGTH = 5
     _TOOL_CALL_ID_SUFFIX_LENGTH = 6
     _TOOL_CALL_ID_ELLIPSIS = "…"
+    _PATH_ELLIPSIS = "…"
+    _READ_TEXT_FILE_LANGUAGE_BY_EXTENSION: dict[str, str] = {
+        ".py": "python",
+        ".js": "javascript",
+        ".ts": "typescript",
+        ".tsx": "tsx",
+        ".jsx": "jsx",
+        ".json": "json",
+        ".yaml": "yaml",
+        ".yml": "yaml",
+        ".toml": "toml",
+        ".md": "markdown",
+        ".sh": "bash",
+        ".bash": "bash",
+        ".zsh": "bash",
+        ".xml": "xml",
+        ".html": "html",
+        ".css": "css",
+        ".sql": "sql",
+    }
 
     def __init__(self, display: "ConsoleDisplay") -> None:
         self._display = display
@@ -44,6 +75,86 @@ class ToolDisplay:
             if sep in normalized:
                 normalized = normalized.rsplit(sep, 1)[-1]
         return normalized
+
+    @classmethod
+    def _is_read_text_file_tool(cls, tool_name: str | None) -> bool:
+        if not tool_name:
+            return False
+        normalized = cls._normalize_tool_name(tool_name)
+        if normalized == "read_text_file":
+            return True
+        return tool_name.lower().endswith("__read_text_file")
+
+    @classmethod
+    def _left_truncate_with_ellipsis(cls, text: str, max_length: int) -> str:
+        if max_length <= 0:
+            return ""
+        if len(text) <= max_length:
+            return text
+        if max_length == 1:
+            return cls._PATH_ELLIPSIS
+        return f"{cls._PATH_ELLIPSIS}{text[-(max_length - 1) :]}"
+
+    @staticmethod
+    def _format_parent_current_path(path_text: str) -> str:
+        normalized = os.path.normpath(path_text)
+        path = Path(normalized)
+        current = path.name or normalized
+        parent = path.parent.name
+        if parent:
+            return f"{parent}/{current}"
+        return current
+
+    @classmethod
+    def _fit_path_for_display(cls, path_text: str, max_length: int) -> str:
+        if max_length <= 0:
+            return ""
+
+        compact = cls._format_parent_current_path(path_text)
+        if len(compact) <= max_length:
+            return compact
+
+        current = Path(path_text).name or path_text
+        if len(current) <= max_length:
+            return current
+
+        return cls._left_truncate_with_ellipsis(current, max_length)
+
+    def _read_text_file_summary(self, tool_args: Mapping[str, Any]) -> str | None:
+        path_value = tool_args.get("path")
+        if not isinstance(path_value, str):
+            return None
+
+        stripped_path = path_value.strip()
+        if not stripped_path:
+            return None
+
+        line_value = tool_args.get("line")
+        limit_value = tool_args.get("limit")
+        line = line_value if isinstance(line_value, int) and line_value >= 1 else None
+        limit = limit_value if isinstance(limit_value, int) and limit_value >= 1 else None
+
+        offset_suffix = f" (offset {line})." if line is not None else "."
+        if limit is not None:
+            line_noun = "line" if limit == 1 else "lines"
+            prefix = f"The assistant is reading {limit} {line_noun} from "
+        elif line is not None:
+            prefix = "The assistant is reading from "
+        else:
+            prefix = "The assistant is reading a file from "
+
+        max_width = max(16, console.console.size.width - len(prefix) - len(offset_suffix))
+        display_path = self._fit_path_for_display(stripped_path, max_width)
+        return f"{prefix}{display_path}{offset_suffix}"
+
+    def _configured_output_line_limit(self) -> int | None:
+        config = self._display.config
+        if not config:
+            return None
+        shell_config = getattr(config, "shell_execution", None)
+        if not shell_config:
+            return None
+        return getattr(shell_config, "output_display_lines", None)
 
     @staticmethod
     def _display_tool_name(tool_name: str) -> str:
@@ -80,24 +191,17 @@ class ToolDisplay:
         return f"[dim]{joined}[/dim]"
 
     def _shell_output_line_limit(self, tool_name: str | None) -> int | None:
-        if not tool_name:
+        if not is_shell_execution_tool(tool_name):
             return None
-        normalized = self._normalize_tool_name(tool_name)
-        if normalized not in {"execute", "bash", "shell"}:
+        return self._configured_output_line_limit()
+
+    def _read_text_file_output_line_limit(self, tool_name: str | None) -> int | None:
+        if not self._is_read_text_file_tool(tool_name):
             return None
-        config = self._display.config
-        if not config:
-            return None
-        shell_config = getattr(config, "shell_execution", None)
-        if not shell_config:
-            return None
-        return getattr(shell_config, "output_display_lines", None)
+        return self._configured_output_line_limit()
 
     def _shell_show_bash(self, tool_name: str | None) -> bool:
-        if not tool_name:
-            return True
-        normalized = self._normalize_tool_name(tool_name)
-        if normalized not in {"execute", "bash", "shell"}:
+        if not is_shell_execution_tool(tool_name):
             return True
         config = self._display.config
         if not config:
@@ -254,6 +358,149 @@ class ToolDisplay:
             return content
         return [TextContent(type="text", text=limited)]
 
+    def _limit_read_text_output_text(self, text: str, line_limit: int) -> tuple[str, int]:
+        if line_limit < 0:
+            return text, 0
+
+        lines = text.splitlines()
+        if line_limit == 0:
+            if not lines:
+                return text, 0
+            return "", len(lines)
+
+        if len(lines) <= line_limit + 2:
+            return text, 0
+
+        start_index = 0
+        while start_index < len(lines) and not lines[start_index].strip():
+            start_index += 1
+        if start_index >= len(lines):
+            start_index = 0
+
+        visible_lines = lines[start_index : start_index + line_limit]
+        omitted_line_count = len(lines) - len(visible_lines)
+        return "\n".join(visible_lines), omitted_line_count
+
+    def _limit_read_text_output_content(self, content, line_limit: int):
+        from mcp.types import TextContent
+
+        from fast_agent.mcp.helpers.content_helpers import get_text, is_text_content
+
+        if not content or len(content) != 1 or not is_text_content(content[0]):
+            return content, 0
+        text = get_text(content[0]) or ""
+        limited, omitted_line_count = self._limit_read_text_output_text(text, line_limit)
+        if limited == text and omitted_line_count == 0:
+            return content, 0
+        return [TextContent(type="text", text=limited)], omitted_line_count
+
+    @staticmethod
+    def _longest_backtick_run(text: str) -> int:
+        matches = re.findall(r"`+", text)
+        if not matches:
+            return 0
+        return max(len(match) for match in matches)
+
+    @classmethod
+    def _read_text_file_language_from_path(cls, path_value: object) -> str | None:
+        if not isinstance(path_value, str):
+            return None
+        suffix = Path(path_value).suffix.lower()
+        if not suffix:
+            return None
+        return cls._READ_TEXT_FILE_LANGUAGE_BY_EXTENSION.get(suffix)
+
+    def _format_read_text_file_content_as_markdown(
+        self,
+        content,
+        *,
+        path_value: object,
+    ) -> str | None:
+        from fast_agent.mcp.helpers.content_helpers import get_text, is_text_content
+
+        if not content or len(content) != 1 or not is_text_content(content[0]):
+            return None
+
+        text = get_text(content[0])
+        if text is None:
+            return None
+
+        fence_length = max(3, self._longest_backtick_run(text) + 1)
+        fence = "`" * fence_length
+        language = self._read_text_file_language_from_path(path_value)
+        opening_fence = f"{fence}{language}" if language else fence
+        return f"{opening_fence}\n{text}\n{fence}"
+
+    def _read_text_file_header_status(
+        self,
+        path_value: object,
+        *,
+        line_value: object = None,
+        limit_value: object = None,
+    ) -> str:
+        if isinstance(path_value, str):
+            stripped = path_value.strip()
+            base_status = self._fit_path_for_display(stripped, 42) if stripped else "preview"
+        else:
+            base_status = "preview"
+
+        line = (
+            line_value
+            if isinstance(line_value, int) and not isinstance(line_value, bool) and line_value >= 1
+            else None
+        )
+        limit = (
+            limit_value
+            if isinstance(limit_value, int)
+            and not isinstance(limit_value, bool)
+            and limit_value >= 1
+            else None
+        )
+
+        details: list[str] = []
+        if line is not None:
+            details.append(f"offset {line}")
+        if limit is not None:
+            line_noun = "line" if limit == 1 else "lines"
+            details.append(f"{limit} {line_noun}")
+
+        if not details:
+            return base_status
+        return f"{base_status} ({', '.join(details)})"
+
+    @staticmethod
+    def _read_text_file_more_lines_message(omitted_line_count: int) -> Text | None:
+        if omitted_line_count <= 0:
+            return None
+        noun = "line" if omitted_line_count == 1 else "lines"
+        return Text(f"(+{omitted_line_count} more {noun})", style="dim italic")
+
+    @staticmethod
+    def _read_text_file_no_lines_message() -> Text:
+        return Text("(No lines returned)", style="dim italic")
+
+    @staticmethod
+    def _read_text_file_line_count_from_content(content) -> int | None:
+        from fast_agent.mcp.helpers.content_helpers import get_text, is_text_content
+
+        if not content or len(content) != 1 or not is_text_content(content[0]):
+            return None
+        text = get_text(content[0])
+        if text is None:
+            return None
+        return len(text.splitlines())
+
+    @staticmethod
+    def _combine_additional_messages(
+        first: Text | None,
+        second: Text | None,
+    ) -> Text | None:
+        if first is None:
+            return second
+        if second is None:
+            return first
+        return Text.assemble(first, "\n", second)
+
     def show_tool_result(
         self,
         result: "CallToolResult",
@@ -298,6 +545,7 @@ class ToolDisplay:
                         text=json.dumps(structured_content, ensure_ascii=False, indent=2),
                     )
                 ]
+            read_omitted_line_count = 0
             if truncate_content:
                 show_bash_output = self._shell_show_bash(tool_name)
                 if not show_bash_output:
@@ -308,6 +556,16 @@ class ToolDisplay:
                     if line_limit is not None:
                         display_content = self._limit_shell_output_content(content, line_limit)
                         truncate_content = False
+                    else:
+                        read_line_limit = self._read_text_file_output_line_limit(tool_name)
+                        if read_line_limit is not None:
+                            display_content, read_omitted_line_count = (
+                                self._limit_read_text_output_content(
+                                    content,
+                                    read_line_limit,
+                                )
+                            )
+                            truncate_content = False
 
             is_skybridge_tool = False
             skybridge_resource_uri: str | None = None
@@ -346,6 +604,13 @@ class ToolDisplay:
                             else "1 Content Block"
                         )
 
+            if self._is_read_text_file_tool(tool_name) and not result.isError:
+                status = self._read_text_file_header_status(
+                    getattr(result, "read_text_file_path", None),
+                    line_value=getattr(result, "read_text_file_line", None),
+                    limit_value=getattr(result, "read_text_file_limit", None),
+                )
+
             channel = getattr(result, "transport_channel", None)
             bottom_metadata_items: list[str] = []
             if channel:
@@ -374,8 +639,11 @@ class ToolDisplay:
                 bottom_metadata_items.append("Structured ■")
 
             bottom_metadata = bottom_metadata_items or None
+            display_type_label = type_label
+            if self._is_read_text_file_tool(tool_name) and type_label == "tool result":
+                display_type_label = "file read"
             right_info = self._build_tool_right_info(
-                f"{type_label} - {status}",
+                f"{display_type_label} - {status}",
                 tool_call_id,
             )
 
@@ -387,6 +655,38 @@ class ToolDisplay:
                     tool_call_id=tool_call_id,
                     output_line_count=getattr(result, "output_line_count", None),
                 )
+            )
+
+            render_markdown: bool | None = None
+            read_more_lines_message: Text | None = None
+            read_no_lines_message: Text | None = None
+            if self._is_read_text_file_tool(tool_name) and not result.isError:
+                source_line_count = self._read_text_file_line_count_from_content(source_content)
+                no_lines_returned = source_line_count == 0 or not source_content
+
+                if no_lines_returned and read_omitted_line_count == 0:
+                    display_content = ""
+                    render_markdown = False
+                    read_no_lines_message = self._read_text_file_no_lines_message()
+                else:
+                    markdown_content = self._format_read_text_file_content_as_markdown(
+                        display_content,
+                        path_value=getattr(result, "read_text_file_path", None),
+                    )
+                    if markdown_content is not None:
+                        display_content = markdown_content
+                        render_markdown = True
+                read_more_lines_message = self._read_text_file_more_lines_message(
+                    read_omitted_line_count
+                )
+
+            additional_message = self._combine_additional_messages(
+                shell_exit_additional_message,
+                read_more_lines_message,
+            )
+            additional_message = self._combine_additional_messages(
+                additional_message,
+                read_no_lines_message,
             )
 
             if has_structured:
@@ -456,7 +756,8 @@ class ToolDisplay:
                     bottom_metadata=bottom_metadata,
                     is_error=result.isError,
                     truncate_content=truncate_content,
-                    additional_message=shell_exit_additional_message,
+                    additional_message=additional_message,
+                    render_markdown=render_markdown,
                     show_hook_indicator=show_hook_indicator,
                 )
         except Exception:
@@ -499,6 +800,7 @@ class ToolDisplay:
             content: Any = tool_args
             pre_content: Text | None = None
             truncate_content = True
+            render_markdown: bool | None = None
 
             if metadata.get("variant") == "shell":
                 bottom_items = list()
@@ -508,13 +810,29 @@ class ToolDisplay:
 
                 command_text = Text()
                 if command and isinstance(command, str):
-                    command_text.append("$ ", style="magenta")
-                    command_text.append(command, style="white")
+                    preview = build_apply_patch_preview(command)
+                    if preview is not None:
+                        command_text.append("$ ", style="magenta")
+                        command_text.append("apply_patch (preview)", style="white")
+                        command_text.append("\n")
+                        command_text.append_text(
+                            style_apply_patch_preview_text(
+                                format_apply_patch_preview(
+                                    preview,
+                                    other_args=extract_non_command_args(tool_args),
+                                ),
+                                default_style="white",
+                            )
+                        )
+                    else:
+                        command_text.append("$ ", style="magenta")
+                        command_text.append(command, style="white")
                 else:
                     command_text.append("$ ", style="magenta")
                     command_text.append("(no shell command provided)", style="dim")
 
                 content = command_text
+                render_markdown = False
 
                 shell_name = metadata.get("shell_name") or "shell"
                 shell_path = metadata.get("shell_path")
@@ -544,6 +862,40 @@ class ToolDisplay:
                     bottom_items.append(
                         f"timeout: {timeout_seconds}s, warning every {warning_interval}s"
                     )
+            elif is_apply_patch_tool_name(tool_name):
+                patch_input = extract_apply_patch_input(tool_args)
+                preview = (
+                    build_apply_patch_preview_from_input(patch_input)
+                    if patch_input is not None
+                    else None
+                )
+                patch_text = Text()
+                if preview is not None:
+                    patch_text.append("apply_patch (preview)", style="white")
+                    patch_text.append("\n")
+                    patch_text.append_text(
+                        style_apply_patch_preview_text(
+                            format_apply_patch_preview(
+                                preview,
+                                other_args={
+                                    key: value for key, value in tool_args.items() if key != "input"
+                                },
+                            ),
+                            default_style="white",
+                        )
+                    )
+                elif patch_input is not None:
+                    patch_text.append(patch_input, style="white")
+                else:
+                    patch_text.append("(no apply_patch input provided)", style="dim")
+                content = patch_text
+                render_markdown = False
+                truncate_content = False
+            elif self._is_read_text_file_tool(tool_name):
+                read_summary = self._read_text_file_summary(tool_args)
+                if read_summary:
+                    content = Text(read_summary, style="dim")
+                    truncate_content = False
 
             self._display.display_message(
                 content=content,
@@ -555,6 +907,7 @@ class ToolDisplay:
                 highlight_index=highlight_index,
                 max_item_length=max_item_length,
                 truncate_content=truncate_content,
+                render_markdown=render_markdown,
                 show_hook_indicator=show_hook_indicator,
             )
         except Exception:

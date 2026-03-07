@@ -261,7 +261,25 @@ def test_model_database_response_transports():
     assert ModelDatabase.supports_response_transport("gpt-4o", "websocket") is None
 
 
+def test_model_database_response_service_tiers() -> None:
+    assert ModelDatabase.get_response_service_tiers("gpt-5.4") == ("fast", "flex")
+    assert ModelDatabase.get_response_service_tiers("gpt-5.3-chat-latest") == ("fast",)
+    assert ModelDatabase.get_response_service_tiers("gpt-5.1-codex") == ("fast",)
+    assert ModelDatabase.get_response_service_tiers("gpt-5.2-codex") == ("fast", "flex")
+    assert ModelDatabase.supports_response_service_tier("gpt-5.3-chat-latest", "flex") is False
+    assert ModelDatabase.supports_response_service_tier("gpt-5.4", "flex") is True
+    assert ModelDatabase.supports_response_service_tier("gpt-4o", "flex") is None
+
+
 def test_model_database_response_websocket_provider_support() -> None:
+    assert (
+        ModelDatabase.supports_response_websocket_provider("gpt-5.4", Provider.CODEX_RESPONSES)
+        is True
+    )
+    assert (
+        ModelDatabase.supports_response_websocket_provider("gpt-5.4", Provider.RESPONSES)
+        is True
+    )
     assert (
         ModelDatabase.supports_response_websocket_provider(
             "gpt-5.3-codex-spark", Provider.CODEX_RESPONSES

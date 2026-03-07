@@ -162,7 +162,7 @@ async def test_models_aliases_lists_layered_alias_values(tmp_path: Path) -> None
 
     assert outcome.messages
     rendered = str(outcome.messages[0].text)
-    assert "▎• models aliases" in rendered
+    assert "▎ models aliases" in rendered
     assert "$system.fast = env-fast" in rendered
     assert "$system.code = project-code" in rendered
 
@@ -192,7 +192,7 @@ async def test_models_doctor_reports_unresolved_default_alias(tmp_path: Path) ->
 
     assert outcome.messages
     rendered = str(outcome.messages[0].text)
-    assert "▎• models doctor" in rendered
+    assert "▎ models doctor" in rendered
     assert "Readiness: action required" in rendered
     assert "Agent summary:" in rendered
     assert "$system.fast (default_model)" in rendered
@@ -433,7 +433,7 @@ async def test_models_aliases_set_writes_env_target(tmp_path: Path) -> None:
     assert saved["model_aliases"]["system"]["fast"] == "claude-haiku-4-5"
 
     rendered = str(outcome.messages[0].text)
-    assert "▎• models aliases set" in rendered
+    assert "▎ models aliases set" in rendered
     assert "Result: applied" in rendered
     assert f"Target: {config_path}" in rendered
     assert "model_aliases.system.fast:" in rendered
@@ -476,7 +476,7 @@ async def test_models_aliases_unset_writes_project_target(tmp_path: Path) -> Non
     assert saved["model_aliases"]["system"]["code"] == "claude-sonnet-4-5"
 
     rendered = str(outcome.messages[0].text)
-    assert "▎• models aliases unset" in rendered
+    assert "▎ models aliases unset" in rendered
     assert "Result: applied" in rendered
     assert f"Target: {project_config}" in rendered
     assert "model_aliases.system.fast:" in rendered
@@ -505,7 +505,7 @@ async def test_models_aliases_set_dry_run_is_deterministic(tmp_path: Path) -> No
     assert (env_dir / "fastagent.config.yaml").exists() is False
 
     rendered = str(outcome.messages[0].text)
-    assert "▎• models aliases set" in rendered
+    assert "▎ models aliases set" in rendered
     assert "Mode: dry-run" in rendered
     assert "model_aliases.system.fast:" in rendered
     assert "old: <unset>" in rendered

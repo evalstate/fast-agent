@@ -46,6 +46,7 @@ from fast_agent.ui.command_payloads import (
     McpListCommand,
     McpReconnectCommand,
     McpSessionCommand,
+    ModelFastCommand,
     ModelReasoningCommand,
     ModelsCommand,
     ModelVerbosityCommand,
@@ -82,6 +83,7 @@ class DispatchResult:
     buffer_prefill: str | None = None
     hash_send_target: str | None = None
     hash_send_message: str | None = None
+    hash_send_quiet: bool = False
     shell_execute_cmd: str | None = None
     should_return: bool = False
     return_result: str = ""
@@ -112,15 +114,17 @@ async def dispatch_command_payload(
                 return result
             rich_print(f"[red]Agent '{new_agent}' not found[/red]")
             return result
-        case HashAgentCommand(agent_name=target_agent, message=hash_message):
+        case HashAgentCommand(agent_name=target_agent, message=hash_message, quiet=quiet):
             if target_agent not in available_agents_set:
                 rich_print(f"[red]Agent '{target_agent}' not found[/red]")
                 return result
             if not hash_message:
-                rich_print(f"[yellow]Usage: #{target_agent} <message>[/yellow]")
+                prefix = "##" if quiet else "#"
+                rich_print(f"[yellow]Usage: {prefix}{target_agent} <message>[/yellow]")
                 return result
             result.hash_send_target = target_agent
             result.hash_send_message = hash_message
+            result.hash_send_quiet = quiet
             return result
         case ShellCommand(command=shell_cmd):
             result.shell_execute_cmd = shell_cmd
@@ -399,6 +403,15 @@ async def dispatch_command_payload(
         case ModelVerbosityCommand(value=value):
             context = build_command_context(prompt_provider, agent)
             outcome = await model_handlers.handle_model_verbosity(
+                context,
+                agent_name=agent,
+                value=value,
+            )
+            await emit_command_outcome(context, outcome)
+            return result
+        case ModelFastCommand(value=value):
+            context = build_command_context(prompt_provider, agent)
+            outcome = await model_handlers.handle_model_fast(
                 context,
                 agent_name=agent,
                 value=value,

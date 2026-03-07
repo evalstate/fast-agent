@@ -10,11 +10,33 @@ from prompt_toolkit.formatted_text import HTML, to_formatted_text
 from prompt_toolkit.formatted_text.utils import fragment_list_width
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.ui.gauge_glyph_palette import (
+    PAIRED_REASONING_GAUGE_GLYPHS,
+    PAIRED_VERBOSITY_GAUGE_GLYPHS,
+)
+from fast_agent.ui.reasoning_effort_display import render_reasoning_effort_gauge
+from fast_agent.ui.text_verbosity_display import render_text_verbosity_gauge
 
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, ReasoningEffortSpec
+    from fast_agent.llm.text_verbosity import TextVerbosityLevel, TextVerbositySpec
+
 _ELLIPSIS = "…"
+
+
+def _format_context_usage_percent_for_toolbar(pct: float | None) -> str | None:
+    """Format context usage for toolbar display with stable width."""
+    if pct is None:
+        return None
+
+    safe_pct = max(pct, 0.0)
+    if safe_pct >= 100.0:
+        return "100%+"
+    if safe_pct < 10.0:
+        return f"{min(safe_pct, 9.99):.2f}%"
+    return f"{min(safe_pct, 99.9):.1f}%"
 
 
 def _left_truncate_with_ellipsis(text: str, max_length: int) -> str:
@@ -106,6 +128,31 @@ def _resolve_toolbar_width() -> int:
         except Exception:
             pass
     return max(1, shutil.get_terminal_size((80, 20)).columns)
+
+
+def _render_model_gauges(
+    reasoning_setting: ReasoningEffortSetting | None,
+    reasoning_spec: ReasoningEffortSpec | None,
+    verbosity_setting: TextVerbosityLevel | None,
+    verbosity_spec: TextVerbositySpec | None,
+) -> str:
+    """Render model configuration gauges for the toolbar."""
+    if reasoning_spec is not None and verbosity_spec is not None:
+        reasoning_gauge = render_reasoning_effort_gauge(
+            reasoning_setting,
+            reasoning_spec,
+            glyph_palette=PAIRED_REASONING_GAUGE_GLYPHS,
+        )
+        verbosity_gauge = render_text_verbosity_gauge(
+            verbosity_setting,
+            verbosity_spec,
+            glyph_palette=PAIRED_VERBOSITY_GAUGE_GLYPHS,
+        )
+    else:
+        reasoning_gauge = render_reasoning_effort_gauge(reasoning_setting, reasoning_spec)
+        verbosity_gauge = render_text_verbosity_gauge(verbosity_setting, verbosity_spec)
+
+    return "".join(gauge for gauge in (reasoning_gauge, verbosity_gauge) if gauge is not None)
 
 
 def _is_smart_agent(agent: object | None) -> bool:

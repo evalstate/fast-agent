@@ -90,15 +90,16 @@ def _discovery_top_level_catalog() -> tuple[dict[str, object], ...]:
         {
             "name": "model",
             "summary": "Request behavior controls",
-            "usage": "/model [reasoning|verbosity|web_search|web_fetch|help] <value>",
+            "usage": "/model [reasoning|verbosity|fast|web_search|web_fetch|help] <value>",
             "actions": [
                 {"name": "reasoning", "summary": "set reasoning effort"},
                 {"name": "verbosity", "summary": "set response length"},
+                {"name": "fast", "summary": "set service tier"},
                 {"name": "web_search", "summary": "toggle web search"},
                 {"name": "web_fetch", "summary": "toggle web fetch"},
                 {"name": "help", "summary": "show model usage"},
             ],
-            "examples": ["/model reasoning high", "/model web_search on"],
+            "examples": ["/model reasoning high", "/model fast flex", "/model web_search on"],
         },
         {
             "name": "tools",

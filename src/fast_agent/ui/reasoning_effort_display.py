@@ -5,17 +5,22 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING
 
+from fast_agent.ui.gauge_glyph_palette import (
+    MAX_GAUGE_LEVEL,
+    STANDALONE_GAUGE_GLYPHS,
+    GaugeGlyphPalette,
+)
+
 if TYPE_CHECKING:
     from fast_agent.llm.reasoning_effort import (
         ReasoningEffortSetting,
         ReasoningEffortSpec,
     )
 
-BRAILLE_FILL = {0: "⣿", 1: "⣀", 2: "⣤", 3: "⣶", 4: "⣿"}
-FULL_BLOCK = "⣿"
+FULL_BLOCK = STANDALONE_GAUGE_GLYPHS.full_block
 INACTIVE_COLOR = "ansibrightblack"
 AUTO_COLOR = "ansiblue"
-MAX_LEVEL = 4
+MAX_LEVEL = MAX_GAUGE_LEVEL
 
 EFFORT_LEVEL_MAPPING = {
     "none": 0,
@@ -85,6 +90,8 @@ def _budget_color(value: int, spec: ReasoningEffortSpec, level: int) -> str:
 def render_reasoning_effort_gauge(
     setting: ReasoningEffortSetting | None,
     spec: ReasoningEffortSpec | None,
+    *,
+    glyph_palette: GaugeGlyphPalette = STANDALONE_GAUGE_GLYPHS,
 ) -> str | None:
     from fast_agent.llm.reasoning_effort import is_auto_reasoning
 
@@ -94,7 +101,7 @@ def render_reasoning_effort_gauge(
     effective = setting or spec.default
     # "auto" means the provider chooses — show as blue full block.
     if is_auto_reasoning(setting) or is_auto_reasoning(effective):
-        return f"<style bg='{AUTO_COLOR}'>{FULL_BLOCK}</style>"
+        return f"<style bg='{AUTO_COLOR}'>{glyph_palette.full_block}</style>"
     if effective is None:
         level = 0
     elif effective.kind == "toggle":
@@ -108,9 +115,9 @@ def render_reasoning_effort_gauge(
         level = 0
 
     if level <= 0:
-        return f"<style bg='{INACTIVE_COLOR}'>{FULL_BLOCK}</style>"
+        return f"<style bg='{INACTIVE_COLOR}'>{glyph_palette.full_block}</style>"
 
-    char = BRAILLE_FILL.get(min(level, MAX_LEVEL), BRAILLE_FILL[MAX_LEVEL])
+    char = glyph_palette.char_for_level(level)
     if effective is None:
         color = INACTIVE_COLOR
     elif effective.kind == "effort":

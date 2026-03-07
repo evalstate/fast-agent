@@ -17,6 +17,11 @@ _MODEL_ALIAS_PATTERN = re.compile(
 logger = get_logger(__name__)
 
 
+def _is_system_default_alias(value: str | None) -> bool:
+    """Return True when a value is the special ``$system.default`` alias token."""
+    return value is not None and value.strip() == "$system.default"
+
+
 def parse_model_alias_token(token: str) -> tuple[str, str]:
     """Parse and validate a model alias token.
 
@@ -140,6 +145,10 @@ def resolve_model_spec(
         3. Config file default_model
         4. CLI --model argument
         5. Explicit model parameter
+
+    Special case: explicit ``$system.default`` is treated as a "use current
+    default" placeholder, so it is evaluated *after* CLI ``--model`` but before
+    config/env/hardcoded fallbacks.
     """
     candidates: list[tuple[str, str]] = []
 
@@ -151,8 +160,17 @@ def resolve_model_spec(
             return
         candidates.append((stripped, source_label))
 
-    _add_candidate(model, "explicit model")
+    explicit_is_system_default = _is_system_default_alias(model)
+
+    if not explicit_is_system_default:
+        _add_candidate(model, "explicit model")
+
     _add_candidate(cli_model, "CLI --model")
+
+    # ``$system.default`` is an explicit placeholder for "use the current default".
+    # Keep it above config/env/hardcoded defaults, but below CLI overrides.
+    if explicit_is_system_default:
+        _add_candidate(model, "explicit model")
 
     config_default = default_model
     if config_default is None and context and getattr(context, "config", None):

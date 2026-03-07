@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 from fast_agent.ui.model_picker_common import (
+    GENERIC_CUSTOM_MODEL_SENTINEL,
     REFER_TO_DOCS_PROVIDERS,
     ModelOption,
     ModelSource,
@@ -50,7 +51,7 @@ class PickerState:
 
 
 class _SplitListPicker:
-    LIST_VISIBLE_ROWS = 13
+    LIST_VISIBLE_ROWS = 15
 
     def __init__(self, *, config_path: Path | None) -> None:
         self.snapshot = build_snapshot(config_path)
@@ -242,6 +243,11 @@ class _SplitListPicker:
     def _provider_display_name(config_name: str, default_name: str) -> str:
         if config_name == "codexresponses":
             return "Codex (Plan)"
+        if config_name == "generic":
+            return "Local (ollama)"
+        if config_name == "fast-agent":
+            return "fast-agent"
+
         return default_name
 
     def _render_provider_panel(self) -> StyleFragments:
@@ -359,6 +365,22 @@ class _SplitListPicker:
                 return
 
             provider = self.current_provider
+            if (
+                provider.provider.config_name == "generic"
+                and selected_model.spec == GENERIC_CUSTOM_MODEL_SENTINEL
+            ):
+                event.app.exit(
+                    result=ModelPickerResult(
+                        provider=provider.provider.config_name,
+                        provider_available=provider.active,
+                        selected_model=selected_model.spec,
+                        resolved_model=None,
+                        source=self.state.source,
+                        refer_to_docs=False,
+                    )
+                )
+                return
+
             if self._provider_requires_docs_only():
                 event.app.exit(
                     result=ModelPickerResult(

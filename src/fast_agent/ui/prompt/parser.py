@@ -32,6 +32,7 @@ from fast_agent.ui.command_payloads import (
     McpListCommand,
     McpReconnectCommand,
     McpSessionCommand,
+    ModelFastCommand,
     ModelReasoningCommand,
     ModelsCommand,
     ModelVerbosityCommand,
@@ -105,6 +106,21 @@ def _parse_mcp_single_server_name(tokens: list[str], *, usage: str) -> tuple[str
     name = tokens[1] if len(tokens) > 1 else None
     error = None if name else usage
     return name, error
+
+
+def _parse_hash_agent_command(body: str, *, quiet: bool) -> HashAgentCommand | str:
+    stripped = body.strip()
+    if not stripped:
+        prefix = "##" if quiet else "#"
+        return f"{prefix}{body}"
+
+    for index, char in enumerate(stripped):
+        if char.isspace():
+            agent_name = stripped[:index]
+            message = stripped[index:].strip()
+            return HashAgentCommand(agent_name=agent_name, message=message, quiet=quiet)
+
+    return HashAgentCommand(agent_name=stripped, message="", quiet=quiet)
 
 
 def parse_special_input(text: str) -> str | CommandPayload:
@@ -730,11 +746,16 @@ def parse_special_input(text: str) -> str | CommandPayload:
                 return ModelReasoningCommand(value=argument or None)
             if subcmd == "verbosity":
                 return ModelVerbosityCommand(value=argument or None)
+            if subcmd == "fast":
+                return ModelFastCommand(value=argument or None)
             if subcmd == "web_search":
                 return ModelWebSearchCommand(value=argument or None)
             if subcmd == "web_fetch":
                 return ModelWebFetchCommand(value=argument or None)
             return UnknownCommand(command=cmd_line)
+        if cmd == "fast":
+            remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
+            return ModelFastCommand(value=remainder or None)
         if cmd == "skills":
             remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
             if not remainder:
@@ -769,13 +790,14 @@ def parse_special_input(text: str) -> str | CommandPayload:
     if cmd_line and cmd_line.startswith("@"):
         return SwitchAgentCommand(agent_name=cmd_line[1:].strip())
 
+    if cmd_line and cmd_line.startswith("##"):
+        quiet_body = cmd_line[2:]
+        if quiet_body and not quiet_body[0].isspace():
+            return _parse_hash_agent_command(quiet_body, quiet=True)
+        return text
+
     if cmd_line and cmd_line.startswith("#"):
-        rest = cmd_line[1:].strip()
-        if " " in rest:
-            agent_name, message = rest.split(" ", 1)
-            return HashAgentCommand(agent_name=agent_name.strip(), message=message.strip())
-        if rest:
-            return HashAgentCommand(agent_name=rest.strip(), message="")
+        return _parse_hash_agent_command(cmd_line[1:], quiet=False)
 
     if cmd_line and cmd_line.startswith("!"):
         command = cmd_line[1:].strip()

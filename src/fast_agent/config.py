@@ -188,7 +188,22 @@ class ShellSettings(BaseModel):
         default="warn",
         description="Policy when an agent shell cwd is missing or invalid",
     )
-
+    enable_read_text_file: bool = Field(
+        default=True,
+        description=(
+            "Expose a local read_text_file tool (ACP-compatible signature) "
+            "when shell runtime is enabled"
+        ),
+    )
+    write_text_file_mode: Literal["auto", "on", "off", "apply_patch"] | None = Field(
+        default=None,
+        description=(
+            "Control which local file edit tool is exposed when shell runtime is enabled "
+            "('auto' uses apply_patch for GPT-5/Codex models and write_text_file otherwise; "
+            "'on' always exposes write_text_file; 'apply_patch' always exposes apply_patch; "
+            "'off' disables local file edit tools)"
+        ),
+    )
     model_config = ConfigDict(extra="ignore")
 
     @field_validator("timeout_seconds", mode="before")
@@ -224,6 +239,34 @@ class ShellSettings(BaseModel):
         if value < 0:
             raise ValueError("output_display_lines must be a non-negative integer.")
         return value
+
+    @field_validator("write_text_file_mode", mode="before")
+    @classmethod
+    def _coerce_write_text_file_mode(
+        cls, value: Any
+    ) -> Literal["auto", "on", "off", "apply_patch"] | None:
+        if value is None:
+            return None
+
+        if isinstance(value, bool):
+            return "on" if value else "off"
+
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized == "auto":
+                return "auto"
+            if normalized == "on":
+                return "on"
+            if normalized == "off":
+                return "off"
+            if normalized == "apply_patch":
+                return "apply_patch"
+            if normalized in {"true", "yes", "1"}:
+                return "on"
+            if normalized in {"false", "no", "0"}:
+                return "off"
+
+        raise ValueError("write_text_file_mode must be one of: auto, on, off, apply_patch")
 
 
 class MCPRootSettings(BaseModel):
@@ -422,7 +465,9 @@ class MCPSettings(BaseModel):
                 raise ValueError(f"`{source_path}` must be a non-empty string")
 
             name_value = entry.get("name")
-            if name_value is not None and (not isinstance(name_value, str) or not name_value.strip()):
+            if name_value is not None and (
+                not isinstance(name_value, str) or not name_value.strip()
+            ):
                 raise ValueError(f"`mcp.targets[{index}].name` must be a non-empty string")
 
             overrides = {key: value for key, value in entry.items() if key != "target"}
@@ -679,22 +724,12 @@ class OpenAIWebSearchSettings(BaseModel):
         return normalized
 
 
-class OpenAISettings(BaseModel):
-    """Settings for using OpenAI models in the fast-agent application."""
+class ResponsesProviderSettingsBase(BaseModel):
+    """Shared settings for Responses-family providers."""
 
-    api_key: str | None = Field(default=None, description="OpenAI API key")
-    base_url: str | None = Field(default=None, description="Override API endpoint")
     default_model: str | None = Field(
         default=None,
-        description="Default model when OpenAI provider is selected without an explicit model",
-    )
-    reasoning: ReasoningEffortSetting | str | int | bool | None = Field(
-        default=None,
-        description="Unified reasoning setting (effort level or budget)",
-    )
-    reasoning_effort: Literal["minimal", "low", "medium", "high"] = Field(
-        default="medium",
-        description="Default reasoning effort: minimal, low, medium, high",
+        description="Default model when the provider is selected without an explicit model",
     )
     text_verbosity: TextVerbosityLevel = Field(
         default="medium",
@@ -708,9 +743,28 @@ class OpenAISettings(BaseModel):
         default="sse",
         description="Responses transport mode: sse (default), websocket, or auto fallback.",
     )
+    service_tier: Literal["fast", "flex"] | None = Field(
+        default=None,
+        description="Responses service tier: fast (priority) or flex.",
+    )
     web_search: OpenAIWebSearchSettings = Field(default_factory=OpenAIWebSearchSettings)
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+
+class OpenAISettings(ResponsesProviderSettingsBase):
+    """Settings for using OpenAI models in the fast-agent application."""
+
+    api_key: str | None = Field(default=None, description="OpenAI API key")
+    base_url: str | None = Field(default=None, description="Override API endpoint")
+    reasoning: ReasoningEffortSetting | str | int | bool | None = Field(
+        default=None,
+        description="Unified reasoning setting (effort level or budget)",
+    )
+    reasoning_effort: Literal["minimal", "low", "medium", "high"] = Field(
+        default="medium",
+        description="Default reasoning effort: minimal, low, medium, high",
+    )
 
 
 class OpenResponsesSettings(BaseModel):
@@ -740,37 +794,24 @@ class OpenResponsesSettings(BaseModel):
         default="sse",
         description="Responses transport mode: sse (default), websocket, or auto fallback.",
     )
+    service_tier: Literal["fast", "flex"] | None = Field(
+        default=None,
+        description="Responses service tier: fast (priority) or flex.",
+    )
     web_search: OpenAIWebSearchSettings = Field(default_factory=OpenAIWebSearchSettings)
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
-class CodexResponsesSettings(BaseModel):
+class CodexResponsesSettings(ResponsesProviderSettingsBase):
     """Settings for using Codex Responses via ChatGPT OAuth tokens."""
 
     api_key: str | None = Field(default=None, description="Codex Responses API key")
     base_url: str | None = Field(default=None, description="Override API endpoint")
-    default_model: str | None = Field(
+    service_tier: Literal["fast"] | None = Field(
         default=None,
-        description=(
-            "Default model when Codex Responses provider is selected without an explicit model"
-        ),
+        description="Codex Responses service tier: fast (priority) or unset (standard).",
     )
-    text_verbosity: Literal["low", "medium", "high"] = Field(
-        default="medium",
-        description="Text verbosity level: low, medium, high",
-    )
-    default_headers: dict[str, str] | None = Field(
-        default=None,
-        description="Custom headers for all API requests",
-    )
-    transport: Literal["sse", "websocket", "auto"] = Field(
-        default="sse",
-        description="Responses transport mode: sse (default), websocket, or auto fallback.",
-    )
-    web_search: OpenAIWebSearchSettings = Field(default_factory=OpenAIWebSearchSettings)
-
-    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
 class DeepSeekSettings(BaseModel):
@@ -1431,16 +1472,12 @@ class Settings(BaseSettings):
 
         for namespace, entries in value.items():
             if not valid_name.fullmatch(namespace):
-                raise ValueError(
-                    "model_aliases namespace names must match [A-Za-z_][A-Za-z0-9_-]*"
-                )
+                raise ValueError("model_aliases namespace names must match [A-Za-z_][A-Za-z0-9_-]*")
 
             normalized_entries: dict[str, str] = {}
             for key, model in entries.items():
                 if not valid_name.fullmatch(key):
-                    raise ValueError(
-                        "model_aliases keys must match [A-Za-z_][A-Za-z0-9_-]*"
-                    )
+                    raise ValueError("model_aliases keys must match [A-Za-z_][A-Za-z0-9_-]*")
 
                 model_value = model.strip()
                 if not model_value:

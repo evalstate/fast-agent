@@ -82,6 +82,9 @@ class McpInstructionCapable(InstructionCapable, Protocol):
     @property
     def has_filesystem_runtime(self) -> bool: ...
 
+    @property
+    def skill_read_tool_name(self) -> str: ...
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Instruction Building
@@ -123,21 +126,20 @@ def format_server_instructions(
 
 def format_agent_skills(
     manifests: Sequence["SkillManifest"],
-    has_filesystem_runtime: bool = False,
+    read_tool_name: str = "read_skill",
 ) -> str:
     """
     Format skill manifests for inclusion in the instruction.
 
     Args:
         manifests: List of skill manifests
-        has_filesystem_runtime: Whether filesystem runtime is available (affects tool name)
+        read_tool_name: Tool name used to read skill files in prompts
 
     Returns:
         Formatted skills text
     """
     from fast_agent.skills.registry import format_skills_for_prompt
 
-    read_tool_name = "read_text_file" if has_filesystem_runtime else "read_skill"
     return format_skills_for_prompt(manifests, read_tool_name=read_tool_name)
 
 
@@ -146,7 +148,7 @@ async def build_instruction(
     *,
     aggregator: "MCPAggregator | None" = None,
     skill_manifests: Sequence["SkillManifest"] | None = None,
-    has_filesystem_runtime: bool = False,
+    skill_read_tool_name: str = "read_skill",
     context: Mapping[str, str] | None = None,
     source: str | None = None,
 ) -> str:
@@ -163,7 +165,7 @@ async def build_instruction(
         template: The instruction template with {{placeholder}} patterns
         aggregator: MCP aggregator for fetching server instructions
         skill_manifests: List of skill manifests for {{agentSkills}}
-        has_filesystem_runtime: Whether filesystem runtime is available
+        skill_read_tool_name: Tool name used to read skill files in prompts
         context: Additional context values (env, workspaceRoot, etc.)
         source: Optional label for diagnostics (agent name, card, etc.)
 
@@ -189,7 +191,7 @@ async def build_instruction(
     if skill_manifests is not None:
 
         async def resolve_agent_skills() -> str:
-            return format_agent_skills(skill_manifests, has_filesystem_runtime)
+            return format_agent_skills(skill_manifests, skill_read_tool_name)
 
         builder.set_resolver("agentSkills", resolve_agent_skills)
 
@@ -300,7 +302,7 @@ async def rebuild_agent_instruction(
             template,
             aggregator=agent.aggregator,
             skill_manifests=agent.skill_manifests,
-            has_filesystem_runtime=agent.has_filesystem_runtime,
+            skill_read_tool_name=agent.skill_read_tool_name,
             context=build_context,
             source=getattr(agent, "name", None),
         )
@@ -308,7 +310,7 @@ async def rebuild_agent_instruction(
         agent.set_instruction(new_instruction)
         rebuilt_instruction = True
 
-        if needs_tool_update and not agent.has_filesystem_runtime:
+        if needs_tool_update and agent.skill_read_tool_name == "read_skill":
             display = getattr(agent, "display", None)
             agent_name = getattr(agent, "name", None)
             if isinstance(display, ToolUpdateDisplay):

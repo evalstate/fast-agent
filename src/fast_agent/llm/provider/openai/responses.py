@@ -10,6 +10,7 @@ from openai import APIError, AsyncOpenAI, AuthenticationError, DefaultAioHttpCli
 from fast_agent.constants import (
     ANTHROPIC_CITATIONS_CHANNEL,
     ANTHROPIC_SERVER_TOOLS_CHANNEL,
+    OPENAI_ASSISTANT_MESSAGE_ITEMS,
     OPENAI_REASONING_ENCRYPTED,
     REASONING,
 )
@@ -51,6 +52,7 @@ from fast_agent.llm.reasoning_effort import format_reasoning_setting, parse_reas
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.llm.text_verbosity import parse_text_verbosity
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+from fast_agent.tools.apply_patch_tool import get_openai_responses_custom_tool_payload
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
 _logger = get_logger(__name__)
@@ -64,6 +66,7 @@ RESPONSE_INCLUDE_REASONING = "reasoning.encrypted_content"
 RESPONSE_INCLUDE_WEB_SEARCH_SOURCES = "web_search_call.action.sources"
 
 ResponsesTransport = Literal["sse", "websocket", "auto"]
+ResponsesServiceTier = Literal["fast", "flex"]
 
 
 class ResponsesLLM(
@@ -97,6 +100,8 @@ class ResponsesLLM(
         super().__init__(provider=provider, **kwargs)
         self.logger = get_logger(f"{__name__}.{self.name}" if self.name else __name__)
         self._tool_call_id_map: dict[str, str] = {}
+        self._tool_name_map: dict[str, str] = {}
+        self._tool_kind_map: dict[str, Literal["function", "custom"]] = {}
         self._seen_tool_call_ids: set[str] = set()
         self._tool_call_diagnostics: dict[str, Any] | None = None
         self._last_ws_request_type: str | None = None
@@ -158,6 +163,18 @@ class ResponsesLLM(
                 except ValueError as exc:
                     self.logger.warning(f"Invalid text verbosity setting: {exc}")
 
+        if self.default_request_params.service_tier is None and settings is not None:
+            configured_service_tier = self._normalize_service_tier(
+                getattr(settings, "service_tier", None)
+            )
+            if configured_service_tier is not None:
+                self.default_request_params.service_tier = configured_service_tier
+
+        self.default_request_params.service_tier = self._ensure_supported_service_tier(
+            self.default_request_params.service_tier,
+            source="initial configuration",
+        )
+
         chosen_model = self.default_request_params.model if self.default_request_params else None
         self._reasoning_mode = ModelDatabase.get_reasoning(chosen_model) if chosen_model else None
         self._reasoning = self._reasoning_mode == "openai"
@@ -218,6 +235,83 @@ class ResponsesLLM(
         if metrics := self.websocket_turn_metrics:
             payload["websocket_turn_metrics"] = metrics
         return payload
+
+    def _parse_service_tier(self, raw_value: Any) -> ResponsesServiceTier | None:
+        if raw_value is None:
+            return None
+
+        normalized = str(raw_value).strip().lower()
+        if normalized == "fast":
+            return "fast"
+        if normalized == "flex":
+            return "flex"
+
+        self.logger.warning(f"Invalid service tier setting: {raw_value}")
+        return None
+
+    def _available_service_tiers_for_model(
+        self, model_name: str | None
+    ) -> tuple[ResponsesServiceTier, ...]:
+        if self.provider == Provider.CODEX_RESPONSES:
+            return ("fast",)
+        if model_name:
+            configured_tiers = ModelDatabase.get_response_service_tiers(model_name)
+            if configured_tiers is not None:
+                return configured_tiers
+        return ("fast", "flex")
+
+    def _normalize_service_tier(self, raw_value: Any) -> ResponsesServiceTier | None:
+        normalized = self._parse_service_tier(raw_value)
+        if normalized is None:
+            return None
+        if normalized not in self.available_service_tiers:
+            self.logger.warning(
+                f"Service tier '{normalized}' is not supported for provider '{self.provider.value}'."
+            )
+            return None
+        return normalized
+
+    def _ensure_supported_service_tier(
+        self,
+        service_tier: ResponsesServiceTier | None,
+        *,
+        source: str,
+        model_name: str | None = None,
+    ) -> ResponsesServiceTier | None:
+        if service_tier is None:
+            return None
+        available_tiers = self._available_service_tiers_for_model(model_name)
+        if service_tier in available_tiers:
+            return service_tier
+        allowed = ", ".join(available_tiers) or "standard"
+        target_model = f" for model '{model_name}'" if model_name else ""
+        raise ModelConfigError(
+            f"Provider '{self.provider.value}' does not support service tier '{service_tier}' "
+            f"from {source}{target_model}. Allowed values: {allowed} or unset (standard)."
+        )
+
+    def _resolve_service_tier(
+        self,
+        request_params: RequestParams,
+        model_name: str | None,
+    ) -> ResponsesServiceTier | None:
+        if "service_tier" in request_params.model_fields_set:
+            return self._ensure_supported_service_tier(
+                request_params.service_tier,
+                source="request params",
+                model_name=model_name,
+            )
+        return self._ensure_supported_service_tier(
+            self.service_tier,
+            source="provider defaults",
+            model_name=model_name,
+        )
+
+    @staticmethod
+    def _map_service_tier_to_wire_value(service_tier: ResponsesServiceTier) -> str:
+        if service_tier == "fast":
+            return "priority"
+        return "flex"
 
     def _resolve_transport_setting(self, raw_value: Any, settings: Any) -> ResponsesTransport:
         value = raw_value
@@ -326,59 +420,6 @@ class ResponsesLLM(
         if idle_age_seconds is not None:
             diagnostics["idle_age_seconds"] = round(idle_age_seconds, 3)
         return diagnostics
-
-    def _websocket_retry_status_suffix(
-        self,
-        *,
-        error: ResponsesWebSocketError | None,
-        diagnostics: dict[str, Any] | None,
-    ) -> str:
-        parts: list[str] = []
-        if error is not None:
-            if error.error_code:
-                parts.append(f"code={error.error_code}")
-            if error.status is not None:
-                parts.append(f"status={error.status}")
-            if error.error_param:
-                parts.append(f"param={error.error_param}")
-            error_text = self._websocket_retry_error_preview(str(error))
-            if error_text:
-                parts.append(f"err={error_text}")
-
-        if diagnostics is not None:
-            close_code = diagnostics.get("websocket_close_code")
-            if close_code is not None:
-                parts.append(f"close={close_code}")
-
-            websocket_closed = diagnostics.get("websocket_closed")
-            if isinstance(websocket_closed, bool):
-                parts.append(f"ws_closed={'yes' if websocket_closed else 'no'}")
-
-            idle_age = diagnostics.get("idle_age_seconds")
-            if isinstance(idle_age, (float, int)):
-                parts.append(f"idle={idle_age:.3f}s")
-
-        return " ".join(parts)
-
-    @staticmethod
-    def _websocket_retry_error_preview(value: str, *, limit: int = 120) -> str:
-        compact = " ".join(value.split())
-        if not compact:
-            return ""
-        if len(compact) <= limit:
-            return compact
-        return f"{compact[:limit - 3]}..."
-
-    def _show_ws_debug_status(self, message: str) -> None:
-        if not self._ws_debug_inline:
-            return
-        try:
-            from rich.text import Text
-
-            self.display.show_status_message(Text(message, style="dim"))
-        except Exception:
-            # UI status notification should never affect completion flow.
-            pass
 
     def _ws_input_count(self, payload: dict[str, Any]) -> int | None:
         input_items = payload.get("input")
@@ -518,6 +559,30 @@ class ResponsesLLM(
     def set_web_fetch_enabled(self, value: bool | None) -> None:
         super().set_web_fetch_enabled(value)
 
+    @property
+    def service_tier_supported(self) -> bool:
+        """Responses-family models expose service tier selection."""
+        return bool(self.available_service_tiers)
+
+    @property
+    def available_service_tiers(self) -> tuple[ResponsesServiceTier, ...]:
+        return self._available_service_tiers_for_model(self.default_request_params.model)
+
+    @property
+    def service_tier(self) -> ResponsesServiceTier | None:
+        return self.default_request_params.service_tier
+
+    def set_service_tier(self, value: ResponsesServiceTier | None) -> None:
+        parsed_value = self._parse_service_tier(value)
+        if value is not None and parsed_value is None:
+            raise ValueError("Current model does not support the requested service tier.")
+        if parsed_value is not None and parsed_value not in self.available_service_tiers:
+            allowed = ", ".join(self.available_service_tiers) or "standard"
+            raise ValueError(
+                f"Current model supports only {allowed} or unset (standard) service tier."
+            )
+        self.default_request_params.service_tier = parsed_value
+
     def _base_url(self) -> str | None:
         settings = self._openai_settings()
         return settings.base_url if settings else None
@@ -601,15 +666,22 @@ class ResponsesLLM(
             base_args["instructions"] = system_prompt
 
         if tools:
-            base_args["tools"] = [
-                {
-                    "type": "function",
-                    "name": tool.name,
-                    "description": tool.description or "",
-                    "parameters": self._adjust_schema(tool.inputSchema, model),
-                }
-                for tool in tools
-            ]
+            tools_payload: list[dict[str, Any]] = []
+            for tool in tools:
+                custom_payload = get_openai_responses_custom_tool_payload(tool)
+                if custom_payload is not None:
+                    tools_payload.append(custom_payload)
+                    continue
+
+                tools_payload.append(
+                    {
+                        "type": "function",
+                        "name": tool.name,
+                        "description": tool.description or "",
+                        "parameters": self._adjust_schema(tool.inputSchema, model),
+                    }
+                )
+            base_args["tools"] = tools_payload
 
         resolved_web_search = resolve_web_search(
             self._openai_settings(),
@@ -659,6 +731,10 @@ class ResponsesLLM(
                 text_payload = {}
             text_payload["verbosity"] = self.text_verbosity or text_verbosity_spec.default
             base_args["text"] = text_payload
+
+        service_tier = self._resolve_service_tier(request_params, model)
+        if service_tier is not None:
+            base_args["service_tier"] = self._map_service_tier_to_wire_value(service_tier)
 
         return self.prepare_provider_arguments(
             base_args, request_params, self.RESPONSES_EXCLUDE_FIELDS
@@ -757,6 +833,11 @@ class ResponsesLLM(
                 channels[OPENAI_REASONING_ENCRYPTED] = encrypted_blocks
 
         tool_calls = self._extract_tool_calls(response)
+        assistant_message_items, message_phase = self._extract_raw_assistant_message_items(response)
+        if assistant_message_items:
+            if channels is None:
+                channels = {}
+            channels[OPENAI_ASSISTANT_MESSAGE_ITEMS] = assistant_message_items
         tool_call_diagnostics = self._consume_tool_call_diagnostics()
         diagnostics_payload = dict(tool_call_diagnostics) if tool_call_diagnostics else None
         websocket_diagnostics = self._websocket_diagnostics_payload()
@@ -811,6 +892,7 @@ class ResponsesLLM(
             tool_calls=tool_calls,
             channels=channels,
             stop_reason=stop_reason,
+            phase=message_phase,
         )
 
     async def _responses_completion_sse(
@@ -887,7 +969,6 @@ class ResponsesLLM(
 
         last_error: ResponsesWebSocketError | None = None
         reconnected = False
-        reconnect_status_suffix = ""
         for attempt in range(2):
             connection, is_reusable = await self._ws_connections.acquire(_create_connection)
             reused_existing_connection = is_reusable and connection.last_used_monotonic > 0.0
@@ -941,30 +1022,8 @@ class ResponsesLLM(
                 keep_connection = True
                 if reconnected:
                     self._record_ws_turn_outcome("reconnected")
-                    try:
-                        from rich.text import Text
-
-                        reconnect_message = "WebSocket reconnected"
-                        if self._ws_debug_inline and reconnect_status_suffix:
-                            reconnect_message += f" ({reconnect_status_suffix})"
-                        self.display.show_status_message(
-                            Text(reconnect_message, style="dim")
-                        )
-                    except Exception:
-                        # UI status notification should never affect completion flow.
-                        pass
                 elif reused_existing_connection:
                     self._record_ws_turn_outcome("reused")
-                    if self._ws_debug_inline:
-                        try:
-                            from rich.text import Text
-
-                            self.display.show_status_message(
-                                Text.from_markup("[dim]WebSocket reused[/dim]")
-                            )
-                        except Exception:
-                            # UI status notification should never affect completion flow.
-                            pass
                 else:
                     self._record_ws_turn_outcome("fresh")
                 return response, streamed_summary, normalized_input
@@ -1023,10 +1082,6 @@ class ResponsesLLM(
 
             if retry_after_release:
                 reconnected = True
-                reconnect_status_suffix = self._websocket_retry_status_suffix(
-                    error=last_error,
-                    diagnostics=reconnect_diagnostics,
-                )
                 retry_data: dict[str, Any] = {
                     "model": model_name,
                     "url": ws_url,
@@ -1039,10 +1094,6 @@ class ResponsesLLM(
                     "Reusable Responses websocket connection unavailable; re-establishing connection",
                     data=retry_data,
                 )
-                if reconnect_status_suffix:
-                    self._show_ws_debug_status(f"WS reconnecting {reconnect_status_suffix}")
-                else:
-                    self._show_ws_debug_status("WS reconnecting")
                 continue
 
         if last_error is not None:
@@ -1068,6 +1119,7 @@ class ResponsesLLM(
     def clear(self, *, clear_prompts: bool = False) -> None:
         super().clear(clear_prompts=clear_prompts)
         self._tool_call_id_map.clear()
+        self._tool_kind_map.clear()
         self._seen_tool_call_ids.clear()
         self._tool_call_diagnostics = None
         self._last_ws_request_type = None

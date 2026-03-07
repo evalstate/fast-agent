@@ -12,6 +12,7 @@ from typing import (
     Awaitable,
     Callable,
     Generic,
+    Literal,
     Type,
     TypeVar,
     Union,
@@ -114,14 +115,18 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     PARAM_MCP_METADATA = "mcp_metadata"
     PARAM_TOOL_HANDLER = "tool_execution_handler"
     PARAM_LOOP_PROGRESS = "emit_loop_progress"
+    PARAM_TOOL_RESULT_PASSTHROUGH = "tool_result_passthrough"
     PARAM_STREAMING_TIMEOUT = "streaming_timeout"
+    PARAM_SERVICE_TIER = "service_tier"
 
     # Base set of fields that should always be excluded
     BASE_EXCLUDE_FIELDS = {
         PARAM_METADATA,
         PARAM_TOOL_HANDLER,
         PARAM_LOOP_PROGRESS,
+        PARAM_TOOL_RESULT_PASSTHROUGH,
         PARAM_STREAMING_TIMEOUT,
+        PARAM_SERVICE_TIER,
     }
 
     """
@@ -287,6 +292,25 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     def set_web_fetch_enabled(self, value: bool | None) -> None:
         if value is not None and not self.web_fetch_supported:
             raise ValueError("Current model does not support web fetch configuration.")
+
+    @property
+    def service_tier_supported(self) -> bool:
+        """Whether provider-side service tier selection is supported."""
+        return False
+
+    @property
+    def available_service_tiers(self) -> tuple[Literal["fast", "flex"], ...]:
+        """Ordered provider-side service tier options available to this LLM instance."""
+        return ()
+
+    @property
+    def service_tier(self) -> Literal["fast", "flex"] | None:
+        """Current provider-side service tier selection for this LLM instance."""
+        return None
+
+    def set_service_tier(self, value: Literal["fast", "flex"] | None) -> None:
+        if value is not None and not self.service_tier_supported:
+            raise ValueError("Current model does not support service tier configuration.")
 
     def _get_provider_config(self) -> Any | None:
         """Return provider-specific config section when available."""

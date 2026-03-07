@@ -123,6 +123,17 @@ class _StreamingHarnessAgent(LlmAgent):
         self.url_elicitation_calls.append(agent_name)
 
 
+class _InterruptingStreamingHarnessAgent(_StreamingHarnessAgent):
+    async def _generate_with_summary(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params=None,
+        tools=None,
+    ) -> tuple[PromptMessageExtended, None]:
+        del messages, request_params, tools
+        raise KeyboardInterrupt()
+
+
 def _response_message(text: str = "done") -> PromptMessageExtended:
     return PromptMessageExtended(
         role="assistant",
@@ -192,3 +203,16 @@ async def test_generate_impl_preserves_streamed_frame_with_reasoning_channel() -
     assert handle.finalize_calls == [response]
     assert len(agent.shown_messages) == 1
     assert agent.shown_messages[0]["render_message"] is False
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_generate_impl_clears_active_stream_handle_on_interrupt() -> None:
+    handle = _FakeStreamHandle(has_scrolled=False, preserve_result=True)
+    agent = _InterruptingStreamingHarnessAgent(handle=handle, response=_response_message())
+
+    with pytest.raises(KeyboardInterrupt):
+        await agent.generate_impl([_seed_message()])
+
+    assert handle.close_calls == 1
+    assert agent._active_stream_handle is None

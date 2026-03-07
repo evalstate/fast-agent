@@ -22,7 +22,9 @@ from fast_agent.cli.runtime.agent_setup import (
     _sanitize_result_suffix,
 )
 from fast_agent.cli.runtime.run_request import AgentRunRequest
+from fast_agent.cli.runtime.runner import _should_convert_keyboard_interrupt_to_task_cancel
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+from fast_agent.mcp.prompt_serialization import load_messages
 from fast_agent.session import ResumeSessionAgentsResult
 
 
@@ -30,6 +32,20 @@ class _DummyAgent:
     def __init__(self, name: str) -> None:
         self.name = name
         self.message_history: list[object] = []
+
+
+class _NonPersistentMessageAgent(_DummyAgent):
+    def __init__(self, name: str, reply_text: str) -> None:
+        super().__init__(name)
+        self.reply_text = reply_text
+        self.generated_messages: list[object] = []
+
+    async def generate(self, messages: object) -> PromptMessageExtended:
+        self.generated_messages.append(messages)
+        return PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text=self.reply_text)],
+        )
 
 
 class _DummyAgentApp:
@@ -95,6 +111,14 @@ def test_build_result_file_with_suffix_without_extension() -> None:
     assert _build_result_file_with_suffix(Path("foo"), "haiku35") == Path("foo-haiku35")
 
 
+def test_should_convert_keyboard_interrupt_to_task_cancel_only_for_interactive_repl() -> None:
+    interactive_request = _make_request(result_file=None, message=None)
+    assert _should_convert_keyboard_interrupt_to_task_cancel(interactive_request) is True
+
+    one_shot_request = _make_request(result_file=None, message="hello")
+    assert _should_convert_keyboard_interrupt_to_task_cancel(one_shot_request) is False
+
+
 def test_sanitize_result_suffix() -> None:
     assert _sanitize_result_suffix("openai/gpt-4o") == "openai_gpt-4o"
     assert _sanitize_result_suffix("  model name  ") == "model_name"
@@ -133,6 +157,27 @@ def test_find_last_assistant_text_returns_none_without_assistant_messages() -> N
     history = [PromptMessageExtended(role="user", content=[TextContent(type="text", text="hello")])]
 
     assert _find_last_assistant_text(history) is None
+
+
+@pytest.mark.asyncio
+async def test_run_single_agent_cli_flow_exports_transient_turn_when_history_disabled(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    agent = _NonPersistentMessageAgent("agent", "done")
+    app = _DummyAgentApp(["agent"])
+    app._agents["agent"] = agent
+    output = tmp_path / "out.json"
+
+    await _run_single_agent_cli_flow(app, _make_request(result_file=str(output), message="hello"))
+
+    assert agent.message_history == []
+    exported = load_messages(str(output))
+    assert [message.role for message in exported] == ["user", "assistant"]
+    assert exported[0].first_text() == "hello"
+    assert exported[1].last_text() == "done"
+    captured = capsys.readouterr()
+    assert captured.out.strip() == "done"
 
 
 @pytest.mark.asyncio

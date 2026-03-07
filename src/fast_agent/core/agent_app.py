@@ -19,6 +19,7 @@ from fast_agent.interfaces import AgentProtocol
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.usage_tracking import last_turn_usage
 from fast_agent.types import PromptMessageExtended, RequestParams
+from fast_agent.ui.display_suppression import display_usage_enabled
 from fast_agent.ui.interactive_prompt import InteractivePrompt
 from fast_agent.ui.progress_display import progress_display
 
@@ -615,13 +616,14 @@ class AgentApp:
                 f"\n*Your context is preserved. You can try sending the message again.*"
             )
 
-        async def send_wrapper(message, agent_name):
+        async def send_with_error_handling(message, agent_name, *, show_usage: bool) -> str:
             try:
                 # The LLM layer will handle the 10s/20s/30s retries internally.
                 turn_start_indices = self._capture_turn_start_indices(agent_name)
                 result = await self.send(message, agent_name, request_params)
                 # Show usage info after each turn
-                self._show_turn_usage(agent_name, turn_start_indices)
+                if show_usage and display_usage_enabled():
+                    self._show_turn_usage(agent_name, turn_start_indices)
                 return result
 
             except Exception as e:
@@ -639,8 +641,15 @@ class AgentApp:
                 # Return pretty text for API failures (keeps session alive)
                 return _format_final_error(e)
 
+        async def send_wrapper(message, agent_name) -> str:
+            return await send_with_error_handling(message, agent_name, show_usage=True)
+
+        async def quiet_send_wrapper(message, agent_name) -> str:
+            return await send_with_error_handling(message, agent_name, show_usage=False)
+
         return await prompt.prompt_loop(
             send_func=send_wrapper,
+            quiet_send_func=quiet_send_wrapper,
             default_agent=target_name,  # Pass the agent name, not the agent object
             available_agents=available_names,
             prompt_provider=self,  # Pass self as the prompt provider

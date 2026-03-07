@@ -98,6 +98,19 @@ def test_resolve_model_spec_precedence_with_aliases() -> None:
     assert source == "explicit model"
 
 
+def test_resolve_model_spec_cli_overrides_explicit_system_default_alias() -> None:
+    context = _build_context()
+    model, source = resolve_model_spec(
+        context,
+        model="$system.default",
+        cli_model="gpt-5-mini.low",
+        hardcoded_default="playback",
+    )
+
+    assert model == "gpt-5-mini.low"
+    assert source == "CLI --model"
+
+
 def test_resolve_model_spec_falls_back_when_explicit_alias_unresolved() -> None:
     context = _build_context()
     model, source = resolve_model_spec(

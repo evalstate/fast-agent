@@ -13,6 +13,11 @@ from fast_agent.config import LoggerSettings, Settings
 from fast_agent.constants import REASONING
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.ui import console
+from fast_agent.ui.display_suppression import (
+    display_chat_enabled,
+    display_status_enabled,
+    display_tools_enabled,
+)
 from fast_agent.ui.markdown_helpers import prepare_markdown_content
 from fast_agent.ui.mcp_ui_utils import UILink
 from fast_agent.ui.mermaid_utils import (
@@ -119,6 +124,8 @@ class ConsoleDisplay:
 
     def show_status_message(self, content: Text) -> None:
         """Display a status message without a header."""
+        if not display_status_enabled():
+            return
         console.ensure_blocking_console()
         console.console.print(content, markup=self._markup)
 
@@ -257,7 +264,9 @@ class ConsoleDisplay:
         Returns:
             Rich markup string for the left side of the header
         """
-        left = f"[{block_color}]▎[/{block_color}][{arrow_style}]{arrow}[/{arrow_style}]"
+        left = f"[{block_color}]▎[/{block_color}]"
+        if arrow:
+            left += f"[{arrow_style}]{arrow}[/{arrow_style}]"
         if show_hook_indicator:
             left += f" [{block_color}]{HOOK_INDICATOR_GLYPH}[/{block_color}]"
         if name:
@@ -327,6 +336,16 @@ class ConsoleDisplay:
         # Create combined separator and status line
         self._create_combined_separator_status(left, right_info)
 
+        is_empty_content = False
+        if isinstance(content, str):
+            is_empty_content = content == ""
+        elif isinstance(content, Text):
+            is_empty_content = content.plain == ""
+
+        skip_empty_content = is_empty_content and (
+            additional_message is not None or pre_content is not None
+        )
+
         # Display the content
         if pre_content:
             if isinstance(pre_content, Text):
@@ -334,14 +353,18 @@ class ConsoleDisplay:
                     console.console.print(pre_content, markup=self._markup)
             else:
                 console.console.print(pre_content, markup=self._markup)
-        self._display_content(
-            content,
-            truncate_content,
-            is_error,
-            message_type,
-            check_markdown_markers=False,
-            render_markdown=render_markdown,
-        )
+            if not skip_empty_content:
+                console.console.print()
+
+        if not skip_empty_content:
+            self._display_content(
+                content,
+                truncate_content,
+                is_error,
+                message_type,
+                check_markdown_markers=False,
+                render_markdown=render_markdown,
+            )
         if additional_message:
             console.console.print(additional_message, markup=self._markup)
 
@@ -591,6 +614,8 @@ class ConsoleDisplay:
         if type_label is not None:
             kwargs["type_label"] = type_label
 
+        if not display_tools_enabled():
+            return
         self._tool_display.show_tool_result(result, **kwargs)
 
     def show_tool_call(
@@ -618,9 +643,13 @@ class ConsoleDisplay:
         if type_label is not None:
             kwargs["type_label"] = type_label
 
+        if not display_tools_enabled():
+            return
         self._tool_display.show_tool_call(tool_name, tool_args, **kwargs)
 
     async def show_tool_update(self, updated_server: str, agent_name: str | None = None) -> None:
+        if not display_tools_enabled():
+            return
         await self._tool_display.show_tool_update(updated_server, agent_name=agent_name)
 
     def _create_combined_separator_status(self, left_content: str, right_info: str = "") -> None:
@@ -673,7 +702,13 @@ class ConsoleDisplay:
         if not joined.strip():
             return None
 
-        # Render reasoning in dim italic and leave a blank line before main content
+        # Render reasoning in dim italic. Spacing between reasoning and main
+        # content is handled by display_message() so reasoning-only turns don't
+        # emit extra blank lines before the next header.
+        joined = joined.rstrip("\n")
+        if not joined.strip():
+            return None
+
         if self._looks_like_markdown(joined):
             try:
                 prepared = prepare_markdown_content(joined, self._escape_xml)
@@ -682,17 +717,14 @@ class ConsoleDisplay:
                     code_theme=self.code_style,
                     style="dim italic",
                 )
-                return Group(markdown, Text("\n"))
+                return Group(markdown)
             except Exception as exc:
                 logger.exception(
                     "Failed to render reasoning markdown",
                     data={"error": str(exc)},
                 )
 
-        text = joined
-        if not text.endswith("\n"):
-            text += "\n"
-        return Text(text, style="dim italic")
+        return Text(joined, style="dim italic")
 
     async def show_assistant_message(
         self,
@@ -720,6 +752,8 @@ class ConsoleDisplay:
             render_markdown: Force markdown rendering (True) or plain rendering (False)
             show_hook_indicator: Whether to show the hook indicator glyph (◆)
         """
+        if not display_chat_enabled():
+            return
         if self.config and not self.config.logger.show_chat:
             return
 
@@ -764,6 +798,8 @@ class ConsoleDisplay:
         message_text: Union[str, Text, "PromptMessageExtended"],
     ) -> None:
         """Display mermaid links extracted from assistant text payload."""
+        if not display_chat_enabled():
+            return
         from fast_agent.types import PromptMessageExtended
 
         plain_text = ""
@@ -790,6 +826,9 @@ class ConsoleDisplay:
         show_hook_indicator: bool = False,
     ) -> Iterator[StreamingHandle]:
         """Create a streaming context for assistant messages."""
+        if not display_chat_enabled():
+            yield _NullStreamingHandle()
+            return
         streaming_enabled, streaming_mode = self.resolve_streaming_preferences()
 
         if not streaming_enabled:
@@ -864,6 +903,8 @@ class ConsoleDisplay:
 
     async def show_mcp_ui_links(self, links: list[UILink]) -> None:
         """Display MCP-UI links beneath the chat like mermaid links."""
+        if not display_chat_enabled():
+            return
         if self.config and not self.config.logger.show_chat:
             return
 
@@ -961,6 +1002,8 @@ class ConsoleDisplay:
         show_hook_indicator: bool = False,
     ) -> None:
         """Display a user message in the new visual style."""
+        if not display_chat_enabled():
+            return
         if self.config and not self.config.logger.show_chat:
             return
 

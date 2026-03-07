@@ -524,7 +524,6 @@ def _build_context_bar_line(
 def _render_header_line(agent_name: str, *, console: Console | None, printer) -> None:
     header = Text()
     header.append("▎", style=Colours.HEADER)
-    header.append("●", style=f"dim {Colours.HEADER}")
     header.append(" [ 1] ", style=Colours.HEADER)
     header.append(str(agent_name), style=f"bold {Colours.USER}")
 

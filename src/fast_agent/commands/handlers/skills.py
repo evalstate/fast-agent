@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import shlex
-import textwrap
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from rich.text import Text
 
+from fast_agent.commands.handlers._marketplace_argument_parsing import parse_update_argument
+from fast_agent.commands.handlers._text_formatting import append_heading, append_wrapped_text
 from fast_agent.commands.results import CommandMessage, CommandOutcome
 from fast_agent.core.instruction_refresh import rebuild_agent_instruction
 from fast_agent.skills import SKILLS_DEFAULT
@@ -44,20 +45,7 @@ if TYPE_CHECKING:
     from fast_agent.commands.context import CommandContext
 
 
-def _append_heading(content: Text, heading: str) -> None:
-    if content.plain:
-        content.append("\n")
-    content.append_text(Text.from_markup(f"[bold]{heading}[/bold]\n\n"))
-
-
-def _append_wrapped_text(content: Text, value: str, *, indent: str = "") -> None:
-    wrapped_lines = textwrap.wrap(value.strip(), width=72)
-    for line in wrapped_lines:
-        content.append(indent)
-        content.append_text(Text(line))
-        content.append("\n")
-
-
+_parse_update_argument = parse_update_argument
 def _append_manifest_entry(content: Text, manifest: SkillManifest, index: int) -> None:
     entry = Text()
     entry.append(f"[{index:2}] ", style="dim cyan")
@@ -66,7 +54,7 @@ def _append_manifest_entry(content: Text, manifest: SkillManifest, index: int) -
     content.append("\n")
 
     if manifest.description:
-        _append_wrapped_text(content, manifest.description, indent="     ")
+        append_wrapped_text(content, manifest.description, indent="     ")
 
     source_path = manifest.path.parent if manifest.path.is_file() else manifest.path
     try:
@@ -115,7 +103,7 @@ def _format_local_skills_by_directory(manifests_by_dir: dict[Path, list[SkillMan
         except ValueError:
             display_dir = directory
 
-        _append_heading(content, f"Skills in {display_dir}:")
+        append_heading(content, f"Skills in {display_dir}:")
 
         if not manifests:
             content.append_text(Text("No skills in this directory", style="yellow"))
@@ -144,7 +132,7 @@ def _format_agent_skills_override(
     source_paths: list[str],
 ) -> Text:
     content = Text()
-    _append_heading(content, "Active agent skills (override):")
+    append_heading(content, "Active agent skills (override):")
     content.append_text(
         Text(
             "Note: this agent has an explicit skills configuration. /skills lists global skills directories from settings, not per-agent overrides. Update settings.skills.directories or the --skills flag to change this list.",
@@ -175,9 +163,9 @@ def _format_marketplace_skills(marketplace: Sequence[object]) -> Text:
         bundle_description = getattr(entry, "bundle_description", None)
         if bundle_name and bundle_name != current_bundle:
             current_bundle = bundle_name
-            _append_heading(content, bundle_name)
+            append_heading(content, bundle_name)
             if bundle_description:
-                _append_wrapped_text(content, bundle_description)
+                append_wrapped_text(content, bundle_description)
             content.append("\n")
 
         name = getattr(entry, "name", "")
@@ -191,7 +179,7 @@ def _format_marketplace_skills(marketplace: Sequence[object]) -> Text:
         content.append("\n")
 
         if description:
-            _append_wrapped_text(content, str(description), indent="     ")
+                append_wrapped_text(content, str(description), indent="     ")
         if source_url:
             content.append("     ", style="dim")
             content.append(f"source: {source_url}", style="dim green")
@@ -262,41 +250,9 @@ def _format_install_result(skill_name: str, install_path: Path) -> Text:
     content.append("\n")
     content.append(f"location: {display_path}", style="dim green")
     return content
-
-
-def _parse_update_argument(
-    argument: str | None,
-) -> tuple[str | None, bool, bool, str | None]:
-    if argument is None:
-        return None, False, False, None
-
-    try:
-        tokens = shlex.split(argument)
-    except ValueError as exc:
-        return None, False, False, f"Invalid update arguments: {exc}"
-
-    selector: str | None = None
-    force = False
-    yes = False
-    for token in tokens:
-        if token == "--force":
-            force = True
-            continue
-        if token == "--yes":
-            yes = True
-            continue
-        if token.startswith("--"):
-            return None, False, False, f"Unknown option: {token}"
-        if selector is not None:
-            return None, False, False, "Only one selector is allowed."
-        selector = token
-
-    return selector, force, yes, None
-
-
 def _format_update_results(updates: Sequence[SkillUpdateInfo], *, title: str) -> Text:
     content = Text()
-    _append_heading(content, title)
+    append_heading(content, title)
     if not updates:
         content.append_text(Text("No managed skills found.", style="yellow"))
         return content
@@ -579,7 +535,7 @@ async def handle_list_marketplace_skills(
     heading = "Marketplace skills:"
     if query and query.strip():
         heading = f"Marketplace skills (search: {query.strip()}):"
-    _append_heading(content, heading)
+    append_heading(content, heading)
 
     repo_hint = _marketplace_repository_hint(marketplace)
     if repo_hint:
@@ -643,7 +599,7 @@ async def handle_add_skill(
     selection = argument
     if not selection:
         content = Text()
-        _append_heading(content, "Marketplace skills:")
+        append_heading(content, "Marketplace skills:")
         repo_hint = _marketplace_repository_hint(marketplace)
         if repo_hint:
             content.append_text(
@@ -737,7 +693,7 @@ async def handle_remove_skill(
     selection = argument
     if not selection:
         content = Text()
-        _append_heading(content, f"Skills in {manager_dir}:")
+        append_heading(content, f"Skills in {manager_dir}:")
         for index, manifest in enumerate(manifests, 1):
             _append_manifest_entry(content, manifest, index)
 
@@ -791,7 +747,7 @@ async def handle_update_skill(
 ) -> CommandOutcome:
     outcome = CommandOutcome()
 
-    selector, force, yes, parse_error = _parse_update_argument(argument)
+    selector, force, yes, parse_error = parse_update_argument(argument)
     if parse_error:
         outcome.add_message(parse_error, channel="error")
         return outcome

@@ -8,6 +8,7 @@ import signal
 import subprocess
 import time
 from collections import deque
+from contextlib import nullcontext
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -27,6 +28,7 @@ from fast_agent.core.logging.progress_payloads import build_progress_payload
 from fast_agent.event_progress import ProgressAction
 from fast_agent.ui import console
 from fast_agent.ui.console_display import ConsoleDisplay
+from fast_agent.ui.display_suppression import display_tools_enabled
 from fast_agent.ui.progress_display import progress_display
 from fast_agent.ui.shell_output_truncation import (
     SHELL_OUTPUT_TRUNCATION_MARKER,
@@ -250,8 +252,8 @@ class ShellRuntime:
                 content=[TextContent(type="text", text=working_dir_error)],
             )
 
-        # Pause progress display during shell execution to avoid overlaying output
-        with progress_display.paused():
+        progress_context = progress_display.paused() if display_tools_enabled() else nullcontext()
+        with progress_context:
             try:
                 self._emit_progress_event(
                     action=ProgressAction.CALLING_TOOL,
@@ -308,7 +310,9 @@ class ShellRuntime:
                 truncation_notice_printed = False
                 had_stream_output = False
                 use_live_shell_display = (
-                    self._show_bash_output and not defer_display_to_tool_result
+                    self._show_bash_output
+                    and not defer_display_to_tool_result
+                    and display_tools_enabled()
                 )
                 display_line_limit = self._output_display_lines
                 displayed_head_count = 0

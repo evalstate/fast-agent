@@ -398,6 +398,8 @@ def test_get_completions_for_model_subcommands_includes_web_search_when_supporte
     class _LlmStub:
         reasoning_effort_spec = None
         text_verbosity_spec = None
+        service_tier_supported = True
+        available_service_tiers = ("fast", "flex")
         web_search_supported = True
         web_fetch_supported = False
 
@@ -415,6 +417,7 @@ def test_get_completions_for_model_subcommands_includes_web_search_when_supporte
     names = [c.text for c in completions]
 
     assert "reasoning" in names
+    assert "fast" in names
     assert "web_search" in names
     assert "web_fetch" not in names
 
@@ -441,6 +444,59 @@ def test_get_completions_for_model_subcommands_includes_web_fetch_when_supported
 
     assert "web_search" in names
     assert "web_fetch" in names
+
+
+def test_get_completions_for_model_fast_values() -> None:
+    class _LlmStub:
+        reasoning_effort_spec = None
+        text_verbosity_spec = None
+        service_tier_supported = True
+        available_service_tiers = ("fast", "flex")
+        web_search_supported = False
+        web_fetch_supported = False
+
+    class _AgentStub:
+        llm = _LlmStub()
+
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(_AgentStub())),
+    )
+
+    doc = Document("/model fast ", cursor_position=len("/model fast "))
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert "on" in names
+    assert "off" in names
+    assert "flex" in names
+    assert "status" in names
+
+
+def test_get_completions_for_model_fast_values_codexresponses_omit_flex() -> None:
+    class _LlmStub:
+        reasoning_effort_spec = None
+        text_verbosity_spec = None
+        service_tier_supported = True
+        available_service_tiers = ("fast",)
+        web_search_supported = False
+        web_fetch_supported = False
+
+    class _AgentStub:
+        llm = _LlmStub()
+
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(_AgentStub())),
+    )
+
+    doc = Document("/model fast ", cursor_position=len("/model fast "))
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert names == ["on", "off", "status"]
 
 
 def test_get_completions_for_model_web_search_values() -> None:

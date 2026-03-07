@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from fast_agent.context import Context
     from fast_agent.interfaces import AgentProtocol, MessageHistoryAgentProtocol
     from fast_agent.llm.usage_tracking import UsageAccumulator
-    from fast_agent.types import PromptMessageExtended
+    from fast_agent.types import PromptMessageExtended, RequestParams
 
 
 class HookRunner(Protocol):
@@ -19,6 +19,9 @@ class HookRunner(Protocol):
 
     @property
     def iteration(self) -> int: ...
+
+    @property
+    def request_params(self) -> "RequestParams | None": ...
 
 
 @dataclass
@@ -68,6 +71,11 @@ class HookContext:
     def usage(self) -> "UsageAccumulator | None":
         """Return the usage accumulator when available (token stats)."""
         return getattr(self.agent, "usage_accumulator", None)
+
+    @property
+    def request_params(self) -> "RequestParams | None":
+        """Return current turn request params when available."""
+        return self.runner.request_params
 
     @property
     def agent_registry(self) -> "Mapping[str, AgentProtocol] | None":

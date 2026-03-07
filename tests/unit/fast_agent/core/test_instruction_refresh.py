@@ -39,6 +39,7 @@ class StubAgent:
         self._skill_registry = None
         self._aggregator = aggregator or StubAggregator()
         self._has_filesystem_runtime = False
+        self._skill_read_tool_name = "read_skill"
 
     @property
     def instruction(self) -> str:
@@ -80,6 +81,10 @@ class StubAgent:
     @property
     def has_filesystem_runtime(self) -> bool:
         return self._has_filesystem_runtime
+
+    @property
+    def skill_read_tool_name(self) -> str:
+        return self._skill_read_tool_name
 
 
 # Ensure StubAgent is recognized as McpInstructionCapable

@@ -17,6 +17,8 @@ Usage:
 import asyncio
 import sys
 import time
+from contextlib import nullcontext
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Union, cast
 
@@ -48,6 +50,7 @@ from fast_agent.ui.command_payloads import (
     ShellCommand,
     is_command_payload,
 )
+from fast_agent.ui.display_suppression import suppress_interactive_display
 from fast_agent.ui.enhanced_prompt import (
     get_enhanced_input,
     get_selection_input,
@@ -55,6 +58,7 @@ from fast_agent.ui.enhanced_prompt import (
     parse_special_input,
     set_last_copyable_output,
 )
+from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 from fast_agent.ui.interactive_shell import run_interactive_shell_command
 from fast_agent.ui.progress_display import progress_display
 from fast_agent.ui.prompt.resource_mentions import (
@@ -69,6 +73,37 @@ SendFunc = Callable[[Union[str, PromptMessage, PromptMessageExtended], str], Awa
 
 # Type alias for the agent getter function
 AgentGetter = Callable[[str], object | None]
+
+
+@dataclass(frozen=True, slots=True)
+class HashSendExecution:
+    """Result of executing a delegated hash-send request."""
+
+    buffer_prefill: str | None
+
+
+def _clear_current_task_cancellation_requests() -> int:
+    """Clear pending cancellation requests on the current interactive task.
+
+    Interactive turn cancellation is user-facing recoverable behavior: after a
+    cancelled turn we return to the prompt instead of tearing down the whole
+    session. Some provider/streaming paths propagate cancellation by marking the
+    current task as cancelling even when the turn is later normalized into a
+    cancelled result. Clear that latent state before the next turn so a
+    subsequent Ctrl+C is handled as a fresh cancel instead of an immediate exit.
+    """
+    task = asyncio.current_task()
+    if task is None:
+        return 0
+
+    cleared = 0
+    while task.cancelling() > 0:
+        task.uncancel()
+        cleared += 1
+
+    if cleared:
+        write_interactive_trace("prompt.task_uncancelled", cleared=cleared)
+    return cleared
 
 
 class InteractivePrompt:
@@ -115,12 +150,14 @@ class InteractivePrompt:
         prompt_provider: "AgentApp",
         pinned_agent: str | None = None,
         default: str = "",
+        quiet_send_func: SendFunc | None = None,
     ) -> str:
         """
         Start an interactive prompt session.
 
         Args:
             send_func: Function to send messages to agents
+            quiet_send_func: Optional function used for quiet delegated sends
             default_agent: Name of the default agent to use
             available_agents: List of available agent names
             prompt_provider: AgentApp instance for accessing agents and prompts
@@ -205,11 +242,41 @@ class InteractivePrompt:
             ctrl_c_deadline = None
 
         def _handle_inflight_cancel() -> None:
-            """Handle Ctrl+C/Cancel while generation or tool calling is active."""
+            """Handle user cancellation while generation or tool calling is active."""
             nonlocal ctrl_c_deadline
 
             ctrl_c_deadline = None
+            _clear_current_task_cancellation_requests()
+            write_interactive_trace("prompt.inflight_cancel")
             rich_print("[yellow]Generation cancelled by user.[/yellow]")
+
+        def _clear_progress_for_agent(agent_name: str | None) -> None:
+            """Remove stale progress rows after an interrupted/cancelled send."""
+            try:
+                progress_display.clear_agent_tasks(agent_name)
+            except Exception:
+                pass
+
+        def _last_assistant_message_cancelled(agent_name: str | None) -> bool:
+            """Return True when an agent's latest history message is assistant CANCELLED."""
+            if not agent_name:
+                return False
+
+            try:
+                agent_obj = prompt_provider._agent(agent_name)
+            except Exception:
+                return False
+
+            try:
+                history = getattr(agent_obj, "message_history", [])
+                last_message = history[-1] if history else None
+                return bool(
+                    last_message is not None
+                    and getattr(last_message, "role", None) == "assistant"
+                    and getattr(last_message, "stop_reason", None) == LlmStopReason.CANCELLED
+                )
+            except Exception:
+                return False
 
         def _emit_startup_warning_digest_once() -> None:
             nonlocal startup_warning_digest_checked
@@ -292,38 +359,38 @@ class InteractivePrompt:
                 except Exception:
                     pass
 
-        def _auto_fix_pending_tool_call(agent_obj: Any) -> bool:
-            """Remove a dangling assistant TOOL_USE message at end of history."""
-            history = getattr(agent_obj, "message_history", None)
-            if not isinstance(history, list) or not history:
-                return False
+        def _describe_cancelled_history_state(history_state: object | None) -> str:
+            status = getattr(history_state, "status", None)
+            removed_messages = getattr(history_state, "removed_messages", 0)
 
-            last_message = history[-1]
-            if not (
-                getattr(last_message, "role", None) == "assistant"
-                and getattr(last_message, "tool_calls", None)
-                and getattr(last_message, "stop_reason", None) == LlmStopReason.TOOL_USE
-            ):
-                return False
+            if status == "history_disabled":
+                return (
+                    "Agent history is configured with use_history=false, so no per-turn "
+                    "history was persisted."
+                )
 
-            trimmed_history = history[:-1]
-            load_history = getattr(agent_obj, "load_message_history", None)
-            if callable(load_history):
-                load_history(trimmed_history)
-                return True
+            if status == "history_empty":
+                return "History was already empty."
 
-            existing_history = getattr(agent_obj, "message_history", None)
-            if isinstance(existing_history, list):
-                existing_history.clear()
-                existing_history.extend(trimmed_history)
-                return True
+            if status == "appended_interrupted_tool_result":
+                return (
+                    "Added an interrupted tool-result marker "
+                    "('**The user interrupted this tool call**')."
+                )
 
-            return False
+            if status == "history_unchanged":
+                return "No dangling tool call was found; history was left unchanged."
+
+            return (
+                f"History reconciliation completed (removed {removed_messages} "
+                "message(s))."
+            )
 
         while True:
             # Variables for hash command - sent after input handling
             hash_send_target: str | None = None
             hash_send_message: str | None = None
+            hash_send_quiet = False
             # Variable for shell command - executed after input handling
             shell_execute_cmd: str | None = None
 
@@ -340,22 +407,26 @@ class InteractivePrompt:
                 agent_obj = None
 
             if agent_obj is not None and getattr(agent_obj, "_last_turn_cancelled", False):
+                _clear_current_task_cancellation_requests()
+                _clear_progress_for_agent(agent)
                 reason = getattr(agent_obj, "_last_turn_cancel_reason", "cancelled")
                 setattr(agent_obj, "_last_turn_cancelled", False)
-                pending_tool_call_removed = False
-                try:
-                    pending_tool_call_removed = _auto_fix_pending_tool_call(agent_obj)
-                except Exception:
-                    pending_tool_call_removed = False
-
-                if pending_tool_call_removed:
-                    rich_print(
-                        "[yellow]Previous turn was {reason}. Removed pending tool call from history.[/yellow]".format(
-                            reason=reason
-                        )
+                history_state = getattr(agent_obj, "_last_turn_history_state", None)
+                setattr(agent_obj, "_last_turn_history_state", None)
+                state_message = _describe_cancelled_history_state(history_state)
+                write_interactive_trace(
+                    "prompt.previous_turn_cancelled",
+                    agent=agent,
+                    reason=reason,
+                    state=state_message,
+                )
+                rich_print(
+                    "[yellow]Previous turn was {reason}. {state} "
+                    "Use /history to inspect or manipulate history.[/yellow]".format(
+                        reason=reason,
+                        state=state_message,
                     )
-                else:
-                    rich_print("[yellow]Previous turn was {reason}.[/yellow]".format(reason=reason))
+                )
 
             if refreshed:
                 available_agents = _merge_pinned_agents(list(prompt_provider.agent_names()))
@@ -469,9 +540,13 @@ class InteractivePrompt:
                 if dispatch_result.buffer_prefill:
                     buffer_prefill = dispatch_result.buffer_prefill
 
-                if dispatch_result.hash_send_target and dispatch_result.hash_send_message:
+                if (
+                    dispatch_result.hash_send_target is not None
+                    and dispatch_result.hash_send_message is not None
+                ):
                     hash_send_target = dispatch_result.hash_send_target
                     hash_send_message = dispatch_result.hash_send_message
+                    hash_send_quiet = dispatch_result.hash_send_quiet
 
                 if dispatch_result.shell_execute_cmd:
                     shell_execute_cmd = dispatch_result.shell_execute_cmd
@@ -479,7 +554,11 @@ class InteractivePrompt:
                 if dispatch_result.should_return:
                     return result
 
-                if dispatch_result.handled and not hash_send_target and not shell_execute_cmd:
+                if (
+                    dispatch_result.handled
+                    and hash_send_target is None
+                    and shell_execute_cmd is None
+                ):
                     continue
 
             # Skip further processing if:
@@ -488,7 +567,7 @@ class InteractivePrompt:
             # 3. The command result itself is a command payload (special command handling result)
             # This fixes the issue where /prompt without arguments gets sent to the LLM
             # Skip these checks if we have a pending hash or shell command to handle outside
-            if not hash_send_target and not shell_execute_cmd:
+            if hash_send_target is None and shell_execute_cmd is None:
                 if (
                     command_result
                     or is_command_payload(user_input)
@@ -506,33 +585,20 @@ class InteractivePrompt:
                     continue
 
             # Handle hash command after input handling; resume progress display only for the send.
-            if hash_send_target and hash_send_message:
-                rich_print(f"[dim]Asking {hash_send_target}...[/dim]")
-
-                try:
-                    # Use the return value from send_func directly - this works even
-                    # when use_history=False (e.g., for agents loaded as tools)
-                    emit_prompt_mark("C")
-                    progress_display.resume()
-                    response_text = await send_func(hash_send_message, hash_send_target)
-                except (KeyboardInterrupt, asyncio.CancelledError):
-                    _handle_inflight_cancel()
-                    continue
-                except Exception as exc:
-                    rich_print(f"[red]Error asking {hash_send_target}: {exc}[/red]")
-                    continue
-                finally:
-                    progress_display.pause(cancel_deferred_on_noop=True)
-                    emit_prompt_mark("D")
-
-                # Status messages after send completes
-                if response_text:
-                    buffer_prefill = response_text
-                    rich_print(
-                        f"[blue]Response from {hash_send_target} loaded into input buffer[/blue]"
-                    )
-                else:
-                    rich_print(f"[yellow]No response received from {hash_send_target}[/yellow]")
+            if hash_send_target is not None and hash_send_message is not None:
+                active_send_func = quiet_send_func if hash_send_quiet and quiet_send_func else send_func
+                hash_send_execution = await self._execute_hash_send(
+                    send_func=active_send_func,
+                    target_agent=hash_send_target,
+                    message=hash_send_message,
+                    quiet=hash_send_quiet,
+                    clear_progress_for_agent=_clear_progress_for_agent,
+                    clear_ctrl_c_interrupt=_clear_ctrl_c_interrupt,
+                    handle_inflight_cancel=_handle_inflight_cancel,
+                    last_assistant_message_cancelled=_last_assistant_message_cancelled,
+                )
+                if hash_send_execution.buffer_prefill:
+                    buffer_prefill = hash_send_execution.buffer_prefill
                 continue
 
             # Handle shell command after input handling
@@ -576,13 +642,25 @@ class InteractivePrompt:
                     continue
 
             emit_prompt_mark("C")
+            write_interactive_trace("prompt.send.start", agent=agent)
             progress_display.resume()
             try:
                 result = await send_func(prompt_payload, agent)
-            except (KeyboardInterrupt, asyncio.CancelledError):
+            except KeyboardInterrupt:
+                write_interactive_trace("prompt.send.keyboard_interrupt", agent=agent)
+                _clear_progress_for_agent(agent)
+                _handle_inflight_cancel()
+                continue
+            except asyncio.CancelledError:
+                write_interactive_trace("prompt.send.cancelled_error", agent=agent)
+                _clear_progress_for_agent(agent)
+                task = asyncio.current_task()
+                if task is not None and task.cancelling() > 0:
+                    raise
                 _handle_inflight_cancel()
                 continue
             finally:
+                write_interactive_trace("prompt.send.finally_pause", agent=agent)
                 progress_display.pause(cancel_deferred_on_noop=True)
                 emit_prompt_mark("D")
 
@@ -590,29 +668,87 @@ class InteractivePrompt:
                 # rich_print(result)
                 print(result)
 
-            try:
-                agent_after_send = prompt_provider._agent(agent)
-            except Exception:
-                agent_after_send = None
-
-            if agent_after_send is not None:
-                try:
-                    history = getattr(agent_after_send, "message_history", [])
-                    last_message = history[-1] if history else None
-                    if (
-                        last_message is not None
-                        and getattr(last_message, "role", None) == "assistant"
-                        and getattr(last_message, "stop_reason", None) == LlmStopReason.CANCELLED
-                    ):
-                        ctrl_c_deadline = None
-                except Exception:
-                    pass
+            if _last_assistant_message_cancelled(agent):
+                _clear_current_task_cancellation_requests()
+                _clear_progress_for_agent(agent)
+                ctrl_c_deadline = None
 
             # Update last copyable output with assistant response for Ctrl+Y
             if result:
                 set_last_copyable_output(result)
 
         return result
+
+    async def _execute_hash_send(
+        self,
+        *,
+        send_func: SendFunc,
+        target_agent: str,
+        message: str,
+        quiet: bool,
+        clear_progress_for_agent: Callable[[str | None], None],
+        clear_ctrl_c_interrupt: Callable[[], None],
+        handle_inflight_cancel: Callable[[], None],
+        last_assistant_message_cancelled: Callable[[str | None], bool],
+    ) -> HashSendExecution:
+        if not quiet:
+            rich_print(f"[dim]Asking {target_agent}...[/dim]")
+
+        try:
+            emit_prompt_mark("C")
+            write_interactive_trace("prompt.hash_send.start", agent=target_agent, quiet=quiet)
+            progress_display.resume()
+            display_context = suppress_interactive_display() if quiet else nullcontext()
+            with display_context:
+                response_text = await send_func(message, target_agent)
+        except KeyboardInterrupt:
+            write_interactive_trace(
+                "prompt.hash_send.keyboard_interrupt",
+                agent=target_agent,
+                quiet=quiet,
+            )
+            clear_progress_for_agent(target_agent)
+            handle_inflight_cancel()
+            return HashSendExecution(buffer_prefill=None)
+        except asyncio.CancelledError:
+            write_interactive_trace(
+                "prompt.hash_send.cancelled_error",
+                agent=target_agent,
+                quiet=quiet,
+            )
+            clear_progress_for_agent(target_agent)
+            task = asyncio.current_task()
+            if task is not None and task.cancelling() > 0:
+                raise
+            handle_inflight_cancel()
+            return HashSendExecution(buffer_prefill=None)
+        except Exception as exc:
+            rich_print(f"[red]Error asking {target_agent}: {exc}[/red]")
+            return HashSendExecution(buffer_prefill=None)
+        finally:
+            write_interactive_trace(
+                "prompt.hash_send.finally_pause",
+                agent=target_agent,
+                quiet=quiet,
+            )
+            progress_display.pause(cancel_deferred_on_noop=True)
+            emit_prompt_mark("D")
+
+        if last_assistant_message_cancelled(target_agent):
+            _clear_current_task_cancellation_requests()
+            clear_progress_for_agent(target_agent)
+            clear_ctrl_c_interrupt()
+
+        if response_text:
+            if not quiet:
+                rich_print(f"[blue]Response from {target_agent} loaded into input buffer[/blue]")
+            return HashSendExecution(buffer_prefill=response_text)
+
+        if quiet:
+            rich_print(f"[dim]No response received from {target_agent}[/dim]")
+        else:
+            rich_print(f"[yellow]No response received from {target_agent}[/yellow]")
+        return HashSendExecution(buffer_prefill=None)
 
     def _resolve_display(
         self, prompt_provider: "AgentApp", agent_name: str | None

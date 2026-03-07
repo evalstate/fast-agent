@@ -36,7 +36,7 @@ class CodexResponsesLLM(ResponsesLLM):
     def _display_model(self, model: str | None) -> str | None:
         if not model:
             return model
-        return f"{model} ($)"
+        return f"∞{model}"
 
     def _log_chat_progress(self, chat_turn: int | None = None, model: str | None = None) -> None:
         super()._log_chat_progress(chat_turn=chat_turn, model=self._display_model(model))

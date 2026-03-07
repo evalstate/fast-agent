@@ -1,4 +1,5 @@
 from fast_agent.ui.command_payloads import (
+    ModelFastCommand,
     ModelReasoningCommand,
     ModelVerbosityCommand,
     ModelWebFetchCommand,
@@ -17,6 +18,25 @@ def test_parse_model_verbosity_command() -> None:
     result = parse_special_input("/model verbosity low")
     assert isinstance(result, ModelVerbosityCommand)
     assert result.value == "low"
+
+
+def test_parse_model_fast_command() -> None:
+    result = parse_special_input("/model fast on")
+    assert isinstance(result, ModelFastCommand)
+    assert result.value == "on"
+
+
+
+
+def test_parse_model_fast_flex_command() -> None:
+    result = parse_special_input("/model fast flex")
+    assert isinstance(result, ModelFastCommand)
+    assert result.value == "flex"
+
+def test_parse_hidden_fast_alias_command() -> None:
+    result = parse_special_input("/fast status")
+    assert isinstance(result, ModelFastCommand)
+    assert result.value == "status"
 
 
 def test_parse_model_web_search_command() -> None:

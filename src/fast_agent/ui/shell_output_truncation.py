@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-SHELL_OUTPUT_TRUNCATION_MARKER = ".....△▽....."
+SHELL_OUTPUT_TRUNCATION_MARKER = "△▽.........."
 
 
 def format_shell_output_line_count(line_count: int) -> str:

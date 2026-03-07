@@ -34,6 +34,7 @@ class ModelConfig(BaseModel):
     structured_output_mode: StructuredOutputMode | None = None
     long_context: bool = False
     transport: Literal["sse", "websocket", "auto"] | None = None
+    service_tier: Literal["fast", "flex"] | None = None
     web_search: bool | None = None
     web_fetch: bool | None = None
     temperature: float | None = None
@@ -50,8 +51,10 @@ class ModelFactory:
     MODEL_ALIASES = {
         "gpt51": "responses.gpt-5.1",
         "gpt52": "responses.gpt-5.2",
-        "codex": "responses.gpt-5.2-codex",
-        "codexplan": "codexresponses.gpt-5.3-codex",
+        "gpt54": "responses.gpt-5.4",
+        "chatgpt": "responses.gpt-5.3-chat-latest?transport=ws",
+        "codex": "responses.gpt-5.2-codex?transport=ws",
+        "codexplan": "codexresponses.gpt-5.4",
         "codexplan52": "codexresponses.gpt-5.2-codex",
         "codexspark": "codexresponses.gpt-5.3-codex-spark",
         "sonnet": "claude-sonnet-4-6",
@@ -202,6 +205,7 @@ class ModelFactory:
         query_instant: bool | None = None
         query_long_context: bool = False
         query_transport: Literal["sse", "websocket", "auto"] | None = None
+        query_service_tier: Literal["fast", "flex"] | None = None
         query_web_search: bool | None = None
         query_web_fetch: bool | None = None
         query_temperature: float | None = None
@@ -281,6 +285,7 @@ class ModelFactory:
             nonlocal query_instant
             nonlocal query_long_context
             nonlocal query_transport
+            nonlocal query_service_tier
             nonlocal query_web_search
             nonlocal query_web_fetch
             nonlocal query_temperature
@@ -360,6 +365,19 @@ class ModelFactory:
                     )
                 if allow_override or query_transport is None:
                     query_transport = normalized_transport
+
+            if "service_tier" in query_params:
+                values = query_params.get("service_tier") or []
+                raw_value = (values[-1] if values else "").strip().lower()
+                if raw_value not in {"fast", "flex"}:
+                    raise ModelConfigError(
+                        f"Invalid service_tier query value: '{raw_value}' in '{model_spec}'"
+                    )
+                normalized_service_tier: Literal["fast", "flex"] = (
+                    "fast" if raw_value == "fast" else "flex"
+                )
+                if allow_override or query_service_tier is None:
+                    query_service_tier = normalized_service_tier
 
             if "web_search" in query_params:
                 values = query_params.get("web_search") or []
@@ -560,6 +578,24 @@ class ModelFactory:
                     f"with provider '{provider.value}'."
                 )
 
+        if query_service_tier == "flex":
+            if provider == Provider.CODEX_RESPONSES:
+                raise ModelConfigError(
+                    "Provider 'codexresponses' does not support service_tier=flex. "
+                    "Allowed values are fast or unset (standard)."
+                )
+            if provider in {Provider.RESPONSES, Provider.OPENRESPONSES}:
+                supports_flex = ModelDatabase.supports_response_service_tier(
+                    model_name_str,
+                    "flex",
+                )
+                if supports_flex is False:
+                    raise ModelConfigError(
+                        f"Model '{model_name_str}' does not support service_tier=flex "
+                        f"with provider '{provider.value}'. Allowed values are fast or unset "
+                        "(standard)."
+                    )
+
         return ModelConfig(
             provider=provider,
             model_name=model_name_str,
@@ -568,6 +604,7 @@ class ModelFactory:
             structured_output_mode=query_structured,
             long_context=query_long_context,
             transport=query_transport,
+            service_tier=query_service_tier,
             web_search=query_web_search,
             web_fetch=query_web_fetch,
             temperature=query_temperature,
@@ -632,6 +669,19 @@ class ModelFactory:
                     effective_request_params = effective_request_params.model_copy(
                         update=sampling_overrides
                     )
+
+            if config.service_tier is not None:
+                has_explicit_service_tier = (
+                    effective_request_params is not None
+                    and "service_tier" in effective_request_params.model_fields_set
+                )
+                if not has_explicit_service_tier:
+                    if effective_request_params is None:
+                        effective_request_params = RequestParams(service_tier=config.service_tier)
+                    else:
+                        effective_request_params = effective_request_params.model_copy(
+                            update={"service_tier": config.service_tier}
+                        )
 
             if config.reasoning_effort:
                 kwargs["reasoning_effort"] = config.reasoning_effort

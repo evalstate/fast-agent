@@ -15,6 +15,7 @@ from rich.text import Text
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.ui import console
+from fast_agent.ui.apply_patch_preview import style_apply_patch_preview_text
 from fast_agent.ui.markdown_helpers import prepare_markdown_content
 from fast_agent.ui.markdown_truncator import MarkdownTruncator
 from fast_agent.ui.plain_text_truncator import PlainTextTruncator
@@ -647,7 +648,12 @@ class StreamingMessageHandle:
                         _, _, args_text = segment.text.partition("\n")
                         if args_text:
                             tool_text.append("\n")
-                            tool_text.append(args_text)
+                            if "apply_patch preview:" in args_text:
+                                tool_text.append_text(
+                                    style_apply_patch_preview_text(args_text, default_style="white")
+                                )
+                            else:
+                                tool_text.append(args_text)
                     if cursor_suffix:
                         tool_text.append(cursor_suffix, style="dim")
                     renderables.append(tool_text)

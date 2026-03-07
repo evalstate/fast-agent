@@ -13,7 +13,9 @@ from fast_agent.mcp.prompt_serialization import (
     load_messages,
     multipart_messages_to_delimited_format,
     to_get_prompt_result_json,
+    to_json,
 )
+from fast_agent.types import AssistantMessagePhase
 
 
 class TestPromptSerialization:
@@ -91,6 +93,22 @@ class TestPromptSerialization:
         assert image_block.type == "image"
         assert image_block.data == "base64EncodedImage"
         assert image_block.mimeType == "image/jpeg"
+
+    def test_enhanced_json_round_trips_assistant_phase(self):
+        original_messages = [
+            PromptMessageExtended(
+                role="assistant",
+                content=[TextContent(type="text", text="Planning next action.")],
+                phase=AssistantMessagePhase.COMMENTARY,
+            )
+        ]
+
+        json_str = to_json(original_messages)
+        parsed_messages = from_json(json_str)
+
+        assert len(parsed_messages) == 1
+        assert parsed_messages[0].phase == AssistantMessagePhase.COMMENTARY
+        assert parsed_messages[0].all_text() == "Planning next action."
 
     def test_multipart_to_delimited_format(self):
         """Test converting PromptMessageExtended to delimited format for saving."""

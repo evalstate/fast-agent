@@ -97,6 +97,7 @@ class SkillRegistry:
         self._warnings = []
         self._missing_directories = []
         self._directories = []
+        default_entries = {path.resolve() for path in default_skill_paths(cwd=self._base_dir)}
         if directories is None:
             entries = default_skill_paths(cwd=self._base_dir)
         else:
@@ -108,11 +109,17 @@ class SkillRegistry:
             if resolved.exists() and resolved.is_dir():
                 self._directories.append(resolved)
             elif directories is not None:
-                self._missing_directories.append(resolved)
-                logger.warning(
-                    "Skills directory not found",
-                    data={"directory": str(resolved)},
-                )
+                if resolved in default_entries:
+                    logger.debug(
+                        "Skills directory not found",
+                        data={"directory": str(resolved), "optional": True},
+                    )
+                else:
+                    self._missing_directories.append(resolved)
+                    logger.warning(
+                        "Skills directory not found",
+                        data={"directory": str(resolved)},
+                    )
 
     @classmethod
     def load_directory(cls, directory: Path) -> list[SkillManifest]:

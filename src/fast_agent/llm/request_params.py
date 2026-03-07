@@ -2,7 +2,7 @@
 Request parameters definitions for LLM interactions.
 """
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from mcp import SamplingMessage
 from mcp.types import CreateMessageRequestParams
@@ -75,6 +75,11 @@ class RequestParams(CreateMessageRequestParams):
     Emit monotonic progress updates for the internal tool loop when supported.
     """
 
+    tool_result_passthrough: bool = False
+    """
+    Skip post-tool LLM synthesis and return tool results directly as assistant output.
+    """
+
     streaming_timeout: float | None = DEFAULT_STREAMING_TIMEOUT
     """
     Maximum time in seconds to wait for streaming completion. Set to None to disable.
@@ -115,3 +120,6 @@ class RequestParams(CreateMessageRequestParams):
         validation_alias=AliasChoices("repetition_penalty", "repetitionPenalty"),
     )
     """Optional repetition penalty (provider support varies)."""
+
+    service_tier: Literal["fast", "flex"] | None = None
+    """Responses-family service tier override (fast/priority or flex)."""

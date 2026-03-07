@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Callable, cast
 from rich.text import Text
 
 from fast_agent.commands.results import CommandOutcome
-from fast_agent.constants import TERMINAL_BYTES_PER_TOKEN
+from fast_agent.constants import REASONING_LABEL, TERMINAL_BYTES_PER_TOKEN
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.reasoning_effort import (
     ReasoningEffortLevel,
@@ -134,6 +134,52 @@ def _set_web_fetch_enabled(llm: object, value: bool | None) -> None:
     raise ValueError("Current model does not support web fetch configuration.")
 
 
+def _resolve_service_tier_supported(llm: object) -> bool:
+    supported = getattr(llm, "service_tier_supported", None)
+    return bool(supported) if isinstance(supported, bool) else False
+
+
+def available_service_tier_values(llm: object) -> tuple[str, ...]:
+    raw_values = getattr(llm, "available_service_tiers", None)
+    if isinstance(raw_values, (tuple, list)):
+        values = tuple(value for value in raw_values if value in {"fast", "flex"})
+        if values:
+            return values
+    if _resolve_service_tier_supported(llm):
+        return ("fast", "flex")
+    return ()
+
+
+def service_tier_command_values(llm: object) -> tuple[str, ...]:
+    values = ["on", "off"]
+    if "flex" in available_service_tier_values(llm):
+        values.append("flex")
+    values.append("status")
+    return tuple(values)
+
+
+def _resolve_service_tier(llm: object) -> str | None:
+    value = getattr(llm, "service_tier", None)
+    return value if value in {"fast", "flex"} else None
+
+
+def _set_service_tier(llm: object, value: str | None) -> None:
+    setter = getattr(llm, "set_service_tier", None)
+    if callable(setter):
+        setter(value)
+        return
+    raise ValueError("Current model does not support service tier configuration.")
+
+
+def _describe_service_tier_state(llm: object) -> str:
+    current_tier = _resolve_service_tier(llm)
+    if current_tier == "fast":
+        return "fast"
+    if current_tier == "flex":
+        return "flex"
+    return "default"
+
+
 def model_supports_web_search(llm: object) -> bool:
     """Return True when model/provider supports web_search runtime configuration."""
     return _resolve_web_search_supported(llm)
@@ -142,6 +188,11 @@ def model_supports_web_search(llm: object) -> bool:
 def model_supports_web_fetch(llm: object) -> bool:
     """Return True when model/provider supports web_fetch runtime configuration."""
     return _resolve_web_fetch_supported(llm)
+
+
+def model_supports_service_tier(llm: object) -> bool:
+    """Return True when model/provider supports service tier runtime configuration."""
+    return _resolve_service_tier_supported(llm)
 
 
 def model_supports_text_verbosity(llm: object) -> bool:
@@ -199,7 +250,9 @@ async def _handle_model_web_tool(
 
     if value is None:
         outcome.add_message(
-            _styled_selected_with_allowed(label, _enabled_label(enabled_resolver(llm)), "on, off, default"),
+            _styled_selected_with_allowed(
+                label, _enabled_label(enabled_resolver(llm)), "on, off, default"
+            ),
             channel="system",
             right_info="model",
         )
@@ -235,13 +288,53 @@ async def _handle_model_web_tool(
     return outcome
 
 
+def _add_model_runtime_settings(
+    outcome: CommandOutcome,
+    *,
+    llm: "FastAgentLLMProtocol",
+) -> None:
+    text_verbosity_spec = llm.text_verbosity_spec
+    if text_verbosity_spec is not None:
+        current_text_verbosity = format_text_verbosity(
+            llm.text_verbosity or text_verbosity_spec.default
+        )
+        outcome.add_message(
+            _styled_model_line("Text verbosity", current_text_verbosity),
+            channel="system",
+            right_info="model",
+        )
+
+    if llm.service_tier_supported:
+        outcome.add_message(
+            _styled_model_line("Service tier", _describe_service_tier_state(llm)),
+            channel="system",
+            right_info="model",
+        )
+
+    if llm.web_search_supported:
+        outcome.add_message(
+            _styled_model_line("Web search", _enabled_label(llm.web_search_enabled)),
+            channel="system",
+            right_info="model",
+        )
+
+    if llm.web_fetch_supported:
+        outcome.add_message(
+            _styled_model_line("Web fetch", _enabled_label(llm.web_fetch_enabled)),
+            channel="system",
+            right_info="model",
+        )
+
+
+
 def _add_model_details(
     outcome: CommandOutcome,
     *,
     ctx: "CommandContext",
     agent: object,
-    llm: object,
+    llm: "FastAgentLLMProtocol",
     include_shell_budget: bool,
+    include_runtime_settings: bool = False,
 ) -> None:
     provider = getattr(llm, "provider", None)
     provider_label: str | None = None
@@ -306,9 +399,7 @@ def _add_model_details(
                 and configured_transport in {"websocket", "auto"}
                 and active_transport == "sse"
             ):
-                transport_value = (
-                    f"{active_transport} (websocket fallback was used for this turn)"
-                )
+                transport_value = f"{active_transport} (websocket fallback was used for this turn)"
             outcome.add_message(
                 _styled_model_line(
                     "Active transport",
@@ -318,6 +409,9 @@ def _add_model_details(
                 channel="system",
                 right_info="model",
             )
+
+    if include_runtime_settings:
+        _add_model_runtime_settings(outcome, llm=llm)
 
     if not include_shell_budget:
         return
@@ -437,6 +531,7 @@ async def handle_model_reasoning(
         agent=agent,
         llm=llm,
         include_shell_budget=value is None,
+        include_runtime_settings=value is None,
     )
 
     spec = llm.reasoning_effort_spec
@@ -454,7 +549,7 @@ async def handle_model_reasoning(
         if spec.kind == "budget" and spec.budget_presets:
             allowed = f"{allowed} (presets; any value between {spec.min_budget_tokens} and {spec.max_budget_tokens} is allowed)"
         outcome.add_message(
-            _styled_selected_with_allowed("Reasoning effort", current, allowed),
+            _styled_selected_with_allowed(REASONING_LABEL, current, allowed),
             channel="system",
             right_info="model",
         )
@@ -479,7 +574,7 @@ async def handle_model_reasoning(
         ):
             allowed = ", ".join(available_reasoning_values(spec))
             outcome.add_message(
-                f"Reasoning disable is not supported for this model. Allowed values: {allowed}.",
+                f"{REASONING_LABEL} disable is not supported for this model. Allowed values: {allowed}.",
                 channel="error",
                 right_info="model",
             )
@@ -499,7 +594,7 @@ async def handle_model_reasoning(
             return outcome
 
         outcome.add_message(
-            _styled_set_line("Reasoning effort", format_reasoning_setting(llm.reasoning_effort)),
+            _styled_set_line(REASONING_LABEL, format_reasoning_setting(llm.reasoning_effort)),
             channel="system",
             right_info="model",
         )
@@ -518,7 +613,7 @@ async def handle_model_reasoning(
 
     llm.set_reasoning_effort(parsed)
     outcome.add_message(
-        _styled_set_line("Reasoning effort", format_reasoning_setting(llm.reasoning_effort)),
+        _styled_set_line(REASONING_LABEL, format_reasoning_setting(llm.reasoning_effort)),
         channel="system",
         right_info="model",
     )
@@ -627,3 +722,88 @@ async def handle_model_web_fetch(
         enabled_resolver=_resolve_web_fetch_enabled,
         setter=_set_web_fetch_enabled,
     )
+
+
+async def handle_model_fast(
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+    value: str | None,
+) -> CommandOutcome:
+    outcome = CommandOutcome()
+    resolved = _resolve_agent_llm(ctx, agent_name=agent_name, outcome=outcome)
+    if resolved is None:
+        return outcome
+    agent, llm = resolved
+
+    normalized_value = value.strip().lower() if value else None
+
+    _add_model_details(
+        outcome,
+        ctx=ctx,
+        agent=agent,
+        llm=llm,
+        include_shell_budget=normalized_value == "status",
+    )
+
+    if not _resolve_service_tier_supported(llm):
+        outcome.add_message(
+            "Current model does not support service tier configuration.",
+            channel="warning",
+            right_info="model",
+        )
+        return outcome
+
+    allowed_values = service_tier_command_values(llm)
+    allowed_values_text = ", ".join(allowed_values)
+
+    if normalized_value == "status":
+        outcome.add_message(
+            _styled_selected_with_allowed(
+                "Service tier",
+                _describe_service_tier_state(llm),
+                allowed_values_text,
+            ),
+            channel="system",
+            right_info="model",
+        )
+        return outcome
+
+    if normalized_value in {None, "toggle"}:
+        current_value = _resolve_service_tier(llm)
+        if current_value == "fast":
+            new_value = None
+        elif current_value == "flex":
+            new_value = None
+        else:
+            new_value = "fast"
+    elif normalized_value == "on":
+        new_value = "fast"
+    elif normalized_value == "off":
+        new_value = None
+    elif normalized_value == "flex" and "flex" in available_service_tier_values(llm):
+        new_value = "flex"
+    else:
+        outcome.add_message(
+            f"Invalid service tier value '{value}'. Allowed values: {allowed_values_text}.",
+            channel="error",
+            right_info="model",
+        )
+        return outcome
+
+    try:
+        _set_service_tier(llm, new_value)
+    except ValueError as exc:
+        outcome.add_message(
+            str(exc),
+            channel="error",
+            right_info="model",
+        )
+        return outcome
+
+    outcome.add_message(
+        _styled_set_line("Service tier", _describe_service_tier_state(llm)),
+        channel="system",
+        right_info="model",
+    )
+    return outcome

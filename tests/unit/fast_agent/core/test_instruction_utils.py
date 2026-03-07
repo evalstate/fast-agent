@@ -102,6 +102,10 @@ class StubMcpAgent(StubAgent):
     def has_filesystem_runtime(self) -> bool:
         return False
 
+    @property
+    def skill_read_tool_name(self) -> str:
+        return "read_skill"
+
 
 def test_build_agent_instruction_context_includes_agent_metadata(tmp_path: Path) -> None:
     card_path = tmp_path / "cards" / "smart.md"

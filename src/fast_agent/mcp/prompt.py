@@ -13,7 +13,7 @@ from mcp import CallToolRequest
 from mcp.types import ContentBlock, PromptMessage, ReadResourceResult, ResourceContents
 
 from fast_agent.mcp.mcp_content import Assistant, MCPPrompt, User
-from fast_agent.types import LlmStopReason, PromptMessageExtended
+from fast_agent.types import AssistantMessagePhase, LlmStopReason, PromptMessageExtended
 
 
 class Prompt:
@@ -82,6 +82,7 @@ class Prompt:
         ],
         stop_reason: LlmStopReason | None = None,
         tool_calls: dict[str, CallToolRequest] | None = None,
+        phase: AssistantMessagePhase | None = None,
     ) -> PromptMessageExtended:
         """
         Create an assistant PromptMessageExtended with various content items.
@@ -95,6 +96,7 @@ class Prompt:
                     content=[item.content],
                     stop_reason=stop_reason,
                     tool_calls=tool_calls,
+                    phase=phase,
                 )
             elif isinstance(item, PromptMessageExtended):
                 # Keep the content but change role to assistant
@@ -103,6 +105,7 @@ class Prompt:
                     content=item.content,
                     stop_reason=stop_reason,
                     tool_calls=tool_calls,
+                    phase=phase,
                 )
 
         # Use the content factory for other types
@@ -112,6 +115,7 @@ class Prompt:
             content=[msg["content"] for msg in messages],
             stop_reason=stop_reason,
             tool_calls=tool_calls,
+            phase=phase,
         )
 
     @classmethod

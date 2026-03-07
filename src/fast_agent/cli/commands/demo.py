@@ -16,6 +16,32 @@ from fast_agent.ui.console_display import ConsoleDisplay
 from fast_agent.ui.message_primitives import MESSAGE_CONFIGS, MessageType
 from fast_agent.ui.streaming import StreamingMessageHandle
 
+
+def _build_demo_stream_handle(
+    *,
+    plain: bool,
+    metrics_writer: "MetricsWriter | None",
+) -> StreamingMessageHandle:
+    display = ConsoleDisplay()
+    config = MESSAGE_CONFIGS[MessageType.ASSISTANT]
+    block_color = config["block_color"]
+    arrow = config["arrow"]
+    arrow_style = config["arrow_style"]
+    header_left = f"[{block_color}]▎[/{block_color}][{arrow_style}]{arrow}[/{arrow_style}] "
+    header_right = "[dim]demo[/dim]"
+    return StreamingMessageHandle(
+        display=display,
+        bottom_items=None,
+        highlight_index=None,
+        max_item_length=None,
+        use_plain_text=plain,
+        header_left=header_left,
+        header_right=header_right,
+        progress_display=None,
+        performance_hook=metrics_writer.record if metrics_writer else None,
+    )
+
+
 app = typer.Typer(help="Demo commands for UI features.")
 
 
@@ -484,27 +510,7 @@ def streaming(
         metrics_writer = MetricsWriter(metrics_path, metrics_interval)
 
     async def _run_stream() -> None:
-        display = ConsoleDisplay()
-        config = MESSAGE_CONFIGS[MessageType.ASSISTANT]
-        block_color = config["block_color"]
-        arrow = config["arrow"]
-        arrow_style = config["arrow_style"]
-        header_left = (
-            f"[{block_color}]▎[/{block_color}][{arrow_style}]{arrow}[/{arrow_style}] "
-        )
-        header_right = "[dim]demo[/dim]"
-
-        handle = StreamingMessageHandle(
-            display=display,
-            bottom_items=None,
-            highlight_index=None,
-            max_item_length=None,
-            use_plain_text=plain,
-            header_left=header_left,
-            header_right=header_right,
-            progress_display=None,
-            performance_hook=metrics_writer.record if metrics_writer else None,
-        )
+        handle = _build_demo_stream_handle(plain=plain, metrics_writer=metrics_writer)
         try:
             for idx, section in enumerate(sections):
                 scenario_name = scenario_list[idx].value
@@ -544,27 +550,7 @@ def streaming(
                 metrics_writer.close()
 
     def _run_sync() -> None:
-        display = ConsoleDisplay()
-        config = MESSAGE_CONFIGS[MessageType.ASSISTANT]
-        block_color = config["block_color"]
-        arrow = config["arrow"]
-        arrow_style = config["arrow_style"]
-        header_left = (
-            f"[{block_color}]▎[/{block_color}][{arrow_style}]{arrow}[/{arrow_style}] "
-        )
-        header_right = "[dim]demo[/dim]"
-
-        handle = StreamingMessageHandle(
-            display=display,
-            bottom_items=None,
-            highlight_index=None,
-            max_item_length=None,
-            use_plain_text=plain,
-            header_left=header_left,
-            header_right=header_right,
-            progress_display=None,
-            performance_hook=metrics_writer.record if metrics_writer else None,
-        )
+        handle = _build_demo_stream_handle(plain=plain, metrics_writer=metrics_writer)
         try:
             for idx, section in enumerate(sections):
                 scenario_name = scenario_list[idx].value

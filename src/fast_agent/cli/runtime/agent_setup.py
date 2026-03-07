@@ -10,10 +10,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping, cast
 
 import typer
+from prompt_toolkit import PromptSession
 
 from fast_agent.cli.commands.server_helpers import add_servers_to_config
 from fast_agent.cli.constants import RESUME_LATEST_SENTINEL
 from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.llm.provider_types import Provider
+from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 
 from .request_builders import resolve_default_instruction, resolve_smart_agent_enabled
 from .shell_cwd_policy import (
@@ -26,6 +29,8 @@ from .shell_cwd_policy import (
 )
 
 if TYPE_CHECKING:
+    from fast_agent.types import PromptMessageExtended
+
     from .run_request import AgentRunRequest
 
 
@@ -79,6 +84,50 @@ def _resolve_model_without_hardcoded_default(
     )
 
 
+def _has_explicit_provider_prefix(model_spec: str) -> bool:
+    provider_names = {provider.config_name for provider in Provider}
+
+    slash_prefix, _, slash_rest = model_spec.partition("/")
+    if slash_prefix and slash_rest and slash_prefix in provider_names:
+        return True
+
+    dot_prefix, _, dot_rest = model_spec.partition(".")
+    if dot_prefix and dot_rest and dot_prefix in provider_names:
+        return True
+
+    return False
+
+
+def _normalize_generic_model_spec(raw_model: str) -> str | None:
+    candidate = raw_model.strip()
+    if not candidate:
+        return None
+
+    if _has_explicit_provider_prefix(candidate):
+        return candidate
+
+    return f"generic.{candidate}"
+
+
+async def _prompt_for_generic_model_spec(*, default_model: str = "llama3.2") -> str:
+    prompt_session = PromptSession()
+    while True:
+        try:
+            entered = await prompt_session.prompt_async(
+                "Local model (e.g. llama3.2): ",
+                default=default_model,
+            )
+        except (EOFError, KeyboardInterrupt):
+            typer.echo("Model selection cancelled.", err=True)
+            raise typer.Exit(1)
+
+        normalized = _normalize_generic_model_spec(entered)
+        if normalized:
+            return normalized
+
+        typer.echo("Please enter a non-empty model string.", err=True)
+
+
 async def _select_model_from_picker(request: AgentRunRequest) -> str:
     """Prompt user for model selection and return a resolved model string."""
     from fast_agent.ui.model_picker import run_model_picker_async
@@ -90,6 +139,12 @@ async def _select_model_from_picker(request: AgentRunRequest) -> str:
         if picker_result is None:
             typer.echo("Model selection cancelled.", err=True)
             raise typer.Exit(1)
+
+        if (
+            picker_result.provider == Provider.GENERIC.config_name
+            and picker_result.resolved_model is None
+        ):
+            return await _prompt_for_generic_model_spec()
 
         if picker_result.refer_to_docs or not picker_result.resolved_model:
             typer.echo(
@@ -385,10 +440,51 @@ def _build_fan_out_result_paths(
     return exports
 
 
-async def _save_result_history(agent_app: Any, *, agent_name: str, output_path: Path) -> None:
+def _build_transient_result_messages(
+    request_messages: str | list["PromptMessageExtended"],
+    response: "PromptMessageExtended",
+) -> list["PromptMessageExtended"]:
+    from fast_agent.types import normalize_to_extended_list
+
+    export_messages = [
+        message.model_copy(deep=True) for message in normalize_to_extended_list(request_messages)
+    ]
+    export_messages.append(response.model_copy(deep=True))
+    return export_messages
+
+
+
+def _response_was_persisted(
+    history_before: list["PromptMessageExtended"],
+    history_after: list["PromptMessageExtended"],
+    response: "PromptMessageExtended",
+) -> bool:
+    if len(history_after) <= len(history_before):
+        return False
+
+    last_message = history_after[-1]
+    return (
+        last_message.role == response.role
+        and last_message.last_text() == response.last_text()
+        and last_message.stop_reason == response.stop_reason
+    )
+
+
+async def _save_result_history(
+    agent_app: Any,
+    *,
+    agent_name: str,
+    output_path: Path,
+    messages_override: list["PromptMessageExtended"] | None = None,
+) -> None:
     from fast_agent.history.history_exporter import HistoryExporter
+    from fast_agent.mcp.prompt_serialization import save_messages
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    if messages_override is not None:
+        save_messages(messages_override, str(output_path))
+        return
+
     agent_obj = agent_app._agent(agent_name)
     await HistoryExporter.save(agent_obj, str(output_path))
 
@@ -398,6 +494,7 @@ async def _export_result_histories(
     request: AgentRunRequest,
     *,
     fan_out_agent_names: list[str] | None = None,
+    transient_messages_by_agent: Mapping[str, list["PromptMessageExtended"]] | None = None,
 ) -> None:
     if not request.result_file:
         return
@@ -412,6 +509,11 @@ async def _export_result_histories(
                     agent_app,
                     agent_name=agent_name,
                     output_path=output_path,
+                    messages_override=(
+                        transient_messages_by_agent.get(agent_name)
+                        if transient_messages_by_agent is not None
+                        else None
+                    ),
                 )
             return
 
@@ -420,6 +522,11 @@ async def _export_result_histories(
             agent_app,
             agent_name=selected_agent.name,
             output_path=Path(request.result_file),
+            messages_override=(
+                transient_messages_by_agent.get(selected_agent.name)
+                if transient_messages_by_agent is not None
+                else None
+            ),
         )
     except Exception as exc:  # noqa: BLE001
         typer.echo(f"Error exporting result file: {exc}", err=True)
@@ -438,9 +545,21 @@ async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -
 
         while True:
             try:
+                write_interactive_trace(
+                    "cli.interactive.enter",
+                    agent=request.target_agent_name,
+                )
                 await agent_app.interactive(agent_name=request.target_agent_name)
+                write_interactive_trace(
+                    "cli.interactive.return",
+                    agent=request.target_agent_name,
+                )
                 return
             except asyncio.CancelledError:
+                write_interactive_trace(
+                    "cli.interactive.cancelled_error",
+                    agent=request.target_agent_name,
+                )
                 task = asyncio.current_task()
                 if task is not None:
                     while task.uncancel() > 0:
@@ -449,6 +568,12 @@ async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -
                 continue
             except KeyboardInterrupt:
                 now = time.monotonic()
+                write_interactive_trace(
+                    "cli.interactive.keyboard_interrupt",
+                    agent=request.target_agent_name,
+                    had_deadline=ctrl_c_deadline is not None,
+                    exiting=ctrl_c_deadline is not None and now <= ctrl_c_deadline,
+                )
                 if ctrl_c_deadline is not None and now <= ctrl_c_deadline:
                     typer.echo("Second Ctrl+C received; exiting fast-agent.", err=True)
                     raise
@@ -462,12 +587,20 @@ async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -
                 continue
 
     await _resume_session_if_requested(agent_app, request)
+    transient_messages_by_agent: dict[str, list[PromptMessageExtended]] | None = None
     if request.message:
-        response = await agent_app.send(
-            request.message,
-            agent_name=request.target_agent_name,
-        )
-        print(response)
+        agent_obj = agent_app._agent(request.target_agent_name)
+        history_before = [message.model_copy(deep=True) for message in agent_obj.message_history]
+        response = await agent_obj.generate(request.message)
+        print(response.last_text() or "")
+        if request.result_file and not _response_was_persisted(
+            history_before,
+            agent_obj.message_history,
+            response,
+        ):
+            transient_messages_by_agent = {
+                agent_obj.name: _build_transient_result_messages(request.message, response)
+            }
     elif request.prompt_file:
         prompt = load_prompt(Path(request.prompt_file))
         agent_obj = agent_app._agent(request.target_agent_name)
@@ -480,7 +613,11 @@ async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -
     else:
         await _run_interactive_with_interrupt_recovery()
 
-    await _export_result_histories(agent_app, request)
+    await _export_result_histories(
+        agent_app,
+        request,
+        transient_messages_by_agent=transient_messages_by_agent,
+    )
 
 
 async def run_agent_request(request: AgentRunRequest) -> None:

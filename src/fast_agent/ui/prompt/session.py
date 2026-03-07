@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass
 from importlib.metadata import version
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import WordCompleter
@@ -58,7 +58,13 @@ from fast_agent.ui.command_payloads import (
 )
 from fast_agent.ui.mcp_display import render_mcp_status
 from fast_agent.ui.message_primitives import MessageType
+from fast_agent.ui.model_chip_display import render_model_chip
 from fast_agent.ui.model_display import format_model_display
+from fast_agent.ui.model_shortcuts import (
+    build_model_shortcut_hints,
+    cycle_reasoning_setting,
+    cycle_text_verbosity,
+)
 from fast_agent.ui.prompt.alert_flags import _resolve_alert_flags_from_history
 from fast_agent.ui.prompt.completer import AgentCompleter
 from fast_agent.ui.prompt.keybindings import ShellPrefixLexer, create_keybindings
@@ -74,18 +80,22 @@ from fast_agent.ui.prompt.toolbar import (
     _can_fit_shell_path_and_version,
     _fit_shell_identity_for_toolbar,
     _fit_shell_path_for_toolbar,
+    _format_context_usage_percent_for_toolbar,
     _format_toolbar_agent_identity,
+    _render_model_gauges,
     _resolve_toolbar_width,
     _toolbar_markup_width,
 )
-from fast_agent.ui.reasoning_effort_display import render_reasoning_effort_gauge
+from fast_agent.ui.service_tier_display import cycle_service_tier, render_service_tier_indicator
 from fast_agent.ui.shell_notice import format_shell_notice
-from fast_agent.ui.text_verbosity_display import render_text_verbosity_gauge
+from fast_agent.ui.web_fetch_display import render_web_fetch_indicator
+from fast_agent.ui.web_search_display import render_web_search_indicator
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from fast_agent.core.agent_app import AgentApp
+    from fast_agent.interfaces import FastAgentLLMProtocol
 
 # Get the application version
 try:
@@ -769,6 +779,8 @@ async def get_enhanced_input(
         model_display = None
         tdv_segment = None
         turn_count = 0
+        context_pct: float | None = None
+        usage_accumulator = None
         agent = None
         if agent_provider:
             try:
@@ -780,6 +792,12 @@ async def get_enhanced_input(
             for message in agent.message_history:
                 if message.role == "user":
                     turn_count += 1
+            try:
+                usage_accumulator = getattr(agent, "usage_accumulator", None)
+                if usage_accumulator is not None:
+                    context_pct = usage_accumulator.context_usage_percentage
+            except Exception:
+                context_pct = None
 
             # Resolve LLM reference safely (avoid assertion when unattached)
             llm = None
@@ -810,30 +828,40 @@ async def get_enhanced_input(
                 if context and context.config:
                     model_name = context.config.default_model
 
-            codex_suffix = ""
-            reasoning_gauge = None
-            verbosity_gauge = None
-            model_suffix = ""
+            is_codex_responses_model = False
+            model_gauges = ""
+            service_tier_indicator = None
+            web_search_indicator = None
+            web_fetch_indicator = None
             if model_name:
                 display_name = format_model_display(model_name) or model_name
                 if llm and getattr(llm, "provider", None) == Provider.CODEX_RESPONSES:
-                    codex_suffix = " <style bg='ansiyellow'>$</style>"
+                    is_codex_responses_model = True
                 if llm:
                     try:
-                        reasoning_gauge = render_reasoning_effort_gauge(
+                        model_gauges = _render_model_gauges(
                             llm.reasoning_effort,
                             llm.reasoning_effort_spec,
-                        )
-                        verbosity_gauge = render_text_verbosity_gauge(
                             llm.text_verbosity,
                             llm.text_verbosity_spec,
                         )
-                        if llm.web_search_enabled:
-                            model_suffix = "⊕"  # ◉ # 🌐
+                        service_tier_indicator = render_service_tier_indicator(
+                            supported=llm.service_tier_supported,
+                            service_tier=llm.service_tier,
+                        )
+                        web_search_indicator = render_web_search_indicator(
+                            supported=llm.web_search_supported,
+                            enabled=llm.web_search_enabled,
+                        )
+                        web_fetch_indicator = render_web_fetch_indicator(
+                            supported=llm.web_fetch_supported,
+                            enabled=llm.web_fetch_enabled,
+                        )
                     except Exception:
-                        reasoning_gauge = None
-                        verbosity_gauge = None
-                        model_suffix = ""
+                        model_gauges = ""
+                        service_tier_indicator = None
+                        web_search_indicator = None
+                        web_fetch_indicator = None
                 max_len = 25
                 model_display = (
                     display_name[: max_len - 1] + "…"
@@ -894,6 +922,19 @@ async def get_enhanced_input(
             if not info and model_name:
                 info = ModelInfo.from_name(model_name)
 
+            # First render often has no usage turns yet, so the accumulator may not
+            # know its model/context window. If we can resolve a window from model
+            # metadata, show 0.00% instead of falling back to "000".
+            if context_pct is None and usage_accumulator is not None:
+                try:
+                    window_size = usage_accumulator.context_window_size
+                    if (not window_size or window_size <= 0) and info:
+                        window_size = info.context_window
+                    if window_size and window_size > 0:
+                        context_pct = (usage_accumulator.current_context_tokens / window_size) * 100
+                except Exception:
+                    context_pct = None
+
             # Default to text-only if info resolution fails for any reason
             t, d, v = (True, False, False)
             if info:
@@ -923,26 +964,21 @@ async def get_enhanced_input(
         middle_segments = []
         if model_display:
             # Model chip + inline TDV flags
-            model_label = f"{model_display}{model_suffix}"
+            model_label = f"∞{model_display}" if is_codex_responses_model else model_display
+            gauge_segment = f" {model_gauges}" if model_gauges else ""
+            model_chip = render_model_chip(
+                model_label=model_label,
+                web_search_indicator=web_search_indicator,
+                web_fetch_indicator=web_fetch_indicator,
+                service_tier_indicator=service_tier_indicator,
+            )
             if tdv_segment:
-                gauge_segment = ""
-                if reasoning_gauge or verbosity_gauge:
-                    gauges = "".join(g for g in (reasoning_gauge, verbosity_gauge) if g)
-                    gauge_segment = f" {gauges}"
-                middle_segments.append(
-                    f"{tdv_segment}{gauge_segment} <style bg='ansigreen'>{model_label}</style>{codex_suffix}"
-                )
+                middle_segments.append(f"{tdv_segment}{gauge_segment} {model_chip}")
             else:
-                gauge_segment = ""
-                if reasoning_gauge or verbosity_gauge:
-                    gauges = "".join(g for g in (reasoning_gauge, verbosity_gauge) if g)
-                    gauge_segment = f" {gauges}"
-                middle_segments.append(
-                    f"{gauge_segment} <style bg='ansigreen'>{model_label}</style>{codex_suffix}"
-                )
+                middle_segments.append(f"{gauge_segment} {model_chip}")
 
-        # Add turn counter (formatted as 3 digits)
-        middle_segments.append(f"{turn_count:03d}")
+        context_chip = _format_context_usage_percent_for_toolbar(context_pct)
+        middle_segments.append(context_chip if context_chip is not None else f"{turn_count:03d}")
 
         if shortcut_text:
             middle_segments.append(shortcut_text)
@@ -1059,9 +1095,91 @@ async def get_enhanced_input(
         style=custom_style,
     )
 
+    def _resolve_active_llm() -> FastAgentLLMProtocol | None:
+        if agent_provider is None:
+            return None
+        try:
+            current_agent = agent_provider._agent(agent_name)
+        except Exception:
+            return None
+
+        llm = None
+        try:
+            llm = current_agent.llm
+        except AssertionError:
+            llm = getattr(current_agent, "_llm", None)
+        except Exception:
+            llm = getattr(current_agent, "_llm", None)
+        return cast("FastAgentLLMProtocol", llm) if llm is not None else None
+
+    def on_cycle_service_tier() -> None:
+        llm = _resolve_active_llm()
+        if llm is None or not llm.service_tier_supported:
+            return
+
+        next_service_tier = cycle_service_tier(
+            llm.service_tier,
+            allowed_tiers=getattr(llm, "available_service_tiers", ()),
+        )
+        try:
+            llm.set_service_tier(next_service_tier)
+        except ValueError:
+            return
+
+    def on_cycle_reasoning() -> None:
+        llm = _resolve_active_llm()
+        if llm is None:
+            return
+
+        next_setting = cycle_reasoning_setting(llm.reasoning_effort, llm.reasoning_effort_spec)
+        if next_setting is None:
+            return
+        try:
+            llm.set_reasoning_effort(next_setting)
+        except ValueError:
+            return
+
+    def on_cycle_verbosity() -> None:
+        llm = _resolve_active_llm()
+        if llm is None:
+            return
+
+        next_value = cycle_text_verbosity(llm.text_verbosity, llm.text_verbosity_spec)
+        if next_value is None:
+            return
+        try:
+            llm.set_text_verbosity(next_value)
+        except ValueError:
+            return
+
+    def on_cycle_web_search() -> None:
+        llm = _resolve_active_llm()
+        if llm is None or not llm.web_search_supported:
+            return
+
+        try:
+            llm.set_web_search_enabled(not llm.web_search_enabled)
+        except ValueError:
+            return
+
+    def on_cycle_web_fetch() -> None:
+        llm = _resolve_active_llm()
+        if llm is None or not llm.web_fetch_supported:
+            return
+
+        try:
+            llm.set_web_fetch_enabled(not llm.web_fetch_enabled)
+        except ValueError:
+            return
+
     # Create key bindings with a reference to the app
     bindings = create_keybindings(
         on_toggle_multiline=on_multiline_toggle,
+        on_cycle_service_tier=on_cycle_service_tier,
+        on_cycle_reasoning=on_cycle_reasoning,
+        on_cycle_verbosity=on_cycle_verbosity,
+        on_cycle_web_search=on_cycle_web_search,
+        on_cycle_web_fetch=on_cycle_web_fetch,
         app=session.app,
         agent_provider=agent_provider,
         agent_name=agent_name,
@@ -1147,6 +1265,14 @@ async def get_enhanced_input(
             rich_print(
                 "[dim]Use '/' for commands, '!' for shell. '#' to query, '@' to switch agents\nCTRL+T multiline, CTRL+Y copy last message, CTRL+E external editor.[/dim]"
             )
+
+        startup_llm = _resolve_active_llm()
+        shortcut_hints = build_model_shortcut_hints(startup_llm)
+        if shortcut_hints:
+            rich_print("[dim]Model shortcuts:[/dim]")
+            for hint in shortcut_hints:
+                rich_print(f"[dim]  {hint.key} = {hint.label} ({hint.values_text})[/dim]")
+            rich_print()
 
         if shell_enabled:
             modes_display = ", ".join(shell_access_modes or ("direct",))

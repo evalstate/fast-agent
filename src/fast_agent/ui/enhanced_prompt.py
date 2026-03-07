@@ -33,9 +33,11 @@ from fast_agent.ui.prompt.toolbar import (
     _can_fit_shell_path_and_version,
     _fit_shell_identity_for_toolbar,
     _fit_shell_path_for_toolbar,
+    _format_context_usage_percent_for_toolbar,
     _format_parent_current_path,
     _format_toolbar_agent_identity,
     _left_truncate_with_ellipsis,
+    _render_model_gauges,
 )
 
 if TYPE_CHECKING:
@@ -161,9 +163,11 @@ __all__ = [
     "_extract_alert_flags_from_meta",
     "_fit_shell_identity_for_toolbar",
     "_fit_shell_path_for_toolbar",
+    "_format_context_usage_percent_for_toolbar",
     "_format_parent_current_path",
     "_format_toolbar_agent_identity",
     "_left_truncate_with_ellipsis",
+    "_render_model_gauges",
     "_resolve_alert_flags_from_history",
     "_display_agent_info_helper",
     "agent_histories",

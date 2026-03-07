@@ -26,10 +26,11 @@ from fast_agent.mcp.helpers.content_helpers import (
 # Public message model used across providers and MCP integration
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
+# Stop reason enum - imported directly to avoid circular dependency
+from .assistant_message_phase import AssistantMessagePhase
+
 # Conversation analysis utilities
 from .conversation_summary import ConversationSummary, split_into_turns
-
-# Stop reason enum - imported directly to avoid circular dependency
 from .llm_stop_reason import LlmStopReason
 
 # Message search utilities
@@ -40,6 +41,7 @@ from .tool_timing import ToolTimingInfo, ToolTimings
 
 __all__ = [
     # Enums / types
+    "AssistantMessagePhase",
     "LlmStopReason",
     "PromptMessageExtended",
     "RequestParams",

@@ -79,6 +79,8 @@ class _AttrObjectView:
 def _to_plain_data(value: Any) -> Any:
     if isinstance(value, _AttrObjectView):
         return {key: _to_plain_data(item) for key, item in value._data.items()}
+    if isinstance(value, Mapping):
+        return {key: _to_plain_data(item) for key, item in value.items()}
     if isinstance(value, list):
         return [_to_plain_data(item) for item in value]
     return value
@@ -420,7 +422,7 @@ def _is_replayed_response_item(item: Any) -> bool:
     item_type = item.get("type")
     if item_type == "reasoning":
         return True
-    if item_type == "function_call":
+    if item_type in {"function_call", "custom_tool_call"}:
         return True
     if item_type == "message":
         return item.get("role") == "assistant"

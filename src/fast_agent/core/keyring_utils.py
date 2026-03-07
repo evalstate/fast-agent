@@ -47,9 +47,8 @@ def maybe_print_keyring_access_notice(*, purpose: str | None = None) -> None:
             return
 
         message = (
-            "fast-agent is accessing your OS keyring for stored OAuth/API tokens. "
-            "Some platforms may show a keychain prompt and pause startup until "
-            "access is allowed."
+            "fast-agent is accessing the OS keyring for stored tokens. "
+            "Some platforms may pause and show a prompt."
         )
         if purpose:
             message = f"{message} ({purpose})"

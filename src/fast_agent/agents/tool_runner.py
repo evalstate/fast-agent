@@ -6,13 +6,19 @@ from typing import (
     TYPE_CHECKING,
     Awaitable,
     Callable,
+    Literal,
     Protocol,
     Union,
 )
 
 from mcp.types import CallToolResult, ListToolsResult, TextContent
 
-from fast_agent.constants import DEFAULT_MAX_ITERATIONS, FAST_AGENT_ERROR_CHANNEL
+from fast_agent.constants import (
+    DEFAULT_MAX_ITERATIONS,
+    FAST_AGENT_ERROR_CHANNEL,
+    FAST_AGENT_SYNTHETIC_FINAL_CHANNEL,
+    FAST_AGENT_USAGE,
+)
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import MessageHistoryAgentProtocol
 from fast_agent.mcp.helpers.content_helpers import text_content
@@ -47,6 +53,24 @@ class _ToolLoopAgent(MessageHistoryAgentProtocol, Protocol):
 
 
 _logger = get_logger(__name__)
+
+
+HistoryRollbackStatus = Literal[
+    "history_disabled",
+    "history_empty",
+    "appended_interrupted_tool_result",
+    "history_unchanged",
+]
+
+
+@dataclass(frozen=True)
+class HistoryRollbackState:
+    """Summary of how history was handled after an interrupted tool loop."""
+
+    status: HistoryRollbackStatus
+    history_before: int
+    history_after: int
+    removed_messages: int
 
 
 @dataclass(frozen=True)
@@ -106,15 +130,25 @@ class ToolRunner:
 
         self._pending_tool_request: PromptMessageExtended | None = None
         self._pending_tool_response: PromptMessageExtended | None = None
+        self._staged_terminal_response: PromptMessageExtended | None = None
 
     def __aiter__(self) -> "ToolRunner":
         return self
 
     async def __anext__(self) -> PromptMessageExtended:
+        staged = self._consume_staged_terminal_response()
+        if staged is not None:
+            return staged
+
         if self._done:
             raise StopAsyncIteration
 
         await self._ensure_tool_response_staged()
+
+        staged = self._consume_staged_terminal_response()
+        if staged is not None:
+            return staged
+
         if self._done:
             raise StopAsyncIteration
 
@@ -146,20 +180,33 @@ class ToolRunner:
         try:
             async for message in self:
                 last = message
-        except (asyncio.CancelledError, KeyboardInterrupt) as exc:
-            try:
-                setattr(self._agent, "_last_turn_cancelled", True)
-                setattr(
-                    self._agent,
-                    "_last_turn_cancel_reason",
-                    "cancelled" if isinstance(exc, asyncio.CancelledError) else "interrupted",
-                )
-            except Exception:
-                pass
-            self._reset_history_after_cancelled_turn()
+        except asyncio.CancelledError:
+            rollback_state = self._reset_history_after_cancelled_turn()
+            self._record_cancelled_turn(
+                reason="cancelled",
+                rollback_state=rollback_state,
+            )
+            await self._persist_cancelled_turn_state_after_task_cancel()
+            raise
+        except KeyboardInterrupt:
+            rollback_state = self._reset_history_after_cancelled_turn()
+            self._record_cancelled_turn(
+                reason="interrupted",
+                rollback_state=rollback_state,
+            )
+            await self._persist_cancelled_turn_state()
             raise
         if last is None:
             raise RuntimeError("ToolRunner produced no messages")
+
+        if last.stop_reason == LlmStopReason.CANCELLED:
+            rollback_state = self._reset_history_after_cancelled_turn()
+            self._record_cancelled_turn(
+                reason="cancelled",
+                rollback_state=rollback_state,
+            )
+            await self._persist_cancelled_turn_state()
+            return last
 
         # Fire after_turn_complete hook once the entire turn is done
         if self._hooks.after_turn_complete is not None:
@@ -167,34 +214,135 @@ class ToolRunner:
 
         return last
 
-    def _reset_history_after_cancelled_turn(self) -> None:
+    def _record_cancelled_turn(
+        self,
+        *,
+        reason: str,
+        rollback_state: HistoryRollbackState,
+    ) -> None:
+        try:
+            setattr(self._agent, "_last_turn_cancelled", True)
+            setattr(self._agent, "_last_turn_cancel_reason", reason)
+            setattr(self._agent, "_last_turn_history_state", rollback_state)
+        except Exception:
+            pass
+
+    async def _persist_cancelled_turn_state(self) -> None:
+        """Persist reconciled history for cancelled turns when session history is enabled."""
         history = self._agent.message_history
         if not history:
             return
 
-        last_success_idx: int | None = None
-        for idx in range(len(history) - 1, -1, -1):
-            msg = history[idx]
-            if msg.role != "assistant":
-                continue
-            if msg.stop_reason in (LlmStopReason.TOOL_USE, LlmStopReason.CANCELLED):
-                continue
-            last_success_idx = idx
-            break
+        try:
+            from fast_agent.hooks.hook_context import HookContext
+            from fast_agent.hooks.session_history import save_session_history
 
-        if last_success_idx is None:
-            template_prefix: list[PromptMessageExtended] = []
-            for msg in history:
-                if msg.is_template:
-                    template_prefix.append(msg)
-                else:
-                    break
-            if len(template_prefix) != len(history):
-                self._agent.load_message_history(template_prefix)
+            await save_session_history(
+                HookContext(
+                    runner=self,
+                    agent=self._agent,
+                    message=history[-1],
+                    hook_type="after_turn_cancelled",
+                )
+            )
+        except Exception as exc:
+            _logger.warning(
+                "Failed to persist cancelled turn state",
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+
+    async def _persist_cancelled_turn_state_after_task_cancel(self) -> None:
+        """Persist cancelled-turn history even when this task was externally cancelled."""
+        task = asyncio.current_task()
+        if task is None:
+            await self._persist_cancelled_turn_state()
             return
 
-        if last_success_idx < len(history) - 1:
-            self._agent.load_message_history(history[: last_success_idx + 1])
+        cancellation_requests = task.cancelling()
+        if cancellation_requests == 0:
+            await self._persist_cancelled_turn_state()
+            return
+
+        for _ in range(cancellation_requests):
+            task.uncancel()
+
+        try:
+            await self._persist_cancelled_turn_state()
+        finally:
+            for _ in range(cancellation_requests):
+                task.cancel()
+
+    @staticmethod
+    def reconcile_interrupted_history(
+        agent: MessageHistoryAgentProtocol,
+        *,
+        use_history: bool,
+    ) -> HistoryRollbackState:
+        history = agent.message_history
+        history_before = len(history)
+
+        if not use_history:
+            return HistoryRollbackState(
+                status="history_disabled",
+                history_before=history_before,
+                history_after=history_before,
+                removed_messages=0,
+            )
+
+        if not history:
+            return HistoryRollbackState(
+                status="history_empty",
+                history_before=0,
+                history_after=0,
+                removed_messages=0,
+            )
+
+        last_message = history[-1]
+        if (
+            last_message.role == "assistant"
+            and (last_message.tool_calls or {})
+            and last_message.stop_reason == LlmStopReason.TOOL_USE
+        ):
+            interrupted_tool_message = ToolRunner._build_interrupted_tool_result(last_message)
+            agent.load_message_history([*history, interrupted_tool_message])
+            return HistoryRollbackState(
+                status="appended_interrupted_tool_result",
+                history_before=history_before,
+                history_after=history_before + 1,
+                removed_messages=0,
+            )
+
+        return HistoryRollbackState(
+            status="history_unchanged",
+            history_before=history_before,
+            history_after=history_before,
+            removed_messages=0,
+        )
+
+    def _reset_history_after_cancelled_turn(self) -> HistoryRollbackState:
+        return ToolRunner.reconcile_interrupted_history(
+            self._agent,
+            use_history=self._agent.config.use_history,
+        )
+
+    @staticmethod
+    def _build_interrupted_tool_result(
+        pending_request: PromptMessageExtended,
+    ) -> PromptMessageExtended:
+        interrupted_text = "**The user interrupted this tool call**"
+        tool_results: dict[str, CallToolResult] = {}
+        for tool_id in (pending_request.tool_calls or {}).keys():
+            tool_results[tool_id] = CallToolResult(
+                content=[text_content(interrupted_text)],
+                isError=True,
+            )
+
+        return PromptMessageExtended(
+            role="user",
+            content=[text_content(interrupted_text)],
+            tool_results=tool_results,
+        )
 
     def _build_tool_error_response(
         self, request: PromptMessageExtended, error_message: str
@@ -255,14 +403,17 @@ class ToolRunner:
                 await self._hooks.after_tool_call(self, tool_message)
             except Exception as exc:
                 _logger.error("Tool hook failed after tool call", exc_info=exc)
-
-        self._stage_tool_response(tool_message)
         self._pending_tool_request = None
 
         return tool_message
 
     def set_request_params(self, params: RequestParams) -> None:
         self._request_params = params
+
+    @property
+    def request_params(self) -> RequestParams | None:
+        """Current request params driving this tool-loop turn."""
+        return self._request_params
 
     def append_messages(self, *messages: Union[str, PromptMessageExtended]) -> None:
         for message in messages:
@@ -298,12 +449,60 @@ class ToolRunner:
         return self._pending_tool_request is not None
 
     def _stage_tool_response(self, tool_message: PromptMessageExtended) -> None:
-        if self._agent.config.use_history:
+        if self._use_history_enabled():
             self._delta_messages = [tool_message]
         else:
             if self._last_message is not None:
                 self._delta_messages.append(self._last_message)
             self._delta_messages.append(tool_message)
+
+    def _consume_staged_terminal_response(self) -> PromptMessageExtended | None:
+        staged = self._staged_terminal_response
+        if staged is None:
+            return None
+
+        self._staged_terminal_response = None
+        self._last_message = staged
+        self._done = True
+        return staged
+
+    def _use_history_enabled(self) -> bool:
+        if self._request_params is not None:
+            return self._request_params.use_history
+        return self._agent.config.use_history
+
+    def _passthrough_enabled(self) -> bool:
+        if self._request_params is None:
+            return False
+        return self._request_params.tool_result_passthrough
+
+    def _append_history_messages(self, *messages: PromptMessageExtended) -> None:
+        history = list(self._agent.message_history)
+        history.extend(messages)
+        self._agent.load_message_history(history)
+
+    def _synthesize_passthrough_assistant(
+        self,
+        tool_message: PromptMessageExtended,
+    ) -> PromptMessageExtended:
+        content_blocks = [
+            content
+            for tool_result in (tool_message.tool_results or {}).values()
+            for content in tool_result.content
+        ]
+
+        channels = {FAST_AGENT_SYNTHETIC_FINAL_CHANNEL: [text_content("tool_result_passthrough")]}
+        if self._last_message is not None and self._last_message.channels:
+            usage_blocks = self._last_message.channels.get(FAST_AGENT_USAGE)
+            if usage_blocks:
+                channels[FAST_AGENT_USAGE] = list(usage_blocks)
+
+        return PromptMessageExtended(
+            role="assistant",
+            content=content_blocks,
+            channels=channels,
+            stop_reason=LlmStopReason.END_TURN,
+        )
 
     async def _ensure_tools_ready(self) -> None:
         if self._tools is None:
@@ -340,3 +539,18 @@ class ToolRunner:
         )
         if self._iteration > max_iterations:
             self._done = True
+            return
+
+        if self._passthrough_enabled():
+            terminal_message = self._synthesize_passthrough_assistant(tool_message)
+            if self._use_history_enabled():
+                self._append_history_messages(tool_message, terminal_message)
+
+            if self._hooks.after_llm_call is not None:
+                await self._hooks.after_llm_call(self, terminal_message)
+
+            self._staged_terminal_response = terminal_message
+            self._done = True
+            return
+
+        self._stage_tool_response(tool_message)

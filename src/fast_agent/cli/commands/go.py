@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path  # noqa: TC003 - typer resolves Path annotations at runtime
-from typing import Literal
+from typing import Any, Literal
 
 import typer
 
@@ -36,8 +36,6 @@ from fast_agent.cli.runtime.request_builders import (
 )
 from fast_agent.cli.runtime.run_request import (
     AgentRunRequest,
-    StdioServerConfig,
-    UrlServerConfig,
 )
 from fast_agent.cli.runtime.runner import run_request
 from fast_agent.cli.shared_options import CommonAgentOptions
@@ -92,76 +90,58 @@ def _merge_card_sources(
     return merge_card_sources(sources, default_dir)
 
 
+def _build_compat_run_request(**kwargs: Any) -> AgentRunRequest:
+    """Build an AgentRunRequest from legacy compatibility keyword arguments.
+
+    This wrapper intentionally accepts ``Any`` because it preserves the legacy
+    dynamic call surface used by older integrations while converting into the
+    strongly typed ``AgentRunRequest`` model at the boundary.
+    """
+    return AgentRunRequest(
+        name=kwargs.get("name", "fast-agent cli"),
+        instruction=kwargs.get("instruction"),
+        config_path=kwargs.get("config_path"),
+        server_list=kwargs.get("server_list"),
+        agent_cards=kwargs.get("agent_cards"),
+        card_tools=kwargs.get("card_tools"),
+        model=kwargs.get("model"),
+        message=kwargs.get("message"),
+        prompt_file=kwargs.get("prompt_file"),
+        result_file=kwargs.get("result_file"),
+        resume=kwargs.get("resume"),
+        url_servers=kwargs.get("url_servers"),
+        stdio_servers=kwargs.get("stdio_servers"),
+        agent_name=kwargs.get("agent_name", "agent"),
+        target_agent_name=kwargs.get("target_agent_name"),
+        skills_directory=kwargs.get("skills_directory"),
+        environment_dir=kwargs.get("environment_dir"),
+        noenv=kwargs.get("noenv", False),
+        force_smart=kwargs.get("force_smart", False),
+        shell_runtime=kwargs.get("shell_runtime", False),
+        mode=kwargs.get("mode", "interactive"),
+        transport=kwargs.get("transport", "http"),
+        host=kwargs.get("host", "0.0.0.0"),
+        port=kwargs.get("port", 8000),
+        tool_description=kwargs.get("tool_description"),
+        tool_name_template=kwargs.get("tool_name_template"),
+        instance_scope=kwargs.get("instance_scope", "shared"),
+        permissions_enabled=kwargs.get("permissions_enabled", True),
+        reload=kwargs.get("reload", False),
+        watch=kwargs.get("watch", False),
+        quiet=kwargs.get("quiet", False),
+        missing_shell_cwd_policy=kwargs.get("missing_shell_cwd_policy"),
+    )
+
+
 async def _run_agent(
-    name: str = "fast-agent cli",
-    instruction: str | None = None,
-    config_path: str | None = None,
-    server_list: list[str] | None = None,
-    agent_cards: list[str] | None = None,
-    card_tools: list[str] | None = None,
-    model: str | None = None,
-    message: str | None = None,
-    prompt_file: str | None = None,
-    result_file: str | None = None,
-    resume: str | None = None,
-    url_servers: dict[str, UrlServerConfig] | None = None,
-    stdio_servers: dict[str, StdioServerConfig] | None = None,
-    agent_name: str | None = "agent",
-    target_agent_name: str | None = None,
-    skills_directory: Path | None = None,
-    environment_dir: Path | None = None,
-    noenv: bool = False,
-    force_smart: bool = False,
-    shell_runtime: bool = False,
-    mode: Literal["interactive", "serve"] = "interactive",
-    transport: str = "http",
-    host: str = "0.0.0.0",
-    port: int = 8000,
-    tool_description: str | None = None,
-    tool_name_template: str | None = None,
-    instance_scope: str = "shared",
-    permissions_enabled: bool = True,
-    reload: bool = False,
-    watch: bool = False,
-    quiet: bool = False,
-    missing_shell_cwd_policy: Literal["ask", "create", "warn", "error"] | None = None,
+    request: AgentRunRequest | None = None,
+    **kwargs: Any,
 ) -> None:
     """Compatibility wrapper for async request execution."""
-    request = AgentRunRequest(
-        name=name,
-        instruction=instruction,
-        config_path=config_path,
-        server_list=server_list,
-        agent_cards=agent_cards,
-        card_tools=card_tools,
-        model=model,
-        message=message,
-        prompt_file=prompt_file,
-        result_file=result_file,
-        resume=resume,
-        url_servers=url_servers,
-        stdio_servers=stdio_servers,
-        agent_name=agent_name,
-        target_agent_name=target_agent_name,
-        skills_directory=skills_directory,
-        environment_dir=environment_dir,
-        noenv=noenv,
-        force_smart=force_smart,
-        shell_runtime=shell_runtime,
-        mode=mode,
-        transport=transport,
-        host=host,
-        port=port,
-        tool_description=tool_description,
-        tool_name_template=tool_name_template,
-        instance_scope=instance_scope,
-        permissions_enabled=permissions_enabled,
-        reload=reload,
-        watch=watch,
-        quiet=quiet,
-        missing_shell_cwd_policy=missing_shell_cwd_policy,
-    )
-    await run_agent_request(request)
+    if request is not None and kwargs:
+        raise ValueError("request cannot be combined with compatibility keyword arguments")
+
+    await run_agent_request(request or _build_compat_run_request(**kwargs))
 
 
 def run_async_agent(

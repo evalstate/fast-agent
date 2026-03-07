@@ -143,6 +143,7 @@ class HashAgentCommand(CommandBase):
 
     agent_name: str
     message: str
+    quiet: bool = False
     kind: Literal["hash_agent"] = "hash_agent"
 
 
@@ -286,6 +287,12 @@ class ModelVerbosityCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class ModelFastCommand(CommandBase):
+    value: str | None
+    kind: Literal["model_fast"] = "model_fast"
+
+
+@dataclass(frozen=True, slots=True)
 class ModelWebSearchCommand(CommandBase):
     value: str | None
     kind: Literal["model_web_search"] = "model_web_search"
@@ -352,6 +359,7 @@ CommandPayload = (
     | ShellCommand
     | ModelReasoningCommand
     | ModelVerbosityCommand
+    | ModelFastCommand
     | ModelWebSearchCommand
     | ModelWebFetchCommand
     | InterruptCommand

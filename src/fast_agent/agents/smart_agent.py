@@ -530,7 +530,7 @@ def _mcp_usage_text() -> str:
 
 
 def _model_usage_text() -> str:
-    return "Usage: /model [reasoning|verbosity|web_search|web_fetch|help] <value>"
+    return "Usage: /model [reasoning|verbosity|fast|web_search|web_fetch|help] <value>"
 
 
 def _run_commands_slash_command_call(arguments: str) -> str:
@@ -811,6 +811,14 @@ async def _run_model_slash_command_call(agent: Any, arguments: str) -> str:
 
     if action == "verbosity":
         outcome = await model_handlers.handle_model_verbosity(
+            context,
+            agent_name=agent_name,
+            value=value,
+        )
+        return _render_smart_slash_outcome(outcome, heading="model", io=io)
+
+    if action == "fast":
+        outcome = await model_handlers.handle_model_fast(
             context,
             agent_name=agent_name,
             value=value,

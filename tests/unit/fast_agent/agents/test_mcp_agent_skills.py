@@ -59,8 +59,9 @@ async def test_mcp_agent_exposes_skill_tools(tmp_path: Path) -> None:
     tool_names = {tool.name for tool in tools_result.tools}
     # Skills are not exposed as individual tools
     assert "alpha" not in tool_names
-    # But read_skill tool should be available since skills are configured
-    assert "read_skill" in tool_names
+    # With local filesystem runtime enabled by default, skills use read_text_file
+    assert "read_text_file" in tool_names
+    assert "read_skill" not in tool_names
     # Path should be absolute
     assert manifests[0].path.is_absolute()
 
@@ -84,7 +85,8 @@ async def test_mcp_agent_skills_default_uses_context_registry(tmp_path: Path) ->
 
     tools_result = await agent.list_tools()
     tool_names = {tool.name for tool in tools_result.tools}
-    assert "read_skill" in tool_names
+    assert "read_text_file" in tool_names
+    assert "read_skill" not in tool_names
 
 
 @pytest.mark.asyncio

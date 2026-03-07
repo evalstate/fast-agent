@@ -118,3 +118,55 @@ async def test_overlapping_prompts_are_serialized() -> None:
     proceed2.set()
     r2 = await asyncio.wait_for(t2, timeout=1.0)
     assert r2.stop_reason in {"end_turn", "end_turn"}
+
+
+@pytest.mark.asyncio
+async def test_cancelled_prompt_does_not_poison_next_acp_turn() -> None:
+    started1 = asyncio.Event()
+    started2 = asyncio.Event()
+    proceed2 = asyncio.Event()
+
+    agent = DummyAgent(started_evt=started1, proceed_evt=asyncio.Event(), text="first")
+    agents: dict[str, "AgentProtocol"] = {"default": cast("AgentProtocol", agent)}
+    instance = AgentInstance(app=AgentApp(agents), agents=agents, registry_version=0)
+
+    async def create_instance() -> AgentInstance:
+        return instance
+
+    async def dispose_instance(_instance: AgentInstance) -> None:
+        return None
+
+    server = AgentACPServer(
+        primary_instance=instance,
+        create_instance=create_instance,
+        dispose_instance=dispose_instance,
+        instance_scope="shared",
+        server_name="test",
+        permissions_enabled=False,
+    )
+
+    session_id = "s-2"
+    server.sessions[session_id] = instance
+    server._session_state[session_id] = ACPSessionState(session_id=session_id, instance=instance)
+
+    cancelled_task = asyncio.create_task(
+        server.prompt(prompt=[TextContentBlock(type="text", text="p1")], session_id=session_id)
+    )
+
+    await asyncio.wait_for(started1.wait(), timeout=1.0)
+    await server.cancel(session_id)
+    cancelled_response = await asyncio.wait_for(cancelled_task, timeout=1.0)
+    assert cancelled_response.stop_reason == "cancelled"
+
+    server.sessions[session_id].agents["default"] = cast(
+        "AgentProtocol",
+        DummyAgent(started_evt=started2, proceed_evt=proceed2, text="second"),
+    )
+
+    next_task = asyncio.create_task(
+        server.prompt(prompt=[TextContentBlock(type="text", text="p2")], session_id=session_id)
+    )
+    await asyncio.wait_for(started2.wait(), timeout=1.0)
+    proceed2.set()
+    next_response = await asyncio.wait_for(next_task, timeout=1.0)
+    assert next_response.stop_reason == "end_turn"

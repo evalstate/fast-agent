@@ -413,6 +413,38 @@ class AgentsAsToolsAgent(McpAgent):
     def _render_structured_args(arguments: dict[str, Any]) -> str:
         return json.dumps(arguments, ensure_ascii=False, sort_keys=True, default=str)
 
+    @staticmethod
+    def _split_response_mode_control(
+        arguments: dict[str, Any],
+    ) -> tuple[dict[str, Any], bool | None]:
+        sanitized_arguments = dict(arguments)
+        raw_mode = sanitized_arguments.pop("response_mode", None)
+        if not isinstance(raw_mode, str):
+            return sanitized_arguments, None
+
+        mode = raw_mode.lower()
+        if mode == "postprocess":
+            return sanitized_arguments, False
+        if mode == "passthrough":
+            return sanitized_arguments, True
+        return sanitized_arguments, None
+
+    @staticmethod
+    def _build_child_request_params(
+        request_params: RequestParams | None,
+        passthrough_override: bool | None,
+    ) -> RequestParams | None:
+        passthrough_value: bool | None = None
+        if request_params is not None:
+            passthrough_value = request_params.tool_result_passthrough
+        if passthrough_override is not None:
+            passthrough_value = passthrough_override
+
+        if passthrough_value is None:
+            return None
+
+        return RequestParams(tool_result_passthrough=passthrough_value)
+
     async def list_tools(self) -> ListToolsResult:
         """List MCP tools plus child agents exposed as tools."""
 
@@ -508,7 +540,13 @@ class AgentsAsToolsAgent(McpAgent):
     ) -> CallToolResult:
         """Shared helper to execute a child agent with standard serialization and display rules."""
 
-        args = arguments or {}
+        raw_args = arguments or {}
+        args, passthrough_override = self._split_response_mode_control(raw_args)
+        child_request_params = self._build_child_request_params(
+            request_params,
+            passthrough_override,
+        )
+
         if self._child_uses_structured_args(child):
             input_text = self._render_structured_args(args)
         # Extract message from arguments for legacy child tool schemas.
@@ -608,7 +646,10 @@ class AgentsAsToolsAgent(McpAgent):
                 with self._child_display_suppressed(child) if suppress_display else nullcontext():
                     if tool_handler and tool_call_id and not hooks_set:
                         await emit_progress("run")
-                    response: PromptMessageExtended = await child.generate([child_request], None)
+                    response: PromptMessageExtended = await child.generate(
+                        [child_request],
+                        request_params=child_request_params,
+                    )
             content_blocks = list(response.content or [])
 
             error_blocks = None

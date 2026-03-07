@@ -210,6 +210,7 @@ class TestTrimToolLoopHistory:
         # Create mock runner
         class MockRunner:
             iteration = 2
+            request_params = None
 
         agent = MockAgent()
         final_message = _make_assistant_msg("done")
@@ -254,6 +255,7 @@ class TestTrimToolLoopHistory:
 
         class MockRunner:
             iteration = 1
+            request_params = None
 
         agent = MockAgent()
         # Simulate an intermediate tool_call message (turn not complete)
@@ -304,6 +306,7 @@ class TestTrimToolLoopHistory:
 
         class MockRunner:
             iteration = 2
+            request_params = None
 
         agent = MockAgent()
         final_message = _make_assistant_msg("current answer")

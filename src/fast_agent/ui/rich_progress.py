@@ -154,6 +154,12 @@ class RichProgressDisplay:
             live_stack = []
 
         if live_stack and any(live is not self._progress.live for live in live_stack):
+            # A concurrent Rich Live (for example, a streaming renderer that is
+            # still unwinding after cancellation) temporarily blocks the shared
+            # progress display from resuming. Keep an immediate deferred retry
+            # armed so the next update() can re-attempt resume once the other
+            # Live is gone instead of silently remaining paused for the turn.
+            self._deferred_resume_at = time.monotonic()
             self._trace("resume_locked.blocked_nested_live", live_stack=len(live_stack))
             return
         ensure_blocking_console()
@@ -237,6 +243,34 @@ class RichProgressDisplay:
                 if task.id == task_id:
                     task.visible = False
                     break
+
+    def clear_agent_tasks(self, agent_name: str | None) -> None:
+        """Remove all progress rows for an agent, including correlated tool rows."""
+        normalized_agent = (agent_name or "").strip()
+        if not normalized_agent:
+            return
+
+        prefix = f"{normalized_agent}::"
+        with self._lock:
+            task_names = [
+                task_name
+                for task_name in list(self._taskmap)
+                if task_name == normalized_agent or task_name.startswith(prefix)
+            ]
+            if not task_names:
+                return
+
+            for task_name in task_names:
+                task_id = self._taskmap.get(task_name)
+                if task_id is None:
+                    continue
+                self._drop_task(task_name, task_id)
+
+            self._trace(
+                "clear_agent_tasks",
+                agent_name=normalized_agent,
+                cleared=len(task_names),
+            )
 
     @contextmanager
     def paused(self):

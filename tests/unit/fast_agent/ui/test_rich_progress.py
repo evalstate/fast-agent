@@ -6,6 +6,8 @@ import time
 from typing import Any
 
 from rich.console import Console
+from rich.live import Live
+from rich.text import Text
 
 from fast_agent.event_progress import ProgressAction, ProgressEvent
 from fast_agent.ui.rich_progress import RichProgressDisplay
@@ -130,6 +132,21 @@ class TestPauseResumeOrdering:
         display.pause()
         assert display._stopped is True
         assert display._paused is True
+
+    def test_resume_retries_after_nested_live_unwinds(self) -> None:
+        display = _make_display()
+        display.start()
+        display.pause()
+
+        with Live(Text("streaming"), console=display.console, auto_refresh=False):
+            display.resume()
+            assert display._paused is True
+            assert display._deferred_resume_at is not None
+
+        display.update(_make_event())
+        assert display._paused is False
+
+        display.stop()
 
 
 class TestDebouncedResume:
@@ -654,6 +671,51 @@ class TestAgentLifecycleRows:
 
         display.resume()
         assert "test-agent" not in display._taskmap
+
+        display.stop()
+
+
+class TestAgentTaskClearing:
+    """Interrupted sends should be able to clear stale rows for one agent."""
+
+    def test_clear_agent_tasks_removes_base_and_correlated_rows(self) -> None:
+        display = _make_display()
+        display.start()
+
+        display.update(
+            _make_event(
+                action=ProgressAction.CHATTING,
+                agent_name="agent-a",
+                target="agent-a",
+            )
+        )
+        display.update(
+            _make_event(
+                action=ProgressAction.CALLING_TOOL,
+                agent_name="agent-a",
+                target="agent-a",
+                correlation_id="tool-a-1",
+                tool_event="start",
+            )
+        )
+        display.update(
+            _make_event(
+                action=ProgressAction.CHATTING,
+                agent_name="agent-b",
+                target="agent-b",
+            )
+        )
+
+        assert "agent-a" in display._taskmap
+        assert "agent-a::tool-a-1" in display._taskmap
+        assert "agent-b" in display._taskmap
+
+        display.clear_agent_tasks("agent-a")
+
+        assert "agent-a" not in display._taskmap
+        assert "agent-a::tool-a-1" not in display._taskmap
+        assert "agent-a::tool-a-1" not in display._task_kind
+        assert "agent-b" in display._taskmap
 
         display.stop()
 

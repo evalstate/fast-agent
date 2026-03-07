@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 
 from fast_agent.cli.runtime.agent_setup import (
+    _normalize_generic_model_spec,
     _resolve_model_without_hardcoded_default,
     _should_prompt_for_model_picker,
 )
@@ -129,3 +130,16 @@ def test_resolve_model_without_hardcoded_default_uses_environment_variable() -> 
 
     assert model == "responses.gpt-5-mini"
     assert source == "environment variable FAST_AGENT_MODEL"
+
+
+def test_normalize_generic_model_spec_adds_generic_prefix_when_missing() -> None:
+    assert _normalize_generic_model_spec("llama3.2") == "generic.llama3.2"
+
+
+def test_normalize_generic_model_spec_preserves_explicit_provider_prefix() -> None:
+    assert _normalize_generic_model_spec("generic.llama3.2:latest") == "generic.llama3.2:latest"
+    assert _normalize_generic_model_spec("openai/gpt-4.1") == "openai/gpt-4.1"
+
+
+def test_normalize_generic_model_spec_returns_none_for_blank_input() -> None:
+    assert _normalize_generic_model_spec("   ") is None
