@@ -270,10 +270,13 @@ def _render_setup_item_list(items: tuple[ModelAliasSetupItem, ...]) -> Text:
 
 def _build_common_setup_items(
     valid_aliases: dict[str, dict[str, str]],
+    *,
+    suppressed_tokens: set[str] | None = None,
 ) -> tuple[ModelAliasSetupItem, ...]:
     items: list[ModelAliasSetupItem] = []
+    hidden_tokens = suppressed_tokens or set()
     system_aliases = valid_aliases.get("system", {})
-    if "default" not in system_aliases:
+    if "default" not in system_aliases and "$system.default" not in hidden_tokens:
         items.append(
             ModelAliasSetupItem(
                 token="$system.default",
@@ -284,7 +287,7 @@ def _build_common_setup_items(
                 references=("starter setup",),
             )
         )
-    if "fast" not in system_aliases:
+    if "fast" not in system_aliases and "$system.fast" not in hidden_tokens:
         items.append(
             ModelAliasSetupItem(
                 token="$system.fast",
@@ -313,11 +316,16 @@ def _merge_setup_items(
 
 def _build_picker_items(
     diagnostics: ModelAliasSetupDiagnostics,
+    *,
+    suppressed_tokens: set[str] | None = None,
 ) -> tuple[ModelAliasPickerItem, ...]:
     items: list[ModelAliasPickerItem] = []
     seen_tokens: set[str] = set()
+    hidden_tokens = suppressed_tokens or set()
 
     def _add_item(item: ModelAliasPickerItem) -> None:
+        if item.token in hidden_tokens:
+            return
         if item.token in seen_tokens:
             return
         seen_tokens.add(item.token)
@@ -336,7 +344,10 @@ def _build_picker_items(
             )
         )
 
-    for item in _build_common_setup_items(diagnostics.valid_aliases):
+    for item in _build_common_setup_items(
+        diagnostics.valid_aliases,
+        suppressed_tokens=hidden_tokens,
+    ):
         _add_item(
             ModelAliasPickerItem(
                 token=item.token,
@@ -423,12 +434,16 @@ async def _run_model_setup_command(
             await io.emit(message)
         return
 
+    suppressed_tokens: set[str] = set()
     while True:
         diagnostics = collect_model_alias_setup_diagnostics(
             cwd=Path.cwd(),
             env_dir=getattr(settings, "environment_dir", None),
         )
-        picker_items = _build_picker_items(diagnostics)
+        picker_items = _build_picker_items(
+            diagnostics,
+            suppressed_tokens=suppressed_tokens,
+        )
         picker_result = await run_model_alias_picker_async(picker_items)
         if picker_result is None:
             return
@@ -458,12 +473,14 @@ async def _run_model_setup_command(
                     await io.emit(message)
                 return
 
+            suppressed_tokens.add(picker_result.token)
             for message in outcome.messages:
                 if message.channel in {"warning", "error"}:
                     await io.emit(message)
             continue
         else:
             assert picker_result.token is not None
+            suppressed_tokens.discard(picker_result.token)
             outcome = await run_model_setup(
                 io=io,
                 settings=settings,
