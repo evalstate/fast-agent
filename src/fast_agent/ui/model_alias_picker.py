@@ -179,7 +179,7 @@ class _AliasPicker:
     def _render_rows(self) -> StyleFragments:
         rows: list[ModelAliasPickerItem | None] = [*self.items, None]
         width = self._terminal_cols()
-        status_width = 25
+        status_width = 34
         token_width = max(18, width - status_width - 4)
         fragments: StyleFragments = []
         for index, item in enumerate(rows):
@@ -193,7 +193,12 @@ class _AliasPicker:
                 token_text = item.token[: token_width - 1]
                 if len(item.token) > token_width:
                     token_text = item.token[: token_width - 2] + "…"
-                status_text = item.status
+                if item.priority == "configured" and item.current_value is not None:
+                    status_text = item.current_value
+                else:
+                    status_text = item.status
+                if len(status_text) > status_width:
+                    status_text = status_text[: status_width - 1] + "…"
             line_style = self._row_style(selected=selected, priority=priority)
             cursor = "❯ " if selected else "  "
             fragments.append(
