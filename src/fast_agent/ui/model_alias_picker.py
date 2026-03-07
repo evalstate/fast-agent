@@ -69,8 +69,8 @@ class _AliasPicker:
                     "required": "ansiyellow",
                     "repair": "ansired",
                     "recommended": "ansicyan",
-                    "muted": "ansibrightblack",
-                    "status": "ansibrightwhite",
+                    "muted": "#777777",
+                    "status": "#ffffff",
                 }
             ),
             full_screen=False,
