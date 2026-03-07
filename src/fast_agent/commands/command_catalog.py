@@ -145,6 +145,27 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
         ),
     ),
     CommandSpec(
+        command="models",
+        summary="Model onboarding and alias diagnostics",
+        usage="/models [doctor|aliases|catalog|help] [args]",
+        actions=(
+            CommandActionSpec(action="doctor", help="Inspect model onboarding readiness"),
+            CommandActionSpec(action="aliases", aliases=("alias",), help="List or manage model aliases"),
+            CommandActionSpec(action="catalog", help="Show model catalog for a provider"),
+            CommandActionSpec(
+                action="help",
+                aliases=("--help", "-h"),
+                help="Show models command usage",
+            ),
+        ),
+        default_action="doctor",
+        examples=(
+            "/models doctor",
+            "/models aliases",
+            "/models catalog anthropic",
+        ),
+    ),
+    CommandSpec(
         command="check",
         summary="Config diagnostics",
         usage="/check [args]",

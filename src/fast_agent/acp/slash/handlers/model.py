@@ -33,9 +33,22 @@ if TYPE_CHECKING:
 
 
 async def handle_model(handler: "SlashCommandHandler", arguments: str | None = None) -> str:
+    return await _handle_model_like(handler, arguments, heading_prefix="model")
+
+
+async def handle_models(handler: "SlashCommandHandler", arguments: str | None = None) -> str:
+    return await _handle_model_like(handler, arguments, heading_prefix="models")
+
+
+async def _handle_model_like(
+    handler: "SlashCommandHandler",
+    arguments: str | None,
+    *,
+    heading_prefix: str,
+) -> str:
     remainder = (arguments or "").strip()
     value = None
-    command_kind = "reasoning"
+    command_kind = "reasoning" if heading_prefix == "model" else "doctor"
     if remainder:
         try:
             tokens = shlex.split(remainder)
@@ -65,8 +78,10 @@ async def handle_model(handler: "SlashCommandHandler", arguments: str | None = N
             elif subcmd in {"doctor", "aliases", "catalog", "help"}:
                 command_kind = subcmd
                 value = argument or None
-            else:
+            elif heading_prefix == "model":
                 return handler._model_usage_text()
+            else:
+                return handler._model_usage_text().replace("/model", "/models")
 
     io = ACPCommandIO()
     ctx = CommandContext(
@@ -162,5 +177,12 @@ async def handle_model(handler: "SlashCommandHandler", arguments: str | None = N
                 f"Cleared agent history: {', '.join(sorted(cleared))}",
                 channel="info",
             )
-    heading = "model" if command_kind == "reasoning" and value is None else f"model.{command_kind}"
+    if heading_prefix == "models":
+        heading = heading_prefix if command_kind == "doctor" and value is None else f"{heading_prefix} {command_kind}"
+    else:
+        heading = (
+            heading_prefix
+            if command_kind == "reasoning" and value is None
+            else f"{heading_prefix}.{command_kind}"
+        )
     return render_command_outcome_markdown(outcome, heading=heading)

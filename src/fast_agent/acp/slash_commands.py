@@ -291,6 +291,15 @@ class SlashCommandHandler:
                     )
                 ),
             ),
+            "models": AvailableCommand(
+                name="models",
+                description="Inspect model onboarding readiness and alias management",
+                input=AvailableCommandInput(
+                    root=UnstructuredCommandInput(
+                        hint="[doctor|aliases|catalog|help] [args]"
+                    )
+                ),
+            ),
             "history": AvailableCommand(
                 name="history",
                 description="Show or manage conversation history",
@@ -651,6 +660,9 @@ class SlashCommandHandler:
 
     async def _handle_model(self, arguments: str | None = None) -> str:
         return await model_slash_handlers.handle_model(self, arguments)
+
+    async def _handle_models(self, arguments: str | None = None) -> str:
+        return await model_slash_handlers.handle_models(self, arguments)
 
     async def _handle_session(self, arguments: str | None = None) -> str:
         return await session_slash_handlers.handle_session(self, arguments)

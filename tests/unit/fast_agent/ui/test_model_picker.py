@@ -47,7 +47,7 @@ def test_models_window_vertical_scroll_tracks_picker_scroll_state() -> None:
 
 
 def test_provider_display_name_uses_local_generic_label() -> None:
-    assert _SplitListPicker._provider_display_name("generic", "Generic") == "Local (Generic)"
+    assert _SplitListPicker._provider_display_name("generic", "Generic") == "Local (ollama)"
 
 
 def test_codex_inactive_provider_uses_activation_option() -> None:
