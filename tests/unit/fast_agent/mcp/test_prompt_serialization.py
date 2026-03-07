@@ -15,7 +15,7 @@ from fast_agent.mcp.prompt_serialization import (
     to_get_prompt_result_json,
     to_json,
 )
-from fast_agent.types import AssistantMessagePhase
+from fast_agent.types import COMMENTARY_PHASE
 
 
 class TestPromptSerialization:
@@ -99,7 +99,7 @@ class TestPromptSerialization:
             PromptMessageExtended(
                 role="assistant",
                 content=[TextContent(type="text", text="Planning next action.")],
-                phase=AssistantMessagePhase.COMMENTARY,
+                phase=COMMENTARY_PHASE,
             )
         ]
 
@@ -107,7 +107,7 @@ class TestPromptSerialization:
         parsed_messages = from_json(json_str)
 
         assert len(parsed_messages) == 1
-        assert parsed_messages[0].phase == AssistantMessagePhase.COMMENTARY
+        assert parsed_messages[0].phase == COMMENTARY_PHASE
         assert parsed_messages[0].all_text() == "Planning next action."
 
     def test_multipart_to_delimited_format(self):

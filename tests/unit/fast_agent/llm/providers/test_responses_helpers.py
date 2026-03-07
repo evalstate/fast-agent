@@ -36,7 +36,7 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.tools.apply_patch_tool import build_apply_patch_tool
-from fast_agent.types import AssistantMessagePhase
+from fast_agent.types import COMMENTARY_PHASE
 
 
 class _ContentHarness(ResponsesContentMixin):
@@ -570,7 +570,7 @@ def test_extract_raw_assistant_message_items_preserves_phase_metadata() -> None:
 
     raw_items, message_phase = harness._extract_raw_assistant_message_items(response)
 
-    assert message_phase == AssistantMessagePhase.COMMENTARY
+    assert message_phase == COMMENTARY_PHASE
     assert len(raw_items) == 1
     assert isinstance(raw_items[0], TextContent)
     payload = json.loads(raw_items[0].text)
@@ -584,7 +584,7 @@ def test_convert_extended_messages_to_provider_includes_assistant_phase() -> Non
     message = PromptMessageExtended(
         role="assistant",
         content=[TextContent(type="text", text="Working through the plan")],
-        phase=AssistantMessagePhase.COMMENTARY,
+        phase=COMMENTARY_PHASE,
     )
 
     items = harness._convert_extended_messages_to_provider([message])

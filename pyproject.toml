@@ -22,7 +22,7 @@ dependencies = [
     "rich>=14.3.3",
     "typer>=0.21.1",
     "anthropic>=0.80.0",
-    "openai[aiohttp]>=2.21.0",
+    "openai[aiohttp]>=2.26.0",
     "prompt-toolkit>=3.0.52",
     "aiohttp>=3.13.2",
     "opentelemetry-distro==0.60b1",

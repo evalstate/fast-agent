@@ -22,11 +22,12 @@ from fast_agent.mcp.helpers.content_helpers import (
 from fast_agent.tools.apply_patch_tool import (
     extract_apply_patch_input,
 )
-from fast_agent.types.assistant_message_phase import AssistantMessagePhase
+from fast_agent.types.assistant_message_phase import coerce_assistant_message_phase
 
 if TYPE_CHECKING:
     from fast_agent.core.logging.logger import Logger
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+    from fast_agent.types.assistant_message_phase import AssistantMessagePhase
 
 
 class ResponsesContentMixin:
@@ -155,15 +156,14 @@ class ResponsesContentMixin:
             payload["role"] = "assistant"
             phase = payload.get("phase")
             if phase is None and msg.phase is not None:
-                payload["phase"] = self._phase_to_wire_value(msg.phase)
+                payload["phase"] = msg.phase
+            normalized_phase = coerce_assistant_message_phase(payload.get("phase"))
+            if normalized_phase is not None:
+                payload["phase"] = normalized_phase
+            else:
+                payload.pop("phase", None)
             items.append(payload)
         return items
-
-    @staticmethod
-    def _phase_to_wire_value(phase: AssistantMessagePhase | str) -> str:
-        if isinstance(phase, AssistantMessagePhase):
-            return phase.value
-        return phase
 
     def _extract_encrypted_reasoning_items(
         self, channels: Mapping[str, Iterable[ContentBlock]] | None
@@ -310,7 +310,7 @@ class ResponsesContentMixin:
             "content": parts,
         }
         if role == "assistant" and phase is not None:
-            item["phase"] = phase.value
+            item["phase"] = phase
         return item
 
     def _convert_content_parts(

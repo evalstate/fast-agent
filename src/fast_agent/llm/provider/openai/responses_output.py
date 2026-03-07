@@ -17,7 +17,10 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import CacheUsage, TurnUsage
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.tools.apply_patch_tool import APPLY_PATCH_INPUT_FIELD
-from fast_agent.types.assistant_message_phase import AssistantMessagePhase
+from fast_agent.types.assistant_message_phase import (
+    AssistantMessagePhase,
+    coerce_assistant_message_phase,
+)
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
 
@@ -59,14 +62,7 @@ class ResponsesOutputMixin:
     def _coerce_assistant_message_phase(
         raw_phase: object,
     ) -> AssistantMessagePhase | None:
-        if isinstance(raw_phase, AssistantMessagePhase):
-            return raw_phase
-        if isinstance(raw_phase, str):
-            try:
-                return AssistantMessagePhase.from_string(raw_phase)
-            except ValueError:
-                return None
-        return None
+        return coerce_assistant_message_phase(raw_phase)
 
     @classmethod
     def _serialize_assistant_message_item(cls, item: Any) -> dict[str, Any] | None:
@@ -82,7 +78,7 @@ class ResponsesOutputMixin:
                 raw_phase = payload.get("phase")
                 normalized_phase = cls._coerce_assistant_message_phase(raw_phase)
                 if normalized_phase is not None:
-                    payload["phase"] = normalized_phase.value
+                    payload["phase"] = normalized_phase
                 else:
                     payload.pop("phase", None)
                 return payload
@@ -102,7 +98,7 @@ class ResponsesOutputMixin:
             payload["status"] = status
         phase = cls._coerce_assistant_message_phase(getattr(item, "phase", None))
         if phase is not None:
-            payload["phase"] = phase.value
+            payload["phase"] = phase
 
         serialized_content: list[dict[str, Any]] = []
         for part in getattr(item, "content", []) or []:
@@ -154,7 +150,7 @@ class ResponsesOutputMixin:
         if not phases:
             return [], None
 
-        unique_phases = {phase.value for phase in phases}
+        unique_phases = set(phases)
         message_phase = phases[0] if len(unique_phases) == 1 else None
         blocks = [TextContent(type="text", text=json.dumps(payload)) for payload in serialized_items]
         return blocks, message_phase
