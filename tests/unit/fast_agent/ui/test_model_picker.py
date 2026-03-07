@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fast_agent.llm.model_selection import CatalogModelEntry
 from fast_agent.llm.provider_types import Provider
-from fast_agent.ui.model_picker import _SplitListPicker
+from fast_agent.ui.model_picker import _find_initial_model_index, _SplitListPicker
 from fast_agent.ui.model_picker_common import (
     ModelOption,
     ModelPickerSnapshot,
@@ -102,3 +102,20 @@ def test_codex_inactive_provider_is_shown_as_sign_in_required() -> None:
     assert picker._provider_availability_label(provider) == "sign in required"
     status_line = picker._render_status_bar()[0][1]
     assert "press Enter to log in" in status_line
+
+
+def test_find_initial_model_index_matches_model_identity() -> None:
+    options = [
+        ModelOption(
+            spec="responses.chatgpt-5.3-instant",
+            label="chatgpt → responses.chatgpt-5.3-instant",
+            alias="chatgpt",
+        ),
+        ModelOption(
+            spec="responses.gpt-5.4",
+            label="gpt-5.4 → responses.gpt-5.4",
+            alias="gpt-5.4",
+        ),
+    ]
+
+    assert _find_initial_model_index(options, "chatgpt") == 0

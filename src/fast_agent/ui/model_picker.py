@@ -26,6 +26,8 @@ from fast_agent.ui.model_picker_common import (
     ProviderActivationAction,
     ProviderOption,
     build_snapshot,
+    find_provider,
+    model_identity,
     model_options_for_provider,
     provider_activation_action,
 )
@@ -62,11 +64,13 @@ class _SplitListPicker:
         config_path: Path | None,
         config_payload: dict[str, object] | None = None,
         initial_provider: str | None = None,
+        initial_model_spec: str | None = None,
     ) -> None:
         self.snapshot = build_snapshot(config_path, config_payload=config_payload)
         if not self.snapshot.providers:
             raise ValueError("No providers found in model catalog.")
         self._initial_provider_name = initial_provider
+        self._initial_model_spec = initial_model_spec.strip() if initial_model_spec else None
 
         self.state = PickerState(
             provider_index=self._initial_provider_index(),
@@ -140,6 +144,7 @@ class _SplitListPicker:
             mouse_support=False,
         )
 
+        self._apply_initial_model_selection()
         self._sync_model_scroll()
 
     @property
@@ -201,6 +206,29 @@ class _SplitListPicker:
             if option.active:
                 return index
         return 0
+
+    def _apply_initial_model_selection(self) -> None:
+        if not self._initial_model_spec:
+            return
+
+        provider_option = find_provider(
+            self.snapshot,
+            self.current_provider.provider.config_name,
+        )
+        for source in ("curated", "all"):
+            models = model_options_for_provider(
+                self.snapshot,
+                provider_option.provider,
+                source=source,
+            )
+            match_index = _find_initial_model_index(models, self._initial_model_spec)
+            if match_index is None:
+                continue
+            self.state.source = source
+            self.state.model_index = match_index
+            self.state.model_scroll_top = 0
+            self.state.focus = "models"
+            return
 
     def _clamp_model_index(self) -> None:
         model_count = len(self.current_models)
@@ -521,11 +549,36 @@ async def run_model_picker_async(
     config_path: Path | None = None,
     config_payload: dict[str, object] | None = None,
     initial_provider: str | None = None,
+    initial_model_spec: str | None = None,
 ) -> ModelPickerResult | None:
     """Run the interactive model picker from within an active asyncio event loop."""
     picker = _SplitListPicker(
         config_path=config_path,
         config_payload=config_payload,
         initial_provider=initial_provider,
+        initial_model_spec=initial_model_spec,
     )
     return await picker.run_async()
+
+
+def _find_initial_model_index(
+    options: list[ModelOption],
+    initial_model_spec: str,
+) -> int | None:
+    normalized_spec = initial_model_spec.strip()
+    if not normalized_spec:
+        return None
+
+    for index, option in enumerate(options):
+        if option.spec == normalized_spec or option.alias == normalized_spec:
+            return index
+
+    target_identity = model_identity(normalized_spec)
+    if target_identity is None:
+        return None
+
+    for index, option in enumerate(options):
+        if model_identity(option.spec) == target_identity:
+            return index
+
+    return None

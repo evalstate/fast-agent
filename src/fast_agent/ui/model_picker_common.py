@@ -173,6 +173,31 @@ def active_provider_names(snapshot: ModelPickerSnapshot) -> list[str]:
     return [option.provider.display_name for option in snapshot.providers if option.active]
 
 
+def has_explicit_provider_prefix(model_spec: str) -> bool:
+    provider_names = {provider.config_name for provider in Provider}
+
+    slash_prefix, _, slash_rest = model_spec.partition("/")
+    if slash_prefix and slash_rest and slash_prefix in provider_names:
+        return True
+
+    dot_prefix, _, dot_rest = model_spec.partition(".")
+    if dot_prefix and dot_rest and dot_prefix in provider_names:
+        return True
+
+    return False
+
+
+def normalize_generic_model_spec(raw_model: str) -> str | None:
+    candidate = raw_model.strip()
+    if not candidate:
+        return None
+
+    if has_explicit_provider_prefix(candidate):
+        return candidate
+
+    return f"generic.{candidate}"
+
+
 def provider_activation_action(
     snapshot: ModelPickerSnapshot,
     provider: Provider,
@@ -183,7 +208,7 @@ def provider_activation_action(
     return None
 
 
-def _model_identity(model_spec: str) -> tuple[Provider, str] | None:
+def model_identity(model_spec: str) -> tuple[Provider, str] | None:
     try:
         parsed = ModelFactory.parse_model_string(model_spec)
     except Exception:
@@ -260,16 +285,16 @@ def model_options_for_provider(
     options: list[ModelOption] = list(curated_options)
 
     for curated in curated_options:
-        model_identity = _model_identity(curated.spec)
-        if model_identity is not None:
-            seen_identities.add(model_identity)
+        identity = model_identity(curated.spec)
+        if identity is not None:
+            seen_identities.add(identity)
 
     for spec in _static_provider_models(provider):
-        model_identity = _model_identity(spec)
-        if model_identity is not None and model_identity in seen_identities:
+        identity = model_identity(spec)
+        if identity is not None and identity in seen_identities:
             continue
-        if model_identity is not None:
-            seen_identities.add(model_identity)
+        if identity is not None:
+            seen_identities.add(identity)
         options.append(ModelOption(spec=spec, label=f"{spec} (catalog)"))
 
     return options

@@ -13,6 +13,7 @@ from fast_agent.config import Settings, get_settings
 from fast_agent.ui.enhanced_prompt import get_argument_input, get_selection_input
 from fast_agent.ui.history_actions import display_history_turn
 from fast_agent.ui.message_primitives import MessageType
+from fast_agent.ui.model_picker_common import normalize_generic_model_spec
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -173,6 +174,7 @@ class TuiCommandIO(CommandIO):
                     else self.settings.model_dump() if self.settings is not None else None
                 ),
                 initial_provider=provider_name,
+                initial_model_spec=default_model,
             )
             if picker_result is None:
                 return None
@@ -243,7 +245,7 @@ class TuiCommandIO(CommandIO):
                     )
                     if entered is None:
                         return None
-                    normalized = entered.strip()
+                    normalized = normalize_generic_model_spec(entered)
                     if normalized:
                         return normalized
                     await self.emit(
