@@ -249,7 +249,7 @@ def model_options_for_provider(
 
 
 def _supports_web_search(provider: Provider, model_name: str) -> bool:
-    if provider in {Provider.RESPONSES, Provider.CODEX_RESPONSES, Provider.OPENRESPONSE}:
+    if provider in {Provider.RESPONSES, Provider.CODEX_RESPONSES, Provider.OPENRESPONSES}:
         return True
 
     if provider == Provider.ANTHROPIC:
