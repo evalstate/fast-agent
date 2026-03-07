@@ -324,8 +324,6 @@ def _build_picker_items(
     hidden_tokens = suppressed_tokens or set()
 
     def _add_item(item: ModelAliasPickerItem) -> None:
-        if item.token in hidden_tokens:
-            return
         if item.token in seen_tokens:
             return
         seen_tokens.add(item.token)
