@@ -94,6 +94,27 @@ def _normalize_interactive_alias_token(token: str | None) -> str | None:
     return f"${stripped}"
 
 
+async def _prompt_manual_alias_token(io: CommandIO) -> str | None:
+    if isinstance(io, TuiCommandIO):
+        try:
+            entered = await asyncio.to_thread(
+                typer.prompt,
+                "Alias token ($namespace.key)",
+                default="",
+                show_default=False,
+            )
+        except (EOFError, KeyboardInterrupt):
+            return None
+        return _normalize_interactive_alias_token(entered)
+
+    return _normalize_interactive_alias_token(
+        await io.prompt_text(
+            "Alias token ($namespace.key):",
+            allow_empty=False,
+        )
+    )
+
+
 async def run_model_setup(
     *,
     io: CommandIO,
@@ -151,12 +172,7 @@ async def _select_model_setup_token(
             _merge_setup_items(items, common_items)
         )
         if selected_token == CUSTOM_ALIAS_SENTINEL:
-            return _normalize_interactive_alias_token(
-                await io.prompt_text(
-                    "Alias token ($namespace.key):",
-                    allow_empty=False,
-                )
-            )
+            return await _prompt_manual_alias_token(io)
         if selected_token is not None:
             return selected_token
         return None
@@ -194,12 +210,7 @@ async def _select_model_setup_token(
 
     normalized_selection = selection.strip().lower()
     if normalized_selection == "custom":
-        return _normalize_interactive_alias_token(
-            await io.prompt_text(
-                "Alias token ($namespace.key):",
-                allow_empty=False,
-            )
-        )
+        return await _prompt_manual_alias_token(io)
     return option_labels.get(normalized_selection)
 
 
