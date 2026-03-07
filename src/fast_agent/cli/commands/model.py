@@ -140,7 +140,10 @@ async def _select_model_setup_token(
             _merge_setup_items(items, common_items)
         )
         if selected_token == CUSTOM_ALIAS_SENTINEL:
-            return None
+            return await io.prompt_text(
+                "Alias token ($namespace.key):",
+                allow_empty=False,
+            )
         if selected_token is not None:
             return selected_token
         return None
@@ -178,7 +181,10 @@ async def _select_model_setup_token(
 
     normalized_selection = selection.strip().lower()
     if normalized_selection == "custom":
-        return None
+        return await io.prompt_text(
+            "Alias token ($namespace.key):",
+            allow_empty=False,
+        )
     return option_labels.get(normalized_selection)
 
 
