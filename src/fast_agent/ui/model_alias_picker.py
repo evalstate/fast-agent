@@ -47,8 +47,6 @@ class _AliasPicker:
     LIST_VISIBLE_ROWS = 10
 
     def __init__(self, items: tuple[ModelAliasPickerItem, ...]) -> None:
-        if not items:
-            raise ValueError("No model alias setup items available.")
         self.items = items
         self.state = _AliasPickerState()
         self.selection_control = FormattedTextControl(
