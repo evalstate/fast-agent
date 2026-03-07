@@ -16,6 +16,7 @@ class TestParseHashAgentCommand:
         assert isinstance(result, HashAgentCommand)
         assert result.agent_name == "myagent"
         assert result.message == "hello world"
+        assert result.quiet is False
         assert result.kind == "hash_agent"
 
     def test_parse_hash_agent_without_message(self):
@@ -24,12 +25,14 @@ class TestParseHashAgentCommand:
         assert isinstance(result, HashAgentCommand)
         assert result.agent_name == "myagent"
         assert result.message == ""
+        assert result.quiet is False
 
     def test_parse_hash_agent_preserves_message_spaces(self):
         """Test that spaces in the message are preserved."""
         result = parse_special_input("#agent this is a   long   message")
         assert isinstance(result, HashAgentCommand)
         assert result.message == "this is a   long   message"
+        assert result.quiet is False
 
     def test_parse_hash_agent_strips_agent_name(self):
         """Test that agent name is stripped of whitespace."""
@@ -37,6 +40,7 @@ class TestParseHashAgentCommand:
         assert isinstance(result, HashAgentCommand)
         assert result.agent_name == "agent_name"
         assert result.message == "message"
+        assert result.quiet is False
 
     def test_parse_hash_only_returns_plain_text(self):
         """Test that # alone returns original text."""
@@ -44,12 +48,39 @@ class TestParseHashAgentCommand:
         # Just "#" returns original text since there's no agent name
         assert result == "#"
 
+    def test_parse_quiet_hash_agent_with_message(self):
+        """Test parsing ##agent_name message returns a quiet HashAgentCommand."""
+        result = parse_special_input("##myagent hello world")
+        assert isinstance(result, HashAgentCommand)
+        assert result.agent_name == "myagent"
+        assert result.message == "hello world"
+        assert result.quiet is True
+
+    def test_parse_quiet_hash_agent_without_message(self):
+        """Test parsing ##agent_name without message returns empty message."""
+        result = parse_special_input("##myagent")
+        assert isinstance(result, HashAgentCommand)
+        assert result.agent_name == "myagent"
+        assert result.message == ""
+        assert result.quiet is True
+
+    def test_parse_quiet_hash_only_returns_plain_text(self):
+        """Test that ## alone remains plain text."""
+        result = parse_special_input("##")
+        assert result == "##"
+
+    def test_parse_quiet_hash_with_space_returns_plain_text(self):
+        """Test that ## message remains plain text until implicit targeting exists."""
+        result = parse_special_input("## heading")
+        assert result == "## heading"
+
     def test_parse_hash_agent_multiline_message(self):
         """Test parsing with newlines in message."""
         result = parse_special_input("#agent line1\nline2")
         assert isinstance(result, HashAgentCommand)
         assert result.agent_name == "agent"
         assert "line1\nline2" in result.message
+        assert result.quiet is False
 
 
 class TestHashAgentCompleter:
@@ -97,6 +128,26 @@ class TestHashAgentCompleter:
         completions = list(completer.get_completions(doc, None))
 
         # Should return nothing - user is now typing the message
+        assert len(completions) == 0
+
+    def test_quiet_hash_completer_shows_agents(self):
+        """Test that ## prefix shows agent completions."""
+        completer = AgentCompleter(agents=["test_agent", "other_agent"])
+
+        doc = Document("##te", cursor_position=4)
+        completions = list(completer.get_completions(doc, None))
+        texts = [c.text for c in completions]
+
+        assert len(completions) == 1
+        assert "test_agent " in texts
+
+    def test_quiet_hash_completer_stops_after_space(self):
+        """Test that ## completion stops after the agent name and a space."""
+        completer = AgentCompleter(agents=["test_agent"])
+
+        doc = Document("##test_agent ", cursor_position=13)
+        completions = list(completer.get_completions(doc, None))
+
         assert len(completions) == 0
 
     def test_hash_completer_metadata_shows_type(self):
@@ -155,12 +206,15 @@ class TestHashAgentCommandPayload:
         """Test that kind is always 'hash_agent'."""
         cmd = HashAgentCommand(agent_name="test", message="hello")
         assert cmd.kind == "hash_agent"
+        assert cmd.quiet is False
 
     def test_hash_agent_command_equality(self):
         """Test equality comparison."""
         cmd1 = HashAgentCommand(agent_name="test", message="hello")
         cmd2 = HashAgentCommand(agent_name="test", message="hello")
         cmd3 = HashAgentCommand(agent_name="test", message="world")
+        cmd4 = HashAgentCommand(agent_name="test", message="hello", quiet=True)
 
         assert cmd1 == cmd2
         assert cmd1 != cmd3
+        assert cmd1 != cmd4

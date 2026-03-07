@@ -143,6 +143,7 @@ class HashAgentCommand(CommandBase):
 
     agent_name: str
     message: str
+    quiet: bool = False
     kind: Literal["hash_agent"] = "hash_agent"
 
 

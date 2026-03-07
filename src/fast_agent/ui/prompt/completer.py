@@ -1464,20 +1464,20 @@ class AgentCompleter(Completer):
             yield from self._complete_shell_paths(partial, len(partial))
             return
 
-        # Complete agent names for hash commands (#agent_name message)
-        elif text.startswith("#"):
-            # Only complete if we haven't finished the agent name yet (no space after #agent)
-            rest = text[1:]
-            if " " not in rest:
-                # Still typing agent name
+        # Complete agent names for hash commands (#agent_name message / ##agent_name message)
+        elif text.startswith("##") or text.startswith("#"):
+            prefix = "##" if text.startswith("##") else "#"
+            rest = text[len(prefix) :]
+            if rest and rest[0].isspace():
+                return
+            if " " not in rest and "\t" not in rest:
                 agent_name = rest
                 for agent in self.agents:
                     if agent.lower().startswith(agent_name.lower()):
-                        # Get agent type or default to "Agent"
                         agent_type = self.agent_types.get(agent, AgentType.BASIC).value
                         yield Completion(
-                            agent + " ",  # Add space after agent name for message input
+                            agent + " ",
                             start_position=-len(agent_name),
                             display=agent,
-                            display_meta=f"# {agent_type}",
+                            display_meta=f"{prefix} {agent_type}",
                         )

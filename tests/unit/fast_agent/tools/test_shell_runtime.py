@@ -15,6 +15,7 @@ from fast_agent.config import Settings, ShellSettings
 from fast_agent.event_progress import ProgressAction
 from fast_agent.tools.shell_runtime import ShellRuntime
 from fast_agent.ui import console
+from fast_agent.ui.display_suppression import suppress_interactive_display
 from fast_agent.ui.progress_display import progress_display
 from fast_agent.ui.shell_output_truncation import SHELL_OUTPUT_TRUNCATION_MARKER
 
@@ -338,6 +339,26 @@ async def test_execute_deferred_display_suppresses_live_console_output() -> None
     assert "process exit code was 0" in result.content[0].text
     assert getattr(result, "_suppress_display", True) is False
     assert getattr(result, "output_line_count", None) == 1
+    rendered = capture.get()
+    assert "hello" not in rendered
+    assert "exit code" not in rendered
+
+
+@pytest.mark.asyncio
+async def test_execute_progress_only_mode_suppresses_live_console_output() -> None:
+    """Progress-only display mode should suppress streamed shell output."""
+    logger = logging.getLogger("shell-runtime-test")
+    runtime = ShellRuntime(activation_reason="test", logger=logger, timeout_seconds=10)
+
+    with suppress_interactive_display():
+        with console.console.capture() as capture:
+            result = await runtime.execute({"command": "echo hello"})
+
+    assert result.isError is False
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    assert "hello" in result.content[0].text
+    assert "process exit code was 0" in result.content[0].text
     rendered = capture.get()
     assert "hello" not in rendered
     assert "exit code" not in rendered

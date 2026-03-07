@@ -13,6 +13,11 @@ from fast_agent.config import LoggerSettings, Settings
 from fast_agent.constants import REASONING
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.ui import console
+from fast_agent.ui.display_suppression import (
+    display_chat_enabled,
+    display_status_enabled,
+    display_tools_enabled,
+)
 from fast_agent.ui.markdown_helpers import prepare_markdown_content
 from fast_agent.ui.mcp_ui_utils import UILink
 from fast_agent.ui.mermaid_utils import (
@@ -119,6 +124,8 @@ class ConsoleDisplay:
 
     def show_status_message(self, content: Text) -> None:
         """Display a status message without a header."""
+        if not display_status_enabled():
+            return
         console.ensure_blocking_console()
         console.console.print(content, markup=self._markup)
 
@@ -607,6 +614,8 @@ class ConsoleDisplay:
         if type_label is not None:
             kwargs["type_label"] = type_label
 
+        if not display_tools_enabled():
+            return
         self._tool_display.show_tool_result(result, **kwargs)
 
     def show_tool_call(
@@ -634,9 +643,13 @@ class ConsoleDisplay:
         if type_label is not None:
             kwargs["type_label"] = type_label
 
+        if not display_tools_enabled():
+            return
         self._tool_display.show_tool_call(tool_name, tool_args, **kwargs)
 
     async def show_tool_update(self, updated_server: str, agent_name: str | None = None) -> None:
+        if not display_tools_enabled():
+            return
         await self._tool_display.show_tool_update(updated_server, agent_name=agent_name)
 
     def _create_combined_separator_status(self, left_content: str, right_info: str = "") -> None:
@@ -739,6 +752,8 @@ class ConsoleDisplay:
             render_markdown: Force markdown rendering (True) or plain rendering (False)
             show_hook_indicator: Whether to show the hook indicator glyph (◆)
         """
+        if not display_chat_enabled():
+            return
         if self.config and not self.config.logger.show_chat:
             return
 
@@ -783,6 +798,8 @@ class ConsoleDisplay:
         message_text: Union[str, Text, "PromptMessageExtended"],
     ) -> None:
         """Display mermaid links extracted from assistant text payload."""
+        if not display_chat_enabled():
+            return
         from fast_agent.types import PromptMessageExtended
 
         plain_text = ""
@@ -809,6 +826,9 @@ class ConsoleDisplay:
         show_hook_indicator: bool = False,
     ) -> Iterator[StreamingHandle]:
         """Create a streaming context for assistant messages."""
+        if not display_chat_enabled():
+            yield _NullStreamingHandle()
+            return
         streaming_enabled, streaming_mode = self.resolve_streaming_preferences()
 
         if not streaming_enabled:
@@ -883,6 +903,8 @@ class ConsoleDisplay:
 
     async def show_mcp_ui_links(self, links: list[UILink]) -> None:
         """Display MCP-UI links beneath the chat like mermaid links."""
+        if not display_chat_enabled():
+            return
         if self.config and not self.config.logger.show_chat:
             return
 
@@ -980,6 +1002,8 @@ class ConsoleDisplay:
         show_hook_indicator: bool = False,
     ) -> None:
         """Display a user message in the new visual style."""
+        if not display_chat_enabled():
+            return
         if self.config and not self.config.logger.show_chat:
             return
 

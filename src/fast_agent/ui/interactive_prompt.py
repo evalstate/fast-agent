@@ -17,6 +17,8 @@ Usage:
 import asyncio
 import sys
 import time
+from contextlib import nullcontext
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Union, cast
 
@@ -48,6 +50,7 @@ from fast_agent.ui.command_payloads import (
     ShellCommand,
     is_command_payload,
 )
+from fast_agent.ui.display_suppression import suppress_interactive_display
 from fast_agent.ui.enhanced_prompt import (
     get_enhanced_input,
     get_selection_input,
@@ -70,6 +73,13 @@ SendFunc = Callable[[Union[str, PromptMessage, PromptMessageExtended], str], Awa
 
 # Type alias for the agent getter function
 AgentGetter = Callable[[str], object | None]
+
+
+@dataclass(frozen=True, slots=True)
+class HashSendExecution:
+    """Result of executing a delegated hash-send request."""
+
+    buffer_prefill: str | None
 
 
 def _clear_current_task_cancellation_requests() -> int:
@@ -140,12 +150,14 @@ class InteractivePrompt:
         prompt_provider: "AgentApp",
         pinned_agent: str | None = None,
         default: str = "",
+        quiet_send_func: SendFunc | None = None,
     ) -> str:
         """
         Start an interactive prompt session.
 
         Args:
             send_func: Function to send messages to agents
+            quiet_send_func: Optional function used for quiet delegated sends
             default_agent: Name of the default agent to use
             available_agents: List of available agent names
             prompt_provider: AgentApp instance for accessing agents and prompts
@@ -378,6 +390,7 @@ class InteractivePrompt:
             # Variables for hash command - sent after input handling
             hash_send_target: str | None = None
             hash_send_message: str | None = None
+            hash_send_quiet = False
             # Variable for shell command - executed after input handling
             shell_execute_cmd: str | None = None
 
@@ -527,9 +540,13 @@ class InteractivePrompt:
                 if dispatch_result.buffer_prefill:
                     buffer_prefill = dispatch_result.buffer_prefill
 
-                if dispatch_result.hash_send_target and dispatch_result.hash_send_message:
+                if (
+                    dispatch_result.hash_send_target is not None
+                    and dispatch_result.hash_send_message is not None
+                ):
                     hash_send_target = dispatch_result.hash_send_target
                     hash_send_message = dispatch_result.hash_send_message
+                    hash_send_quiet = dispatch_result.hash_send_quiet
 
                 if dispatch_result.shell_execute_cmd:
                     shell_execute_cmd = dispatch_result.shell_execute_cmd
@@ -537,7 +554,11 @@ class InteractivePrompt:
                 if dispatch_result.should_return:
                     return result
 
-                if dispatch_result.handled and not hash_send_target and not shell_execute_cmd:
+                if (
+                    dispatch_result.handled
+                    and hash_send_target is None
+                    and shell_execute_cmd is None
+                ):
                     continue
 
             # Skip further processing if:
@@ -546,7 +567,7 @@ class InteractivePrompt:
             # 3. The command result itself is a command payload (special command handling result)
             # This fixes the issue where /prompt without arguments gets sent to the LLM
             # Skip these checks if we have a pending hash or shell command to handle outside
-            if not hash_send_target and not shell_execute_cmd:
+            if hash_send_target is None and shell_execute_cmd is None:
                 if (
                     command_result
                     or is_command_payload(user_input)
@@ -564,59 +585,20 @@ class InteractivePrompt:
                     continue
 
             # Handle hash command after input handling; resume progress display only for the send.
-            if hash_send_target and hash_send_message:
-                rich_print(f"[dim]Asking {hash_send_target}...[/dim]")
-
-                try:
-                    # Use the return value from send_func directly - this works even
-                    # when use_history=False (e.g., for agents loaded as tools)
-                    emit_prompt_mark("C")
-                    write_interactive_trace("prompt.hash_send.start", agent=hash_send_target)
-                    progress_display.resume()
-                    response_text = await send_func(hash_send_message, hash_send_target)
-                except KeyboardInterrupt:
-                    write_interactive_trace(
-                        "prompt.hash_send.keyboard_interrupt",
-                        agent=hash_send_target,
-                    )
-                    _clear_progress_for_agent(hash_send_target)
-                    _handle_inflight_cancel()
-                    continue
-                except asyncio.CancelledError:
-                    write_interactive_trace(
-                        "prompt.hash_send.cancelled_error",
-                        agent=hash_send_target,
-                    )
-                    _clear_progress_for_agent(hash_send_target)
-                    task = asyncio.current_task()
-                    if task is not None and task.cancelling() > 0:
-                        raise
-                    _handle_inflight_cancel()
-                    continue
-                except Exception as exc:
-                    rich_print(f"[red]Error asking {hash_send_target}: {exc}[/red]")
-                    continue
-                finally:
-                    write_interactive_trace(
-                        "prompt.hash_send.finally_pause",
-                        agent=hash_send_target,
-                    )
-                    progress_display.pause(cancel_deferred_on_noop=True)
-                    emit_prompt_mark("D")
-
-                if _last_assistant_message_cancelled(hash_send_target):
-                    _clear_current_task_cancellation_requests()
-                    _clear_progress_for_agent(hash_send_target)
-                    ctrl_c_deadline = None
-
-                # Status messages after send completes
-                if response_text:
-                    buffer_prefill = response_text
-                    rich_print(
-                        f"[blue]Response from {hash_send_target} loaded into input buffer[/blue]"
-                    )
-                else:
-                    rich_print(f"[yellow]No response received from {hash_send_target}[/yellow]")
+            if hash_send_target is not None and hash_send_message is not None:
+                active_send_func = quiet_send_func if hash_send_quiet and quiet_send_func else send_func
+                hash_send_execution = await self._execute_hash_send(
+                    send_func=active_send_func,
+                    target_agent=hash_send_target,
+                    message=hash_send_message,
+                    quiet=hash_send_quiet,
+                    clear_progress_for_agent=_clear_progress_for_agent,
+                    clear_ctrl_c_interrupt=_clear_ctrl_c_interrupt,
+                    handle_inflight_cancel=_handle_inflight_cancel,
+                    last_assistant_message_cancelled=_last_assistant_message_cancelled,
+                )
+                if hash_send_execution.buffer_prefill:
+                    buffer_prefill = hash_send_execution.buffer_prefill
                 continue
 
             # Handle shell command after input handling
@@ -696,6 +678,77 @@ class InteractivePrompt:
                 set_last_copyable_output(result)
 
         return result
+
+    async def _execute_hash_send(
+        self,
+        *,
+        send_func: SendFunc,
+        target_agent: str,
+        message: str,
+        quiet: bool,
+        clear_progress_for_agent: Callable[[str | None], None],
+        clear_ctrl_c_interrupt: Callable[[], None],
+        handle_inflight_cancel: Callable[[], None],
+        last_assistant_message_cancelled: Callable[[str | None], bool],
+    ) -> HashSendExecution:
+        if not quiet:
+            rich_print(f"[dim]Asking {target_agent}...[/dim]")
+
+        try:
+            emit_prompt_mark("C")
+            write_interactive_trace("prompt.hash_send.start", agent=target_agent, quiet=quiet)
+            progress_display.resume()
+            display_context = suppress_interactive_display() if quiet else nullcontext()
+            with display_context:
+                response_text = await send_func(message, target_agent)
+        except KeyboardInterrupt:
+            write_interactive_trace(
+                "prompt.hash_send.keyboard_interrupt",
+                agent=target_agent,
+                quiet=quiet,
+            )
+            clear_progress_for_agent(target_agent)
+            handle_inflight_cancel()
+            return HashSendExecution(buffer_prefill=None)
+        except asyncio.CancelledError:
+            write_interactive_trace(
+                "prompt.hash_send.cancelled_error",
+                agent=target_agent,
+                quiet=quiet,
+            )
+            clear_progress_for_agent(target_agent)
+            task = asyncio.current_task()
+            if task is not None and task.cancelling() > 0:
+                raise
+            handle_inflight_cancel()
+            return HashSendExecution(buffer_prefill=None)
+        except Exception as exc:
+            rich_print(f"[red]Error asking {target_agent}: {exc}[/red]")
+            return HashSendExecution(buffer_prefill=None)
+        finally:
+            write_interactive_trace(
+                "prompt.hash_send.finally_pause",
+                agent=target_agent,
+                quiet=quiet,
+            )
+            progress_display.pause(cancel_deferred_on_noop=True)
+            emit_prompt_mark("D")
+
+        if last_assistant_message_cancelled(target_agent):
+            _clear_current_task_cancellation_requests()
+            clear_progress_for_agent(target_agent)
+            clear_ctrl_c_interrupt()
+
+        if response_text:
+            if not quiet:
+                rich_print(f"[blue]Response from {target_agent} loaded into input buffer[/blue]")
+            return HashSendExecution(buffer_prefill=response_text)
+
+        if quiet:
+            rich_print(f"[dim]No response received from {target_agent}[/dim]")
+        else:
+            rich_print(f"[yellow]No response received from {target_agent}[/yellow]")
+        return HashSendExecution(buffer_prefill=None)
 
     def _resolve_display(
         self, prompt_provider: "AgentApp", agent_name: str | None
