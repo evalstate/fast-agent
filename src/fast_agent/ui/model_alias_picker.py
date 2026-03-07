@@ -17,7 +17,7 @@ from prompt_toolkit.widgets import Frame
 StyleFragments = list[tuple[str, str]]
 
 type ModelAliasPickerPriority = Literal["required", "repair", "recommended", "configured"]
-type ModelAliasPickerAction = Literal["set", "unset", "custom"]
+type ModelAliasPickerAction = Literal["set", "unset", "custom", "done"]
 
 
 @dataclass(frozen=True)
@@ -100,6 +100,12 @@ class _AliasPicker:
             return None
         return self.items[self.state.index]
 
+    def _is_custom_row(self) -> bool:
+        return self.state.index == len(self.items)
+
+    def _is_done_row(self) -> bool:
+        return self.state.index == len(self.items) + 1
+
     def _terminal_cols(self) -> int:
         return max(1, shutil.get_terminal_size((100, 20)).columns)
 
@@ -107,13 +113,13 @@ class _AliasPicker:
         return Point(x=0, y=self.state.index)
 
     def _move(self, delta: int) -> None:
-        row_count = len(self.items) + 1
+        row_count = len(self.items) + 2
         self.state.index = (self.state.index + delta) % row_count
         self._sync_scroll()
 
     def _sync_scroll(self) -> None:
         visible = self.LIST_VISIBLE_ROWS
-        row_count = len(self.items) + 1
+        row_count = len(self.items) + 2
         max_top = max(0, row_count - visible)
         top = min(self.state.scroll_top, max_top)
         index = self.state.index
@@ -141,10 +147,15 @@ class _AliasPicker:
 
         @kb.add("enter")
         def _accept(event) -> None:  # type: ignore[no-untyped-def]
-            if self.current_item is None:
+            if self._is_done_row():
+                event.app.exit(result=ModelAliasPickerResult(action="done", token=None))
+                return
+            if self._is_custom_row():
                 event.app.exit(result=ModelAliasPickerResult(action="custom", token=None))
                 return
-            event.app.exit(result=ModelAliasPickerResult(action="set", token=self.current_item.token))
+            item = self.current_item
+            assert item is not None
+            event.app.exit(result=ModelAliasPickerResult(action="set", token=item.token))
 
         @kb.add("delete")
         @kb.add("backspace")
@@ -176,18 +187,27 @@ class _AliasPicker:
         return " ".join(parts)
 
     def _render_rows(self) -> StyleFragments:
-        rows: list[ModelAliasPickerItem | None] = [*self.items, None]
+        rows: list[ModelAliasPickerItem | Literal["custom", "done"]] = [
+            *self.items,
+            "custom",
+            "done",
+        ]
         width = self._terminal_cols()
         status_width = 34
         token_width = max(18, width - status_width - 4)
         fragments: StyleFragments = []
         for index, item in enumerate(rows):
             selected = index == self.state.index
-            if item is None:
+            if item == "custom":
                 priority = "configured"
                 token_text = "Add a new alias"
                 status_text = "manual entry"
+            elif item == "done":
+                priority = "configured"
+                token_text = "Done"
+                status_text = "exit setup"
             else:
+                assert isinstance(item, ModelAliasPickerItem)
                 priority = item.priority
                 token_text = item.token[: token_width - 1]
                 if len(item.token) > token_width:
@@ -210,7 +230,7 @@ class _AliasPicker:
 
     def _render_details(self) -> StyleFragments:
         item = self.current_item
-        if item is None:
+        if self._is_custom_row():
             return [
                 ("", "Create or update a different alias token.\n"),
                 ("class:muted", "current: <manual entry>\n"),
@@ -218,7 +238,16 @@ class _AliasPicker:
                 ("class:muted", "Enter = type token manually • Esc/Ctrl+C = cancel\n"),
                 ("class:muted", "Delete/X removes the selected configured alias."),
             ]
+        if self._is_done_row():
+            return [
+                ("", "Finish model setup and return to the shell.\n"),
+                ("class:muted", "current: <none>\n"),
+                ("class:muted", "used by: setup session\n"),
+                ("class:muted", "Enter = exit setup • Esc/Ctrl+C = cancel\n"),
+                ("class:muted", "Delete/X removes the selected configured alias."),
+            ]
 
+        assert item is not None
         references_text = ", ".join(item.references) if item.references else "No references"
         current_value = item.current_value if item.current_value is not None else "<unset>"
         remove_hint = (

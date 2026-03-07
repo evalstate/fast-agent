@@ -477,6 +477,8 @@ async def _run_model_setup_command(
         picker_result = await run_model_alias_picker_async(picker_items)
         if picker_result is None:
             return
+        if picker_result.action == "done":
+            return
 
         if picker_result.action == "custom":
             selected_token = await _prompt_manual_alias_token(io)
