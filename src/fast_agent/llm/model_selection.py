@@ -45,6 +45,9 @@ class ModelSelectionCatalog:
                 alias="gpt-5.3-chat-latest",
                 model="responses.gpt-5.3-chat-latest?transport=auto",
             ),
+            CatalogModelEntry(
+                alias="gpt-5.3-codex", model="responses.gpt-5.3-codex?reasoning=high"
+            ),
             CatalogModelEntry(alias="gpt-5.2", model="responses.gpt-5.2?reasoning=medium"),
             CatalogModelEntry(
                 alias="gpt-5-mini",
@@ -139,12 +142,20 @@ class ModelSelectionCatalog:
         Provider.CODEX_RESPONSES: (
             CatalogModelEntry(
                 alias="codexplan",
-                model="codexresponses.gpt-5.4?transport=auto&reasoning=high",
+                model="codexresponses.gpt-5.4?reasoning=high",
+            ),
+            CatalogModelEntry(
+                alias="codexplan53",
+                model="codexresponses.gpt-5.3-codex?reasoning=high",
             ),
             CatalogModelEntry(
                 alias="codexspark",
-                model="codexresponses.gpt-5.3-codex-spark?transport=auto",
+                model="codexresponses.gpt-5.3-codex-spark",
                 fast=True,
+            ),
+            CatalogModelEntry(
+                alias="codexplan52",
+                model="codexresponses.gpt-5.2-codex?reasoning=high",
             ),
         ),
         Provider.GROQ: (

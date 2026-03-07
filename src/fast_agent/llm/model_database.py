@@ -150,7 +150,7 @@ class ModelDatabase:
     OPENAI_GPT_51_CLASS_REASONING = ReasoningEffortSpec(
         kind="effort",
         allowed_efforts=["none", "low", "medium", "high", "xhigh"],
-        default=ReasoningEffortSetting(kind="effort", value="medium"),
+        default=ReasoningEffortSetting(kind="effort", value="none"),
     )
 
     OPENAI_GPT_5_CODEX_CLASS_REASONING = ReasoningEffortSpec(
@@ -676,14 +676,12 @@ class ModelDatabase:
         "gpt-5-nano": _with_fast(OPENAI_GPT_5),
         "gpt-5-nano-2025-08-07": _with_fast(OPENAI_GPT_5),
         "gpt-5.1": OPENAI_GPT_5_2,
-        "gpt-5.1-codex": OPENAI_GPT_CODEX.model_copy(
-            update={"response_service_tiers": ("fast",)}
-        ),
+        "gpt-5.1-codex": OPENAI_GPT_CODEX.model_copy(update={"response_service_tiers": ("fast",)}),
         "gpt-5.2-codex": OPENAI_GPT_CODEX,
-        "gpt-5.3-codex": OPENAI_GPT_CODEX.model_copy(
-            update={"response_service_tiers": ("fast",)}
+        "gpt-5.3-codex": OPENAI_GPT_CODEX.model_copy(update={"response_service_tiers": ("fast",)}),
+        "gpt-5.4": OPENAI_GPT_CODEX.model_copy(
+            update={"reasoning_effort_spec": OPENAI_GPT_51_CLASS_REASONING}
         ),
-        "gpt-5.4": OPENAI_GPT_CODEX,
         "gpt-5.3-codex-spark": _with_fast(OPENAI_GPT_CODEX_SPARK),
         "gpt-5.2": OPENAI_GPT_5_2.model_copy(
             update={

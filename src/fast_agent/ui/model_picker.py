@@ -241,10 +241,14 @@ class _SplitListPicker:
 
     @staticmethod
     def _provider_display_name(config_name: str, default_name: str) -> str:
+        if config_name == "responses":
+            return "OpenAI"
+        if config_name == "openai":
+            return "OpenAI (Legacy)"
         if config_name == "codexresponses":
             return "Codex (Plan)"
         if config_name == "generic":
-            return "Local (ollama)"
+            return "Local (Generic)"
         if config_name == "fast-agent":
             return "fast-agent"
 

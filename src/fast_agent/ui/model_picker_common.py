@@ -215,7 +215,7 @@ def model_options_for_provider(
             tags.append("legacy")
 
         suffix = f" ({', '.join(tags)})" if tags else ""
-        label = f"{entry.alias:<18} → {entry.model}{suffix}"
+        label = f"{entry.alias:<19} → {entry.model}{suffix}"
         curated_options.append(
             ModelOption(
                 spec=entry.model,
@@ -249,11 +249,7 @@ def model_options_for_provider(
 
 
 def _supports_web_search(provider: Provider, model_name: str) -> bool:
-    if provider in {
-        Provider.RESPONSES,
-        Provider.CODEX_RESPONSES,
-        Provider.OPENRESPONSES,
-    }:
+    if provider in {Provider.RESPONSES, Provider.CODEX_RESPONSES, Provider.OPENRESPONSE}:
         return True
 
     if provider == Provider.ANTHROPIC:

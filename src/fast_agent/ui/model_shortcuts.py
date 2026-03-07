@@ -35,6 +35,19 @@ def _dedupe_preserve_order[T](values: list[T]) -> list[T]:
     return deduped
 
 
+def _shortcut_reasoning_values(spec: ReasoningEffortSpec) -> list[str]:
+    return [
+        token
+        for token in available_reasoning_values(spec)
+        if token not in {"auto", "default"}
+        and not (
+            token == "off"
+            and spec.kind == "effort"
+            and "none" in (spec.allowed_efforts or [])
+        )
+    ]
+
+
 
 
 
@@ -47,7 +60,7 @@ def cycle_reasoning_setting(
         return None
 
     candidates: list[ReasoningEffortSetting] = []
-    for token in available_reasoning_values(spec):
+    for token in _shortcut_reasoning_values(spec):
         parsed = parse_reasoning_setting(token)
         if parsed is None:
             continue
@@ -125,7 +138,7 @@ def build_model_shortcut_hints(llm: object | None) -> list[ModelShortcutHint]:
 
     reasoning_spec = getattr(llm, "reasoning_effort_spec", None)
     if isinstance(reasoning_spec, ReasoningEffortSpec):
-        values = ", ".join(_dedupe_preserve_order(available_reasoning_values(reasoning_spec)))
+        values = ", ".join(_dedupe_preserve_order(_shortcut_reasoning_values(reasoning_spec)))
         hints.append(ModelShortcutHint(key="F6", label="Reasoning", values_text=values))
 
     verbosity_spec = getattr(llm, "text_verbosity_spec", None)
