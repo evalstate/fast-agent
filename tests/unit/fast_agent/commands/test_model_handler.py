@@ -10,6 +10,7 @@ from fast_agent.commands.handlers.model import (
     handle_model_web_search,
 )
 from fast_agent.config import Settings, ShellSettings
+from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, ReasoningEffortSpec
 from fast_agent.llm.request_params import RequestParams
@@ -155,13 +156,22 @@ class _StubShellRuntime:
 
 
 class _StubAgent:
-    def __init__(self, llm: _StubLLM, shell_limit: int | None = None) -> None:
+    def __init__(
+        self,
+        llm: _StubLLM,
+        shell_limit: int | None = None,
+        *,
+        set_model_error: Exception | None = None,
+    ) -> None:
         self.llm = llm
         self._llm = llm
         self.shell_runtime = _StubShellRuntime(shell_limit) if shell_limit is not None else None
         self.config = type("Config", (), {"model": llm.model_name})()
+        self._set_model_error = set_model_error
 
     async def set_model(self, model: str | None) -> None:
+        if self._set_model_error is not None:
+            raise self._set_model_error
         self.config.model = model
         if model is not None:
             self.llm.model_name = model
@@ -567,3 +577,30 @@ async def test_model_switch_does_not_reset_session_when_model_is_already_active(
 
     assert outcome.reset_session is False
     assert any("already active" in str(message.text) for message in outcome.messages)
+
+
+@pytest.mark.asyncio
+async def test_model_switch_returns_model_config_errors_without_raising() -> None:
+    llm = _StubLLM("claude-haiku-4-5")
+    agent = _StubAgent(
+        llm,
+        set_model_error=ModelConfigError(
+            "Model alias '$system.typo' could not be resolved",
+            "Available aliases: $system.default",
+        ),
+    )
+    provider = _StubAgentProvider(agent)
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+    )
+
+    outcome = await handle_model_switch(ctx, agent_name="test", value="$system.typo")
+    text_messages = [str(message.text) for message in outcome.messages]
+
+    assert outcome.reset_session is False
+    assert text_messages == [
+        "Model alias '$system.typo' could not be resolved: Available aliases: $system.default"
+    ]

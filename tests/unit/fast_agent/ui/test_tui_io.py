@@ -7,6 +7,7 @@ import pytest
 from fast_agent.commands.results import CommandMessage
 from fast_agent.ui.adapters.tui_io import TuiCommandIO
 from fast_agent.ui.message_primitives import MessageType
+from fast_agent.ui.model_picker import ModelPickerResult
 
 if TYPE_CHECKING:
     from rich.text import Text
@@ -71,3 +72,75 @@ async def test_emit_render_markdown_uses_assistant_renderer() -> None:
     assert display_call["right_info"] == "session"
     assert display_call["truncate_content"] is False
     assert display_call["render_markdown"] is True
+
+
+@pytest.mark.asyncio
+async def test_prompt_model_selection_normalizes_generic_custom_model(monkeypatch) -> None:
+    display = _FakeDisplay()
+    provider = cast("AgentProvider", _FakeProvider(display))
+    io = TuiCommandIO(prompt_provider=provider, agent_name="alpha")
+
+    picker_result = ModelPickerResult(
+        provider="generic",
+        provider_available=True,
+        selected_model="generic.__custom__",
+        resolved_model=None,
+        source="curated",
+        refer_to_docs=False,
+        activation_action=None,
+    )
+
+    async def fake_run_model_picker_async(**kwargs):  # type: ignore[no-untyped-def]
+        del kwargs
+        return picker_result
+
+    async def fake_prompt_text(prompt: str, *, default=None, allow_empty=True):  # type: ignore[no-untyped-def]
+        del prompt, default, allow_empty
+        return "llama3.2"
+
+    monkeypatch.setattr(
+        "fast_agent.ui.model_picker.run_model_picker_async",
+        fake_run_model_picker_async,
+    )
+    monkeypatch.setattr(io, "prompt_text", fake_prompt_text)
+
+    selected = await io.prompt_model_selection(initial_provider="generic")
+
+    assert selected == "generic.llama3.2"
+
+
+@pytest.mark.asyncio
+async def test_prompt_model_selection_preserves_explicit_provider_prefix_for_generic_entry(
+    monkeypatch,
+) -> None:
+    display = _FakeDisplay()
+    provider = cast("AgentProvider", _FakeProvider(display))
+    io = TuiCommandIO(prompt_provider=provider, agent_name="alpha")
+
+    picker_result = ModelPickerResult(
+        provider="generic",
+        provider_available=True,
+        selected_model="generic.__custom__",
+        resolved_model=None,
+        source="curated",
+        refer_to_docs=False,
+        activation_action=None,
+    )
+
+    async def fake_run_model_picker_async(**kwargs):  # type: ignore[no-untyped-def]
+        del kwargs
+        return picker_result
+
+    async def fake_prompt_text(prompt: str, *, default=None, allow_empty=True):  # type: ignore[no-untyped-def]
+        del prompt, default, allow_empty
+        return "openai/gpt-4.1"
+
+    monkeypatch.setattr(
+        "fast_agent.ui.model_picker.run_model_picker_async",
+        fake_run_model_picker_async,
+    )
+    monkeypatch.setattr(io, "prompt_text", fake_prompt_text)
+
+    selected = await io.prompt_model_selection(initial_provider="generic")
+
+    assert selected == "openai/gpt-4.1"

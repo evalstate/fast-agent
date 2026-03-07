@@ -17,6 +17,7 @@ from fast_agent.cli.constants import RESUME_LATEST_SENTINEL
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.llm.provider_types import Provider
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
+from fast_agent.ui.model_picker_common import normalize_generic_model_spec
 
 from .request_builders import resolve_default_instruction, resolve_smart_agent_enabled
 from .shell_cwd_policy import (
@@ -84,29 +85,8 @@ def _resolve_model_without_hardcoded_default(
     )
 
 
-def _has_explicit_provider_prefix(model_spec: str) -> bool:
-    provider_names = {provider.config_name for provider in Provider}
-
-    slash_prefix, _, slash_rest = model_spec.partition("/")
-    if slash_prefix and slash_rest and slash_prefix in provider_names:
-        return True
-
-    dot_prefix, _, dot_rest = model_spec.partition(".")
-    if dot_prefix and dot_rest and dot_prefix in provider_names:
-        return True
-
-    return False
-
-
 def _normalize_generic_model_spec(raw_model: str) -> str | None:
-    candidate = raw_model.strip()
-    if not candidate:
-        return None
-
-    if _has_explicit_provider_prefix(candidate):
-        return candidate
-
-    return f"generic.{candidate}"
+    return normalize_generic_model_spec(raw_model)
 
 
 async def _prompt_for_generic_model_spec(*, default_model: str = "llama3.2") -> str:

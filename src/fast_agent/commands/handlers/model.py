@@ -8,6 +8,7 @@ from rich.text import Text
 
 from fast_agent.commands.results import CommandOutcome
 from fast_agent.constants import REASONING_LABEL, TERMINAL_BYTES_PER_TOKEN
+from fast_agent.core.exceptions import ModelConfigError, format_fast_agent_error
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.reasoning_effort import (
     ReasoningEffortLevel,
@@ -575,6 +576,13 @@ async def handle_model_switch(
 
     try:
         await agent.set_model(selected_model)
+    except ModelConfigError as exc:
+        outcome.add_message(
+            format_fast_agent_error(exc),
+            channel="error",
+            right_info="model",
+        )
+        return outcome
     except ValueError as exc:
         outcome.add_message(
             str(exc),
