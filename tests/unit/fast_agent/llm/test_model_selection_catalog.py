@@ -35,7 +35,7 @@ def test_list_fast_models_uses_explicit_curated_designation() -> None:
     assert anthropic_fast == ["claude-haiku-4-5"]
 
     codex_fast = ModelSelectionCatalog.list_fast_models(Provider.CODEX_RESPONSES)
-    assert codex_fast == ["codexresponses.gpt-5.3-codex-spark?transport=auto"]
+    assert codex_fast == ["codexresponses.gpt-5.3-codex-spark"]
 
     hf_fast = ModelSelectionCatalog.list_fast_models(Provider.HUGGINGFACE)
     assert "hf.openai/gpt-oss-120b:cerebras" in hf_fast
@@ -107,8 +107,8 @@ def test_list_all_models_for_provider() -> None:
 
 def test_codexresponses_curated_entries_use_explicit_transports() -> None:
     curated = ModelSelectionCatalog.list_curated_models(Provider.CODEX_RESPONSES)
-    assert "codexresponses.gpt-5.4?transport=auto&reasoning=high" in curated
-    assert "codexresponses.gpt-5.3-codex-spark?transport=auto" in curated
+    assert "codexresponses.gpt-5.4?reasoning=high" in curated
+    assert "codexresponses.gpt-5.3-codex-spark" in curated
 
 
 def test_google_curated_models_exist_in_provider_catalog() -> None:
