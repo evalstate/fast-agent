@@ -74,7 +74,7 @@ def test_tools_property_respects_enable_flags() -> None:
     )
     assert [tool.name for tool in runtime.tools] == ["write_text_file"]
 
-    runtime.set_enabled_tools(enable_read=True, enable_write=False)
+    runtime.set_enabled_tools(enable_read=True, enable_write=False, enable_apply_patch=False)
     assert [tool.name for tool in runtime.tools] == ["read_text_file"]
 
 
@@ -235,3 +235,80 @@ async def test_write_text_file_resolves_relative_paths_from_working_directory(
     assert result.isError is False
     assert output_file.exists()
     assert output_file.read_text(encoding="utf-8") == "relative write"
+
+
+def test_apply_patch_tool_schema_uses_input_field() -> None:
+    runtime = LocalFilesystemRuntime(
+        logging.getLogger("local-filesystem-runtime-test"),
+        enable_apply_patch=True,
+    )
+
+    tool = _tool_by_name(runtime, "apply_patch")
+    assert tool is not None
+    assert tool.name == "apply_patch"
+    assert tool.inputSchema == {
+        "type": "object",
+        "properties": {
+            "input": {
+                "type": "string",
+                "description": (
+                    "Patch text in apply_patch format beginning with "
+                    "'*** Begin Patch' and ending with '*** End Patch'."
+                ),
+            }
+        },
+        "required": ["input"],
+        "additionalProperties": False,
+    }
+    tool_payload = tool.model_dump(mode="json", by_alias=True, exclude_none=True)
+    assert "meta" in tool_payload
+    assert "fast-agent/openai.responses_custom_tool" in tool_payload["meta"]
+
+
+@pytest.mark.asyncio
+async def test_apply_patch_updates_file_relative_to_working_directory(tmp_path: Path) -> None:
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    file_path = project_dir / "notes.txt"
+    file_path.write_text("one\ntwo\n", encoding="utf-8")
+
+    runtime = LocalFilesystemRuntime(
+        logging.getLogger("local-filesystem-runtime-test"),
+        working_directory=project_dir,
+        enable_write=False,
+        enable_apply_patch=True,
+    )
+
+    patch_text = (
+        "*** Begin Patch\n"
+        "*** Update File: notes.txt\n"
+        "@@\n"
+        "-one\n"
+        "+ONE\n"
+        " two\n"
+        "*** End Patch\n"
+    )
+    result = await runtime.apply_patch({"input": patch_text})
+
+    assert result.isError is False
+    assert file_path.read_text(encoding="utf-8") == "ONE\ntwo\n"
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    assert "Success. Updated the following files:" in result.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_apply_patch_invalid_args_returns_error() -> None:
+    runtime = LocalFilesystemRuntime(logging.getLogger("local-filesystem-runtime-test"))
+
+    invalid_results = [
+        await runtime.apply_patch(None),
+        await runtime.apply_patch({}),
+        await runtime.apply_patch({"input": 123}),
+    ]
+
+    for result in invalid_results:
+        assert result.isError is True
+        assert result.content is not None
+        assert isinstance(result.content[0], TextContent)
+        assert result.content[0].text.startswith("Error:")

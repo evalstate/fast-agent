@@ -24,7 +24,7 @@ def test_build_shell_form_includes_write_text_file_mode_field() -> None:
     assert isinstance(mode_field, StringField)
     assert mode_field.default == "off"
     assert mode_field.description is not None
-    assert "auto|on|off" in mode_field.description
+    assert "auto|on|off|apply_patch" in mode_field.description
 
 
 def test_normalize_shell_updates_supports_none_zero_and_positive_line_modes() -> None:
@@ -90,3 +90,22 @@ def test_normalize_shell_updates_uses_write_text_file_mode() -> None:
 def test_shell_settings_write_text_file_mode_accepts_yaml_boolean_values() -> None:
     assert ShellSettings.model_validate({"write_text_file_mode": False}).write_text_file_mode == "off"
     assert ShellSettings.model_validate({"write_text_file_mode": True}).write_text_file_mode == "on"
+
+
+def test_normalize_shell_updates_accepts_apply_patch_mode() -> None:
+    updates = _normalize_shell_updates(
+        {
+            "output_display_lines": -1,
+            "output_byte_limit": 0,
+            "show_bash": True,
+            "enable_read_text_file": True,
+            "write_text_file_mode": "apply_patch",
+        }
+    )
+
+    assert updates["write_text_file_mode"] == "apply_patch"
+
+
+def test_shell_settings_write_text_file_mode_accepts_apply_patch_string() -> None:
+    settings = ShellSettings.model_validate({"write_text_file_mode": "apply_patch"})
+    assert settings.write_text_file_mode == "apply_patch"

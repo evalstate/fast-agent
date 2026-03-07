@@ -107,7 +107,7 @@ def test_list_all_models_for_provider() -> None:
 
 def test_codexresponses_curated_entries_use_explicit_transports() -> None:
     curated = ModelSelectionCatalog.list_curated_models(Provider.CODEX_RESPONSES)
-    assert "codexresponses.gpt-5.3-codex?transport=ws&reasoning=high" in curated
+    assert "codexresponses.gpt-5.4?transport=ws&reasoning=high" in curated
     assert "codexresponses.gpt-5.3-codex-spark?transport=ws" in curated
 
 

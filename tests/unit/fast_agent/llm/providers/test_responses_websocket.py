@@ -21,6 +21,7 @@ from fast_agent.llm.provider.openai.responses_websocket import (
     StatelessResponsesWsPlanner,
     WebSocketConnectionManager,
     WebSocketResponsesStream,
+    _AttrObjectView,
     build_ws_headers,
     resolve_responses_ws_url,
     send_response_create,
@@ -182,6 +183,51 @@ async def test_send_response_create_envelope() -> None:
     assert payload["model"] == "gpt-5.3-codex"
 
 
+@pytest.mark.asyncio
+async def test_send_response_create_envelope_preserves_service_tier() -> None:
+    websocket = _FakeWebSocket()
+
+    await send_response_create(
+        websocket,
+        {
+            "model": "gpt-5.3-codex",
+            "input": [],
+            "store": False,
+            "service_tier": "priority",
+        },
+    )
+
+    assert len(websocket.sent_payloads) == 1
+    payload = json.loads(websocket.sent_payloads[0])
+    assert payload["type"] == "response.create"
+    assert payload["service_tier"] == "priority"
+
+
+def test_attr_object_view_model_dump_recurses_nested_mappings() -> None:
+    view = _AttrObjectView(
+        {
+            "content": [
+                {
+                    "type": "output_text",
+                    "annotations": [{"type": "url_citation", "title": "Example"}],
+                }
+            ]
+        }
+    )
+
+    dumped = view.model_dump()
+
+    assert dumped == {
+        "content": [
+            {
+                "type": "output_text",
+                "annotations": [{"type": "url_citation", "title": "Example"}],
+            }
+        ]
+    }
+    assert json.loads(json.dumps(dumped)) == dumped
+
+
 def _build_ws_arguments(input_items: list[dict[str, Any]], *, temperature: float = 0.0) -> dict[str, Any]:
     return {
         "model": "gpt-5.3-codex",
@@ -214,6 +260,15 @@ def _build_reasoning_item(reasoning_id: str) -> dict[str, Any]:
         "encrypted_content": "enc",
     }
 
+
+
+def _build_custom_tool_call(call_id: str, input_text: str) -> dict[str, Any]:
+    return {
+        "type": "custom_tool_call",
+        "call_id": call_id,
+        "name": "apply_patch",
+        "input": input_text,
+    }
 
 def _build_tool_result(call_id: str, output: str) -> dict[str, Any]:
     return {
@@ -275,6 +330,29 @@ def test_continuation_planner_strips_replayed_assistant_items_from_incremental_i
         _build_input_message("two"),
     ]
 
+
+
+
+def test_continuation_planner_strips_replayed_custom_tool_calls_from_incremental_input() -> None:
+    planner = StatefulContinuationResponsesWsPlanner()
+    first_arguments = _build_ws_arguments([_build_input_message("one")])
+    planner.commit(first_arguments, planner.plan(first_arguments), {"id": "resp_1"})
+
+    second_arguments = _build_ws_arguments(
+        [
+            _build_input_message("one"),
+            _build_custom_tool_call("call_patch", "*** Begin Patch\n*** End Patch"),
+            _build_tool_result("call_patch", "ok"),
+            _build_input_message("two"),
+        ]
+    )
+    planned = planner.plan(second_arguments)
+
+    assert planned.arguments["previous_response_id"] == "resp_1"
+    assert planned.arguments["input"] == [
+        _build_tool_result("call_patch", "ok"),
+        _build_input_message("two"),
+    ]
 
 def test_continuation_planner_replayed_assistant_only_suffix_forces_create() -> None:
     planner = StatefulContinuationResponsesWsPlanner()

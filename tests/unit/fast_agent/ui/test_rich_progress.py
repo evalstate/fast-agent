@@ -6,6 +6,8 @@ import time
 from typing import Any
 
 from rich.console import Console
+from rich.live import Live
+from rich.text import Text
 
 from fast_agent.event_progress import ProgressAction, ProgressEvent
 from fast_agent.ui.rich_progress import RichProgressDisplay
@@ -130,6 +132,21 @@ class TestPauseResumeOrdering:
         display.pause()
         assert display._stopped is True
         assert display._paused is True
+
+    def test_resume_retries_after_nested_live_unwinds(self) -> None:
+        display = _make_display()
+        display.start()
+        display.pause()
+
+        with Live(Text("streaming"), console=display.console, auto_refresh=False):
+            display.resume()
+            assert display._paused is True
+            assert display._deferred_resume_at is not None
+
+        display.update(_make_event())
+        assert display._paused is False
+
+        display.stop()
 
 
 class TestDebouncedResume:

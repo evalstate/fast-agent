@@ -276,6 +276,45 @@ async def test_shell_can_include_local_write_text_file_when_enabled(tmp_path: Pa
 
 
 @pytest.mark.asyncio
+async def test_shell_can_include_apply_patch_when_model_prefers_it(tmp_path: Path) -> None:
+    target_file = tmp_path / "notes.txt"
+    target_file.write_text("one\ntwo\n", encoding="utf-8")
+
+    config = AgentConfig(
+        name="test",
+        instruction="Instruction",
+        servers=[],
+        shell=True,
+        model="gpt-5.4",
+        cwd=tmp_path,
+    )
+    agent = McpAgent(config=config, context=Context())
+
+    tool_names = {tool.name for tool in (await agent.list_tools()).tools}
+    assert "apply_patch" in tool_names
+    assert "write_text_file" not in tool_names
+
+    patch_text = (
+        "*** Begin Patch\n"
+        "*** Update File: notes.txt\n"
+        "@@\n"
+        "-one\n"
+        "+ONE\n"
+        " two\n"
+        "*** End Patch\n"
+    )
+    result = await agent.call_tool("apply_patch", {"input": patch_text})
+
+    assert result.isError is False
+    assert target_file.read_text(encoding="utf-8") == "ONE\ntwo\n"
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    assert "Success. Updated the following files:" in result.content[0].text
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
 async def test_local_read_text_file_option_requires_shell_runtime() -> None:
     settings = Settings(shell_execution=ShellSettings(enable_read_text_file=True))
     config = AgentConfig(name="test", instruction="Instruction", servers=[], shell=False)
@@ -284,6 +323,7 @@ async def test_local_read_text_file_option_requires_shell_runtime() -> None:
     tool_names = {tool.name for tool in (await agent.list_tools()).tools}
     assert "read_text_file" not in tool_names
     assert "write_text_file" not in tool_names
+    assert "apply_patch" not in tool_names
 
     await agent._aggregator.close()
 
@@ -302,19 +342,23 @@ async def test_local_read_text_file_option_is_enabled_by_default() -> None:
 
 
 @pytest.mark.asyncio
-async def test_write_text_file_auto_mode_disables_for_codex_family_models() -> None:
+@pytest.mark.parametrize("model_name", ["codexplan", "gpt-5.4", "responses.gpt-5.4"])
+async def test_write_text_file_auto_mode_prefers_apply_patch_for_codex_family_models(
+    model_name: str,
+) -> None:
     config = AgentConfig(
         name="test",
         instruction="Instruction",
         servers=[],
         shell=True,
-        model="codexplan",
+        model=model_name,
     )
     agent = McpAgent(config=config, context=Context())
 
     tool_names = {tool.name for tool in (await agent.list_tools()).tools}
     assert "read_text_file" in tool_names
     assert "write_text_file" not in tool_names
+    assert "apply_patch" in tool_names
 
     await agent._aggregator.close()
 
@@ -345,6 +389,26 @@ async def test_write_text_file_auto_mode_uses_context_default_model_when_agent_m
     agent = McpAgent(config=config, context=Context(config=settings))
 
     tool_names = {tool.name for tool in (await agent.list_tools()).tools}
+    assert "write_text_file" not in tool_names
+    assert "apply_patch" in tool_names
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_apply_patch_mode_explicitly_enables_tool() -> None:
+    settings = Settings(shell_execution=ShellSettings(write_text_file_mode="apply_patch"))
+    config = AgentConfig(
+        name="test",
+        instruction="Instruction",
+        servers=[],
+        shell=True,
+        model="qwen35",
+    )
+    agent = McpAgent(config=config, context=Context(config=settings))
+
+    tool_names = {tool.name for tool in (await agent.list_tools()).tools}
+    assert "apply_patch" in tool_names
     assert "write_text_file" not in tool_names
 
     await agent._aggregator.close()

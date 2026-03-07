@@ -1,10 +1,10 @@
 import base64
 import json
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Literal
 
 import pytest
-from mcp.types import ImageContent, TextContent
+from mcp.types import CallToolRequest, CallToolRequestParams, ImageContent, TextContent
 from openai import AsyncOpenAI
 from openai.types.responses import ResponseFunctionToolCall
 from pydantic import ValidationError
@@ -14,13 +14,16 @@ from fast_agent.config import (
     OpenAISettings,
     OpenAIUserLocationSettings,
     OpenAIWebSearchSettings,
+    OpenResponsesSettings,
     Settings,
 )
-from fast_agent.constants import OPENAI_REASONING_ENCRYPTED
+from fast_agent.constants import OPENAI_ASSISTANT_MESSAGE_ITEMS, OPENAI_REASONING_ENCRYPTED
 from fast_agent.context import Context
+from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.provider.openai.codex_responses import CodexResponsesLLM
+from fast_agent.llm.provider.openai.openresponses import OpenResponsesLLM
 from fast_agent.llm.provider.openai.responses import (
     RESPONSE_INCLUDE_WEB_SEARCH_SOURCES,
     ResponsesLLM,
@@ -32,12 +35,16 @@ from fast_agent.llm.provider.openai.responses_streaming import ResponsesStreamin
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+from fast_agent.tools.apply_patch_tool import build_apply_patch_tool
+from fast_agent.types import AssistantMessagePhase
 
 
 class _ContentHarness(ResponsesContentMixin):
     def __init__(self) -> None:
         self.logger = get_logger("test.responses.content")
         self._tool_call_id_map = {}
+        self._tool_name_map = {}
+        self._tool_kind_map = {}
 
 
 class _FileHarness(ResponsesFileMixin):
@@ -76,6 +83,8 @@ class _OutputHarness(ResponsesOutputMixin):
     def __init__(self, provider: Provider = Provider.RESPONSES) -> None:
         self.logger = get_logger("test.responses.output")
         self._tool_call_id_map = {}
+        self._tool_name_map = {}
+        self._tool_kind_map = {}
         self._provider = provider
         self.captured_usages: list[Any] = []
 
@@ -109,6 +118,173 @@ class _LoggerSpy:
         self.warning_calls.append((message, data))
 
 
+
+
+def test_convert_tool_calls_serializes_apply_patch_as_custom_tool_call() -> None:
+    harness = _ContentHarness()
+    harness._tool_kind_map["call_patch"] = "custom"
+
+    items = harness._convert_tool_calls(
+        {
+            "call_patch": CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(
+                    name="apply_patch",
+                    arguments={
+                        "input": (
+                            "*** Begin Patch\n"
+                            "*** Add File: hello.txt\n"
+                            "+hello\n"
+                            "*** End Patch\n"
+                        )
+                    },
+                ),
+            )
+        }
+    )
+
+    assert items == [
+        {
+            "type": "custom_tool_call",
+            "call_id": "call_patch",
+            "name": "apply_patch",
+            "input": (
+                "*** Begin Patch\n"
+                "*** Add File: hello.txt\n"
+                "+hello\n"
+                "*** End Patch"
+            ),
+        }
+    ]
+
+
+def test_convert_tool_results_serializes_apply_patch_as_custom_tool_call_output() -> None:
+    harness = _ContentHarness()
+    harness._tool_kind_map["call_patch"] = "custom"
+
+    result = SimpleNamespace(content=[TextContent(type="text", text="Success")], isError=False)
+    items = harness._convert_tool_results({"call_patch": result})
+
+    assert items == [
+        {
+            "type": "custom_tool_call_output",
+            "call_id": "call_patch",
+            "output": "Success",
+        }
+    ]
+
+
+def test_convert_tool_calls_keeps_namespaced_apply_patch_as_function_call() -> None:
+    harness = _ContentHarness()
+    harness._tool_kind_map["call_patch"] = "function"
+
+    items = harness._convert_tool_calls(
+        {
+            "call_patch": CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(
+                    name="docs__apply_patch",
+                    arguments={"input": "*** Begin Patch\n*** End Patch\n"},
+                ),
+            )
+        }
+    )
+
+    assert items == [
+        {
+            "type": "function_call",
+            "id": "fc_patch",
+            "call_id": "call_patch",
+            "name": "docs__apply_patch",
+            "arguments": json.dumps({"input": "*** Begin Patch\n*** End Patch\n"}),
+        }
+    ]
+
+
+def test_extract_tool_calls_tracks_custom_kind_for_history_replay() -> None:
+    harness = _OutputHarness()
+    response = SimpleNamespace(
+        output=[
+            SimpleNamespace(
+                type="custom_tool_call",
+                id="ctc_123",
+                call_id="call_patch",
+                name="apply_patch",
+                input="*** Begin Patch\n*** End Patch\n",
+            )
+        ]
+    )
+
+    tool_calls = harness._extract_tool_calls(response)
+    assert tool_calls is not None
+    assert harness._tool_kind_map["call_patch"] == "custom"
+    assert harness._tool_kind_map["ctc_123"] == "custom"
+
+
+def test_extract_custom_tool_call_maps_apply_patch_input() -> None:
+    harness = _OutputHarness()
+    response = SimpleNamespace(
+        output=[
+            SimpleNamespace(
+                type="custom_tool_call",
+                id="ctc_123",
+                call_id="call_patch",
+                name="apply_patch",
+                input=(
+                    "*** Begin Patch\n"
+                    "*** Add File: hello.txt\n"
+                    "+hello\n"
+                    "*** End Patch\n"
+                ),
+            )
+        ]
+    )
+
+    tool_calls = harness._extract_tool_calls(response)
+    assert tool_calls is not None
+    request = tool_calls["call_patch"]
+    assert request.params.name == "apply_patch"
+    assert request.params.arguments == {
+        "input": (
+            "*** Begin Patch\n"
+            "*** Add File: hello.txt\n"
+            "+hello\n"
+            "*** End Patch\n"
+        )
+    }
+
+
+def test_build_response_args_serializes_apply_patch_as_custom_tool() -> None:
+    llm = _build_responses_family_llm(Provider.RESPONSES, model_name="gpt-5.4")
+
+    args = llm._build_response_args(
+        input_items=[
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "patch it"}],
+            }
+        ],
+        request_params=RequestParams(model="gpt-5.4"),
+        tools=[build_apply_patch_tool()],
+    )
+
+    tools_payload = args.get("tools")
+    assert isinstance(tools_payload, list)
+    assert len(tools_payload) == 1
+
+    tool_payload = tools_payload[0]
+    assert tool_payload["type"] == "custom"
+    assert tool_payload["name"] == "apply_patch"
+    assert tool_payload["description"] == (
+        "Use the `apply_patch` tool to edit files. "
+        "This is a FREEFORM tool, so do not wrap the patch in JSON."
+    )
+    assert tool_payload["format"]["type"] == "grammar"
+    assert tool_payload["format"]["syntax"] == "lark"
+    assert "*** Begin Patch" in tool_payload["format"]["definition"]
+
+
 def test_record_usage_uses_harness_provider() -> None:
     harness = _OutputHarness(provider=Provider.CODEX_RESPONSES)
 
@@ -118,6 +294,12 @@ def test_record_usage_uses_harness_provider() -> None:
     assert len(harness.captured_usages) == 1
     recorded = harness.captured_usages[0]
     assert recorded.provider == Provider.CODEX_RESPONSES
+
+
+def test_codex_responses_display_model_uses_infinity_marker() -> None:
+    llm = CodexResponsesLLM(provider=Provider.CODEX_RESPONSES, model="gpt-5.3-codex")
+
+    assert llm._display_model("gpt-5.3-codex") == "∞gpt-5.3-codex"
 
 
 class _FakeResponsesStream:
@@ -181,6 +363,46 @@ def _build_codex_responses_llm_with_web_search(
     if override is not None:
         kwargs["web_search"] = override
     return CodexResponsesLLM(**kwargs)
+
+
+def _build_responses_family_llm(
+    provider: Provider,
+    *,
+    model_name: str | None = None,
+    configured_service_tier: Literal["fast", "flex"] | None = None,
+) -> ResponsesLLM:
+    if provider == Provider.RESPONSES:
+        settings = Settings(
+            responses=OpenAISettings(api_key="test-key", service_tier=configured_service_tier)
+        )
+        model = model_name or "gpt-5-mini"
+        llm_class = ResponsesLLM
+    elif provider == Provider.OPENRESPONSES:
+        settings = Settings(
+            openresponses=OpenResponsesSettings(
+                api_key="test-key",
+                service_tier=configured_service_tier,
+            )
+        )
+        model = model_name or "gpt-5-mini"
+        llm_class = OpenResponsesLLM
+    elif provider == Provider.CODEX_RESPONSES:
+        if configured_service_tier == "flex":
+            raise AssertionError("codexresponses does not support flex service tier")
+        codex_service_tier: Literal["fast"] | None = configured_service_tier
+        settings = Settings(
+            codexresponses=CodexResponsesSettings(
+                api_key="test-key",
+                service_tier=codex_service_tier,
+            )
+        )
+        model = model_name or "gpt-5.3-codex"
+        llm_class = CodexResponsesLLM
+    else:
+        raise AssertionError(f"unexpected provider: {provider}")
+
+    context = Context(config=settings)
+    return llm_class(context=context, model=model, name=f"{provider.value}-service-tier-test")
 
 
 def test_openai_web_search_domain_allowlist_limit() -> None:
@@ -269,6 +491,23 @@ def test_tool_fallback_notifications():
     assert events[0][1]["tool_name"] == "weather"
 
 
+
+
+def test_tool_fallback_notifications_for_custom_tool_call() -> None:
+    harness = _StreamingHarness()
+    tool_call = SimpleNamespace(
+        call_id="call_patch",
+        name="apply_patch",
+        type="custom_tool_call",
+    )
+
+    harness._emit_tool_notification_fallback([tool_call], set(), model="gpt-test")
+
+    events = harness.events
+    assert [event for event, _payload in events] == ["start", "stop"]
+    assert events[0][1]["tool_use_id"] == "call_patch"
+    assert events[0][1]["tool_name"] == "apply_patch"
+
 def test_dedupes_duplicate_reasoning_ids():
     harness = _ContentHarness()
     payload = {"type": "reasoning", "encrypted_content": "abc", "id": "rs_dup"}
@@ -283,6 +522,79 @@ def test_dedupes_duplicate_reasoning_ids():
     items = harness._convert_extended_messages_to_provider(messages)
     reasoning_items = [item for item in items if item.get("type") == "reasoning"]
     assert len(reasoning_items) == 1
+
+
+def test_extract_raw_assistant_message_items_preserves_phase_metadata() -> None:
+    harness = _OutputHarness()
+    response = SimpleNamespace(
+        output=[
+            SimpleNamespace(
+                type="message",
+                id="msg_123",
+                role="assistant",
+                status="completed",
+                phase="commentary",
+                content=[
+                    SimpleNamespace(type="output_text", text="Let me inspect that first.")
+                ],
+            )
+        ]
+    )
+
+    raw_items, message_phase = harness._extract_raw_assistant_message_items(response)
+
+    assert message_phase == AssistantMessagePhase.COMMENTARY
+    assert len(raw_items) == 1
+    assert isinstance(raw_items[0], TextContent)
+    payload = json.loads(raw_items[0].text)
+    assert payload["type"] == "message"
+    assert payload["phase"] == "commentary"
+    assert payload["content"][0]["text"] == "Let me inspect that first."
+
+
+def test_convert_extended_messages_to_provider_includes_assistant_phase() -> None:
+    harness = _ContentHarness()
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="Working through the plan")],
+        phase=AssistantMessagePhase.COMMENTARY,
+    )
+
+    items = harness._convert_extended_messages_to_provider([message])
+
+    assert items == [
+        {
+            "type": "message",
+            "role": "assistant",
+            "phase": "commentary",
+            "content": [{"type": "output_text", "text": "Working through the plan"}],
+        }
+    ]
+
+
+def test_convert_extended_messages_to_provider_uses_raw_assistant_items_channel() -> None:
+    harness = _ContentHarness()
+    raw_item = {
+        "type": "message",
+        "id": "msg_123",
+        "role": "assistant",
+        "status": "completed",
+        "phase": "final_answer",
+        "content": [{"type": "output_text", "text": "Final answer"}],
+    }
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="Final answer")],
+        channels={
+            OPENAI_ASSISTANT_MESSAGE_ITEMS: [
+                TextContent(type="text", text=json.dumps(raw_item))
+            ]
+        },
+    )
+
+    items = harness._convert_extended_messages_to_provider([message])
+
+    assert items == [raw_item]
 
 
 def test_extract_reasoning_summary_trims_streamed_fallback() -> None:
@@ -493,6 +805,200 @@ def test_build_response_args_includes_openai_web_search_tool() -> None:
     include_payload = args.get("include")
     assert isinstance(include_payload, list)
     assert RESPONSE_INCLUDE_WEB_SEARCH_SOURCES in include_payload
+
+
+@pytest.mark.parametrize(
+    ("service_tier", "wire_value"),
+    [("fast", "priority"), ("flex", "flex")],
+)
+def test_build_response_args_maps_service_tier_values(
+    service_tier: Literal["fast", "flex"],
+    wire_value: str,
+) -> None:
+    llm = _build_responses_family_llm(Provider.RESPONSES)
+
+    args = llm._build_response_args(
+        input_items=[
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "hello"}],
+            }
+        ],
+        request_params=RequestParams(model="gpt-5-mini", service_tier=service_tier),
+        tools=None,
+    )
+
+    assert args["service_tier"] == wire_value
+
+
+def test_build_response_args_omits_service_tier_when_unset() -> None:
+    llm = _build_responses_family_llm(Provider.RESPONSES)
+
+    args = llm._build_response_args(
+        input_items=[
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "hello"}],
+            }
+        ],
+        request_params=RequestParams(model="gpt-5-mini"),
+        tools=None,
+    )
+
+    assert "service_tier" not in args
+
+
+def test_codexresponses_settings_reject_flex_service_tier() -> None:
+    with pytest.raises(ValidationError):
+        CodexResponsesSettings.model_validate({"api_key": "test-key", "service_tier": "flex"})
+
+
+@pytest.mark.parametrize(
+    ("provider", "expected_tiers"),
+    [
+        (Provider.RESPONSES, ("fast", "flex")),
+        (Provider.OPENRESPONSES, ("fast", "flex")),
+        (Provider.CODEX_RESPONSES, ("fast",)),
+    ],
+)
+def test_responses_family_llms_report_service_tier_support(
+    provider: Provider,
+    expected_tiers: tuple[str, ...],
+) -> None:
+    llm = _build_responses_family_llm(provider)
+
+    assert llm.service_tier_supported is True
+    assert llm.available_service_tiers == expected_tiers
+    assert llm.service_tier is None
+
+
+def test_responses_llm_set_service_tier_updates_live_state() -> None:
+    llm = _build_responses_family_llm(Provider.RESPONSES)
+
+    llm.set_service_tier("fast")
+    assert llm.service_tier == "fast"
+
+    llm.set_service_tier(None)
+    assert llm.service_tier is None
+
+
+def test_codexresponses_set_service_tier_rejects_flex() -> None:
+    llm = _build_responses_family_llm(Provider.CODEX_RESPONSES)
+
+    with pytest.raises(ValueError, match="standard"):
+        llm.set_service_tier("flex")
+
+
+def test_responses_chatgpt_model_reports_fast_only_service_tier() -> None:
+    llm = _build_responses_family_llm(
+        Provider.RESPONSES,
+        model_name="gpt-5.3-chat-latest",
+    )
+
+    assert llm.available_service_tiers == ("fast",)
+
+
+def test_responses_chatgpt_model_rejects_flex_service_tier() -> None:
+    llm = _build_responses_family_llm(
+        Provider.RESPONSES,
+        model_name="gpt-5.3-chat-latest",
+    )
+
+    with pytest.raises(ValueError, match="standard"):
+        llm.set_service_tier("flex")
+
+
+@pytest.mark.parametrize(
+    ("provider", "configured_service_tier", "expected_wire_value"),
+    [
+        (Provider.RESPONSES, "fast", "priority"),
+        (Provider.OPENRESPONSES, "flex", "flex"),
+        (Provider.CODEX_RESPONSES, "fast", "priority"),
+    ],
+)
+def test_configured_service_tier_defaults_apply_for_responses_family(
+    provider: Provider,
+    configured_service_tier: Literal["fast", "flex"],
+    expected_wire_value: str,
+) -> None:
+    llm = _build_responses_family_llm(
+        provider,
+        configured_service_tier=configured_service_tier,
+    )
+
+    args = llm._build_response_args(
+        input_items=[
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "hello"}],
+            }
+        ],
+        request_params=RequestParams(model=llm.default_request_params.model),
+        tools=None,
+    )
+
+    assert llm.default_request_params.service_tier == configured_service_tier
+    assert args["service_tier"] == expected_wire_value
+
+
+def test_request_service_tier_overrides_configured_default() -> None:
+    llm = _build_responses_family_llm(
+        Provider.RESPONSES,
+        configured_service_tier="fast",
+    )
+
+    args = llm._build_response_args(
+        input_items=[
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "hello"}],
+            }
+        ],
+        request_params=RequestParams(model="gpt-5-mini", service_tier="flex"),
+        tools=None,
+    )
+
+    assert args["service_tier"] == "flex"
+
+
+def test_codexresponses_request_service_tier_rejects_flex() -> None:
+    llm = _build_responses_family_llm(Provider.CODEX_RESPONSES)
+
+    with pytest.raises(ModelConfigError, match="does not support service tier 'flex'"):
+        llm._build_response_args(
+            input_items=[
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": "hello"}],
+                }
+            ],
+            request_params=RequestParams(model="gpt-5.3-codex", service_tier="flex"),
+            tools=None,
+        )
+
+def test_responses_chatgpt_request_service_tier_rejects_flex() -> None:
+    llm = _build_responses_family_llm(
+        Provider.RESPONSES,
+        model_name="gpt-5.3-chat-latest",
+    )
+
+    with pytest.raises(ModelConfigError, match="gpt-5.3-chat-latest"):
+        llm._build_response_args(
+            input_items=[
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": "hello"}],
+                }
+            ],
+            request_params=RequestParams(model="gpt-5.3-chat-latest", service_tier="flex"),
+            tools=None,
+        )
 
 
 def test_web_search_override_disables_configured_web_search_tool() -> None:

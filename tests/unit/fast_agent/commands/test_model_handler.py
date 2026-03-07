@@ -2,6 +2,7 @@ import pytest
 
 from fast_agent.commands.context import CommandContext
 from fast_agent.commands.handlers.model import (
+    handle_model_fast,
     handle_model_reasoning,
     handle_model_verbosity,
     handle_model_web_fetch,
@@ -51,6 +52,9 @@ class _StubLLM:
         web_fetch_supported: bool = False,
         web_search_default: bool = False,
         web_fetch_default: bool = False,
+        service_tier_supported: bool = False,
+        service_tier_default: str | None = None,
+        available_service_tiers: tuple[str, ...] | None = None,
         sampling_overrides: dict[str, float | int] | None = None,
     ) -> None:
         self.model_name = model_name
@@ -71,6 +75,11 @@ class _StubLLM:
         self.text_verbosity = None
         self.configured_transport = "sse"
         self.active_transport = None
+        self.service_tier_supported = service_tier_supported
+        if available_service_tiers is None and service_tier_supported:
+            available_service_tiers = ("fast", "flex")
+        self.available_service_tiers = available_service_tiers or ()
+        self._service_tier = service_tier_default
         self.web_search_supported = web_search_supported
         self.web_fetch_supported = web_fetch_supported
         self._web_search_default = web_search_default
@@ -102,6 +111,10 @@ class _StubLLM:
         _, fetch_enabled = self.web_tools_enabled
         return fetch_enabled
 
+    @property
+    def service_tier(self) -> str | None:
+        return self._service_tier
+
     def set_web_search_enabled(self, value: bool | None) -> None:
         if value is not None and not self.web_search_supported:
             raise ValueError("Current model does not support web search configuration.")
@@ -111,6 +124,16 @@ class _StubLLM:
         if value is not None and not self.web_fetch_supported:
             raise ValueError("Current model does not support web fetch configuration.")
         self._web_fetch_override = value
+
+    def set_service_tier(self, value: str | None) -> None:
+        if value is not None and not self.service_tier_supported:
+            raise ValueError("Current model does not support service tier configuration.")
+        if value is not None and value not in self.available_service_tiers:
+            allowed = ", ".join(self.available_service_tiers) or "standard"
+            raise ValueError(
+                f"Current model supports only {allowed} or unset (standard) service tier."
+            )
+        self._service_tier = value
 
 
 class _StubShellRuntime:
@@ -197,6 +220,34 @@ async def test_model_reasoning_includes_transport_details_for_configurable_model
     assert (
         "Active transport: sse (websocket fallback was used for this turn)." in text_messages
     )
+
+
+@pytest.mark.asyncio
+async def test_model_reasoning_includes_runtime_setting_details_when_available() -> None:
+    llm = _StubLLM(
+        "gpt-5.4",
+        web_search_supported=True,
+        web_search_default=True,
+        web_fetch_supported=True,
+        web_fetch_default=False,
+        service_tier_supported=True,
+        service_tier_default="flex",
+    )
+    provider = _StubAgentProvider(_StubAgent(llm, shell_limit=None))
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+    )
+
+    outcome = await handle_model_reasoning(ctx, agent_name="test", value=None)
+    text_messages = [str(m.text) for m in outcome.messages]
+
+    assert "Text verbosity: medium." in text_messages
+    assert "Service tier: flex." in text_messages
+    assert "Web search: enabled." in text_messages
+    assert "Web fetch: disabled." in text_messages
 
 
 @pytest.mark.asyncio
@@ -308,6 +359,93 @@ async def test_model_web_search_set_and_reset_to_default() -> None:
     reset_outcome = await handle_model_web_search(ctx, agent_name="test", value="default")
     reset_text = [str(m.text) for m in reset_outcome.messages]
     assert "Web search: set to default (disabled)." in reset_text
+
+
+@pytest.mark.asyncio
+async def test_model_fast_reports_when_unsupported() -> None:
+    llm = _StubLLM("gpt-4.1", service_tier_supported=False)
+    provider = _StubAgentProvider(_StubAgent(llm, shell_limit=None))
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+    )
+
+    outcome = await handle_model_fast(ctx, agent_name="test", value="status")
+    text_messages = [str(m.text) for m in outcome.messages]
+
+    assert "Current model does not support service tier configuration." in text_messages
+
+
+@pytest.mark.asyncio
+async def test_model_fast_toggle_and_status() -> None:
+    llm = _StubLLM("gpt-5", service_tier_supported=True)
+    provider = _StubAgentProvider(_StubAgent(llm, shell_limit=None))
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+    )
+
+    toggle_outcome = await handle_model_fast(ctx, agent_name="test", value=None)
+    toggle_text = [str(m.text) for m in toggle_outcome.messages]
+    assert "Service tier: set to fast." in toggle_text
+
+    status_outcome = await handle_model_fast(ctx, agent_name="test", value="status")
+    status_text = [str(m.text) for m in status_outcome.messages]
+    assert "Service tier: fast. Allowed values: on, off, flex, status." in status_text
+
+    off_outcome = await handle_model_fast(ctx, agent_name="test", value="off")
+    off_text = [str(m.text) for m in off_outcome.messages]
+    assert "Service tier: set to default." in off_text
+
+    flex_outcome = await handle_model_fast(ctx, agent_name="test", value="flex")
+    flex_text = [str(m.text) for m in flex_outcome.messages]
+    assert "Service tier: set to flex." in flex_text
+
+
+@pytest.mark.asyncio
+async def test_model_fast_codexresponses_omits_flex_value() -> None:
+    llm = _StubLLM(
+        "gpt-5.4",
+        service_tier_supported=True,
+        available_service_tiers=("fast",),
+    )
+    llm.provider = Provider.CODEX_RESPONSES
+    provider = _StubAgentProvider(_StubAgent(llm, shell_limit=None))
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+    )
+
+    status_outcome = await handle_model_fast(ctx, agent_name="test", value="status")
+    status_text = [str(m.text) for m in status_outcome.messages]
+    assert "Service tier: default. Allowed values: on, off, status." in status_text
+
+    flex_outcome = await handle_model_fast(ctx, agent_name="test", value="flex")
+    flex_text = [str(m.text) for m in flex_outcome.messages]
+    assert "Invalid service tier value 'flex'. Allowed values: on, off, status." in flex_text
+
+
+@pytest.mark.asyncio
+async def test_model_fast_rejects_invalid_value() -> None:
+    llm = _StubLLM("gpt-5", service_tier_supported=True)
+    provider = _StubAgentProvider(_StubAgent(llm, shell_limit=None))
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+    )
+
+    outcome = await handle_model_fast(ctx, agent_name="test", value="maybe")
+    text_messages = [str(m.text) for m in outcome.messages]
+
+    assert "Invalid service tier value 'maybe'. Allowed values: on, off, flex, status." in text_messages
 
 
 @pytest.mark.asyncio

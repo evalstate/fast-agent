@@ -1,5 +1,7 @@
 from typing import Any
 
+import pytest
+
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
@@ -102,6 +104,24 @@ class TestRequestParamsInLLM:
         # Verify response_format is included
         assert result["model"] == "test-model"
         assert result["response_format"] == json_format
+
+    def test_service_tier_excluded_from_non_responses_provider_arguments(self):
+        """Test that service_tier is kept off generic provider argument passthrough."""
+        llm = StubLLM()
+
+        result = llm.prepare_provider_arguments(
+            {"model": "test-model"},
+            RequestParams(service_tier="fast"),
+        )
+
+        assert result["model"] == "test-model"
+        assert "service_tier" not in result
+
+    def test_service_tier_setter_rejects_unsupported_providers(self):
+        llm = StubLLM()
+
+        with pytest.raises(ValueError, match="service tier"):
+            llm.set_service_tier("fast")
 
     def test_openai_provider_arguments(self):
         """Test prepare_provider_arguments with OpenAI provider"""

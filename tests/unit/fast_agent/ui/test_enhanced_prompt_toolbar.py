@@ -1,6 +1,8 @@
 from pathlib import Path
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, ReasoningEffortSpec
+from fast_agent.llm.text_verbosity import TextVerbositySpec
 from fast_agent.ui.enhanced_prompt import (
     _can_fit_shell_path_and_version,
     _fit_shell_identity_for_toolbar,
@@ -9,6 +11,7 @@ from fast_agent.ui.enhanced_prompt import (
     _format_parent_current_path,
     _format_toolbar_agent_identity,
     _left_truncate_with_ellipsis,
+    _render_model_gauges,
 )
 
 
@@ -117,6 +120,40 @@ def test_can_fit_shell_path_and_version_false_when_no_combination_fits() -> None
     version = "fast-agent 1.2.3"
 
     assert not _can_fit_shell_path_and_version(path, version, 12)
+
+
+def test_render_model_gauges_uses_standalone_reasoning_without_verbosity() -> None:
+    reasoning_spec = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "medium", "high"],
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
+    )
+
+    gauges = _render_model_gauges(
+        ReasoningEffortSetting(kind="effort", value="medium"),
+        reasoning_spec,
+        None,
+        None,
+    )
+
+    assert gauges == "<style bg='ansiyellow'>⣶</style>"
+
+
+def test_render_model_gauges_uses_paired_glyphs_when_reasoning_and_verbosity_exist() -> None:
+    reasoning_spec = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "medium", "high"],
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
+    )
+
+    gauges = _render_model_gauges(
+        ReasoningEffortSetting(kind="effort", value="medium"),
+        reasoning_spec,
+        "medium",
+        TextVerbositySpec(default="medium"),
+    )
+
+    assert gauges == "<style bg='ansiyellow'>⢰</style><style bg='ansiyellow'>⡆</style>"
 
 
 class _StubAgent:

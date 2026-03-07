@@ -8,6 +8,7 @@ import pytest
 
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.core.fastagent import AgentInstance
+from fast_agent.llm.request_params import RequestParams
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
@@ -16,6 +17,32 @@ if TYPE_CHECKING:
 
 class _Agent:
     acp_commands = {}
+
+
+class _FastModeLlm:
+    service_tier_supported = True
+    available_service_tiers = ("fast", "flex")
+
+    def __init__(self) -> None:
+        self.service_tier: str | None = None
+        self.reasoning_effort_spec = None
+        self.text_verbosity_spec = None
+        self.web_search_supported = False
+        self.web_fetch_supported = False
+        self.provider = "responses"
+        self.model_name = "gpt-5"
+        self.default_request_params = RequestParams()
+
+    def set_service_tier(self, value: str | None) -> None:
+        self.service_tier = value
+
+
+class _FastModeAgent:
+    acp_commands = {}
+
+    def __init__(self) -> None:
+        self.llm = _FastModeLlm()
+        self._llm = self.llm
 
 
 class _App:
@@ -74,6 +101,57 @@ async def test_slash_command_models_registered_in_available_commands(tmp_path: P
 
     assert "models" in command_names
     assert "commands" in command_names
+
+
+@pytest.mark.asyncio
+async def test_slash_command_model_fast_and_dynamic_hint() -> None:
+    app = _App()
+    agent = _FastModeAgent()
+    instance = AgentInstance(
+        app=cast("AgentApp", app),
+        agents={"main": cast("AgentProtocol", agent)},
+        registry_version=0,
+    )
+    handler = SlashCommandHandler(
+        session_id="s1",
+        instance=instance,
+        primary_agent_name="main",
+    )
+
+    output = await handler.execute_command("model", "fast flex")
+    commands = {command.name: command for command in handler.get_available_commands()}
+    model_input = commands["model"].input
+
+    assert "Service tier: set to flex." in output
+    assert model_input is not None
+    assert model_input.root.hint is not None
+    assert "fast <on|off|flex|status>" in model_input.root.hint
+
+
+@pytest.mark.asyncio
+async def test_slash_command_model_fast_hint_omits_flex_for_codexresponses() -> None:
+    app = _App()
+    agent = _FastModeAgent()
+    agent.llm.provider = "codexresponses"
+    agent.llm.available_service_tiers = ("fast",)
+    instance = AgentInstance(
+        app=cast("AgentApp", app),
+        agents={"main": cast("AgentProtocol", agent)},
+        registry_version=0,
+    )
+    handler = SlashCommandHandler(
+        session_id="s1",
+        instance=instance,
+        primary_agent_name="main",
+    )
+
+    commands = {command.name: command for command in handler.get_available_commands()}
+    model_input = commands["model"].input
+
+    assert model_input is not None
+    assert model_input.root.hint is not None
+    assert "fast <on|off|status>" in model_input.root.hint
+    assert "flex" not in model_input.root.hint
 
 
 @pytest.mark.asyncio

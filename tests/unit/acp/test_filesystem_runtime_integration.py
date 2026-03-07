@@ -92,6 +92,14 @@ class SimpleFilesystemRuntime:
                 isError=True,
             )
 
+
+    async def apply_patch(self, arguments, tool_use_id=None):
+        del arguments, tool_use_id
+        return CallToolResult(
+            content=[text_content("apply_patch unsupported")],
+            isError=True,
+        )
+
     def metadata(self):
         return {
             "type": "simple_filesystem",

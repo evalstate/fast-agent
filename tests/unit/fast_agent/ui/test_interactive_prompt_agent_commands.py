@@ -125,6 +125,20 @@ class _PreAttachedMcpAgentApp(_FakeAgentApp):
         return ["demo"]
 
 
+@pytest.mark.asyncio
+async def test_clear_current_task_cancellation_requests_resets_task_state() -> None:
+    task = asyncio.current_task()
+    assert task is not None
+
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.sleep(0)
+
+    assert task.cancelling() == 1
+    assert interactive_prompt._clear_current_task_cancellation_requests() == 1
+    assert task.cancelling() == 0
+
+
 def _patch_input(monkeypatch, inputs: list[str]) -> None:
     iterator = iter(inputs)
 

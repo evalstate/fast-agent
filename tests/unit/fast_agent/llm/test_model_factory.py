@@ -12,6 +12,7 @@ from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
+from fast_agent.types import RequestParams
 
 # Test aliases - decoupled from production MODEL_ALIASES
 # These provide stable test data that won't break when production aliases change
@@ -195,7 +196,7 @@ def test_minimax25_alias_sets_sampling_defaults() -> None:
 def test_model_query_transport_websocket_alias():
     config = ModelFactory.parse_model_string("codexplan?transport=ws")
     assert config.provider == Provider.CODEX_RESPONSES
-    assert config.model_name == "gpt-5.3-codex"
+    assert config.model_name == "gpt-5.4"
     assert config.transport == "websocket"
 
 
@@ -207,6 +208,52 @@ def test_model_query_transport_auto():
 def test_model_query_transport_sse():
     config = ModelFactory.parse_model_string("codexplan?transport=sse")
     assert config.transport == "sse"
+
+
+def test_model_query_service_tier():
+    config = ModelFactory.parse_model_string("responses.gpt-5-mini?service_tier=fast")
+    assert config.provider == Provider.RESPONSES
+    assert config.model_name == "gpt-5-mini"
+    assert config.service_tier == "fast"
+
+
+def test_invalid_service_tier_query():
+    with pytest.raises(ModelConfigError):
+        ModelFactory.parse_model_string("responses.gpt-5-mini?service_tier=turbo")
+
+def test_codexresponses_fast_service_tier_query() -> None:
+    config = ModelFactory.parse_model_string("codexresponses.gpt-5.4?service_tier=fast")
+
+    assert config.provider == Provider.CODEX_RESPONSES
+    assert config.model_name == "gpt-5.4"
+    assert config.service_tier == "fast"
+
+
+def test_codexresponses_flex_service_tier_query_rejected() -> None:
+    with pytest.raises(ModelConfigError, match="does not support service_tier=flex"):
+        ModelFactory.parse_model_string("codexresponses.gpt-5.4?service_tier=flex")
+
+def test_responses_chatgpt_flex_service_tier_query_rejected() -> None:
+    with pytest.raises(ModelConfigError, match="gpt-5.3-chat-latest"):
+        ModelFactory.parse_model_string("responses.gpt-5.3-chat-latest?service_tier=flex")
+
+
+def test_chatgpt_alias_flex_service_tier_query_rejected() -> None:
+    with pytest.raises(ModelConfigError, match="gpt-5.3-chat-latest"):
+        ModelFactory.parse_model_string("chatgpt?service_tier=flex")
+
+
+def test_responses_codex_52_flex_service_tier_query_allowed() -> None:
+    config = ModelFactory.parse_model_string("responses.gpt-5.2-codex?service_tier=flex")
+
+    assert config.provider == Provider.RESPONSES
+    assert config.model_name == "gpt-5.2-codex"
+    assert config.service_tier == "flex"
+
+
+def test_responses_codex_53_flex_service_tier_query_rejected() -> None:
+    with pytest.raises(ModelConfigError, match="gpt-5.3-codex"):
+        ModelFactory.parse_model_string("responses.gpt-5.3-codex?service_tier=flex")
 
 
 def test_model_query_web_tool_flags():
@@ -303,6 +350,42 @@ def test_factory_passes_transport_to_responses_llm_for_openai_responses_model() 
     assert isinstance(llm, ResponsesLLM)
     assert llm.provider == Provider.RESPONSES
     assert llm._transport == "websocket"
+
+
+def test_factory_passes_service_tier_query_to_request_params() -> None:
+    factory = ModelFactory.create_factory("responses.gpt-5?service_tier=fast")
+    llm = factory(LlmAgent(AgentConfig(name="Test Agent")))
+
+    assert llm.default_request_params.service_tier == "fast"
+
+
+def test_factory_service_tier_query_does_not_override_explicit_request_params() -> None:
+    factory = ModelFactory.create_factory("responses.gpt-5?service_tier=fast")
+    llm = factory(
+        LlmAgent(AgentConfig(name="Test Agent")),
+        request_params=RequestParams(service_tier="flex"),
+    )
+
+    assert llm.default_request_params.service_tier == "flex"
+
+
+def test_factory_service_tier_query_respects_explicit_none_request_params() -> None:
+    factory = ModelFactory.create_factory("responses.gpt-5?service_tier=fast")
+    llm = factory(
+        LlmAgent(AgentConfig(name="Test Agent")),
+        request_params=RequestParams(service_tier=None),
+    )
+
+    assert llm.default_request_params.service_tier is None
+
+def test_factory_codexresponses_explicit_flex_request_params_rejected() -> None:
+    factory = ModelFactory.create_factory("codexresponses.gpt-5.4")
+
+    with pytest.raises(ModelConfigError, match="does not support service tier 'flex'"):
+        factory(
+            LlmAgent(AgentConfig(name="Test Agent")),
+            request_params=RequestParams(service_tier="flex"),
+        )
 
 
 def test_factory_passes_web_tool_overrides_to_anthropic_llm():
@@ -434,7 +517,11 @@ def test_curated_catalog_aliases_are_parseable():
 def test_codexplan_aliases_use_codex_oauth_provider():
     config = ModelFactory.parse_model_string("codexplan")
     assert config.provider == Provider.CODEX_RESPONSES
-    assert config.model_name == "gpt-5.3-codex"
+    assert config.model_name == "gpt-5.4"
+
+    config = ModelFactory.parse_model_string("gpt54")
+    assert config.provider == Provider.RESPONSES
+    assert config.model_name == "gpt-5.4"
 
     config = ModelFactory.parse_model_string("codexplan52")
     assert config.provider == Provider.CODEX_RESPONSES
