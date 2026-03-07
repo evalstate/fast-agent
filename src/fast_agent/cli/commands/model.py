@@ -97,8 +97,7 @@ def _normalize_interactive_alias_token(token: str | None) -> str | None:
 async def _prompt_manual_alias_token(io: CommandIO) -> str | None:
     if isinstance(io, TuiCommandIO):
         try:
-            entered = await asyncio.to_thread(
-                typer.prompt,
+            entered = typer.prompt(
                 "Alias token ($namespace.key)",
                 default="",
                 show_default=False,
@@ -130,10 +129,18 @@ async def run_model_setup(
             cwd=Path.cwd(),
             env_dir=getattr(settings, "environment_dir", None),
         )
+        has_guided_choices = bool(diagnostics.items) or (
+            isinstance(io, TuiCommandIO)
+            and bool(_build_common_setup_items(diagnostics.valid_aliases))
+        )
         resolved_token = await _select_model_setup_token(
             io,
             diagnostics=diagnostics,
         )
+        if has_guided_choices and resolved_token is None:
+            outcome = CommandOutcome()
+            outcome.add_message("Model setup cancelled.", channel="warning", right_info="model")
+            return outcome
 
     provider = _CliModelAgentProvider()
     ctx = CommandContext(
