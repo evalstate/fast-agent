@@ -126,13 +126,16 @@ async def _select_model_setup_token(
     diagnostics: ModelAliasSetupDiagnostics,
 ) -> str | None:
     items = diagnostics.items
+    common_items = _build_common_setup_items(diagnostics.valid_aliases)
     if not items:
-        if isinstance(io, TuiCommandIO) and not diagnostics.valid_aliases:
-            return await run_model_alias_picker_async(_build_common_setup_items())
+        if isinstance(io, TuiCommandIO) and common_items:
+            return await run_model_alias_picker_async(common_items)
         return None
 
     if isinstance(io, TuiCommandIO):
-        selected_token = await run_model_alias_picker_async(items)
+        selected_token = await run_model_alias_picker_async(
+            _merge_setup_items(items, common_items)
+        )
         if selected_token is not None:
             return selected_token
         return None
@@ -208,25 +211,47 @@ def _render_setup_item_list(items: tuple[ModelAliasSetupItem, ...]) -> Text:
     return content
 
 
-def _build_common_setup_items() -> tuple[ModelAliasSetupItem, ...]:
-    return (
-        ModelAliasSetupItem(
-            token="$system.default",
-            priority="required",
-            status="missing",
-            current_value=None,
-            summary="Recommended starter alias for your main default model.",
-            references=("starter setup",),
-        ),
-        ModelAliasSetupItem(
-            token="$system.fast",
-            priority="recommended",
-            status="missing",
-            current_value=None,
-            summary="Optional starter alias for a faster or cheaper model.",
-            references=("starter setup",),
-        ),
-    )
+def _build_common_setup_items(
+    valid_aliases: dict[str, dict[str, str]],
+) -> tuple[ModelAliasSetupItem, ...]:
+    items: list[ModelAliasSetupItem] = []
+    system_aliases = valid_aliases.get("system", {})
+    if "default" not in system_aliases:
+        items.append(
+            ModelAliasSetupItem(
+                token="$system.default",
+                priority="required",
+                status="missing",
+                current_value=None,
+                summary="Recommended starter alias for your main default model.",
+                references=("starter setup",),
+            )
+        )
+    if "fast" not in system_aliases:
+        items.append(
+            ModelAliasSetupItem(
+                token="$system.fast",
+                priority="recommended",
+                status="missing",
+                current_value=None,
+                summary="Optional starter alias for a faster or cheaper model.",
+                references=("starter setup",),
+            )
+        )
+    return tuple(items)
+
+
+def _merge_setup_items(
+    primary_items: tuple[ModelAliasSetupItem, ...],
+    extra_items: tuple[ModelAliasSetupItem, ...],
+) -> tuple[ModelAliasSetupItem, ...]:
+    merged: list[ModelAliasSetupItem] = list(primary_items)
+    seen_tokens = {item.token for item in primary_items}
+    for item in extra_items:
+        if item.token in seen_tokens:
+            continue
+        merged.append(item)
+    return tuple(merged)
 
 
 async def _run_model_setup_command(

@@ -66,11 +66,12 @@ class _AliasPicker:
             style=Style.from_dict(
                 {
                     "selected": "reverse",
-                    "required": "ansiyellow",
-                    "repair": "ansired",
-                    "recommended": "ansicyan",
+                    "item": "#dddddd",
+                    "required": "#ffcc66",
+                    "repair": "#ff8080",
+                    "recommended": "#7fd4d4",
                     "muted": "#777777",
-                    "status": "#ffffff",
+                    "status": "#dddddd",
                 }
             ),
             full_screen=False,
@@ -149,9 +150,9 @@ class _AliasPicker:
             fragments.extend(
                 [
                     (style, " "),
-                    (f"{style}{priority_style}", token_text.ljust(token_width)),
+                    (f"{style}class:item", token_text.ljust(token_width)),
                     (style, "  "),
-                    ("class:status " + style, status_text.ljust(status_width)),
+                    (f"{style}{priority_style}", status_text.ljust(status_width)),
                     (style, "\n"),
                 ]
             )
