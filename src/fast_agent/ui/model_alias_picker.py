@@ -66,12 +66,10 @@ class _AliasPicker:
             style=Style.from_dict(
                 {
                     "selected": "reverse",
-                    "item": "",
                     "required": "ansiyellow",
                     "repair": "ansiyellow",
                     "recommended": "ansigreen",
                     "muted": "ansibrightblack",
-                    "status": "",
                 }
             ),
             full_screen=False,
@@ -131,30 +129,41 @@ class _AliasPicker:
 
         return kb
 
+    def _row_style(
+        self,
+        *,
+        selected: bool,
+        availability: str,
+    ) -> str:
+        parts: list[str] = []
+        if selected:
+            parts.append("class:selected")
+        parts.append(f"class:{availability}")
+        return " ".join(parts)
+
     def _render_rows(self) -> StyleFragments:
         width = self._terminal_cols()
         status_width = 25
-        token_width = max(18, width - status_width - 8)
+        token_width = max(18, width - status_width - 4)
         fragments: StyleFragments = []
         for index, item in enumerate(self.items):
-            style = "class:selected " if index == self.state.index else ""
-            priority_style = {
-                "required": "class:required",
-                "repair": "class:repair",
-                "recommended": "class:recommended",
+            selected = index == self.state.index
+            availability = {
+                "required": "required",
+                "repair": "repair",
+                "recommended": "recommended",
             }[item.priority]
+            line_style = self._row_style(selected=selected, availability=availability)
             token_text = item.token[: token_width - 1]
             if len(item.token) > token_width:
                 token_text = item.token[: token_width - 2] + "…"
             status_text = f"{item.priority}/{item.status}"
-            fragments.extend(
-                [
-                    (style, " "),
-                    (f"{style}class:item", token_text.ljust(token_width)),
-                    (style, "  "),
-                    (f"{style}{priority_style}", status_text.ljust(status_width)),
-                    (style, "\n"),
-                ]
+            cursor = "❯ " if selected else "  "
+            fragments.append(
+                (
+                    line_style,
+                    f"{cursor}{token_text.ljust(token_width)}  {status_text.ljust(status_width)}\n",
+                )
             )
         return fragments
 
