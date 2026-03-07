@@ -146,7 +146,7 @@ Relevant methods:
 - **File:** `src/fast_agent/tools/shell_runtime.py`
 - Exit codes are shown below tool output.
 - Styling depends on `ConsoleDisplay._use_a3_style()`:
-  - **a3:** `▎• exit code N` (blank line before/after)
+  - **a3:** `▎ exit code N` (blank line before/after)
   - **classic:** `─| exit code N |────`
 - Exit code label color:
   - `0` → `white reverse dim`

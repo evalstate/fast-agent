@@ -56,6 +56,36 @@ def test_set_alias_writes_env_target_and_creates_config_file(tmp_path) -> None:
     assert saved["model_aliases"]["system"]["fast"] == "claude-haiku-4-5"
 
 
+def test_set_alias_preserves_existing_yaml_comments(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    env_dir = workspace / ".fast-agent"
+    workspace.mkdir(parents=True)
+    config_path = env_dir / "fastagent.config.yaml"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        (
+            "# top comment\n"
+            "model_aliases:\n"
+            "  # shared aliases\n"
+            "  system:\n"
+            "    # keep this note\n"
+            "    fast: claude-sonnet-4-5\n"
+        ),
+        encoding="utf-8",
+    )
+
+    service = ModelAliasConfigService(cwd=workspace, env_dir=env_dir)
+
+    result = service.set_alias("$system.fast", "claude-haiku-4-5", target="env")
+
+    assert result.applied is True
+    updated_text = config_path.read_text(encoding="utf-8")
+    assert "# top comment" in updated_text
+    assert "# shared aliases" in updated_text
+    assert "# keep this note" in updated_text
+    assert "fast: claude-haiku-4-5" in updated_text
+
+
 def test_unset_alias_writes_project_target(tmp_path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir(parents=True)

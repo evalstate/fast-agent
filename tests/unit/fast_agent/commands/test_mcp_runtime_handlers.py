@@ -24,6 +24,15 @@ class _IO:
         del prompt, options, allow_cancel, default
         return None
 
+    async def prompt_model_selection(
+        self,
+        *,
+        initial_provider=None,
+        default_model=None,
+    ):
+        del initial_provider, default_model
+        return None
+
     async def prompt_argument(self, arg_name: str, *, description=None, required=True):
         del arg_name, description, required
         return None

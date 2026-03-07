@@ -39,7 +39,6 @@ from fast_agent.acp.slash.handlers import commands as commands_slash_handlers
 from fast_agent.acp.slash.handlers import history as history_slash_handlers
 from fast_agent.acp.slash.handlers import mcp as mcp_slash_handlers
 from fast_agent.acp.slash.handlers import model as model_slash_handlers
-from fast_agent.acp.slash.handlers import models_manager as models_manager_slash_handlers
 from fast_agent.acp.slash.handlers import session as session_slash_handlers
 from fast_agent.acp.slash.handlers import skills as skills_slash_handlers
 from fast_agent.acp.slash.handlers import status as status_slash_handlers
@@ -233,8 +232,6 @@ class SlashCommandHandler:
         cards_action_hint = "|".join(
             action for action in command_action_names("cards") if action != "list"
         ) or "add|remove|update|publish|registry"
-        models_action_hint = "|".join(command_action_names("models")) or "doctor|aliases|catalog"
-        models_catalog_hint = models_action_hint.replace("catalog", "catalog <provider> [--all]")
 
         # Session-level commands (always available, operate on current agent)
         self._session_commands: dict[str, AvailableCommand] = {
@@ -285,22 +282,12 @@ class SlashCommandHandler:
             ),
             "model": AvailableCommand(
                 name="model",
-                description="Update model settings",
+                description="Inspect, switch, or update model settings",
                 input=AvailableCommandInput(
                     root=UnstructuredCommandInput(
                         hint=(
-                            "reasoning <value> | verbosity <value> | fast <on|off|status|flex when supported> | "
-                            "web_search <on|off|default> | web_fetch <on|off|default>"
+                            self._model_command_hint()
                         )
-                    )
-                ),
-            ),
-            "models": AvailableCommand(
-                name="models",
-                description="Inspect model onboarding state (doctor/aliases/catalog)",
-                input=AvailableCommandInput(
-                    root=UnstructuredCommandInput(
-                        hint=f"[{models_catalog_hint}]"
                     )
                 ),
             ),
@@ -424,6 +411,14 @@ class SlashCommandHandler:
             options.append("web_search <on|off|default>")
         if model_handlers.model_supports_web_fetch(llm):
             options.append("web_fetch <on|off|default>")
+        options.extend(
+            [
+                "switch [<model>]",
+                "doctor",
+                "aliases [list|set|unset]",
+                "catalog <provider> [--all]",
+            ]
+        )
         return " | ".join(options)
 
     def _model_usage_text(self) -> str:
@@ -656,9 +651,6 @@ class SlashCommandHandler:
 
     async def _handle_model(self, arguments: str | None = None) -> str:
         return await model_slash_handlers.handle_model(self, arguments)
-
-    async def _handle_models(self, arguments: str | None = None) -> str:
-        return await models_manager_slash_handlers.handle_models(self, arguments)
 
     async def _handle_session(self, arguments: str | None = None) -> str:
         return await session_slash_handlers.handle_session(self, arguments)

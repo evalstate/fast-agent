@@ -125,9 +125,14 @@ def _provider_is_active(provider: Provider, config_payload: dict[str, Any]) -> b
     return False
 
 
-def build_snapshot(config_path: str | Path | None = None) -> ModelPickerSnapshot:
-    settings = get_settings(str(config_path) if config_path else None)
-    config_payload = settings.model_dump()
+def build_snapshot(
+    config_path: str | Path | None = None,
+    *,
+    config_payload: dict[str, Any] | None = None,
+) -> ModelPickerSnapshot:
+    if config_payload is None:
+        settings = get_settings(str(config_path) if config_path else None)
+        config_payload = settings.model_dump()
 
     active_providers = set(ModelSelectionCatalog.configured_providers(config_payload))
     for provider in PICKER_PROVIDER_ORDER:

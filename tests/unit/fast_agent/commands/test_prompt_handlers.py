@@ -89,6 +89,15 @@ class StubCommandIO:
     ) -> str | None:
         return default
 
+    async def prompt_model_selection(
+        self,
+        *,
+        initial_provider: str | None = None,
+        default_model: str | None = None,
+    ) -> str | None:
+        del initial_provider, default_model
+        return None
+
     async def prompt_argument(
         self,
         arg_name: str,

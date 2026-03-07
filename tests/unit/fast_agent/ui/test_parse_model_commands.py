@@ -1,6 +1,8 @@
 from fast_agent.ui.command_payloads import (
     ModelFastCommand,
     ModelReasoningCommand,
+    ModelsCommand,
+    ModelSwitchCommand,
     ModelVerbosityCommand,
     ModelWebFetchCommand,
     ModelWebSearchCommand,
@@ -49,3 +51,16 @@ def test_parse_model_web_fetch_command() -> None:
     result = parse_special_input("/model web_fetch default")
     assert isinstance(result, ModelWebFetchCommand)
     assert result.value == "default"
+
+
+def test_parse_model_switch_command() -> None:
+    result = parse_special_input("/model switch gpt-5-mini")
+    assert isinstance(result, ModelSwitchCommand)
+    assert result.value == "gpt-5-mini"
+
+
+def test_parse_model_doctor_command() -> None:
+    result = parse_special_input("/model doctor")
+    assert isinstance(result, ModelsCommand)
+    assert result.action == "doctor"
+    assert result.argument is None

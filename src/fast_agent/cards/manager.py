@@ -15,10 +15,12 @@ from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from fast_agent.config import Settings, get_settings
+from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.core.model_resolution import parse_model_alias_token
 from fast_agent.marketplace import formatting as marketplace_formatting
 from fast_agent.marketplace import registry_urls as marketplace_registry_urls
 from fast_agent.marketplace import source_utils as marketplace_source_utils
@@ -128,6 +130,8 @@ class CardPackManifest:
     agent_cards: tuple[str, ...]
     tool_cards: tuple[str, ...]
     files: tuple[str, ...]
+    model_aliases_required: tuple[str, ...] = ()
+    model_aliases_recommended: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -185,8 +189,22 @@ class _CardPackManifestModel(BaseModel):
     kind: CardPackKind = "card"
     version: str | None = None
     install: _InstallModel = Field(default_factory=_InstallModel)
+    model_aliases_required: list[str] = Field(default_factory=list)
+    model_aliases_recommended: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="ignore")
+
+    @field_validator("model_aliases_required", "model_aliases_recommended")
+    @classmethod
+    def _validate_model_alias_tokens(cls, value: list[str]) -> list[str]:
+        normalized_tokens: list[str] = []
+        for token in value:
+            try:
+                namespace, key = parse_model_alias_token(token)
+            except ModelConfigError as exc:
+                raise ValueError(exc.details) from exc
+            normalized_tokens.append(f"${namespace}.{key}")
+        return normalized_tokens
 
 
 class MarketplaceEntryModel(BaseModel):
@@ -481,6 +499,8 @@ def load_card_pack_manifest(pack_root: Path) -> CardPackManifest:
         agent_cards=agent_cards,
         tool_cards=tool_cards,
         files=files,
+        model_aliases_required=tuple(model.model_aliases_required),
+        model_aliases_recommended=tuple(model.model_aliases_recommended),
     )
 
 

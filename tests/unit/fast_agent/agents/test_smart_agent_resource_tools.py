@@ -83,7 +83,7 @@ def test_enable_smart_tooling_registers_resource_tools() -> None:
     description = str(getattr(slash_tool, "description", ""))
     assert "/skills" in description
     assert "/cards" in description
-    assert "/models" in description
+    assert "/model" in description
 
 
 @pytest.mark.asyncio

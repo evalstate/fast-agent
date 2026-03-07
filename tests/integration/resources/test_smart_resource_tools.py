@@ -78,7 +78,7 @@ async def test_smart_slash_command_tool_operations(fast_agent) -> None:
             cards_result = await app.smart_ops.slash_command("/cards list")
             assert "# cards.list" in cards_result
 
-            models_result = await app.smart_ops.slash_command("/models doctor")
-            assert "# models.doctor" in models_result
+            models_result = await app.smart_ops.slash_command("/model doctor")
+            assert "# model.doctor" in models_result
 
     await smart_ops()

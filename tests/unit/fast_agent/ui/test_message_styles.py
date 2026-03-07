@@ -162,6 +162,8 @@ class TestA3MessageStyle:
             width=80,
             detail="(no output) id: call_…123456",
         )
+        assert result.plain.startswith("▎ exit code 0")
+        assert "▎•" not in result.plain
         assert "exit code 0" in result.plain
         assert "(no output)" in result.plain
         assert "id: call_…123456" in result.plain

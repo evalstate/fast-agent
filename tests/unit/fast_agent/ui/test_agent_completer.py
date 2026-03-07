@@ -694,18 +694,21 @@ def test_get_completions_for_cards_subcommands() -> None:
     assert "registry" in names
 
 
-def test_get_completions_for_models_subcommands() -> None:
+def test_get_completions_for_model_subcommands() -> None:
     completer = AgentCompleter(agents=["agent1"])
 
-    doc = Document("/models ", cursor_position=len("/models "))
+    doc = Document("/model ", cursor_position=len("/model "))
     completions = list(completer.get_completions(doc, None))
     names = [c.text for c in completions]
 
     assert "doctor" in names
     assert "aliases" in names
     assert "catalog" in names
+    assert "switch" in names
+    switch_completion = next(completion for completion in completions if completion.text == "switch")
+    assert switch_completion.display_meta_text == "Switch model (starts new session)"
 
-    doc = Document("/models aliases ", cursor_position=len("/models aliases "))
+    doc = Document("/model aliases ", cursor_position=len("/model aliases "))
     completions = list(completer.get_completions(doc, None))
     names = [c.text for c in completions]
     assert "list" in names
@@ -713,26 +716,26 @@ def test_get_completions_for_models_subcommands() -> None:
     assert "unset" in names
 
 
-def test_get_completions_for_models_catalog_provider_and_flag() -> None:
+def test_get_completions_for_model_catalog_provider_and_flag() -> None:
     completer = AgentCompleter(agents=["agent1"])
 
-    doc = Document("/models catalog a", cursor_position=len("/models catalog a"))
+    doc = Document("/model catalog a", cursor_position=len("/model catalog a"))
     completions = list(completer.get_completions(doc, None))
     names = [c.text for c in completions]
     assert "anthropic" in names
 
-    doc = Document("/models catalog anthropic --", cursor_position=len("/models catalog anthropic --"))
+    doc = Document("/model catalog anthropic --", cursor_position=len("/model catalog anthropic --"))
     completions = list(completer.get_completions(doc, None))
     names = [c.text for c in completions]
     assert "--all" in names
 
 
-def test_get_completions_for_models_aliases_flags_and_target_values() -> None:
+def test_get_completions_for_model_aliases_flags_and_target_values() -> None:
     completer = AgentCompleter(agents=["agent1"])
 
     doc = Document(
-        "/models aliases set $system.fast claude-haiku-4-5 --",
-        cursor_position=len("/models aliases set $system.fast claude-haiku-4-5 --"),
+        "/model aliases set $system.fast claude-haiku-4-5 --",
+        cursor_position=len("/model aliases set $system.fast claude-haiku-4-5 --"),
     )
     completions = list(completer.get_completions(doc, None))
     names = [c.text for c in completions]
@@ -740,8 +743,8 @@ def test_get_completions_for_models_aliases_flags_and_target_values() -> None:
     assert "--target" in names
 
     doc = Document(
-        "/models aliases unset $system.fast --target ",
-        cursor_position=len("/models aliases unset $system.fast --target "),
+        "/model aliases unset $system.fast --target ",
+        cursor_position=len("/model aliases unset $system.fast --target "),
     )
     completions = list(completer.get_completions(doc, None))
     names = [c.text for c in completions]

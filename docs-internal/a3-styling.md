@@ -44,7 +44,7 @@ When metadata is shown, A3 uses a bullet list line:
 Exit code banners use the compact bullet layout:
 
 ```
-▎•  exit code 1
+▎ exit code 1
 ```
 
 ### Prompt listing and selection
@@ -81,4 +81,3 @@ When the client receives a tool list changed notification, A3 shows a compact up
 ```
 
 If the UI is running without prompt_toolkit, the fallback path still renders the compact line and avoids classic full-width separators.
-

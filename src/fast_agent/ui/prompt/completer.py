@@ -70,12 +70,8 @@ class AgentCompleter(Completer):
             "history": "Show conversation history overview (or /history save|load|clear|rewind|review|fix)",
             "tools": "List tools",
             "model": (
-                "Update model settings "
-                "(/model reasoning|verbosity|fast|web_search|web_fetch <value>)"
-            ),
-            "models": (
-                "Inspect model onboarding "
-                "(/models, /models doctor, /models aliases [list|set|unset], /models catalog <provider>)"
+                "Inspect/switch models and update runtime settings "
+                "(/model reasoning|verbosity|fast|web_search|web_fetch|switch [starts new session]|doctor|aliases|catalog)"
             ),
             "skills": (
                 "Manage skills "

@@ -23,6 +23,7 @@ LAZY_SUBCOMMANDS: dict[str, str] = {
     "check": "fast_agent.cli.commands.check_config:app",
     "cards": "fast_agent.cli.commands.cards:app",
     "config": "fast_agent.cli.commands.config:app",
+    "model": "fast_agent.cli.commands.model:app",
     "auth": "fast_agent.cli.commands.auth:app",
     "quickstart": "fast_agent.cli.commands.quickstart:app",
     "bootstrap": "fast_agent.cli.commands.quickstart:app",

@@ -18,6 +18,15 @@ class _StubIO:
     ):  # type: ignore[no-untyped-def]
         return default
 
+    async def prompt_model_selection(
+        self,
+        *,
+        initial_provider=None,
+        default_model=None,
+    ):  # type: ignore[no-untyped-def]
+        del initial_provider, default_model
+        return None
+
     async def prompt_argument(self, arg_name: str, *, description=None, required=True):  # type: ignore[no-untyped-def]
         return None
 

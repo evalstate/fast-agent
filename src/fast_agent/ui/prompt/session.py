@@ -310,7 +310,6 @@ def _rebuild_mcp_target_text(tokens: list[str]) -> str:
     return " ".join(rebuilt_parts)
 
 
-
 # Track whether help text has been shown globally
 help_message_shown: bool = False
 
@@ -679,7 +678,6 @@ async def _display_child_agent_info(
 
 
 # AgentCompleter moved to fast_agent.ui.prompt.completer
-
 
 
 def parse_special_input(text: str) -> str | CommandPayload:
@@ -1263,7 +1261,9 @@ async def get_enhanced_input(
             rich_print("[dim]Type /help for commands. Ctrl+T toggles multiline mode.[/dim]")
         else:
             rich_print(
-                "[dim]Use '/' for commands, '!' for shell. '#' to query, '@' to switch agents\nCTRL+T multiline, CTRL+Y copy last message, CTRL+E external editor.[/dim]"
+                """[dim]Use '/' for commands, '!' for shell. '#' to query, '@' to switch agents\n"""
+                """CTRL+T multiline, CTRL+Y copy last message, CTRL+E external editor.\n"""
+                """CTRL+Space or Tab for path completion. '^' for resource attach.[/dim]"""
             )
 
         startup_llm = _resolve_active_llm()
@@ -1481,6 +1481,7 @@ async def get_argument_input(
     arg_name: str,
     description: str | None = None,
     required: bool = True,
+    default: str | None = None,
 ) -> str | None:
     """
     Prompt for an argument value with formatting and help text.
@@ -1489,6 +1490,7 @@ async def get_argument_input(
         arg_name: Name of the argument
         description: Optional description of the argument
         required: Whether this argument is required
+        default: Optional default value pre-filled in the prompt
 
     Returns:
         Input value, or None if cancelled/skipped
@@ -1511,6 +1513,7 @@ async def get_argument_input(
         # Get user input
         arg_value = await prompt_session.prompt_async(
             prompt_text,
+            default=default or "",
             set_exception_handler=False,
         )
 

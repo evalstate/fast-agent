@@ -4,6 +4,7 @@ from fast_agent.commands.context import CommandContext
 from fast_agent.commands.handlers.model import (
     handle_model_fast,
     handle_model_reasoning,
+    handle_model_switch,
     handle_model_verbosity,
     handle_model_web_fetch,
     handle_model_web_search,
@@ -16,6 +17,9 @@ from fast_agent.llm.text_verbosity import TextVerbositySpec
 
 
 class _StubIO:
+    def __init__(self, *, model_selection_response: str | None = None) -> None:
+        self._model_selection_response = model_selection_response
+
     async def emit(self, message):  # type: ignore[no-untyped-def]
         return None
 
@@ -26,6 +30,15 @@ class _StubIO:
         self, prompt: str, *, options, allow_cancel=False, default=None
     ):  # type: ignore[no-untyped-def]
         return default
+
+    async def prompt_model_selection(
+        self,
+        *,
+        initial_provider=None,
+        default_model=None,
+    ):  # type: ignore[no-untyped-def]
+        del initial_provider, default_model
+        return self._model_selection_response
 
     async def prompt_argument(self, arg_name: str, *, description=None, required=True):  # type: ignore[no-untyped-def]
         return None
@@ -146,6 +159,16 @@ class _StubAgent:
         self.llm = llm
         self._llm = llm
         self.shell_runtime = _StubShellRuntime(shell_limit) if shell_limit is not None else None
+        self.config = type("Config", (), {"model": llm.model_name})()
+
+    async def set_model(self, model: str | None) -> None:
+        self.config.model = model
+        if model is not None:
+            self.llm.model_name = model
+            self._llm.model_name = model
+
+    def clear(self, *, clear_prompts: bool = False) -> None:
+        del clear_prompts
 
 
 class _StubAgentProvider:
@@ -484,3 +507,63 @@ async def test_model_web_search_rejects_invalid_value() -> None:
     text_messages = [str(m.text) for m in outcome.messages]
 
     assert "Invalid web_search value 'maybe'. Allowed values: on, off, default." in text_messages
+
+
+@pytest.mark.asyncio
+async def test_model_switch_sets_explicit_model_and_requests_session_reset() -> None:
+    llm = _StubLLM("claude-haiku-4-5")
+    agent = _StubAgent(llm)
+    provider = _StubAgentProvider(agent)
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+    )
+
+    outcome = await handle_model_switch(ctx, agent_name="test", value="gpt-4.1-mini")
+
+    assert agent.config.model == "gpt-4.1-mini"
+    assert llm.model_name == "gpt-4.1-mini"
+    assert outcome.reset_session is True
+    assert any(
+        str(message.text) == "Model: switched from claude-haiku-4-5 to gpt-4.1-mini."
+        for message in outcome.messages
+    )
+
+
+@pytest.mark.asyncio
+async def test_model_switch_uses_selector_when_value_missing() -> None:
+    llm = _StubLLM("claude-haiku-4-5")
+    agent = _StubAgent(llm)
+    provider = _StubAgentProvider(agent)
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(model_selection_response="gpt-5-mini"),
+        settings=Settings(),
+    )
+
+    outcome = await handle_model_switch(ctx, agent_name="test", value=None)
+
+    assert agent.config.model == "gpt-5-mini"
+    assert llm.model_name == "gpt-5-mini"
+    assert outcome.reset_session is True
+
+
+@pytest.mark.asyncio
+async def test_model_switch_does_not_reset_session_when_model_is_already_active() -> None:
+    llm = _StubLLM("gpt-5-mini")
+    agent = _StubAgent(llm)
+    provider = _StubAgentProvider(agent)
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+    )
+
+    outcome = await handle_model_switch(ctx, agent_name="test", value="gpt-5-mini")
+
+    assert outcome.reset_session is False
+    assert any("already active" in str(message.text) for message in outcome.messages)

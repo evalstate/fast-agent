@@ -49,6 +49,7 @@ from fast_agent.ui.command_payloads import (
     ModelFastCommand,
     ModelReasoningCommand,
     ModelsCommand,
+    ModelSwitchCommand,
     ModelVerbosityCommand,
     ModelWebFetchCommand,
     ModelWebSearchCommand,
@@ -89,6 +90,39 @@ class DispatchResult:
     return_result: str = ""
     available_agents: list[str] | None = None
     available_agents_set: set[str] | None = None
+
+
+async def _apply_model_switch_session_reset(
+    *,
+    context,
+    prompt_provider,
+    outcome,
+) -> None:
+    if not outcome.reset_session:
+        return
+
+    if not context.noenv:
+        outcome.add_message(
+            "Model switch starts a new session to avoid mixing histories.",
+            channel="info",
+        )
+        session_outcome = await sessions_handlers.handle_create_session(
+            context,
+            session_name=None,
+        )
+        outcome.messages.extend(session_outcome.messages)
+    else:
+        outcome.add_message(
+            "Model switch cleared in-memory history (--noenv disables session persistence).",
+            channel="info",
+        )
+
+    cleared = clear_agent_histories(prompt_provider._agents)
+    if cleared:
+        outcome.add_message(
+            f"Cleared agent history: {', '.join(sorted(cleared))}",
+            channel="info",
+        )
 
 
 async def dispatch_command_payload(
@@ -433,6 +467,20 @@ async def dispatch_command_payload(
                 context,
                 agent_name=agent,
                 value=value,
+            )
+            await emit_command_outcome(context, outcome)
+            return result
+        case ModelSwitchCommand(value=value):
+            context = build_command_context(prompt_provider, agent)
+            outcome = await model_handlers.handle_model_switch(
+                context,
+                agent_name=agent,
+                value=value,
+            )
+            await _apply_model_switch_session_reset(
+                context=context,
+                prompt_provider=prompt_provider,
+                outcome=outcome,
             )
             await emit_command_outcome(context, outcome)
             return result

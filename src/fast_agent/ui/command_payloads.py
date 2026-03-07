@@ -305,6 +305,12 @@ class ModelWebFetchCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class ModelSwitchCommand(CommandBase):
+    value: str | None
+    kind: Literal["model_switch"] = "model_switch"
+
+
+@dataclass(frozen=True, slots=True)
 class InterruptCommand(CommandBase):
     """Represents a Ctrl+C user interrupt captured by the prompt layer."""
 
@@ -362,6 +368,7 @@ CommandPayload = (
     | ModelFastCommand
     | ModelWebSearchCommand
     | ModelWebFetchCommand
+    | ModelSwitchCommand
     | InterruptCommand
     | UnknownCommand
 )

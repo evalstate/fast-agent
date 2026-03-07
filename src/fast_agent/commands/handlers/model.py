@@ -27,7 +27,7 @@ from fast_agent.llm.text_verbosity import (
 
 if TYPE_CHECKING:
     from fast_agent.commands.context import CommandContext
-    from fast_agent.interfaces import FastAgentLLMProtocol
+    from fast_agent.interfaces import FastAgentLLMProtocol, LlmAgentProtocol
 
 
 def _format_shell_budget(byte_limit: int, source: str) -> str:
@@ -66,6 +66,17 @@ def _styled_set_line(label: str, selected: str) -> Text:
     line.append(f"{label}: ", style="dim")
     line.append("set to ", style="dim")
     line.append(selected, style="bold cyan")
+    line.append(".", style="dim")
+    return line
+
+
+def _styled_switch_line(previous: str, current: str) -> Text:
+    line = Text()
+    line.append("Model: ", style="dim")
+    line.append("switched from ", style="dim")
+    line.append(previous, style="cyan")
+    line.append(" to ", style="dim")
+    line.append(current, style="bold cyan")
     line.append(".", style="dim")
     return line
 
@@ -205,8 +216,8 @@ def _resolve_agent_llm(
     *,
     agent_name: str,
     outcome: CommandOutcome,
-) -> tuple[object, FastAgentLLMProtocol] | None:
-    agent = ctx.agent_provider._agent(agent_name)
+) -> tuple["LlmAgentProtocol", FastAgentLLMProtocol] | None:
+    agent = cast("LlmAgentProtocol", ctx.agent_provider._agent(agent_name))
     llm_obj = getattr(agent, "llm", None) or getattr(agent, "_llm", None)
     if llm_obj is None:
         outcome.add_message("No LLM attached to agent.", channel="warning", right_info="model")
@@ -511,6 +522,86 @@ def _render_sampling_overrides(llm: object) -> str | None:
     if not parts:
         return None
     return ", ".join(parts)
+
+
+def _resolve_model_switch_initial_provider(llm: "FastAgentLLMProtocol") -> str | None:
+    provider = getattr(llm, "provider", None)
+    config_name = getattr(provider, "config_name", None)
+    if isinstance(config_name, str) and config_name.strip():
+        return config_name.strip()
+    if isinstance(provider, str) and provider.strip():
+        return provider.strip()
+    provider_value = getattr(provider, "value", None)
+    if isinstance(provider_value, str) and provider_value.strip():
+        return provider_value.strip()
+    return None
+
+
+async def handle_model_switch(
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+    value: str | None,
+) -> CommandOutcome:
+    outcome = CommandOutcome()
+    resolved = _resolve_agent_llm(ctx, agent_name=agent_name, outcome=outcome)
+    if resolved is None:
+        return outcome
+    agent, llm = resolved
+    previous_model = getattr(llm, "model_name", None)
+
+    selected_model = value.strip() if value else ""
+    if not selected_model:
+        selected = await ctx.io.prompt_model_selection(
+            initial_provider=_resolve_model_switch_initial_provider(llm),
+            default_model=getattr(llm, "model_name", None),
+        )
+        if selected is None:
+            outcome.add_message(
+                "Model switch cancelled.",
+                channel="warning",
+                right_info="model",
+            )
+            return outcome
+        selected_model = selected.strip()
+
+    if not selected_model:
+        outcome.add_message(
+            "Model switch requires a non-empty model name.",
+            channel="error",
+            right_info="model",
+        )
+        return outcome
+
+    try:
+        await agent.set_model(selected_model)
+    except ValueError as exc:
+        outcome.add_message(
+            str(exc),
+            channel="error",
+            right_info="model",
+        )
+        return outcome
+
+    updated_llm = agent.llm
+    resolved_model = (
+        updated_llm.model_name if updated_llm is not None and updated_llm.model_name else selected_model
+    )
+    if previous_model and resolved_model == previous_model:
+        outcome.add_message(
+            _styled_model_line("Model", f"{resolved_model} (already active)", suffix=""),
+            channel="warning",
+            right_info="model",
+        )
+        return outcome
+
+    outcome.add_message(
+        _styled_switch_line(previous_model or "<unknown>", resolved_model),
+        channel="system",
+        right_info="model",
+    )
+    outcome.reset_session = True
+    return outcome
 
 
 async def handle_model_reasoning(

@@ -334,7 +334,7 @@ class A3MessageStyle:
 
         exit_code_text = f" exit code {exit_code} "
         line = Text()
-        line.append("▎• ", style="dim")
+        line.append("▎", style="dim")
         line.append(exit_code_text, style=exit_code_style)
         if detail:
             line.append(detail, style="dim")

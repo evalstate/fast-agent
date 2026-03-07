@@ -33,15 +33,20 @@ from fast_agent.commands.command_discovery import (
     render_commands_index_markdown,
     render_commands_json,
 )
-from fast_agent.commands.context import CommandContext
+from fast_agent.commands.context import (
+    CommandContext,
+    NonInteractiveCommandIOBase,
+)
 from fast_agent.commands.handlers import cards_manager as cards_handlers
 from fast_agent.commands.handlers import display as display_handlers
 from fast_agent.commands.handlers import mcp_runtime as mcp_runtime_handlers
 from fast_agent.commands.handlers import model as model_handlers
 from fast_agent.commands.handlers import models_manager as models_handlers
 from fast_agent.commands.handlers import prompts as prompt_handlers
+from fast_agent.commands.handlers import sessions as sessions_handlers
 from fast_agent.commands.handlers import skills as skills_handlers
 from fast_agent.commands.handlers import tools as tools_handlers
+from fast_agent.commands.handlers.shared import clear_agent_histories
 from fast_agent.commands.renderers.command_markdown import render_command_outcome_markdown
 from fast_agent.commands.results import CommandMessage, CommandOutcome
 from fast_agent.core.agent_app import AgentApp
@@ -74,9 +79,7 @@ if TYPE_CHECKING:
     from fast_agent.context import Context
     from fast_agent.core.agent_card_types import AgentCardData
     from fast_agent.interfaces import AgentProtocol
-    from fast_agent.llm.usage_tracking import UsageAccumulator
     from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
-    from fast_agent.types import PromptMessageExtended
 
 logger = get_logger(__name__)
 
@@ -183,74 +186,13 @@ class _SmartToolCommandAgentProvider:
 
 
 @dataclass(slots=True)
-class _SmartToolCommandIO:
+class _SmartToolCommandIO(NonInteractiveCommandIOBase):
     """Non-interactive command IO that buffers emitted messages."""
 
     messages: list[CommandMessage]
 
     async def emit(self, message: CommandMessage) -> None:
         self.messages.append(message)
-
-    async def prompt_text(
-        self,
-        prompt: str,
-        *,
-        default: str | None = None,
-        allow_empty: bool = True,
-    ) -> str | None:
-        del prompt, allow_empty
-        return default
-
-    async def prompt_selection(
-        self,
-        prompt: str,
-        *,
-        options: Sequence[str],
-        allow_cancel: bool = False,
-        default: str | None = None,
-    ) -> str | None:
-        del prompt, options, allow_cancel, default
-        return None
-
-    async def prompt_argument(
-        self,
-        arg_name: str,
-        *,
-        description: str | None = None,
-        required: bool = True,
-    ) -> str | None:
-        del arg_name, description, required
-        return None
-
-    async def display_history_turn(
-        self,
-        agent_name: str,
-        turn: list[PromptMessageExtended],
-        *,
-        turn_index: int | None = None,
-        total_turns: int | None = None,
-    ) -> None:
-        del agent_name, turn, turn_index, total_turns
-
-    async def display_history_overview(
-        self,
-        agent_name: str,
-        history: list[PromptMessageExtended],
-        usage: UsageAccumulator | None = None,
-    ) -> None:
-        del agent_name, history, usage
-
-    async def display_usage_report(self, agents: dict[str, object]) -> None:
-        del agents
-
-    async def display_system_prompt(
-        self,
-        agent_name: str,
-        system_prompt: str,
-        *,
-        server_count: int = 0,
-    ) -> None:
-        del agent_name, system_prompt, server_count
 
 
 def _resolve_default_agent_name(
@@ -414,15 +356,78 @@ async def _run_named_command_call(
         final_heading = heading or f"cards.{selected_action}"
         return _render_command_outcome(outcome, heading=final_heading, io=io)
 
-    if normalized_command == "models":
-        selected_action = normalized_action or "doctor"
-        outcome = await models_handlers.handle_models_command(
-            context,
-            agent_name=agent_name,
-            action=selected_action,
-            argument=argument,
-        )
-        final_heading = heading or f"models.{selected_action}"
+    if normalized_command == "model":
+        selected_action = normalized_action or "reasoning"
+        management_actions = {"doctor", "aliases", "alias", "catalog", "help"}
+        if selected_action in management_actions:
+            outcome = await models_handlers.handle_models_command(
+                context,
+                agent_name=agent_name,
+                action=selected_action,
+                argument=argument,
+            )
+            final_heading = heading or f"model.{selected_action}"
+            return _render_command_outcome(outcome, heading=final_heading, io=io)
+
+        if selected_action == "verbosity":
+            outcome = await model_handlers.handle_model_verbosity(
+                context,
+                agent_name=agent_name,
+                value=argument,
+            )
+        elif selected_action == "fast":
+            outcome = await model_handlers.handle_model_fast(
+                context,
+                agent_name=agent_name,
+                value=argument,
+            )
+        elif selected_action == "web_search":
+            outcome = await model_handlers.handle_model_web_search(
+                context,
+                agent_name=agent_name,
+                value=argument,
+            )
+        elif selected_action == "web_fetch":
+            outcome = await model_handlers.handle_model_web_fetch(
+                context,
+                agent_name=agent_name,
+                value=argument,
+            )
+        elif selected_action == "switch":
+            outcome = await model_handlers.handle_model_switch(
+                context,
+                agent_name=agent_name,
+                value=argument,
+            )
+            if outcome.reset_session:
+                if not context.noenv:
+                    outcome.add_message(
+                        "Model switch starts a new session to avoid mixing histories.",
+                        channel="info",
+                    )
+                    session_outcome = await sessions_handlers.handle_create_session(
+                        context,
+                        session_name=None,
+                    )
+                    outcome.messages.extend(session_outcome.messages)
+                else:
+                    outcome.add_message(
+                        "Model switch cleared in-memory history (--noenv disables session persistence).",
+                        channel="info",
+                    )
+                cleared = clear_agent_histories(_resolve_command_agent_map(agent))
+                if cleared:
+                    outcome.add_message(
+                        f"Cleared agent history: {', '.join(sorted(cleared))}",
+                        channel="info",
+                    )
+        else:
+            outcome = await model_handlers.handle_model_reasoning(
+                context,
+                agent_name=agent_name,
+                value=argument,
+            )
+        final_heading = heading or f"model.{selected_action}"
         return _render_command_outcome(outcome, heading=final_heading, io=io)
 
     raise AgentConfigError(
@@ -530,7 +535,10 @@ def _mcp_usage_text() -> str:
 
 
 def _model_usage_text() -> str:
-    return "Usage: /model [reasoning|verbosity|fast|web_search|web_fetch|help] <value>"
+    return (
+        "Usage: /model "
+        "[reasoning|verbosity|fast|web_search|web_fetch|switch|doctor|aliases|catalog|help] [args]"
+    )
 
 
 def _run_commands_slash_command_call(arguments: str) -> str:
@@ -780,73 +788,6 @@ async def _run_mcp_slash_command_call(agent: Any, arguments: str) -> str:
     )
 
 
-async def _run_model_slash_command_call(agent: Any, arguments: str) -> str:
-    context, io = _build_command_context(agent)
-    agent_name = context.current_agent_name
-
-    try:
-        tokens = shlex.split(arguments)
-    except ValueError as exc:
-        raise AgentConfigError("Invalid /model arguments", str(exc)) from exc
-
-    if not tokens:
-        raise AgentConfigError(
-            "Invalid /model arguments",
-            _model_usage_text(),
-        )
-
-    action = tokens[0].lower()
-    if action in {"help", "--help", "-h"}:
-        return _model_usage_text()
-
-    value = " ".join(tokens[1:]).strip() or None
-
-    if action == "reasoning":
-        outcome = await model_handlers.handle_model_reasoning(
-            context,
-            agent_name=agent_name,
-            value=value,
-        )
-        return _render_smart_slash_outcome(outcome, heading="model", io=io)
-
-    if action == "verbosity":
-        outcome = await model_handlers.handle_model_verbosity(
-            context,
-            agent_name=agent_name,
-            value=value,
-        )
-        return _render_smart_slash_outcome(outcome, heading="model", io=io)
-
-    if action == "fast":
-        outcome = await model_handlers.handle_model_fast(
-            context,
-            agent_name=agent_name,
-            value=value,
-        )
-        return _render_smart_slash_outcome(outcome, heading="model", io=io)
-
-    if action == "web_search":
-        outcome = await model_handlers.handle_model_web_search(
-            context,
-            agent_name=agent_name,
-            value=value,
-        )
-        return _render_smart_slash_outcome(outcome, heading="model", io=io)
-
-    if action == "web_fetch":
-        outcome = await model_handlers.handle_model_web_fetch(
-            context,
-            agent_name=agent_name,
-            value=value,
-        )
-        return _render_smart_slash_outcome(outcome, heading="model", io=io)
-
-    raise AgentConfigError(
-        "Unsupported /model action",
-        _model_usage_text(),
-    )
-
-
 async def _run_slash_command_call(agent: Any, command: str) -> str:
     command_name, arguments = _parse_slash_command_text(command)
 
@@ -856,7 +797,7 @@ async def _run_slash_command_call(agent: Any, command: str) -> str:
     if command_name == "commands":
         return _run_commands_slash_command_call(arguments)
 
-    if command_name in {"skills", "cards", "models"}:
+    if command_name in {"skills", "cards", "model"}:
         action, argument = _parse_family_command_action(command_name, arguments)
         normalized_action = action
 
@@ -908,9 +849,6 @@ async def _run_slash_command_call(agent: Any, command: str) -> str:
     if command_name in {"mcpstatus", "status"}:
         outcome = await display_handlers.handle_show_mcp_status(context, agent_name=agent_name)
         return _render_smart_slash_outcome(outcome, heading="mcpstatus", io=io)
-
-    if command_name == "model":
-        return await _run_model_slash_command_call(agent, arguments)
 
     return _render_unknown_slash_command(command_name)
 
@@ -1645,8 +1583,8 @@ def _slash_command_tool_description() -> str:
     return (
         "Execute a fast-agent slash command using native `/...` syntax. "
         "Use `/commands` or `/commands --json` to discover capabilities. "
-        "Supports `/skills` (including available/search/help), `/cards`, `/models`, `/mcp`, "
-        "`/model`, `/tools`, `/prompts`, "
+        "Supports `/skills` (including available/search/help), `/cards`, `/model`, `/mcp`, "
+        "`/tools`, `/prompts`, "
         "`/usage`, `/system`, `/markdown`, and `/check`."
     )
 

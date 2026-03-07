@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from rich.text import Text
 
 from fast_agent.commands.context import CommandIO
+from fast_agent.commands.results import CommandMessage
 from fast_agent.config import Settings, get_settings
 from fast_agent.ui.enhanced_prompt import get_argument_input, get_selection_input
 from fast_agent.ui.history_actions import display_history_turn
@@ -17,7 +18,6 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from fast_agent.commands.context import AgentProvider
-    from fast_agent.commands.results import CommandMessage
     from fast_agent.llm.usage_tracking import UsageAccumulator
     from fast_agent.types import PromptMessageExtended
 
@@ -29,6 +29,7 @@ class TuiCommandIO(CommandIO):
     prompt_provider: "AgentProvider"
     agent_name: str
     settings: Settings | None = None
+    config_payload: dict[str, Any] | None = None
 
     def _resolve_display(self, agent_name: str | None):
         from fast_agent.ui.console_display import ConsoleDisplay
@@ -129,6 +130,7 @@ class TuiCommandIO(CommandIO):
             arg_name=arg_name,
             description=None,
             required=not allow_empty,
+            default=default,
         )
         if value is None or value == "":
             return default if default is not None else value
@@ -148,6 +150,124 @@ class TuiCommandIO(CommandIO):
             allow_cancel=allow_cancel,
             default=default,
         )
+
+    async def prompt_model_selection(
+        self,
+        *,
+        initial_provider: str | None = None,
+        default_model: str | None = None,
+    ) -> str | None:
+        from fast_agent.core.exceptions import ProviderKeyError, format_fast_agent_error
+        from fast_agent.llm.provider.openai.codex_oauth import login_codex_oauth
+        from fast_agent.llm.provider_types import Provider
+        from fast_agent.ui import console
+        from fast_agent.ui.model_picker import run_model_picker_async
+
+        provider_name = initial_provider
+
+        while True:
+            picker_result = await run_model_picker_async(
+                config_payload=(
+                    self.config_payload
+                    if self.config_payload is not None
+                    else self.settings.model_dump() if self.settings is not None else None
+                ),
+                initial_provider=provider_name,
+            )
+            if picker_result is None:
+                return None
+
+            provider_name = picker_result.provider
+
+            if picker_result.activation_action is not None:
+                if picker_result.activation_action != "codex-login":
+                    await self.emit(
+                        CommandMessage(
+                            text=(
+                                "Selected provider requires an activation flow that is not "
+                                "supported in this prompt yet."
+                            ),
+                            channel="warning",
+                            agent_name=self.agent_name,
+                        )
+                    )
+                    return None
+
+                await self.emit(
+                    CommandMessage(
+                        text="Starting Codex OAuth login…",
+                        channel="info",
+                        agent_name=self.agent_name,
+                    )
+                )
+                try:
+                    console.ensure_blocking_console()
+                    login_codex_oauth()
+                except ProviderKeyError as exc:
+                    await self.emit(
+                        CommandMessage(
+                            text=format_fast_agent_error(exc),
+                            channel="error",
+                            agent_name=self.agent_name,
+                        )
+                    )
+                except (EOFError, KeyboardInterrupt):
+                    await self.emit(
+                        CommandMessage(
+                            text="Codex OAuth login cancelled.",
+                            channel="warning",
+                            agent_name=self.agent_name,
+                        )
+                    )
+                    return None
+                else:
+                    await self.emit(
+                        CommandMessage(
+                            text="Codex OAuth login complete. Choose a Codex model to continue.",
+                            channel="info",
+                            agent_name=self.agent_name,
+                        )
+                    )
+                continue
+
+            if (
+                picker_result.provider == Provider.GENERIC.config_name
+                and picker_result.resolved_model is None
+            ):
+                prompt_default = (default_model or "").strip() or "llama3.2"
+                while True:
+                    entered = await self.prompt_text(
+                        "Local model (e.g. llama3.2):",
+                        default=prompt_default,
+                        allow_empty=False,
+                    )
+                    if entered is None:
+                        return None
+                    normalized = entered.strip()
+                    if normalized:
+                        return normalized
+                    await self.emit(
+                        CommandMessage(
+                            text="Please enter a non-empty model string.",
+                            channel="warning",
+                            agent_name=self.agent_name,
+                        )
+                    )
+
+            if picker_result.refer_to_docs or not picker_result.resolved_model:
+                await self.emit(
+                    CommandMessage(
+                        text=(
+                            "Selected provider requires a concrete model ID. "
+                            "Choose a listed model or cancel."
+                        ),
+                        channel="warning",
+                        agent_name=self.agent_name,
+                    )
+                )
+                continue
+
+            return picker_result.resolved_model
 
     async def prompt_argument(
         self,

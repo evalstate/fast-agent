@@ -60,9 +60,10 @@ class _SplitListPicker:
         self,
         *,
         config_path: Path | None,
+        config_payload: dict[str, object] | None = None,
         initial_provider: str | None = None,
     ) -> None:
-        self.snapshot = build_snapshot(config_path)
+        self.snapshot = build_snapshot(config_path, config_payload=config_payload)
         if not self.snapshot.providers:
             raise ValueError("No providers found in model catalog.")
         self._initial_provider_name = initial_provider
@@ -518,8 +519,13 @@ def run_model_picker(
 async def run_model_picker_async(
     *,
     config_path: Path | None = None,
+    config_payload: dict[str, object] | None = None,
     initial_provider: str | None = None,
 ) -> ModelPickerResult | None:
     """Run the interactive model picker from within an active asyncio event loop."""
-    picker = _SplitListPicker(config_path=config_path, initial_provider=initial_provider)
+    picker = _SplitListPicker(
+        config_path=config_path,
+        config_payload=config_payload,
+        initial_provider=initial_provider,
+    )
     return await picker.run_async()

@@ -64,6 +64,25 @@ class AcpCommandIO(CommandIO):
         )
         return default
 
+    async def prompt_model_selection(
+        self,
+        *,
+        initial_provider: str | None = None,
+        default_model: str | None = None,
+    ) -> str | None:
+        _ = (initial_provider, default_model)
+        await self.emit(
+            CommandMessage(
+                text=(
+                    "Interactive model selection is unavailable for ACP. "
+                    "Provide the model spec directly in the command."
+                ),
+                channel="warning",
+                agent_name=self.agent_name,
+            )
+        )
+        return None
+
     async def prompt_argument(
         self,
         arg_name: str,

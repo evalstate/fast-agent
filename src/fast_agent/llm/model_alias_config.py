@@ -70,8 +70,8 @@ class ModelAliasConfigService:
         self._env_dir = env_dir if env_dir is not None else os.getenv("ENVIRONMENT_DIR")
         self.paths = _discover_paths(start_path=self._cwd, env_dir=self._env_dir)
 
-    def list_aliases(self) -> dict[str, dict[str, str]]:
-        """Return effective aliases from layered project/env config (+ secrets overlay)."""
+    def load_effective_model_settings(self) -> dict[str, Any]:
+        """Return layered model settings merged with any secrets overlay."""
         layered_model_settings = load_layered_model_settings(
             start_path=self._cwd,
             env_dir=self._env_dir,
@@ -81,9 +81,19 @@ class ModelAliasConfigService:
             secrets_payload = load_yaml_mapping(self.paths.secrets_path)
             layered_model_settings = _merge_model_settings(layered_model_settings, secrets_payload)
 
+        return layered_model_settings
+
+    def list_aliases(self) -> dict[str, dict[str, str]]:
+        """Return effective aliases from layered project/env config (+ secrets overlay)."""
+        layered_model_settings = self.load_effective_model_settings()
         aliases_payload = layered_model_settings.get("model_aliases", {})
         validated = Settings(model_aliases=aliases_payload)
         return validated.model_aliases
+
+    def list_aliases_tolerant(self) -> dict[str, dict[str, str]]:
+        """Return only valid, non-empty alias entries from effective settings."""
+        aliases_payload = self.load_effective_model_settings().get("model_aliases", {})
+        return _extract_valid_aliases(aliases_payload)
 
     def set_alias(
         self,
@@ -207,6 +217,30 @@ def _merge_model_settings(base: dict[str, Any], overlay: dict[str, Any]) -> dict
             merged["model_aliases"] = overlay_aliases
 
     return merged
+
+
+def _extract_valid_aliases(aliases_payload: Any) -> dict[str, dict[str, str]]:
+    if not isinstance(aliases_payload, dict):
+        return {}
+
+    valid_aliases: dict[str, dict[str, str]] = {}
+    for namespace, entries in aliases_payload.items():
+        if not isinstance(namespace, str) or not isinstance(entries, dict):
+            continue
+
+        normalized_entries: dict[str, str] = {}
+        for key, raw_value in entries.items():
+            if not isinstance(key, str) or not isinstance(raw_value, str):
+                continue
+            model_value = raw_value.strip()
+            if not model_value:
+                continue
+            normalized_entries[key] = model_value
+
+        if normalized_entries:
+            valid_aliases[namespace] = normalized_entries
+
+    return valid_aliases
 
 
 _ROUND_TRIP_YAML = YAML()

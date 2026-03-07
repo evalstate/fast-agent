@@ -32,8 +32,20 @@ class _StubAgentProvider:
 
 
 class _StubCommandIO:
+    def __init__(
+        self,
+        *,
+        text_responses: list[str | None] | None = None,
+        selection_responses: list[str | None] | None = None,
+        model_selection_responses: list[str | None] | None = None,
+    ) -> None:
+        self._text_responses = list(text_responses or [])
+        self._selection_responses = list(selection_responses or [])
+        self._model_selection_responses = list(model_selection_responses or [])
+        self.emitted_messages: list[object] = []
+
     async def emit(self, message) -> None:  # type: ignore[no-untyped-def]
-        del message
+        self.emitted_messages.append(message)
 
     async def prompt_text(
         self,
@@ -43,6 +55,8 @@ class _StubCommandIO:
         allow_empty: bool = True,
     ) -> str | None:
         del prompt, allow_empty
+        if self._text_responses:
+            return self._text_responses.pop(0)
         return default
 
     async def prompt_selection(
@@ -54,7 +68,20 @@ class _StubCommandIO:
         default: str | None = None,
     ) -> str | None:
         del prompt, options, allow_cancel
+        if self._selection_responses:
+            return self._selection_responses.pop(0)
         return default
+
+    async def prompt_model_selection(
+        self,
+        *,
+        initial_provider: str | None = None,
+        default_model: str | None = None,
+    ) -> str | None:
+        del initial_provider, default_model
+        if self._model_selection_responses:
+            return self._model_selection_responses.pop(0)
+        return None
 
     async def prompt_argument(
         self,
@@ -120,6 +147,20 @@ def _context(settings: Settings, *, agents: dict[str, object] | None = None) -> 
     )
 
 
+def _context_with_io(
+    settings: Settings,
+    io: _StubCommandIO,
+    *,
+    agents: dict[str, object] | None = None,
+) -> CommandContext:
+    return CommandContext(
+        agent_provider=_StubAgentProvider(agents),
+        current_agent_name="main",
+        io=io,
+        settings=settings,
+    )
+
+
 @pytest.mark.asyncio
 async def test_models_aliases_lists_layered_alias_values(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
@@ -162,7 +203,8 @@ async def test_models_aliases_lists_layered_alias_values(tmp_path: Path) -> None
 
     assert outcome.messages
     rendered = str(outcome.messages[0].text)
-    assert "▎ models aliases" in rendered
+    assert "▎ model aliases" in rendered
+    assert "▎•" not in rendered
     assert "$system.fast = env-fast" in rendered
     assert "$system.code = project-code" in rendered
 
@@ -192,7 +234,9 @@ async def test_models_doctor_reports_unresolved_default_alias(tmp_path: Path) ->
 
     assert outcome.messages
     rendered = str(outcome.messages[0].text)
-    assert "▎ models doctor" in rendered
+    assert "▎ model doctor" in rendered
+    assert "• ENVIRONMENT_DIR:" in rendered
+    assert "▎•" not in rendered
     assert "Readiness: action required" in rendered
     assert "Agent summary:" in rendered
     assert "$system.fast (default_model)" in rendered
@@ -242,7 +286,7 @@ async def test_models_doctor_lists_all_agents_including_tool_only(tmp_path: Path
 
     assert outcome.messages
     rendered = str(outcome.messages[0].text)
-    assert "Agent model resolution:" in rendered
+    assert "▎ Agent model resolution" in rendered
     assert "Agent summary:" in rendered
     assert "main" in rendered
     assert "reviewer_tool" in rendered
@@ -319,9 +363,7 @@ async def test_models_doctor_dedupes_repeated_alias_missing_note(tmp_path: Path)
 
     assert outcome.messages
     rendered = str(outcome.messages[0].text)
-    expected_note = (
-        "note: No model_aliases are configured. Add a model_aliases section in fastagent.config.yaml."
-    )
+    expected_note = "No model_aliases are configured. Add a model_aliases section in fastagent.config.yaml."
     assert rendered.count(expected_note) == 1
 
 
@@ -433,12 +475,128 @@ async def test_models_aliases_set_writes_env_target(tmp_path: Path) -> None:
     assert saved["model_aliases"]["system"]["fast"] == "claude-haiku-4-5"
 
     rendered = str(outcome.messages[0].text)
-    assert "▎ models aliases set" in rendered
+    assert "▎ model aliases set" in rendered
     assert "Result: applied" in rendered
     assert f"Target: {config_path}" in rendered
     assert "model_aliases.system.fast:" in rendered
     assert "old: <unset>" in rendered
     assert "new: claude-haiku-4-5" in rendered
+
+
+@pytest.mark.asyncio
+async def test_models_aliases_set_uses_model_selector_for_existing_alias(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    env_dir = workspace / ".fast-agent"
+    workspace.mkdir(parents=True)
+    _write_yaml(
+        env_dir / "fastagent.config.yaml",
+        {
+            "model_aliases": {
+                "system": {
+                    "fast": "claude-sonnet-4-5",
+                }
+            }
+        },
+    )
+
+    io = _StubCommandIO(model_selection_responses=["claude-haiku-4-5"])
+
+    previous_cwd = Path.cwd()
+    try:
+        os.chdir(workspace)
+        outcome = await models_manager.handle_models_command(
+            _context_with_io(Settings(environment_dir=str(env_dir)), io),
+            agent_name="main",
+            action="aliases",
+            argument="set $system.fast",
+        )
+    finally:
+        os.chdir(previous_cwd)
+
+    saved = _read_yaml(env_dir / "fastagent.config.yaml")
+    assert saved["model_aliases"]["system"]["fast"] == "claude-haiku-4-5"
+
+    rendered = str(outcome.messages[0].text)
+    assert "▎ model aliases set" in rendered
+    assert "model_aliases.system.fast:" in rendered
+    assert "old: claude-sonnet-4-5" in rendered
+    assert "new: claude-haiku-4-5" in rendered
+
+
+@pytest.mark.asyncio
+async def test_models_aliases_set_can_create_new_alias_interactively(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    env_dir = workspace / ".fast-agent"
+    workspace.mkdir(parents=True)
+
+    io = _StubCommandIO(
+        text_responses=["$custom.review"],
+        model_selection_responses=["gpt-4.1-mini"],
+    )
+
+    previous_cwd = Path.cwd()
+    try:
+        os.chdir(workspace)
+        outcome = await models_manager.handle_models_command(
+            _context_with_io(Settings(environment_dir=str(env_dir)), io),
+            agent_name="main",
+            action="aliases",
+            argument="set",
+        )
+    finally:
+        os.chdir(previous_cwd)
+
+    saved = _read_yaml(env_dir / "fastagent.config.yaml")
+    assert saved["model_aliases"]["custom"]["review"] == "gpt-4.1-mini"
+
+    rendered = str(outcome.messages[0].text)
+    assert "▎ model aliases set" in rendered
+    assert "model_aliases.custom.review:" in rendered
+    assert "old: <unset>" in rendered
+    assert "new: gpt-4.1-mini" in rendered
+
+
+@pytest.mark.asyncio
+async def test_models_aliases_set_can_choose_existing_alias_by_number(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    env_dir = workspace / ".fast-agent"
+    workspace.mkdir(parents=True)
+    _write_yaml(
+        env_dir / "fastagent.config.yaml",
+        {
+            "model_aliases": {
+                "system": {
+                    "fast": "claude-sonnet-4-5",
+                }
+            }
+        },
+    )
+
+    io = _StubCommandIO(
+        selection_responses=["1"],
+        model_selection_responses=["gpt-4.1-mini"],
+    )
+
+    previous_cwd = Path.cwd()
+    try:
+        os.chdir(workspace)
+        outcome = await models_manager.handle_models_command(
+            _context_with_io(Settings(environment_dir=str(env_dir)), io),
+            agent_name="main",
+            action="aliases",
+            argument="set",
+        )
+    finally:
+        os.chdir(previous_cwd)
+
+    saved = _read_yaml(env_dir / "fastagent.config.yaml")
+    assert saved["model_aliases"]["system"]["fast"] == "gpt-4.1-mini"
+    assert io.emitted_messages
+    assert str(io.emitted_messages[0].text).find(str((env_dir / "fastagent.config.yaml").resolve())) != -1
+
+    rendered = str(outcome.messages[0].text)
+    assert "old: claude-sonnet-4-5" in rendered
+    assert "new: gpt-4.1-mini" in rendered
 
 
 @pytest.mark.asyncio
@@ -476,7 +634,7 @@ async def test_models_aliases_unset_writes_project_target(tmp_path: Path) -> Non
     assert saved["model_aliases"]["system"]["code"] == "claude-sonnet-4-5"
 
     rendered = str(outcome.messages[0].text)
-    assert "▎ models aliases unset" in rendered
+    assert "▎ model aliases unset" in rendered
     assert "Result: applied" in rendered
     assert f"Target: {project_config}" in rendered
     assert "model_aliases.system.fast:" in rendered
@@ -505,7 +663,7 @@ async def test_models_aliases_set_dry_run_is_deterministic(tmp_path: Path) -> No
     assert (env_dir / "fastagent.config.yaml").exists() is False
 
     rendered = str(outcome.messages[0].text)
-    assert "▎ models aliases set" in rendered
+    assert "▎ model aliases set" in rendered
     assert "Mode: dry-run" in rendered
     assert "model_aliases.system.fast:" in rendered
     assert "old: <unset>" in rendered
@@ -533,7 +691,7 @@ async def test_models_aliases_set_invalid_token_returns_usage(tmp_path: Path) ->
 
     rendered = str(outcome.messages[0].text)
     assert "Model aliases must be exact tokens in the format '$<namespace>.<key>'" in rendered
-    assert "Usage: /models aliases" in rendered
+    assert "Usage: /model aliases" in rendered
 
 
 @pytest.mark.asyncio
@@ -567,7 +725,7 @@ async def test_models_doctor_displays_runtime_config_context(tmp_path: Path) -> 
             os.environ["FAST_AGENT_MODEL"] = previous_fast_model
 
     rendered = str(outcome.messages[0].text)
-    assert "Runtime config context:" in rendered
+    assert "▎ Runtime config context" in rendered
     assert f"ENVIRONMENT_DIR: {env_dir}" in rendered
     assert f"Effective environment_dir: {env_dir}" in rendered
     assert "FAST_AGENT_MODEL: kimi" in rendered

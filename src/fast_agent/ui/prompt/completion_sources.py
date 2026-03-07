@@ -413,6 +413,10 @@ def command_completions(
             subcommands["web_search"] = "Set web search tool state (on/off/default)"
         if completer._supports_web_fetch_setting():
             subcommands["web_fetch"] = "Set web fetch tool state (on/off/default)"
+        subcommands["switch"] = "Switch model (starts new session)"
+        subcommands["doctor"] = "Inspect model onboarding readiness"
+        subcommands["aliases"] = "List or update configured model alias mappings"
+        subcommands["catalog"] = "Show curated models for a provider"
         results = list(completer._complete_subcommands(parts, remainder, subcommands))
         if not parts or (len(parts) == 1 and not remainder.endswith(" ")):
             return results
@@ -479,28 +483,13 @@ def command_completions(
                 if value.startswith(argument.lower())
             )
             return results
-        return results
 
-    if text_lower.startswith("/models "):
-        remainder = text[len("/models ") :] or ""
-        parts = remainder.split(maxsplit=1)
-        subcommands = {
-            "doctor": "Inspect model onboarding readiness",
-            "aliases": "List or update configured model alias mappings",
-            "catalog": "Show curated models for a provider",
-        }
-        results = list(completer._complete_subcommands(parts, remainder, subcommands))
-        if not parts or (len(parts) == 1 and not remainder.endswith(" ")):
-            return results
-
-        subcmd = parts[0].lower()
-        argument = parts[1] if len(parts) > 1 else ""
         if subcmd == "aliases":
             alias_parts = argument.split(maxsplit=1)
             alias_subcommands = {
                 "list": "List configured alias mappings",
-                "set": "Set an alias: set <token> <model-spec>",
-                "unset": "Unset an alias: unset <token>",
+                "set": "Set an alias: set [<token> [<model-spec>]]",
+                "unset": "Unset an alias: unset [<token>]",
             }
             results.extend(completer._complete_subcommands(alias_parts, argument, alias_subcommands))
 
