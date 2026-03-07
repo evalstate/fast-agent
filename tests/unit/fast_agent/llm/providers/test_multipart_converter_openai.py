@@ -526,6 +526,34 @@ class TestOpenAIToolConverter(unittest.TestCase):
             f"data:application/pdf;base64,{pdf_base64}",
         )
 
+    def test_tool_result_prefers_structured_content_for_tool_text(self):
+        """Test that structuredContent becomes the canonical tool text payload."""
+        image_base64 = base64.b64encode(b"fake_image_data").decode("utf-8")
+        image_content = ImageContent(type="image", data=image_base64, mimeType="image/jpeg")
+        tool_result = CallToolResult(
+            content=[
+                TextContent(type="text", text="stale summary"),
+                TextContent(type="text", text="ignored detail"),
+                image_content,
+            ],
+            isError=False,
+        )
+        setattr(tool_result, "structuredContent", {"status": "fresh", "value": 3})
+
+        converted = OpenAIConverter.convert_tool_result_to_openai(
+            tool_result=tool_result,
+            tool_call_id="call_structured",
+        )
+
+        assert isinstance(converted, tuple)
+        tool_msg, user_messages = converted
+        tool_msg = cast("ChatCompletionToolMessageParam", tool_msg)
+        user_msg = cast("ChatCompletionUserMessageParam", user_messages[0])
+
+        self.assertEqual(tool_msg["content"], '{"status":"fresh","value":3}')
+        self.assertEqual(user_msg["role"], "user")
+        self.assertEqual(content_parts(user_msg)[0]["type"], "image_url")
+
     def test_empty_schema_behavior(self):
         """Test adjustment of parameters for empty schema."""
         inputSchema = {

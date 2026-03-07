@@ -132,3 +132,33 @@ def test_tool_result_prefers_structured_content_over_many_text_blocks() -> None:
     assert '"id": "b"' in rendered
     assert "TextContent(" not in rendered
     assert "text only" in rendered
+
+
+def test_tool_result_prefers_structured_content_when_text_blocks_disagree() -> None:
+    display = ConsoleDisplay()
+    result = CallToolResult(
+        content=[
+            TextContent(type="text", text='{"id":"a","status":"closed"}'),
+            TextContent(type="text", text='{"id":"b","status":"pending"}'),
+        ],
+        isError=False,
+    )
+    setattr(
+        result,
+        "structuredContent",
+        {
+            "result": [
+                {"id": "a", "status": "open"},
+                {"id": "b", "status": "escalated"},
+            ]
+        },
+    )
+
+    with console.console.capture() as capture:
+        display.show_tool_result(result, name="dev", tool_name="voice__crm_tickets")
+
+    rendered = capture.get()
+    assert '"status": "open"' in rendered
+    assert '"status": "escalated"' in rendered
+    assert '"status":"closed"' not in rendered
+    assert '"status":"pending"' not in rendered

@@ -18,6 +18,7 @@ from openai.types.chat import (
 
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.helpers.content_helpers import (
+    canonicalize_tool_result_content_for_llm,
     get_image_data,
     get_resource_uri,
     get_text,
@@ -459,8 +460,14 @@ class OpenAIConverter:
             Either a single OpenAI message for the tool response (if text only),
             or a tuple containing the tool message and a list of additional messages for non-text content
         """
+        canonical_content = canonicalize_tool_result_content_for_llm(
+            tool_result,
+            logger=_logger,
+            source="openai.chat",
+        )
+
         # Handle empty content case
-        if not tool_result.content:
+        if not canonical_content:
             return ChatCompletionToolMessageParam(
                 role="tool",
                 tool_call_id=tool_call_id,
@@ -471,7 +478,7 @@ class OpenAIConverter:
         text_content = []
         non_text_content = []
 
-        for item in tool_result.content:
+        for item in canonical_content:
             if isinstance(item, TextContent):
                 text_content.append(item)
             else:
