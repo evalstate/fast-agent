@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from fast_agent.llm.model_alias_diagnostics import ModelAliasSetupItem
 
 StyleFragments = list[tuple[str, str]]
+CUSTOM_ALIAS_SENTINEL = "__custom_alias__"
 
 
 @dataclass
@@ -88,12 +89,14 @@ class _AliasPicker:
         return Point(x=0, y=self.state.index)
 
     def _move(self, delta: int) -> None:
-        self.state.index = (self.state.index + delta) % len(self.items)
+        row_count = len(self.items) + 1
+        self.state.index = (self.state.index + delta) % row_count
         self._sync_scroll()
 
     def _sync_scroll(self) -> None:
         visible = self.LIST_VISIBLE_ROWS
-        max_top = max(0, len(self.items) - visible)
+        row_count = len(self.items) + 1
+        max_top = max(0, row_count - visible)
         top = min(self.state.scroll_top, max_top)
         index = self.state.index
         if index < top:
@@ -120,11 +123,18 @@ class _AliasPicker:
 
         @kb.add("enter")
         def _accept(event) -> None:  # type: ignore[no-untyped-def]
+            if self.state.index >= len(self.items):
+                event.app.exit(result=CUSTOM_ALIAS_SENTINEL)
+                return
             event.app.exit(result=self.current_item.token)
 
         @kb.add("escape")
         @kb.add("q")
         def _cancel(event) -> None:  # type: ignore[no-untyped-def]
+            event.app.exit(result=None)
+
+        @kb.add("c-c")
+        def _cancel_ctrl_c(event) -> None:  # type: ignore[no-untyped-def]
             event.app.exit(result=None)
 
         return kb
@@ -142,22 +152,28 @@ class _AliasPicker:
         return " ".join(parts)
 
     def _render_rows(self) -> StyleFragments:
+        rows = [*self.items, None]
         width = self._terminal_cols()
         status_width = 25
         token_width = max(18, width - status_width - 4)
         fragments: StyleFragments = []
-        for index, item in enumerate(self.items):
+        for index, item in enumerate(rows):
             selected = index == self.state.index
-            availability = {
-                "required": "required",
-                "repair": "repair",
-                "recommended": "recommended",
-            }[item.priority]
+            if item is None:
+                availability = "recommended"
+                token_text = "Add a new alias"
+                status_text = "manual entry"
+            else:
+                availability = {
+                    "required": "required",
+                    "repair": "repair",
+                    "recommended": "recommended",
+                }[item.priority]
+                token_text = item.token[: token_width - 1]
+                if len(item.token) > token_width:
+                    token_text = item.token[: token_width - 2] + "…"
+                status_text = f"{item.priority}/{item.status}"
             line_style = self._row_style(selected=selected, availability=availability)
-            token_text = item.token[: token_width - 1]
-            if len(item.token) > token_width:
-                token_text = item.token[: token_width - 2] + "…"
-            status_text = f"{item.priority}/{item.status}"
             cursor = "❯ " if selected else "  "
             fragments.append(
                 (
@@ -168,6 +184,16 @@ class _AliasPicker:
         return fragments
 
     def _render_details(self) -> StyleFragments:
+        if self.state.index >= len(self.items):
+            return [
+                ("", "Create or update a different alias token.\n"),
+                ("class:muted", "current: <manual entry>\n"),
+                ("class:muted", "used by: custom setup path\n"),
+                (
+                    "class:muted",
+                    "Enter = type a token manually • Esc/Ctrl+C = cancel",
+                ),
+            ]
         item = self.current_item
         references_text = ", ".join(item.references) if item.references else "No references"
         current_value = item.current_value if item.current_value is not None else "<unset>"
@@ -177,7 +203,7 @@ class _AliasPicker:
             ("class:muted", f"used by: {references_text}\n"),
             (
                 "class:muted",
-                "Enter = configure alias • Esc = enter a different alias manually",
+                "Enter = configure alias • Esc/Ctrl+C = cancel",
             ),
         ]
         return lines

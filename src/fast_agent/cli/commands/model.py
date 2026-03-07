@@ -31,7 +31,10 @@ from fast_agent.llm.model_alias_diagnostics import (
     collect_model_alias_setup_diagnostics,
 )
 from fast_agent.ui.adapters.tui_io import TuiCommandIO
-from fast_agent.ui.model_alias_picker import run_model_alias_picker_async
+from fast_agent.ui.model_alias_picker import (
+    CUSTOM_ALIAS_SENTINEL,
+    run_model_alias_picker_async,
+)
 
 type WriteTarget = Literal["env", "project"]
 
@@ -136,6 +139,8 @@ async def _select_model_setup_token(
         selected_token = await run_model_alias_picker_async(
             _merge_setup_items(items, common_items)
         )
+        if selected_token == CUSTOM_ALIAS_SENTINEL:
+            return None
         if selected_token is not None:
             return selected_token
         return None
