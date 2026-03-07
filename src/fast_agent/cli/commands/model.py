@@ -95,17 +95,6 @@ def _normalize_interactive_alias_token(token: str | None) -> str | None:
 
 
 async def _prompt_manual_alias_token(io: CommandIO) -> str | None:
-    if isinstance(io, TuiCommandIO):
-        try:
-            entered = typer.prompt(
-                "Alias token ($namespace.key)",
-                default="",
-                show_default=False,
-            )
-        except (EOFError, KeyboardInterrupt):
-            return None
-        return _normalize_interactive_alias_token(entered)
-
     return _normalize_interactive_alias_token(
         await io.prompt_text(
             "Alias token ($namespace.key):",
