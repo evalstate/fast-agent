@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import secrets
 import time
 from dataclasses import dataclass
@@ -55,9 +56,6 @@ CODEX_TOKEN_KEY = f"oauth:tokens:{CODEX_KEYRING_IDENTITY}"
 CODEX_TOKEN_META_KEY = f"{CODEX_TOKEN_KEY}:meta"
 CODEX_TOKEN_CHUNK_PREFIX = f"{CODEX_TOKEN_KEY}:chunk"
 CODEX_KEYRING_MAX_PAYLOAD_BYTES = 512
-CODEX_CLI_AUTH_PATH = Path("/root/.codex/auth.json")
-
-
 class CodexOAuthTokens(BaseModel):
     access_token: str
     refresh_token: str | None = None
@@ -224,6 +222,24 @@ def _chunk_key(index: int) -> str:
     return f"{CODEX_TOKEN_CHUNK_PREFIX}:{index}"
 
 
+def _default_codex_cli_auth_path() -> Path:
+    return Path.home() / ".codex" / "auth.json"
+
+
+def _resolve_codex_cli_auth_path() -> Path:
+    explicit = str(os.environ.get("CODEX_AUTH_JSON_PATH") or "").strip()
+    if explicit:
+        return Path(explicit).expanduser()
+    codex_home = str(os.environ.get("CODEX_HOME") or "").strip()
+    if codex_home:
+        return Path(codex_home).expanduser() / "auth.json"
+    return _default_codex_cli_auth_path()
+
+
+def _prefer_codex_cli_auth_path() -> bool:
+    return _resolve_codex_cli_auth_path() != _default_codex_cli_auth_path()
+
+
 def _safe_delete(keyring_module: _KeyringProtocol, username: str) -> None:
     try:
         keyring_module.delete_password(CODEX_KEYRING_SERVICE, username)
@@ -384,13 +400,14 @@ def _normalize_codex_cli_payload(payload: dict[str, Any]) -> dict[str, Any] | No
 
 
 def _load_codex_cli_tokens() -> CodexOAuthTokens | None:
+    auth_path = _resolve_codex_cli_auth_path()
     try:
-        if not CODEX_CLI_AUTH_PATH.exists():
+        if not auth_path.exists():
             return None
     except OSError:
         return None
     try:
-        payload = json.loads(CODEX_CLI_AUTH_PATH.read_text())
+        payload = json.loads(auth_path.read_text())
     except Exception:
         return None
     if not isinstance(payload, dict):
@@ -411,7 +428,41 @@ def _load_codex_cli_tokens() -> CodexOAuthTokens | None:
     return None
 
 
+def _save_codex_cli_tokens(tokens: CodexOAuthTokens) -> None:
+    auth_path = _resolve_codex_cli_auth_path()
+    payload: dict[str, Any] = {}
+    try:
+        if auth_path.exists():
+            existing = json.loads(auth_path.read_text())
+            if isinstance(existing, dict):
+                payload = existing
+    except Exception:
+        payload = {}
+
+    payload["auth_mode"] = payload.get("auth_mode") or "oauth"
+    payload["tokens"] = {
+        "access_token": tokens.access_token,
+        "refresh_token": tokens.refresh_token,
+        "expires_at": tokens.expires_at,
+        "scope": tokens.scope,
+        "token_type": tokens.token_type,
+    }
+    payload["last_refresh"] = int(time.time() * 1000)
+
+    auth_path.parent.mkdir(parents=True, exist_ok=True)
+    auth_path.write_text(json.dumps(payload, indent=2) + "\n")
+    try:
+        auth_path.chmod(0o600)
+    except Exception:
+        pass
+
+
 def _load_codex_tokens_with_source() -> tuple[CodexOAuthTokens | None, str | None]:
+    if _prefer_codex_cli_auth_path():
+        tokens = _load_codex_cli_tokens()
+        if tokens:
+            return tokens, "auth.json"
+
     payload = _get_keyring_password()
     if payload:
         try:
@@ -431,12 +482,15 @@ def load_codex_tokens() -> CodexOAuthTokens | None:
         logger.info(
             "codex_cli_tokens",
             "Loaded Codex OAuth tokens from auth.json",
-            data={"path": str(CODEX_CLI_AUTH_PATH)},
+            data={"path": str(_resolve_codex_cli_auth_path())},
         )
     return tokens
 
 
 def save_codex_tokens(tokens: CodexOAuthTokens) -> None:
+    if _prefer_codex_cli_auth_path():
+        _save_codex_cli_tokens(tokens)
+        return
     _set_keyring_password(tokens.model_dump_json())
 
 
