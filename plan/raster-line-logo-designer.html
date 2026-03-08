@@ -1,0 +1,1544 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dot Logo Designer</title>
+  <style>
+    :root {
+      --ink: #172026;
+      --surface: #f7f5ef;
+      --panel: #fffdf7;
+      --accent: #ff4d36;
+      --accent-soft: #ffd9d4;
+      --line: #d7d1c1;
+      --mono: "IBM Plex Mono", "Menlo", "Monaco", "Courier New", monospace;
+      --sans: "Avenir Next", "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: var(--sans);
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 0% 0%, #fff6c8 0%, transparent 40%),
+        radial-gradient(circle at 100% 0%, #ffd7cf 0%, transparent 35%),
+        linear-gradient(160deg, #efe9dc 0%, #f8f7f3 45%, #ece8df 100%);
+      min-height: 100vh;
+    }
+
+    .page {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px;
+      display: grid;
+      gap: 18px;
+      grid-template-columns: minmax(300px, 420px) minmax(320px, 1fr);
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 16px;
+      box-shadow: 0 10px 24px rgba(23, 32, 38, 0.06);
+    }
+
+    h1 {
+      margin: 0 0 6px;
+      font-size: 1.36rem;
+      letter-spacing: 0.01em;
+    }
+
+    .lead {
+      margin: 0 0 14px;
+      color: #49545d;
+      font-size: 0.95rem;
+    }
+
+    .controls {
+      display: grid;
+      gap: 14px;
+    }
+
+    .group {
+      border-top: 1px solid var(--line);
+      padding-top: 12px;
+      display: grid;
+      gap: 9px;
+    }
+
+    .group:first-child {
+      border-top: none;
+      padding-top: 0;
+    }
+
+    .group-title {
+      font-size: 0.78rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #6f6059;
+    }
+
+    .row {
+      display: grid;
+      gap: 7px;
+    }
+
+    .row label {
+      font-size: 0.84rem;
+      font-weight: 600;
+    }
+
+    .pair {
+      display: grid;
+      grid-template-columns: 1fr 82px;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .pair-wide {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .small-btn {
+      white-space: nowrap;
+      padding: 7px 10px;
+      font-size: 0.82rem;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+    }
+
+    input[type="number"],
+    input[type="text"],
+    input[type="color"],
+    select,
+    textarea {
+      width: 100%;
+      border: 1px solid #c9c0ad;
+      border-radius: 8px;
+      padding: 8px;
+      font: inherit;
+      background: #ffffff;
+    }
+
+    input[type="color"] {
+      padding: 2px;
+      height: 40px;
+    }
+
+    .swatch-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .action-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .preset-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .preset-btn {
+      padding: 7px 10px;
+      font-size: 0.8rem;
+    }
+
+    button {
+      border: 1px solid #b79d95;
+      background: #fff;
+      color: #2b2725;
+      border-radius: 9px;
+      padding: 8px 12px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button.primary {
+      border-color: #a03d2f;
+      background: linear-gradient(160deg, #ff6f57, #f64730);
+      color: #fff;
+    }
+
+    button:hover {
+      filter: brightness(0.98);
+    }
+
+    .meta {
+      font-size: 0.83rem;
+      color: #4a5660;
+      margin-top: 4px;
+    }
+
+    .hint {
+      margin: 0;
+      font-size: 0.79rem;
+      color: #646d74;
+    }
+
+    .preview-wrap {
+      display: grid;
+      gap: 12px;
+    }
+
+    .preview-box {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      min-height: 360px;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      position: relative;
+      --preview-block: #0f172a;
+    }
+
+    .preview-box[data-backdrop="checker"] {
+      background:
+        linear-gradient(45deg, #f0ede5 25%, transparent 25%) -8px 0 / 16px 16px,
+        linear-gradient(-45deg, #f0ede5 25%, transparent 25%) -8px 0 / 16px 16px,
+        linear-gradient(45deg, transparent 75%, #f0ede5 75%) -8px 0 / 16px 16px,
+        linear-gradient(-45deg, transparent 75%, #f0ede5 75%) -8px 0 / 16px 16px,
+        #fbfaf6;
+    }
+
+    .preview-box[data-backdrop="solid"] {
+      background: var(--preview-block);
+    }
+
+    #preview {
+      width: 100%;
+      height: 100%;
+      display: grid;
+      place-items: center;
+      position: relative;
+    }
+
+    #preview .preview-layer {
+      width: min(92%, 620px);
+      max-height: 72vh;
+      height: auto;
+      display: block;
+      grid-area: 1 / 1;
+    }
+
+    #preview .preview-guide {
+      pointer-events: none;
+    }
+
+    #preview .preview-guide .guide-frame {
+      fill: none;
+      stroke: rgba(25, 31, 35, 0.78);
+      vector-effect: non-scaling-stroke;
+      stroke-width: 1.4;
+    }
+
+    #preview .preview-guide .guide-line {
+      stroke: rgba(25, 31, 35, 0.28);
+      vector-effect: non-scaling-stroke;
+      stroke-width: 1;
+    }
+
+    textarea {
+      min-height: 180px;
+      resize: vertical;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+    }
+
+    .targets {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+      gap: 8px;
+    }
+
+    .target-card {
+      border: 1px solid #d5ccbb;
+      border-radius: 10px;
+      background: #fffcf4;
+      padding: 8px;
+      display: grid;
+      gap: 6px;
+      justify-items: center;
+    }
+
+    .target-stage {
+      border: 1px solid #ddd5c7;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      --preview-block: #0f172a;
+    }
+
+    .target-stage[data-backdrop="checker"] {
+      background:
+        linear-gradient(45deg, #f0ede5 25%, transparent 25%) -8px 0 / 16px 16px,
+        linear-gradient(-45deg, #f0ede5 25%, transparent 25%) -8px 0 / 16px 16px,
+        linear-gradient(45deg, transparent 75%, #f0ede5 75%) -8px 0 / 16px 16px,
+        linear-gradient(-45deg, transparent 75%, #f0ede5 75%) -8px 0 / 16px 16px,
+        #fbfaf6;
+    }
+
+    .target-stage[data-backdrop="solid"] {
+      background: var(--preview-block);
+    }
+
+    .target-stage img {
+      display: block;
+      margin: auto;
+      max-width: 100%;
+      max-height: 100%;
+    }
+
+    .target-label {
+      font-size: 0.76rem;
+      font-weight: 700;
+      color: #4b3f39;
+      font-family: var(--mono);
+    }
+
+    @media (max-width: 980px) {
+      .page {
+        grid-template-columns: 1fr;
+      }
+
+      .preview-box {
+        min-height: 280px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="panel">
+      <h1>Dot Logo Designer</h1>
+      <p class="lead">Render text onto a square dot grid and export a production-ready SVG.</p>
+
+      <div class="controls">
+        <div class="group">
+          <div class="group-title">Quick Start</div>
+          <p class="hint">Apply tuned defaults for crisp icon-like dot logos, then refine as needed.</p>
+          <div class="preset-row">
+            <button class="preset-btn" type="button" data-preset="balanced">Balanced</button>
+            <button class="preset-btn" type="button" data-preset="dense">Dense</button>
+            <button class="preset-btn" type="button" data-preset="minimal">Minimal</button>
+          </div>
+        </div>
+
+        <div class="group">
+          <div class="group-title">Text + Font</div>
+
+          <div class="row">
+            <label for="text">Text</label>
+            <input id="text" type="text" value="fa" />
+          </div>
+
+          <div class="row">
+            <label for="fontFamily">Font family</label>
+            <input id="fontFamily" list="fontSuggestions" type="text" value="Avenir Next, Helvetica Neue, Arial, sans-serif" />
+            <datalist id="fontSuggestions"></datalist>
+          </div>
+
+          <div class="row">
+            <label for="fontPicker">Available fonts</label>
+            <div class="pair-wide">
+              <select id="fontPicker"></select>
+              <button id="scanFontsBtn" class="small-btn" type="button">Scan fonts</button>
+            </div>
+            <p class="hint" id="fontScanStatus">Detecting common local fonts...</p>
+          </div>
+
+          <div class="row">
+            <label for="fontWeightRange">Font weight (boldness)</label>
+            <div class="pair">
+              <input id="fontWeightRange" type="range" min="100" max="900" step="100" value="700" />
+              <input id="fontWeight" type="number" min="100" max="900" step="100" value="700" />
+            </div>
+          </div>
+
+          <div class="row">
+            <label for="fontStyle">Font style</label>
+            <select id="fontStyle">
+              <option value="normal" selected>Normal</option>
+              <option value="italic">Italic</option>
+              <option value="oblique">Oblique</option>
+            </select>
+          </div>
+
+          <div class="row">
+            <label for="letterSpacingRange">Letter spacing (px)</label>
+            <div class="pair">
+              <input id="letterSpacingRange" type="range" min="-12" max="40" step="0.5" value="0" />
+              <input id="letterSpacing" type="number" min="-12" max="40" step="0.5" value="0" />
+            </div>
+          </div>
+
+          <div class="row">
+            <label for="fontScaleRange">Font scale (% of max fit)</label>
+            <div class="pair">
+              <input id="fontScaleRange" type="range" min="10" max="140" step="1" value="60" />
+              <input id="fontScale" type="number" min="10" max="140" step="1" value="60" />
+            </div>
+          </div>
+
+          <div class="row">
+            <label for="offsetXRange">Text offset X (px)</label>
+            <div class="pair">
+              <input id="offsetXRange" type="range" min="-200" max="200" step="1" value="0" />
+              <input id="offsetX" type="number" min="-200" max="200" step="1" value="0" />
+            </div>
+          </div>
+
+          <div class="row">
+            <label for="offsetYRange">Text offset Y (px)</label>
+            <div class="pair">
+              <input id="offsetYRange" type="range" min="-200" max="200" step="1" value="0" />
+              <input id="offsetY" type="number" min="-200" max="200" step="1" value="0" />
+            </div>
+          </div>
+        </div>
+
+        <div class="group">
+          <div class="group-title">Grid + Shape</div>
+
+          <div class="row">
+            <label for="canvasWidthRange">Canvas width (px)</label>
+            <div class="pair">
+              <input id="canvasWidthRange" type="range" min="120" max="2000" step="10" value="640" />
+              <input id="canvasWidth" type="number" min="120" max="2000" step="10" value="640" />
+            </div>
+          </div>
+
+          <div class="row">
+            <label for="canvasHeightRange">Canvas height (px)</label>
+            <div class="pair">
+              <input id="canvasHeightRange" type="range" min="120" max="1200" step="10" value="640" />
+              <input id="canvasHeight" type="number" min="120" max="1200" step="10" value="640" />
+            </div>
+          </div>
+
+          <div class="row">
+            <label for="spacingRange">Dot spacing (px)</label>
+            <div class="pair">
+              <input id="spacingRange" type="range" min="6" max="60" step="1" value="16" />
+              <input id="spacing" type="number" min="6" max="60" step="1" value="16" />
+            </div>
+          </div>
+
+          <div class="row">
+            <label for="radiusRange">Dot radius (px)</label>
+            <div class="pair">
+              <input id="radiusRange" type="range" min="1" max="20" step="0.5" value="3" />
+              <input id="radius" type="number" min="1" max="20" step="0.5" value="3" />
+            </div>
+          </div>
+
+          <div class="row">
+            <label for="paddingRange">Edge padding (safe margin, px)</label>
+            <div class="pair">
+              <input id="paddingRange" type="range" min="0" max="180" step="1" value="24" />
+              <input id="padding" type="number" min="0" max="180" step="1" value="24" />
+            </div>
+            <p class="hint">Reserved margin around the canvas where no dots are placed. Lower padding lets the logo fill more space.</p>
+          </div>
+
+          <div class="row">
+            <label for="thresholdRange">Highlight threshold (alpha)</label>
+            <div class="pair">
+              <input id="thresholdRange" type="range" min="1" max="255" step="1" value="30" />
+              <input id="threshold" type="number" min="1" max="255" step="1" value="30" />
+            </div>
+          </div>
+        </div>
+
+        <div class="group">
+          <div class="group-title">Color</div>
+          <div class="swatch-grid">
+            <div class="row">
+              <label for="bgColor">Background</label>
+              <input id="bgColor" type="color" value="#f3f3f0" />
+            </div>
+            <div class="row">
+              <label for="lowColor">Lowlight dots</label>
+              <input id="lowColor" type="color" value="#d2d2cd" />
+            </div>
+            <div class="row">
+              <label for="highColor">Highlight dots</label>
+              <input id="highColor" type="color" value="#171717" />
+            </div>
+          </div>
+        </div>
+
+        <div class="group">
+          <div class="group-title">Output</div>
+
+          <div class="row">
+            <label for="colorMode">Logo variant</label>
+            <select id="colorMode">
+              <option value="color" selected>Full color</option>
+              <option value="mono-current">Mono currentColor (transparent)</option>
+              <option value="mono-black">Mono black (transparent)</option>
+              <option value="mono-white">Mono white (transparent)</option>
+            </select>
+            <p class="hint">For app icons/themes, mono `currentColor` is recommended so host UI controls the color.</p>
+          </div>
+
+          <div class="row">
+            <label for="previewBackdrop">Preview backdrop</label>
+            <select id="previewBackdrop">
+              <option value="checker" selected>Transparent checker</option>
+              <option value="solid">Solid block</option>
+            </select>
+          </div>
+
+          <div class="row">
+            <label for="previewBackdropColor">Backdrop color</label>
+            <input id="previewBackdropColor" type="color" value="#0f172a" />
+          </div>
+
+          <div class="row">
+            <label for="svgMode">SVG mode</label>
+            <select id="svgMode">
+              <option value="compact" selected>Compact (&lt;use&gt; references)</option>
+              <option value="full">Full (&lt;circle&gt; per dot)</option>
+            </select>
+            <p class="hint">Compact mode reduces repeated markup and usually cuts file size.</p>
+          </div>
+
+          <div class="row">
+            <label for="targetSizes">Target render sizes (px, comma-separated)</label>
+            <input id="targetSizes" type="text" value="16,20,24,32,48,64,96,128" />
+            <p class="hint">Common UI icon sizes: 16, 20, 24, 32, 48, 64. These previews are scaled render targets of the same SVG.</p>
+          </div>
+
+          <div class="row">
+            <label for="showGuide16">
+              <input id="showGuide16" type="checkbox" checked />
+              Show 16x16 guide overlay in main preview
+            </label>
+            <p class="hint">Guide is preview-only and is not included in copied/downloaded SVG output.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel preview-wrap">
+      <div class="preview-box" id="preview"></div>
+      <div class="meta" id="stats"></div>
+      <div class="meta" id="quality"></div>
+      <div class="targets" id="targetGrid"></div>
+
+      <div class="action-row">
+        <button class="primary" id="copyBtn" type="button">Copy SVG</button>
+        <button id="downloadBtn" type="button">Download SVG</button>
+        <button id="download16Btn" type="button">Download 16x16 SVG</button>
+      </div>
+
+      <textarea id="svgOutput" spellcheck="false"></textarea>
+    </section>
+  </main>
+
+  <script>
+    const byId = (id) => document.getElementById(id);
+
+    const fields = {
+      text: byId("text"),
+      fontFamily: byId("fontFamily"),
+      fontSuggestions: byId("fontSuggestions"),
+      fontPicker: byId("fontPicker"),
+      scanFontsBtn: byId("scanFontsBtn"),
+      fontScanStatus: byId("fontScanStatus"),
+      fontWeight: byId("fontWeight"),
+      fontStyle: byId("fontStyle"),
+      letterSpacing: byId("letterSpacing"),
+      fontScale: byId("fontScale"),
+      offsetX: byId("offsetX"),
+      offsetY: byId("offsetY"),
+      canvasWidth: byId("canvasWidth"),
+      canvasHeight: byId("canvasHeight"),
+      spacing: byId("spacing"),
+      radius: byId("radius"),
+      padding: byId("padding"),
+      threshold: byId("threshold"),
+      bgColor: byId("bgColor"),
+      lowColor: byId("lowColor"),
+      highColor: byId("highColor"),
+      colorMode: byId("colorMode"),
+      previewBackdrop: byId("previewBackdrop"),
+      previewBackdropColor: byId("previewBackdropColor"),
+      svgMode: byId("svgMode"),
+      targetSizes: byId("targetSizes"),
+      showGuide16: byId("showGuide16"),
+      preview: byId("preview"),
+      targetGrid: byId("targetGrid"),
+      svgOutput: byId("svgOutput"),
+      stats: byId("stats"),
+      quality: byId("quality")
+    };
+
+    const linkedRanges = [
+      ["fontWeightRange", "fontWeight"],
+      ["letterSpacingRange", "letterSpacing"],
+      ["fontScaleRange", "fontScale"],
+      ["offsetXRange", "offsetX"],
+      ["offsetYRange", "offsetY"],
+      ["canvasWidthRange", "canvasWidth"],
+      ["canvasHeightRange", "canvasHeight"],
+      ["spacingRange", "spacing"],
+      ["radiusRange", "radius"],
+      ["paddingRange", "padding"],
+      ["thresholdRange", "threshold"]
+    ];
+
+    const PRESETS = {
+      balanced: {
+        fontWeight: 700,
+        fontStyle: "normal",
+        letterSpacing: 0,
+        fontScale: 60,
+        offsetX: 0,
+        offsetY: 0,
+        canvasWidth: 640,
+        canvasHeight: 640,
+        spacing: 16,
+        radius: 3,
+        padding: 24,
+        threshold: 30,
+        bgColor: "#f3f3f0",
+        lowColor: "#d2d2cd",
+        highColor: "#171717",
+        colorMode: "color",
+        svgMode: "compact"
+      },
+      dense: {
+        fontWeight: 800,
+        fontStyle: "normal",
+        letterSpacing: -0.5,
+        fontScale: 64,
+        offsetX: 0,
+        offsetY: 0,
+        canvasWidth: 640,
+        canvasHeight: 640,
+        spacing: 14,
+        radius: 2.8,
+        padding: 26,
+        threshold: 36,
+        bgColor: "#f8f1e6",
+        lowColor: "#dbcab2",
+        highColor: "#1e1814",
+        colorMode: "color",
+        svgMode: "compact"
+      },
+      minimal: {
+        fontWeight: 700,
+        fontStyle: "normal",
+        letterSpacing: 0,
+        fontScale: 58,
+        offsetX: 0,
+        offsetY: 0,
+        canvasWidth: 640,
+        canvasHeight: 640,
+        spacing: 18,
+        radius: 3.2,
+        padding: 24,
+        threshold: 26,
+        bgColor: "#ffffff",
+        lowColor: "#e6e6e6",
+        highColor: "#111111",
+        colorMode: "color",
+        svgMode: "compact"
+      }
+    };
+
+    const sampleCanvas = document.createElement("canvas");
+    const sampleCtx = sampleCanvas.getContext("2d", { willReadFrequently: true });
+    let lastGeometryKey = "";
+    let lastGeometry = null;
+    let renderQueued = false;
+    let pendingUrlConfig = null;
+    let urlSyncTimer = 0;
+    let lastTargetLayoutKey = "";
+    let targetImages = [];
+    let lastTargetPreviewUrl = "";
+
+    function invalidateGeometryCache() {
+      lastGeometryKey = "";
+      lastGeometry = null;
+    }
+
+    function clamp(value, min, max) {
+      return Math.min(max, Math.max(min, value));
+    }
+
+    function readNumber(input) {
+      return Number.parseFloat(input.value);
+    }
+
+    function getSampleScale(width, height) {
+      const idealScale = 4;
+      const maxPixels = 12000000;
+      const maxScale = Math.sqrt(maxPixels / Math.max(1, width * height));
+      return clamp(maxScale, 1, idealScale);
+    }
+
+    function downloadSvg(svg, filename) {
+      const blob = new Blob([svg], { type: "image/svg+xml" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function setRootSvgSize(svg, targetSize) {
+      const safeSize = clamp(Number.parseFloat(targetSize) || 16, 8, 1024);
+      return String(svg)
+        .replace(/(<svg\b[^>]*?)\swidth="[^"]*"/i, `$1 width="${safeSize}"`)
+        .replace(/(<svg\b[^>]*?)\sheight="[^"]*"/i, `$1 height="${safeSize}"`);
+    }
+
+    function formatBytes(bytes) {
+      if (bytes < 1024) {
+        return `${bytes} B`;
+      }
+      return `${(bytes / 1024).toFixed(1)} KB`;
+    }
+
+    function parseTargetSizes(raw) {
+      const deduped = Array.from(
+        new Set(
+          String(raw)
+            .split(/[,\s]+/)
+            .map((part) => Number.parseInt(part, 10))
+            .filter((n) => Number.isFinite(n) && n >= 8 && n <= 1024)
+        )
+      );
+      if (deduped.length === 0) {
+        return [16, 20, 24, 32, 48, 64];
+      }
+      return deduped.slice(0, 12);
+    }
+
+    const COMMON_FONT_CANDIDATES = [
+      "Avenir Next",
+      "Avenir",
+      "Helvetica Neue",
+      "Helvetica",
+      "Arial",
+      "Tahoma",
+      "Verdana",
+      "Trebuchet MS",
+      "Gill Sans",
+      "Futura",
+      "Optima",
+      "Segoe UI",
+      "Calibri",
+      "Candara",
+      "Roboto",
+      "Inter",
+      "Lato",
+      "Montserrat",
+      "Poppins",
+      "Open Sans",
+      "Source Sans 3",
+      "IBM Plex Sans",
+      "DM Sans",
+      "Merriweather",
+      "Georgia",
+      "Times New Roman",
+      "Courier New",
+      "Consolas",
+      "SF Pro Display",
+      "SF Pro Text"
+    ];
+
+    function sortedUniqueStrings(items) {
+      return Array.from(new Set(items.filter(Boolean))).sort((a, b) => a.localeCompare(b));
+    }
+
+    function detectInstalledCommonFonts() {
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        return [];
+      }
+
+      const sample = "mmmmmmmmmwwwww@@@#Il1";
+      const size = "72px";
+      const bases = ["monospace", "sans-serif", "serif"];
+      const baseWidths = {};
+
+      bases.forEach((base) => {
+        ctx.font = `${size} ${base}`;
+        baseWidths[base] = ctx.measureText(sample).width;
+      });
+
+      const installed = [];
+      COMMON_FONT_CANDIDATES.forEach((font) => {
+        const found = bases.some((base) => {
+          ctx.font = `${size} "${font}",${base}`;
+          const width = ctx.measureText(sample).width;
+          return Math.abs(width - baseWidths[base]) > 0.1;
+        });
+        if (found) {
+          installed.push(font);
+        }
+      });
+
+      return sortedUniqueStrings(installed);
+    }
+
+    function setFontScanStatus(message) {
+      fields.fontScanStatus.textContent = message;
+    }
+
+    function refreshFontOptions(candidates) {
+      const options = sortedUniqueStrings([...candidates, fields.fontFamily.value]);
+      fields.fontSuggestions.innerHTML = "";
+      options.forEach((name) => {
+        const datalistOption = document.createElement("option");
+        datalistOption.value = name;
+        fields.fontSuggestions.appendChild(datalistOption);
+      });
+
+      fields.fontPicker.innerHTML = "";
+      const custom = document.createElement("option");
+      custom.value = "";
+      custom.textContent = "Custom / manual";
+      fields.fontPicker.appendChild(custom);
+      options.forEach((name) => {
+        const option = document.createElement("option");
+        option.value = name;
+        option.textContent = name;
+        fields.fontPicker.appendChild(option);
+      });
+
+      const exact = options.find((name) => name.toLowerCase() === fields.fontFamily.value.trim().toLowerCase());
+      fields.fontPicker.value = exact || "";
+    }
+
+    async function scanFonts() {
+      setFontScanStatus("Scanning local fonts...");
+      const detected = detectInstalledCommonFonts();
+      let families = [...detected];
+      let localApiUsed = false;
+
+      if ("queryLocalFonts" in window && window.isSecureContext) {
+        try {
+          const localFonts = await window.queryLocalFonts();
+          const extra = localFonts.map((font) => font.family);
+          families = sortedUniqueStrings([...families, ...extra]);
+          localApiUsed = true;
+        } catch {
+          localApiUsed = false;
+        }
+      }
+
+      refreshFontOptions(families);
+      if (families.length === 0) {
+        setFontScanStatus("No local fonts detected. Enter a family manually.");
+      } else if (localApiUsed) {
+        setFontScanStatus(`Detected ${families.length} font families via Local Font Access + fallback scan.`);
+      } else {
+        setFontScanStatus(`Detected ${families.length} common local fonts.`);
+      }
+    }
+
+    const graphemeSegmenter = "Segmenter" in Intl ? new Intl.Segmenter(undefined, { granularity: "grapheme" }) : null;
+
+    function splitGraphemes(text) {
+      if (graphemeSegmenter) {
+        return Array.from(graphemeSegmenter.segment(text), (segment) => segment.segment);
+      }
+      return Array.from(text);
+    }
+
+    function buildCanvasFont(fontStyle, fontWeight, textPx, fontFamily) {
+      return `${fontStyle} ${fontWeight} ${textPx}px ${fontFamily}`;
+    }
+
+    function measureTrackedInkLayout(ctx, glyphs, letterSpacing) {
+      if (glyphs.length === 0) {
+        return { minX: 0, maxX: 0, width: 0 };
+      }
+
+      let cursor = 0;
+      let minX = Number.POSITIVE_INFINITY;
+      let maxX = Number.NEGATIVE_INFINITY;
+      glyphs.forEach((glyph, index) => {
+        const metrics = ctx.measureText(glyph);
+        const left = cursor - (Number.isFinite(metrics.actualBoundingBoxLeft) ? metrics.actualBoundingBoxLeft : 0);
+        const right = cursor + Math.max(metrics.width, Number.isFinite(metrics.actualBoundingBoxRight) ? metrics.actualBoundingBoxRight : 0);
+        minX = Math.min(minX, left);
+        maxX = Math.max(maxX, right);
+        cursor += metrics.width;
+        if (index < glyphs.length - 1) {
+          cursor += letterSpacing;
+        }
+      });
+
+      if (!Number.isFinite(minX) || !Number.isFinite(maxX)) {
+        return { minX: 0, maxX: 0, width: 0 };
+      }
+      return { minX, maxX, width: Math.max(0, maxX - minX) };
+    }
+
+    function measureTextLayout(ctx, config, textPx) {
+      const glyphs = splitGraphemes(config.text);
+      ctx.font = buildCanvasFont(config.fontStyle, config.fontWeight, textPx, config.fontFamily);
+      const metrics = ctx.measureText(config.text);
+      const ascent = metrics.actualBoundingBoxAscent || textPx * 0.75;
+      const descent = metrics.actualBoundingBoxDescent || textPx * 0.25;
+      const ink = measureTrackedInkLayout(ctx, glyphs, config.letterSpacing);
+      return {
+        glyphs,
+        minX: ink.minX,
+        maxX: ink.maxX,
+        width: Math.max(1, ink.width),
+        ascent,
+        descent,
+        height: Math.max(1, ascent + descent)
+      };
+    }
+
+    function computeMaxFittingTextPx(ctx, config, maxWidth, maxHeight) {
+      if (!config.text || maxWidth <= 0 || maxHeight <= 0) {
+        return 1;
+      }
+
+      let textPx = Math.max(1, Math.min(maxWidth, maxHeight));
+      for (let i = 0; i < 5; i += 1) {
+        const layout = measureTextLayout(ctx, config, textPx);
+        const fitScale = Math.min(maxWidth / layout.width, maxHeight / layout.height);
+        if (!Number.isFinite(fitScale) || fitScale <= 0) {
+          break;
+        }
+        const next = textPx * fitScale;
+        if (Math.abs(next - textPx) < 0.2) {
+          textPx = next;
+          break;
+        }
+        textPx = next;
+      }
+      return clamp(textPx, 1, 4096);
+    }
+
+    function drawTrackedText(ctx, text, x, y, letterSpacing, glyphs = null) {
+      const glyphsToDraw = glyphs || splitGraphemes(text);
+      if (glyphsToDraw.length === 0) {
+        return;
+      }
+
+      let cursor = x;
+      glyphsToDraw.forEach((glyph) => {
+        ctx.fillText(glyph, cursor, y);
+        cursor += ctx.measureText(glyph).width + letterSpacing;
+      });
+    }
+
+    function resolveColorProfile(config) {
+      let effectiveBgColor = config.bgColor;
+      let effectiveLowColor = config.lowColor;
+      let effectiveHighColor = config.highColor;
+      let drawLowlightDots = true;
+
+      if (config.colorMode === "mono-black") {
+        effectiveBgColor = "";
+        effectiveLowColor = "";
+        effectiveHighColor = "#000000";
+        drawLowlightDots = false;
+      } else if (config.colorMode === "mono-current") {
+        effectiveBgColor = "";
+        effectiveLowColor = "";
+        effectiveHighColor = "currentColor";
+        drawLowlightDots = false;
+      } else if (config.colorMode === "mono-white") {
+        effectiveBgColor = "";
+        effectiveLowColor = "";
+        effectiveHighColor = "#ffffff";
+        drawLowlightDots = false;
+      }
+
+      return { effectiveBgColor, effectiveLowColor, effectiveHighColor, drawLowlightDots };
+    }
+
+    function buildGeometryKey(config, includeLowDots = true) {
+      return JSON.stringify([
+        config.width,
+        config.height,
+        config.spacing,
+        config.radius,
+        config.padding,
+        config.text,
+        config.fontFamily,
+        config.fontWeight,
+        config.fontStyle,
+        config.letterSpacing,
+        config.fontScale,
+        config.offsetX,
+        config.offsetY,
+        config.threshold,
+        includeLowDots ? 1 : 0
+      ]);
+    }
+
+    function buildGeometry(config, includeLowDots = true) {
+      const key = buildGeometryKey(config, includeLowDots);
+      if (key === lastGeometryKey && lastGeometry) {
+        return lastGeometry;
+      }
+
+      const { width, height, spacing, radius, padding, text, fontFamily, fontWeight, fontStyle, letterSpacing, fontScale, offsetX, offsetY, threshold } = config;
+      const left = padding + radius;
+      const top = padding + radius;
+      const right = width - padding - radius;
+      const bottom = height - padding - radius;
+
+      if (right < left || bottom < top) {
+        const emptyGeometry = {
+          totalDots: 0,
+          activeDots: 0,
+          columns: 0,
+          rows: 0,
+          highUses: [],
+          lowUses: [],
+          highCoords: [],
+          lowCoords: []
+        };
+        lastGeometryKey = key;
+        lastGeometry = emptyGeometry;
+        return emptyGeometry;
+      }
+
+      const columns = Math.floor((right - left) / spacing) + 1;
+      const rows = Math.floor((bottom - top) / spacing) + 1;
+      const totalDots = columns * rows;
+      const coordStep = width <= 32 && height <= 32 ? 0.25 : 0.01;
+      const formatCoord = (value) => (Math.round(value / coordStep) * coordStep).toFixed(2);
+
+      if (!sampleCtx) {
+        const fallbackGeometry = {
+          totalDots,
+          activeDots: 0,
+          columns,
+          rows,
+          highUses: [],
+          lowUses: [],
+          highCoords: [],
+          lowCoords: []
+        };
+        lastGeometryKey = key;
+        lastGeometry = fallbackGeometry;
+        return fallbackGeometry;
+      }
+
+      const sampleScale = getSampleScale(width, height);
+      sampleCanvas.width = Math.max(1, Math.floor(width * sampleScale));
+      sampleCanvas.height = Math.max(1, Math.floor(height * sampleScale));
+
+      sampleCtx.setTransform(1, 0, 0, 1, 0, 0);
+      sampleCtx.clearRect(0, 0, sampleCanvas.width, sampleCanvas.height);
+      sampleCtx.scale(sampleScale, sampleScale);
+      sampleCtx.fillStyle = "#000";
+      sampleCtx.textBaseline = "alphabetic";
+
+      const maxTextWidth = Math.max(1, right - left);
+      const maxTextHeight = Math.max(1, bottom - top);
+      const textConfig = { text, fontFamily, fontWeight, fontStyle, letterSpacing };
+      const maxFitTextPx = computeMaxFittingTextPx(sampleCtx, textConfig, maxTextWidth, maxTextHeight);
+      const textPx = Math.max(1, (fontScale / 100) * maxFitTextPx);
+      const layout = measureTextLayout(sampleCtx, textConfig, textPx);
+      const x = width / 2 - (layout.minX + layout.maxX) / 2 + offsetX;
+      const y = height / 2 - (layout.descent - layout.ascent) / 2 + offsetY;
+      drawTrackedText(sampleCtx, text, x, y, letterSpacing, layout.glyphs);
+
+      const pixels = sampleCtx.getImageData(0, 0, sampleCanvas.width, sampleCanvas.height).data;
+      const highUses = [];
+      const lowUses = [];
+      const highCoords = [];
+      const lowCoords = [];
+      let activeDots = 0;
+
+      for (let row = 0; row < rows; row += 1) {
+        for (let col = 0; col < columns; col += 1) {
+          const cx = left + col * spacing;
+          const cy = top + row * spacing;
+          const px = clamp(Math.round(cx * sampleScale), 0, sampleCanvas.width - 1);
+          const py = clamp(Math.round(cy * sampleScale), 0, sampleCanvas.height - 1);
+          const alpha = pixels[(py * sampleCanvas.width + px) * 4 + 3];
+          const isActive = alpha >= threshold;
+
+          const xCoord = formatCoord(cx);
+          const yCoord = formatCoord(cy);
+          const coordAttrs = `cx="${xCoord}" cy="${yCoord}"`;
+          const useEl = `<use href="#d" x="${xCoord}" y="${yCoord}"/>`;
+
+          if (isActive) {
+            activeDots += 1;
+            highCoords.push(coordAttrs);
+            highUses.push(useEl);
+          } else if (includeLowDots) {
+            lowCoords.push(coordAttrs);
+            lowUses.push(useEl);
+          }
+        }
+      }
+
+      const geometry = { totalDots, activeDots, columns, rows, highUses, lowUses, highCoords, lowCoords };
+      lastGeometryKey = key;
+      lastGeometry = geometry;
+      return geometry;
+    }
+
+    function buildSvg(config) {
+      const { effectiveBgColor, effectiveLowColor, effectiveHighColor, drawLowlightDots } = resolveColorProfile(config);
+      const geometry = buildGeometry(config, drawLowlightDots);
+      const body = [];
+      const radiusStep = config.width <= 32 && config.height <= 32 ? 0.25 : 0.01;
+      const dotRadius = (Math.round(config.radius / radiusStep) * radiusStep).toFixed(2);
+
+      if (effectiveBgColor) {
+        body.push(`<rect width="100%" height="100%" fill="${effectiveBgColor}"/>`);
+      }
+
+      if (config.svgMode === "compact") {
+        body.unshift(`<defs><circle id="d" r="${dotRadius}"/></defs>`);
+        if (drawLowlightDots && geometry.lowUses.length > 0) {
+          body.push(`<g fill="${effectiveLowColor}">${geometry.lowUses.join("")}</g>`);
+        }
+        if (geometry.highUses.length > 0) {
+          body.push(`<g fill="${effectiveHighColor}">${geometry.highUses.join("")}</g>`);
+        }
+      } else {
+        if (drawLowlightDots && geometry.lowCoords.length > 0) {
+          body.push(geometry.lowCoords.map((coords) => `<circle ${coords} r="${dotRadius}" fill="${effectiveLowColor}"/>`).join(""));
+        }
+        if (geometry.highCoords.length > 0) {
+          body.push(geometry.highCoords.map((coords) => `<circle ${coords} r="${dotRadius}" fill="${effectiveHighColor}"/>`).join(""));
+        }
+      }
+
+      const svg = [
+        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${config.width} ${config.height}" width="${config.width}" height="${config.height}">`,
+        body.join(""),
+        "</svg>"
+      ].join("");
+
+      return {
+        svg,
+        totalDots: geometry.totalDots,
+        activeDots: geometry.activeDots,
+        columns: geometry.columns,
+        rows: geometry.rows
+      };
+    }
+
+    function decoratePreviewSvg(svg) {
+      return svg.replace("<svg ", "<svg class=\"preview-layer preview-art\" ");
+    }
+
+    function build16GuideOverlay(config) {
+      const lines = [];
+      for (let i = 1; i < 16; i += 1) {
+        const x = ((config.width * i) / 16).toFixed(3);
+        const y = ((config.height * i) / 16).toFixed(3);
+        lines.push(`<line class="guide-line" x1="${x}" y1="0" x2="${x}" y2="${config.height}"/>`);
+        lines.push(`<line class="guide-line" x1="0" y1="${y}" x2="${config.width}" y2="${y}"/>`);
+      }
+
+      return `<svg class="preview-layer preview-guide" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${config.width} ${config.height}" width="${config.width}" height="${config.height}" aria-hidden="true"><rect class="guide-frame" x="0.5" y="0.5" width="${Math.max(0, config.width - 1)}" height="${Math.max(0, config.height - 1)}"/>${lines.join("")}</svg>`;
+    }
+
+    function getConfig() {
+      return {
+        text: fields.text.value || "",
+        fontFamily: fields.fontFamily.value || "sans-serif",
+        fontWeight: clamp(readNumber(fields.fontWeight) || 700, 100, 900),
+        fontStyle: ["normal", "italic", "oblique"].includes(fields.fontStyle.value) ? fields.fontStyle.value : "normal",
+        letterSpacing: clamp(readNumber(fields.letterSpacing) || 0, -12, 40),
+        fontScale: clamp(readNumber(fields.fontScale) || 60, 10, 140),
+        offsetX: clamp(readNumber(fields.offsetX) || 0, -999, 999),
+        offsetY: clamp(readNumber(fields.offsetY) || 0, -999, 999),
+        width: clamp(readNumber(fields.canvasWidth) || 640, 120, 2000),
+        height: clamp(readNumber(fields.canvasHeight) || 640, 120, 1200),
+        spacing: clamp(readNumber(fields.spacing) || 16, 6, 60),
+        radius: clamp(readNumber(fields.radius) || 3, 1, 20),
+        padding: clamp(readNumber(fields.padding) || 24, 0, 200),
+        threshold: clamp(readNumber(fields.threshold) || 30, 1, 255),
+        bgColor: fields.bgColor.value,
+        lowColor: fields.lowColor.value,
+        highColor: fields.highColor.value,
+        colorMode: fields.colorMode.value,
+        previewBackdrop: fields.previewBackdrop.value === "solid" ? "solid" : "checker",
+        previewBackdropColor: fields.previewBackdropColor.value || "#0f172a",
+        svgMode: fields.svgMode.value === "full" ? "full" : "compact",
+        targetSizes: parseTargetSizes(fields.targetSizes.value),
+        showGuide16: Boolean(fields.showGuide16 && fields.showGuide16.checked)
+      };
+    }
+
+    const URL_KEY_MAP = {
+      t: "text",
+      ff: "fontFamily",
+      fw: "fontWeight",
+      fst: "fontStyle",
+      ls: "letterSpacing",
+      fsc: "fontScale",
+      ox: "offsetX",
+      oy: "offsetY",
+      cw: "canvasWidth",
+      ch: "canvasHeight",
+      sp: "spacing",
+      dr: "radius",
+      pd: "padding",
+      th: "threshold",
+      bg: "bgColor",
+      low: "lowColor",
+      high: "highColor",
+      cm: "colorMode",
+      pb: "previewBackdrop",
+      pbc: "previewBackdropColor",
+      sm: "svgMode",
+      ts: "targetSizes"
+    };
+
+    function setInputValue(id, rawValue) {
+      if (rawValue === null || rawValue === undefined) {
+        return;
+      }
+
+      const el = byId(id);
+      if (!el) {
+        return;
+      }
+
+      el.value = String(rawValue);
+      const range = byId(`${id}Range`);
+      if (range) {
+        range.value = String(rawValue);
+      }
+    }
+
+    function loadConfigFromUrl() {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has("cs")) {
+        const legacySize = params.get("cs");
+        setInputValue("canvasWidth", legacySize);
+        setInputValue("canvasHeight", legacySize);
+      }
+      Object.entries(URL_KEY_MAP).forEach(([key, fieldId]) => {
+        if (!params.has(key)) {
+          return;
+        }
+        setInputValue(fieldId, params.get(key));
+      });
+    }
+
+    function applyPreset(presetName) {
+      const preset = PRESETS[presetName];
+      if (!preset) {
+        return;
+      }
+
+      Object.entries(preset).forEach(([fieldId, value]) => {
+        setInputValue(fieldId, value);
+      });
+      queueRender();
+    }
+
+    function applyVariantBackdropDefaults(colorMode) {
+      if (colorMode === "mono-white") {
+        fields.previewBackdrop.value = "solid";
+        fields.previewBackdropColor.value = "#111111";
+      } else if (colorMode === "mono-black") {
+        fields.previewBackdrop.value = "solid";
+        fields.previewBackdropColor.value = "#f5f5f5";
+      }
+    }
+
+    function syncUrlWithConfig(config) {
+      const params = new URLSearchParams();
+      params.set("t", config.text);
+      params.set("ff", config.fontFamily);
+      params.set("fw", String(config.fontWeight));
+      params.set("fst", config.fontStyle);
+      params.set("ls", String(config.letterSpacing));
+      params.set("fsc", String(config.fontScale));
+      params.set("ox", String(config.offsetX));
+      params.set("oy", String(config.offsetY));
+      params.set("cw", String(config.width));
+      params.set("ch", String(config.height));
+      params.set("sp", String(config.spacing));
+      params.set("dr", String(config.radius));
+      params.set("pd", String(config.padding));
+      params.set("th", String(config.threshold));
+      params.set("bg", config.bgColor);
+      params.set("low", config.lowColor);
+      params.set("high", config.highColor);
+      params.set("cm", config.colorMode);
+      params.set("pb", config.previewBackdrop);
+      params.set("pbc", config.previewBackdropColor);
+      params.set("sm", config.svgMode);
+      params.set("ts", config.targetSizes.join(","));
+
+      const nextUrl = `${window.location.pathname}?${params.toString()}`;
+      window.history.replaceState({}, "", nextUrl);
+    }
+
+    function classifySpacing(value) {
+      if (value < 0.9) {
+        return "too dense";
+      }
+      if (value <= 1.8) {
+        return "good";
+      }
+      if (value <= 2.6) {
+        return "coarse";
+      }
+      return "very coarse";
+    }
+
+    function buildTargetQuality(config, targetPx) {
+      const effSpacingX = (config.spacing * targetPx) / config.width;
+      const effSpacingY = (config.spacing * targetPx) / config.height;
+      const limiting = Math.min(effSpacingX, effSpacingY);
+      return {
+        targetPx,
+        limiting,
+        label: classifySpacing(limiting)
+      };
+    }
+
+    function updateTargetLayout(config) {
+      const key = `${config.targetSizes.join(",")}|${config.previewBackdrop}|${config.previewBackdropColor}`;
+      if (key === lastTargetLayoutKey) {
+        return;
+      }
+
+      fields.targetGrid.innerHTML = "";
+      targetImages = [];
+      lastTargetLayoutKey = key;
+
+      if (config.targetSizes.length === 0) {
+        return;
+      }
+
+      const fragment = document.createDocumentFragment();
+      config.targetSizes.forEach((size) => {
+        const card = document.createElement("div");
+        card.className = "target-card";
+
+        const stage = document.createElement("div");
+        stage.className = "target-stage";
+        stage.dataset.backdrop = config.previewBackdrop;
+        stage.style.setProperty("--preview-block", config.previewBackdropColor);
+        const frame = clamp(size + 18, 76, 170);
+        stage.style.width = `${frame}px`;
+        stage.style.height = `${frame}px`;
+
+        const img = document.createElement("img");
+        img.width = size;
+        img.height = size;
+        img.style.width = `${size}px`;
+        img.style.height = `${size}px`;
+        img.alt = `${size}px preview`;
+        stage.appendChild(img);
+        targetImages.push(img);
+
+        const label = document.createElement("div");
+        label.className = "target-label";
+        label.textContent = `${size}px`;
+
+        card.appendChild(stage);
+        card.appendChild(label);
+        fragment.appendChild(card);
+      });
+
+      fields.targetGrid.appendChild(fragment);
+    }
+
+    function renderTargetPreviews(svg, config) {
+      updateTargetLayout(config);
+      if (targetImages.length === 0) {
+        if (lastTargetPreviewUrl) {
+          URL.revokeObjectURL(lastTargetPreviewUrl);
+          lastTargetPreviewUrl = "";
+        }
+        return;
+      }
+
+      const nextUrl = URL.createObjectURL(new Blob([svg], { type: "image/svg+xml" }));
+      targetImages.forEach((img) => {
+        img.src = nextUrl;
+      });
+      if (lastTargetPreviewUrl) {
+        URL.revokeObjectURL(lastTargetPreviewUrl);
+      }
+      lastTargetPreviewUrl = nextUrl;
+    }
+
+    function scheduleUrlSync(config) {
+      pendingUrlConfig = config;
+      clearTimeout(urlSyncTimer);
+      urlSyncTimer = window.setTimeout(() => {
+        if (pendingUrlConfig) {
+          syncUrlWithConfig(pendingUrlConfig);
+        }
+      }, 120);
+    }
+
+    function render() {
+      const config = getConfig();
+      const result = buildSvg(config);
+      const byteSize = new Blob([result.svg], { type: "image/svg+xml" }).size;
+      fields.preview.dataset.backdrop = config.previewBackdrop;
+      fields.preview.style.setProperty("--preview-block", config.previewBackdropColor);
+      const previewArt = decoratePreviewSvg(result.svg);
+      const previewGuide = config.showGuide16 ? build16GuideOverlay(config) : "";
+      fields.preview.innerHTML = `${previewArt}${previewGuide}`;
+      fields.svgOutput.value = result.svg;
+      fields.stats.textContent = `${config.width} x ${config.height} canvas | ${result.columns} x ${result.rows} grid | ${result.activeDots} highlighted / ${result.totalDots} dots | ${formatBytes(byteSize)} (${config.svgMode}, ${config.colorMode})`;
+      const quality16 = buildTargetQuality(config, 16);
+      const quality20 = buildTargetQuality(config, 20);
+      const quality24 = buildTargetQuality(config, 24);
+      fields.quality.textContent = `16px: ${quality16.label} (${quality16.limiting.toFixed(2)} px spacing), 20px: ${quality20.label} (${quality20.limiting.toFixed(2)}), 24px: ${quality24.label} (${quality24.limiting.toFixed(2)})`;
+      renderTargetPreviews(result.svg, config);
+      scheduleUrlSync(config);
+    }
+
+    function queueRender() {
+      if (renderQueued) {
+        return;
+      }
+      renderQueued = true;
+      requestAnimationFrame(() => {
+        renderQueued = false;
+        render();
+      });
+    }
+
+    function linkRangePair(rangeId, numberId) {
+      const range = byId(rangeId);
+      const number = byId(numberId);
+
+      const syncFromRange = () => {
+        number.value = range.value;
+        queueRender();
+      };
+
+      const syncFromNumber = () => {
+        const value = clamp(
+          Number.parseFloat(number.value),
+          Number.parseFloat(number.min),
+          Number.parseFloat(number.max)
+        );
+        number.value = String(value);
+        range.value = String(value);
+        queueRender();
+      };
+
+      range.addEventListener("input", syncFromRange);
+      number.addEventListener("input", syncFromNumber);
+    }
+
+    linkedRanges.forEach(([rangeId, numberId]) => linkRangePair(rangeId, numberId));
+
+    fields.fontFamily.addEventListener("input", () => {
+      const current = fields.fontFamily.value.trim().toLowerCase();
+      const match = Array.from(fields.fontPicker.options).find((option) => option.value.trim().toLowerCase() === current);
+      fields.fontPicker.value = match ? match.value : "";
+      queueRender();
+    });
+
+    fields.fontPicker.addEventListener("change", () => {
+      if (!fields.fontPicker.value) {
+        return;
+      }
+      fields.fontFamily.value = fields.fontPicker.value;
+      queueRender();
+    });
+
+    fields.scanFontsBtn.addEventListener("click", () => {
+      void scanFonts();
+    });
+
+    [fields.text, fields.fontStyle, fields.bgColor, fields.lowColor, fields.highColor, fields.previewBackdrop, fields.previewBackdropColor, fields.svgMode, fields.targetSizes, fields.showGuide16].forEach((el) => {
+      el.addEventListener("input", queueRender);
+      el.addEventListener("change", queueRender);
+    });
+
+    fields.colorMode.addEventListener("change", () => {
+      applyVariantBackdropDefaults(fields.colorMode.value);
+      queueRender();
+    });
+
+    document.querySelectorAll("[data-preset]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        applyPreset(btn.getAttribute("data-preset"));
+      });
+    });
+
+    if (document.fonts && "addEventListener" in document.fonts) {
+      document.fonts.addEventListener("loadingdone", () => {
+        invalidateGeometryCache();
+        queueRender();
+      });
+    }
+
+    byId("copyBtn").addEventListener("click", async () => {
+      const svg = fields.svgOutput.value;
+      try {
+        await navigator.clipboard.writeText(svg);
+        byId("copyBtn").textContent = "Copied";
+      } catch {
+        fields.svgOutput.focus();
+        fields.svgOutput.select();
+        document.execCommand("copy");
+        byId("copyBtn").textContent = "Copied";
+      }
+      setTimeout(() => {
+        byId("copyBtn").textContent = "Copy SVG";
+      }, 900);
+    });
+
+    byId("downloadBtn").addEventListener("click", () => {
+      const nameBase = (fields.text.value || "dot-logo").replace(/[^a-z0-9-_]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase();
+      const filename = `${nameBase || "dot-logo"}.svg`;
+      downloadSvg(fields.svgOutput.value, filename);
+    });
+
+    byId("download16Btn").addEventListener("click", () => {
+      const nameBase = (fields.text.value || "dot-logo").replace(/[^a-z0-9-_]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase();
+      const iconSvg = setRootSvgSize(fields.svgOutput.value, 16);
+      const filename = `${nameBase || "dot-logo"}-16.svg`;
+      downloadSvg(iconSvg, filename);
+    });
+
+    loadConfigFromUrl();
+    refreshFontOptions(COMMON_FONT_CANDIDATES);
+    void scanFonts();
+    render();
+  </script>
+</body>
+</html>
