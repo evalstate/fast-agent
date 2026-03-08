@@ -18,6 +18,12 @@ import fast_agent.core
 import fast_agent.core.prompt
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.llm.request_params import (
+    ResponseMode,
+    ToolResultMode,
+    response_mode_to_tool_result_mode,
+    tool_result_mode_allows_response_mode,
+)
 from fast_agent.mcp.tool_progress import MCPToolProgressManager
 from fast_agent.types import RequestParams
 from fast_agent.utils.async_utils import run_sync
@@ -187,6 +193,14 @@ class AgentMCPServer:
         if self._reload_callback is not None:
             self._register_reload_tool()
 
+    @staticmethod
+    def _agent_tool_result_mode(agent: Any | None) -> ToolResultMode:
+        config = getattr(agent, "config", None)
+        request_params = getattr(config, "default_request_params", None) if config is not None else None
+        if request_params is None:
+            return "postprocess"
+        return request_params.tool_result_mode
+
     def register_agent_tools(self, agent_name: str) -> None:
         """Register tools for a specific agent."""
         self._registered_agents.add(agent_name)
@@ -203,21 +217,16 @@ class AgentMCPServer:
         if agent is not None:
             config = getattr(agent, "config", None)
             agent_description = getattr(config, "description", None)
+        response_mode_enabled = tool_result_mode_allows_response_mode(
+            self._agent_tool_result_mode(agent)
+        )
 
         tool_name = self._tool_name_template.format(agent=agent_name)
 
-        @self.mcp_server.tool(
-            name=tool_name,
-            description=tool_description
-            or agent_description
-            or f"Send a message to the {agent_name} agent",
-            structured_output=False,
-            # MCP 1.10.1 turns every tool in to a structured output
-        )
-        async def send_message(
+        async def _send_message(
             message: str,
             ctx: MCPContext,
-            response_mode: Literal["inherit", "postprocess", "passthrough"] = "inherit",
+            response_mode: ResponseMode | None = None,
         ) -> str:
             """Send a message to the agent and return its response."""
             # Extract bearer token from auth context for token passthrough
@@ -241,10 +250,10 @@ class AgentMCPServer:
                 "tool_execution_handler": MCPToolProgressManager(report_progress),
                 "emit_loop_progress": True,
             }
-            if response_mode == "postprocess":
-                request_param_overrides["tool_result_passthrough"] = False
-            elif response_mode == "passthrough":
-                request_param_overrides["tool_result_passthrough"] = True
+            if response_mode is not None:
+                tool_result_mode = response_mode_to_tool_result_mode(response_mode)
+                if tool_result_mode is not None:
+                    request_param_overrides["tool_result_mode"] = tool_result_mode
 
             request_params = RequestParams(**request_param_overrides)
             try:
@@ -252,8 +261,7 @@ class AgentMCPServer:
                 agent = instance.app[agent_name]
                 agent_context = getattr(agent, "context", None)
 
-                # Define the function to execute
-                async def execute_send():
+                async def execute_send() -> str:
                     start = time.perf_counter()
                     logger.info(
                         f"MCP request received for agent '{agent_name}'",
@@ -286,15 +294,43 @@ class AgentMCPServer:
                     return response
 
                 try:
-                    # Execute with bridged context
                     if agent_context and ctx:
                         return await self.with_bridged_context(agent_context, ctx, execute_send)
                     return await execute_send()
                 finally:
                     await self._release_instance(ctx, instance)
             finally:
-                # Always reset the contextvar
                 request_bearer_token.reset(saved_token)
+
+        tool_description_value = (
+            tool_description
+            or agent_description
+            or f"Send a message to the {agent_name} agent"
+        )
+
+        if response_mode_enabled:
+
+            @self.mcp_server.tool(
+                name=tool_name,
+                description=tool_description_value,
+                structured_output=False,
+            )
+            async def send_message(
+                message: str,
+                ctx: MCPContext,
+                response_mode: Literal["inherit", "postprocess", "passthrough"] = "inherit",
+            ) -> str:
+                return await _send_message(message, ctx, response_mode)
+
+        else:
+
+            @self.mcp_server.tool(
+                name=tool_name,
+                description=tool_description_value,
+                structured_output=False,
+            )
+            async def send_message(message: str, ctx: MCPContext) -> str:
+                return await _send_message(message, ctx)
 
         if self._instance_scope != "request":
             # Register a history prompt for this agent

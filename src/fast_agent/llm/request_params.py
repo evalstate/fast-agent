@@ -2,7 +2,7 @@
 Request parameters definitions for LLM interactions.
 """
 
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, TypeAlias
 
 from mcp import SamplingMessage
 from mcp.types import CreateMessageRequestParams
@@ -14,6 +14,27 @@ if TYPE_CHECKING:
     from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
 else:
     ToolExecutionHandler = Any
+
+
+ResponseMode: TypeAlias = Literal["inherit", "postprocess", "passthrough"]
+ToolResultMode: TypeAlias = Literal["postprocess", "passthrough", "selectable"]
+
+
+def response_mode_to_tool_result_mode(response_mode: ResponseMode) -> ToolResultMode | None:
+    """Map a per-call response override to a concrete tool result mode."""
+    if response_mode == "inherit":
+        return None
+    return response_mode
+
+
+def tool_result_mode_allows_response_mode(tool_result_mode: ToolResultMode) -> bool:
+    """Return whether a tool should expose a per-call response mode switch."""
+    return tool_result_mode == "selectable"
+
+
+def tool_result_mode_is_passthrough(tool_result_mode: ToolResultMode) -> bool:
+    """Return whether the effective tool handling should bypass postprocessing."""
+    return tool_result_mode == "passthrough"
 
 
 class RequestParams(CreateMessageRequestParams):
@@ -75,9 +96,14 @@ class RequestParams(CreateMessageRequestParams):
     Emit monotonic progress updates for the internal tool loop when supported.
     """
 
-    tool_result_passthrough: bool = False
+    tool_result_mode: ToolResultMode = "postprocess"
     """
-    Skip post-tool LLM synthesis and return tool results directly as assistant output.
+    Control how tool results are returned.
+
+    - ``postprocess``: run a post-tool LLM synthesis step.
+    - ``passthrough``: return tool results directly as assistant output.
+    - ``selectable``: expose a per-call ``response_mode`` switch; absent an override,
+      execution behaves like ``postprocess``.
     """
 
     streaming_timeout: float | None = DEFAULT_STREAMING_TIMEOUT

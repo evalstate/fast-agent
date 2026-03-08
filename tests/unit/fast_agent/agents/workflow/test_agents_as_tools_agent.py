@@ -324,6 +324,27 @@ async def test_list_tools_uses_child_tool_input_schema():
 
 
 @pytest.mark.asyncio
+async def test_list_tools_adds_response_mode_when_child_tool_result_mode_is_selectable():
+    child = FakeChildAgent("child")
+    child.config.default_request_params = RequestParams(tool_result_mode="selectable")
+
+    agent = AgentsAsToolsAgent(AgentConfig("parent"), [child])
+    await agent.initialize()
+
+    result = await agent.list_tools()
+    child_tool = next(tool for tool in result.tools if tool.name == "agent__child")
+    properties = child_tool.inputSchema.get("properties", {})
+
+    assert child_tool.inputSchema.get("required") == ["message"]
+    assert properties.get("response_mode") == {
+        "type": "string",
+        "description": "Override how the child agent returns tool results for this call.",
+        "enum": ["inherit", "postprocess", "passthrough"],
+        "default": "inherit",
+    }
+
+
+@pytest.mark.asyncio
 async def test_run_tools_respects_max_parallel_and_timeout():
     fast_child = FakeChildAgent("fast", response_text="fast")
     slow_child = FakeChildAgent("slow", response_text="slow", delay=0.05)
@@ -471,7 +492,7 @@ async def test_child_passthrough_setting_is_inherited_from_parent_request_params
     agent = AgentsAsToolsAgent(AgentConfig("parent"), [child])
     await agent.initialize()
 
-    parent_request_params = RequestParams(tool_result_passthrough=True)
+    parent_request_params = RequestParams(tool_result_mode="passthrough")
     await agent._invoke_child_agent(
         child,
         {"message": "hello child"},
@@ -479,7 +500,7 @@ async def test_child_passthrough_setting_is_inherited_from_parent_request_params
     )
 
     assert child.last_request_params is not None
-    assert child.last_request_params.tool_result_passthrough is True
+    assert child.last_request_params.tool_result_mode == "passthrough"
 
 
 @pytest.mark.asyncio
@@ -492,18 +513,15 @@ async def test_child_response_mode_overrides_inherited_passthrough_and_is_stripp
                 "type": "string",
                 "description": "What to investigate",
             },
-            "response_mode": {
-                "type": "string",
-                "enum": ["inherit", "postprocess", "passthrough"],
-            },
         },
         "required": ["query"],
     }
+    child.config.default_request_params = RequestParams(tool_result_mode="selectable")
 
     agent = AgentsAsToolsAgent(AgentConfig("parent"), [child])
     await agent.initialize()
 
-    parent_request_params = RequestParams(tool_result_passthrough=True)
+    parent_request_params = RequestParams(tool_result_mode="passthrough")
     await agent._invoke_child_agent(
         child,
         {
@@ -514,7 +532,7 @@ async def test_child_response_mode_overrides_inherited_passthrough_and_is_stripp
     )
 
     assert child.last_request_params is not None
-    assert child.last_request_params.tool_result_passthrough is False
+    assert child.last_request_params.tool_result_mode == "postprocess"
     assert child.last_input_text is not None
     assert json.loads(child.last_input_text) == {"query": "find updates"}
 
