@@ -31,6 +31,19 @@ from fast_agent.utils.async_utils import run_sync
 logger = get_logger(__name__)
 
 
+def _get_request_bearer_token() -> str | None:
+    """Return the authenticated bearer token for the current MCP request."""
+    try:
+        from mcp.server.auth.middleware.auth_context import get_access_token
+    except Exception:
+        return None
+
+    access_token = get_access_token()
+    if access_token is None:
+        return None
+    return access_token.token
+
+
 def _get_oauth_config() -> tuple[str | None, list[str], str]:
     """
     Read OAuth configuration from environment variables.
@@ -196,7 +209,9 @@ class AgentMCPServer:
     @staticmethod
     def _agent_tool_result_mode(agent: Any | None) -> ToolResultMode:
         config = getattr(agent, "config", None)
-        request_params = getattr(config, "default_request_params", None) if config is not None else None
+        request_params = (
+            getattr(config, "default_request_params", None) if config is not None else None
+        )
         if request_params is None:
             return "postprocess"
         return request_params.tool_result_mode
@@ -232,16 +247,7 @@ class AgentMCPServer:
             # Extract bearer token from auth context for token passthrough
             from fast_agent.mcp.auth.context import request_bearer_token
 
-            bearer_token = None
-            try:
-                from mcp.server.auth.middleware.auth_context import get_access_token
-
-                access_token = get_access_token()
-                if access_token:
-                    bearer_token = access_token.token
-            except Exception:
-                # Auth context not available (e.g., no auth configured)
-                pass
+            bearer_token = _get_request_bearer_token()
 
             # Set the token in our contextvar for LLM provider access
             saved_token = request_bearer_token.set(bearer_token)
@@ -303,9 +309,7 @@ class AgentMCPServer:
                 request_bearer_token.reset(saved_token)
 
         tool_description_value = (
-            tool_description
-            or agent_description
-            or f"Send a message to the {agent_name} agent"
+            tool_description or agent_description or f"Send a message to the {agent_name} agent"
         )
 
         if response_mode_enabled:

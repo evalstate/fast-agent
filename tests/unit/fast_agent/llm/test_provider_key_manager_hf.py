@@ -8,6 +8,7 @@ import os
 
 from fast_agent.config import HuggingFaceSettings, Settings
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
+from fast_agent.mcp.auth.context import request_bearer_token
 
 
 def _set_hf_token(value: str | None) -> str | None:
@@ -65,6 +66,19 @@ def test_config_takes_precedence_over_env():
         api_key = ProviderKeyManager.get_api_key("hf", config)
         assert api_key == "hf_config_priority"
     finally:
+        _restore_hf_token(original)
+
+
+def test_request_context_token_takes_precedence_over_config_and_env():
+    """Test that request-scoped auth tokens override config and environment values."""
+    original = _set_hf_token("hf_env_token")
+    saved_request_token = request_bearer_token.set("hf_request_token")
+    try:
+        config = Settings(hf=HuggingFaceSettings(api_key="hf_config_priority"))
+        api_key = ProviderKeyManager.get_api_key("hf", config)
+        assert api_key == "hf_request_token"
+    finally:
+        request_bearer_token.reset(saved_request_token)
         _restore_hf_token(original)
 
 
