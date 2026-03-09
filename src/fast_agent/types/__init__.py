@@ -10,7 +10,7 @@ Goals:
 # Re-export ResourceLink from MCP for convenience
 from mcp.types import ResourceLink
 
-from fast_agent.llm.request_params import RequestParams
+from fast_agent.llm.request_params import RequestParams, ResponseMode, ToolResultMode
 
 # Content helpers commonly used by users to build messages
 from fast_agent.mcp.helpers.content_helpers import (
@@ -51,7 +51,9 @@ __all__ = [
     "LlmStopReason",
     "PromptMessageExtended",
     "RequestParams",
+    "ResponseMode",
     "ResourceLink",
+    "ToolResultMode",
     # Content helpers
     "text_content",
     "resource_link",

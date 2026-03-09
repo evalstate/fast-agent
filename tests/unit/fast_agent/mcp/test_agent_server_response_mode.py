@@ -3,17 +3,23 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.fastagent import AgentInstance
+from fast_agent.llm.request_params import ToolResultMode
 from fast_agent.mcp.server.agent_server import AgentMCPServer
+from fast_agent.types import RequestParams
 
 if TYPE_CHECKING:
     from fast_agent.interfaces import AgentProtocol
 
 
 class CapturingAgent:
-    def __init__(self) -> None:
+    def __init__(self, *, tool_result_mode: ToolResultMode | None = None) -> None:
         self.received_request_params = []
+        self.config = AgentConfig("worker")
+        if tool_result_mode is not None:
+            self.config.default_request_params = RequestParams(tool_result_mode=tool_result_mode)
 
     async def send(self, message: str, request_params=None) -> str:
         self.received_request_params.append(request_params)
@@ -58,8 +64,18 @@ async def _build_server(agent: CapturingAgent) -> AgentMCPServer:
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_send_tool_schema_includes_response_mode_enum() -> None:
+async def test_send_tool_schema_omits_response_mode_by_default() -> None:
     server = await _build_server(CapturingAgent())
+
+    tool = server.mcp_server._tool_manager._tools["worker"]
+    properties = tool.parameters.get("properties", {})
+    assert properties.get("response_mode") is None
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_send_tool_schema_includes_response_mode_enum_when_selectable() -> None:
+    server = await _build_server(CapturingAgent(tool_result_mode="selectable"))
 
     tool = server.mcp_server._tool_manager._tools["worker"]
     properties = tool.parameters.get("properties", {})
@@ -72,8 +88,8 @@ async def test_send_tool_schema_includes_response_mode_enum() -> None:
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_response_mode_inherit_does_not_override_passthrough_flag() -> None:
-    agent = CapturingAgent()
+async def test_response_mode_inherit_does_not_override_tool_result_mode() -> None:
+    agent = CapturingAgent(tool_result_mode="selectable")
     server = await _build_server(agent)
 
     ctx = _build_test_context()
@@ -83,13 +99,13 @@ async def test_response_mode_inherit_does_not_override_passthrough_flag() -> Non
 
     request_params = agent.received_request_params[-1]
     assert request_params is not None
-    assert "tool_result_passthrough" not in request_params.model_fields_set
+    assert "tool_result_mode" not in request_params.model_fields_set
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_response_mode_explicit_values_override_passthrough_flag() -> None:
-    agent = CapturingAgent()
+async def test_response_mode_explicit_values_override_tool_result_mode() -> None:
+    agent = CapturingAgent(tool_result_mode="selectable")
     server = await _build_server(agent)
 
     ctx = _build_test_context()
@@ -104,7 +120,7 @@ async def test_response_mode_explicit_values_override_passthrough_flag() -> None
     assert postprocess_params is not None
     assert passthrough_params is not None
 
-    assert postprocess_params.tool_result_passthrough is False
-    assert passthrough_params.tool_result_passthrough is True
-    assert "tool_result_passthrough" in postprocess_params.model_fields_set
-    assert "tool_result_passthrough" in passthrough_params.model_fields_set
+    assert postprocess_params.tool_result_mode == "postprocess"
+    assert passthrough_params.tool_result_mode == "passthrough"
+    assert "tool_result_mode" in postprocess_params.model_fields_set
+    assert "tool_result_mode" in passthrough_params.model_fields_set

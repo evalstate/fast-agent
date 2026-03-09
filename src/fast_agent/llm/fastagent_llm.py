@@ -115,7 +115,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     PARAM_MCP_METADATA = "mcp_metadata"
     PARAM_TOOL_HANDLER = "tool_execution_handler"
     PARAM_LOOP_PROGRESS = "emit_loop_progress"
-    PARAM_TOOL_RESULT_PASSTHROUGH = "tool_result_passthrough"
+    PARAM_TOOL_RESULT_MODE = "tool_result_mode"
     PARAM_STREAMING_TIMEOUT = "streaming_timeout"
     PARAM_SERVICE_TIER = "service_tier"
 
@@ -124,7 +124,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         PARAM_METADATA,
         PARAM_TOOL_HANDLER,
         PARAM_LOOP_PROGRESS,
-        PARAM_TOOL_RESULT_PASSTHROUGH,
+        PARAM_TOOL_RESULT_MODE,
         PARAM_STREAMING_TIMEOUT,
         PARAM_SERVICE_TIER,
     }

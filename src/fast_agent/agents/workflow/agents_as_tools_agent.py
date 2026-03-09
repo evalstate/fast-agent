@@ -189,7 +189,7 @@ from __future__ import annotations
 import asyncio
 import json
 from contextlib import contextmanager, nullcontext
-from copy import copy
+from copy import copy, deepcopy
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any
@@ -208,6 +208,11 @@ from fast_agent.constants import (
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
 from fast_agent.interfaces import ToolRunnerHookCapable
+from fast_agent.llm.request_params import (
+    ToolResultMode,
+    response_mode_to_tool_result_mode,
+    tool_result_mode_allows_response_mode,
+)
 from fast_agent.mcp.helpers.content_helpers import get_text, text_content
 from fast_agent.mcp.prompts.prompt_load import load_prompt
 from fast_agent.types import PromptMessageExtended, RequestParams
@@ -220,6 +225,15 @@ if TYPE_CHECKING:
     from fast_agent.agents.llm_agent import LlmAgent
 
 logger = get_logger(__name__)
+
+
+def _response_mode_schema() -> dict[str, Any]:
+    return {
+        "type": "string",
+        "description": "Override how the child agent returns tool results for this call.",
+        "enum": ["inherit", "postprocess", "passthrough"],
+        "default": "inherit",
+    }
 
 
 class HistorySource(str, Enum):
@@ -389,25 +403,58 @@ class AgentsAsToolsAgent(McpAgent):
         }
 
     @staticmethod
+    def _child_tool_result_mode(child: LlmAgent) -> ToolResultMode:
+        config = getattr(child, "config", None)
+        request_params = getattr(config, "default_request_params", None) if config is not None else None
+        if request_params is None:
+            return "postprocess"
+        return request_params.tool_result_mode
+
+    @classmethod
+    def _child_response_mode_enabled(cls, child: LlmAgent) -> bool:
+        return tool_result_mode_allows_response_mode(cls._child_tool_result_mode(child))
+
+    @classmethod
+    def _augment_schema_with_response_mode(cls, schema: dict[str, Any]) -> dict[str, Any]:
+        if schema.get("type") != "object":
+            return schema
+
+        properties = schema.get("properties")
+        if properties is not None and not isinstance(properties, dict):
+            return schema
+
+        updated_schema = deepcopy(schema)
+        updated_properties = updated_schema.setdefault("properties", {})
+        if not isinstance(updated_properties, dict):
+            return schema
+
+        updated_properties.setdefault("response_mode", _response_mode_schema())
+        return updated_schema
+
+    @staticmethod
     def _configured_child_tool_schema(child: LlmAgent) -> dict[str, Any] | None:
         config = getattr(child, "config", None)
         schema = getattr(config, "tool_input_schema", None) if config is not None else None
         return schema if isinstance(schema, dict) else None
 
-    def _resolved_child_tool_schema(self, child: LlmAgent) -> dict[str, Any]:
-        configured_schema = self._configured_child_tool_schema(child)
-        if configured_schema is not None:
-            return configured_schema
-        return self._default_child_tool_schema()
+    @classmethod
+    def _resolved_child_tool_schema(cls, child: LlmAgent) -> dict[str, Any]:
+        configured_schema = cls._configured_child_tool_schema(child)
+        schema = configured_schema if configured_schema is not None else cls._default_child_tool_schema()
+        if cls._child_response_mode_enabled(child):
+            return cls._augment_schema_with_response_mode(schema)
+        return schema
 
-    def _child_uses_structured_args(self, child: LlmAgent) -> bool:
-        configured_schema = self._configured_child_tool_schema(child)
+    @classmethod
+    def _child_uses_structured_args(cls, child: LlmAgent) -> bool:
+        configured_schema = cls._configured_child_tool_schema(child)
         if configured_schema is None:
             return False
         properties = configured_schema.get("properties")
         if not isinstance(properties, dict):
             return True
-        return set(properties.keys()) != {"message"}
+        property_names = {name for name in properties.keys() if name != "response_mode"}
+        return property_names != {"message"}
 
     @staticmethod
     def _render_structured_args(arguments: dict[str, Any]) -> str:
@@ -416,34 +463,36 @@ class AgentsAsToolsAgent(McpAgent):
     @staticmethod
     def _split_response_mode_control(
         arguments: dict[str, Any],
-    ) -> tuple[dict[str, Any], bool | None]:
+    ) -> tuple[dict[str, Any], ToolResultMode | None]:
         sanitized_arguments = dict(arguments)
         raw_mode = sanitized_arguments.pop("response_mode", None)
         if not isinstance(raw_mode, str):
             return sanitized_arguments, None
 
         mode = raw_mode.lower()
+        if mode == "inherit":
+            return sanitized_arguments, None
         if mode == "postprocess":
-            return sanitized_arguments, False
+            return sanitized_arguments, response_mode_to_tool_result_mode("postprocess")
         if mode == "passthrough":
-            return sanitized_arguments, True
+            return sanitized_arguments, response_mode_to_tool_result_mode("passthrough")
         return sanitized_arguments, None
 
     @staticmethod
     def _build_child_request_params(
         request_params: RequestParams | None,
-        passthrough_override: bool | None,
+        tool_result_mode_override: ToolResultMode | None,
     ) -> RequestParams | None:
-        passthrough_value: bool | None = None
+        tool_result_mode: ToolResultMode | None = None
         if request_params is not None:
-            passthrough_value = request_params.tool_result_passthrough
-        if passthrough_override is not None:
-            passthrough_value = passthrough_override
+            tool_result_mode = request_params.tool_result_mode
+        if tool_result_mode_override is not None:
+            tool_result_mode = tool_result_mode_override
 
-        if passthrough_value is None:
+        if tool_result_mode is None:
             return None
 
-        return RequestParams(tool_result_passthrough=passthrough_value)
+        return RequestParams(tool_result_mode=tool_result_mode)
 
     async def list_tools(self) -> ListToolsResult:
         """List MCP tools plus child agents exposed as tools."""
@@ -541,10 +590,10 @@ class AgentsAsToolsAgent(McpAgent):
         """Shared helper to execute a child agent with standard serialization and display rules."""
 
         raw_args = arguments or {}
-        args, passthrough_override = self._split_response_mode_control(raw_args)
+        args, tool_result_mode_override = self._split_response_mode_control(raw_args)
         child_request_params = self._build_child_request_params(
             request_params,
-            passthrough_override,
+            tool_result_mode_override,
         )
 
         if self._child_uses_structured_args(child):

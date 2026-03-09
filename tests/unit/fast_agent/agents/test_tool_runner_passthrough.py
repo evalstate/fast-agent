@@ -77,7 +77,7 @@ async def test_passthrough_skips_second_llm_call_and_synthesizes_terminal_assist
     agent = ToolAgent(AgentConfig("passthrough"), [passthrough_tool])
     agent._llm = llm
 
-    result = await agent.generate("hi", RequestParams(tool_result_passthrough=True))
+    result = await agent.generate("hi", RequestParams(tool_result_mode="passthrough"))
 
     assert llm.call_count == 1
     assert result.role == "assistant"
@@ -94,7 +94,7 @@ async def test_passthrough_use_history_true_appends_tool_result_and_synthesized_
     agent = ToolAgent(AgentConfig("passthrough"), [passthrough_tool])
     agent._llm = llm
 
-    await agent.generate("hi", RequestParams(tool_result_passthrough=True))
+    await agent.generate("hi", RequestParams(tool_result_mode="passthrough"))
 
     history = agent.message_history
     assert len(history) == 4
@@ -125,7 +125,7 @@ async def test_passthrough_use_history_false_does_not_persist_turn_messages() ->
         "hi",
         RequestParams(
             use_history=False,
-            tool_result_passthrough=True,
+            tool_result_mode="passthrough",
         ),
     )
 
@@ -142,7 +142,7 @@ async def test_passthrough_fires_after_llm_and_after_turn_hooks_with_synthetic_m
     agent = HookCapturePassthroughAgent(AgentConfig("hooked-passthrough"), [passthrough_tool])
     agent._llm = llm
 
-    await agent.generate("hi", RequestParams(tool_result_passthrough=True))
+    await agent.generate("hi", RequestParams(tool_result_mode="passthrough"))
 
     assert agent.after_llm_calls == [
         (LlmStopReason.TOOL_USE, False),
@@ -159,6 +159,20 @@ async def test_postprocess_mode_remains_default_behavior() -> None:
     agent._llm = llm
 
     result = await agent.generate("hi")
+
+    assert llm.call_count == 2
+    assert result.stop_reason == LlmStopReason.END_TURN
+    assert result.last_text() == "postprocessed"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_selectable_mode_defaults_to_postprocess_behavior() -> None:
+    llm = ToolThenFinalizeLlm()
+    agent = ToolAgent(AgentConfig("selectable"), [passthrough_tool])
+    agent._llm = llm
+
+    result = await agent.generate("hi", RequestParams(tool_result_mode="selectable"))
 
     assert llm.call_count == 2
     assert result.stop_reason == LlmStopReason.END_TURN

@@ -99,7 +99,7 @@ class ModelFactory:
         "glm": "hf.zai-org/GLM-5:novita",
         "qwen3": "hf.Qwen/Qwen3-Next-80B-A3B-Instruct:together",
         "deepseek31": "hf.deepseek-ai/DeepSeek-V3.1",
-        "kimithink": "hf.moonshotai/Kimi-K2-Thinking:together",
+        "kimithink": "hf.moonshotai/Kimi-K2-Thinking:fireworks-ai",
         "deepseek32": "hf.deepseek-ai/DeepSeek-V3.2:fireworks-ai",
         "kimi25": ("hf.moonshotai/Kimi-K2.5:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on"),
         # "kimi25instant": (

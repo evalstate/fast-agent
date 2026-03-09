@@ -21,6 +21,7 @@ from fast_agent.constants import (
 )
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import MessageHistoryAgentProtocol
+from fast_agent.llm.request_params import tool_result_mode_is_passthrough
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
@@ -474,7 +475,7 @@ class ToolRunner:
     def _passthrough_enabled(self) -> bool:
         if self._request_params is None:
             return False
-        return self._request_params.tool_result_passthrough
+        return tool_result_mode_is_passthrough(self._request_params.tool_result_mode)
 
     def _append_history_messages(self, *messages: PromptMessageExtended) -> None:
         history = list(self._agent.message_history)
