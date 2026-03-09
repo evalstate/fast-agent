@@ -289,6 +289,9 @@ async def run_agents(
         fast_kwargs["skills_directory"] = skills_directory
 
     fast = FastAgent(**cast("Any", fast_kwargs))
+    fast.args.server = True
+    fast.args.transport = "acp"
+    fast.args.quiet = True
 
     await fast.app.initialize()
     if shell_runtime:

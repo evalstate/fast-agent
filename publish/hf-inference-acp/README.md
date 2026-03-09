@@ -44,9 +44,13 @@ This package provides an ACP-compatible agent for Hugging Face Inference API. It
 - `glm`
 - `minimax`
 - `deepseek32`
-- `kimi25`
+- `kimi25` (thinking profile)
 - `qwen35` (thinking profile)
 - `qwen35instruct` (instruct profile)
+
+Kimi 2.5 aliases resolve to `hf.moonshotai/Kimi-K2.5:fireworks-ai` with curated defaults:
+
+- `kimi25`: `temperature=1.0, top_p=0.95`
 
 Qwen 3.5 aliases resolve to `hf.Qwen/Qwen3.5-397B-A17B:novita` with curated sampling defaults:
 

@@ -86,6 +86,7 @@ from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
 )
 from fast_agent.context import Context
+from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.core.instruction_refresh import McpInstructionCapable, build_instruction
 from fast_agent.core.instruction_utils import (
@@ -119,6 +120,15 @@ from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 from fast_agent.workflow_telemetry import ACPPlanTelemetryProvider, ToolHandlerWorkflowTelemetry
 
 logger = get_logger(__name__)
+
+ACP_AUTH_METHOD_ID = "fast-agent-ai-secrets"
+ACP_AUTH_DOCS_URL = "https://fast-agent.ai/ref/config_file/"
+ACP_AUTH_CONFIG_FILE = "fastagent.secrets.yaml"
+ACP_AUTH_RECOMMENDED_COMMANDS: tuple[str, ...] = (
+    "fast-agent check",
+    "fast-agent model doctor",
+    "fast-agent model setup",
+)
 
 
 def _clear_current_task_cancellation_requests(*, session_id: str) -> int:
@@ -392,6 +402,51 @@ class AgentACPServer(ACPAgent):
 
         return calculate_terminal_output_limit_for_model(model_name)
 
+    def _build_auth_meta(self) -> dict[str, Any]:
+        """Return static setup guidance shared by initialize/authenticate/auth errors."""
+        return {
+            "configFile": ACP_AUTH_CONFIG_FILE,
+            "docsUrl": ACP_AUTH_DOCS_URL,
+            "recommendedCommands": list(ACP_AUTH_RECOMMENDED_COMMANDS),
+            "description": (
+                f"Configure provider keys in {ACP_AUTH_CONFIG_FILE} or environment variables. "
+                "For interactive setup, run `fast-agent model setup` in a terminal."
+            ),
+        }
+
+    def _build_auth_required_data(
+        self,
+        error: ProviderKeyError,
+        *,
+        agent: AgentProtocol | object | None = None,
+    ) -> dict[str, Any]:
+        """Translate provider auth failures into ACP AUTH_REQUIRED payload data."""
+        data: dict[str, Any] = {
+            "methodId": ACP_AUTH_METHOD_ID,
+            "message": error.message,
+            "details": error.details,
+            **self._build_auth_meta(),
+        }
+
+        llm = getattr(agent, "_llm", None)
+        provider = getattr(llm, "provider", None)
+        provider_name = getattr(provider, "value", None)
+        provider_display_name = getattr(provider, "display_name", None)
+        if isinstance(provider_name, str) and provider_name:
+            from fast_agent.llm.provider_key_manager import ProviderKeyManager
+
+            env_var = ProviderKeyManager.get_env_key_name(provider_name)
+            data["envVars"] = [env_var]
+            if isinstance(provider_display_name, str) and provider_display_name:
+                data["provider"] = provider_display_name
+                if not data["details"]:
+                    data["details"] = (
+                        f"Add the {provider_display_name} credentials to "
+                        f"{ACP_AUTH_CONFIG_FILE} or set {env_var}."
+                    )
+
+        return data
+
     async def initialize(
         self,
         protocol_version: int,
@@ -502,7 +557,7 @@ class AgentACPServer(ACPAgent):
             # to avoid requiring client/SDK support for typed auth metadata yet.
             auth_methods = [
                 AuthMethod(
-                    id="fast-agent-ai-secrets",
+                    id=ACP_AUTH_METHOD_ID,
                     name="Configure fast-agent",
                     description=(
                         "Set provider keys in fastagent.secrets.yaml or env vars. "
@@ -536,15 +591,15 @@ class AgentACPServer(ACPAgent):
         #
         # The actual credentials (LLM provider keys, MCP server auth, etc.) are configured via
         # fast-agent config/secrets and existing CLI commands; see the advertised method text.
-        if method_id != "fast-agent-ai-secrets":
+        if method_id != ACP_AUTH_METHOD_ID:
             raise RequestError.invalid_params(
                 {
                     "methodId": method_id,
-                    "supported": ["fast-agent-ai-secrets"],
+                    "supported": [ACP_AUTH_METHOD_ID],
                 }
             )
 
-        return AuthenticateResponse()
+        return AuthenticateResponse(field_meta=self._build_auth_meta())
 
     def _extract_fs_capabilities(self, fs_caps: Any) -> dict[str, bool]:
         """Normalize filesystem capabilities for status reporting."""
@@ -2169,9 +2224,11 @@ class AgentACPServer(ACPAgent):
             # Track the stop reason to return in PromptResponse
             acp_stop_reason: StopReason = END_TURN
             status_line_meta: dict[str, Any] | None = None
+            active_agent: AgentProtocol | object | None = None
             try:
                 if current_agent_name:
                     agent = instance.agents[current_agent_name]
+                    active_agent = agent
 
                     # Set up streaming if connection is available and agent supports it
                     stream_listener = None
@@ -2385,6 +2442,17 @@ class AgentACPServer(ACPAgent):
 
                 else:
                     logger.error("No primary agent available")
+            except ProviderKeyError as e:
+                logger.info(
+                    "ACP prompt requires provider authentication",
+                    name="acp_prompt_auth_required",
+                    session_id=session_id,
+                    agent=current_agent_name,
+                    error=e.message,
+                )
+                raise RequestError.auth_required(
+                    self._build_auth_required_data(e, agent=active_agent)
+                ) from e
             except Exception as e:
                 logger.error(
                     f"Error processing prompt: {e}",

@@ -137,6 +137,14 @@ class ModelFactory:
     # Mapping of providers to their LLM classes
     PROVIDER_CLASSES: dict[Provider, LLMClass] = {}
 
+    # Backward-compatibility alias for older external packages (e.g. published ACP
+    # wrappers) that still mutate ModelFactory.DEFAULT_PROVIDERS directly.
+    #
+    # This intentionally points at the runtime provider registry so legacy writes like:
+    #   ModelFactory.DEFAULT_PROVIDERS["wizard-setup"] = Provider.FAST_AGENT
+    # still affect provider resolution for unprefixed model names.
+    DEFAULT_PROVIDERS: dict[str, Provider] = ModelDatabase._RUNTIME_MODEL_DEFAULT_PROVIDERS
+
     # Mapping of special model names to their specific LLM classes
     # This overrides the provider-based class selection
     MODEL_SPECIFIC_CLASSES: dict[str, LLMClass] = {

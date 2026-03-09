@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 import uuid
+from importlib.metadata import version as package_version
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -36,6 +37,57 @@ from hf_inference_acp.hf_config import (
 from hf_inference_acp.wizard.model_catalog import format_model_list_help
 
 logger = get_logger(__name__)
+
+
+def _package_version(distribution_name: str) -> str | None:
+    try:
+        return package_version(distribution_name)
+    except Exception:
+        return None
+
+
+def _render_setup_check_markdown(
+    *,
+    hf_inference_acp_version: str | None,
+    fast_agent_version: str | None,
+    huggingface_hub_version: str | None,
+    hf_token_source: str | None,
+    config_exists: bool,
+    default_model: str,
+) -> str:
+    """Render `/check` output as markdown, consistent with other ACP commands."""
+    lines = ["# check", ""]
+
+    lines.append("## Runtime")
+    lines.append(
+        f"- **hf-inference-acp**: `{hf_inference_acp_version or 'unknown'}`"
+    )
+    lines.append(f"- **fast-agent-mcp**: `{fast_agent_version or 'unknown'}`")
+    if huggingface_hub_version:
+        lines.append(f"- **huggingface_hub**: `{huggingface_hub_version}`")
+    else:
+        lines.append("- **huggingface_hub**: not installed")
+        lines.append("  - Install with `uv tool install -U huggingface_hub`")
+
+    lines.append("")
+    lines.append("## Authentication")
+    if hf_token_source:
+        lines.append(f"- **HF_TOKEN**: set (`{hf_token_source}`)")
+    else:
+        lines.append("- **HF_TOKEN**: not set")
+        lines.append("  - Use `/login` or set `HF_TOKEN` in your environment")
+
+    lines.append("")
+    lines.append("## Configuration")
+    lines.append(f"- **Config file**: `{CONFIG_FILE}`")
+    if config_exists:
+        lines.append("  - **Status**: exists")
+        lines.append(f"  - **Default model**: `{default_model}`")
+    else:
+        lines.append("  - **Status**: will be created on first use")
+        lines.append(f"  - **Default model**: `{default_model}`")
+
+    return "\n".join(lines)
 
 
 def _normalize_hf_model(model: str) -> str:
@@ -321,44 +373,30 @@ class SetupAgent(ACPAwareMixin, McpAgent):
 
     async def _handle_check(self, arguments: str) -> str:
         """Handler for /check command."""
-        lines = ["# Hugging Face Configuration Check\n"]
+        del arguments
 
-        # Check huggingface_hub installation
+        huggingface_hub_version: str | None = None
         try:
             import huggingface_hub
 
-            lines.append(
-                f"- **huggingface_hub**: installed (version {huggingface_hub.__version__})"
-            )
+            huggingface_hub_version = str(huggingface_hub.__version__)
         except ImportError:
-            lines.append("- **huggingface_hub**: NOT INSTALLED")
-            lines.append("  Run: `uv tool install -U huggingface_hub`")
+            huggingface_hub_version = None
 
-        # Check HF_TOKEN
+        token_source: str | None = None
         if has_hf_token():
             # Prefer the original discovery source recorded at startup (if present),
             # otherwise re-run discovery (may report "env" if auto-populated).
-            source = os.environ.get("FAST_AGENT_HF_TOKEN_SOURCE") or get_hf_token_source()
-            suffix = f" (source: {source})" if source else ""
-            lines.append(f"- **HF_TOKEN**: set{suffix}")
-        else:
-            lines.append("- **HF_TOKEN**: NOT SET")
-            lines.append("  Use `/login` or set `HF_TOKEN` environment variable")
+            token_source = os.environ.get("FAST_AGENT_HF_TOKEN_SOURCE") or get_hf_token_source()
 
-        # Check config file and show model with provider info
-        lines.append(f"- **Config file**: `{CONFIG_FILE}`")
-        if CONFIG_FILE.exists():
-            lines.append("  - Status: exists")
-            lines.append(f"  - Default model: `{get_default_model()}`")
-
-            # provider_info = await self._get_model_provider_info(default_model)
-            # if provider_info:
-            #     lines.append(f"  - {provider_info}")
-
-        else:
-            lines.append("  - Status: will be created on first use")
-
-        return "\n".join(lines)
+        return _render_setup_check_markdown(
+            hf_inference_acp_version=_package_version("hf-inference-acp"),
+            fast_agent_version=_package_version("fast-agent-mcp"),
+            huggingface_hub_version=huggingface_hub_version,
+            hf_token_source=token_source,
+            config_exists=CONFIG_FILE.exists(),
+            default_model=get_default_model(),
+        )
 
     async def _handle_reset(self, arguments: str) -> str:
         """Handler for /reset command."""

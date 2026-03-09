@@ -427,6 +427,12 @@ class FastAgent(DecoratorMixin):
             # Restore the original global settings
             _config_module._settings = old_settings
 
+    def _is_acp_server_mode(self) -> bool:
+        """Return True when this instance is serving the ACP transport."""
+        return bool(getattr(self.args, "server", False)) and getattr(
+            self.args, "transport", None
+        ) == "acp"
+
     @property
     def context(self) -> Context:
         """Access the application context"""
@@ -1299,12 +1305,10 @@ class FastAgent(DecoratorMixin):
 
                     managed_instances: list[AgentInstance] = []
                     instance_lock = asyncio.Lock()
+                    is_acp_server_mode = self._is_acp_server_mode()
 
                     # Determine whether to apply global environment template variables.
-                    apply_global_prompt_context = not (
-                        getattr(self.args, "server", False)
-                        and getattr(self.args, "transport", None) == "acp"
-                    )
+                    apply_global_prompt_context = not is_acp_server_mode
                     global_prompt_context: dict[str, str] | None = None
                     if apply_global_prompt_context:
                         context_variables: dict[str, str] = {}
@@ -1330,7 +1334,8 @@ class FastAgent(DecoratorMixin):
                                 self.agents,
                                 model_factory_func,
                             )
-                            validate_provider_keys_post_creation(agents_map)
+                            if not is_acp_server_mode:
+                                validate_provider_keys_post_creation(agents_map)
                             # Collect tool_only agent names
                             tool_only_agents = {
                                 name
@@ -1513,7 +1518,8 @@ class FastAgent(DecoratorMixin):
                                         self._record_history_snapshot(
                                             name, len(new_agent.message_history), files_mtime
                                         )
-                                    validate_provider_keys_post_creation(updated_agents)
+                                    if not is_acp_server_mode:
+                                        validate_provider_keys_post_creation(updated_agents)
 
                                     if global_prompt_context:
                                         await apply_instruction_context(

@@ -79,6 +79,18 @@ def test_model_query_reasoning_effort():
     assert config.reasoning_effort == ReasoningEffortSetting(kind="effort", value="low")
 
 
+def test_default_providers_backcompat_alias_updates_runtime_provider_registry():
+    model_name = "wizard-setup-backcompat"
+    try:
+        ModelFactory.DEFAULT_PROVIDERS[model_name] = Provider.FAST_AGENT
+        assert ModelDatabase.get_default_provider(model_name) == Provider.FAST_AGENT
+        parsed = ModelFactory.parse_model_string(model_name)
+        assert parsed.provider == Provider.FAST_AGENT
+        assert parsed.model_name == model_name
+    finally:
+        ModelFactory.DEFAULT_PROVIDERS.pop(model_name, None)
+
+
 def test_model_query_reasoning_budget():
     config = ModelFactory.parse_model_string("openai.o1?reasoning=2048")
     assert config.provider == Provider.OPENAI

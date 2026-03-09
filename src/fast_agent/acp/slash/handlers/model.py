@@ -36,10 +36,6 @@ async def handle_model(handler: "SlashCommandHandler", arguments: str | None = N
     return await _handle_model_like(handler, arguments, heading_prefix="model")
 
 
-async def handle_models(handler: "SlashCommandHandler", arguments: str | None = None) -> str:
-    return await _handle_model_like(handler, arguments, heading_prefix="models")
-
-
 async def _handle_model_like(
     handler: "SlashCommandHandler",
     arguments: str | None,
@@ -78,10 +74,8 @@ async def _handle_model_like(
             elif subcmd in {"doctor", "aliases", "catalog", "help"}:
                 command_kind = subcmd
                 value = argument or None
-            elif heading_prefix == "model":
-                return handler._model_usage_text()
             else:
-                return handler._model_usage_text().replace("/model", "/models")
+                return handler._model_usage_text()
 
     io = ACPCommandIO()
     ctx = CommandContext(
@@ -91,12 +85,7 @@ async def _handle_model_like(
         noenv=handler._noenv,
     )
     if command_kind == "doctor":
-        outcome = await models_manager_handlers.handle_models_command(
-            ctx,
-            agent_name=handler.current_agent_name,
-            action="doctor",
-            argument=value,
-        )
+        return models_manager_handlers.render_models_doctor_markdown(ctx)
     elif command_kind == "aliases":
         outcome = await models_manager_handlers.handle_models_command(
             ctx,
@@ -177,12 +166,9 @@ async def _handle_model_like(
                 f"Cleared agent history: {', '.join(sorted(cleared))}",
                 channel="info",
             )
-    if heading_prefix == "models":
-        heading = heading_prefix if command_kind == "doctor" and value is None else f"{heading_prefix} {command_kind}"
-    else:
-        heading = (
-            heading_prefix
-            if command_kind == "reasoning" and value is None
-            else f"{heading_prefix}.{command_kind}"
-        )
+    heading = (
+        heading_prefix
+        if command_kind == "reasoning" and value is None
+        else f"{heading_prefix}.{command_kind}"
+    )
     return render_command_outcome_markdown(outcome, heading=heading)

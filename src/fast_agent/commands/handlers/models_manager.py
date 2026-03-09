@@ -65,6 +65,20 @@ class _AgentModelDoctorRow:
     resolution_note: str | None = None
 
 
+@dataclass(frozen=True)
+class _ModelsDoctorReport:
+    readiness_ready: bool
+    env_dir_env: str | None
+    effective_env_dir: object
+    fast_agent_model_env: str | None
+    loaded_config_file: object
+    unresolved: list[tuple[str, str, str]]
+    configured_providers: set[Provider]
+    agent_rows: list[_AgentModelDoctorRow]
+    default_provider: Provider | None
+    default_provider_ready: bool
+
+
 def _append_line(content: Text, line: str | Text = "") -> None:
     if isinstance(line, Text):
         content.append_text(line)
@@ -475,6 +489,168 @@ def _provider_is_ready(provider: Provider, configured: set[Provider]) -> bool:
     return provider in configured
 
 
+def _build_models_doctor_report(ctx: "CommandContext") -> _ModelsDoctorReport:
+    settings = ctx.resolve_settings()
+    env_dir_env = os.getenv("ENVIRONMENT_DIR")
+    fast_agent_model_env = os.getenv("FAST_AGENT_MODEL")
+    effective_env_dir = getattr(settings, "environment_dir", None)
+    loaded_config_file = getattr(settings, "_config_file", None)
+
+    service = _resolve_alias_service(ctx)
+    aliases = service.list_aliases_tolerant()
+    config_payload = _resolve_config_payload(settings)
+    configured_providers = set(ModelSelectionCatalog.configured_providers(config_payload))
+    default_model = getattr(settings, "default_model", None)
+    unresolved = _collect_unresolved_aliases(aliases, default_model=default_model)
+    agent_rows = _build_agent_model_rows(
+        ctx,
+        aliases=aliases,
+        default_model=_safe_stripped(default_model),
+    )
+
+    default_provider = _default_model_provider(default_model=default_model, aliases=aliases)
+    default_provider_ready = True
+    if default_provider is not None:
+        default_provider_ready = _provider_is_ready(default_provider, configured_providers)
+
+    readiness_ready = not unresolved and default_provider_ready and bool(configured_providers)
+    return _ModelsDoctorReport(
+        readiness_ready=readiness_ready,
+        env_dir_env=env_dir_env,
+        effective_env_dir=effective_env_dir,
+        fast_agent_model_env=fast_agent_model_env,
+        loaded_config_file=loaded_config_file,
+        unresolved=unresolved,
+        configured_providers=configured_providers,
+        agent_rows=agent_rows,
+        default_provider=default_provider,
+        default_provider_ready=default_provider_ready,
+    )
+
+
+def _status_label_for_row(row: _AgentModelDoctorRow) -> str:
+    return {
+        "✓": "✓ Resolved",
+        "◐": "◐ Fallback",
+        "✗": "✗ Unresolved",
+    }.get(row.status_symbol, row.status_symbol)
+
+
+def _markdown_code_or_dash(value: str) -> str:
+    normalized = value.strip()
+    if not normalized or normalized in {"<default>"}:
+        return "—"
+    return f"`{normalized}`"
+
+
+def render_models_doctor_markdown(ctx: "CommandContext") -> str:
+    """Render `/model doctor` as markdown, optimized for ACP clients."""
+    try:
+        report = _build_models_doctor_report(ctx)
+    except Exception as exc:  # noqa: BLE001
+        return f"# model.doctor\n\n**Error:** Failed to load model aliases: {exc}"
+
+    lines: list[str] = ["# model.doctor", ""]
+    lines.append("## Readiness")
+    lines.append(
+        f"- **Status**: {'ready' if report.readiness_ready else 'action required'}"
+    )
+
+    lines.extend(["", "## Runtime config context"])
+    lines.append(f"- **ENVIRONMENT_DIR**: `{report.env_dir_env or '<unset>'}`")
+    lines.append(f"- **Effective environment_dir**: `{report.effective_env_dir or '<unset>'}`")
+    lines.append(f"- **FAST_AGENT_MODEL**: `{report.fast_agent_model_env or '<unset>'}`")
+    lines.append(f"- **Loaded config file**: `{report.loaded_config_file or '<none>'}`")
+
+    lines.extend(["", "## Unresolved aliases"])
+    if report.unresolved:
+        for token, source, details in report.unresolved:
+            lines.append(f"- `{token}` ({source})")
+            if details:
+                lines.append(f"  - {details}")
+    else:
+        lines.append("- none")
+
+    lines.extend(["", "## Provider readiness"])
+    for provider in _catalog_providers():
+        state = "configured" if provider in report.configured_providers else "not configured"
+        lines.append(f"- **{provider.display_name}**: {state}")
+
+    lines.extend(["", "## Agent model resolution", ""])
+    if report.agent_rows:
+        lines.extend(
+            [
+                "| Agent | Specified | Resolved | Status |",
+                "| --- | --- | --- | --- |",
+            ]
+        )
+        repeated_note_counts = Counter(
+            note for note in (row.resolution_note for row in report.agent_rows) if note
+        )
+        repeated_notes: list[str] = []
+        repeated_seen: set[str] = set()
+        for row in report.agent_rows:
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        f"`{row.name}`",
+                        _markdown_code_or_dash(row.specified_model),
+                        _markdown_code_or_dash(row.resolved_model),
+                        _status_label_for_row(row),
+                    ]
+                )
+                + " |"
+            )
+            if row.resolution_note and repeated_note_counts[row.resolution_note] > 1:
+                if row.resolution_note not in repeated_seen:
+                    repeated_seen.add(row.resolution_note)
+                    repeated_notes.append(row.resolution_note)
+        total = len(report.agent_rows)
+        resolved = sum(1 for row in report.agent_rows if row.status_symbol == "✓")
+        attention = sum(1 for row in report.agent_rows if row.status_symbol == "◐")
+        unresolved_count = sum(1 for row in report.agent_rows if row.status_symbol == "✗")
+        lines.extend(
+            [
+                "",
+                "## Agent summary",
+                f"- **Total**: {total}",
+                f"- **Resolved**: {resolved}",
+                f"- **Attention**: {attention}",
+                f"- **Unresolved**: {unresolved_count}",
+            ]
+        )
+        single_notes = [
+            f"`{row.name}`: {row.resolution_note}"
+            for row in report.agent_rows
+            if row.resolution_note and repeated_note_counts[row.resolution_note] <= 1
+        ]
+        all_notes = [*single_notes, *repeated_notes]
+        if all_notes:
+            lines.extend(["", "## Notes"])
+            lines.extend(f"- {note}" for note in all_notes)
+    else:
+        lines.append("_No agents are currently registered._")
+
+    if report.default_provider is not None and not report.default_provider_ready:
+        lines.append("")
+        lines.append(
+            f"- Default model provider `{report.default_provider.display_name}` is not configured for current settings."
+        )
+
+    if not report.configured_providers:
+        lines.append("")
+        lines.append("- No provider credentials detected.")
+
+    if not report.readiness_ready:
+        lines.extend(["", "## Next steps"])
+        if report.unresolved:
+            lines.append("- `/model aliases`")
+        lines.append("- `/model catalog <provider>`")
+
+    return "\n".join(lines)
+
+
 async def handle_models_command(
     ctx: "CommandContext",
     *,
@@ -531,15 +707,8 @@ async def handle_models_command(
 
 async def _handle_models_doctor(ctx: "CommandContext") -> CommandOutcome:
     outcome = CommandOutcome()
-    settings = ctx.resolve_settings()
-    env_dir_env = os.getenv("ENVIRONMENT_DIR")
-    fast_agent_model_env = os.getenv("FAST_AGENT_MODEL")
-    effective_env_dir = getattr(settings, "environment_dir", None)
-    loaded_config_file = getattr(settings, "_config_file", None)
-
     try:
-        service = _resolve_alias_service(ctx)
-        aliases = service.list_aliases_tolerant()
+        report = _build_models_doctor_report(ctx)
     except Exception as exc:  # noqa: BLE001
         outcome.add_message(
             _a3_error_block("model doctor", f"Failed to load model aliases: {exc}"),
@@ -548,27 +717,10 @@ async def _handle_models_doctor(ctx: "CommandContext") -> CommandOutcome:
         )
         return outcome
 
-    config_payload = _resolve_config_payload(settings)
-    configured_providers = set(ModelSelectionCatalog.configured_providers(config_payload))
-    default_model = getattr(settings, "default_model", None)
-    unresolved = _collect_unresolved_aliases(aliases, default_model=default_model)
-    agent_rows = _build_agent_model_rows(
-        ctx,
-        aliases=aliases,
-        default_model=_safe_stripped(default_model),
-    )
-
-    default_provider = _default_model_provider(default_model=default_model, aliases=aliases)
-    default_provider_ready = True
-    if default_provider is not None:
-        default_provider_ready = _provider_is_ready(default_provider, configured_providers)
-
-    readiness_ready = not unresolved and default_provider_ready and bool(configured_providers)
-
     content = Text()
     _append_line(content, _a3_header("model doctor"))
     _append_line(content)
-    if readiness_ready:
+    if report.readiness_ready:
         _append_line(content, _a3_status_line("Readiness", "ready", value_style="bold green"))
     else:
         _append_line(
@@ -580,25 +732,28 @@ async def _handle_models_doctor(ctx: "CommandContext") -> CommandOutcome:
     _append_line(content, _a3_section("Runtime config context:"))
     _append_line(
         content,
-        _a3_bullet(f"ENVIRONMENT_DIR: {env_dir_env or '<unset>'}", style="dim"),
+        _a3_bullet(f"ENVIRONMENT_DIR: {report.env_dir_env or '<unset>'}", style="dim"),
     )
     _append_line(
         content,
-        _a3_bullet(f"Effective environment_dir: {effective_env_dir or '<unset>'}", style="dim"),
+        _a3_bullet(
+            f"Effective environment_dir: {report.effective_env_dir or '<unset>'}",
+            style="dim",
+        ),
     )
     _append_line(
         content,
-        _a3_bullet(f"FAST_AGENT_MODEL: {fast_agent_model_env or '<unset>'}", style="dim"),
+        _a3_bullet(f"FAST_AGENT_MODEL: {report.fast_agent_model_env or '<unset>'}", style="dim"),
     )
     _append_line(
         content,
-        _a3_bullet(f"Loaded config file: {loaded_config_file or '<none>'}", style="dim"),
+        _a3_bullet(f"Loaded config file: {report.loaded_config_file or '<none>'}", style="dim"),
     )
 
     _append_line(content)
     _append_line(content, _a3_section("Unresolved aliases:"))
-    if unresolved:
-        for token, source, details in unresolved:
+    if report.unresolved:
+        for token, source, details in report.unresolved:
             _append_line(content, _a3_bullet(f"{token} ({source})", style="yellow"))
             if details:
                 _append_line(content, Text(f"  {details}", style="dim"))
@@ -608,7 +763,7 @@ async def _handle_models_doctor(ctx: "CommandContext") -> CommandOutcome:
     _append_line(content)
     _append_line(content, _a3_section("Provider readiness:"))
     for provider in _catalog_providers():
-        state = "configured" if provider in configured_providers else "not configured"
+        state = "configured" if provider in report.configured_providers else "not configured"
         state_style = "green" if state == "configured" else "dim"
         _append_line(
             content,
@@ -616,28 +771,28 @@ async def _handle_models_doctor(ctx: "CommandContext") -> CommandOutcome:
         )
 
     _append_line(content)
-    content.append_text(_render_agent_model_table(agent_rows))
+    content.append_text(_render_agent_model_table(report.agent_rows))
     _append_line(content)
-    content.append_text(_render_agent_model_summary(agent_rows))
+    content.append_text(_render_agent_model_summary(report.agent_rows))
 
-    if default_provider is not None and not default_provider_ready:
+    if report.default_provider is not None and not report.default_provider_ready:
         _append_line(content)
         _append_line(
             content,
             _a3_bullet(
-                f"Default model provider '{default_provider.display_name}' is not configured for current settings.",
+                f"Default model provider '{report.default_provider.display_name}' is not configured for current settings.",
                 style="yellow",
             ),
         )
 
-    if not configured_providers:
+    if not report.configured_providers:
         _append_line(content)
         _append_line(content, _a3_bullet("No provider credentials detected.", style="yellow"))
 
-    if not readiness_ready:
+    if not report.readiness_ready:
         _append_line(content)
         _append_line(content, _a3_section("Next steps:"))
-        if unresolved:
+        if report.unresolved:
             _append_line(content, _a3_bullet("/model aliases", style="cyan"))
         _append_line(content, _a3_bullet("/model catalog <provider>", style="cyan"))
 
