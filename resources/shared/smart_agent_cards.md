@@ -33,6 +33,10 @@
 - `use_history` — bool (default `true`).
 - `messages` — path or list of history files (relative to card directory).
 - `request_params` — request/model overrides.
+  - `tool_result_mode` controls what a caller receives after this agent uses tools.
+  - `postprocess` means the agent uses tool outputs to compose a final reply.
+  - `passthrough` means the tool result is returned directly instead of being rewritten into a final reply.
+  - `selectable` means that, when this agent is exposed as a tool, callers can choose per invocation with `response_mode: inherit | postprocess | passthrough`.
 - `human_input` — bool (enable human input tool).
 - `shell` — bool (enable shell); `cwd` optional.
 - `default` — marks this agent as the `smart` tool target when the path resolves multiple cards. First `default: true` non-`tool_only` agent wins; if none, the first non-`tool_only` agent is used.
