@@ -96,6 +96,10 @@ class RichProgressDisplay:
         trace_path_raw = os.getenv("FAST_AGENT_PROGRESS_DEBUG_TRACE", "").strip()
         self._trace_path: Path | None = Path(trace_path_raw).expanduser() if trace_path_raw else None
 
+    def _live_started(self) -> bool:
+        """Return whether Rich's Live renderer has been started."""
+        return bool(getattr(self._progress.live, "is_started", False))
+
     def start(self) -> None:
         """start"""
         with self._lock:
@@ -117,7 +121,8 @@ class RichProgressDisplay:
             # Hide all tasks before stopping (like pause does)
             for task in self._progress.tasks:
                 task.visible = False
-            self._progress.stop()
+            if self._live_started():
+                self._progress.stop()
             self._trace("stop")
 
     def pause(self, *, cancel_deferred_on_noop: bool = False) -> None:
@@ -139,7 +144,8 @@ class RichProgressDisplay:
             self._paused = True
             for task in self._progress.tasks:
                 task.visible = False
-            self._progress.stop()
+            if self._live_started():
+                self._progress.stop()
             self._trace("pause")
 
     def _resume_locked(self) -> None:

@@ -1,5 +1,6 @@
 """Tests for RichProgressDisplay focusing on state machine correctness."""
 
+import io
 import json
 import threading
 import time
@@ -33,6 +34,13 @@ def _make_display() -> RichProgressDisplay:
     """Create a display backed by a non-interactive string console."""
     console = Console(file=open("/dev/null", "w"), force_terminal=True)
     return RichProgressDisplay(console=console)
+
+
+def _make_buffered_display() -> tuple[RichProgressDisplay, io.StringIO]:
+    """Create a display backed by an in-memory console for output assertions."""
+    buffer = io.StringIO()
+    console = Console(file=buffer, force_terminal=False)
+    return RichProgressDisplay(console=console), buffer
 
 
 def _task_fields(display: RichProgressDisplay, task_name: str) -> dict[str, Any]:
@@ -89,6 +97,15 @@ class TestStopPreventsResume:
         display.start()
         assert display._stopped is False
         assert display._paused is False
+
+    def test_stop_before_start_does_not_emit_blank_line(self) -> None:
+        display, buffer = _make_buffered_display()
+
+        display.stop()
+
+        assert display._stopped is True
+        assert display._paused is True
+        assert buffer.getvalue() == ""
 
 
 class TestPauseResumeOrdering:
