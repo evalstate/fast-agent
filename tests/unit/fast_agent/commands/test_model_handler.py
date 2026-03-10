@@ -21,15 +21,15 @@ class _StubIO:
     def __init__(self, *, model_selection_response: str | None = None) -> None:
         self._model_selection_response = model_selection_response
 
-    async def emit(self, message):  # type: ignore[no-untyped-def]
+    async def emit(self, message):
         return None
 
-    async def prompt_text(self, prompt: str, *, default=None, allow_empty=True):  # type: ignore[no-untyped-def]
+    async def prompt_text(self, prompt: str, *, default=None, allow_empty=True):
         return default
 
     async def prompt_selection(
         self, prompt: str, *, options, allow_cancel=False, default=None
-    ):  # type: ignore[no-untyped-def]
+    ):
         return default
 
     async def prompt_model_selection(
@@ -37,23 +37,23 @@ class _StubIO:
         *,
         initial_provider=None,
         default_model=None,
-    ):  # type: ignore[no-untyped-def]
+    ):
         del initial_provider, default_model
         return self._model_selection_response
 
-    async def prompt_argument(self, arg_name: str, *, description=None, required=True):  # type: ignore[no-untyped-def]
+    async def prompt_argument(self, arg_name: str, *, description=None, required=True):
         return None
 
-    async def display_history_turn(self, agent_name: str, turn, *, turn_index=None, total_turns=None):  # type: ignore[no-untyped-def]
+    async def display_history_turn(self, agent_name: str, turn, *, turn_index=None, total_turns=None):
         return None
 
-    async def display_history_overview(self, agent_name: str, history, usage=None):  # type: ignore[no-untyped-def]
+    async def display_history_overview(self, agent_name: str, history, usage=None):
         return None
 
-    async def display_usage_report(self, agents):  # type: ignore[no-untyped-def]
+    async def display_usage_report(self, agents):
         return None
 
-    async def display_system_prompt(self, agent_name: str, system_prompt: str, *, server_count=0):  # type: ignore[no-untyped-def]
+    async def display_system_prompt(self, agent_name: str, system_prompt: str, *, server_count=0):
         return None
 
 

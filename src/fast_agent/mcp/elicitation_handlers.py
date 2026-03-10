@@ -3,7 +3,7 @@ Predefined elicitation handlers for different use cases.
 """
 
 import json
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from mcp.shared.context import RequestContext
 from mcp.types import ElicitRequestParams, ElicitResult, ErrorData
@@ -201,7 +201,10 @@ async def forms_elicitation_handler(
             content = {"response": response_data}
 
         # Return the response wrapped in ElicitResult with accept action
-        return ElicitResult(action="accept", content=content)
+        return ElicitResult(
+            action="accept",
+            content=cast("dict[str, str | int | float | list[str] | None] | None", content),
+        )
     except (KeyboardInterrupt, EOFError, TimeoutError):
         # User cancelled or timeout
         return ElicitResult(action="cancel")

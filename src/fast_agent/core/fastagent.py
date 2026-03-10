@@ -1166,7 +1166,7 @@ class FastAgent(DecoratorMixin):
             return
 
         try:
-            from watchfiles import awatch  # type: ignore[import-not-found]
+            from watchfiles import awatch
 
             async for _changes in awatch(*roots):
                 await self._reload_agent_cards_from_watch()

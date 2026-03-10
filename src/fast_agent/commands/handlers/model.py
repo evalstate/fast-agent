@@ -490,7 +490,7 @@ def _resolve_toggle_to_default(
         allowed = spec.allowed_efforts or [fallback]
         return ReasoningEffortSetting(
             kind="effort",
-            value=cast("ReasoningEffortLevel", allowed[0]),
+            value=allowed[0],
         )
     if spec.kind == "budget":
         budget = spec.min_budget_tokens or 1024

@@ -20,7 +20,7 @@ if not hasattr(enum, "StrEnum"):
     class StrEnum(str, enum.Enum):
         pass
 
-    enum.StrEnum = StrEnum  # type: ignore[attr-defined]
+    enum.StrEnum = StrEnum
 
 # Provide minimal stubs for optional dependencies referenced during import
 if "a2a" not in sys.modules:
@@ -63,14 +63,14 @@ def _create_aggregator() -> MCPAggregator:
         name="test-agent",
     )
     # Bypass the normal display setup for unit tests
-    aggregator.display = None  # type: ignore[attr-defined]
+    aggregator.display = None
     return aggregator
 
 
 def test_skybridge_detection_marks_valid_resources() -> None:
     aggregator = _create_aggregator()
 
-    aggregator.server_supports_feature = AsyncMock(return_value=True)  # type: ignore[attr-defined]
+    aggregator.server_supports_feature = AsyncMock(return_value=True)
     aggregator._server_to_tool_map["test"] = [
         NamespacedTool(
             tool=_tool_with_meta(
@@ -82,10 +82,10 @@ def test_skybridge_detection_marks_valid_resources() -> None:
             namespaced_tool_name="test.tool_a",
         )
     ]
-    aggregator._list_resources_from_server = AsyncMock(  # type: ignore[attr-defined]
+    aggregator._list_resources_from_server = AsyncMock(
         return_value=[SimpleNamespace(uri="ui://component/app")]
     )
-    aggregator._get_resource_from_server = AsyncMock(  # type: ignore[attr-defined]
+    aggregator._get_resource_from_server = AsyncMock(
         return_value=SimpleNamespace(contents=[SimpleNamespace(mimeType=SKYBRIDGE_MIME_TYPE)])
     )
 
@@ -103,17 +103,17 @@ def test_skybridge_detection_marks_valid_resources() -> None:
     assert tool_cfg.is_valid is True
     assert tool_cfg.template_uri is not None
     assert tool_cfg.resource_uri == config.ui_resources[0].uri
-    aggregator._list_resources_from_server.assert_awaited_once_with(  # type: ignore[attr-defined]
+    aggregator._list_resources_from_server.assert_awaited_once_with(
         "test", check_support=False
     )
-    aggregator._get_resource_from_server.assert_awaited_once_with(  # type: ignore[attr-defined]
+    aggregator._get_resource_from_server.assert_awaited_once_with(
         "test", "ui://component/app"
     )
 
 
 def test_skybridge_detection_warns_on_invalid_mime() -> None:
     aggregator = _create_aggregator()
-    aggregator.server_supports_feature = AsyncMock(return_value=True)  # type: ignore[attr-defined]
+    aggregator.server_supports_feature = AsyncMock(return_value=True)
     aggregator._server_to_tool_map["test"] = [
         NamespacedTool(
             tool=_tool_with_meta(
@@ -125,10 +125,10 @@ def test_skybridge_detection_warns_on_invalid_mime() -> None:
             namespaced_tool_name="test.tool_a",
         )
     ]
-    aggregator._list_resources_from_server = AsyncMock(  # type: ignore[attr-defined]
+    aggregator._list_resources_from_server = AsyncMock(
         return_value=[SimpleNamespace(uri="ui://component/app")]
     )
-    aggregator._get_resource_from_server = AsyncMock(  # type: ignore[attr-defined]
+    aggregator._get_resource_from_server = AsyncMock(
         return_value=SimpleNamespace(contents=[SimpleNamespace(mimeType="text/html")])
     )
 
@@ -152,17 +152,17 @@ def test_skybridge_detection_warns_on_invalid_mime() -> None:
         == "Tool 'test.tool_a' references resource 'ui://component/app' served as 'text/html' "
         "instead of 'text/html+skybridge'"
     )
-    aggregator._list_resources_from_server.assert_awaited_once_with(  # type: ignore[attr-defined]
+    aggregator._list_resources_from_server.assert_awaited_once_with(
         "test", check_support=False
     )
-    aggregator._get_resource_from_server.assert_awaited_once_with(  # type: ignore[attr-defined]
+    aggregator._get_resource_from_server.assert_awaited_once_with(
         "test", "ui://component/app"
     )
 
 
 def test_skybridge_detection_handles_missing_resources_capability() -> None:
     aggregator = _create_aggregator()
-    aggregator.server_supports_feature = AsyncMock(return_value=False)  # type: ignore[attr-defined]
+    aggregator.server_supports_feature = AsyncMock(return_value=False)
     aggregator._server_to_tool_map["test"] = [
         NamespacedTool(
             tool=_tool_with_meta(
@@ -174,15 +174,15 @@ def test_skybridge_detection_handles_missing_resources_capability() -> None:
             namespaced_tool_name="test.tool_a",
         )
     ]
-    aggregator._list_resources_from_server = AsyncMock()  # type: ignore[attr-defined]
-    aggregator._get_resource_from_server = AsyncMock()  # type: ignore[attr-defined]
+    aggregator._list_resources_from_server = AsyncMock()
+    aggregator._get_resource_from_server = AsyncMock()
 
     _, config = asyncio.run(aggregator._evaluate_skybridge_for_server("test"))
 
     assert config.supports_resources is False
     assert config.enabled is False
-    aggregator._list_resources_from_server.assert_not_called()  # type: ignore[attr-defined]
-    aggregator._get_resource_from_server.assert_not_called()  # type: ignore[attr-defined]
+    aggregator._list_resources_from_server.assert_not_called()
+    aggregator._get_resource_from_server.assert_not_called()
     assert len(config.tools) == 1
 
 
@@ -202,10 +202,10 @@ def test_list_tools_marks_skybridge_meta() -> None:
         namespaced_tool_name="test.tool_a",
     )
 
-    aggregator._namespaced_tool_map = {"test.tool_a": namespaced}  # type: ignore[attr-defined]
+    aggregator._namespaced_tool_map = {"test.tool_a": namespaced}
     aggregator._server_to_tool_map["test"] = [namespaced]
 
-    aggregator._skybridge_configs["test"] = SkybridgeServerConfig(  # type: ignore[attr-defined]
+    aggregator._skybridge_configs["test"] = SkybridgeServerConfig(
         server_name="test",
         supports_resources=True,
         ui_resources=[
@@ -236,12 +236,12 @@ def test_list_tools_marks_skybridge_meta() -> None:
 def test_skybridge_resource_without_tool_warns() -> None:
     aggregator = _create_aggregator()
 
-    aggregator.server_supports_feature = AsyncMock(return_value=True)  # type: ignore[attr-defined]
-    aggregator._server_to_tool_map["test"] = []  # type: ignore[attr-defined]
-    aggregator._list_resources_from_server = AsyncMock(  # type: ignore[attr-defined]
+    aggregator.server_supports_feature = AsyncMock(return_value=True)
+    aggregator._server_to_tool_map["test"] = []
+    aggregator._list_resources_from_server = AsyncMock(
         return_value=[SimpleNamespace(uri="ui://component/app")]
     )
-    aggregator._get_resource_from_server = AsyncMock(  # type: ignore[attr-defined]
+    aggregator._get_resource_from_server = AsyncMock(
         return_value=SimpleNamespace(contents=[SimpleNamespace(mimeType=SKYBRIDGE_MIME_TYPE)])
     )
 

@@ -42,7 +42,7 @@ class StubAgent:
         self.prompt_calls.append((namespaced_name, arg_values))
         return self._prompt_result
 
-    async def generate(self, messages, _):  # type: ignore[no-untyped-def]
+    async def generate(self, messages, _):
         self.generated_messages = messages
 
 
@@ -57,7 +57,7 @@ class StubAgentProvider:
     def agent_names(self):
         return ["test-agent"]
 
-    async def list_prompts(self, namespace, agent_name=None):  # type: ignore[no-untyped-def]
+    async def list_prompts(self, namespace, agent_name=None):
         return self._prompts
 
 
@@ -67,7 +67,7 @@ class StubCommandIO:
         self.prompted_args: list[tuple[str, str | None, bool]] = []
         self.emitted: list[object] = []
 
-    async def emit(self, message):  # type: ignore[no-untyped-def]
+    async def emit(self, message):
         self.emitted.append(message)
 
     async def prompt_text(
@@ -108,16 +108,16 @@ class StubCommandIO:
         self.prompted_args.append((arg_name, description, required))
         return self._arg_values.get(arg_name)
 
-    async def display_history_turn(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+    async def display_history_turn(self, *args, **kwargs):
         return None
 
-    async def display_history_overview(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+    async def display_history_overview(self, *args, **kwargs):
         return None
 
-    async def display_usage_report(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+    async def display_usage_report(self, *args, **kwargs):
         return None
 
-    async def display_system_prompt(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+    async def display_system_prompt(self, *args, **kwargs):
         return None
 
 

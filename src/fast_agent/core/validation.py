@@ -205,15 +205,15 @@ def get_dependencies(
 
 def get_agent_dependencies(agent_data: AgentCardData | dict[str, Any]) -> set[str]:
     deps: set[str] = set()
-    agent_dependency_attribute_names = {
-        AgentType.CHAIN: ("sequence",),
-        AgentType.EVALUATOR_OPTIMIZER: ("evaluator", "generator", "eval_optimizer_agents"),
-        AgentType.ITERATIVE_PLANNER: ("child_agents",),
-        AgentType.ORCHESTRATOR: ("child_agents",),
-        AgentType.BASIC: ("child_agents",),
-        AgentType.SMART: ("child_agents",),
-        AgentType.PARALLEL: ("fan_out", "fan_in", "parallel_agents"),
-        AgentType.ROUTER: ("router_agents",),
+    agent_dependency_attribute_names: dict[str, tuple[str, ...]] = {
+        AgentType.CHAIN.value: ("sequence",),
+        AgentType.EVALUATOR_OPTIMIZER.value: ("evaluator", "generator", "eval_optimizer_agents"),
+        AgentType.ITERATIVE_PLANNER.value: ("child_agents",),
+        AgentType.ORCHESTRATOR.value: ("child_agents",),
+        AgentType.BASIC.value: ("child_agents",),
+        AgentType.SMART.value: ("child_agents",),
+        AgentType.PARALLEL.value: ("fan_out", "fan_in", "parallel_agents"),
+        AgentType.ROUTER.value: ("router_agents",),
     }
     agent_type = agent_data["type"]
     dependency_names = agent_dependency_attribute_names.get(agent_type, None)

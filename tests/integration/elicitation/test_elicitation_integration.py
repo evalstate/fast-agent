@@ -20,6 +20,8 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+type ElicitationContent = dict[str, str | int | float | list[str] | None]
+
 
 async def custom_test_elicitation_handler(
     context: RequestContext["ClientSession", Any],
@@ -70,7 +72,7 @@ async def custom_test_elicitation_handler(
         return ElicitResult(action="accept", content=content)
     else:
         # No schema, return simple response
-        content = {"response": "test-response-no-schema"}
+        content: ElicitationContent = {"response": "test-response-no-schema"}
         logger.info(f"Test handler returning: {content}")
         return ElicitResult(action="accept", content=content)
 

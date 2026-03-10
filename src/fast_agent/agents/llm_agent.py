@@ -10,10 +10,12 @@ This class extends LlmDecorator with LLM-specific interaction behaviors includin
 
 import json
 import os
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Callable, List, Optional, Tuple
 
 from a2a.types import AgentCapabilities
 from mcp import Tool
+from mcp.types import ContentBlock
 from rich.text import Text
 
 from fast_agent.agents.agent_types import AgentConfig
@@ -399,7 +401,7 @@ class LlmAgent(LlmDecorator):
         for payload in payload_entries:
             self._display_single_url_elicitation_payload(payload, agent_name)
 
-    def _get_previous_user_channels(self) -> dict[str, list]:
+    def _get_previous_user_channels(self) -> dict[str, Sequence[ContentBlock]]:
         try:
             history = self.message_history
             if history and len(history) >= 2:
@@ -407,7 +409,7 @@ class LlmAgent(LlmDecorator):
                 if prev and prev.role == "user":
                     channels = prev.channels or {}
                     if isinstance(channels, dict):
-                        return channels
+                        return dict(channels)
         except Exception:
             pass
         return {}

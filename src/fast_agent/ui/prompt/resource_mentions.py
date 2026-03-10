@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 
-from mcp.types import EmbeddedResource, ReadResourceResult, TextContent
+from mcp.types import ContentBlock, EmbeddedResource, ReadResourceResult, TextContent
 
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
@@ -341,7 +341,7 @@ def build_prompt_with_resources(
 ) -> PromptMessageExtended:
     """Build PromptMessageExtended with text content and embedded resources."""
     text = resolved.cleaned_text if resolved.mentions else original_text
-    content = [TextContent(type="text", text=text)]
+    content: list[ContentBlock] = [TextContent(type="text", text=text)]
     content.extend(resolved.resources)
     return PromptMessageExtended(role="user", content=content)
 

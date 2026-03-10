@@ -20,8 +20,10 @@ from mcp.types import (
     TextResourceContents,
 )
 
+type ContentWithTextResource = ContentBlock | TextResourceContents
 
-def get_text(content: ContentBlock) -> str | None:
+
+def get_text(content: ContentWithTextResource) -> str | None:
     """Extract text content from a content object if available."""
     if isinstance(content, TextContent):
         return content.text

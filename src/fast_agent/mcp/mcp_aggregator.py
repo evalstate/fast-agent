@@ -1299,7 +1299,7 @@ class MCPAggregator(ContextDependent):
                             session_id = server_conn.session_id
                             if not session_id and server_conn._get_session_id_cb:
                                 try:
-                                    session_id = server_conn._get_session_id_cb()  # type: ignore[attr-defined]
+                                    session_id = server_conn._get_session_id_cb()
                                 except Exception:
                                     session_id = None
                             if not session_id and isinstance(session_cookie, dict):
@@ -1371,7 +1371,7 @@ class MCPAggregator(ContextDependent):
                         session_id = "local"
                     elif server_conn and server_conn._get_session_id_cb:
                         try:
-                            session_id = server_conn._get_session_id_cb()  # type: ignore[attr-defined]
+                            session_id = server_conn._get_session_id_cb()
                         except Exception:
                             session_id = None
 
@@ -2187,7 +2187,7 @@ class MCPAggregator(ContextDependent):
                             )
 
             # Try to get the prompt from the specified server
-            method_args = {"name": local_prompt_name} if local_prompt_name else {}
+            method_args: dict[str, Any] = {"name": local_prompt_name} if local_prompt_name else {}
             if arguments:
                 method_args["arguments"] = arguments
 
@@ -2235,7 +2235,7 @@ class MCPAggregator(ContextDependent):
                     continue
 
                 try:
-                    method_args = {"name": local_prompt_name}
+                    method_args: dict[str, Any] = {"name": local_prompt_name}
                     if arguments:
                         method_args["arguments"] = arguments
 
@@ -2283,7 +2283,7 @@ class MCPAggregator(ContextDependent):
             for s_name in supported_servers:
                 try:
                     # Use a quiet approach - don't log errors if not found
-                    method_args = {"name": local_prompt_name}
+                    method_args: dict[str, Any] = {"name": local_prompt_name}
                     if arguments:
                         method_args["arguments"] = arguments
 

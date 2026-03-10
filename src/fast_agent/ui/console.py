@@ -89,7 +89,7 @@ def configure_console_stream(stream: Literal["stdout", "stderr"]) -> None:
         return
 
     # Reset the underlying stream selection so Console.file uses the new stderr flag
-    console._file = None  # type: ignore[attr-defined]
+    console._file = None
     console.stderr = target_is_stderr
     ensure_blocking_console()
 

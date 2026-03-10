@@ -135,18 +135,18 @@ class _AliasPicker:
 
         @kb.add("up")
         @kb.add("k")
-        def _go_up(event) -> None:  # type: ignore[no-untyped-def]
+        def _go_up(event) -> None:
             del event
             self._move(-1)
 
         @kb.add("down")
         @kb.add("j")
-        def _go_down(event) -> None:  # type: ignore[no-untyped-def]
+        def _go_down(event) -> None:
             del event
             self._move(1)
 
         @kb.add("enter")
-        def _accept(event) -> None:  # type: ignore[no-untyped-def]
+        def _accept(event) -> None:
             if self._is_done_row():
                 event.app.exit(result=ModelAliasPickerResult(action="done", token=None))
                 return
@@ -160,7 +160,7 @@ class _AliasPicker:
         @kb.add("delete")
         @kb.add("backspace")
         @kb.add("x")
-        def _remove(event) -> None:  # type: ignore[no-untyped-def]
+        def _remove(event) -> None:
             item = self.current_item
             if item is None or not item.removable:
                 return
@@ -169,7 +169,7 @@ class _AliasPicker:
         @kb.add("escape")
         @kb.add("q")
         @kb.add("c-c")
-        def _cancel(event) -> None:  # type: ignore[no-untyped-def]
+        def _cancel(event) -> None:
             event.app.exit(result=None)
 
         return kb

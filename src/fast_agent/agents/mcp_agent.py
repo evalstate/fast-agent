@@ -28,6 +28,7 @@ import mcp
 from a2a.types import AgentCard, AgentSkill
 from mcp.types import (
     CallToolResult,
+    ContentBlock,
     EmbeddedResource,
     GetPromptResult,
     ListToolsResult,
@@ -170,7 +171,7 @@ class McpAgent(ABC, ToolAgent):
             and context.skill_registry
         ):
             try:
-                manifests = list(context.skill_registry.load_manifests())  # type: ignore[assignment]
+                manifests = list(context.skill_registry.load_manifests())
             except Exception:
                 manifests = []
 
@@ -1223,7 +1224,9 @@ class McpAgent(ABC, ToolAgent):
         prompt: PromptMessageExtended
         if isinstance(prompt_content, str):
             # Create a new prompt with the text and resources
-            content = [TextContent(type="text", text=prompt_content)]
+            content: list[ContentBlock] = [
+                TextContent(type="text", text=prompt_content)
+            ]
             content.extend(embedded_resources)
             prompt = PromptMessageExtended(role="user", content=content)
         elif isinstance(prompt_content, PromptMessage):

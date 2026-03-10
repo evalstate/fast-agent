@@ -20,7 +20,7 @@ import time
 from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Union, cast
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Union
 
 from mcp.types import PromptMessage
 from rich import print as rich_print
@@ -45,7 +45,6 @@ from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui import enhanced_prompt
 from fast_agent.ui.command_payloads import (
-    CommandPayload,
     InterruptCommand,
     ShellCommand,
     is_command_payload,
@@ -59,7 +58,7 @@ from fast_agent.ui.enhanced_prompt import (
     set_last_copyable_output,
 )
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
-from fast_agent.ui.interactive_shell import run_interactive_shell_command
+from fast_agent.ui.interactive_shell import ShellExecutionResult, run_interactive_shell_command
 from fast_agent.ui.progress_display import progress_display
 from fast_agent.ui.prompt.resource_mentions import (
     build_prompt_with_resources,
@@ -70,6 +69,7 @@ from fast_agent.ui.prompt_marks import emit_prompt_mark
 
 # Type alias for the send function
 SendFunc = Callable[[Union[str, PromptMessage, PromptMessageExtended], str], Awaitable[str]]
+type PromptLoopResult = str | ShellExecutionResult
 
 # Type alias for the agent getter function
 AgentGetter = Callable[[str], object | None]
@@ -151,7 +151,7 @@ class InteractivePrompt:
         pinned_agent: str | None = None,
         default: str = "",
         quiet_send_func: SendFunc | None = None,
-    ) -> str:
+    ) -> PromptLoopResult:
         """
         Start an interactive prompt session.
 
@@ -196,7 +196,7 @@ class InteractivePrompt:
 
         display = ConsoleDisplay(config=get_settings())
 
-        result = ""
+        result: PromptLoopResult = ""
         buffer_prefill = ""  # One-off buffer content for # command results
         ctrl_c_exit_window_seconds = 2.0
         ctrl_c_deadline: float | None = None
@@ -512,7 +512,7 @@ class InteractivePrompt:
 
             # Check if we should switch agents
             if is_command_payload(command_result):
-                command_payload: CommandPayload = cast("CommandPayload", command_result)
+                command_payload = command_result
                 from fast_agent.ui.interactive.command_dispatch import dispatch_command_payload
 
                 try:

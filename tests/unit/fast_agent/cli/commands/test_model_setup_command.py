@@ -23,7 +23,7 @@ class _StubIO:
         self._model_selection_responses = list(model_selection_responses or [])
         self.prompt_text_calls: list[tuple[str, str | None, bool]] = []
 
-    async def emit(self, message) -> None:  # type: ignore[no-untyped-def]
+    async def emit(self, message) -> None:
         del message
 
     async def prompt_text(
@@ -72,16 +72,16 @@ class _StubIO:
         del arg_name, description, required
         return None
 
-    async def display_history_turn(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+    async def display_history_turn(self, *args, **kwargs) -> None:
         del args, kwargs
 
-    async def display_history_overview(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+    async def display_history_overview(self, *args, **kwargs) -> None:
         del args, kwargs
 
-    async def display_usage_report(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+    async def display_usage_report(self, *args, **kwargs) -> None:
         del args, kwargs
 
-    async def display_system_prompt(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+    async def display_system_prompt(self, *args, **kwargs) -> None:
         del args, kwargs
 
 

@@ -302,6 +302,7 @@ def test_oauth_traceback_filter_suppresses_non_debug_oauth_flow_errors() -> None
         added_filters = oauth_logger.filters[initial_filter_count:]
         assert added_filters
         oauth_filter = added_filters[-1]
+        assert isinstance(oauth_filter, logging.Filter)
 
         record = logging.LogRecord(
             name="mcp.client.auth.oauth2",

@@ -20,7 +20,7 @@ from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.usage_tracking import last_turn_usage
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.ui.display_suppression import display_usage_enabled
-from fast_agent.ui.interactive_prompt import InteractivePrompt
+from fast_agent.ui.interactive_prompt import InteractivePrompt, PromptLoopResult
 from fast_agent.ui.progress_display import progress_display
 
 if TYPE_CHECKING:
@@ -129,7 +129,7 @@ class AgentApp:
         agent_name: str | None = None,
         default_prompt: str = "",
         request_params: RequestParams | None = None,
-    ) -> str:
+    ) -> PromptLoopResult:
         """
         Make the object callable to send messages or start interactive prompt.
         This mirrors the FastAgent implementation that allowed agent("message").
@@ -525,7 +525,7 @@ class AgentApp:
         agent_name: str | None = None,
         default_prompt: str = "",
         request_params: RequestParams | None = None,
-    ) -> str:
+    ) -> PromptLoopResult:
         """
         Deprecated - use interactive() instead.
         """
@@ -539,7 +539,7 @@ class AgentApp:
         default_prompt: str = "",
         pretty_print_parallel: bool = False,
         request_params: RequestParams | None = None,
-    ) -> str:
+    ) -> PromptLoopResult:
         """
         Interactive prompt for sending messages with advanced features.
 

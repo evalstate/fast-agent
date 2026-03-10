@@ -41,6 +41,11 @@ if TYPE_CHECKING:
     from acp.helpers import ContentBlock as ACPContentBlock
 
 
+def _acp_prompt(*blocks: ACPContentBlock) -> list[ACPContentBlock]:
+    """Build an ACP prompt with the widened content-block type expected by helpers."""
+    return list(blocks)
+
+
 class TestTextContentConversion:
     """Test conversion of TextContentBlock."""
 
@@ -182,7 +187,7 @@ class TestPromptConversion:
         """Test conversion of prompt with mixed content types."""
         image_data = base64.b64encode(b"fake-image").decode("utf-8")
 
-        acp_prompt = [
+        acp_prompt = _acp_prompt(
             TextContentBlock(type="text", text="Please analyze this code:"),
             EmbeddedResourceContentBlock(
                 type="resource",
@@ -198,7 +203,7 @@ class TestPromptConversion:
                 data=image_data,
                 mime_type="image/png",
             ),
-        ]
+        )
 
         mcp_blocks = convert_acp_prompt_to_mcp_content_blocks(acp_prompt)
 
@@ -214,16 +219,16 @@ class TestPromptConversion:
 
     def test_empty_prompt(self):
         """Test conversion of empty prompt."""
-        acp_prompt = []
+        acp_prompt: list[ACPContentBlock] = []
         mcp_blocks = convert_acp_prompt_to_mcp_content_blocks(acp_prompt)
         assert mcp_blocks == []
 
     def test_text_only_prompt(self):
         """Test conversion of text-only prompt."""
-        acp_prompt = [
+        acp_prompt = _acp_prompt(
             TextContentBlock(type="text", text="First message"),
             TextContentBlock(type="text", text="Second message"),
-        ]
+        )
 
         mcp_blocks = convert_acp_prompt_to_mcp_content_blocks(acp_prompt)
 
@@ -277,7 +282,7 @@ class TestInlineResourcesForSlashCommand:
 
     def test_inline_single_resource_windows(self):
         """Windows file:// URI is converted to local path."""
-        acp_prompt = [
+        acp_prompt = _acp_prompt(
             TextContentBlock(type="text", text="/card "),
             EmbeddedResourceContentBlock(
                 type="resource",
@@ -286,7 +291,7 @@ class TestInlineResourcesForSlashCommand:
                     text="",
                 ),
             ),
-        ]
+        )
 
         result = inline_resources_for_slash_command(acp_prompt)
 
@@ -296,7 +301,7 @@ class TestInlineResourcesForSlashCommand:
 
     def test_inline_single_resource_unix_path(self):
         """Unix file:// URIs are converted to local paths."""
-        acp_prompt = [
+        acp_prompt = _acp_prompt(
             TextContentBlock(type="text", text="/card "),
             EmbeddedResourceContentBlock(
                 type="resource",
@@ -305,7 +310,7 @@ class TestInlineResourcesForSlashCommand:
                     text="",
                 ),
             ),
-        ]
+        )
 
         result = inline_resources_for_slash_command(acp_prompt)
 
@@ -315,7 +320,7 @@ class TestInlineResourcesForSlashCommand:
 
     def test_inline_multiple_resources(self):
         """Multiple resources become space-separated paths."""
-        acp_prompt = [
+        acp_prompt = _acp_prompt(
             TextContentBlock(type="text", text="/hash "),
             EmbeddedResourceContentBlock(
                 type="resource",
@@ -331,7 +336,7 @@ class TestInlineResourcesForSlashCommand:
                     text="",
                 ),
             ),
-        ]
+        )
 
         result = inline_resources_for_slash_command(acp_prompt)
 
@@ -341,7 +346,7 @@ class TestInlineResourcesForSlashCommand:
 
     def test_no_inline_without_slash(self):
         """Regular prompts with resources remain unchanged."""
-        acp_prompt = [
+        acp_prompt = _acp_prompt(
             TextContentBlock(type="text", text="Please analyze this file"),
             EmbeddedResourceContentBlock(
                 type="resource",
@@ -350,7 +355,7 @@ class TestInlineResourcesForSlashCommand:
                     text="file contents",
                 ),
             ),
-        ]
+        )
 
         result = inline_resources_for_slash_command(acp_prompt)
 
@@ -360,9 +365,9 @@ class TestInlineResourcesForSlashCommand:
 
     def test_no_inline_text_only(self):
         """Pure text slash commands remain unchanged."""
-        acp_prompt = [
+        acp_prompt = _acp_prompt(
             TextContentBlock(type="text", text="/card foo.txt"),
-        ]
+        )
 
         result = inline_resources_for_slash_command(acp_prompt)
 
@@ -372,7 +377,7 @@ class TestInlineResourcesForSlashCommand:
 
     def test_preserves_existing_arguments(self):
         """/card existing --tool @file.txt preserves all text."""
-        acp_prompt = [
+        acp_prompt = _acp_prompt(
             TextContentBlock(type="text", text="/card --tool "),
             EmbeddedResourceContentBlock(
                 type="resource",
@@ -381,7 +386,7 @@ class TestInlineResourcesForSlashCommand:
                     text="",
                 ),
             ),
-        ]
+        )
 
         result = inline_resources_for_slash_command(acp_prompt)
 
@@ -399,7 +404,7 @@ class TestInlineResourcesForSlashCommand:
 
     def test_first_block_not_text_unchanged(self):
         """Prompt starting with non-text block remains unchanged."""
-        acp_prompt = [
+        acp_prompt = _acp_prompt(
             EmbeddedResourceContentBlock(
                 type="resource",
                 resource=TextResourceContents(
@@ -408,7 +413,7 @@ class TestInlineResourcesForSlashCommand:
                 ),
             ),
             TextContentBlock(type="text", text="/card"),
-        ]
+        )
 
         result = inline_resources_for_slash_command(acp_prompt)
 
@@ -417,7 +422,7 @@ class TestInlineResourcesForSlashCommand:
 
     def test_slash_with_leading_whitespace(self):
         """Slash commands with leading whitespace are still detected."""
-        acp_prompt = [
+        acp_prompt = _acp_prompt(
             TextContentBlock(type="text", text="  /card "),
             EmbeddedResourceContentBlock(
                 type="resource",
@@ -426,7 +431,7 @@ class TestInlineResourcesForSlashCommand:
                     text="",
                 ),
             ),
-        ]
+        )
 
         result = inline_resources_for_slash_command(acp_prompt)
 
@@ -437,7 +442,7 @@ class TestInlineResourcesForSlashCommand:
     def test_blob_resource_inlined(self):
         """Blob resources (PDFs, etc.) also have their paths inlined."""
         blob_data = "ZmFrZS1wZGYtZGF0YQ=="  # base64 encoded "fake-pdf-data"
-        acp_prompt = [
+        acp_prompt = _acp_prompt(
             TextContentBlock(type="text", text="/hash "),
             EmbeddedResourceContentBlock(
                 type="resource",
@@ -447,7 +452,7 @@ class TestInlineResourcesForSlashCommand:
                     blob=blob_data,
                 ),
             ),
-        ]
+        )
 
         result = inline_resources_for_slash_command(acp_prompt)
 
@@ -457,7 +462,7 @@ class TestInlineResourcesForSlashCommand:
 
     def test_at_reference_replaced_with_path(self):
         """@filename in text is replaced with local path from matching resource."""
-        acp_prompt = [
+        acp_prompt = _acp_prompt(
             TextContentBlock(type="text", text="/card @tortie.md"),
             EmbeddedResourceContentBlock(
                 type="resource",
@@ -466,7 +471,7 @@ class TestInlineResourcesForSlashCommand:
                     text="---\nname: tortie\n...",
                 ),
             ),
-        ]
+        )
 
         result = inline_resources_for_slash_command(acp_prompt)
 
@@ -476,7 +481,7 @@ class TestInlineResourcesForSlashCommand:
 
     def test_at_reference_with_flags(self):
         """@filename with other flags is handled correctly."""
-        acp_prompt = [
+        acp_prompt = _acp_prompt(
             TextContentBlock(type="text", text="/card --tool @myagent.md"),
             EmbeddedResourceContentBlock(
                 type="resource",
@@ -485,7 +490,7 @@ class TestInlineResourcesForSlashCommand:
                     text="agent content",
                 ),
             ),
-        ]
+        )
 
         result = inline_resources_for_slash_command(acp_prompt)
 
@@ -495,7 +500,7 @@ class TestInlineResourcesForSlashCommand:
 
     def test_multiple_at_references_replaced(self):
         """Multiple @filename references are all replaced."""
-        acp_prompt = [
+        acp_prompt = _acp_prompt(
             TextContentBlock(type="text", text="/hash @a.txt @b.txt"),
             EmbeddedResourceContentBlock(
                 type="resource",
@@ -511,7 +516,7 @@ class TestInlineResourcesForSlashCommand:
                     text="content b",
                 ),
             ),
-        ]
+        )
 
         result = inline_resources_for_slash_command(acp_prompt)
 
@@ -521,7 +526,7 @@ class TestInlineResourcesForSlashCommand:
 
     def test_at_reference_no_matching_resource_preserved(self):
         """@filename without matching resource is left unchanged."""
-        acp_prompt = [
+        acp_prompt = _acp_prompt(
             TextContentBlock(type="text", text="/card @nonexistent.md"),
             EmbeddedResourceContentBlock(
                 type="resource",
@@ -530,7 +535,7 @@ class TestInlineResourcesForSlashCommand:
                     text="different content",
                 ),
             ),
-        ]
+        )
 
         result = inline_resources_for_slash_command(acp_prompt)
 
@@ -541,7 +546,7 @@ class TestInlineResourcesForSlashCommand:
 
     def test_at_reference_windows_path(self):
         """@filename works with Windows-style file URIs."""
-        acp_prompt = [
+        acp_prompt = _acp_prompt(
             TextContentBlock(type="text", text="/card @config.yaml"),
             EmbeddedResourceContentBlock(
                 type="resource",
@@ -550,7 +555,7 @@ class TestInlineResourcesForSlashCommand:
                     text="config: value",
                 ),
             ),
-        ]
+        )
 
         result = inline_resources_for_slash_command(acp_prompt)
 

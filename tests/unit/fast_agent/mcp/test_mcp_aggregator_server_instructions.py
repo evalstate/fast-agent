@@ -19,7 +19,7 @@ if not hasattr(enum, "StrEnum"):
     class StrEnum(str, enum.Enum):
         pass
 
-    enum.StrEnum = StrEnum  # type: ignore[attr-defined]
+    enum.StrEnum = StrEnum
 
 # Provide minimal stubs for optional dependencies referenced during import
 if "a2a" not in sys.modules:
@@ -48,9 +48,9 @@ def test_get_server_instructions_does_not_implicitly_connect() -> None:
         context=None,
         name="test-agent",
     )
-    aggregator.display = None  # type: ignore[attr-defined]
+    aggregator.display = None
 
-    aggregator._namespaced_tool_map = {  # type: ignore[attr-defined]
+    aggregator._namespaced_tool_map = {
         "huggingface.tool_a": NamespacedTool(
             tool=Tool(name="tool_a", inputSchema={"type": "object"}),
             server_name="huggingface",
@@ -68,7 +68,7 @@ def test_get_server_instructions_does_not_implicitly_connect() -> None:
         # If get_server() is called, it means we're implicitly connecting, which this test forbids.
         get_server=AsyncMock(side_effect=AssertionError("get_server() should not be called")),
     )
-    aggregator._persistent_connection_manager = fake_manager  # type: ignore[attr-defined]
+    aggregator._persistent_connection_manager = fake_manager
 
     result = asyncio.run(aggregator.get_server_instructions())
     assert result == {"huggingface": ("hf instructions", ["tool_a"])}

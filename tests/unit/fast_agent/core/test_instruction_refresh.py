@@ -102,7 +102,7 @@ def test_format_server_instructions_empty() -> None:
 
 
 def test_format_server_instructions_with_data() -> None:
-    data = {
+    data: dict[str, tuple[str | None, list[str]]] = {
         "test-server": ("Do helpful things", ["tool1", "tool2"]),
     }
     result = format_server_instructions(data)
@@ -113,7 +113,7 @@ def test_format_server_instructions_with_data() -> None:
 
 
 def test_format_server_instructions_skips_none() -> None:
-    data = {
+    data: dict[str, tuple[str | None, list[str]]] = {
         "server1": ("Instructions", ["tool1"]),
         "server2": (None, ["tool2"]),  # Should be skipped
     }

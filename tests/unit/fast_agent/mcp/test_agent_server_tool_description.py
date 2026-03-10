@@ -1,8 +1,11 @@
 import asyncio
 from contextlib import AsyncExitStack
-from typing import TYPE_CHECKING, cast
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from mcp import types
+from mcp.server.fastmcp import Context as MCPContext
+from mcp.server.fastmcp.server import RequestContext
 
 from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.fastagent import AgentInstance
@@ -26,6 +29,23 @@ class _DummyAgent:
 
     async def shutdown(self) -> None:
         return None
+
+
+class _SessionWithExitStack(Protocol):
+    _exit_stack: AsyncExitStack
+
+
+def _mcp_context(session: _SessionWithExitStack) -> MCPContext:
+    """Create a minimal typed MCP context for server instance-scoping tests."""
+    request = SimpleNamespace(headers={})
+    request_context = RequestContext(
+        request_id="test-request",
+        meta=None,
+        session=cast("Any", session),
+        lifespan_context=None,
+        request=request,
+    )
+    return MCPContext(request_context=request_context)
 
 
 def _assert_prompts_enabled(server: AgentMCPServer) -> None:
@@ -156,19 +176,10 @@ async def _exercise_request_scope():
     _assert_prompts_disabled(server)
     _assert_resources_disabled(server)
 
-    ctx = type(
-        "Ctx",
-        (),
-        {
-            "session": type("Sess", (), {})(),
-            "request_context": type("RCtx", (), {"request": type("Req", (), {"headers": {}})()})(),
-        },
-    )()
-
-    inst_one = await server._acquire_instance(ctx)
-    await server._release_instance(ctx, inst_one)
-    inst_two = await server._acquire_instance(ctx)
-    await server._release_instance(ctx, inst_two)
+    inst_one = await server._acquire_instance(None)
+    await server._release_instance(None, inst_one)
+    inst_two = await server._acquire_instance(None)
+    await server._release_instance(None, inst_two)
 
     assert inst_one is not inst_two
     assert create_count == 3  # primary + two ephemeral instances
@@ -214,14 +225,7 @@ async def _exercise_connection_scope():
     session = _DummySession()
     await session._exit_stack.__aenter__()
 
-    ctx = type(
-        "Ctx",
-        (),
-        {
-            "session": session,
-            "request_context": type("RCtx", (), {"request": type("Req", (), {"headers": {}})()})(),
-        },
-    )()
+    ctx = _mcp_context(session)
 
     inst_one = await server._acquire_instance(ctx)
     inst_two = await server._acquire_instance(ctx)

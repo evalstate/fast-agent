@@ -189,7 +189,7 @@ def copy_example_files(example_type: str, target_dir: Path, force: bool = False)
             source_dir: Path = _development_mode_fallback(example_info)
         else:
             # We have a valid Traversable, will need to use as_file
-            source_dir = source_dir_traversable  # type: ignore
+            source_dir = source_dir_traversable
             use_as_file = True
     except (ImportError, ModuleNotFoundError, ValueError) as e:
         console.print(
@@ -200,7 +200,7 @@ def copy_example_files(example_type: str, target_dir: Path, force: bool = False)
     # Use as_file context manager if source_dir is a Traversable, otherwise use directly
     with ExitStack() as stack:
         if use_as_file:
-            source_path = stack.enter_context(as_file(source_dir))  # type: ignore
+            source_path = stack.enter_context(as_file(source_dir))
         else:
             assert isinstance(source_dir, Path)
             source_path = source_dir
@@ -500,7 +500,7 @@ def tensorzero(
         )
         if not source_dir_traversable.is_dir():
             raise FileNotFoundError  # Fallback to dev mode if resource isn't a dir
-        source_dir = source_dir_traversable  # type: ignore
+        source_dir = source_dir_traversable
         use_as_file = True
     except (ImportError, ModuleNotFoundError, FileNotFoundError):
         console.print(
@@ -512,7 +512,7 @@ def tensorzero(
     # Use as_file context manager if needed
     with ExitStack() as stack:
         if use_as_file:
-            source_path = stack.enter_context(as_file(source_dir))  # type: ignore
+            source_path = stack.enter_context(as_file(source_dir))
         else:
             assert isinstance(source_dir, Path)
             source_path = source_dir
@@ -602,7 +602,7 @@ def _copy_toad_cards(target_dir: Path, force: bool = False) -> list[str]:
                 Path(__file__).parent.parent.parent.parent.parent / "examples" / "hf-toad-cards"
             )
         else:
-            source_dir = source_dir_traversable  # type: ignore
+            source_dir = source_dir_traversable
             use_as_file = True
     except (ImportError, ModuleNotFoundError, FileNotFoundError):
         source_dir = (
@@ -611,7 +611,7 @@ def _copy_toad_cards(target_dir: Path, force: bool = False) -> list[str]:
 
     with ExitStack() as stack:
         if use_as_file:
-            source_path: Path = stack.enter_context(as_file(source_dir))  # type: ignore
+            source_path: Path = stack.enter_context(as_file(source_dir))
         else:
             assert isinstance(source_dir, Path)
             source_path = source_dir

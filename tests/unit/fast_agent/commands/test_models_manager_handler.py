@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol, cast
 
 import pytest
 import yaml
@@ -13,7 +14,7 @@ from fast_agent.config import Settings
 
 
 class _StubAgentProvider:
-    def __init__(self, agents: dict[str, object] | None = None) -> None:
+    def __init__(self, agents: dict[str, _StubAgent] | None = None) -> None:
         self._agents = agents or {}
 
     def _agent(self, name: str):
@@ -26,9 +27,13 @@ class _StubAgentProvider:
             if not bool(getattr(getattr(agent, "config", None), "tool_only", False))
         ]
 
-    async def list_prompts(self, namespace: str | None, agent_name: str | None = None) -> object:
+    async def list_prompts(self, namespace: str | None, agent_name: str | None = None) -> dict[str, str]:
         del namespace, agent_name
         return {}
+
+
+class _HasText(Protocol):
+    text: object
 
 
 class _StubCommandIO:
@@ -42,10 +47,11 @@ class _StubCommandIO:
         self._text_responses = list(text_responses or [])
         self._selection_responses = list(selection_responses or [])
         self._model_selection_responses = list(model_selection_responses or [])
-        self.emitted_messages: list[object] = []
+        self.emitted_messages: list[_HasText] = []
 
-    async def emit(self, message) -> None:  # type: ignore[no-untyped-def]
-        self.emitted_messages.append(message)
+    async def emit(self, message: object) -> None:
+        assert hasattr(message, "text")
+        self.emitted_messages.append(cast("_HasText", message))
 
     async def prompt_text(
         self,
@@ -93,16 +99,16 @@ class _StubCommandIO:
         del arg_name, description, required
         return None
 
-    async def display_history_turn(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+    async def display_history_turn(self, *args, **kwargs) -> None:
         del args, kwargs
 
-    async def display_history_overview(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+    async def display_history_overview(self, *args, **kwargs) -> None:
         del args, kwargs
 
-    async def display_usage_report(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+    async def display_usage_report(self, *args, **kwargs) -> None:
         del args, kwargs
 
-    async def display_system_prompt(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+    async def display_system_prompt(self, *args, **kwargs) -> None:
         del args, kwargs
 
 
@@ -124,6 +130,11 @@ class _StubAgent:
         self.llm = _StubLlm(model_name=resolved_model) if resolved_model is not None else None
 
 
+def _message_text(message: _HasText) -> str:
+    """Extract stringified message text from dynamically captured command IO output."""
+    return str(message.text)
+
+
 def _write_yaml(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as handle:
@@ -138,7 +149,7 @@ def _read_yaml(path: Path) -> dict:
     return {}
 
 
-def _context(settings: Settings, *, agents: dict[str, object] | None = None) -> CommandContext:
+def _context(settings: Settings, *, agents: dict[str, _StubAgent] | None = None) -> CommandContext:
     return CommandContext(
         agent_provider=_StubAgentProvider(agents),
         current_agent_name="main",
@@ -151,7 +162,7 @@ def _context_with_io(
     settings: Settings,
     io: _StubCommandIO,
     *,
-    agents: dict[str, object] | None = None,
+    agents: dict[str, _StubAgent] | None = None,
 ) -> CommandContext:
     return CommandContext(
         agent_provider=_StubAgentProvider(agents),
@@ -592,7 +603,9 @@ async def test_models_aliases_set_can_choose_existing_alias_by_number(tmp_path: 
     saved = _read_yaml(env_dir / "fastagent.config.yaml")
     assert saved["model_aliases"]["system"]["fast"] == "gpt-4.1-mini"
     assert io.emitted_messages
-    assert str(io.emitted_messages[0].text).find(str((env_dir / "fastagent.config.yaml").resolve())) != -1
+    assert _message_text(io.emitted_messages[0]).find(
+        str((env_dir / "fastagent.config.yaml").resolve())
+    ) != -1
 
     rendered = str(outcome.messages[0].text)
     assert "old: claude-sonnet-4-5" in rendered

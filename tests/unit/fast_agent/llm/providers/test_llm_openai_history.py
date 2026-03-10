@@ -1,5 +1,6 @@
 import pytest
 from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
+from openai.types.chat import ChatCompletionMessageParam
 
 from fast_agent.constants import REASONING
 from fast_agent.context import Context
@@ -7,6 +8,12 @@ from fast_agent.core.prompt import Prompt
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.types import PromptMessageExtended
+
+
+def _message_payload(message: ChatCompletionMessageParam) -> dict[str, object]:
+    """Materialize provider messages to a plain dict for ad-hoc test assertions."""
+    assert isinstance(message, dict)
+    return {str(key): value for key, value in message.items()}
 
 
 class CapturingOpenAI(OpenAILLM):
@@ -82,10 +89,11 @@ def test_reasoning_content_injected_for_reasoning_content_models():
     )
 
     converted = llm._convert_extended_messages_to_provider([msg])
+    message = _message_payload(converted[0])
 
     assert converted, "Converted messages should not be empty"
-    assert "reasoning_content" in converted[0], "reasoning_content should be injected"
-    assert converted[0]["reasoning_content"] == reasoning_text
+    assert "reasoning_content" in message, "reasoning_content should be injected"
+    assert message["reasoning_content"] == reasoning_text
 
 
 def test_reasoning_content_preserved_with_tool_calls():
@@ -106,10 +114,11 @@ def test_reasoning_content_preserved_with_tool_calls():
     assistant_tool_call.channels = {REASONING: [TextContent(type="text", text=reasoning_text)]}
 
     converted = llm._convert_extended_messages_to_provider([assistant_tool_call])
+    message = _message_payload(converted[0])
 
     assert converted, "Converted messages should not be empty"
-    assert "reasoning_content" in converted[0], "reasoning_content should be injected"
-    assert converted[0]["reasoning_content"] == reasoning_text
+    assert "reasoning_content" in message, "reasoning_content should be injected"
+    assert message["reasoning_content"] == reasoning_text
 
 
 def test_gpt_oss_reasoning_dropped_without_tool_calls():
@@ -125,13 +134,14 @@ def test_gpt_oss_reasoning_dropped_without_tool_calls():
     )
 
     converted = llm._convert_extended_messages_to_provider([msg])
+    message = _message_payload(converted[0])
 
     assert converted, "Converted messages should not be empty"
     # No reasoning field should be present
-    assert "reasoning" not in converted[0], "reasoning should not be injected without tool_calls"
-    assert "reasoning_content" not in converted[0], "reasoning_content should not be injected"
+    assert "reasoning" not in message, "reasoning should not be injected without tool_calls"
+    assert "reasoning_content" not in message, "reasoning_content should not be injected"
     # Content should not be prefixed with reasoning
-    assert converted[0]["content"] == "the answer", "content should not include reasoning"
+    assert message["content"] == "the answer", "content should not include reasoning"
 
 
 def test_gpt_oss_reasoning_prefixed_with_tool_calls():
@@ -152,11 +162,13 @@ def test_gpt_oss_reasoning_prefixed_with_tool_calls():
     assistant_tool_call.channels = {REASONING: [TextContent(type="text", text=reasoning_text)]}
 
     converted = llm._convert_extended_messages_to_provider([assistant_tool_call])
+    message = _message_payload(converted[0])
 
     assert converted, "Converted messages should not be empty"
     # No separate reasoning field
-    assert "reasoning" not in converted[0], "reasoning should not be a separate field"
-    assert "reasoning_content" not in converted[0], "reasoning_content should not be used"
+    assert "reasoning" not in message, "reasoning should not be a separate field"
+    assert "reasoning_content" not in message, "reasoning_content should not be used"
     # Content should be prefixed with reasoning
-    content = converted[0].get("content", "")
+    content = message.get("content", "")
+    assert isinstance(content, str)
     assert content.startswith(reasoning_text), "content should be prefixed with reasoning"

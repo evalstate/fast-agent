@@ -1,6 +1,6 @@
 """Assistant message phase metadata aligned with the OpenAI Responses SDK."""
 
-from typing import Final, TypeGuard, cast
+from typing import Final, TypeGuard
 
 from typing_extensions import Literal
 
@@ -24,5 +24,5 @@ def is_assistant_message_phase(value: object) -> TypeGuard[AssistantMessagePhase
 def coerce_assistant_message_phase(value: object) -> AssistantMessagePhase | None:
     """Return a validated assistant phase value or None for unsupported values."""
     if is_assistant_message_phase(value):
-        return cast("AssistantMessagePhase", value)
+        return value
     return None

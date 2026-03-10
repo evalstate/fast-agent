@@ -1086,7 +1086,9 @@ class OpenAILLM(
             return last_message
 
         # Convert the supplied history/messages directly
-        converted_messages = self._convert_to_provider_format(multipart_messages)
+        converted_messages: list[ChatCompletionMessageParam] = self._convert_to_provider_format(
+            multipart_messages
+        )
         if not converted_messages:
             converted_messages = [ChatCompletionUserMessageParam(role="user", content="")]
 
@@ -1100,7 +1102,7 @@ class OpenAILLM(
     ) -> dict[str, Any]:
         # Create base arguments dictionary
 
-        base_args = {
+        base_args: dict[str, Any] = {
             "model": request_params.model
             or self.default_request_params.model
             or DEFAULT_OPENAI_MODEL,

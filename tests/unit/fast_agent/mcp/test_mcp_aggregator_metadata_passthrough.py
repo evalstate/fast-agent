@@ -175,7 +175,7 @@ async def test_execute_on_server_marks_rejected_experimental_cookie_invalid() ->
     aggregator = MCPAggregator(server_names=[], connection_persistence=True, context=None)
     setattr(aggregator, "_persistent_connection_manager", _FakeConnectionManager(session))
     recorder = _InvalidationRecorder()
-    aggregator.experimental_sessions = recorder  # type: ignore[assignment]
+    aggregator.experimental_sessions = recorder
 
     result = await aggregator._execute_on_server(
         server_name="demo",
@@ -203,7 +203,7 @@ async def test_execute_on_server_marks_rejected_cookie_from_tool_error_result() 
     aggregator = MCPAggregator(server_names=[], connection_persistence=True, context=None)
     setattr(aggregator, "_persistent_connection_manager", _FakeConnectionManager(session))
     recorder = _InvalidationRecorder()
-    aggregator.experimental_sessions = recorder  # type: ignore[assignment]
+    aggregator.experimental_sessions = recorder
 
     result = await aggregator._execute_on_server(
         server_name="demo",

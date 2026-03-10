@@ -4,7 +4,7 @@ Clean utilities for converting between PromptMessageExtended and OpenAI message 
 Each function handles all content types consistently and is designed for simple testing.
 """
 
-from typing import Any, Union
+from typing import Any, Literal, Union
 
 from mcp.types import (
     BlobResourceContents,
@@ -20,6 +20,14 @@ from openai.types.chat import (
 
 from fast_agent.mcp.resource_utils import parse_resource_marker
 from fast_agent.types import PromptMessageExtended
+
+
+def _coerce_extended_role(value: object) -> Literal["assistant", "user"]:
+    return "user" if value == "user" else "assistant"
+
+
+def _coerce_str(value: object, *, default: str = "") -> str:
+    return value if isinstance(value, str) else default
 
 
 def openai_to_extended(
@@ -51,14 +59,14 @@ def _openai_message_to_extended(
     # Get role and content from message
     # ChatCompletionMessage is a class with attributes; MessageParam types are TypedDicts
     if isinstance(message, ChatCompletionMessage):
-        role = message.role
+        role = _coerce_extended_role(message.role)
         content = message.content
     elif isinstance(message, dict):
-        role = message.get("role", "assistant")
+        role = _coerce_extended_role(message.get("role", "assistant"))
         content = message.get("content", "")
     else:
         # Fallback for any other object with role/content attributes
-        role = getattr(message, "role", "assistant")
+        role = _coerce_extended_role(getattr(message, "role", "assistant"))
         content = getattr(message, "content", "")
 
     mcp_contents = []
@@ -70,11 +78,13 @@ def _openai_message_to_extended(
     # Handle list of content parts
     elif isinstance(content, list):
         for part in content:
-            part_type = part.get("type") if isinstance(part, dict) else getattr(part, "type", None)
+            part_dict = dict(part) if isinstance(part, dict) else None
+            part_type = part_dict.get("type") if part_dict is not None else getattr(part, "type", None)
 
             # Handle text content
             if part_type == "text":
-                text = part.get("text") if isinstance(part, dict) else getattr(part, "text", "")
+                raw_text = part_dict.get("text") if part_dict is not None else getattr(part, "text", "")
+                text = _coerce_str(raw_text)
 
                 resource_marker = parse_resource_marker(text)
                 if resource_marker:
@@ -87,16 +97,17 @@ def _openai_message_to_extended(
             # Handle image content
             elif part_type == "image_url":
                 image_url = (
-                    part.get("image_url", {})
-                    if isinstance(part, dict)
+                    part_dict.get("image_url")
+                    if part_dict is not None
                     else getattr(part, "image_url", None)
                 )
                 if image_url:
-                    url = (
+                    raw_url = (
                         image_url.get("url")
                         if isinstance(image_url, dict)
                         else getattr(image_url, "url", "")
                     )
+                    url = _coerce_str(raw_url)
                     if url and url.startswith("data:image/"):
                         # Handle base64 data URLs
                         mime_type = url.split(";")[0].replace("data:", "")
@@ -106,8 +117,8 @@ def _openai_message_to_extended(
                         )
 
             # Handle explicit resource types
-            elif part_type == "resource" and isinstance(part, dict) and "resource" in part:
-                resource = part["resource"]
+            elif part_type == "resource" and part_dict is not None:
+                resource = part_dict.get("resource")
                 if isinstance(resource, dict):
                     # Text resource
                     if "text" in resource and "mimeType" in resource:

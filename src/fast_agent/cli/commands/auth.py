@@ -36,7 +36,7 @@ def _get_keyring_status() -> tuple[str, bool]:
         kr = keyring.get_keyring()
         name = getattr(kr, "name", kr.__class__.__name__)
         try:
-            from keyring.backends.fail import Keyring as FailKeyring  # type: ignore
+            from keyring.backends.fail import Keyring as FailKeyring
 
             return name, not isinstance(kr, FailKeyring)
         except Exception:

@@ -11,7 +11,7 @@ from mcp.types import CallToolRequestParams, PromptMessage, TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
-from fast_agent.agents.tool_runner import ToolRunnerHooks
+from fast_agent.agents.tool_runner import ToolRunner, ToolRunnerHooks
 from fast_agent.agents.workflow.agents_as_tools_agent import (
     AgentsAsToolsAgent,
     AgentsAsToolsOptions,
@@ -257,6 +257,10 @@ class HookedChildAgent(LlmAgent):
     def tool_runner_hooks(self, value: ToolRunnerHooks | None) -> None:
         self._tool_runner_hooks = value
 
+    def _hook_runner(self) -> ToolRunner:
+        """Narrow this lightweight test stub at the hook boundary."""
+        return self  # ty: ignore[invalid-return-type]
+
     async def generate(
         self,
         messages: str
@@ -267,10 +271,10 @@ class HookedChildAgent(LlmAgent):
         tools: list[Tool] | None = None,
     ) -> PromptMessageExtended:
         if self._tool_runner_hooks and self._tool_runner_hooks.before_llm_call:
-            await self._tool_runner_hooks.before_llm_call(self, [])
+            await self._tool_runner_hooks.before_llm_call(self._hook_runner(), [])
         if self._tool_runner_hooks and self._tool_runner_hooks.before_tool_call:
             await self._tool_runner_hooks.before_tool_call(
-                self,
+                self._hook_runner(),
                 PromptMessageExtended(role="assistant", content=[]),
             )
         return PromptMessageExtended(

@@ -73,6 +73,6 @@ def prompt_message_multipart_to_openai_message_param(
     # convert_to_openai now returns a list, return the first element for backward compatibility
     messages = OpenAIConverter.convert_to_openai(multipart)
     if messages:
-        return cast("ChatCompletionMessageParam", messages[0])
+        return messages[0]
     # Fallback for empty conversion
     return cast("ChatCompletionMessageParam", {"role": multipart.role, "content": ""})

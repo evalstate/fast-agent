@@ -9,7 +9,9 @@ import sys
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import (
+    AudioContent,
     CallToolResult,
+    ImageContent,
     SamplingMessage,
     TextContent,
     Tool,
@@ -24,6 +26,16 @@ logging.basicConfig(
     stream=sys.stderr,
 )
 logger = logging.getLogger("sampling_tools_test_server")
+
+type SamplingMessageContentBlock = (
+    TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent
+)
+
+
+def _sampling_content(*blocks: SamplingMessageContentBlock) -> list[SamplingMessageContentBlock]:
+    """Build list-valued sampling content with the full supported block union."""
+    return list(blocks)
+
 
 mcp = FastMCP("Sampling Tools Test Server", log_level="DEBUG")
 
@@ -147,14 +159,16 @@ async def test_tool_result_handling(ctx: Context) -> CallToolResult:
 
         if tool_uses:
             # Send follow-up with tool results
-            tool_results = [
-                ToolResultContent(
-                    type="tool_result",
-                    toolUseId=tu.id,
-                    content=[TextContent(type="text", text="echo: hello")],
+            tool_results = _sampling_content(
+                *(
+                    ToolResultContent(
+                        type="tool_result",
+                        toolUseId=tu.id,
+                        content=[TextContent(type="text", text="echo: hello")],
+                    )
+                    for tu in tool_uses
                 )
-                for tu in tool_uses
-            ]
+            )
 
             # Second request with tool results
             final_result = await ctx.session.create_message(

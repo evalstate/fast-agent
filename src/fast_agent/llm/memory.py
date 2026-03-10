@@ -1,4 +1,4 @@
-from typing import Generic, Protocol, TypeVar
+from typing import Any, Generic, Protocol, TypeVar, cast
 
 # Define our own type variable for implementation use
 MessageParamT = TypeVar("MessageParamT")
@@ -240,11 +240,13 @@ class SimpleMemory(Memory, Generic[MessageParamT]):
             if pos < len(messages):
                 message = messages[pos]
                 if isinstance(message, dict) and "content" in message:
-                    content_list = message["content"]
+                    message_dict = cast("dict[str, Any]", message)
+                    content_list = message_dict["content"]
                     if isinstance(content_list, list):
                         for content_block in content_list:
                             if isinstance(content_block, dict) and "cache_control" in content_block:
-                                del content_block["cache_control"]
+                                content_block_dict = cast("dict[str, Any]", content_block)
+                                del content_block_dict["cache_control"]
 
     def add_cache_control_to_messages(
         self, messages: list[MessageParamT], positions: list[int]
@@ -264,12 +266,14 @@ class SimpleMemory(Memory, Generic[MessageParamT]):
             if pos < len(messages):
                 message = messages[pos]
                 if isinstance(message, dict) and "content" in message:
-                    content_list = message["content"]
+                    message_dict = cast("dict[str, Any]", message)
+                    content_list = message_dict["content"]
                     if isinstance(content_list, list) and content_list:
                         # Apply cache control to the last content block
                         for content_block in reversed(content_list):
                             if isinstance(content_block, dict):
-                                content_block["cache_control"] = {"type": "ephemeral"}
+                                content_block_dict = cast("dict[str, Any]", content_block)
+                                content_block_dict["cache_control"] = {"type": "ephemeral"}
                                 applied_count += 1
                                 break
         return applied_count

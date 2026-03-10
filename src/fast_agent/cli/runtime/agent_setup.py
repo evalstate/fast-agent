@@ -831,10 +831,10 @@ async def run_agent_request(request: AgentRunRequest) -> None:
         _validate_target_agent_name(fast, request)
 
         class SilentFanInAgent(LlmAgent):
-            async def show_assistant_message(self, *args, **kwargs):  # type: ignore[override]
+            async def show_assistant_message(self, *args, **kwargs):
                 return None
 
-            def show_user_message(self, *args, **kwargs):  # type: ignore[override]
+            def show_user_message(self, *args, **kwargs):
                 return None
 
         @fast.custom(

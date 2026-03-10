@@ -169,7 +169,7 @@ async def test_attach_server_registers_runtime_server_before_prompt_discovery() 
     context = _build_context({})
 
     class _CapabilityAwareAggregator(MCPAggregator):
-        async def get_capabilities(self, server_name: str):  # type: ignore[override]
+        async def get_capabilities(self, server_name: str):
             del server_name
             return SimpleNamespace(tools=True, prompts=True, resources=False)
 

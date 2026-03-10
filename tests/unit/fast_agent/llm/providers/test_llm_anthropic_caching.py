@@ -20,6 +20,22 @@ from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.types import RequestParams
 
 
+def _content_dicts(message: BetaMessageParam) -> list[dict[str, object]]:
+    """Materialize dict-like content blocks for ad-hoc test assertions."""
+    content = message.get("content", [])
+    if isinstance(content, str):
+        return []
+    return [{str(key): value for key, value in block.items()} for block in content if isinstance(block, dict)]
+
+
+def _cache_control(block: dict[str, object]) -> dict[str, object] | None:
+    """Return a plain dict cache_control payload when present."""
+    cache_control = block.get("cache_control")
+    if isinstance(cache_control, dict):
+        return {str(key): value for key, value in cache_control.items()}
+    return None
+
+
 class TestAnthropicCaching:
     """Test cases for Anthropic caching functionality."""
 
@@ -110,23 +126,22 @@ class TestAnthropicCaching:
         # The last template message should have cache_control on its last block
         found_cache_control = False
         template_count = len(template_msgs)
-        for i, msg in enumerate(converted[:template_count]):  # First template_count are templates
-            if "content" in msg:
-                for block in msg["content"]:
-                    if isinstance(block, dict) and "cache_control" in block:
-                        found_cache_control = True
-                        assert block["cache_control"]["type"] == "ephemeral"
-                        assert block["cache_control"]["ttl"] == "5m"
+        for _i, msg in enumerate(converted[:template_count]):  # First template_count are templates
+            for block in _content_dicts(msg):
+                cache_control = _cache_control(block)
+                if cache_control is not None:
+                    found_cache_control = True
+                    assert cache_control["type"] == "ephemeral"
+                    assert cache_control["ttl"] == "5m"
 
         assert found_cache_control, "Template messages should have cache_control in 'prompt' mode"
 
         # Conversation message should NOT have cache_control
         conv_msg = converted[2]
-        for block in conv_msg.get("content", []):
-            if isinstance(block, dict):
-                assert "cache_control" not in block, (
-                    "Conversation messages should not have cache_control in 'prompt' mode"
-                )
+        for block in _content_dicts(conv_msg):
+            assert "cache_control" not in block, (
+                "Conversation messages should not have cache_control in 'prompt' mode"
+            )
 
     def test_conversion_auto_mode_templates_cached(self):
         """Test that template messages get cache_control in 'auto' mode."""
@@ -146,12 +161,12 @@ class TestAnthropicCaching:
         # Template message should have cache_control
         found_cache_control = False
         template_msg = converted[0]
-        if "content" in template_msg:
-            for block in template_msg["content"]:
-                if isinstance(block, dict) and "cache_control" in block:
-                    found_cache_control = True
-                    assert block["cache_control"]["type"] == "ephemeral"
-                    assert block["cache_control"]["ttl"] == "5m"
+        for block in _content_dicts(template_msg):
+            cache_control = _cache_control(block)
+            if cache_control is not None:
+                found_cache_control = True
+                assert cache_control["type"] == "ephemeral"
+                assert cache_control["ttl"] == "5m"
 
         assert found_cache_control, "Template messages should have cache_control in 'auto' mode"
 
@@ -175,12 +190,10 @@ class TestAnthropicCaching:
 
         # No messages should have cache_control
         for msg in converted:
-            if "content" in msg:
-                for block in msg["content"]:
-                    if isinstance(block, dict):
-                        assert "cache_control" not in block, (
-                            "No messages should have cache_control when cache_mode is 'off'"
-                        )
+            for block in _content_dicts(msg):
+                assert "cache_control" not in block, (
+                    "No messages should have cache_control when cache_mode is 'off'"
+                )
 
     def test_conversion_multiple_messages_structure(self):
         """Test that message structure is preserved during conversion."""
@@ -220,14 +233,14 @@ class TestAnthropicCaching:
         prepared = llm._build_request_messages(params, message_param, history=history)
 
         tool_blocks = [
-            block
+            {str(key): value for key, value in block.items()}
             for msg in prepared
             for block in msg.get("content", [])
             if isinstance(block, dict) and block.get("type") == "tool_result"
         ]
 
         assert len(tool_blocks) == 1
-        assert tool_blocks[0]["tool_use_id"] == tool_id
+        assert tool_blocks[0].get("tool_use_id") == tool_id
 
     def test_build_request_messages_includes_current_when_history_empty(self):
         """Fallback to the current message if history produced no entries."""
@@ -275,8 +288,8 @@ class TestAnthropicCaching:
 
         # Template should have cache_control
         found_cache_control = False
-        for block in converted[0].get("content", []):
-            if isinstance(block, dict) and "cache_control" in block:
+        for block in _content_dicts(converted[0]):
+            if _cache_control(block) is not None:
                 found_cache_control = True
 
         assert found_cache_control, "Template should have cache_control in 'prompt' mode"
@@ -340,12 +353,12 @@ class TestAnthropicCaching:
         found_1h_cache_control = False
         template_count = len(template_msgs)
         for msg in converted[:template_count]:
-            if "content" in msg:
-                for block in msg["content"]:
-                    if isinstance(block, dict) and "cache_control" in block:
-                        assert block["cache_control"]["type"] == "ephemeral"
-                        assert block["cache_control"]["ttl"] == "1h"
-                        found_1h_cache_control = True
+            for block in _content_dicts(msg):
+                cache_control = _cache_control(block)
+                if cache_control is not None:
+                    assert cache_control["type"] == "ephemeral"
+                    assert cache_control["ttl"] == "1h"
+                    found_1h_cache_control = True
 
         assert found_1h_cache_control, "Template messages should have cache_control with 1h TTL"
 
@@ -369,12 +382,12 @@ class TestAnthropicCaching:
         # Template message should have cache_control with 1h TTL
         found_1h_cache_control = False
         template_msg = converted[0]
-        if "content" in template_msg:
-            for block in template_msg["content"]:
-                if isinstance(block, dict) and "cache_control" in block:
-                    assert block["cache_control"]["type"] == "ephemeral"
-                    assert block["cache_control"]["ttl"] == "1h"
-                    found_1h_cache_control = True
+        for block in _content_dicts(template_msg):
+            cache_control = _cache_control(block)
+            if cache_control is not None:
+                assert cache_control["type"] == "ephemeral"
+                assert cache_control["ttl"] == "1h"
+                found_1h_cache_control = True
 
         assert found_1h_cache_control, "Template messages should have cache_control with 1h TTL in 'auto' mode"
 
@@ -390,10 +403,11 @@ class TestAnthropicCaching:
         converted = self._apply_cache_plan(template_msgs, cache_mode="prompt", cache_ttl=cache_ttl)
 
         # Find the cache_control and verify TTL
-        for block in converted[0].get("content", []):
-            if isinstance(block, dict) and "cache_control" in block:
-                assert block["cache_control"]["type"] == "ephemeral"
-                assert block["cache_control"]["ttl"] == cache_ttl
+        for block in _content_dicts(converted[0]):
+            cache_control = _cache_control(block)
+            if cache_control is not None:
+                assert cache_control["type"] == "ephemeral"
+                assert cache_control["ttl"] == cache_ttl
                 return
 
         pytest.fail(f"No cache_control found for TTL {cache_ttl}")

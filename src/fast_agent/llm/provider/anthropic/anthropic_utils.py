@@ -55,8 +55,10 @@ def anthropic_message_param_to_prompt_message_multipart(
                 # Image content
                 source = block.get("source", {})
                 if isinstance(source, dict) and source.get("type") == "base64":
-                    media_type = source.get("media_type", "image/png")
-                    data = source.get("data", "")
+                    media_type_raw = source.get("media_type", "image/png")
+                    data_raw = source.get("data", "")
+                    media_type = media_type_raw if isinstance(media_type_raw, str) else "image/png"
+                    data = data_raw if isinstance(data_raw, str) else ""
                     mcp_contents.append(ImageContent(type="image", data=data, mimeType=media_type))
 
     return PromptMessageExtended(role=role, content=mcp_contents)

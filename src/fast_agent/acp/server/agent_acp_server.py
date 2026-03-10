@@ -131,6 +131,10 @@ ACP_AUTH_RECOMMENDED_COMMANDS: tuple[str, ...] = (
 )
 
 
+def _coerce_registry_version(value: object) -> int:
+    return value if isinstance(value, int) else 0
+
+
 def _clear_current_task_cancellation_requests(*, session_id: str) -> int:
     """Clear latent cancellation requests on the active ACP prompt task."""
     task = asyncio.current_task()
@@ -325,7 +329,9 @@ class AgentACPServer(ACPAgent):
         )
         self._dump_agent_card_callback = dump_agent_card_callback
         self._reload_callback = reload_callback
-        self._primary_registry_version = getattr(primary_instance, "registry_version", 0)
+        self._primary_registry_version = _coerce_registry_version(
+            getattr(primary_instance, "registry_version", 0)
+        )
         self._shared_reload_lock = asyncio.Lock()
         self._stale_instances: list[AgentInstance] = []
         self.server_name = server_name
@@ -775,22 +781,22 @@ class AgentACPServer(ACPAgent):
         if self._active_prompts:
             return
 
-        latest_version = self._get_registry_version()
+        latest_version = _coerce_registry_version(self._get_registry_version())
         if latest_version <= self._primary_registry_version:
             return
 
         async with self._shared_reload_lock:
             if self._active_prompts:
                 return
-            latest_version = self._get_registry_version()
+            latest_version = _coerce_registry_version(self._get_registry_version())
             if latest_version <= self._primary_registry_version:
                 return
 
             new_instance = await self._create_instance_task()
             old_instance = self.primary_instance
             self.primary_instance = new_instance
-            self._primary_registry_version = getattr(
-                new_instance, "registry_version", latest_version
+            self._primary_registry_version = _coerce_registry_version(
+                getattr(new_instance, "registry_version", latest_version)
             )
             self._stale_instances.append(old_instance)
             self.primary_agent_name = self._select_primary_agent(new_instance)
@@ -809,10 +815,12 @@ class AgentACPServer(ACPAgent):
                 old_instance = self.primary_instance
                 self.primary_instance = new_instance
                 latest_version = (
-                    self._get_registry_version() if self._get_registry_version else None
+                    _coerce_registry_version(self._get_registry_version())
+                    if self._get_registry_version
+                    else 0
                 )
-                self._primary_registry_version = getattr(
-                    new_instance, "registry_version", latest_version
+                self._primary_registry_version = _coerce_registry_version(
+                    getattr(new_instance, "registry_version", latest_version)
                 )
                 self._stale_instances.append(old_instance)
                 self.primary_agent_name = self._select_primary_agent(new_instance)
@@ -827,7 +835,7 @@ class AgentACPServer(ACPAgent):
         if await_refresh_session_state:
             await self._refresh_session_state(session_state, instance)
         else:
-            self._refresh_session_state(session_state, instance)
+            asyncio.create_task(self._refresh_session_state(session_state, instance))
         if old_instance != self.primary_instance:
             try:
                 await self._dispose_instance_task(old_instance)
@@ -1476,7 +1484,7 @@ class AgentACPServer(ACPAgent):
                             timeout_seconds=getattr(
                                 agent._shell_runtime,
                                 "timeout_seconds",
-                                90,  # ty: ignore[unresolved-attribute]
+                                90,
                             ),
                             tool_handler=tool_handler,
                             default_output_byte_limit=default_limit,
@@ -1780,9 +1788,9 @@ class AgentACPServer(ACPAgent):
 
     async def load_session(
         self,
-        mcp_servers: list[HttpMcpServer | SseMcpServer | McpServerStdio],
+        cwd: str,
         session_id: str,
-        cwd: str | None = None,
+        mcp_servers: list[HttpMcpServer | SseMcpServer | McpServerStdio] | None = None,
         **kwargs: Any,
     ) -> LoadSessionResponse | None:
         """Load a saved session and stream history updates."""
@@ -1796,7 +1804,7 @@ class AgentACPServer(ACPAgent):
             name="acp_load_session",
             session_id=session_id,
             cwd=request_cwd,
-            mcp_server_count=len(mcp_servers),
+            mcp_server_count=len(mcp_servers or []),
         )
         async with self._session_lock:
             existing_session = session_id in self._session_state
@@ -1804,7 +1812,7 @@ class AgentACPServer(ACPAgent):
         session_state, session_modes = await self._initialize_session_state(
             session_id,
             cwd=request_cwd,
-            mcp_servers=mcp_servers,
+            mcp_servers=mcp_servers or [],
         )
 
         manager = get_session_manager(cwd=Path(request_cwd).expanduser().resolve())
@@ -1903,8 +1911,8 @@ class AgentACPServer(ACPAgent):
 
     async def resume_session(
         self,
+        cwd: str,
         session_id: str,
-        cwd: str | None = None,
         mcp_servers: list[HttpMcpServer | SseMcpServer | McpServerStdio] | None = None,
         **kwargs: Any,
     ) -> ResumeSessionResponse:
@@ -1924,8 +1932,8 @@ class AgentACPServer(ACPAgent):
 
     async def new_session(
         self,
-        mcp_servers: list[HttpMcpServer | SseMcpServer | McpServerStdio],
-        cwd: str | None = None,
+        cwd: str,
+        mcp_servers: list[HttpMcpServer | SseMcpServer | McpServerStdio] | None = None,
         **kwargs: Any,
     ) -> NewSessionResponse:
         """
@@ -1946,13 +1954,13 @@ class AgentACPServer(ACPAgent):
             session_id=session_id,
             instance_scope=self._instance_scope,
             cwd=request_cwd,
-            mcp_server_count=len(mcp_servers),
+            mcp_server_count=len(mcp_servers or []),
         )
 
         session_state, session_modes = await self._initialize_session_state(
             session_id,
             cwd=request_cwd,
-            mcp_servers=mcp_servers,
+            mcp_servers=mcp_servers or [],
         )
 
         logger.info(

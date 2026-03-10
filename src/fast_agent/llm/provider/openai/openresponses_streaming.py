@@ -20,7 +20,7 @@ else:
     try:  # OpenAI SDK versions may not include reasoning delta events yet.
         from openai.types.responses import ResponseReasoningDeltaStreamingEvent
     except Exception:  # pragma: no cover - fallback for older SDKs
-        class ResponseReasoningDeltaStreamingEvent:  # type: ignore[no-redef]
+        class ResponseReasoningDeltaStreamingEvent:
             pass
 
 

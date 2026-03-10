@@ -69,7 +69,7 @@ def _ensure_loaded(region: str | None = None) -> dict[str, ModelSummary]:
     try:
         client = boto3.client("bedrock", region_name=resolved_region)
         resp = client.list_foundation_models()
-        summaries: list[ModelSummary] = resp.get("modelSummaries", [])  # type: ignore[assignment]
+        summaries: list[ModelSummary] = resp.get("modelSummaries", [])
     except Exception as exc:  # keep error simple and actionable
         raise RuntimeError(
             f"Failed to list Bedrock foundation models in region '{resolved_region}'. "
@@ -140,8 +140,8 @@ def all_model_summaries(
                 continue
 
         # modalities
-        model_inputs: list[Modality] = summary.get("inputModalities", [])  # type: ignore[assignment]
-        model_outputs: list[Modality] = summary.get("outputModalities", [])  # type: ignore[assignment]
+        model_inputs: list[Modality] = summary.get("inputModalities", [])
+        model_outputs: list[Modality] = summary.get("outputModalities", [])
 
         if effective_input is not None and not _matches_modalities(model_inputs, effective_input):
             continue
@@ -149,7 +149,7 @@ def all_model_summaries(
             continue
 
         # inference types
-        model_inference: list[InferenceType] = summary.get("inferenceTypesSupported", [])  # type: ignore[assignment]
+        model_inference: list[InferenceType] = summary.get("inferenceTypesSupported", [])
         if effective_inference and not set(effective_inference).issubset(set(model_inference)):
             continue
 
