@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 from click.utils import strip_ansi
 from typer.testing import CliRunner
@@ -11,8 +11,9 @@ import fast_agent.cli.commands.skills as skills_command
 from fast_agent.cli.main import LAZY_SUBCOMMANDS
 from fast_agent.config import get_settings, update_global_settings
 
-if TYPE_CHECKING:
-    from pathlib import Path
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[4]
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -166,7 +167,7 @@ def test_top_level_env_flag_routes_to_skills_subcommand(tmp_path: Path) -> None:
         check=False,
         capture_output=True,
         text=True,
-        cwd="/home/ssmith/source/fast-agent",
+        cwd=_repo_root(),
     )
 
     assert result.returncode == 0, result.stderr
@@ -201,7 +202,7 @@ def test_local_skills_env_flag_routes_to_skills_subcommand(tmp_path: Path) -> No
         check=False,
         capture_output=True,
         text=True,
-        cwd="/home/ssmith/source/fast-agent",
+        cwd=_repo_root(),
     )
 
     assert result.returncode == 0, result.stderr
