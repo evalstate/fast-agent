@@ -1,7 +1,7 @@
 import asyncio
 from contextlib import AsyncExitStack
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from mcp import types
 from mcp.server.fastmcp import Context as MCPContext
@@ -31,7 +31,11 @@ class _DummyAgent:
         return None
 
 
-def _mcp_context(session: object) -> MCPContext:
+class _SessionWithExitStack(Protocol):
+    _exit_stack: AsyncExitStack
+
+
+def _mcp_context(session: _SessionWithExitStack) -> MCPContext:
     """Create a minimal typed MCP context for server instance-scoping tests."""
     request = SimpleNamespace(headers={})
     request_context = RequestContext(

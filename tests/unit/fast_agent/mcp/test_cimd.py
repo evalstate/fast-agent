@@ -2,8 +2,8 @@
 
 import socket
 import threading
-from collections.abc import Awaitable, Callable
-from typing import cast
+from collections.abc import Awaitable, Callable, Mapping
+from typing import TypeAlias, cast
 
 import pytest
 from pydantic import ValidationError
@@ -17,12 +17,14 @@ from fast_agent.mcp.oauth_client import (
     build_oauth_provider,
 )
 
+AsyncCallbackHandler: TypeAlias = Callable[[], Awaitable[object]]
 
-def _callback_handler(captured_kwargs: dict[str, object]) -> Callable[[], Awaitable[object]]:
+
+def _callback_handler(captured_kwargs: Mapping[str, object]) -> AsyncCallbackHandler:
     """Return the async callback handler captured from OAuthClientProvider kwargs."""
     callback_handler = captured_kwargs.get("callback_handler")
     assert callable(callback_handler)
-    return cast("Callable[[], Awaitable[object]]", callback_handler)
+    return cast("AsyncCallbackHandler", callback_handler)
 
 
 class TestCIMDConfigValidation:

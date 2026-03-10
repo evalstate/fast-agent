@@ -10,7 +10,7 @@ import asyncio
 import base64
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 import pytest
 from acp.helpers import text_block
@@ -43,7 +43,15 @@ def _prompt_blocks(*blocks: ACPContentBlock) -> list[ACPContentBlock]:
     return list(blocks)
 
 
-def _session_id(session_response: object) -> str:
+class _HasSessionId(Protocol):
+    session_id: str | None
+
+
+class _HasCamelSessionId(Protocol):
+    sessionId: str | None
+
+
+def _session_id(session_response: _HasSessionId | _HasCamelSessionId) -> str:
     """Extract and narrow the ACP session identifier."""
     session_id = getattr(session_response, "session_id", None) or getattr(
         session_response, "sessionId", None

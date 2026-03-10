@@ -1,5 +1,6 @@
 import pytest
 from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
+from openai.types.chat import ChatCompletionMessageParam
 
 from fast_agent.constants import REASONING
 from fast_agent.context import Context
@@ -9,7 +10,7 @@ from fast_agent.llm.request_params import RequestParams
 from fast_agent.types import PromptMessageExtended
 
 
-def _message_payload(message: object) -> dict[str, object]:
+def _message_payload(message: ChatCompletionMessageParam) -> dict[str, object]:
     """Materialize provider messages to a plain dict for ad-hoc test assertions."""
     assert isinstance(message, dict)
     return {str(key): value for key, value in message.items()}

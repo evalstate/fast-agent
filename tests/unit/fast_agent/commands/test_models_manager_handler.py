@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol, cast
 
 import pytest
 import yaml
@@ -26,9 +27,13 @@ class _StubAgentProvider:
             if not bool(getattr(getattr(agent, "config", None), "tool_only", False))
         ]
 
-    async def list_prompts(self, namespace: str | None, agent_name: str | None = None) -> object:
+    async def list_prompts(self, namespace: str | None, agent_name: str | None = None) -> dict[str, str]:
         del namespace, agent_name
         return {}
+
+
+class _HasText(Protocol):
+    text: object
 
 
 class _StubCommandIO:
@@ -42,10 +47,11 @@ class _StubCommandIO:
         self._text_responses = list(text_responses or [])
         self._selection_responses = list(selection_responses or [])
         self._model_selection_responses = list(model_selection_responses or [])
-        self.emitted_messages: list[object] = []
+        self.emitted_messages: list[_HasText] = []
 
-    async def emit(self, message) -> None:
-        self.emitted_messages.append(message)
+    async def emit(self, message: object) -> None:
+        assert hasattr(message, "text")
+        self.emitted_messages.append(cast("_HasText", message))
 
     async def prompt_text(
         self,
@@ -124,11 +130,9 @@ class _StubAgent:
         self.llm = _StubLlm(model_name=resolved_model) if resolved_model is not None else None
 
 
-def _message_text(message: object) -> str:
+def _message_text(message: _HasText) -> str:
     """Extract stringified message text from dynamically captured command IO output."""
-    text = getattr(message, "text", None)
-    assert text is not None
-    return str(text)
+    return str(message.text)
 
 
 def _write_yaml(path: Path, payload: dict) -> None:

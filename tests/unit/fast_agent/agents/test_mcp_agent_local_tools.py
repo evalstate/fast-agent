@@ -1,6 +1,6 @@
 import asyncio
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, TypedDict, cast
 
 import pytest
 from mcp.types import (
@@ -27,10 +27,16 @@ from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.console_display import ConsoleDisplay
 
 
+class _DisplayCall(TypedDict):
+    bottom_items: list[str] | None
+    highlight_index: int | None
+    additional_message: Text | None
+
+
 class CaptureDisplay(ConsoleDisplay):
     def __init__(self) -> None:
         super().__init__(config=None)
-        self.calls: list[dict[str, object]] = []
+        self.calls: list[_DisplayCall] = []
 
     async def show_assistant_message(
         self,
@@ -53,11 +59,10 @@ class CaptureDisplay(ConsoleDisplay):
         )
 
 
-def _bottom_items(call: dict[str, object]) -> list[str]:
-    bottom_items = call.get("bottom_items")
-    assert isinstance(bottom_items, list)
-    assert all(isinstance(item, str) for item in bottom_items)
-    return [item for item in bottom_items if isinstance(item, str)]
+def _bottom_items(call: _DisplayCall) -> list[str]:
+    bottom_items = call["bottom_items"]
+    assert bottom_items is not None
+    return bottom_items
 
 
 def _make_agent_config() -> AgentConfig:

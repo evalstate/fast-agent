@@ -1,5 +1,5 @@
 import json
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from typing import Any, Union
 
 from mcp.types import (
@@ -16,6 +16,9 @@ from openai.types.chat import (
     ChatCompletionToolMessageParam,
     ChatCompletionUserMessageParam,
 )
+from openai.types.chat.chat_completion_assistant_message_param import ContentArrayOfContentPart
+from openai.types.chat.chat_completion_tool_message_param import ChatCompletionContentPartTextParam
+from openai.types.chat.chat_completion_user_message_param import ChatCompletionContentPartParam
 
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.helpers.content_helpers import (
@@ -39,6 +42,10 @@ _logger = get_logger("multipart_converter_openai")
 # Define type aliases for content blocks
 ContentBlock = dict[str, Any]
 OpenAIMessage = dict[str, Any]
+type OpenAITextExtractableBlock = (
+    ChatCompletionContentPartParam | ContentArrayOfContentPart | ChatCompletionContentPartTextParam
+)
+type OpenAITextExtractableContent = str | Iterable[OpenAITextExtractableBlock] | None
 
 
 class OpenAIConverter:
@@ -414,7 +421,7 @@ class OpenAIConverter:
 
     @staticmethod
     def _extract_text_from_content_blocks(
-        content: object,
+        content: OpenAITextExtractableContent,
     ) -> str:
         """
         Extract and combine text from content blocks.
@@ -425,21 +432,18 @@ class OpenAIConverter:
         Returns:
             Combined text as a string
         """
+        if content is None:
+            return ""
         if isinstance(content, str):
             return content
 
-        if content is None:
-            return ""
-        if not isinstance(content, Iterable):
-            return "[Complex content converted to text]"
-
         # Extract only text blocks
-        text_parts = []
+        text_parts: list[str] = []
         for block in content:
-            if isinstance(block, dict):
-                block_dict = dict(block)
-                if block_dict.get("type") == "text":
-                    text_parts.append(block_dict.get("text", ""))
+            if isinstance(block, Mapping) and block.get("type") == "text":
+                text = block.get("text")
+                if isinstance(text, str):
+                    text_parts.append(text)
 
         return " ".join(text_parts) if text_parts else "[Complex content converted to text]"
 
