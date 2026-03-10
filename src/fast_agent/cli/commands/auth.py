@@ -8,6 +8,7 @@ from __future__ import annotations
 import typer
 from rich.table import Table
 
+from fast_agent.cli.display import print_detail_line, print_section_header
 from fast_agent.config import Settings, get_settings
 from fast_agent.core.keyring_utils import maybe_print_keyring_access_notice
 from fast_agent.mcp.oauth_client import (
@@ -25,6 +26,12 @@ app = typer.Typer(
         "(identity = base URL)."
     )
 )
+
+
+def _print_keyring_backend_status(*, backend: str, usable: bool) -> None:
+    value = backend if usable and backend != "unavailable" else "not available"
+    value_style = "green" if usable and backend != "unavailable" else "red"
+    print_detail_line(console, "keyring backend", value, value_style=value_style)
 
 
 def _get_keyring_status() -> tuple[str, bool]:
@@ -165,10 +172,7 @@ def status(
         token_disp = "[bold green]✓[/bold green]" if present else "[dim]✗[/dim]"
         table.add_row(identity, token_disp, servers_for_id)
 
-        if backend_usable and backend != "unavailable":
-            console.print(f"Keyring backend: [green]{backend}[/green]")
-        else:
-            console.print("Keyring backend: [red]not available[/red]")
+        _print_keyring_backend_status(backend=backend, usable=backend_usable)
         console.print(table)
         console.print(
             "\n[dim]Run 'fast-agent auth clear --identity "
@@ -177,10 +181,7 @@ def status(
         return
 
     # Full status view
-    if backend_usable and backend != "unavailable":
-        console.print(f"Keyring backend: [green]{backend}[/green]")
-    else:
-        console.print("Keyring backend: [red]not available[/red]")
+    _print_keyring_backend_status(backend=backend, usable=backend_usable)
 
     tokens = list_keyring_tokens()
     token_table = Table(show_header=True, box=None)
@@ -272,7 +273,7 @@ def status(
                 expires_display = "[green]unknown[/green]"
 
         codex_table.add_row("Token", token_display, expires_display)
-        console.print("\n[bold]Codex OAuth[/bold]")
+        print_section_header(console, "Codex OAuth", color="blue")
         console.print(codex_table)
     except Exception:
         pass

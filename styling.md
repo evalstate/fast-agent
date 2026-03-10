@@ -2,6 +2,12 @@
 
 This report summarizes how the fast-agent console UI is styled, where the styling rules live, and how they are applied across chat output, tool output, progress indicators, and auxiliary views.
 
+> Scope note:
+> most of this document is about the **interactive UI / message rendering**
+> pipeline. Top-level Typer CLI commands now share compact A3-inspired section
+> headers and plain detail-line helpers, but they do not universally follow the
+> interactive UI's bottom-metadata bullet-bar format.
+
 ## 1. Core primitives and configuration
 
 ### Message types and palette
@@ -68,6 +74,9 @@ Relevant methods:
 - **`a3` style:** compact, prefixed with `▎•` and bullet separators.
 - **`classic` style:** `─| ... |───` line with pipe separators.
 - `_format_bottom_metadata_compact()` and `_format_bottom_metadata()` handle layout and truncation.
+
+These footer-bar rules are for interactive message rendering. They should not be
+read as a requirement for top-level CLI summary/detail output.
 
 ## 3. Chat message display rules
 

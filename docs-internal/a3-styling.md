@@ -2,6 +2,14 @@
 
 The **A3** display style is a compact, inline console layout used by the interactive UI. It minimizes horizontal rules and keeps message metadata close to the header line.
 
+> Scope note:
+> this document describes the **interactive UI / chat message** A3 style.
+> It is **not** a complete style guide for top-level Typer CLI commands such as
+> `fast-agent skills`, `fast-agent cards`, or `fast-agent auth`.
+> Those commands use compact A3-inspired section headers, hints, tables, and
+> plain label/value detail lines, and do **not** necessarily use the interactive
+> UI's `▎• item • item` metadata pattern.
+
 ## Enable A3
 
 Set the logger style in your config:
@@ -29,7 +37,7 @@ A3 uses a single inline header line:
 
 ### Bottom metadata (compact)
 
-When metadata is shown, A3 uses a bullet list line:
+When metadata is shown in the interactive message UI, A3 uses a bullet list line:
 
 ```
 ▎• item • item • item
@@ -38,6 +46,9 @@ When metadata is shown, A3 uses a bullet list line:
 - Prefix: `▎• ` (dim)
 - Separator: ` • ` (dim)
 - Highlighted items use the message highlight color.
+
+This applies to interactive message metadata and related compact UI footers, not
+to every console surface in the repository.
 
 ### Shell exit codes
 
