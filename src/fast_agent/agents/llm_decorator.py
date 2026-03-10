@@ -788,6 +788,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         base_history = self._message_history if use_history else self._template_prefix_messages()
         full_history = [msg.model_copy(deep=True) for msg in base_history]
         full_history.extend(sanitized_messages)
+        full_history = self._merge_trailing_tool_result_turn(full_history)
 
         return _CallContext(
             full_history=full_history,
@@ -796,6 +797,43 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             sanitized_messages=sanitized_messages,
             summary=summary,
         )
+
+    @staticmethod
+    def _merge_trailing_tool_result_turn(
+        messages: list[PromptMessageExtended],
+    ) -> list[PromptMessageExtended]:
+        """Fold a resumed tool-result turn into the next user prompt for provider calls."""
+        if len(messages) < 2:
+            return messages
+
+        merged_messages = [msg.model_copy(deep=True) for msg in messages]
+        previous = merged_messages[-2]
+        current = merged_messages[-1]
+        if (
+            previous.role != "user"
+            or not previous.tool_results
+            or current.role != "user"
+            or current.tool_results
+        ):
+            return merged_messages
+
+        merged_channels: dict[str, list[ContentBlock]] = {}
+        for source in (previous.channels, current.channels):
+            if not source:
+                continue
+            for channel_name, blocks in source.items():
+                merged_channels.setdefault(channel_name, []).extend(blocks)
+
+        merged_messages[-2] = PromptMessageExtended(
+            role="user",
+            content=list(current.content),
+            tool_results=previous.tool_results,
+            channels=merged_channels or None,
+            phase=current.phase or previous.phase,
+            is_template=previous.is_template and current.is_template,
+        )
+        merged_messages.pop()
+        return merged_messages
 
     def _persist_history(
         self,

@@ -46,6 +46,7 @@ class HookContext:
     agent: MessageHistoryAgentProtocol
     message: PromptMessageExtended
     hook_type: str  # "before_llm_call", "after_llm_call", "after_turn_complete", etc.
+    message_history_override: list[PromptMessageExtended] | None = None
 
     @property
     def agent_name(self) -> str:
@@ -65,6 +66,8 @@ class HookContext:
     @property
     def message_history(self) -> list[PromptMessageExtended]:
         """Get the agent's current message history."""
+        if self.message_history_override is not None:
+            return self.message_history_override
         return self.agent.message_history
 
     @property

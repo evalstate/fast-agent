@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
 from fast_agent.context import get_current_context
@@ -11,8 +12,20 @@ from fast_agent.session import extract_session_title, get_session_manager
 if TYPE_CHECKING:
     from fast_agent.hooks.hook_context import HookContext
     from fast_agent.interfaces import AgentProtocol
+    from fast_agent.types import PromptMessageExtended
 
 logger = get_logger(__name__)
+
+
+@dataclass
+class _SessionHistoryAgentProxy:
+    """Delegate agent metadata while exposing a snapshot history for persistence."""
+
+    agent: AgentProtocol
+    message_history: list["PromptMessageExtended"]
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self.agent, name)
 
 
 async def save_session_history(ctx: "HookContext") -> None:
@@ -30,6 +43,10 @@ async def save_session_history(ctx: "HookContext") -> None:
         return
 
     manager = get_session_manager()
+    history_agent = _SessionHistoryAgentProxy(
+        agent=cast("AgentProtocol", ctx.agent),
+        message_history=ctx.message_history,
+    )
     acp_session_id = None
     agent_context = getattr(ctx.agent, "context", None)
     acp_context = getattr(agent_context, "acp", None) if agent_context else None
@@ -58,7 +75,7 @@ async def save_session_history(ctx: "HookContext") -> None:
     previous_title = extract_session_title(session.info.metadata) if session else None
 
     try:
-        await manager.save_current_session(cast("AgentProtocol", ctx.agent))
+        await manager.save_current_session(cast("AgentProtocol", history_agent))
     except Exception as exc:
         logger.warning(
             "Failed to save session history",

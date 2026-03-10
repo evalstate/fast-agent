@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 from mcp import CallToolRequest
-from mcp.types import CallToolRequestParams, Tool
+from mcp.types import CallToolRequestParams, CallToolResult, Tool
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.tool_agent import ToolAgent
@@ -11,6 +11,7 @@ from fast_agent.config import get_settings, update_global_settings
 from fast_agent.core.prompt import Prompt
 from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.request_params import RequestParams
+from fast_agent.mcp.helpers.content_helpers import get_text, text_content
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompts.prompt_load import load_prompt
 from fast_agent.session import get_session_manager, reset_session_manager
@@ -110,6 +111,62 @@ class CancelledStopReasonLlm(PassthroughLLM):
             )
 
         return Prompt.assistant("", stop_reason=LlmStopReason.CANCELLED)
+
+
+class ExplodingSecondTurnLlm(PassthroughLLM):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._turn = 0
+
+    async def _apply_prompt_provider_specific(
+        self,
+        multipart_messages: list[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+        is_template: bool = False,
+    ) -> PromptMessageExtended:
+        self._turn += 1
+        if self._turn == 1:
+            tool_calls = {
+                "explode_call": CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(name="ok_tool", arguments={}),
+                )
+            }
+            return Prompt.assistant(
+                "use tool",
+                stop_reason=LlmStopReason.TOOL_USE,
+                tool_calls=tool_calls,
+            )
+
+        raise RuntimeError("llm boom")
+
+
+class ContinuedToolResultLlm(PassthroughLLM):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.seen_last_message: PromptMessageExtended | None = None
+
+    async def _apply_prompt_provider_specific(
+        self,
+        multipart_messages: list[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+        is_template: bool = False,
+    ) -> PromptMessageExtended:
+        self.seen_last_message = multipart_messages[-1].model_copy(deep=True)
+        tool_result_text = " ".join(
+            (get_text(tool_result.content[0]) or "")
+            for tool_result in (self.seen_last_message.tool_results or {}).values()
+            if tool_result.content
+        )
+        combined_text = "\n".join(
+            text for text in [tool_result_text, self.seen_last_message.all_text()] if text
+        )
+        return Prompt.assistant(
+            combined_text,
+            stop_reason=LlmStopReason.END_TURN,
+        )
 
 
 @pytest.mark.unit
@@ -284,6 +341,54 @@ async def test_generate_auto_heals_stale_pending_tool_call_with_interrupted_mark
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_generate_continues_from_staged_tool_result_history() -> None:
+    llm = ContinuedToolResultLlm()
+    agent = ToolAgent(AgentConfig("staged-tool-result"), [ok_tool])
+    agent._llm = llm
+
+    pending_tool_call = CallToolRequest(
+        method="tools/call",
+        params=CallToolRequestParams(name="ok_tool", arguments={}),
+    )
+    agent.load_message_history(
+        [
+            Prompt.user("hello"),
+            Prompt.assistant(
+                "pending",
+                stop_reason=LlmStopReason.TOOL_USE,
+                tool_calls={"call-1": pending_tool_call},
+            ),
+            PromptMessageExtended(
+                role="user",
+                content=[text_content("ok")],
+                tool_results={
+                    "call-1": CallToolResult(content=[text_content("ok")]),
+                },
+            ),
+        ]
+    )
+
+    result = await agent.generate("new turn")
+
+    assert result.stop_reason == LlmStopReason.END_TURN
+    assert result.last_text() == "ok\nnew turn"
+    assert llm.seen_last_message is not None
+    assert llm.seen_last_message.tool_results is not None
+    assert "call-1" in llm.seen_last_message.tool_results
+    assert llm.seen_last_message.all_text() == "new turn"
+
+    history = agent.message_history
+    assert len(history) == 5
+    assert history[2].role == "user"
+    resumed_results = history[2].tool_results
+    assert resumed_results is not None
+    assert "call-1" in resumed_results
+    assert resumed_results["call-1"].isError in (False, None)
+    assert history[2].last_text() == "ok"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_cancelled_turn_is_persisted_to_session_history(tmp_path) -> None:
     old_settings = get_settings()
     override = old_settings.model_copy(update={"environment_dir": str(tmp_path / "env")})
@@ -375,5 +480,127 @@ async def test_externally_cancelled_turn_is_persisted_to_session_history(tmp_pat
         assert "The user interrupted this tool call" in saved_text
     finally:
         release_tool.set()
+        update_global_settings(old_settings)
+        reset_session_manager()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_unhandled_after_llm_hook_error_persists_tool_loop_history(tmp_path) -> None:
+    old_settings = get_settings()
+    override = old_settings.model_copy(update={"environment_dir": str(tmp_path / "env")})
+    update_global_settings(override)
+    reset_session_manager()
+
+    try:
+        llm = CancelledStopReasonLlm()
+        agent = ToolAgent(AgentConfig("after-llm-hook-persist"), [ok_tool])
+        agent._llm = llm
+
+        async def after_llm_call(_runner, _message) -> None:
+            raise RuntimeError("after llm boom")
+
+        agent.tool_runner_hooks = ToolRunnerHooks(after_llm_call=after_llm_call)
+
+        with pytest.raises(RuntimeError, match="after llm boom"):
+            await agent.generate("trigger")
+
+        manager = get_session_manager()
+        session = manager.current_session
+        assert session is not None
+
+        history_path = session.latest_history_path(agent.name)
+        assert history_path is not None
+        assert history_path.exists()
+
+        saved_messages = load_prompt(history_path)
+        assert saved_messages
+        assert saved_messages[-1].role == "assistant"
+        assert saved_messages[-1].stop_reason == LlmStopReason.TOOL_USE
+    finally:
+        update_global_settings(old_settings)
+        reset_session_manager()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_second_llm_error_after_tool_use_persists_resumable_checkpoint(tmp_path) -> None:
+    old_settings = get_settings()
+    override = old_settings.model_copy(update={"environment_dir": str(tmp_path / "env")})
+    update_global_settings(override)
+    reset_session_manager()
+
+    try:
+        llm = ExplodingSecondTurnLlm()
+        agent = ToolAgent(AgentConfig("checkpointed-mid-loop"), [ok_tool])
+        agent._llm = llm
+
+        with pytest.raises(RuntimeError, match="llm boom"):
+            await agent.generate("trigger")
+
+        manager = get_session_manager()
+        session = manager.current_session
+        assert session is not None
+
+        history_path = session.latest_history_path(agent.name)
+        assert history_path is not None
+        assert history_path.exists()
+
+        saved_messages = load_prompt(history_path)
+        assert saved_messages
+        assert saved_messages[-1].role == "user"
+        assert saved_messages[-1].tool_results is not None
+        assert "explode_call" in saved_messages[-1].tool_results
+        saved_result = saved_messages[-1].tool_results["explode_call"]
+        assert len(saved_result.content) == 1
+        assert saved_result.content[0].text == "ok"
+    finally:
+        update_global_settings(old_settings)
+        reset_session_manager()
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_resumed_tool_result_history_does_not_rerun_completed_tool(tmp_path) -> None:
+    old_settings = get_settings()
+    override = old_settings.model_copy(update={"environment_dir": str(tmp_path / "env")})
+    update_global_settings(override)
+    reset_session_manager()
+
+    tool_runs = 0
+
+    async def ok_tool() -> str:
+        nonlocal tool_runs
+        tool_runs += 1
+        return f"ok {tool_runs}"
+
+    try:
+        exploding_llm = ExplodingSecondTurnLlm()
+        agent = ToolAgent(AgentConfig("checkpointed-side-effect"), [ok_tool])
+        agent._llm = exploding_llm
+
+        with pytest.raises(RuntimeError, match="llm boom"):
+            await agent.generate("trigger")
+
+        assert tool_runs == 1
+
+        resumed_llm = ContinuedToolResultLlm()
+        resumed_agent = ToolAgent(AgentConfig("checkpointed-side-effect"), [ok_tool])
+        resumed_agent._llm = resumed_llm
+
+        manager = get_session_manager()
+        resumed = manager.resume_session(resumed_agent)
+        assert resumed is not None
+
+        result = await resumed_agent.generate("after resume")
+
+        assert result.stop_reason == LlmStopReason.END_TURN
+        assert result.last_text() == "ok 1\nafter resume"
+        assert tool_runs == 1
+        assert resumed_llm.seen_last_message is not None
+        assert resumed_llm.seen_last_message.tool_results is not None
+        assert "explode_call" in resumed_llm.seen_last_message.tool_results
+        assert resumed_llm.seen_last_message.all_text() == "after resume"
+    finally:
         update_global_settings(old_settings)
         reset_session_manager()
