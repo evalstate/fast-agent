@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import shlex
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -14,6 +13,11 @@ from fast_agent.commands.handlers._text_formatting import append_heading, append
 from fast_agent.commands.results import CommandMessage, CommandOutcome
 from fast_agent.core.instruction_refresh import rebuild_agent_instruction
 from fast_agent.skills import SKILLS_DEFAULT
+from fast_agent.skills.command_support import (
+    filter_marketplace_skills,
+    marketplace_repository_hint,
+    skills_usage_lines,
+)
 from fast_agent.skills.manager import (
     SkillUpdateInfo,
     apply_skill_updates,
@@ -24,7 +28,6 @@ from fast_agent.skills.manager import (
     format_marketplace_display_url,
     format_revision_short,
     format_skill_provenance_details,
-    get_manager_directory,
     get_marketplace_url,
     install_marketplace_skill,
     list_local_skills,
@@ -33,6 +36,7 @@ from fast_agent.skills.manager import (
     remove_local_skill,
     resolve_skill_directories,
     resolve_skill_registries,
+    resolve_skills_management_scope,
     select_manifest_by_name_or_index,
     select_skill_by_name_or_index,
     select_skill_updates,
@@ -46,6 +50,8 @@ if TYPE_CHECKING:
 
 
 _parse_update_argument = parse_update_argument
+
+
 def _append_manifest_entry(content: Text, manifest: SkillManifest, index: int) -> None:
     entry = Text()
     entry.append(f"[{index:2}] ", style="dim cyan")
@@ -179,7 +185,7 @@ def _format_marketplace_skills(marketplace: Sequence[object]) -> Text:
         content.append("\n")
 
         if description:
-                append_wrapped_text(content, str(description), indent="     ")
+            append_wrapped_text(content, str(description), indent="     ")
         if source_url:
             content.append("     ", style="dim")
             content.append(f"source: {source_url}", style="dim green")
@@ -189,55 +195,9 @@ def _format_marketplace_skills(marketplace: Sequence[object]) -> Text:
     return content
 
 
-def _skills_usage_lines() -> list[str]:
-    return [
-        "Usage: /skills [list|available|search|add|remove|update|registry|help] [args]",
-        "",
-        "Examples:",
-        "- /skills available",
-        "- /skills search docker",
-        "- /skills add <number|name>",
-        "- /skills registry",
-    ]
-
-
 def _is_help_flag(value: str | None) -> bool:
     token = (value or "").strip().lower()
     return token in {"help", "--help", "-h"}
-
-
-def _marketplace_search_tokens(query: str) -> list[str]:
-    try:
-        tokens = shlex.split(query)
-    except ValueError:
-        tokens = query.split()
-    return [token.lower() for token in tokens if token.strip()]
-
-
-def _filter_marketplace_skills(marketplace: Sequence[object], query: str) -> list[object]:
-    tokens = _marketplace_search_tokens(query)
-    if not tokens:
-        return list(marketplace)
-
-    filtered: list[object] = []
-    for entry in marketplace:
-        haystack = " ".join(
-            str(getattr(entry, attr, ""))
-            for attr in ("name", "description", "bundle_name", "bundle_description")
-        ).lower()
-        if all(token in haystack for token in tokens):
-            filtered.append(entry)
-    return filtered
-
-
-def _marketplace_repository_hint(marketplace: Sequence[object]) -> str | None:
-    if not marketplace:
-        return None
-    repo_url = getattr(marketplace[0], "repo_url", None)
-    if not repo_url:
-        return None
-    repo_ref = getattr(marketplace[0], "repo_ref", None)
-    return f"{repo_url}@{repo_ref}" if repo_ref else str(repo_url)
 
 
 def _format_install_result(skill_name: str, install_path: Path) -> Text:
@@ -250,6 +210,8 @@ def _format_install_result(skill_name: str, install_path: Path) -> Text:
     content.append("\n")
     content.append(f"location: {display_path}", style="dim green")
     return content
+
+
 def _format_update_results(updates: Sequence[SkillUpdateInfo], *, title: str) -> Text:
     content = Text()
     append_heading(content, title)
@@ -387,12 +349,13 @@ async def handle_list_skills(ctx: CommandContext, *, agent_name: str) -> Command
     outcome = CommandOutcome()
 
     settings = ctx.resolve_settings()
-    directories = order_skill_directories_for_display(
-        resolve_skill_directories(settings),
+    management_scope = resolve_skills_management_scope(settings)
+    discovered_directories = order_skill_directories_for_display(
+        management_scope.discovered_directories,
         settings=settings,
     )
     manifests_by_dir: dict[Path, list[SkillManifest]] = {}
-    for directory in directories:
+    for directory in discovered_directories:
         manifests_by_dir[directory] = list_local_skills(directory) if directory.exists() else []
 
     outcome.add_message(
@@ -501,7 +464,7 @@ async def handle_set_skills_registry(
 def handle_skills_help(*, agent_name: str) -> CommandOutcome:
     outcome = CommandOutcome()
     outcome.add_message(
-        "\n".join(_skills_usage_lines()),
+        "\n".join(skills_usage_lines()),
         right_info="skills",
         agent_name=agent_name,
     )
@@ -529,7 +492,7 @@ async def handle_list_marketplace_skills(
 
     selected_marketplace: Sequence[object] = marketplace
     if query and query.strip():
-        selected_marketplace = _filter_marketplace_skills(marketplace, query)
+        selected_marketplace = filter_marketplace_skills(marketplace, query)
 
     content = Text()
     heading = "Marketplace skills:"
@@ -537,7 +500,7 @@ async def handle_list_marketplace_skills(
         heading = f"Marketplace skills (search: {query.strip()}):"
     append_heading(content, heading)
 
-    repo_hint = _marketplace_repository_hint(marketplace)
+    repo_hint = marketplace_repository_hint(marketplace)
     if repo_hint:
         content.append_text(
             Text(
@@ -584,7 +547,8 @@ async def handle_add_skill(
 ) -> CommandOutcome:
     outcome = CommandOutcome()
 
-    manager_dir = get_manager_directory()
+    management_scope = resolve_skills_management_scope(ctx.resolve_settings())
+    managed_skills_dir = management_scope.managed_directory
     marketplace_url = get_marketplace_url(ctx.resolve_settings())
     try:
         marketplace = await fetch_marketplace_skills(marketplace_url)
@@ -600,7 +564,7 @@ async def handle_add_skill(
     if not selection:
         content = Text()
         append_heading(content, "Marketplace skills:")
-        repo_hint = _marketplace_repository_hint(marketplace)
+        repo_hint = marketplace_repository_hint(marketplace)
         if repo_hint:
             content.append_text(
                 Text(
@@ -661,7 +625,10 @@ async def handle_add_skill(
         return outcome
 
     try:
-        install_path = await install_marketplace_skill(skill, destination_root=manager_dir)
+        install_path = await install_marketplace_skill(
+            skill,
+            destination_root=managed_skills_dir,
+        )
     except Exception as exc:  # noqa: BLE001
         outcome.add_message(f"Failed to install skill: {exc}", channel="error")
         return outcome
@@ -684,8 +651,9 @@ async def handle_remove_skill(
 ) -> CommandOutcome:
     outcome = CommandOutcome()
 
-    manager_dir = get_manager_directory()
-    manifests = list_local_skills(manager_dir)
+    management_scope = resolve_skills_management_scope(ctx.resolve_settings())
+    managed_skills_dir = management_scope.managed_directory
+    manifests = list_local_skills(managed_skills_dir)
     if not manifests:
         outcome.add_message("No local skills to remove.", channel="warning")
         return outcome
@@ -693,7 +661,7 @@ async def handle_remove_skill(
     selection = argument
     if not selection:
         content = Text()
-        append_heading(content, f"Skills in {manager_dir}:")
+        append_heading(content, f"Skills in {managed_skills_dir}:")
         for index, manifest in enumerate(manifests, 1):
             _append_manifest_entry(content, manifest, index)
 
@@ -724,7 +692,7 @@ async def handle_remove_skill(
 
     try:
         skill_dir = Path(manifest.path).parent
-        remove_local_skill(skill_dir, destination_root=manager_dir)
+        remove_local_skill(skill_dir, destination_root=managed_skills_dir)
     except Exception as exc:  # noqa: BLE001
         outcome.add_message(f"Failed to remove skill: {exc}", channel="error")
         return outcome
@@ -752,8 +720,9 @@ async def handle_update_skill(
         outcome.add_message(parse_error, channel="error")
         return outcome
 
-    manager_dir = get_manager_directory()
-    updates = check_skill_updates(destination_root=manager_dir)
+    management_scope = resolve_skills_management_scope(ctx.resolve_settings())
+    managed_skills_dir = management_scope.managed_directory
+    updates = check_skill_updates(destination_root=managed_skills_dir)
 
     if selector is None:
         outcome.add_message(
@@ -852,7 +821,7 @@ async def handle_skills_command(
         agent_name=agent_name,
     )
     outcome.add_message(
-        "\n".join(_skills_usage_lines()),
+        "\n".join(skills_usage_lines()),
         channel="info",
         right_info="skills",
         agent_name=agent_name,

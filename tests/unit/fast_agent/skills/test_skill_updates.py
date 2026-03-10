@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 from typing import TYPE_CHECKING
 
-from fast_agent.config import get_settings
+from fast_agent.config import SkillsSettings, get_settings
 from fast_agent.skills import manager
 
 if TYPE_CHECKING:
@@ -240,6 +240,40 @@ def test_order_skill_directories_for_display_puts_manager_dir_last(tmp_path: Pat
     )
 
     assert ordered == [agents_dir, claude_dir, manager_dir]
+
+
+def test_resolve_skills_management_scope_uses_override_for_management_only(tmp_path: Path) -> None:
+    configured_dir = (tmp_path / "project-skills").resolve()
+    override_dir = (tmp_path / "managed-skills").resolve()
+    settings = get_settings().model_copy(
+        update={
+            "environment_dir": str(tmp_path / ".fast-agent"),
+            "skills": SkillsSettings(directories=[str(configured_dir)]),
+        }
+    )
+
+    scope = manager.resolve_skills_management_scope(
+        settings,
+        cwd=tmp_path,
+        managed_directory_override=override_dir,
+    )
+
+    assert scope.management_source == "override"
+    assert scope.managed_directory == override_dir
+    assert scope.discovered_directories == [configured_dir, override_dir]
+
+
+def test_get_manager_directory_accepts_explicit_management_override(tmp_path: Path) -> None:
+    settings = get_settings().model_copy(update={"environment_dir": str(tmp_path / ".fast-agent")})
+    override_dir = tmp_path / "skills-manager"
+
+    managed_dir = manager.get_manager_directory(
+        settings,
+        cwd=tmp_path,
+        managed_directory_override=override_dir,
+    )
+
+    assert managed_dir == override_dir.resolve()
 
 
 def test_resolve_source_revision_prefers_peeled_annotated_tag_commit(monkeypatch) -> None:

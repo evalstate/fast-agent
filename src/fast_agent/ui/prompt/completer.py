@@ -421,8 +421,8 @@ class AgentCompleter(Completer):
         from fast_agent.skills.manager import get_manager_directory, read_installed_skill_source
         from fast_agent.skills.registry import SkillRegistry
 
-        manager_dir = get_manager_directory()
-        manifests = SkillRegistry.load_directory(manager_dir)
+        managed_skills_dir = get_manager_directory()
+        manifests = SkillRegistry.load_directory(managed_skills_dir)
         if not manifests:
             return
 

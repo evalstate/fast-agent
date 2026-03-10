@@ -20,57 +20,35 @@ from fast_agent.commands.renderers.skills_markdown import (
 from fast_agent.config import get_settings
 from fast_agent.core.instruction_refresh import rebuild_agent_instruction
 from fast_agent.skills import SKILLS_DEFAULT
+from fast_agent.skills.command_support import (
+    filter_marketplace_skills,
+    marketplace_repository_hint,
+    skills_usage_lines,
+)
 from fast_agent.skills.manager import (
     candidate_marketplace_urls,
     fetch_marketplace_skills,
     fetch_marketplace_skills_with_source,
     format_marketplace_display_url,
-    get_manager_directory,
     get_marketplace_url,
     list_local_skills,
     order_skill_directories_for_display,
     reload_skill_manifests,
     resolve_skill_directories,
     resolve_skill_registries,
+    resolve_skills_management_scope,
 )
 from fast_agent.skills.registry import format_skills_for_prompt
+
+
+def _skills_usage_text() -> str:
+    return "\n".join(skills_usage_lines())
+
 
 if TYPE_CHECKING:
     from fast_agent.acp.command_io import ACPCommandIO
     from fast_agent.acp.slash_commands import SlashCommandHandler
     from fast_agent.interfaces import AgentProtocol
-    from fast_agent.skills.manager import MarketplaceSkill
-
-
-def _skills_usage_text() -> str:
-    return (
-        "Usage: /skills [list|available|search|add|remove|update|registry|help] [args]\n\n"
-        "Examples:\n"
-        "- /skills available\n"
-        "- /skills search docker\n"
-        "- /skills add <number|name>\n"
-        "- /skills registry"
-    )
-
-
-def _marketplace_search_tokens(query: str) -> list[str]:
-    return [token.lower() for token in query.split() if token.strip()]
-
-
-def _filter_marketplace(marketplace: list[MarketplaceSkill], query: str) -> list[MarketplaceSkill]:
-    tokens = _marketplace_search_tokens(query)
-    if not tokens:
-        return marketplace
-
-    filtered: list[MarketplaceSkill] = []
-    for entry in marketplace:
-        haystack = " ".join(
-            str(getattr(entry, attr, ""))
-            for attr in ("name", "description", "bundle_name", "bundle_description")
-        ).lower()
-        if all(token in haystack for token in tokens):
-            filtered.append(entry)
-    return filtered
 
 
 async def handle_skills_available(
@@ -93,9 +71,9 @@ async def handle_skills_available(
     if not marketplace:
         return f"# {heading}\n\nNo skills found in the marketplace."
 
-    selected_marketplace: list[MarketplaceSkill] = list(marketplace)
+    selected_marketplace = list(marketplace)
     if query and query.strip():
-        selected_marketplace = _filter_marketplace(list(marketplace), query)
+        selected_marketplace = filter_marketplace_skills(marketplace, query)
         if not selected_marketplace:
             return (
                 "# skills search\n\n"
@@ -104,10 +82,9 @@ async def handle_skills_available(
             )
 
     repository = display_url
-    repo_url = getattr(marketplace[0], "repo_url", None)
-    if repo_url:
-        repo_ref = getattr(marketplace[0], "repo_ref", None)
-        repository = f"{repo_url}@{repo_ref}" if repo_ref else repo_url
+    repo_hint = marketplace_repository_hint(marketplace)
+    if repo_hint:
+        repository = repo_hint
 
     rendered = render_marketplace_skills(
         selected_marketplace,
@@ -246,11 +223,15 @@ async def handle_skills_registry(handler: "SlashCommandHandler", argument: str) 
 
 def handle_skills_list(handler: "SlashCommandHandler") -> str:
     settings = get_settings()
-    directories = order_skill_directories_for_display(
-        resolve_skill_directories(settings),
+    management_scope = resolve_skills_management_scope(settings)
+    discovered_directories = order_skill_directories_for_display(
+        management_scope.discovered_directories,
         settings=settings,
     )
-    all_manifests = {directory: list_local_skills(directory) if directory.exists() else [] for directory in directories}
+    all_manifests = {
+        directory: list_local_skills(directory) if directory.exists() else []
+        for directory in discovered_directories
+    }
     response = render_skills_by_directory(all_manifests, heading="skills", cwd=Path.cwd())
     override_section = skills_override_section(handler)
     if override_section:
@@ -392,11 +373,12 @@ async def handle_skills_remove(handler: "SlashCommandHandler", argument: str) ->
 
     argument_value = argument.strip() or None
     if not argument_value:
-        manager_dir = get_manager_directory()
-        manifests = list_local_skills(manager_dir)
+        management_scope = resolve_skills_management_scope(get_settings())
+        managed_skills_dir = management_scope.managed_directory
+        manifests = list_local_skills(managed_skills_dir)
         return render_skills_remove_list(
             heading="skills remove",
-            manager_dir=manager_dir,
+            manager_dir=managed_skills_dir,
             manifests=manifests,
             cwd=Path.cwd(),
         )

@@ -10,6 +10,7 @@ import typer.main
 from typer.core import TyperGroup
 
 from fast_agent.cli.constants import normalize_resume_flag_args
+from fast_agent.cli.display import print_section_header
 from fast_agent.cli.env_helpers import resolve_environment_dir_option
 from fast_agent.cli.terminal import Application
 from fast_agent.constants import FAST_AGENT_SHELL_CHILD_ENV
@@ -22,6 +23,7 @@ LAZY_SUBCOMMANDS: dict[str, str] = {
     "scaffold": "fast_agent.cli.commands.setup:app",
     "check": "fast_agent.cli.commands.check_config:app",
     "cards": "fast_agent.cli.commands.cards:app",
+    "skills": "fast_agent.cli.commands.skills:app",
     "config": "fast_agent.cli.commands.config:app",
     "model": "fast_agent.cli.commands.model:app",
     "auth": "fast_agent.cli.commands.auth:app",
@@ -71,31 +73,14 @@ def show_welcome() -> None:
     from importlib.metadata import version
 
     from rich.table import Table
-    from rich.text import Text
 
     try:
         app_version = version("fast-agent-mcp")
     except:  # noqa: E722
         app_version = "unknown"
 
-    # Header in the same style used by check/console_display
-    def _print_section_header(title: str, color: str = "blue") -> None:
-        width = console.size.width
-        left = f"[{color}]▎[/{color}][dim {color}]▶[/dim {color}] [{color}]{title}[/{color}]"
-        left_text = Text.from_markup(left)
-        separator_count = max(1, width - left_text.cell_len - 1)
-
-        combined = Text()
-        combined.append_text(left_text)
-        combined.append(" ")
-        combined.append("─" * separator_count, style="dim")
-
-        console.print()
-        console.print(combined)
-        console.print()
-
     header_title = f"fast-agent v{app_version}"
-    _print_section_header(header_title, color="blue")
+    print_section_header(console, header_title, color="blue")
 
     # Commands list (no boxes), matching updated check styling
     table = Table(show_header=True, box=None)
@@ -107,6 +92,7 @@ def show_welcome() -> None:
     table.add_row("[bold]serve[/bold]", "Start fast-agent as an MCP server")
     table.add_row("check", "Show current configuration")
     table.add_row("cards", "Manage card packs (list/add/remove/update/publish)")
+    table.add_row("skills", "Manage skills (list/available/search/add/remove/update)")
     table.add_row("config", "Configure settings interactively (shell, model)")
     table.add_row("auth", "Manage OAuth tokens in the OS keyring for MCP servers")
     table.add_row("scaffold", "Create agent template and configuration")

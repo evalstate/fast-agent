@@ -98,7 +98,8 @@ def test_cards_add_and_remove_via_cli(tmp_path: Path) -> None:
             ["--registry", marketplace_path.as_posix(), "add", "alpha"],
         )
         assert add_result.exit_code == 0, add_result.output
-        assert "Installed card pack: alpha" in add_result.output
+        assert "Card Pack Installed" in add_result.output
+        assert "name: alpha" in add_result.output
         assert (env_root / "agent-cards" / "alpha.md").exists()
 
         list_result = runner.invoke(cards_command.app, ["list"])
@@ -107,7 +108,8 @@ def test_cards_add_and_remove_via_cli(tmp_path: Path) -> None:
 
         remove_result = runner.invoke(cards_command.app, ["remove", "alpha"])
         assert remove_result.exit_code == 0, remove_result.output
-        assert "Removed card pack: alpha" in remove_result.output
+        assert "Card Pack Removed" in remove_result.output
+        assert "name: alpha" in remove_result.output
         assert not (env_root / "agent-cards" / "alpha.md").exists()
     finally:
         update_global_settings(old_settings)
@@ -201,7 +203,8 @@ def test_cards_add_uses_configured_marketplace_urls_by_default(tmp_path: Path) -
         add_result = runner.invoke(cards_command.app, ["add", "alpha"])
 
         assert add_result.exit_code == 0, add_result.output
-        assert "Installed card pack: alpha" in add_result.output
+        assert "Card Pack Installed" in add_result.output
+        assert "name: alpha" in add_result.output
         assert (env_root / "agent-cards" / "alpha.md").exists()
     finally:
         update_global_settings(old_settings)
