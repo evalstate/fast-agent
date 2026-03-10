@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING, Iterable, Literal
 
 from rich.text import Text
 
@@ -12,6 +12,9 @@ from fast_agent.ui import console
 if TYPE_CHECKING:
     from fast_agent.mcp.mcp_aggregator import ServerStatus
     from fast_agent.mcp.transport_tracking import ChannelSnapshot
+
+
+type CapabilityState = bool | Literal["blue", "red", "warn"]
 
 
 # Centralized color configuration
@@ -304,7 +307,7 @@ def _format_capability_shorthand(
     instructions_available = bool(status.instructions_available)
     instructions_enabled = status.instructions_enabled
 
-    entries = [
+    entries: list[tuple[str, CapabilityState, bool]] = [
         ("To", _cap_attr(tools, None), _cap_attr(tools, "listChanged")),
         ("Pr", _cap_attr(prompts, None), _cap_attr(prompts, "listChanged")),
         (

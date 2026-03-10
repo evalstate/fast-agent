@@ -33,6 +33,7 @@ from fast_agent.mcp.prompts.prompt_constants import (
     RESOURCE_DELIMITER,
     USER_DELIMITER,
 )
+from fast_agent.mcp.resource_utils import to_any_url
 from fast_agent.types import PromptMessageExtended
 
 # -------------------------------------------------------------------------
@@ -458,7 +459,7 @@ def delimited_format_to_extended_messages(
                     resource = EmbeddedResource(
                         type="resource",
                         resource=TextResourceContents(
-                            uri=resource_uri,
+                            uri=to_any_url(resource_uri),
                             mimeType="text/plain",
                             text="",  # Legacy format doesn't include content
                         ),

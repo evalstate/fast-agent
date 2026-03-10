@@ -58,7 +58,7 @@ from fast_agent.ui.enhanced_prompt import (
     set_last_copyable_output,
 )
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
-from fast_agent.ui.interactive_shell import run_interactive_shell_command
+from fast_agent.ui.interactive_shell import ShellExecutionResult, run_interactive_shell_command
 from fast_agent.ui.progress_display import progress_display
 from fast_agent.ui.prompt.resource_mentions import (
     build_prompt_with_resources,
@@ -69,6 +69,7 @@ from fast_agent.ui.prompt_marks import emit_prompt_mark
 
 # Type alias for the send function
 SendFunc = Callable[[Union[str, PromptMessage, PromptMessageExtended], str], Awaitable[str]]
+type PromptLoopResult = str | ShellExecutionResult
 
 # Type alias for the agent getter function
 AgentGetter = Callable[[str], object | None]
@@ -150,7 +151,7 @@ class InteractivePrompt:
         pinned_agent: str | None = None,
         default: str = "",
         quiet_send_func: SendFunc | None = None,
-    ) -> str:
+    ) -> PromptLoopResult:
         """
         Start an interactive prompt session.
 
@@ -195,7 +196,7 @@ class InteractivePrompt:
 
         display = ConsoleDisplay(config=get_settings())
 
-        result = ""
+        result: PromptLoopResult = ""
         buffer_prefill = ""  # One-off buffer content for # command results
         ctrl_c_exit_window_seconds = 2.0
         ctrl_c_deadline: float | None = None

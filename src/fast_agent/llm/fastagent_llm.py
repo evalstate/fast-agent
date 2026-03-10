@@ -1177,7 +1177,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         from fast_agent.llm.provider_key_manager import ProviderKeyManager
 
         assert self.provider
-        return ProviderKeyManager.get_api_key(self.provider.value, self.context.config)
+        return ProviderKeyManager.get_api_key(self.provider.config_name, self.context.config)
 
     @property
     def usage_accumulator(self):

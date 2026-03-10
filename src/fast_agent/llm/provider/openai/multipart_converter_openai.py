@@ -1,4 +1,5 @@
 import json
+from collections.abc import Iterable
 from typing import Any, Union
 
 from mcp.types import (
@@ -287,7 +288,7 @@ class OpenAIConverter:
         if hasattr(content, "annotations") and content.annotations:
             if hasattr(content.annotations, "detail"):
                 detail = content.annotations.detail
-                if detail in ("auto", "low", "high"):
+                if isinstance(detail, str) and detail in ("auto", "low", "high"):
                     image_url["detail"] = detail
 
         return {"type": "image_url", "image_url": image_url}
@@ -413,7 +414,7 @@ class OpenAIConverter:
 
     @staticmethod
     def _extract_text_from_content_blocks(
-        content: Union[str, list[ContentBlock]],
+        content: object,
     ) -> str:
         """
         Extract and combine text from content blocks.
@@ -427,14 +428,18 @@ class OpenAIConverter:
         if isinstance(content, str):
             return content
 
-        if not content:
+        if content is None:
             return ""
+        if not isinstance(content, Iterable):
+            return "[Complex content converted to text]"
 
         # Extract only text blocks
         text_parts = []
         for block in content:
-            if block.get("type") == "text":
-                text_parts.append(block.get("text", ""))
+            if isinstance(block, dict):
+                block_dict = dict(block)
+                if block_dict.get("type") == "text":
+                    text_parts.append(block_dict.get("text", ""))
 
         return " ".join(text_parts) if text_parts else "[Complex content converted to text]"
 

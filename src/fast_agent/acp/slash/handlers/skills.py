@@ -7,7 +7,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 from acp.helpers import text_block, tool_content
-from acp.schema import ToolCallProgress, ToolCallStart
+from acp.schema import (
+    ContentToolCallContent,
+    FileEditToolCallContent,
+    TerminalToolCallContent,
+    ToolCallProgress,
+    ToolCallStart,
+)
 
 from fast_agent.commands.handlers import skills as skills_handlers
 from fast_agent.commands.renderers.skills_markdown import (
@@ -483,7 +489,10 @@ async def send_skills_update(
                     session_update="tool_call",
                 )
             )
-        content = [tool_content(text_block(message))] if message else None
+        content: (
+            list[ContentToolCallContent | FileEditToolCallContent | TerminalToolCallContent]
+            | None
+        ) = [tool_content(text_block(message))] if message else None
         await acp.send_session_update(
             ToolCallProgress(
                 tool_call_id=tool_call_id,

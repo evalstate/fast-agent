@@ -919,8 +919,11 @@ def show_check_summary(env_dir: Path | None = None) -> None:
 
     # Determine keyring backend early so it can appear in the top section
     # Also detect whether the backend is actually writable (not just present)
+    keyring: Any | None
     try:
-        import keyring
+        import keyring as keyring_module
+
+        keyring = keyring_module
     except Exception:
         keyring = None
 

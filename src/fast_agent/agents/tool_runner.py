@@ -11,7 +11,7 @@ from typing import (
     Union,
 )
 
-from mcp.types import CallToolResult, ListToolsResult, TextContent
+from mcp.types import CallToolResult, ContentBlock, ListToolsResult, TextContent
 
 from fast_agent.constants import (
     DEFAULT_MAX_ITERATIONS,
@@ -559,7 +559,9 @@ class ToolRunner:
             for content in tool_result.content
         ]
 
-        channels = {FAST_AGENT_SYNTHETIC_FINAL_CHANNEL: [text_content("tool_result_passthrough")]}
+        channels: dict[str, list[ContentBlock]] = {
+            FAST_AGENT_SYNTHETIC_FINAL_CHANNEL: [text_content("tool_result_passthrough")]
+        }
         if self._last_message is not None and self._last_message.channels:
             usage_blocks = self._last_message.channels.get(FAST_AGENT_USAGE)
             if usage_blocks:

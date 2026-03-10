@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from mcp.types import (
+    ContentBlock,
     EmbeddedResource,
     TextContent,
     TextResourceContents,
@@ -180,10 +181,12 @@ class PromptTemplate:
         content_sections = self.apply_substitutions(context)
 
         # Convert content sections to multipart messages
-        multiparts = []
+        multiparts: list[PromptMessageExtended] = []
         for section in content_sections:
             # Handle text content
-            content_items = [TextContent(type="text", text=section.text)]
+            content_items: list[ContentBlock] = [
+                TextContent(type="text", text=section.text)
+            ]
 
             # Handle resources (if any)
             for resource_path in section.resources:
@@ -217,11 +220,13 @@ class PromptTemplate:
         Returns:
             List of PromptMessageExtended objects
         """
-        multiparts = []
+        multiparts: list[PromptMessageExtended] = []
 
         for section in self._parsed_content:
             # Convert each section to a multipart message
-            content_items = [TextContent(type="text", text=section.text)]
+            content_items: list[ContentBlock] = [
+                TextContent(type="text", text=section.text)
+            ]
 
             # Add any resources as embedded resources
             for resource_path in section.resources:
@@ -261,8 +266,8 @@ class PromptTemplate:
             return [PromptContent(text=self.template_text, role="user", resources=[])]
 
         # Standard mode with delimiters
-        sections = []
-        current_role = None
+        sections: list[PromptContent] = []
+        current_role: MessageRole | None = None
         current_content = ""
         current_resources = []
         preamble_lines: list[str] = []
@@ -299,7 +304,7 @@ class PromptTemplate:
                         )
 
                     # Start a new section
-                    current_role = role_type
+                    current_role = cast("MessageRole", role_type)
                     current_content = ""
                     current_resources = []
 

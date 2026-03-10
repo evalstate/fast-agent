@@ -7,7 +7,13 @@ import shlex
 from typing import TYPE_CHECKING, cast
 
 from acp.helpers import text_block, tool_content
-from acp.schema import ToolCallProgress, ToolCallStart
+from acp.schema import (
+    ContentToolCallContent,
+    FileEditToolCallContent,
+    TerminalToolCallContent,
+    ToolCallProgress,
+    ToolCallStart,
+)
 
 from fast_agent.commands.handlers import mcp_runtime as mcp_runtime_handlers
 
@@ -113,7 +119,14 @@ async def handle_mcp(handler: "SlashCommandHandler", arguments: str | None = Non
             if handler._acp_context is None:
                 return
             try:
-                content = [tool_content(text_block(message))] if message else None
+                content: (
+                    list[
+                        ContentToolCallContent
+                        | FileEditToolCallContent
+                        | TerminalToolCallContent
+                    ]
+                    | None
+                ) = [tool_content(text_block(message))] if message else None
                 await handler._acp_context.send_session_update(
                     ToolCallProgress(
                         tool_call_id=tool_call_id,

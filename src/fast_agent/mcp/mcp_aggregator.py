@@ -2187,7 +2187,7 @@ class MCPAggregator(ContextDependent):
                             )
 
             # Try to get the prompt from the specified server
-            method_args = {"name": local_prompt_name} if local_prompt_name else {}
+            method_args: dict[str, Any] = {"name": local_prompt_name} if local_prompt_name else {}
             if arguments:
                 method_args["arguments"] = arguments
 
@@ -2235,7 +2235,7 @@ class MCPAggregator(ContextDependent):
                     continue
 
                 try:
-                    method_args = {"name": local_prompt_name}
+                    method_args: dict[str, Any] = {"name": local_prompt_name}
                     if arguments:
                         method_args["arguments"] = arguments
 
@@ -2283,7 +2283,7 @@ class MCPAggregator(ContextDependent):
             for s_name in supported_servers:
                 try:
                     # Use a quiet approach - don't log errors if not found
-                    method_args = {"name": local_prompt_name}
+                    method_args: dict[str, Any] = {"name": local_prompt_name}
                     if arguments:
                         method_args["arguments"] = arguments
 

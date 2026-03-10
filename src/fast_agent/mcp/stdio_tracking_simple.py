@@ -47,8 +47,12 @@ async def tracking_stdio_client(
         emit_channel_event("connect")
 
         # Use the original stdio_client without stream interception
-        async with stdio_client(server_params, errlog=errlog) as (read_stream, write_stream):
-            yield read_stream, write_stream
+        if errlog is None:
+            async with stdio_client(server_params) as (read_stream, write_stream):
+                yield read_stream, write_stream
+        else:
+            async with stdio_client(server_params, errlog=errlog) as (read_stream, write_stream):
+                yield read_stream, write_stream
 
     except Exception as exc:
         # Emit error event

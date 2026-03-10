@@ -10,7 +10,12 @@ from typing import TYPE_CHECKING, Any, Iterable
 import frontmatter
 import yaml
 
-from fast_agent.agents.agent_types import AgentConfig, AgentType, MCPConnectTarget
+from fast_agent.agents.agent_types import (
+    AgentConfig,
+    AgentType,
+    FunctionToolConfig,
+    MCPConnectTarget,
+)
 from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION, SMART_AGENT_INSTRUCTION
 from fast_agent.core.direct_decorators import _resolve_instruction
 from fast_agent.core.exceptions import AgentConfigError
@@ -491,7 +496,7 @@ def _build_agent_data(
 
     # Parse function_tools - can be a string or list of strings
     function_tools_raw = raw.get("function_tools")
-    function_tools = None
+    function_tools: list[FunctionToolConfig] | None = None
     if function_tools_raw is not None:
         if isinstance(function_tools_raw, str):
             function_tools = [function_tools_raw]

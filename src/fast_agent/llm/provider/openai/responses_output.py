@@ -152,7 +152,9 @@ class ResponsesOutputMixin:
 
         unique_phases = set(phases)
         message_phase = phases[0] if len(unique_phases) == 1 else None
-        blocks = [TextContent(type="text", text=json.dumps(payload)) for payload in serialized_items]
+        blocks: list[ContentBlock] = [
+            TextContent(type="text", text=json.dumps(payload)) for payload in serialized_items
+        ]
         return blocks, message_phase
 
     def _record_usage(self, usage: Any, model_name: str) -> None:
