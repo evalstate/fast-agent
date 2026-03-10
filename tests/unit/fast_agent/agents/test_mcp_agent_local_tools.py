@@ -95,7 +95,7 @@ def _stub_llm_factory(model_name: str):
 
 @pytest.mark.asyncio
 async def test_local_tools_listed_and_callable() -> None:
-    calls: list[dict[str, Any]] = []
+    calls: list[dict[str, str]] = []
 
     def sample_tool(video_id: str) -> str:
         calls.append({"video_id": video_id})
@@ -522,7 +522,7 @@ async def test_acp_filesystem_runtime_injection_replaces_local_runtime_tools() -
 
         async def read_text_file(
             self,
-            arguments: dict[str, Any] | None = None,
+            arguments: dict[str, object] | None = None,
             tool_use_id: str | None = None,
         ) -> CallToolResult:
             del arguments, tool_use_id
@@ -530,7 +530,7 @@ async def test_acp_filesystem_runtime_injection_replaces_local_runtime_tools() -
 
         async def write_text_file(
             self,
-            arguments: dict[str, Any] | None = None,
+            arguments: dict[str, object] | None = None,
             tool_use_id: str | None = None,
         ) -> CallToolResult:
             del arguments, tool_use_id
@@ -539,7 +539,7 @@ async def test_acp_filesystem_runtime_injection_replaces_local_runtime_tools() -
                 isError=True,
             )
 
-        def metadata(self) -> dict[str, Any]:
+        def metadata(self) -> dict[str, object]:
             return {"variant": "acp_filesystem", "tools": ["read_text_file"]}
 
     config = AgentConfig(name="test", instruction="Instruction", servers=[], shell=True)
@@ -576,11 +576,11 @@ async def test_unprefixed_read_text_file_routes_to_namespaced_mcp_when_local_fs_
                     inputSchema={"type": "object", "properties": {"path": {"type": "string"}}},
                 )
             ]
-            self.read_calls: list[dict[str, Any] | None] = []
+            self.read_calls: list[dict[str, object] | None] = []
 
         async def read_text_file(
             self,
-            arguments: dict[str, Any] | None = None,
+            arguments: dict[str, object] | None = None,
             tool_use_id: str | None = None,
         ) -> CallToolResult:
             del tool_use_id
@@ -589,7 +589,7 @@ async def test_unprefixed_read_text_file_routes_to_namespaced_mcp_when_local_fs_
 
         async def write_text_file(
             self,
-            arguments: dict[str, Any] | None = None,
+            arguments: dict[str, object] | None = None,
             tool_use_id: str | None = None,
         ) -> CallToolResult:
             del arguments, tool_use_id
@@ -598,7 +598,7 @@ async def test_unprefixed_read_text_file_routes_to_namespaced_mcp_when_local_fs_
                 isError=True,
             )
 
-        def metadata(self) -> dict[str, Any]:
+        def metadata(self) -> dict[str, object]:
             return {"variant": "local_filesystem"}
 
     config = AgentConfig(name="test", instruction="Instruction", servers=[], shell=False)
@@ -631,10 +631,10 @@ async def test_unprefixed_read_text_file_routes_to_namespaced_mcp_when_local_fs_
 
     async def fake_call_tool(
         name: str,
-        arguments: dict[str, Any] | None = None,
+        arguments: dict[str, object] | None = None,
         tool_use_id: str | None = None,
         *,
-        request_tool_handler: Any | None = None,
+        request_tool_handler: object | None = None,
     ) -> CallToolResult:
         del arguments, tool_use_id, request_tool_handler
         mcp_calls.append(name)
@@ -694,11 +694,11 @@ async def test_unprefixed_write_text_file_routes_to_namespaced_mcp_when_local_fs
                     },
                 )
             ]
-            self.write_calls: list[dict[str, Any] | None] = []
+            self.write_calls: list[dict[str, object] | None] = []
 
         async def read_text_file(
             self,
-            arguments: dict[str, Any] | None = None,
+            arguments: dict[str, object] | None = None,
             tool_use_id: str | None = None,
         ) -> CallToolResult:
             del arguments, tool_use_id
@@ -709,14 +709,14 @@ async def test_unprefixed_write_text_file_routes_to_namespaced_mcp_when_local_fs
 
         async def write_text_file(
             self,
-            arguments: dict[str, Any] | None = None,
+            arguments: dict[str, object] | None = None,
             tool_use_id: str | None = None,
         ) -> CallToolResult:
             del tool_use_id
             self.write_calls.append(arguments)
             return CallToolResult(content=[TextContent(type="text", text="local")], isError=False)
 
-        def metadata(self) -> dict[str, Any]:
+        def metadata(self) -> dict[str, object]:
             return {"variant": "local_filesystem"}
 
     config = AgentConfig(name="test", instruction="Instruction", servers=[], shell=False)
@@ -755,10 +755,10 @@ async def test_unprefixed_write_text_file_routes_to_namespaced_mcp_when_local_fs
 
     async def fake_call_tool(
         name: str,
-        arguments: dict[str, Any] | None = None,
+        arguments: dict[str, object] | None = None,
         tool_use_id: str | None = None,
         *,
-        request_tool_handler: Any | None = None,
+        request_tool_handler: object | None = None,
     ) -> CallToolResult:
         del arguments, tool_use_id, request_tool_handler
         mcp_calls.append(name)
@@ -940,7 +940,7 @@ async def test_shell_call_forwards_parallel_display_flags() -> None:
 
         async def execute(
             self,
-            arguments: dict[str, Any] | None = None,
+            arguments: dict[str, object] | None = None,
             tool_use_id: str | None = None,
             *,
             show_tool_call_id: bool = False,
@@ -995,7 +995,7 @@ async def test_parallel_shell_results_display_in_tool_call_order() -> None:
 
         async def execute(
             self,
-            arguments: dict[str, Any] | None = None,
+            arguments: dict[str, object] | None = None,
             tool_use_id: str | None = None,
             *,
             show_tool_call_id: bool = False,
@@ -1019,11 +1019,13 @@ async def test_parallel_shell_results_display_in_tool_call_order() -> None:
             self.result_ids: list[str | None] = []
             self.result_text: list[str] = []
 
-        def show_tool_call(self, *args: Any, **kwargs: Any) -> None:
+        def show_tool_call(self, *args: object, **kwargs: object) -> None:
             return None
 
-        def show_tool_result(self, *args: Any, **kwargs: Any) -> None:
-            self.result_ids.append(kwargs.get("tool_call_id"))
+        def show_tool_result(self, *args: object, **kwargs: object) -> None:
+            tool_call_id = kwargs.get("tool_call_id")
+            assert tool_call_id is None or isinstance(tool_call_id, str)
+            self.result_ids.append(tool_call_id)
             result = kwargs.get("result")
             if isinstance(result, CallToolResult) and result.content:
                 block = result.content[0]
@@ -1074,7 +1076,7 @@ async def test_read_text_file_tool_call_header_is_suppressed() -> None:
 
         async def read_text_file(
             self,
-            arguments: dict[str, Any] | None = None,
+            arguments: dict[str, object] | None = None,
             tool_use_id: str | None = None,
         ) -> CallToolResult:
             del arguments, tool_use_id
@@ -1085,7 +1087,7 @@ async def test_read_text_file_tool_call_header_is_suppressed() -> None:
 
         async def write_text_file(
             self,
-            arguments: dict[str, Any] | None = None,
+            arguments: dict[str, object] | None = None,
             tool_use_id: str | None = None,
         ) -> CallToolResult:
             del arguments, tool_use_id
@@ -1094,7 +1096,7 @@ async def test_read_text_file_tool_call_header_is_suppressed() -> None:
                 isError=True,
             )
 
-        def metadata(self) -> dict[str, Any]:
+        def metadata(self) -> dict[str, object]:
             return {"variant": "local_filesystem"}
 
     class RecordingDisplay:
@@ -1102,11 +1104,11 @@ async def test_read_text_file_tool_call_header_is_suppressed() -> None:
             self.tool_call_count = 0
             self.result_count = 0
 
-        def show_tool_call(self, *args: Any, **kwargs: Any) -> None:
+        def show_tool_call(self, *args: object, **kwargs: object) -> None:
             del args, kwargs
             self.tool_call_count += 1
 
-        def show_tool_result(self, *args: Any, **kwargs: Any) -> None:
+        def show_tool_result(self, *args: object, **kwargs: object) -> None:
             del args, kwargs
             self.result_count += 1
 
@@ -1151,7 +1153,7 @@ async def test_parallel_read_text_file_results_use_file_read_label_without_ids()
 
         async def read_text_file(
             self,
-            arguments: dict[str, Any] | None = None,
+            arguments: dict[str, object] | None = None,
             tool_use_id: str | None = None,
         ) -> CallToolResult:
             del arguments, tool_use_id
@@ -1162,7 +1164,7 @@ async def test_parallel_read_text_file_results_use_file_read_label_without_ids()
 
         async def write_text_file(
             self,
-            arguments: dict[str, Any] | None = None,
+            arguments: dict[str, object] | None = None,
             tool_use_id: str | None = None,
         ) -> CallToolResult:
             del arguments, tool_use_id
@@ -1171,7 +1173,7 @@ async def test_parallel_read_text_file_results_use_file_read_label_without_ids()
                 isError=True,
             )
 
-        def metadata(self) -> dict[str, Any]:
+        def metadata(self) -> dict[str, object]:
             return {"variant": "local_filesystem"}
 
     class RecordingDisplay:
@@ -1180,11 +1182,11 @@ async def test_parallel_read_text_file_results_use_file_read_label_without_ids()
             self.result_type_labels: list[str | None] = []
             self.results: list[CallToolResult] = []
 
-        def show_tool_call(self, *args: Any, **kwargs: Any) -> None:
+        def show_tool_call(self, *args: object, **kwargs: object) -> None:
             del args, kwargs
             return None
 
-        def show_tool_result(self, *args: Any, **kwargs: Any) -> None:
+        def show_tool_result(self, *args: object, **kwargs: object) -> None:
             self.results.append(cast("CallToolResult", kwargs["result"]))
             self.result_tool_call_ids.append(cast("str | None", kwargs.get("tool_call_id")))
             self.result_type_labels.append(cast("str | None", kwargs.get("type_label")))
