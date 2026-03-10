@@ -2,9 +2,7 @@
 Utilities for rendering PromptMessageExtended objects for display.
 """
 
-from typing import cast
-
-from mcp.types import BlobResourceContents, EmbeddedResource, ImageContent, TextResourceContents
+from mcp.types import BlobResourceContents, TextResourceContents
 
 from fast_agent.mcp.helpers.content_helpers import (
     get_resource_uri,
@@ -40,7 +38,7 @@ def render_multipart_message(message: PromptMessageExtended) -> str:
 
         elif is_image_content(content):
             # Format details about the image
-            image = cast("ImageContent", content)
+            image = content
             image_data = image.data
             data_size = len(image_data) if image_data else 0
             mime_type = image.mimeType
@@ -50,7 +48,7 @@ def render_multipart_message(message: PromptMessageExtended) -> str:
         elif is_resource_content(content):
             # Handle embedded resources
             uri = get_resource_uri(content)
-            embedded = cast("EmbeddedResource", content)
+            embedded = content
             resource = embedded.resource
 
             if isinstance(resource, TextResourceContents):

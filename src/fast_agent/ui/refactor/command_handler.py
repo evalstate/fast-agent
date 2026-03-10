@@ -28,7 +28,7 @@ class CommandHandler:
 
     async def handle(
         self, payload: CommandPayload, agent: str, prompt_provider, display
-    ) -> None:  # type: ignore[type-arg]
+    ) -> None:
         """Handle a parsed CommandPayload for read-only commands.
 
         Currently supports: /prompts, /tools, /skills. Others will raise

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from rich import print as rich_print
 
@@ -35,7 +35,7 @@ def handle_special_commands(
         return False
 
     if is_command_payload(command):
-        return cast("CommandPayload", command)
+        return command
 
     available = available_agents or set()
 

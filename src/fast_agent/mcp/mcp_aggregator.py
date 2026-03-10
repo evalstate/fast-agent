@@ -1299,7 +1299,7 @@ class MCPAggregator(ContextDependent):
                             session_id = server_conn.session_id
                             if not session_id and server_conn._get_session_id_cb:
                                 try:
-                                    session_id = server_conn._get_session_id_cb()  # type: ignore[attr-defined]
+                                    session_id = server_conn._get_session_id_cb()
                                 except Exception:
                                     session_id = None
                             if not session_id and isinstance(session_cookie, dict):
@@ -1371,7 +1371,7 @@ class MCPAggregator(ContextDependent):
                         session_id = "local"
                     elif server_conn and server_conn._get_session_id_cb:
                         try:
-                            session_id = server_conn._get_session_id_cb()  # type: ignore[attr-defined]
+                            session_id = server_conn._get_session_id_cb()
                         except Exception:
                             session_id = None
 

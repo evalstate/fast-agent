@@ -56,7 +56,7 @@ class InferenceProviderLookupResult(BaseModel):
     providers: list[InferenceProvider] = Field(default_factory=list)
     error: str | None = None
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
     @property
     def has_providers(self) -> bool:
         """Return True if the model has any live inference providers."""

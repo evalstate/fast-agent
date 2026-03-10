@@ -20,7 +20,7 @@ import time
 from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Union, cast
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Union
 
 from mcp.types import PromptMessage
 from rich import print as rich_print
@@ -45,7 +45,6 @@ from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui import enhanced_prompt
 from fast_agent.ui.command_payloads import (
-    CommandPayload,
     InterruptCommand,
     ShellCommand,
     is_command_payload,
@@ -512,7 +511,7 @@ class InteractivePrompt:
 
             # Check if we should switch agents
             if is_command_payload(command_result):
-                command_payload: CommandPayload = cast("CommandPayload", command_result)
+                command_payload = command_result
                 from fast_agent.ui.interactive.command_dispatch import dispatch_command_payload
 
                 try:

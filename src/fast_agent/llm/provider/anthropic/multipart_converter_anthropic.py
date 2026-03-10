@@ -449,8 +449,8 @@ class AnthropicConverter:
                     anthropic_blocks.append(TextBlockParam(type="text", text=text))
 
             elif is_image_content(content_item):
-                # Handle image content - cast needed for ty type narrowing
-                image_content = cast("ImageContent", content_item)
+                # Handle image content
+                image_content = content_item
                 mime_type = image_content.mimeType or ""
                 # Check if image MIME type is supported
                 if not AnthropicConverter._is_supported_image_type(mime_type):
@@ -479,10 +479,8 @@ class AnthropicConverter:
                         )
 
             elif is_resource_content(content_item):
-                # Handle embedded resource - cast needed for ty type narrowing
-                block = AnthropicConverter._convert_embedded_resource(
-                    cast("EmbeddedResource", content_item), document_mode
-                )
+                # Handle embedded resource
+                block = AnthropicConverter._convert_embedded_resource(content_item, document_mode)
                 anthropic_blocks.append(block)
 
         return anthropic_blocks

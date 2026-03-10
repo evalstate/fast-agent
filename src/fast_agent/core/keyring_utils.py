@@ -88,7 +88,7 @@ def get_keyring_status() -> KeyringStatus:
         name = getattr(backend, "name", backend.__class__.__name__)
         available = True
         try:
-            from keyring.backends.fail import Keyring as FailKeyring  # type: ignore
+            from keyring.backends.fail import Keyring as FailKeyring
 
             available = not isinstance(backend, FailKeyring)
         except Exception:

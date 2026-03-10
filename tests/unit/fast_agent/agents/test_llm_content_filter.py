@@ -77,7 +77,7 @@ def make_decorator(model_name: str = "passthrough") -> tuple[LlmDecorator, Recor
     config = AgentConfig(name="tester", model=model_name)
     decorator = LlmDecorator(config=config)
     stub = RecordingStubLLM(model_name=model_name)
-    decorator._llm = stub  # type: ignore[attr-defined]
+    decorator._llm = stub
     return decorator, stub
 
 

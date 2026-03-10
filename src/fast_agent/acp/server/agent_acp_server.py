@@ -1476,7 +1476,7 @@ class AgentACPServer(ACPAgent):
                             timeout_seconds=getattr(
                                 agent._shell_runtime,
                                 "timeout_seconds",
-                                90,  # ty: ignore[unresolved-attribute]
+                                90,
                             ),
                             tool_handler=tool_handler,
                             default_output_byte_limit=default_limit,

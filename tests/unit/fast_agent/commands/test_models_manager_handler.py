@@ -44,7 +44,7 @@ class _StubCommandIO:
         self._model_selection_responses = list(model_selection_responses or [])
         self.emitted_messages: list[object] = []
 
-    async def emit(self, message) -> None:  # type: ignore[no-untyped-def]
+    async def emit(self, message) -> None:
         self.emitted_messages.append(message)
 
     async def prompt_text(
@@ -93,16 +93,16 @@ class _StubCommandIO:
         del arg_name, description, required
         return None
 
-    async def display_history_turn(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+    async def display_history_turn(self, *args, **kwargs) -> None:
         del args, kwargs
 
-    async def display_history_overview(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+    async def display_history_overview(self, *args, **kwargs) -> None:
         del args, kwargs
 
-    async def display_usage_report(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+    async def display_usage_report(self, *args, **kwargs) -> None:
         del args, kwargs
 
-    async def display_system_prompt(self, *args, **kwargs) -> None:  # type: ignore[no-untyped-def]
+    async def display_system_prompt(self, *args, **kwargs) -> None:
         del args, kwargs
 
 

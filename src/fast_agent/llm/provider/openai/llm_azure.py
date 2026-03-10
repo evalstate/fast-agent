@@ -5,7 +5,7 @@ try:
         DefaultAzureCredential as _DefaultAzureCredential,
     )
 except ImportError:
-    _DefaultAzureCredential = None  # type: ignore[assignment]
+    _DefaultAzureCredential = None
 
 from openai import AsyncAzureOpenAI, AsyncOpenAI, AuthenticationError
 

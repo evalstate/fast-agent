@@ -90,11 +90,11 @@ async def test_prompt_model_selection_normalizes_generic_custom_model(monkeypatc
         activation_action=None,
     )
 
-    async def fake_run_model_picker_async(**kwargs):  # type: ignore[no-untyped-def]
+    async def fake_run_model_picker_async(**kwargs):
         del kwargs
         return picker_result
 
-    async def fake_prompt_text(prompt: str, *, default=None, allow_empty=True):  # type: ignore[no-untyped-def]
+    async def fake_prompt_text(prompt: str, *, default=None, allow_empty=True):
         del prompt, default, allow_empty
         return "llama3.2"
 
@@ -127,11 +127,11 @@ async def test_prompt_model_selection_preserves_explicit_provider_prefix_for_gen
         activation_action=None,
     )
 
-    async def fake_run_model_picker_async(**kwargs):  # type: ignore[no-untyped-def]
+    async def fake_run_model_picker_async(**kwargs):
         del kwargs
         return picker_result
 
-    async def fake_prompt_text(prompt: str, *, default=None, allow_empty=True):  # type: ignore[no-untyped-def]
+    async def fake_prompt_text(prompt: str, *, default=None, allow_empty=True):
         del prompt, default, allow_empty
         return "openai/gpt-4.1"
 

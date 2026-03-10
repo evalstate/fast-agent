@@ -14,7 +14,7 @@ class _BaseAggregator(MCPAggregator):
         super().__init__(**kwargs)
         self.initialized = True
 
-    async def validate_server(self, server_name: str) -> bool:  # type: ignore[override]
+    async def validate_server(self, server_name: str) -> bool:
         return server_name in self.server_names
 
 

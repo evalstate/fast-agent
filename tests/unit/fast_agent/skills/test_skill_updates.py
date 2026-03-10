@@ -245,7 +245,7 @@ def test_order_skill_directories_for_display_puts_manager_dir_last(tmp_path: Pat
 def test_resolve_source_revision_prefers_peeled_annotated_tag_commit(monkeypatch) -> None:
     source = _make_remote_source("v1.2.3")
 
-    def _fake_run(args, capture_output, text, check):  # type: ignore[no-untyped-def]
+    def _fake_run(args, capture_output, text, check):
         assert args == ["git", "ls-remote", source.repo_url, source.repo_ref]
         return subprocess.CompletedProcess(
             args=args,

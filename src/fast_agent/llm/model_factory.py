@@ -128,7 +128,7 @@ class ModelFactory:
         Uses provider's helper if available; otherwise, returns False.
         """
         try:
-            from fast_agent.llm.provider.bedrock.llm_bedrock import BedrockLLM  # type: ignore
+            from fast_agent.llm.provider.bedrock.llm_bedrock import BedrockLLM
 
             return BedrockLLM.matches_model_pattern(model_name)
         except Exception:

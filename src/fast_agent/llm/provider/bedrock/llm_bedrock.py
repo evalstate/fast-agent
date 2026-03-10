@@ -42,8 +42,8 @@ if TYPE_CHECKING:
     from mcp import ListToolsResult
 
 try:
-    import boto3  # ty: ignore[unresolved-import]
-    from botocore.exceptions import (  # ty: ignore[unresolved-import]
+    import boto3
+    from botocore.exceptions import (
         BotoCoreError,
         ClientError,
         NoCredentialsError,
@@ -300,7 +300,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         """Get or create Bedrock client."""
         if self._bedrock_client is None:
             try:
-                session = boto3.Session(profile_name=self.aws_profile)  # type: ignore[union-attr]
+                session = boto3.Session(profile_name=self.aws_profile)
                 self._bedrock_client = session.client("bedrock", region_name=self.aws_region)
             except NoCredentialsError as e:
                 raise ProviderKeyError(
@@ -313,7 +313,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         """Get or create Bedrock Runtime client."""
         if self._bedrock_runtime_client is None:
             try:
-                session = boto3.Session(profile_name=self.aws_profile)  # type: ignore[union-attr]
+                session = boto3.Session(profile_name=self.aws_profile)
                 self._bedrock_runtime_client = session.client(
                     "bedrock-runtime", region_name=self.aws_region
                 )

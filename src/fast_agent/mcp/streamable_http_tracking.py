@@ -124,7 +124,7 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
         except Exception as exc:
             logger.warning("Session termination failed: %s", exc)
 
-    async def _handle_json_response(  # type: ignore[override]
+    async def _handle_json_response(
         self,
         response: httpx.Response,
         read_stream_writer: StreamWriter,
@@ -205,7 +205,7 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
             self._emit_channel_event(channel, "error", detail=str(exc))
             return False
 
-    async def handle_get_stream(  # type: ignore[override]
+    async def handle_get_stream(
         self,
         client: httpx.AsyncClient,
         read_stream_writer: StreamWriter,
@@ -276,7 +276,7 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
             logger.info("GET stream disconnected, reconnecting in %sms...", delay_ms)
             await self._sleep_before_reconnect(delay_ms)
 
-    async def _handle_resumption_request(  # type: ignore[override]
+    async def _handle_resumption_request(
         self,
         ctx: RequestContext,
     ) -> None:
@@ -309,7 +309,7 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
                     await event_source.response.aclose()
                     break
 
-    async def _handle_sse_response(  # type: ignore[override]
+    async def _handle_sse_response(
         self,
         response: httpx.Response,
         ctx: RequestContext,

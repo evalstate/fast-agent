@@ -170,7 +170,7 @@ class McpAgent(ABC, ToolAgent):
             and context.skill_registry
         ):
             try:
-                manifests = list(context.skill_registry.load_manifests())  # type: ignore[assignment]
+                manifests = list(context.skill_registry.load_manifests())
             except Exception:
                 manifests = []
 

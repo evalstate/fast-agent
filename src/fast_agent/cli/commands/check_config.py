@@ -920,9 +920,9 @@ def show_check_summary(env_dir: Path | None = None) -> None:
     # Determine keyring backend early so it can appear in the top section
     # Also detect whether the backend is actually writable (not just present)
     try:
-        import keyring  # type: ignore
+        import keyring
     except Exception:
-        keyring = None  # type: ignore
+        keyring = None
 
     from fast_agent.core.keyring_utils import get_keyring_status
 
