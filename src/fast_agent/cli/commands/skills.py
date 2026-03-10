@@ -24,11 +24,30 @@ from fast_agent.cli.display import (
 )
 from fast_agent.cli.env_helpers import resolve_environment_dir_option
 from fast_agent.config import get_settings
-from fast_agent.skills import manager as skill_manager
 from fast_agent.skills.command_support import filter_marketplace_skills
+from fast_agent.skills.configuration import (
+    format_marketplace_display_url,
+    get_marketplace_url,
+)
+from fast_agent.skills.models import DEFAULT_MARKETPLACE_URL, MarketplaceSkill, SkillUpdateInfo
+from fast_agent.skills.operations import (
+    apply_skill_updates,
+    check_skill_updates,
+    fetch_marketplace_skills_with_source,
+    select_manifest_by_name_or_index,
+    select_skill_updates,
+)
+from fast_agent.skills.provenance import format_revision_short, format_skill_provenance_details
+from fast_agent.skills.registry import SkillManifest, SkillRegistry
+from fast_agent.skills.scope import (
+    get_manager_directory,
+    order_skill_directories_for_display,
+    resolve_skills_management_scope,
+)
+from fast_agent.skills.service import install_skill_sync, remove_skill
 from fast_agent.ui.console import console
 
-DEFAULT_CLI_SKILLS_REGISTRY = skill_manager.DEFAULT_MARKETPLACE_URL
+DEFAULT_CLI_SKILLS_REGISTRY = DEFAULT_MARKETPLACE_URL
 
 RegistryOption = Annotated[
     str | None,
@@ -76,7 +95,7 @@ def _resolve_registry_input(ctx: typer.Context, command_registry: str | None = N
     )
     if ctx_registry:
         return ctx_registry
-    return skill_manager.get_marketplace_url(get_settings())
+    return get_marketplace_url(get_settings())
 
 
 def _resolve_skills_dir_input(
@@ -91,7 +110,7 @@ def _resolve_skills_dir_input(
 
 
 def _print_skill_table(
-    manifests: list[skill_manager.SkillManifest],
+    manifests: list[SkillManifest],
     *,
     show_index: bool,
 ) -> None:
@@ -105,7 +124,7 @@ def _print_skill_table(
 
     for index, manifest in enumerate(manifests, 1):
         source_path = manifest.path.parent if manifest.path.is_file() else manifest.path
-        provenance_text, installed_text = skill_manager.format_skill_provenance_details(source_path)
+        provenance_text, installed_text = format_skill_provenance_details(source_path)
         row = [
             manifest.name,
             format_display_path(source_path),
@@ -121,11 +140,11 @@ def _print_skill_table(
 
 def _print_local_skills(*, managed_directory_override: Path | None = None) -> None:
     settings = get_settings()
-    management_scope = skill_manager.resolve_skills_management_scope(
+    management_scope = resolve_skills_management_scope(
         settings,
         managed_directory_override=managed_directory_override,
     )
-    discovered_directories = skill_manager.order_skill_directories_for_display(
+    discovered_directories = order_skill_directories_for_display(
         management_scope.discovered_directories,
         settings=settings,
         managed_directory_override=managed_directory_override,
@@ -144,7 +163,7 @@ def _print_local_skills(*, managed_directory_override: Path | None = None) -> No
 
     total_skills = 0
     for directory in discovered_directories:
-        manifests = skill_manager.list_local_skills(directory) if directory.exists() else []
+        manifests = SkillRegistry.load_directory(directory) if directory.exists() else []
         total_skills += len(manifests)
 
         directory_label = format_display_path(directory)
@@ -165,7 +184,7 @@ def _print_local_skills(*, managed_directory_override: Path | None = None) -> No
 
 
 def _print_marketplace_skills(
-    marketplace: list[skill_manager.MarketplaceSkill],
+    marketplace: list[MarketplaceSkill],
     *,
     title: str,
     registry_url: str,
@@ -176,7 +195,7 @@ def _print_marketplace_skills(
         [
             DetailDisplayRow(
                 label="registry",
-                value=skill_manager.format_marketplace_display_url(registry_url),
+                value=format_marketplace_display_url(registry_url),
             )
         ],
     )
@@ -214,7 +233,7 @@ def _print_managed_skill_selection(*, managed_directory: Path) -> None:
         ],
     )
 
-    manifests = skill_manager.list_local_skills(managed_directory) if managed_directory.exists() else []
+    manifests = SkillRegistry.load_directory(managed_directory) if managed_directory.exists() else []
     if not manifests:
         console.print("[yellow]No local skills found in the managed directory.[/yellow]")
         return
@@ -223,7 +242,7 @@ def _print_managed_skill_selection(*, managed_directory: Path) -> None:
 
 
 def _print_updates(
-    updates: list[skill_manager.SkillUpdateInfo],
+    updates: list[SkillUpdateInfo],
     *,
     title: str,
     managed_directory: Path,
@@ -256,7 +275,7 @@ def _print_updates(
             )
             for update in updates
         ],
-        format_revision_short=skill_manager.format_revision_short,
+        format_revision_short=format_revision_short,
     )
 
 
@@ -264,10 +283,11 @@ def _load_marketplace(
     ctx: typer.Context,
     *,
     registry: str | None = None,
-) -> tuple[list[skill_manager.MarketplaceSkill], str]:
+) -> tuple[list[MarketplaceSkill], str]:
     marketplace_input = _resolve_registry_input(ctx, registry)
     try:
-        return asyncio.run(skill_manager.fetch_marketplace_skills_with_source(marketplace_input))
+        scan_result = asyncio.run(fetch_marketplace_skills_with_source(marketplace_input))
+        return scan_result
     except Exception as exc:  # noqa: BLE001
         typer.echo(f"Failed to load marketplace: {exc}", err=True)
         raise typer.Exit(1) from exc
@@ -346,7 +366,7 @@ def skills_add(
     skills_dir: SkillsDirOption = None,
 ) -> None:
     """Install a skill from the selected marketplace."""
-    managed_directory = skill_manager.get_manager_directory(
+    managed_directory = get_manager_directory(
         get_settings(),
         managed_directory_override=_resolve_skills_dir_input(ctx, skills_dir),
     )
@@ -361,17 +381,11 @@ def skills_add(
         print_hint(console, "Install with: fast-agent skills add <number|name>")
         raise typer.Exit(0)
 
-    skill = skill_manager.select_skill_by_name_or_index(marketplace, selector)
-    if skill is None:
-        typer.echo(f"Skill not found: {selector}", err=True)
-        raise typer.Exit(1)
-
     try:
-        install_path = asyncio.run(
-            skill_manager.install_marketplace_skill(
-                skill,
-                destination_root=managed_directory,
-            )
+        installed = install_skill_sync(
+            marketplace_url,
+            selector,
+            destination_root=managed_directory,
         )
     except Exception as exc:  # noqa: BLE001
         typer.echo(f"Failed to install skill: {exc}", err=True)
@@ -381,8 +395,8 @@ def skills_add(
         console,
         "Skill Installed",
         [
-            DetailDisplayRow(label="name", value=skill.name),
-            DetailDisplayRow(label="location", value=format_display_path(install_path)),
+            DetailDisplayRow(label="name", value=installed.name),
+            DetailDisplayRow(label="location", value=format_display_path(installed.skill_dir)),
             DetailDisplayRow(
                 label="managed directory",
                 value=format_display_path(managed_directory),
@@ -402,11 +416,11 @@ def skills_remove(
     skills_dir: SkillsDirOption = None,
 ) -> None:
     """Remove an installed skill from the managed directory."""
-    managed_directory = skill_manager.get_manager_directory(
+    managed_directory = get_manager_directory(
         get_settings(),
         managed_directory_override=_resolve_skills_dir_input(ctx, skills_dir),
     )
-    manifests = skill_manager.list_local_skills(managed_directory) if managed_directory.exists() else []
+    manifests = SkillRegistry.load_directory(managed_directory) if managed_directory.exists() else []
     if not manifests:
         console.print("[yellow]No local skills to remove.[/yellow]")
         raise typer.Exit(0)
@@ -416,14 +430,13 @@ def skills_remove(
         print_hint(console, "Remove with: fast-agent skills remove <number|name>")
         raise typer.Exit(0)
 
-    manifest = skill_manager.select_manifest_by_name_or_index(manifests, selector)
+    manifest = select_manifest_by_name_or_index(manifests, selector)
     if manifest is None:
         typer.echo(f"Skill not found: {selector}", err=True)
         raise typer.Exit(1)
 
     try:
-        skill_dir = manifest.path.parent if manifest.path.is_file() else manifest.path
-        skill_manager.remove_local_skill(skill_dir, destination_root=managed_directory)
+        removed = remove_skill(managed_directory, selector)
     except Exception as exc:  # noqa: BLE001
         typer.echo(f"Failed to remove skill: {exc}", err=True)
         raise typer.Exit(1) from exc
@@ -431,7 +444,7 @@ def skills_remove(
     print_detail_section(
         console,
         "Skill Removed",
-        [DetailDisplayRow(label="name", value=manifest.name)],
+        [DetailDisplayRow(label="name", value=removed.name)],
         color="green",
     )
 
@@ -457,11 +470,11 @@ def skills_update(
     ] = False,
 ) -> None:
     """Check and apply skill updates."""
-    managed_directory = skill_manager.get_manager_directory(
+    managed_directory = get_manager_directory(
         get_settings(),
         managed_directory_override=_resolve_skills_dir_input(ctx, skills_dir),
     )
-    updates = skill_manager.check_skill_updates(destination_root=managed_directory)
+    updates = check_skill_updates(destination_root=managed_directory)
 
     if not selector:
         _print_updates(
@@ -475,7 +488,7 @@ def skills_update(
         )
         raise typer.Exit(0)
 
-    selected = skill_manager.select_skill_updates(updates, selector)
+    selected = select_skill_updates(updates, selector)
     if not selected:
         typer.echo(f"Skill not found: {selector}", err=True)
         raise typer.Exit(1)
@@ -489,7 +502,7 @@ def skills_update(
         console.print("[yellow]Multiple skills selected. Re-run with --yes to apply updates.[/yellow]")
         raise typer.Exit(1)
 
-    applied = skill_manager.apply_skill_updates(selected, force=force)
+    applied = apply_skill_updates(selected, force=force)
     _print_updates(
         applied,
         title="Skill update results:",

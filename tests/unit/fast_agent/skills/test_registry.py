@@ -127,7 +127,7 @@ def test_explicit_default_directories_are_optional(tmp_path: Path) -> None:
 def test_cli_override_propagates_to_global_settings(tmp_path: Path, monkeypatch) -> None:
     """Verify that skills_directory passed to FastAgent updates global settings."""
     import fast_agent.config as config_module
-    from fast_agent.skills.manager import resolve_skill_directories
+    from fast_agent.skills.scope import resolve_skill_directories
 
     # Reset global settings
     monkeypatch.setattr(config_module, "_settings", None)

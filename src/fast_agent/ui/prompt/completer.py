@@ -418,8 +418,9 @@ class AgentCompleter(Completer):
         include_indices: bool = True,
     ):
         """Generate completions for local skill names and indices."""
-        from fast_agent.skills.manager import get_manager_directory, read_installed_skill_source
+        from fast_agent.skills.provenance import read_installed_skill_source
         from fast_agent.skills.registry import SkillRegistry
+        from fast_agent.skills.scope import get_manager_directory
 
         managed_skills_dir = get_manager_directory()
         manifests = SkillRegistry.load_directory(managed_skills_dir)
@@ -454,7 +455,7 @@ class AgentCompleter(Completer):
 
     def _complete_skill_registries(self, partial: str):
         """Generate completions for configured skills registries."""
-        from fast_agent.skills.manager import (
+        from fast_agent.skills.configuration import (
             format_marketplace_display_url,
             resolve_skill_registries,
         )

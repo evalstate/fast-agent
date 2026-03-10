@@ -3,7 +3,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from fast_agent.commands.renderers.skills_markdown import render_skills_by_directory
-from fast_agent.skills.manager import InstalledSkillSource, write_installed_skill_source
+from fast_agent.skills.models import InstalledSkillSource
+from fast_agent.skills.provenance import write_installed_skill_source
 from fast_agent.skills.registry import SkillRegistry
 
 if TYPE_CHECKING:

@@ -4,7 +4,30 @@ import subprocess
 from typing import TYPE_CHECKING
 
 from fast_agent.config import SkillsSettings, get_settings
-from fast_agent.skills import manager
+from fast_agent.skills.models import (
+    SKILL_SOURCE_FILENAME,
+    SKILL_SOURCE_SCHEMA_VERSION,
+    InstalledSkillSource,
+    MarketplaceSkill,
+)
+from fast_agent.skills.operations import (
+    apply_skill_updates,
+    check_skill_updates,
+    install_marketplace_skill_sync,
+    parse_ls_remote_commit,
+    resolve_source_revision,
+)
+from fast_agent.skills.provenance import (
+    format_skill_provenance,
+    format_skill_provenance_details,
+    read_installed_skill_source,
+    write_installed_skill_source,
+)
+from fast_agent.skills.scope import (
+    get_manager_directory,
+    order_skill_directories_for_display,
+    resolve_skills_management_scope,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -45,8 +68,8 @@ def _commit_all(repo: Path, message: str) -> str:
     return _git(repo, "rev-parse", "HEAD")
 
 
-def _make_marketplace_skill(repo: Path, *, name: str) -> manager.MarketplaceSkill:
-    return manager.MarketplaceSkill(
+def _make_marketplace_skill(repo: Path, *, name: str) -> MarketplaceSkill:
+    return MarketplaceSkill(
         name=name,
         description="test",
         repo_url=str(repo),
@@ -55,9 +78,9 @@ def _make_marketplace_skill(repo: Path, *, name: str) -> manager.MarketplaceSkil
     )
 
 
-def _make_remote_source(repo_ref: str | None = "v1.0.0") -> manager.InstalledSkillSource:
-    return manager.InstalledSkillSource(
-        schema_version=manager.SKILL_SOURCE_SCHEMA_VERSION,
+def _make_remote_source(repo_ref: str | None = "v1.0.0") -> InstalledSkillSource:
+    return InstalledSkillSource(
+        schema_version=SKILL_SOURCE_SCHEMA_VERSION,
         installed_via="marketplace",
         source_origin="remote",
         repo_url="https://example.com/skills.git",
@@ -79,12 +102,12 @@ def test_install_writes_sidecar_with_provenance(tmp_path: Path) -> None:
     first_commit = _commit_all(repo, "initial")
 
     managed_dir = tmp_path / "managed"
-    installed_dir = manager._install_marketplace_skill_sync(
+    installed_dir = install_marketplace_skill_sync(
         _make_marketplace_skill(repo, name="alpha"),
         managed_dir,
     )
 
-    source, error = manager.read_installed_skill_source(installed_dir)
+    source, error = read_installed_skill_source(installed_dir)
     assert error is None
     assert source is not None
     assert source.source_origin == "local"
@@ -101,28 +124,28 @@ def test_check_and_apply_update_from_local_git_repo(tmp_path: Path) -> None:
     _commit_all(repo, "initial")
 
     managed_dir = tmp_path / "managed"
-    manager._install_marketplace_skill_sync(_make_marketplace_skill(repo, name="alpha"), managed_dir)
+    install_marketplace_skill_sync(_make_marketplace_skill(repo, name="alpha"), managed_dir)
 
     _write_skill(repo, name="alpha", body="v2")
     second_commit = _commit_all(repo, "update")
 
-    updates = manager.check_skill_updates(destination_root=managed_dir)
+    updates = check_skill_updates(destination_root=managed_dir)
     assert len(updates) == 1
     assert updates[0].status == "update_available"
 
-    applied = manager.apply_skill_updates([updates[0]], force=False)
+    applied = apply_skill_updates([updates[0]], force=False)
     assert len(applied) == 1
     assert applied[0].status == "updated"
 
     installed_skill = managed_dir / "alpha" / "SKILL.md"
     assert "v2" in installed_skill.read_text(encoding="utf-8")
 
-    source, error = manager.read_installed_skill_source(managed_dir / "alpha")
+    source, error = read_installed_skill_source(managed_dir / "alpha")
     assert error is None
     assert source is not None
     assert source.installed_commit == second_commit
 
-    recheck = manager.check_skill_updates(destination_root=managed_dir)
+    recheck = check_skill_updates(destination_root=managed_dir)
     assert recheck[0].status == "up_to_date"
 
 
@@ -133,7 +156,7 @@ def test_apply_update_skips_dirty_without_force_and_overwrites_with_force(tmp_pa
     _commit_all(repo, "initial")
 
     managed_dir = tmp_path / "managed"
-    manager._install_marketplace_skill_sync(_make_marketplace_skill(repo, name="alpha"), managed_dir)
+    install_marketplace_skill_sync(_make_marketplace_skill(repo, name="alpha"), managed_dir)
 
     _write_skill(repo, name="alpha", body="v2")
     _commit_all(repo, "update")
@@ -144,14 +167,14 @@ def test_apply_update_skips_dirty_without_force_and_overwrites_with_force(tmp_pa
         encoding="utf-8",
     )
 
-    updates = manager.check_skill_updates(destination_root=managed_dir)
+    updates = check_skill_updates(destination_root=managed_dir)
     assert updates[0].status == "update_available"
 
-    skipped = manager.apply_skill_updates([updates[0]], force=False)
+    skipped = apply_skill_updates([updates[0]], force=False)
     assert skipped[0].status == "skipped_dirty"
     assert "local edit" in installed_skill.read_text(encoding="utf-8")
 
-    forced = manager.apply_skill_updates([updates[0]], force=True)
+    forced = apply_skill_updates([updates[0]], force=True)
     assert forced[0].status == "updated"
     installed_text = installed_skill.read_text(encoding="utf-8")
     assert "v2" in installed_text
@@ -165,12 +188,12 @@ def test_unrelated_repo_commit_does_not_trigger_skill_update(tmp_path: Path) -> 
     _commit_all(repo, "initial")
 
     managed_dir = tmp_path / "managed"
-    manager._install_marketplace_skill_sync(_make_marketplace_skill(repo, name="alpha"), managed_dir)
+    install_marketplace_skill_sync(_make_marketplace_skill(repo, name="alpha"), managed_dir)
 
     (repo / "README.md").write_text("unrelated\n", encoding="utf-8")
     _commit_all(repo, "unrelated change")
 
-    updates = manager.check_skill_updates(destination_root=managed_dir)
+    updates = check_skill_updates(destination_root=managed_dir)
     assert len(updates) == 1
     assert updates[0].status == "up_to_date"
 
@@ -179,16 +202,16 @@ def test_format_skill_provenance_states(tmp_path: Path) -> None:
     unmanaged_dir = tmp_path / "unmanaged"
     unmanaged_dir.mkdir(parents=True)
     (unmanaged_dir / "SKILL.md").write_text("---\nname: x\ndescription: y\n---\n", encoding="utf-8")
-    assert manager.format_skill_provenance(unmanaged_dir) == "unmanaged (no sidecar)"
+    assert format_skill_provenance(unmanaged_dir) == "unmanaged (no sidecar)"
 
     invalid_dir = tmp_path / "invalid"
     invalid_dir.mkdir(parents=True)
     (invalid_dir / "SKILL.md").write_text("---\nname: x\ndescription: y\n---\n", encoding="utf-8")
-    (invalid_dir / manager.SKILL_SOURCE_FILENAME).write_text(
+    (invalid_dir / SKILL_SOURCE_FILENAME).write_text(
         '{"schema_version": 1, "installed_via": "marketplace", "source_origin": "remote", "repo_url": "https://example.com/repo", "repo_path": "../escape"}',
         encoding="utf-8",
     )
-    assert "invalid metadata" in manager.format_skill_provenance(invalid_dir)
+    assert "invalid metadata" in format_skill_provenance(invalid_dir)
 
 
 def test_format_skill_provenance_details(tmp_path: Path) -> None:
@@ -196,16 +219,16 @@ def test_format_skill_provenance_details(tmp_path: Path) -> None:
     unmanaged_dir.mkdir(parents=True)
     (unmanaged_dir / "SKILL.md").write_text("---\nname: x\ndescription: y\n---\n", encoding="utf-8")
 
-    provenance_text, installed_text = manager.format_skill_provenance_details(unmanaged_dir)
+    provenance_text, installed_text = format_skill_provenance_details(unmanaged_dir)
     assert provenance_text == "unmanaged."
     assert installed_text is None
 
     managed_dir = tmp_path / "managed"
     managed_dir.mkdir(parents=True)
     (managed_dir / "SKILL.md").write_text("---\nname: x\ndescription: y\n---\n", encoding="utf-8")
-    manager.write_installed_skill_source(
+    write_installed_skill_source(
         managed_dir,
-        manager.InstalledSkillSource(
+        InstalledSkillSource(
             schema_version=1,
             installed_via="marketplace",
             source_origin="remote",
@@ -221,19 +244,19 @@ def test_format_skill_provenance_details(tmp_path: Path) -> None:
         ),
     )
 
-    provenance_text, installed_text = manager.format_skill_provenance_details(managed_dir)
+    provenance_text, installed_text = format_skill_provenance_details(managed_dir)
     assert provenance_text == "https://github.com/example/skills@main (skills/x)"
     assert installed_text == "2026-02-13 23:11:29 revision: abcdef1"
 
 
 def test_order_skill_directories_for_display_puts_manager_dir_last(tmp_path: Path) -> None:
     settings = get_settings().model_copy(update={"environment_dir": str(tmp_path / ".fast-agent")})
-    manager_dir = manager.get_manager_directory(settings, cwd=tmp_path)
+    manager_dir = get_manager_directory(settings, cwd=tmp_path)
     claude_dir = (tmp_path / ".claude" / "skills").resolve()
     agents_dir = (tmp_path / ".agents" / "skills").resolve()
     directories = [manager_dir, agents_dir, claude_dir]
 
-    ordered = manager.order_skill_directories_for_display(
+    ordered = order_skill_directories_for_display(
         directories,
         settings=settings,
         cwd=tmp_path,
@@ -252,7 +275,7 @@ def test_resolve_skills_management_scope_uses_override_for_management_only(tmp_p
         }
     )
 
-    scope = manager.resolve_skills_management_scope(
+    scope = resolve_skills_management_scope(
         settings,
         cwd=tmp_path,
         managed_directory_override=override_dir,
@@ -267,7 +290,7 @@ def test_get_manager_directory_accepts_explicit_management_override(tmp_path: Pa
     settings = get_settings().model_copy(update={"environment_dir": str(tmp_path / ".fast-agent")})
     override_dir = tmp_path / "skills-manager"
 
-    managed_dir = manager.get_manager_directory(
+    managed_dir = get_manager_directory(
         settings,
         cwd=tmp_path,
         managed_directory_override=override_dir,
@@ -276,7 +299,7 @@ def test_get_manager_directory_accepts_explicit_management_override(tmp_path: Pa
     assert managed_dir == override_dir.resolve()
 
 
-def test_resolve_source_revision_prefers_peeled_annotated_tag_commit(monkeypatch) -> None:
+def test_resolve_source_revision_prefers_peeled_annotated_tag_commit() -> None:
     source = _make_remote_source("v1.2.3")
 
     def _fake_run(args, capture_output, text, check):  # type: ignore[no-untyped-def]
@@ -291,10 +314,12 @@ def test_resolve_source_revision_prefers_peeled_annotated_tag_commit(monkeypatch
             stderr="",
         )
 
-    monkeypatch.setattr(manager, "_resolve_local_repo", lambda _: None)
-    monkeypatch.setattr(manager.subprocess, "run", _fake_run)
-
-    revision, status, error = manager._resolve_source_revision(source, {})
+    revision, status, error = resolve_source_revision(
+        source,
+        {},
+        resolve_local_repo_fn=lambda _: None,
+        run_subprocess_fn=_fake_run,
+    )
 
     assert revision == "2222222222222222222222222222222222222222"
     assert status is None
@@ -306,4 +331,4 @@ def test_parse_ls_remote_commit_falls_back_when_no_peeled_ref() -> None:
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\trefs/heads/main\n"
         "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\tHEAD\n"
     )
-    assert manager._parse_ls_remote_commit(output) == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    assert parse_ls_remote_commit(output) == "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"

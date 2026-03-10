@@ -25,20 +25,23 @@ from fast_agent.skills.command_support import (
     marketplace_repository_hint,
     skills_usage_lines,
 )
-from fast_agent.skills.manager import (
+from fast_agent.skills.configuration import (
+    format_marketplace_display_url,
+    get_marketplace_url,
+    resolve_skill_registries,
+)
+from fast_agent.skills.operations import (
     candidate_marketplace_urls,
     fetch_marketplace_skills,
     fetch_marketplace_skills_with_source,
-    format_marketplace_display_url,
-    get_marketplace_url,
-    list_local_skills,
-    order_skill_directories_for_display,
     reload_skill_manifests,
+)
+from fast_agent.skills.registry import SkillRegistry, format_skills_for_prompt
+from fast_agent.skills.scope import (
+    order_skill_directories_for_display,
     resolve_skill_directories,
-    resolve_skill_registries,
     resolve_skills_management_scope,
 )
-from fast_agent.skills.registry import format_skills_for_prompt
 
 
 def _skills_usage_text() -> str:
@@ -229,7 +232,7 @@ def handle_skills_list(handler: "SlashCommandHandler") -> str:
         settings=settings,
     )
     all_manifests = {
-        directory: list_local_skills(directory) if directory.exists() else []
+        directory: SkillRegistry.load_directory(directory) if directory.exists() else []
         for directory in discovered_directories
     }
     response = render_skills_by_directory(all_manifests, heading="skills", cwd=Path.cwd())
@@ -375,7 +378,7 @@ async def handle_skills_remove(handler: "SlashCommandHandler", argument: str) ->
     if not argument_value:
         management_scope = resolve_skills_management_scope(get_settings())
         managed_skills_dir = management_scope.managed_directory
-        manifests = list_local_skills(managed_skills_dir)
+        manifests = SkillRegistry.load_directory(managed_skills_dir)
         return render_skills_remove_list(
             heading="skills remove",
             manager_dir=managed_skills_dir,

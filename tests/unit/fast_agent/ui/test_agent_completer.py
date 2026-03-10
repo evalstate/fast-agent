@@ -25,9 +25,11 @@ from fast_agent.config import (
     update_global_settings,
 )
 from fast_agent.session import get_session_manager, reset_session_manager
-from fast_agent.skills.manager import (
+from fast_agent.skills.models import (
     DEFAULT_SKILL_REGISTRIES,
     InstalledSkillSource,
+)
+from fast_agent.skills.provenance import (
     write_installed_skill_source,
 )
 from fast_agent.ui.enhanced_prompt import AgentCompleter

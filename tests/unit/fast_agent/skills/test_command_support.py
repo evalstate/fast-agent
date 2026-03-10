@@ -6,7 +6,7 @@ from fast_agent.skills.command_support import (
     marketplace_search_tokens,
     skills_usage_lines,
 )
-from fast_agent.skills.manager import MarketplaceSkill
+from fast_agent.skills.models import MarketplaceSkill
 
 
 def _marketplace_skill(

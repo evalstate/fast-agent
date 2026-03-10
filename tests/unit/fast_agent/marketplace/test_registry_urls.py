@@ -4,7 +4,8 @@ from fast_agent.marketplace.registry_urls import (
     format_marketplace_display_url,
     resolve_registry_urls,
 )
-from fast_agent.skills.manager import DEFAULT_SKILL_REGISTRIES, resolve_skill_registries
+from fast_agent.skills.configuration import resolve_skill_registries
+from fast_agent.skills.models import DEFAULT_SKILL_REGISTRIES
 
 
 def test_format_marketplace_display_url_for_github_variants() -> None:

@@ -6,10 +6,10 @@ import textwrap
 from pathlib import Path
 from typing import TYPE_CHECKING, Sequence
 
-from fast_agent.skills.manager import format_skill_provenance_details
+from fast_agent.skills.provenance import format_skill_provenance_details
 
 if TYPE_CHECKING:
-    from fast_agent.skills.manager import MarketplaceSkill
+    from fast_agent.skills.models import MarketplaceSkill
     from fast_agent.skills.registry import SkillManifest
 
 

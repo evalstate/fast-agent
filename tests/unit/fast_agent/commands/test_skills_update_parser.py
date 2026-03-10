@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from fast_agent.commands.handlers.skills import _format_update_results, _parse_update_argument
-from fast_agent.skills.manager import InstalledSkillSource, SkillUpdateInfo
+from fast_agent.skills.models import InstalledSkillSource, SkillUpdateInfo
 
 
 def test_parse_update_argument_dry_run() -> None:

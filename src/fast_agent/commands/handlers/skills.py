@@ -18,35 +18,40 @@ from fast_agent.skills.command_support import (
     marketplace_repository_hint,
     skills_usage_lines,
 )
-from fast_agent.skills.manager import (
-    SkillUpdateInfo,
+from fast_agent.skills.configuration import (
+    format_marketplace_display_url,
+    get_marketplace_url,
+    resolve_skill_registries,
+)
+from fast_agent.skills.operations import (
     apply_skill_updates,
     check_skill_updates,
     fetch_marketplace_skills,
     fetch_marketplace_skills_with_source,
-    format_installed_at_display,
-    format_marketplace_display_url,
-    format_revision_short,
-    format_skill_provenance_details,
-    get_marketplace_url,
     install_marketplace_skill,
-    list_local_skills,
-    order_skill_directories_for_display,
     reload_skill_manifests,
     remove_local_skill,
-    resolve_skill_directories,
-    resolve_skill_registries,
-    resolve_skills_management_scope,
     select_manifest_by_name_or_index,
     select_skill_by_name_or_index,
     select_skill_updates,
 )
-from fast_agent.skills.registry import SkillManifest, format_skills_for_prompt
+from fast_agent.skills.provenance import (
+    format_installed_at_display,
+    format_revision_short,
+    format_skill_provenance_details,
+)
+from fast_agent.skills.registry import SkillManifest, SkillRegistry, format_skills_for_prompt
+from fast_agent.skills.scope import (
+    order_skill_directories_for_display,
+    resolve_skill_directories,
+    resolve_skills_management_scope,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from fast_agent.commands.context import CommandContext
+    from fast_agent.skills.models import SkillUpdateInfo
 
 
 _parse_update_argument = parse_update_argument
@@ -356,7 +361,9 @@ async def handle_list_skills(ctx: CommandContext, *, agent_name: str) -> Command
     )
     manifests_by_dir: dict[Path, list[SkillManifest]] = {}
     for directory in discovered_directories:
-        manifests_by_dir[directory] = list_local_skills(directory) if directory.exists() else []
+        manifests_by_dir[directory] = (
+            SkillRegistry.load_directory(directory) if directory.exists() else []
+        )
 
     outcome.add_message(
         _format_local_skills_by_directory(manifests_by_dir),
@@ -653,7 +660,7 @@ async def handle_remove_skill(
 
     management_scope = resolve_skills_management_scope(ctx.resolve_settings())
     managed_skills_dir = management_scope.managed_directory
-    manifests = list_local_skills(managed_skills_dir)
+    manifests = SkillRegistry.load_directory(managed_skills_dir)
     if not manifests:
         outcome.add_message("No local skills to remove.", channel="warning")
         return outcome
