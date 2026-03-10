@@ -25,6 +25,7 @@ from acp.schema import (
 
 if TYPE_CHECKING:
     from acp.client.connection import ClientSideConnection
+    from acp.helpers import ContentBlock as ACPContentBlock
     from test_client import TestClient
 
 TEST_DIR = Path(__file__).parent
@@ -35,6 +36,20 @@ if str(TEST_DIR) not in sys.path:
 pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 END_TURN: StopReason = "end_turn"
+
+
+def _prompt_blocks(*blocks: ACPContentBlock) -> list[ACPContentBlock]:
+    """Build ACP prompt blocks with the widened list type expected by the client."""
+    return list(blocks)
+
+
+def _session_id(session_response: object) -> str:
+    """Extract and narrow the ACP session identifier."""
+    session_id = getattr(session_response, "session_id", None) or getattr(
+        session_response, "sessionId", None
+    )
+    assert isinstance(session_id, str)
+    return session_id
 
 
 @pytest.mark.integration
@@ -59,23 +74,20 @@ async def test_acp_image_content_processing(
 
     # Create session
     session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
-    session_id = getattr(session_response, "session_id", None) or getattr(
-        session_response, "sessionId", None
-    )
-    assert session_id
+    session_id = _session_id(session_response)
 
     # Create a fake image (base64 encoded)
     fake_image_data = base64.b64encode(b"fake-image-data").decode("utf-8")
 
     # Send prompt with text and image
-    prompt_blocks = [
+    prompt_blocks = _prompt_blocks(
         text_block("Analyze this image:"),
         ImageContentBlock(
             type="image",
             data=fake_image_data,
             mime_type="image/png",
         ),
-    ]
+    )
 
     prompt_response = await connection.prompt(session_id=session_id, prompt=prompt_blocks)
 
@@ -116,13 +128,10 @@ async def test_acp_embedded_text_resource_processing(
 
     # Create session
     session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
-    session_id = getattr(session_response, "session_id", None) or getattr(
-        session_response, "sessionId", None
-    )
-    assert session_id
+    session_id = _session_id(session_response)
 
     # Send prompt with text resource
-    prompt_blocks = [
+    prompt_blocks = _prompt_blocks(
         text_block("Review this code:"),
         EmbeddedResourceContentBlock(
             type="resource",
@@ -132,7 +141,7 @@ async def test_acp_embedded_text_resource_processing(
                 text="def hello():\n    return 'Hello, world!'",
             ),
         ),
-    ]
+    )
 
     prompt_response = await connection.prompt(
         session_id=session_id,
@@ -162,16 +171,13 @@ async def test_acp_embedded_blob_resource_processing(
     connection, client, _init_response = acp_content
 
     session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
-    session_id = getattr(session_response, "session_id", None) or getattr(
-        session_response, "sessionId", None
-    )
-    assert session_id
+    session_id = _session_id(session_response)
 
     # Create fake binary data
     fake_blob_data = base64.b64encode(b"fake-binary-document-data").decode("utf-8")
 
     # Send prompt with blob resource
-    prompt_blocks = [
+    prompt_blocks = _prompt_blocks(
         text_block("Summarize this document:"),
         EmbeddedResourceContentBlock(
             type="resource",
@@ -181,7 +187,7 @@ async def test_acp_embedded_blob_resource_processing(
                 blob=fake_blob_data,
             ),
         ),
-    ]
+    )
 
     prompt_response = await connection.prompt(session_id=session_id, prompt=prompt_blocks)
 
@@ -206,14 +212,12 @@ async def test_acp_mixed_content_blocks(
     connection, client, _init_response = acp_content
 
     session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
-    session_id = getattr(session_response, "session_id", None) or getattr(
-        session_response, "sessionId", None
-    )
+    session_id = _session_id(session_response)
 
     # Create mixed content
     image_data = base64.b64encode(b"fake-screenshot").decode("utf-8")
 
-    prompt_blocks = [
+    prompt_blocks = _prompt_blocks(
         text_block("I need help with this code:"),
         EmbeddedResourceContentBlock(
             type="resource",
@@ -230,7 +234,7 @@ async def test_acp_mixed_content_blocks(
             mime_type="image/png",
         ),
         text_block("What's wrong?"),
-    ]
+    )
 
     prompt_response = await connection.prompt(session_id=session_id, prompt=prompt_blocks)
 
@@ -262,14 +266,11 @@ async def test_acp_resource_only_prompt_not_slash_command(
     connection, client, _init_response = acp_content
 
     session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
-    session_id = getattr(session_response, "session_id", None) or getattr(
-        session_response, "sessionId", None
-    )
-    assert session_id
+    session_id = _session_id(session_response)
 
     # Send a resource-only prompt with text starting with "/"
     # This should NOT be treated as a slash command
-    prompt_blocks = [
+    prompt_blocks = _prompt_blocks(
         EmbeddedResourceContentBlock(
             type="resource",
             resource=TextResourceContents(
@@ -278,7 +279,7 @@ async def test_acp_resource_only_prompt_not_slash_command(
                 text="//hello, world!",
             ),
         ),
-    ]
+    )
 
     prompt_response = await connection.prompt(session_id=session_id, prompt=prompt_blocks)
 

@@ -1,7 +1,7 @@
 """Unit tests for the history trimmer hook."""
 
 import pytest
-from mcp.types import TextContent
+from mcp.types import CallToolResult, TextContent
 
 from fast_agent.hooks.history_trimmer import (
     _find_turn_start,
@@ -18,7 +18,7 @@ def _make_user_msg(text: str, has_tool_results: bool = False) -> PromptMessageEx
     msg = PromptMessageExtended(role="user", content=[TextContent(type="text", text=text)])
     if has_tool_results:
         # Simulate tool results by setting the attribute
-        msg.tool_results = {"tool1": type("Result", (), {"content": []})()}
+        msg.tool_results = {"tool1": CallToolResult(content=[], isError=False)}
     return msg
 
 

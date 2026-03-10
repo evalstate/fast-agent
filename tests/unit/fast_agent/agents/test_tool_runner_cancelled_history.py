@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 from mcp import CallToolRequest
-from mcp.types import CallToolRequestParams, CallToolResult, Tool
+from mcp.types import CallToolRequestParams, CallToolResult, TextContent, Tool
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.tool_agent import ToolAgent
@@ -553,7 +553,9 @@ async def test_second_llm_error_after_tool_use_persists_resumable_checkpoint(tmp
         assert "explode_call" in saved_messages[-1].tool_results
         saved_result = saved_messages[-1].tool_results["explode_call"]
         assert len(saved_result.content) == 1
-        assert saved_result.content[0].text == "ok"
+        saved_content = saved_result.content[0]
+        assert isinstance(saved_content, TextContent)
+        assert saved_content.text == "ok"
     finally:
         update_global_settings(old_settings)
         reset_session_manager()

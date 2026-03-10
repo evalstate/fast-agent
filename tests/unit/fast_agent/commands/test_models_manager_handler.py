@@ -13,7 +13,7 @@ from fast_agent.config import Settings
 
 
 class _StubAgentProvider:
-    def __init__(self, agents: dict[str, object] | None = None) -> None:
+    def __init__(self, agents: dict[str, _StubAgent] | None = None) -> None:
         self._agents = agents or {}
 
     def _agent(self, name: str):
@@ -124,6 +124,13 @@ class _StubAgent:
         self.llm = _StubLlm(model_name=resolved_model) if resolved_model is not None else None
 
 
+def _message_text(message: object) -> str:
+    """Extract stringified message text from dynamically captured command IO output."""
+    text = getattr(message, "text", None)
+    assert text is not None
+    return str(text)
+
+
 def _write_yaml(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as handle:
@@ -138,7 +145,7 @@ def _read_yaml(path: Path) -> dict:
     return {}
 
 
-def _context(settings: Settings, *, agents: dict[str, object] | None = None) -> CommandContext:
+def _context(settings: Settings, *, agents: dict[str, _StubAgent] | None = None) -> CommandContext:
     return CommandContext(
         agent_provider=_StubAgentProvider(agents),
         current_agent_name="main",
@@ -151,7 +158,7 @@ def _context_with_io(
     settings: Settings,
     io: _StubCommandIO,
     *,
-    agents: dict[str, object] | None = None,
+    agents: dict[str, _StubAgent] | None = None,
 ) -> CommandContext:
     return CommandContext(
         agent_provider=_StubAgentProvider(agents),
@@ -592,7 +599,9 @@ async def test_models_aliases_set_can_choose_existing_alias_by_number(tmp_path: 
     saved = _read_yaml(env_dir / "fastagent.config.yaml")
     assert saved["model_aliases"]["system"]["fast"] == "gpt-4.1-mini"
     assert io.emitted_messages
-    assert str(io.emitted_messages[0].text).find(str((env_dir / "fastagent.config.yaml").resolve())) != -1
+    assert _message_text(io.emitted_messages[0]).find(
+        str((env_dir / "fastagent.config.yaml").resolve())
+    ) != -1
 
     rendered = str(outcome.messages[0].text)
     assert "old: claude-sonnet-4-5" in rendered

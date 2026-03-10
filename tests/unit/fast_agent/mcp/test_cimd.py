@@ -2,6 +2,8 @@
 
 import socket
 import threading
+from collections.abc import Awaitable, Callable
+from typing import cast
 
 import pytest
 from pydantic import ValidationError
@@ -14,6 +16,13 @@ from fast_agent.mcp.oauth_client import (
     _read_callback_url_with_abort,
     build_oauth_provider,
 )
+
+
+def _callback_handler(captured_kwargs: dict[str, object]) -> Callable[[], Awaitable[object]]:
+    """Return the async callback handler captured from OAuthClientProvider kwargs."""
+    callback_handler = captured_kwargs.get("callback_handler")
+    assert callable(callback_handler)
+    return cast("Callable[[], Awaitable[object]]", callback_handler)
 
 
 class TestCIMDConfigValidation:
@@ -432,8 +441,7 @@ async def test_callback_handler_does_not_fallback_to_paste_flow_on_cancel(monkey
         _unexpected_paste_flow,
     )
 
-    callback_handler = captured_kwargs.get("callback_handler")
-    assert callback_handler is not None
+    callback_handler = _callback_handler(captured_kwargs)
 
     with pytest.raises(OAuthFlowCancelledError):
         await callback_handler()
@@ -478,8 +486,7 @@ async def test_callback_handler_disables_paste_fallback_when_configured(monkeypa
         _unexpected_paste,
     )
 
-    callback_handler = captured_kwargs.get("callback_handler")
-    assert callback_handler is not None
+    callback_handler = _callback_handler(captured_kwargs)
 
     with pytest.raises(RuntimeError, match="paste fallback is disabled"):
         await callback_handler()

@@ -53,6 +53,13 @@ class CaptureDisplay(ConsoleDisplay):
         )
 
 
+def _bottom_items(call: dict[str, object]) -> list[str]:
+    bottom_items = call.get("bottom_items")
+    assert isinstance(bottom_items, list)
+    assert all(isinstance(item, str) for item in bottom_items)
+    return [item for item in bottom_items if isinstance(item, str)]
+
+
 def _make_agent_config() -> AgentConfig:
     return AgentConfig(name="test-agent", instruction="do things", servers=[])
 
@@ -200,9 +207,9 @@ async def test_skills_tool_listed_and_highlighted(tmp_path) -> None:
 
     assert capture_display.calls
     call = capture_display.calls[-1]
-    assert call["bottom_items"] is not None
-    assert "skill" in call["bottom_items"]
-    assert call["highlight_index"] == call["bottom_items"].index("skill")
+    bottom_items = _bottom_items(call)
+    assert "skill" in bottom_items
+    assert call["highlight_index"] == bottom_items.index("skill")
 
     await agent._aggregator.close()
 

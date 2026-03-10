@@ -1,4 +1,5 @@
 from mcp.types import (
+    AudioContent,
     CallToolRequest,
     CallToolRequestParams,
     CreateMessageRequestParams,
@@ -13,6 +14,10 @@ from mcp.types import (
 from fast_agent.llm.sampling_converter import SamplingConverter
 from fast_agent.types import PromptMessageExtended
 
+type SamplingMessageContentBlock = (
+    TextContent | ImageContent | AudioContent | ToolUseContent | ToolResultContent
+)
+
 
 def _text(block: object) -> TextContent:
     assert isinstance(block, TextContent)
@@ -22,6 +27,11 @@ def _text(block: object) -> TextContent:
 def _image(block: object) -> ImageContent:
     assert isinstance(block, ImageContent)
     return block
+
+
+def _sampling_content(*blocks: SamplingMessageContentBlock) -> list[SamplingMessageContentBlock]:
+    """Build list-valued SamplingMessage content with the full supported block union."""
+    return list(blocks)
 
 
 class TestSamplingConverter:
@@ -231,7 +241,7 @@ class TestSamplingConverter:
     def test_sampling_message_with_multiple_tool_results(self):
         """Test converting a SamplingMessage with multiple tool results"""
         # Create a SamplingMessage with multiple tool results (list content)
-        tool_results = [
+        tool_results = _sampling_content(
             ToolResultContent(
                 type="tool_result",
                 toolUseId="call_1",
@@ -242,7 +252,7 @@ class TestSamplingConverter:
                 toolUseId="call_2",
                 content=[TextContent(type="text", text="Result 2")],
             ),
-        ]
+        )
         sampling_message = SamplingMessage(role="user", content=tool_results)
 
         # Convert using our converter

@@ -2,6 +2,7 @@ import unittest
 
 from anthropic.types.beta import BetaUsage as AnthropicUsage
 from openai.types.completion_usage import CompletionUsage as OpenAIUsage
+from openai.types.completion_usage import PromptTokensDetails
 
 from fast_agent.llm.usage_tracking import TurnUsage
 
@@ -66,7 +67,7 @@ class TestDisplayInputTokens(unittest.TestCase):
         )
 
         # Add prompt_tokens_details with cached_tokens
-        usage.prompt_tokens_details = type("obj", (object,), {"cached_tokens": 2020})()
+        usage.prompt_tokens_details = PromptTokensDetails(cached_tokens=2020)
 
         turn = TurnUsage.from_openai(usage, "gpt-4")
 
@@ -106,7 +107,7 @@ class TestDisplayInputTokens(unittest.TestCase):
             completion_tokens=161,
             total_tokens=2323,
         )
-        openai_usage.prompt_tokens_details = type("obj", (object,), {"cached_tokens": 2020})()
+        openai_usage.prompt_tokens_details = PromptTokensDetails(cached_tokens=2020)
         openai_turn = TurnUsage.from_openai(openai_usage, "gpt-4")
 
         # Both should show the same total submitted tokens for display
