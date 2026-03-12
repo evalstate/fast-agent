@@ -56,7 +56,7 @@ def get_runtime_paths(project_dir: str | Path) -> dict[str, Path]:
         "data": data,
         "agent_cards": agent_cards,
         "workspaces": workspaces,
-        "reload_signal": root / ".reload_needed",
+        "reload_signal": runtime / ".reload_needed",
     }
 
 

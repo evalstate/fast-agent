@@ -588,7 +588,7 @@ def spawn_agent(
             project_dir=str(_PROJECT_DIR),
         )
 
-        reload_signal = _PROJECT_DIR / ".reload_needed"
+        reload_signal = Path(get_runtime_paths(str(_PROJECT_DIR))["reload_signal"])
         reload_signal.touch()
 
         return json.dumps(
