@@ -1,11 +1,8 @@
-"""Team Spawner — spawn and orchestrate a team of agents from a template.
+"""Team Spawner — spawn and manage teams of agents from a template.
 
-Loads a team template YAML, creates a shared workspace, resolves
-dependencies via TaskDAG, and spawns agents in dependency order
-(parallel when possible).
-
-Workflow-specific logic (review loops, meetings, retrospectives) is
-provided by ``team_orchestration`` and can be overridden via hooks.
+Provides **only primitives**: template loading, workspace creation,
+agent spawning, and roster management. All workflow intelligence
+lives in **skills** assigned to agents.
 """
 
 from __future__ import annotations
@@ -13,7 +10,6 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -23,14 +19,12 @@ from fast_agent.spawn.isolated_spawner import (
     run_isolated_agent,
 )
 from fast_agent.spawn.runtime_paths import get_runtime_paths
-from fast_agent.spawn.task_dag import TaskDAG, TaskNode
+from fast_agent.spawn.workspace_manager import (
+    create_workspace,
+)
 
 if TYPE_CHECKING:
     from fast_agent.spawn.spawn_registry import SpawnRegistry
-from fast_agent.spawn.workspace_manager import (
-    append_changelog,
-    create_workspace,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -48,13 +42,6 @@ def load_team_template(
     template_dir: str | Path,
 ) -> dict[str, Any]:
     """Load a team template YAML by name.
-
-    Args:
-        template_name: Name of the template (without extension).
-        template_dir: Directory containing team template YAML files.
-
-    Returns:
-        Parsed template dict.
 
     Raises:
         ValueError: If template not found.
@@ -90,7 +77,6 @@ def list_team_templates(
                     "name": data.get("name", path.stem),
                     "description": data.get("description", ""),
                     "roles": list(data.get("roles", {}).keys()),
-                    "steps": len(data.get("workflow", [])),
                 }
             )
         except Exception as e:
@@ -117,8 +103,8 @@ class TeamSession:
         self.template = template
         self.workspace = workspace
         self.parent_session_id = parent_session_id
-        self.step_runs: dict[str, dict[str, Any]] = {}
-        self.sprint_status = "in_progress"
+        self.agents: dict[str, dict[str, Any]] = {}  # role → {run_id, status, ...}
+        self.sprint_status = "pending"
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -126,17 +112,44 @@ class TeamSession:
             "template": self.template.get("name", "unknown"),
             "workspace": str(self.workspace),
             "parent_session_id": self.parent_session_id,
-            "steps": self.step_runs,
+            "agents": self.agents,
             "sprint_status": self.sprint_status,
         }
+
+    # ── Roster ───────────────────────────────────────────
+
+    def get_roster(self) -> dict[str, dict[str, Any]]:
+        """Return team roster: role → {run_id, role, status}."""
+        return {
+            role: {
+                "run_id": info.get("run_id", ""),
+                "role": role,
+                "status": info.get("status", "unknown"),
+            }
+            for role, info in self.agents.items()
+        }
+
+    def write_roster(self) -> Path:
+        """Write team_roster.json to workspace."""
+        path = self.workspace / "team_roster.json"
+        path.write_text(json.dumps(self.get_roster(), indent=2))
+        return path
+
+    def roster_context(self) -> str:
+        """Build roster context string for agent injection."""
+        lines = ["## Your Team"]
+        for role, info in self.agents.items():
+            run_id = info.get("run_id", "?")
+            instruction = info.get("instruction", "")
+            label = instruction[:60] if instruction else role
+            lines.append(f"- **{role}** (run_id: {run_id}) — {label}")
+        lines.append("\nUse `send_message_to_agent(to_role=..., ...)` to message any teammate.")
+        return "\n".join(lines)
 
     # ── Persistence ──────────────────────────────────────
 
     def save(self, sessions_dir: str | Path | None = None) -> Path:
-        """Persist session state to JSON file.
-
-        Default location: ``{workspace}/../team_sessions/{id}.json``
-        """
+        """Persist session state to JSON file."""
         if sessions_dir:
             sdir = Path(sessions_dir)
         else:
@@ -163,7 +176,7 @@ class TeamSession:
             workspace=Path(data["workspace"]),
             parent_session_id=data.get("parent_session_id", ""),
         )
-        session.step_runs = data.get("steps", {})
+        session.agents = data.get("agents", {})
         session.sprint_status = data.get("sprint_status", "unknown")
         return session
 
@@ -177,14 +190,11 @@ def _build_team_env(
     workspace: Path,
     roles: dict[str, Any],
     my_role: str,
-    depth: int = 1,
 ) -> dict[str, str]:
-    """Build environment variables for team agent communication."""
+    """Build environment variables for team agent."""
     return {
         "TEAM_WORKSPACE": str(workspace),
-        "TEAM_ROLES_CONFIG": json.dumps(roles),
         "TEAM_MY_ROLE": my_role,
-        "TEAM_SPAWN_DEPTH": str(depth),
     }
 
 
@@ -192,12 +202,7 @@ def _resolve_role_skills(
     role_config: dict[str, Any],
     skills_dir: str | Path,
 ) -> list[str]:
-    """Resolve skill names into a temporary parent directory.
-
-    FastAgent's SkillRegistry scans subdirectories of a parent dir
-    looking for SKILL.md files. This function creates a temp directory
-    with symlinks to only the skills assigned to this role.
-    """
+    """Resolve skill names into a temporary parent directory."""
     import shutil
     import tempfile
 
@@ -225,117 +230,12 @@ def _resolve_role_skills(
         except OSError:
             shutil.copytree(skill_dir, symlink)
 
-    logger.info(
-        "Prepared %d skills in %s",
-        len(valid_skills),
-        role_skills_dir,
-    )
     return [str(role_skills_dir)]
 
 
-async def _spawn_step(
-    step_config: dict[str, Any],
-    roles: dict[str, Any],
-    workspace: Path,
-    session: TeamSession,
-    registry: SpawnRegistry,
-    project_dir: str | Path,
-    skills_dir: str | Path,
-    project_brief: str = "",
-    extra_context: str = "",
-    display_manager: Any | None = None,
-) -> dict[str, Any]:
-    """Spawn a single workflow step agent and return its result."""
-    step_name = step_config["step"]
-    agent_role = step_config["agent"]
-    role_config = roles.get(agent_role, {})
-
-    task = step_config["task"].replace("{project_brief}", project_brief)
-
-    context_parts = [
-        f"## Shared Workspace\nPath: {workspace}",
-        "You MUST read from and write to this workspace directory.",
-        "Use the filesystem MCP server to access files.",
-    ]
-
-    for dep in step_config.get("depends_on", []):
-        dep_info = session.step_runs.get(dep, {})
-        if dep_info.get("result"):
-            context_parts.append(f"\n## Output from '{dep}' step\n{dep_info['result'][:2000]}")
-
-    if extra_context:
-        context_parts.append(f"\n## Additional Context\n{extra_context}")
-
-    context = "\n\n".join(context_parts)
-    instruction = role_config.get("instruction", "")
-    servers = role_config.get("servers", [])
-    model = role_config.get("model", "")
-
-    if "team_communicate" not in servers:
-        servers = list(servers) + ["team_communicate"]
-
-    append_changelog(
-        workspace,
-        agent_role,
-        step_name,
-        f"Starting: {task[:100]}...",
-    )
-
-    team_env = _build_team_env(workspace, roles, agent_role)
-
-    logger.info(
-        "Team %s: spawning %s for step '%s'",
-        session.session_id,
-        agent_role,
-        step_name,
-    )
-    result = await run_isolated_agent(
-        task=task,
-        project_dir=project_dir,
-        instruction=instruction,
-        context=context,
-        servers=servers,
-        model=model,
-        timeout_seconds=600,
-        role=agent_role,
-        lifecycle="persistent",
-        registry=registry,
-        env_vars=team_env,
-        display_manager=display_manager,
-        skills=_resolve_role_skills(role_config, skills_dir),
-    )
-
-    run_id = result.get("run_id", "")
-    status = result.get("status", "error")
-    agent_result = result.get("result", "")
-
-    session.step_runs[step_name] = {
-        "run_id": run_id,
-        "agent": agent_role,
-        "status": status,
-        "result": agent_result[:5000],
-        "duration": result.get("metadata", {}).get("duration_seconds"),
-    }
-
-    append_changelog(
-        workspace,
-        agent_role,
-        step_name,
-        f"Completed: status={status}, "
-        f"duration="
-        f"{result.get('metadata', {}).get('duration_seconds', '?')}s",
-    )
-
-    return result
-
-
 # ───────────────────────────────────────────────────────────
-# Main Orchestrator
+# Main: spawn_team
 # ───────────────────────────────────────────────────────────
-
-# Type alias for the hook callables
-MeetingHandler = Callable[..., Coroutine[Any, Any, dict[str, Any]]]
-ReviewHandler = Callable[..., Coroutine[Any, Any, dict[str, Any]]]
 
 
 async def spawn_team(
@@ -347,17 +247,19 @@ async def spawn_team(
     skills_dir: str | Path | None = None,
     workspace_root: Path | None = None,
     display_manager: Any | None = None,
-    meeting_handler: MeetingHandler | None = None,
-    review_handler: ReviewHandler | None = None,
     parent_session_id: str = "",
+    mode: str = "blocking",
 ) -> TeamSession:
-    """Spawn a full team from a template.
+    """Spawn a team of agents from a template.
 
-    1. Load template -> build TaskDAG
-    2. Create shared workspace
-    3. Topological sort -> determine execution order
-    4. Execute steps with optional review/meeting hooks
-    5. Persist and return session
+    Each agent is spawned with:
+    - Their assigned skills
+    - Team roster context (who's on the team)
+    - Shared workspace path
+    - MCP servers for communication
+
+    Agents self-coordinate using skills + MCP tools.
+    No hardcoded flow control.
 
     Args:
         template_name: Name of the team template.
@@ -368,30 +270,14 @@ async def spawn_team(
         skills_dir: Directory with skill subdirectories.
         workspace_root: Override workspace root directory.
         display_manager: TUI display manager instance.
-        meeting_handler: Custom meeting handler (default:
-            ``team_orchestration.run_meeting``).
-        review_handler: Custom review handler (default:
-            ``team_orchestration.run_review_loop``).
         parent_session_id: Optional fast-agent session ID
             for traceability.
+        mode: "blocking" (wait for all agents) or
+              "background" (return IDs immediately).
 
     Returns:
-        A TeamSession tracking all spawned agents.
+        A TeamSession with agent roster.
     """
-    # Lazy-import defaults from team_orchestration
-    if meeting_handler is None:
-        from fast_agent.spawn.team_orchestration import (
-            run_meeting,
-        )
-
-        meeting_handler = run_meeting
-    if review_handler is None:
-        from fast_agent.spawn.team_orchestration import (
-            run_review_loop,
-        )
-
-        review_handler = run_review_loop
-
     pdir = Path(project_dir).resolve()
     tdir = Path(template_dir) if template_dir else pdir / "team_templates"
     sdir = Path(skills_dir) if skills_dir else pdir / "skills"
@@ -416,106 +302,142 @@ async def spawn_team(
     _team_sessions[session_id] = session
 
     roles = template.get("roles", {})
-    workflow = template.get("workflow", [])
 
-    # Build DAG from workflow
-    dag = TaskDAG()
-    for step in workflow:
-        step_name = step["step"]
-        deps = step.get("depends_on", [])
-        dag.add_node(TaskNode(role=step_name, depends_on=deps))
+    # Pre-generate run_ids and register all agents
+    for role_name, role_config in roles.items():
+        run_id = f"team_{session_id}_{role_name}_{uuid.uuid4().hex[:6]}"
+        session.agents[role_name] = {
+            "run_id": run_id,
+            "role": role_name,
+            "instruction": role_config.get("instruction", ""),
+            "status": "pending",
+        }
 
-    execution_order = dag.topological_sort()
-    logger.info(
-        "Team %s: execution order = %s",
-        session_id,
-        execution_order,
-    )
+    # Write roster to workspace
+    session.write_roster()
 
-    completed_steps: set[str] = set()
+    # Build team roster context (shared by all agents)
+    roster_ctx = session.roster_context()
 
-    for step_name in execution_order:
-        step_config = next(
-            (s for s in workflow if s["step"] == step_name),
-            None,
-        )
-        if not step_config:
-            continue
+    if mode == "background":
+        # Return immediately, spawn in background
+        session.sprint_status = "spawning"
+        session.save(sessions_dir=paths["workspaces"] / "team_sessions")
 
-        step_type = step_config.get("type", "")
-        if step_type == "meeting":
-            await meeting_handler(
-                meeting_config=step_config,
+        import asyncio
+
+        async def _spawn_all_bg() -> None:
+            await _spawn_all_agents(
+                session=session,
                 roles=roles,
                 workspace=workspace,
-                session=session,
-                registry=registry,
-                project_dir=project_dir,
-                skills_dir=sdir,
+                roster_ctx=roster_ctx,
                 project_brief=project_brief,
+                registry=registry,
+                project_dir=pdir,
+                skills_dir=sdir,
                 display_manager=display_manager,
             )
-            completed_steps.add(step_name)
-            continue
+            session.sprint_status = "running"
+            session.save(sessions_dir=paths["workspaces"] / "team_sessions")
 
-        review_target = step_config.get("review_target")
-        if review_target:
-            target_step = next(
-                (s for s in workflow if s["step"] == review_target),
-                None,
-            )
-            if target_step:
-                await review_handler(
-                    review_step=step_config,
-                    target_step=target_step,
-                    roles=roles,
-                    workflow=workflow,
-                    workspace=workspace,
-                    session=session,
-                    registry=registry,
-                    project_dir=project_dir,
-                    skills_dir=sdir,
-                    project_brief=project_brief,
-                    display_manager=display_manager,
-                )
-                completed_steps.add(step_name)
-                continue
+        asyncio.create_task(_spawn_all_bg())
+        return session
 
-        result = await _spawn_step(
-            step_config=step_config,
-            roles=roles,
-            workspace=workspace,
-            session=session,
+    # Blocking mode: spawn all and wait
+    await _spawn_all_agents(
+        session=session,
+        roles=roles,
+        workspace=workspace,
+        roster_ctx=roster_ctx,
+        project_brief=project_brief,
+        registry=registry,
+        project_dir=pdir,
+        skills_dir=sdir,
+        display_manager=display_manager,
+    )
+
+    session.sprint_status = "running"
+    session.save(sessions_dir=paths["workspaces"] / "team_sessions")
+    return session
+
+
+async def _spawn_all_agents(
+    session: TeamSession,
+    roles: dict[str, Any],
+    workspace: Path,
+    roster_ctx: str,
+    project_brief: str,
+    registry: SpawnRegistry,
+    project_dir: str | Path,
+    skills_dir: str | Path,
+    display_manager: Any | None = None,
+) -> None:
+    """Spawn all team agents with skills and roster context."""
+    for role_name, role_config in roles.items():
+        task = role_config.get("task", project_brief)
+        instruction = role_config.get("instruction", f"You are the {role_name}.")
+        servers = list(role_config.get("servers", ["filesystem"]))
+        model = role_config.get("model", "")
+
+        # Ensure communication servers are available
+        for srv in ["team_communicate"]:
+            if srv not in servers:
+                servers.append(srv)
+
+        # Build context with roster + workspace
+        context_parts = [
+            f"## Project Brief\n{project_brief}",
+            f"\n## Shared Workspace\nPath: {workspace}",
+            "Use the filesystem MCP server to read/write files.",
+            f"\n{roster_ctx}",
+        ]
+        context = "\n\n".join(context_parts)
+
+        team_env = _build_team_env(workspace, roles, role_name)
+
+        logger.info(
+            "Team %s: spawning %s",
+            session.session_id,
+            role_name,
+        )
+
+        session.agents[role_name]["status"] = "running"
+
+        result = await run_isolated_agent(
+            task=task,
+            project_dir=str(project_dir),
+            instruction=instruction,
+            context=context,
+            servers=servers,
+            model=model,
+            timeout_seconds=600,
+            role=role_name,
+            lifecycle="resumable",
             registry=registry,
-            project_dir=project_dir,
-            skills_dir=sdir,
-            project_brief=project_brief,
+            env_vars=team_env,
             display_manager=display_manager,
+            skills=_resolve_role_skills(role_config, skills_dir),
         )
 
         status = result.get("status", "error")
-        if status == "completed":
-            completed_steps.add(step_name)
-        else:
-            logger.error(
-                "Team %s: step '%s' failed: %s",
-                session_id,
-                step_name,
-                result.get("error", ""),
-            )
-            append_changelog(
-                workspace,
-                step_config.get("agent", "unknown"),
-                step_name,
-                f"ERROR: {result.get('error', 'unknown error')}",
-            )
+        session.agents[role_name].update(
+            {
+                "run_id": result.get("run_id", session.agents[role_name]["run_id"]),
+                "status": status,
+                "result": result.get("result", "")[:5000],
+            }
+        )
 
-    session.sprint_status = "completed"
+        logger.info(
+            "Team %s: %s → %s",
+            session.session_id,
+            role_name,
+            status,
+        )
 
-    # Persist session state
-    session.save(sessions_dir=paths["workspaces"] / "team_sessions")
-
-    return session
+    # Update roster file after all agents complete
+    session.write_roster()
 
 
 # ───────────────────────────────────────────────────────────
@@ -530,17 +452,4 @@ def get_team_session(session_id: str) -> TeamSession | None:
 
 def list_team_sessions() -> list[dict[str, Any]]:
     """List all team sessions."""
-    return [
-        {
-            "session_id": s.session_id,
-            "template": s.template.get("name", "unknown"),
-            "workspace": str(s.workspace),
-            "sprint_status": s.sprint_status,
-            "steps_total": len(s.template.get("workflow", [])),
-            "steps_completed": sum(
-                1 for r in s.step_runs.values() if r.get("status") == "completed"
-            ),
-            "steps_errored": sum(1 for r in s.step_runs.values() if r.get("status") == "error"),
-        }
-        for s in _team_sessions.values()
-    ]
+    return [s.to_dict() for s in _team_sessions.values()]

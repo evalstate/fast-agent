@@ -1,14 +1,27 @@
 # Agile Team Template
 #
-# This is a REFERENCE EXAMPLE showing how to define a team template
-# for use with fast_agent.spawn.team_spawner.spawn_team().
-#
-# Workflow: BA → DEV → QE review meeting with tiered escalation.
+# Roles + skills define team composition.
+# PM agent orchestrates the workflow using project-management skill.
+# No hardcoded workflow steps — agents self-coordinate.
 
 name: agile-team
-description: "Agile development team: BA → DEV → QE review meeting pipeline with tiered escalation."
+description: "Agile team with PM, BA, DEV, QE. PM drives workflow via skills."
 
 roles:
+  pm:
+    instruction: |
+      You are the Project Manager. You orchestrate the team's work:
+      1. Read the project brief and break it into tasks
+      2. Assign work to BA, DEV, and QE
+      3. Coordinate reviews between team members
+      4. Schedule meetings when team discussion is needed
+      5. Drive retrospective after sprint completion
+
+      You DO NOT write code or specs yourself — delegate to specialists.
+    skills: [project-management]
+    servers: [filesystem, meeting_room, team_communicate, agent_spawner]
+    model: ""
+
   ba:
     instruction: |
       You are a Business Analyst. Your job:
@@ -23,7 +36,8 @@ roles:
       - Non-Functional Requirements
       - Acceptance Criteria per feature
       - Open Questions
-    servers: [filesystem, fetch]
+    skills: [meeting-participant, retrospective]
+    servers: [filesystem, team_communicate]
     model: ""
 
   dev:
@@ -40,7 +54,8 @@ roles:
       - Write tests for every function
       - Document your code with docstrings
       - Save test files to /tests/ directory
-    servers: [filesystem]
+    skills: [code-review, meeting-participant, retrospective]
+    servers: [filesystem, team_communicate]
     model: ""
 
   qe:
@@ -55,24 +70,6 @@ roles:
       - Test Plan (table: ID, Scenario, Expected Result, Status)
       - Bug Report (if any): severity, steps to reproduce
       - Overall quality assessment with rationale
-    servers: [filesystem]
+    skills: [code-review, meeting-participant, retrospective]
+    servers: [filesystem, team_communicate, meeting_room]
     model: ""
-
-workflow:
-  - step: requirements
-    agent: ba
-    task: "Write a BRD for: {project_brief}"
-    output_file: specs/brd.md
-
-  - step: implementation
-    agent: dev
-    depends_on: [requirements]
-    task: "Read specs/brd.md and implement the project. Save code to src/ and tests to tests/"
-    output_file: src/
-
-  - step: review
-    type: meeting
-    depends_on: [implementation]
-    agenda: "Review DEV implementation against BRD requirements"
-    participants: [qe, dev, ba]
-    max_rounds: 4

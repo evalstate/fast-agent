@@ -54,9 +54,6 @@ from fast_agent.spawn.message_bus import MessageBus
 from fast_agent.spawn.signal_store import SignalStore
 from fast_agent.spawn.spawn_display import get_display_manager
 from fast_agent.spawn.spawn_registry import SpawnRegistry
-from fast_agent.spawn.team_orchestration import (
-    run_retrospective as _run_retrospective,
-)
 from fast_agent.spawn.team_spawner import (
     get_team_session,
 )
@@ -692,72 +689,62 @@ async def spawn_team_tool(
 ) -> str:
     """Spawn a full team of agents from a template.
 
+    Each agent receives the team roster (who's on the team) and
+    coordinates via skills + MCP tools. No hardcoded flow control.
+
     Args:
         template: Team template name (e.g. "agile-team").
         project_brief: Description for the team.
-        mode: "blocking" (wait for completion) or
-              "background" (return session_id immediately).
+        mode: "blocking" (wait for all to complete) or
+              "background" (return agent IDs immediately).
     """
-    import asyncio
-
     try:
-        if mode == "background":
-
-            async def _run_team_bg() -> None:
-                try:
-                    await _spawn_team(
-                        template_name=template,
-                        project_brief=project_brief,
-                        registry=_registry,
-                        display_manager=_display,
-                        project_dir=str(_PROJECT_DIR),
-                    )
-                except Exception as exc:
-                    logger.error("Background team spawn failed: %s", exc)
-
-            asyncio.create_task(_run_team_bg())
-
-            return json.dumps(
-                {
-                    "status": "spawned_background",
-                    "message": (
-                        "Team spawned in background. Use "
-                        "get_team_status() or "
-                        "list_team_templates_tool() to check."
-                    ),
-                }
-            )
-
-        # Default: blocking mode
         session = await _spawn_team(
             template_name=template,
             project_brief=project_brief,
             registry=_registry,
             display_manager=_display,
             project_dir=str(_PROJECT_DIR),
+            mode=mode,
         )
-        ws_summary = get_workspace_summary(str(session.workspace))
-        return json.dumps(
-            {
-                "status": "completed",
-                "session_id": session.session_id,
-                "template": session.template.get("name", template),
-                "workspace": str(session.workspace),
-                "workspace_contents": ws_summary.get("directories", {}),
-                "steps": {
-                    name: {
-                        "agent": info["agent"],
-                        "status": info["status"],
-                    }
-                    for name, info in session.step_runs.items()
-                },
-                "message": (
-                    "Team completed. Use "
-                    "get_team_result(session_id="
-                    f"'{session.session_id}') for results."
-                ),
+
+        agents_info = {
+            role: {
+                "run_id": info.get("run_id", ""),
+                "role": role,
+                "status": info.get("status", "unknown"),
             }
-        )
+            for role, info in session.agents.items()
+        }
+
+        status = "spawning_background" if mode == "background" else "completed"
+
+        result: dict[str, Any] = {
+            "status": status,
+            "session_id": session.session_id,
+            "template": session.template.get("name", template),
+            "workspace": str(session.workspace),
+            "agents": agents_info,
+        }
+
+        if mode == "background":
+            result["message"] = (
+                "Team spawning in background. Use "
+                "check_spawn_status(run_id) for individual "
+                "agents, or get_team_status(session_id="
+                f"'{session.session_id}') for team overview."
+            )
+        else:
+            ws_summary = get_workspace_summary(str(session.workspace))
+            result["workspace_contents"] = ws_summary.get("directories", {})
+            result["message"] = (
+                "Team completed. Use resume_spawn(run_id, "
+                "follow_up_task) to continue any agent, or "
+                "get_team_result(session_id="
+                f"'{session.session_id}') for results."
+            )
+
+        return json.dumps(result)
     except ValueError as e:
         return json.dumps({"error": str(e)})
     except Exception as e:
@@ -768,33 +755,28 @@ async def spawn_team_tool(
 def get_team_status(session_id: str) -> str:
     """Get the status of a team session.
 
+    Returns agent roster with run_ids and statuses.
+
     Args:
         session_id: The session_id from spawn_team_tool.
     """
     session = get_team_session(session_id)
     if not session:
-        return json.dumps({"error": (f"Team session '{session_id}' not found.")})
+        return json.dumps({"error": f"Team session '{session_id}' not found."})
 
-    steps_detail: dict[str, dict[str, Any]] = {}
-    for name, info in session.step_runs.items():
-        steps_detail[name] = {
-            "agent": info["agent"],
-            "status": info["status"],
-            "duration": info.get("duration"),
-        }
-
-    workflow = session.template.get("workflow", [])
-    total = len(workflow)
-    completed = sum(1 for r in session.step_runs.values() if r.get("status") == "completed")
-    errored = sum(1 for r in session.step_runs.values() if r.get("status") == "error")
+    agents = session.get_roster()
+    total = len(agents)
+    completed = sum(1 for a in session.agents.values() if a.get("status") == "completed")
+    errored = sum(1 for a in session.agents.values() if a.get("status") == "error")
 
     return json.dumps(
         {
             "session_id": session_id,
             "template": session.template.get("name", "unknown"),
             "workspace": str(session.workspace),
-            "progress": (f"{completed}/{total} steps completed, {errored} errors"),
-            "steps": steps_detail,
+            "sprint_status": session.sprint_status,
+            "progress": f"{completed}/{total} agents completed, {errored} errors",
+            "agents": agents,
         }
     )
 
@@ -803,20 +785,22 @@ def get_team_status(session_id: str) -> str:
 def get_team_result(session_id: str) -> str:
     """Get the consolidated result of a completed team.
 
+    Includes per-agent results and workspace contents.
+
     Args:
         session_id: The session_id of the team session.
     """
     session = get_team_session(session_id)
     if not session:
-        return json.dumps({"error": (f"Team session '{session_id}' not found.")})
+        return json.dumps({"error": f"Team session '{session_id}' not found."})
 
-    results: dict[str, dict[str, Any]] = {}
-    for name, info in session.step_runs.items():
-        results[name] = {
-            "agent": info["agent"],
-            "status": info["status"],
+    agents_results: dict[str, dict[str, Any]] = {}
+    for role, info in session.agents.items():
+        agents_results[role] = {
+            "run_id": info.get("run_id", ""),
+            "role": role,
+            "status": info.get("status", "unknown"),
             "result": info.get("result", "")[:3000],
-            "duration": info.get("duration"),
         }
 
     ws_summary = get_workspace_summary(str(session.workspace))
@@ -827,7 +811,7 @@ def get_team_result(session_id: str) -> str:
             "template": session.template.get("name", "unknown"),
             "workspace": str(session.workspace),
             "workspace_contents": ws_summary.get("directories", {}),
-            "results": results,
+            "agents": agents_results,
         }
     )
 
@@ -837,35 +821,6 @@ def list_team_templates_tool() -> str:
     """List all available team templates."""
     templates = _list_templates(template_dir=str(_PROJECT_DIR / "team_templates"))
     return json.dumps({"count": len(templates), "templates": templates})
-
-
-@mcp.tool()
-async def trigger_retrospective(session_id: str) -> str:
-    """Run a team retrospective after sprint completion.
-
-    Args:
-        session_id: The session_id of the completed sprint.
-    """
-    try:
-        result = await _run_retrospective(
-            session_id=session_id,
-            registry=_registry,
-            project_dir=str(_PROJECT_DIR),
-        )
-        if "error" in result:
-            return json.dumps(result)
-
-        return json.dumps(
-            {
-                "status": "retrospective_complete",
-                "session_id": session_id,
-                "workspace": result.get("workspace", ""),
-                "roles_completed": list(result.get("results", {}).keys()),
-                "message": ("Retrospective complete. Check workspace/retrospective/ for lessons."),
-            }
-        )
-    except Exception as e:
-        return json.dumps({"error": f"Retrospective failed: {e}"})
 
 
 if __name__ == "__main__":
