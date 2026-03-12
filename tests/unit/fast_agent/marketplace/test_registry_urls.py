@@ -52,7 +52,7 @@ def test_resolve_registry_urls_preserves_distinct_github_refs() -> None:
     ]
 
 
-def test_resolve_skill_registries_keeps_configured_and_active_distinct_sources() -> None:
+def test_resolve_skill_registries_dedupes_equivalent_active_source() -> None:
     settings = Settings(
         skills=SkillsSettings(
             marketplace_urls=list(DEFAULT_SKILL_REGISTRIES),
@@ -62,14 +62,10 @@ def test_resolve_skill_registries_keeps_configured_and_active_distinct_sources()
 
     resolved = resolve_skill_registries(settings)
 
-    assert len(resolved) == 4
-    assert resolved == [
-        *list(DEFAULT_SKILL_REGISTRIES),
-        "https://raw.githubusercontent.com/huggingface/skills/main/marketplace.json",
-    ]
+    assert resolved == list(DEFAULT_SKILL_REGISTRIES)
 
 
-def test_resolve_card_registries_keeps_configured_and_active_distinct_sources() -> None:
+def test_resolve_card_registries_dedupes_equivalent_active_source() -> None:
     settings = Settings(
         cards=CardsSettings(
             marketplace_urls=list(DEFAULT_CARD_REGISTRIES),
@@ -79,8 +75,4 @@ def test_resolve_card_registries_keeps_configured_and_active_distinct_sources() 
 
     resolved = resolve_card_registries(settings)
 
-    assert len(resolved) == 2
-    assert resolved == [
-        *list(DEFAULT_CARD_REGISTRIES),
-        "https://raw.githubusercontent.com/fast-agent-ai/card-packs/main/marketplace.json",
-    ]
+    assert resolved == list(DEFAULT_CARD_REGISTRIES)

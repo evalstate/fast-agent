@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Sequence
 
 from rich.text import Text
 
+from fast_agent.acp.command_io import render_history_turn_text
 from fast_agent.commands.context import AgentProvider, CommandIO
 from fast_agent.commands.results import CommandMessage
 from fast_agent.mcp.helpers.content_helpers import get_text
@@ -112,30 +113,17 @@ class AcpCommandIO(CommandIO):
         turn_index: int | None = None,
         total_turns: int | None = None,
     ) -> None:
-        heading = "# history turn"
-        if turn_index is not None:
-            heading = f"# history turn {turn_index}"
-            if total_turns is not None:
-                heading = f"{heading}/{total_turns}"
-
-        lines = [heading, "", f"Agent: {agent_name}", ""]
-        for message in turn:
-            role = getattr(message, "role", "message")
-            if hasattr(role, "value"):
-                role = role.value
-            text = ""
-            if hasattr(message, "all_text"):
-                text = message.all_text() or message.first_text() or ""
-            if not text:
-                content = getattr(message, "content", None)
-                if isinstance(content, list) and content:
-                    text = get_text(content[0]) or ""
-                elif content is not None:
-                    text = get_text(content) or ""
-            text = " ".join(text.split()) if text else "<no text>"
-            lines.append(f"- {role}: {text}")
-
-        await self.emit(CommandMessage(text="\n".join(lines), agent_name=agent_name))
+        await self.emit(
+            CommandMessage(
+                text=render_history_turn_text(
+                    agent_name,
+                    turn,
+                    turn_index=turn_index,
+                    total_turns=total_turns,
+                ),
+                agent_name=agent_name,
+            )
+        )
 
     async def display_history_overview(
         self,

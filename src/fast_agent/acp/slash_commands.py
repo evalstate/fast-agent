@@ -295,7 +295,7 @@ class SlashCommandHandler:
                 name="history",
                 description="Show or manage conversation history",
                 input=AvailableCommandInput(
-                    root=UnstructuredCommandInput(hint="[show|save|load] [args]")
+                    root=UnstructuredCommandInput(hint="[show|detail <turn>|save|load] [args]")
                 ),
             ),
             "clear": AvailableCommand(

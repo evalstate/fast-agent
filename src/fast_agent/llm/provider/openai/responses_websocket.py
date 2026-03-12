@@ -330,10 +330,17 @@ async def connect_websocket(
     headers: Mapping[str, str],
     timeout_seconds: float | None = None,
 ) -> ManagedWebSocketConnection:
-    timeout = aiohttp.ClientTimeout(total=timeout_seconds) if timeout_seconds else None
-    session = aiohttp.ClientSession(timeout=timeout)
+    # Stream idleness is enforced while iterating websocket events, so avoid a
+    # second websocket/session timeout here. A separate wall-clock timeout would
+    # race the idle timeout logic and prematurely kill healthy long-running
+    # streams that are still producing events.
+    session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=None))
     try:
-        websocket = await session.ws_connect(url, headers=dict(headers), autoping=True)
+        if timeout_seconds is None:
+            websocket = await session.ws_connect(url, headers=dict(headers), autoping=True)
+        else:
+            async with asyncio.timeout(timeout_seconds):
+                websocket = await session.ws_connect(url, headers=dict(headers), autoping=True)
     except Exception:
         await session.close()
         raise

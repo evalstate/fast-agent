@@ -1,8 +1,10 @@
 import asyncio
+import json
 
 from mcp.types import CallToolResult, TextContent
 from rich.text import Text
 
+from fast_agent.constants import OPENAI_ASSISTANT_MESSAGE_ITEMS
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui import console
@@ -122,3 +124,52 @@ def test_reasoning_then_text_has_single_blank_separator() -> None:
     rendered = asyncio.run(_render())
     assert "Thinking\n\nFinal answer" in rendered
     assert "Thinking\n\n\nFinal answer" not in rendered
+
+
+def test_openai_phase_blocks_render_with_friendly_labels_in_assistant_output() -> None:
+    display = ConsoleDisplay(config=None)
+
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[
+            TextContent(type="text", text="Let me inspect that first.\n\nFinal answer"),
+        ],
+        channels={
+            OPENAI_ASSISTANT_MESSAGE_ITEMS: [
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "type": "message",
+                            "phase": "commentary",
+                            "content": [
+                                {"type": "output_text", "text": "Let me inspect that first."}
+                            ],
+                        }
+                    ),
+                ),
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "type": "message",
+                            "phase": "final_answer",
+                            "content": [{"type": "output_text", "text": "Final answer"}],
+                        }
+                    ),
+                ),
+            ]
+        },
+        stop_reason=LlmStopReason.END_TURN,
+    )
+
+    async def _render() -> str:
+        with console.console.capture() as capture:
+            await display.show_assistant_message(message_text=message, name="dev", model="gpt-test")
+        return capture.get()
+
+    rendered = asyncio.run(_render())
+    assert "Commentary" in rendered
+    assert "Let me inspect that first." in rendered
+    assert "Final Answer:" in rendered
+    assert "Final answer" in rendered

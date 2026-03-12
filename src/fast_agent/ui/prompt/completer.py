@@ -67,7 +67,10 @@ class AgentCompleter(Completer):
         self.commands = {
             "mcp": "Manage MCP runtime servers (/mcp list|connect|disconnect|reconnect|session)",
             "connect": "Alias for /mcp connect with target auto-detection",
-            "history": "Show conversation history overview (or /history save|load|clear|rewind|review|fix)",
+            "history": (
+                "Show conversation history overview "
+                "(or /history show|detail|save|load|clear|rewind|fix)"
+            ),
             "tools": "List tools",
             "model": (
                 "Inspect/switch models and update runtime settings "

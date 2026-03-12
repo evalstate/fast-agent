@@ -38,7 +38,7 @@ def test_list_fast_models_uses_explicit_curated_designation() -> None:
     assert codex_fast == ["codexresponses.gpt-5.3-codex-spark"]
 
     hf_fast = ModelSelectionCatalog.list_fast_models(Provider.HUGGINGFACE)
-    assert "hf.openai/gpt-oss-120b:cerebras" in hf_fast
+    assert "hf.openai/gpt-oss-120b:sambanova" in hf_fast
     assert "hf.moonshotai/Kimi-K2.5:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on" in hf_fast
 
 

@@ -77,7 +77,7 @@ def _build_metadata_line(
     style_name = getattr(display.style, "name", None)
     if style_name == "a3":
         line = Text()
-        line.append("▎• ", style=prefix_style)
+        line.append("▎ ", style=prefix_style)
         line.append_text(content)
         return line
 
@@ -99,7 +99,7 @@ def show_hook_message(
         width = console.console.size.width
         prefix_style = f"bold {style}"
         style_name = getattr(display.style, "name", None)
-        prefix_text = "▎• "
+        prefix_text = "  "
         indent = " " * len(prefix_text)
 
         header = _build_hook_header(hook_kind, hook_name, style=style)

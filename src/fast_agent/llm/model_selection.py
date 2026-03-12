@@ -120,7 +120,7 @@ class ModelSelectionCatalog:
                     "&presence_penalty=1.5&repetition_penalty=1.0&reasoning=off"
                 ),
             ),
-            CatalogModelEntry(alias="gpt-oss", model="hf.openai/gpt-oss-120b:cerebras", fast=True),
+            CatalogModelEntry(alias="gpt-oss", model="hf.openai/gpt-oss-120b:sambanova", fast=True),
             CatalogModelEntry(
                 alias="glm47",
                 model="hf.zai-org/GLM-4.7:cerebras",

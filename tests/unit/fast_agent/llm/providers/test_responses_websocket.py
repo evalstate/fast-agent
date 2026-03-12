@@ -23,10 +23,12 @@ from fast_agent.llm.provider.openai.responses_websocket import (
     WebSocketResponsesStream,
     _AttrObjectView,
     build_ws_headers,
+    connect_websocket,
     resolve_responses_ws_url,
     send_response_create,
     send_response_request,
 )
+from fast_agent.llm.provider.openai.streaming_utils import with_stream_idle_timeout
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.request_params import RequestParams
 
@@ -40,6 +42,23 @@ class _FakeSession:
 
     async def close(self) -> None:
         self.closed = True
+
+
+class _SlowConnectSession(_FakeSession):
+    def __init__(self, delay_seconds: float) -> None:
+        super().__init__()
+        self.delay_seconds = delay_seconds
+
+    async def ws_connect(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str],
+        autoping: bool,
+    ) -> _FakeWebSocket:
+        del url, headers, autoping
+        await asyncio.sleep(self.delay_seconds)
+        return _FakeWebSocket()
 
 
 class _FakeWebSocket:
@@ -73,6 +92,13 @@ class _FakeWebSocket:
 
     def exception(self) -> BaseException | None:
         return self._exception
+
+
+class _HangingWebSocket(_FakeWebSocket):
+    async def receive(self, timeout: float | None = None) -> SimpleNamespace:
+        del timeout
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
 
 
 class _FakeResponsesClient:
@@ -167,6 +193,34 @@ class _CapturingDisplay:
         self.status_messages.append(getattr(content, "plain", str(content)))
 
 
+class _DelayedStream:
+    def __init__(self, delays: list[float], values: list[str]) -> None:
+        self._delays = delays
+        self._values = values
+        self._index = 0
+
+    def __aiter__(self) -> _DelayedStream:
+        return self
+
+    async def __anext__(self) -> str:
+        if self._index >= len(self._values):
+            raise StopAsyncIteration
+        delay = self._delays[self._index]
+        value = self._values[self._index]
+        self._index += 1
+        await asyncio.sleep(delay)
+        return value
+
+
+class _FinalResponseDelayedStream(_DelayedStream):
+    def __init__(self, delays: list[float], values: list[str], final_response: object) -> None:
+        super().__init__(delays, values)
+        self._final_response = final_response
+
+    async def get_final_response(self) -> object:
+        return self._final_response
+
+
 @pytest.mark.asyncio
 async def test_send_response_create_envelope() -> None:
     websocket = _FakeWebSocket()
@@ -181,6 +235,80 @@ async def test_send_response_create_envelope() -> None:
     assert payload["type"] == "response.create"
     assert "stream" not in payload
     assert payload["model"] == "gpt-5.3-codex"
+
+
+@pytest.mark.asyncio
+async def test_connect_websocket_applies_timeout_during_handshake(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created_sessions: list[_SlowConnectSession] = []
+
+    def _client_session_factory(*, timeout: Any) -> _SlowConnectSession:
+        del timeout
+        session = _SlowConnectSession(delay_seconds=0.05)
+        created_sessions.append(session)
+        return session
+
+    monkeypatch.setattr(
+        "fast_agent.llm.provider.openai.responses_websocket.aiohttp.ClientSession",
+        _client_session_factory,
+    )
+
+    with pytest.raises(TimeoutError):
+        await connect_websocket(
+            url="wss://api.openai.com/v1/responses",
+            headers={"Authorization": "Bearer test"},
+            timeout_seconds=0.01,
+        )
+
+    assert len(created_sessions) == 1
+    assert created_sessions[0].closed is True
+
+
+@pytest.mark.asyncio
+async def test_with_stream_idle_timeout_allows_long_active_stream() -> None:
+    timed_stream = with_stream_idle_timeout(
+        _DelayedStream(delays=[0.005, 0.005, 0.005], values=["a", "b", "c"]),
+        idle_timeout_seconds=0.01,
+        timeout_message="idle timeout",
+    )
+
+    observed = [event async for event in timed_stream]
+
+    assert observed == ["a", "b", "c"]
+
+
+@pytest.mark.asyncio
+async def test_with_stream_idle_timeout_raises_when_stream_goes_idle() -> None:
+    timed_stream = with_stream_idle_timeout(
+        _DelayedStream(delays=[0.005, 0.02], values=["a", "b"]),
+        idle_timeout_seconds=0.01,
+        timeout_message="idle timeout",
+    )
+
+    iterator = timed_stream.__aiter__()
+    assert await iterator.__anext__() == "a"
+    with pytest.raises(TimeoutError, match="idle timeout"):
+        await iterator.__anext__()
+
+
+@pytest.mark.asyncio
+async def test_with_stream_idle_timeout_preserves_get_final_response() -> None:
+    final_response = object()
+    timed_stream = with_stream_idle_timeout(
+        _FinalResponseDelayedStream(
+            delays=[0.005],
+            values=["a"],
+            final_response=final_response,
+        ),
+        idle_timeout_seconds=0.01,
+        timeout_message="idle timeout",
+    )
+
+    observed = [event async for event in timed_stream]
+
+    assert observed == ["a"]
+    assert await cast("Any", timed_stream).get_final_response() is final_response
 
 
 @pytest.mark.asyncio
@@ -788,14 +916,18 @@ class _ConnectionLifecycleHarness(ResponsesLLM):
 
 
 class _TimeoutLifecycleHarness(_ConnectionLifecycleHarness):
+    def __init__(self) -> None:
+        super().__init__()
+        self._release_manager.connection.websocket = _HangingWebSocket()
+
     async def _process_stream(
         self,
         stream: Any,
         model: str,
         capture_filename: Any,
     ) -> tuple[Any, list[str]]:
-        del stream, model, capture_filename
-        await asyncio.Event().wait()
+        del model, capture_filename
+        await stream.__anext__()
         raise AssertionError("unreachable")
 
 
@@ -885,8 +1017,8 @@ class _TimeoutContinuationConnectionLifecycleHarness(_ContinuationConnectionLife
         capture_filename: Any,
     ) -> tuple[Any, list[str]]:
         if self.hang_stream:
-            del stream, model, capture_filename
-            await asyncio.Event().wait()
+            del model, capture_filename
+            await stream.__anext__()
             raise AssertionError("unreachable")
         return await super()._process_stream(stream, model, capture_filename)
 
@@ -1097,6 +1229,10 @@ async def test_websocket_completion_ws_rolls_back_planner_on_timeout() -> None:
     )
 
     harness.hang_stream = True
+    assert isinstance(harness.connection.websocket, _FakeWebSocket)
+    hanging_websocket = _HangingWebSocket()
+    hanging_websocket.sent_payloads = harness.connection.websocket.sent_payloads
+    harness.connection.websocket = hanging_websocket
 
     with pytest.raises(TimeoutError):
         await harness._responses_completion_ws(
@@ -1107,6 +1243,10 @@ async def test_websocket_completion_ws_rolls_back_planner_on_timeout() -> None:
         )
 
     harness.hang_stream = False
+    assert isinstance(harness.connection.websocket, _FakeWebSocket)
+    resumed_websocket = _FakeWebSocket()
+    resumed_websocket.sent_payloads = harness.connection.websocket.sent_payloads
+    harness.connection.websocket = resumed_websocket
     await harness._responses_completion_ws(
         input_items=_ws_input_items("hello", "next", "third"),
         request_params=params,
@@ -1322,7 +1462,7 @@ async def test_websocket_streaming_timeout_releases_reusable_connection() -> Non
         }
     ]
 
-    with pytest.raises(TimeoutError, match="Streaming did not complete within"):
+    with pytest.raises(TimeoutError, match="Streaming was idle for more than"):
         await harness._responses_completion_ws(
             input_items=input_items,
             request_params=params,

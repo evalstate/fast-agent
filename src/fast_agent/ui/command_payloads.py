@@ -98,6 +98,12 @@ class ShowHistoryCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class HistoryShowCommand(CommandBase):
+    agent: str | None
+    kind: Literal["history_show"] = "history_show"
+
+
+@dataclass(frozen=True, slots=True)
 class ClearCommand(CommandBase):
     kind: Literal["clear_history", "clear_last"]
     agent: str | None
@@ -337,6 +343,7 @@ CommandPayload = (
     | ListPromptsCommand
     | ListSkillsCommand
     | ShowHistoryCommand
+    | HistoryShowCommand
     | ClearCommand
     | SkillsCommand
     | CardsCommand

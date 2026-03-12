@@ -64,6 +64,36 @@ class ResponsesOutputMixin:
     ) -> AssistantMessagePhase | None:
         return coerce_assistant_message_phase(raw_phase)
 
+    @staticmethod
+    def _extract_phase_message_text(content: object) -> str | None:
+        if not isinstance(content, Sequence) or isinstance(content, str):
+            return None
+
+        text_segments: list[str] = []
+        for part in content:
+            part_text = getattr(part, "text", None)
+            if isinstance(part_text, str) and part_text:
+                text_segments.append(part_text)
+
+        combined_text = "".join(text_segments).strip()
+        return combined_text or None
+
+    @classmethod
+    def _print_phase_message(
+        cls,
+        output_item: Any,
+        serialized_item: Mapping[str, Any] | None = None,
+    ) -> None:
+        phase = cls._coerce_assistant_message_phase(getattr(output_item, "phase", None))
+        if phase is None:
+            return
+
+        content_text = cls._extract_phase_message_text(getattr(output_item, "content", None))
+        if content_text is None and serialized_item is not None:
+            content_text = json.dumps(dict(serialized_item), ensure_ascii=False)
+        if not content_text:
+            return
+
     @classmethod
     def _serialize_assistant_message_item(cls, item: Any) -> dict[str, Any] | None:
         model_dump = getattr(item, "model_dump", None)
@@ -145,6 +175,7 @@ class ResponsesOutputMixin:
 
             serialized_item = self._serialize_assistant_message_item(output_item)
             if serialized_item is not None:
+                self._print_phase_message(output_item, serialized_item)
                 serialized_items.append(serialized_item)
 
         if not phases:
@@ -160,7 +191,9 @@ class ResponsesOutputMixin:
     def _record_usage(self, usage: Any, model_name: str) -> None:
         try:
             provider_value = getattr(self, "provider", Provider.RESPONSES)
-            provider = provider_value if isinstance(provider_value, Provider) else Provider.RESPONSES
+            provider = (
+                provider_value if isinstance(provider_value, Provider) else Provider.RESPONSES
+            )
             input_tokens = getattr(usage, "input_tokens", 0) or 0
             output_tokens = getattr(usage, "output_tokens", 0) or 0
             total_tokens = getattr(usage, "total_tokens", 0) or (input_tokens + output_tokens)
@@ -304,14 +337,13 @@ class ResponsesOutputMixin:
     ) -> list[ContentBlock]:
         reasoning_blocks: list[ContentBlock] = []
         for output_item in getattr(response, "output", []) or []:
-            if not isinstance(output_item, ResponseReasoningItem) and getattr(
-                output_item, "type", None
-            ) != "reasoning":
+            if (
+                not isinstance(output_item, ResponseReasoningItem)
+                and getattr(output_item, "type", None) != "reasoning"
+            ):
                 continue
             summary = getattr(output_item, "summary", None) or []
-            summary_text = "\n".join(
-                part.text for part in summary if getattr(part, "text", None)
-            )
+            summary_text = "\n".join(part.text for part in summary if getattr(part, "text", None))
             if summary_text.strip():
                 reasoning_blocks.append(text_content(summary_text.strip()))
         if reasoning_blocks:
@@ -341,7 +373,9 @@ class ResponsesOutputMixin:
         return encrypted_blocks
 
     @staticmethod
-    def _web_citation_dedupe_key(payload: Mapping[str, Any]) -> tuple[str, str] | tuple[str, str, str]:
+    def _web_citation_dedupe_key(
+        payload: Mapping[str, Any],
+    ) -> tuple[str, str] | tuple[str, str, str]:
         raw_url = payload.get("url")
         if isinstance(raw_url, str) and raw_url:
             return ("url", raw_url.strip().lower())
@@ -370,7 +404,9 @@ class ResponsesOutputMixin:
             if item_type == "web_search_call":
                 tool_payload, call_citations = normalize_web_search_call_payload(output_item)
                 if tool_payload is not None:
-                    web_tool_payloads.append(TextContent(type="text", text=json.dumps(tool_payload)))
+                    web_tool_payloads.append(
+                        TextContent(type="text", text=json.dumps(tool_payload))
+                    )
                 for citation in call_citations:
                     append_citation(citation)
                 continue

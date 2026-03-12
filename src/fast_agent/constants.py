@@ -45,7 +45,7 @@ DEFAULT_MAX_ITERATIONS = 99
 """Maximum number of User/Assistant turns to take"""
 
 DEFAULT_STREAMING_TIMEOUT = 300.0
-"""Default streaming timeout in seconds for provider streaming responses."""
+"""Default idle timeout in seconds between provider streaming events."""
 
 DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT = 8192
 """Baseline byte limit for ACP terminal output when no model info exists."""

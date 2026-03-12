@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
-from mcp.types import TextContent
+from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
 
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.agents.agent_types import AgentType
@@ -21,6 +21,9 @@ from fast_agent.constants import (
     ANTHROPIC_CITATIONS_CHANNEL,
     ANTHROPIC_SERVER_TOOLS_CHANNEL,
     FAST_AGENT_ERROR_CHANNEL,
+    FAST_AGENT_TIMING,
+    FAST_AGENT_TOOL_TIMING,
+    FAST_AGENT_USAGE,
 )
 from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -669,7 +672,7 @@ async def test_slash_command_history_webclear_hidden_when_disabled() -> None:
     response = await handler.execute_command("history", "webclear")
 
     assert "unknown /history action: webclear" in response.lower()
-    assert "usage: /history [show|save|load]" in response.lower()
+    assert "usage: /history [show|detail <turn>|save|load]" in response.lower()
 
 
 @pytest.mark.integration
@@ -686,6 +689,118 @@ async def test_slash_command_history_available_in_commands() -> None:
     history_cmd = next(cmd for cmd in commands if cmd.name == "history")
     assert history_cmd.description
     assert history_cmd.input is not None  # Should have input hint
+    assert history_cmd.input.root.hint == "[show|detail <turn>|save|load] [args]"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_history_show_turn_summary() -> None:
+    messages = [
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="first question")],
+        ),
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="looking that up")],
+            tool_calls={
+                "call_1": CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(name="lookup", arguments={}),
+                )
+            },
+            channels={
+                FAST_AGENT_TIMING: [
+                    TextContent(
+                        type="text",
+                        text='{"start_time": 10.0, "end_time": 10.4, "duration_ms": 400, "ttft_ms": 120, "time_to_response_ms": 260}',
+                    )
+                ],
+                FAST_AGENT_USAGE: [
+                    TextContent(
+                        type="text",
+                        text='{"turn": {"output_tokens": 8}, "raw_usage": {}, "summary": {}}',
+                    )
+                ],
+            },
+        ),
+        PromptMessageExtended(
+            role="user",
+            tool_results={
+                "call_1": CallToolResult(
+                    content=[TextContent(type="text", text="result")],
+                    isError=False,
+                )
+            },
+            channels={
+                FAST_AGENT_TOOL_TIMING: [
+                    TextContent(
+                        type="text",
+                        text='{"call_1": {"timing_ms": 250, "transport_channel": "post-sse"}}',
+                    )
+                ]
+            },
+        ),
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="final answer")],
+            channels={
+                FAST_AGENT_TIMING: [
+                    TextContent(
+                        type="text",
+                        text='{"start_time": 10.65, "end_time": 11.15, "duration_ms": 500}',
+                    )
+                ],
+                FAST_AGENT_USAGE: [
+                    TextContent(
+                        type="text",
+                        text='{"turn": {"output_tokens": 12}, "raw_usage": {}, "summary": {}}',
+                    )
+                ],
+            },
+        ),
+    ]
+    stub_agent = StubAgent(message_history=messages.copy())
+    instance = StubAgentInstance(agents={"test-agent": stub_agent})
+
+    handler = _handler(instance)
+
+    response = await handler.execute_command("history", "show")
+
+    assert "history show" in response.lower()
+    assert "| # | turn | time | tool | ttft | resp | tps |" in response.lower()
+    assert "first question" in response
+    assert "final answer" in response
+    assert "1.1s" in response
+    assert "250ms" in response
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_history_detail_turn() -> None:
+    messages = [
+        PromptMessageExtended(role="user", content=[TextContent(type="text", text="first question")]),
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="first answer")],
+        ),
+        PromptMessageExtended(role="user", content=[TextContent(type="text", text="second question")]),
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="second answer")],
+        ),
+    ]
+    stub_agent = StubAgent(message_history=messages.copy())
+    instance = StubAgentInstance(agents={"test-agent": stub_agent})
+
+    handler = _handler(instance)
+
+    response = await handler.execute_command("history", "detail 2")
+
+    assert "history detail" in response.lower()
+    assert "turn 2" in response.lower()
+    assert "second question" in response
+    assert "second answer" in response
 
 
 @pytest.mark.integration

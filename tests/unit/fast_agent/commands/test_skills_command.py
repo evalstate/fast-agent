@@ -357,6 +357,7 @@ def test_skills_update_applies_local_repo_changes(tmp_path: Path) -> None:
         check_result = runner.invoke(skills_command.app, ["update"], terminal_width=200)
         assert check_result.exit_code == 0, check_result.output
         assert "update available" in check_result.output
+        assert "▎•" not in check_result.output
 
         apply_result = runner.invoke(skills_command.app, ["update", "alpha"], terminal_width=200)
         assert apply_result.exit_code == 0, apply_result.output

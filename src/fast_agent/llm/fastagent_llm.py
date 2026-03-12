@@ -23,7 +23,6 @@ from mcp import Tool
 from mcp.types import (
     GetPromptResult,
     PromptMessage,
-    TextContent,
 )
 from openai import NotGiven
 from openai.lib._parsing import type_to_response_format_param as _type_to_response_format
@@ -32,14 +31,10 @@ from rich import print as rich_print
 
 from fast_agent.constants import (
     CONTROL_MESSAGE_SAVE_HISTORY,
-    DEFAULT_MAX_ITERATIONS,
-    FAST_AGENT_TIMING,
-    FAST_AGENT_USAGE,
 )
 from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.exceptions import AgentConfigError, ProviderKeyError, ServerConfigError
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.core.model_resolution import get_context_model_aliases, resolve_model_alias
 from fast_agent.core.prompt import Prompt
 from fast_agent.event_progress import ProgressAction
 from fast_agent.interfaces import (
@@ -53,6 +48,20 @@ from fast_agent.llm.reasoning_effort import (
     ReasoningEffortSetting,
     ReasoningEffortSpec,
     validate_reasoning_setting,
+)
+from fast_agent.llm.request_param_resolution import (
+    get_provider_config,
+    initialize_base_default_params,
+    merge_request_params,
+    normalize_model_name,
+    resolve_config_default_model,
+    resolve_model_aliases,
+)
+from fast_agent.llm.response_telemetry import (
+    RequestTimingCapture,
+    add_timing_channel,
+    append_usage_channel,
+    start_request_timing_capture,
 )
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.text_verbosity import (
@@ -75,29 +84,6 @@ if TYPE_CHECKING:
 
 # Context variable for storing MCP metadata
 _mcp_metadata_var: ContextVar[dict[str, Any] | None] = ContextVar("mcp_metadata", default=None)
-
-
-def deep_merge(dict1: dict[Any, Any], dict2: dict[Any, Any]) -> dict[Any, Any]:
-    """
-    Recursively merges `dict2` into `dict1` in place.
-
-    If a key exists in both dictionaries and their values are dictionaries,
-    the function merges them recursively. Otherwise, the value from `dict2`
-    overwrites or is added to `dict1`.
-
-    Args:
-        dict1 (Dict): The dictionary to be updated.
-        dict2 (Dict): The dictionary to merge into `dict1`.
-
-    Returns:
-        Dict: The updated `dict1`.
-    """
-    for key in dict2:
-        if key in dict1 and isinstance(dict1[key], dict) and isinstance(dict2[key], dict):
-            deep_merge(dict1[key], dict2[key])
-        else:
-            dict1[key] = dict2[key]
-    return dict1
 
 
 class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT, MessageT]):
@@ -314,27 +300,12 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
     def _get_provider_config(self) -> Any | None:
         """Return provider-specific config section when available."""
-        context_config = getattr(self.context, "config", None)
-        if context_config is None:
-            return None
-
-        checked_sections: set[str] = set()
-        for section_name in (
-            *self._provider_config_sections(),
-            *self._provider_config_fallback_sections(),
-        ):
-            if not section_name or section_name in checked_sections:
-                continue
-            checked_sections.add(section_name)
-
-            if not hasattr(context_config, section_name):
-                continue
-
-            provider_config = getattr(context_config, section_name)
-            if provider_config is not None:
-                return provider_config
-
-        return None
+        return get_provider_config(
+            context_config=getattr(self.context, "config", None),
+            provider_value=getattr(self.provider, "value", None),
+            config_section=getattr(self, "config_section", None),
+            fallback_sections=self._provider_config_fallback_sections(),
+        )
 
     def _provider_config_sections(self) -> tuple[str, ...]:
         section_name = getattr(self, "config_section", None) or getattr(self.provider, "value", None)
@@ -345,28 +316,19 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
     def _resolve_config_default_model(self) -> str | None:
         """Resolve optional provider-level default model from config."""
-        provider_config = self._get_provider_config()
-        if provider_config is None:
-            return None
-
-        value = getattr(provider_config, "default_model", None)
-        if not isinstance(value, str):
-            return None
-
-        normalized = value.strip()
-        return normalized or None
+        return resolve_config_default_model(
+            context_config=getattr(self.context, "config", None),
+            provider_value=getattr(self.provider, "value", None),
+            config_section=getattr(self, "config_section", None),
+            fallback_sections=self._provider_config_fallback_sections(),
+        )
 
     @staticmethod
     def _normalize_model_name(value: str | None) -> str | None:
-        if not isinstance(value, str):
-            return None
-
-        normalized = value.strip()
-        return normalized or None
+        return normalize_model_name(value)
 
     def _resolve_model_aliases(self, value: str) -> str:
-        aliases = get_context_model_aliases(self.context)
-        return resolve_model_alias(value, aliases)
+        return resolve_model_aliases(context=self.context, value=value)
 
     def _resolve_default_model_name(
         self,
@@ -410,18 +372,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
     def _initialize_base_default_params(self, kwargs: dict[str, Any]) -> RequestParams:
         """Provider-agnostic default request params."""
-        # Get model-aware default max tokens
-        model = kwargs.get("model")
-        max_tokens = ModelDatabase.get_default_max_tokens(model) if model else 16384
-
-        return RequestParams(
-            model=model,
-            maxTokens=max_tokens,
-            systemPrompt=self.instruction,
-            parallel_tool_calls=True,
-            max_iterations=DEFAULT_MAX_ITERATIONS,
-            use_history=True,
-        )
+        return initialize_base_default_params(instruction=self.instruction, kwargs=kwargs)
 
     async def _execute_with_retry(
         self,
@@ -582,13 +533,21 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         # The caller supplies the full conversation to send
         full_history = messages
 
-        # Track timing for this generation
-        start_time = time.perf_counter()
-        assistant_response: PromptMessageExtended = await self._execute_with_retry(
-            self._apply_prompt_provider_specific, full_history, request_params, tools
-        )
+        timing_capture, cleanup_timing_capture = self._start_request_timing_capture()
+        try:
+            assistant_response = await self._execute_with_retry(
+                self._apply_prompt_provider_specific, full_history, request_params, tools
+            )
+        finally:
+            cleanup_timing_capture()
         end_time = time.perf_counter()
-        self._add_timing_channel(assistant_response, start_time, end_time)
+        self._add_timing_channel(
+            assistant_response,
+            timing_capture.start_time,
+            end_time,
+            ttft_ms=timing_capture.ttft_ms,
+            time_to_response_ms=timing_capture.time_to_response_ms,
+        )
 
         self.usage_accumulator.count_tools(len(assistant_response.tool_calls or {}))
         self._append_usage_channel(assistant_response)
@@ -596,67 +555,41 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         return assistant_response
 
     def _append_usage_channel(self, response: PromptMessageExtended) -> None:
-        usage_payload = self._build_usage_payload()
-        if not usage_payload:
-            return
-
-        channels = dict(response.channels or {})
-        if FAST_AGENT_USAGE in channels:
-            return
-
-        channels[FAST_AGENT_USAGE] = [
-            TextContent(type="text", text=json.dumps(usage_payload))
-        ]
-        response.channels = channels
-
+        append_usage_channel(response, self.usage_accumulator)
 
     def _add_timing_channel(
         self,
         response: PromptMessageExtended,
         start_time: float,
         end_time: float,
+        *,
+        ttft_ms: float | None = None,
+        time_to_response_ms: float | None = None,
     ) -> None:
         """Add timing data to response channels if not already present.
 
         Preserves original timing when loading saved history.
         """
-        duration_ms = round((end_time - start_time) * 1000, 2)
-        channels = dict(response.channels or {})
-        if FAST_AGENT_TIMING not in channels:
-            timing_data = {
-                "start_time": start_time,
-                "end_time": end_time,
-                "duration_ms": duration_ms,
-            }
-            channels[FAST_AGENT_TIMING] = [TextContent(type="text", text=json.dumps(timing_data))]
-            response.channels = channels
+        add_timing_channel(
+            response,
+            start_time,
+            end_time,
+            ttft_ms=ttft_ms,
+            time_to_response_ms=time_to_response_ms,
+        )
+
+    def _start_request_timing_capture(self) -> tuple[RequestTimingCapture, Callable[[], None]]:
+        return start_request_timing_capture(self)
 
     def _build_usage_payload(self) -> dict[str, Any] | None:
-        if not self.usage_accumulator or not self.usage_accumulator.turns:
-            return None
+        from fast_agent.llm.response_telemetry import build_usage_payload
 
-        turn_usage = self.usage_accumulator.turns[-1]
-        return {
-            "turn": turn_usage.model_dump(mode="json", exclude={"raw_usage"}),
-            "raw_usage": self._serialize_raw_usage(turn_usage.raw_usage),
-            "summary": self.usage_accumulator.get_summary(),
-        }
+        return build_usage_payload(self.usage_accumulator)
 
     def _serialize_raw_usage(self, raw_usage: object) -> object:
-        for attr in ("model_dump", "dict"):
-            method = getattr(raw_usage, attr, None)
-            if callable(method):
-                try:
-                    return method()
-                except Exception:
-                    continue
-        raw_dict = getattr(raw_usage, "__dict__", None)
-        if isinstance(raw_dict, dict):
-            try:
-                return dict(raw_dict)
-            except Exception:
-                pass
-        return str(raw_usage)
+        from fast_agent.llm.response_telemetry import serialize_raw_usage
+
+        return serialize_raw_usage(raw_usage)
 
     @abstractmethod
     async def _apply_prompt_provider_specific(
@@ -713,21 +646,29 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
         full_history = messages
 
-        # Track timing for this structured generation
-        start_time = time.perf_counter()
-        result_or_response = await self._execute_with_retry(
-            self._apply_prompt_provider_specific_structured,
-            full_history,
-            model,
-            request_params,
-            on_final_error=self._handle_retry_failure,
-        )
+        timing_capture, cleanup_timing_capture = self._start_request_timing_capture()
+        try:
+            result_or_response = await self._execute_with_retry(
+                self._apply_prompt_provider_specific_structured,
+                full_history,
+                model,
+                request_params,
+                on_final_error=self._handle_retry_failure,
+            )
+        finally:
+            cleanup_timing_capture()
         if isinstance(result_or_response, PromptMessageExtended):
             result, assistant_response = self._structured_from_multipart(result_or_response, model)
         else:
             result, assistant_response = result_or_response
         end_time = time.perf_counter()
-        self._add_timing_channel(assistant_response, start_time, end_time)
+        self._add_timing_channel(
+            assistant_response,
+            timing_capture.start_time,
+            end_time,
+            ttft_ms=timing_capture.ttft_ms,
+            time_to_response_ms=timing_capture.time_to_response_ms,
+        )
 
         self.usage_accumulator.count_tools(len(assistant_response.tool_calls or {}))
         self._append_usage_channel(assistant_response)
@@ -765,7 +706,6 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         Returns:
             Schema as a string, or empty string if conversion fails
         """
-        import json
 
         try:
             schema = model.model_json_schema()
@@ -875,14 +815,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         self, default_params: RequestParams, provided_params: RequestParams
     ) -> RequestParams:
         """Merge default and provided request parameters"""
-
-        merged = deep_merge(
-            default_params.model_dump(),
-            provided_params.model_dump(exclude_unset=True),
-        )
-        final_params = RequestParams(**merged)
-
-        return final_params
+        return merge_request_params(default_params, provided_params)
 
     def get_request_params(
         self,

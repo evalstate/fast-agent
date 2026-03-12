@@ -285,7 +285,7 @@ class A3MessageStyle:
 
     def metadata_line(self, content: Text, width: int) -> Text:  # noqa: ARG002
         line = Text()
-        line.append("▎• ", style="dim")
+        line.append("  ", style="dim")
         line.append_text(content)
         return line
 
@@ -304,7 +304,7 @@ class A3MessageStyle:
         if max_item_length:
             display_items = _shorten_items(items, max_item_length)
 
-        prefix = Text("▎• ", style="dim")
+        prefix = Text("▎ ", style="dim")
         available = max(0, width - prefix.cell_len)
 
         metadata_text = _format_bottom_metadata_compact(

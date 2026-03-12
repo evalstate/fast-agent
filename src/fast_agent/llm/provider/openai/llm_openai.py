@@ -45,6 +45,7 @@ from fast_agent.llm.provider.openai.schema_sanitizer import (
     sanitize_tool_input_schema,
     should_strip_tool_schema_defaults,
 )
+from fast_agent.llm.provider.openai.streaming_utils import with_stream_idle_timeout
 from fast_agent.llm.provider.openai.tool_notifications import OpenAIToolNotificationMixin
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import format_reasoning_setting, parse_reasoning_setting
@@ -895,54 +896,39 @@ class OpenAILLM(
         try:
             async with self._openai_client() as client:
                 stream = await client.chat.completions.create(**arguments)
-                # Process the stream
                 timeout = request_params.streaming_timeout
-                if timeout is None:
-                    try:
-                        response, streamed_reasoning = await self._process_stream(
-                            stream, model_name, capture_filename
-                        )
-                    except EmptyStreamError as exc:
-                        self.logger.error(
-                            "OpenAI stream returned no chunks; retrying without streaming",
-                            data={
-                                "model": model_name,
-                                "error": str(exc),
-                            },
-                        )
-                        response = await client.chat.completions.create(
-                            **self._prepare_non_streaming_request(arguments)
-                        )
-                        streamed_reasoning = []
-                else:
-                    try:
-                        response, streamed_reasoning = await asyncio.wait_for(
-                            self._process_stream(stream, model_name, capture_filename),
-                            timeout=timeout,
-                        )
-                    except EmptyStreamError as exc:
-                        self.logger.error(
-                            "OpenAI stream returned no chunks; retrying without streaming",
-                            data={
-                                "model": model_name,
-                                "error": str(exc),
-                            },
-                        )
-                        response = await client.chat.completions.create(
-                            **self._prepare_non_streaming_request(arguments)
-                        )
-                        streamed_reasoning = []
-                    except asyncio.TimeoutError as exc:
-                        self.logger.error(
-                            "Streaming timeout while waiting for OpenAI completion",
-                            data={
-                                "model": model_name,
-                                "timeout_seconds": timeout,
-                            },
-                        )
-                        raise TimeoutError(
-                            f"Streaming did not complete within {timeout} seconds."
-                        ) from exc
+                timed_stream = with_stream_idle_timeout(
+                    stream,
+                    idle_timeout_seconds=timeout,
+                    timeout_message=f"Streaming was idle for more than {timeout} seconds.",
+                )
+                try:
+                    response, streamed_reasoning = await self._process_stream(
+                        timed_stream, model_name, capture_filename
+                    )
+                except EmptyStreamError as exc:
+                    self.logger.error(
+                        "OpenAI stream returned no chunks; retrying without streaming",
+                        data={
+                            "model": model_name,
+                            "error": str(exc),
+                        },
+                    )
+                    response = await client.chat.completions.create(
+                        **self._prepare_non_streaming_request(arguments)
+                    )
+                    streamed_reasoning = []
+                except TimeoutError:
+                    if timeout is None:
+                        raise
+                    self.logger.error(
+                        "Streaming idle timeout while waiting for OpenAI completion",
+                        data={
+                            "model": model_name,
+                            "timeout_seconds": timeout,
+                        },
+                    )
+                    raise
         except asyncio.CancelledError as e:
             reason = str(e) if e.args else "cancelled"
             self.logger.info(f"OpenAI completion cancelled: {reason}")

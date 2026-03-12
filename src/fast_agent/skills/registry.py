@@ -257,6 +257,7 @@ def format_skills_for_prompt(
       <name>skill-name</name>
       <description>Brief capability summary</description>
       <location>/absolute/path/to/SKILL.md</location>
+      <directory>/absolute/path/to/skill-name</directory>
     </skill>
 
     Args:
@@ -270,6 +271,7 @@ def format_skills_for_prompt(
     formatted_parts: list[str] = []
 
     for manifest in manifests:
+        skill_dir = manifest.path.parent
         lines: list[str] = ["<skill>"]
         lines.append(f"  <name>{manifest.name}</name>")
 
@@ -279,6 +281,12 @@ def format_skills_for_prompt(
 
         # Use absolute path per Agent Skills specification
         lines.append(f"  <location>{manifest.path}</location>")
+        lines.append(f"  <directory>{skill_dir}</directory>")
+
+        for tag_name in ("scripts", "references", "assets"):
+            subdir = skill_dir / tag_name
+            if subdir.is_dir():
+                lines.append(f"  <{tag_name}>{subdir}</{tag_name}>")
 
         lines.append("</skill>")
         formatted_parts.append("\n".join(lines))
@@ -292,6 +300,14 @@ def format_skills_for_prompt(
         "Skills provide specialized capabilities and domain knowledge. Use a Skill if it seems "
         "relevant to the user's task, intent, or would increase your effectiveness.\n"
         f"To use a Skill, read its SKILL.md file from the specified location using the '{read_tool_name}' tool.\n"
+        "Prefer that file-reading tool over shell commands when loading skill content or "
+        "skill resources.\n"
+        "The <location> value is the absolute path to the skill's SKILL.md file, and "
+        "<directory> is the resolved absolute path to the skill's root directory.\n"
+        "When present, <scripts>, <references>, and <assets> provide resolved absolute paths "
+        "for standard skill resource directories.\n"
+        "When a skill references relative paths, resolve them against the skill's "
+        "directory (the parent of SKILL.md) and use absolute paths in tool calls.\n"
         "Only use Skills listed in <available_skills> below.\n\n"
     )
 

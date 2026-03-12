@@ -1,3 +1,4 @@
+import json
 from contextlib import contextmanager
 from json import JSONDecodeError
 from typing import TYPE_CHECKING, Any, Iterator, Mapping, Union
@@ -10,8 +11,9 @@ from rich.panel import Panel
 from rich.text import Text
 
 from fast_agent.config import LoggerSettings, Settings
-from fast_agent.constants import REASONING
+from fast_agent.constants import OPENAI_ASSISTANT_MESSAGE_ITEMS, REASONING
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.types.assistant_message_phase import coerce_assistant_message_phase
 from fast_agent.ui import console
 from fast_agent.ui.display_suppression import (
     display_chat_enabled,
@@ -52,6 +54,8 @@ CODE_STYLE = "native"
 
 # Glyph to indicate tool hooks are active
 HOOK_INDICATOR_GLYPH = "◆"
+
+PHASE_LABELS = {"final_answer": "Final Answer:", "commentary": "Commentary"}
 
 
 class ConsoleDisplay:
@@ -726,6 +730,64 @@ class ConsoleDisplay:
 
         return Text(joined, style="dim italic")
 
+    @staticmethod
+    def _extract_openai_phase_content(message: "PromptMessageExtended") -> str | None:
+        channels = message.channels or {}
+        raw_blocks = (
+            channels.get(OPENAI_ASSISTANT_MESSAGE_ITEMS) if isinstance(channels, Mapping) else None
+        )
+        if not raw_blocks:
+            return None
+
+        sections: list[str] = []
+        saw_phase = False
+
+        for block in raw_blocks:
+            raw_text = getattr(block, "text", None)
+            if not isinstance(raw_text, str) or not raw_text:
+                continue
+
+            try:
+                payload = json.loads(raw_text)
+            except (TypeError, ValueError):
+                continue
+
+            if not isinstance(payload, Mapping) or payload.get("type") != "message":
+                continue
+
+            phase = coerce_assistant_message_phase(payload.get("phase"))
+            content = payload.get("content")
+            if not isinstance(content, list):
+                continue
+
+            text_segments: list[str] = []
+            for part in content:
+                if not isinstance(part, Mapping):
+                    continue
+                part_type = part.get("type")
+                part_text = part.get("text")
+                if (
+                    part_type in {"output_text", "text"}
+                    and isinstance(part_text, str)
+                    and part_text
+                ):
+                    text_segments.append(part_text)
+
+            section_text = "".join(text_segments).strip()
+            if not section_text:
+                continue
+
+            if phase is not None:
+                saw_phase = True
+                phase_label = PHASE_LABELS.get(phase, phase)
+                sections.append(f"▎{phase_label} {section_text}")
+            else:
+                sections.append(section_text)
+
+        if not sections or not saw_phase:
+            return None
+        return "\n\n".join(sections)
+
     async def show_assistant_message(
         self,
         message_text: Union[str, Text, "PromptMessageExtended"],
@@ -765,7 +827,12 @@ class ConsoleDisplay:
         if isinstance(message_text, PromptMessageExtended):
             # Prefer full assistant text so streamed/finalized multi-block responses
             # (e.g., provider-side web tool turns) are preserved after live refresh.
-            display_text = message_text.all_text() or message_text.last_text() or ""
+            display_text = (
+                self._extract_openai_phase_content(message_text)
+                or message_text.all_text()
+                or message_text.last_text()
+                or ""
+            )
             pre_content = self._extract_reasoning_content(message_text)
         else:
             display_text = message_text

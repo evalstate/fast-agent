@@ -46,6 +46,7 @@ from fast_agent.llm.provider.openai.schema_sanitizer import (
     sanitize_tool_input_schema,
     should_strip_tool_schema_defaults,
 )
+from fast_agent.llm.provider.openai.streaming_utils import with_stream_idle_timeout
 from fast_agent.llm.provider.openai.web_tools import build_web_search_tool, resolve_web_search
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import format_reasoning_setting, parse_reasoning_setting
@@ -920,27 +921,26 @@ class ResponsesLLM(
                 _save_stream_request(capture_filename, arguments)
                 async with client.responses.stream(**arguments) as stream:
                     timeout = request_params.streaming_timeout
-                    if timeout is None:
+                    timed_stream = with_stream_idle_timeout(
+                        stream,
+                        idle_timeout_seconds=timeout,
+                        timeout_message=f"Streaming was idle for more than {timeout} seconds.",
+                    )
+                    try:
                         response, streamed_summary = await self._process_stream(
-                            stream, model_name, capture_filename
+                            timed_stream, model_name, capture_filename
                         )
-                    else:
-                        try:
-                            response, streamed_summary = await asyncio.wait_for(
-                                self._process_stream(stream, model_name, capture_filename),
-                                timeout=timeout,
-                            )
-                        except asyncio.TimeoutError as exc:
-                            self.logger.error(
-                                "Streaming timeout while waiting for Responses",
-                                data={
-                                    "model": model_name,
-                                    "timeout_seconds": timeout,
-                                },
-                            )
-                            raise TimeoutError(
-                                f"Streaming did not complete within {timeout} seconds."
-                            ) from exc
+                    except TimeoutError:
+                        if timeout is None:
+                            raise
+                        self.logger.error(
+                            "Streaming idle timeout while waiting for Responses",
+                            data={
+                                "model": model_name,
+                                "timeout_seconds": timeout,
+                            },
+                        )
+                        raise
                 return response, streamed_summary, normalized_input
         except AuthenticationError as e:
             raise ProviderKeyError(
@@ -1005,27 +1005,26 @@ class ResponsesLLM(
                 )
                 await send_response_request(connection.websocket, planned_request)
                 stream = WebSocketResponsesStream(connection.websocket)
-                if timeout is None:
+                timed_stream = with_stream_idle_timeout(
+                    stream,
+                    idle_timeout_seconds=timeout,
+                    timeout_message=f"Streaming was idle for more than {timeout} seconds.",
+                )
+                try:
                     response, streamed_summary = await self._process_stream(
-                        stream, model_name, capture_filename
+                        timed_stream, model_name, capture_filename
                     )
-                else:
-                    try:
-                        response, streamed_summary = await asyncio.wait_for(
-                            self._process_stream(stream, model_name, capture_filename),
-                            timeout=timeout,
-                        )
-                    except asyncio.TimeoutError as exc:
-                        self.logger.error(
-                            "Streaming timeout while waiting for Responses websocket",
-                            data={
-                                "model": model_name,
-                                "timeout_seconds": timeout,
-                            },
-                        )
-                        raise TimeoutError(
-                            f"Streaming did not complete within {timeout} seconds."
-                        ) from exc
+                except TimeoutError:
+                    if timeout is None:
+                        raise
+                    self.logger.error(
+                        "Streaming idle timeout while waiting for Responses websocket",
+                        data={
+                            "model": model_name,
+                            "timeout_seconds": timeout,
+                        },
+                    )
+                    raise
                 planner.commit(arguments, planned_request, response)
                 keep_connection = True
                 if reconnected:

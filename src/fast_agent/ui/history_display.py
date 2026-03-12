@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from rich import print as rich_print
 from rich.text import Text
 
+from fast_agent.commands.history_summaries import build_history_turn_report
 from fast_agent.constants import FAST_AGENT_TIMING, FAST_AGENT_TOOL_TIMING
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types.conversation_summary import ConversationSummary
@@ -23,7 +24,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 NON_TEXT_MARKER = "^"
 TIMELINE_WIDTH = 20
-SUMMARY_COUNT = 8
+SUMMARY_COUNT = 12
 ROLE_COLUMN_WIDTH = 17
 
 
@@ -292,6 +293,12 @@ def format_time(value: float | None) -> str:
     if value < 1000:
         return f"{value:.0f}ms"
     return f"{value / 1000:.1f}s"
+
+
+def _format_tps(value: float | None) -> str:
+    if value is None:
+        return "-"
+    return f"{value:.1f}"
 
 
 def _build_history_rows(history: Sequence[PromptMessageExtended]) -> list[dict]:
@@ -602,23 +609,47 @@ def _render_statistics(
     printer("")
 
 
-def display_history_overview(
-    agent_name: str,
-    history: Sequence[PromptMessageExtended],
-    usage_accumulator: "UsageAccumulator" | None = None,
+def _render_turn_statistics(
     *,
-    console: Console | None = None,
+    turn_count: int,
+    total_turn_time_ms: float,
+    total_tool_time_ms: float,
+    average_ttft_ms: float | None,
+    average_response_ms: float | None,
+    average_tps: float | None,
+    printer,
 ) -> None:
-    if not history:
-        printer = console.print if console else rich_print
-        printer("[dim]No conversation history yet[/dim]")
-        return
+    summary_line = Text("  ", style="dim")
+    summary_line.append("Turns: ", style="dim")
+    summary_line.append(str(turn_count), style="default")
+    summary_line.append("  •  ", style="dim")
+    summary_line.append("Turn Time: ", style="dim")
+    summary_line.append(format_time(total_turn_time_ms if total_turn_time_ms > 0 else None), style="default")
+    summary_line.append("  •  ", style="dim")
+    summary_line.append("Tool Time: ", style="dim")
+    summary_line.append(format_time(total_tool_time_ms if total_tool_time_ms > 0 else None), style="default")
+    printer(summary_line)
 
-    printer = console.print if console else rich_print
+    detail_line = Text("  ", style="dim")
+    detail_line.append("Avg TTFT: ", style="dim")
+    detail_line.append(format_time(average_ttft_ms), style="default")
+    detail_line.append("  •  ", style="dim")
+    detail_line.append("Avg Resp: ", style="dim")
+    detail_line.append(format_time(average_response_ms), style="default")
+    detail_line.append("  •  ", style="dim")
+    detail_line.append("Avg TPS: ", style="dim")
+    detail_line.append(_format_tps(average_tps), style="default")
+    printer(detail_line)
+    printer("")
 
-    # Create conversation summary for statistics
-    summary = ConversationSummary(messages=list(history))
 
+def _render_history_chrome(
+    history: Sequence[PromptMessageExtended],
+    usage_accumulator: "UsageAccumulator" | None,
+    *,
+    console: Console | None,
+    printer,
+) -> None:
     rows = _build_history_rows(history)
     timeline_entries = _aggregate_timeline_entries(rows)
 
@@ -630,11 +661,6 @@ def display_history_overview(
         current_tokens = 0
         window = None
     context_bar, context_detail = _build_context_bar_line(current_tokens, window)
-
-    _render_header_line(agent_name, console=console, printer=printer)
-
-    # Render conversation statistics
-    _render_statistics(summary, console=console, printer=printer)
 
     gap = Text("   ")
     combined_line = Text()
@@ -666,6 +692,35 @@ def display_history_overview(
         Text(" " + "─" * (history_bar.cell_len + context_bar.cell_len + gap.cell_len), style="dim")
     )
 
+
+def display_history_overview(
+    agent_name: str,
+    history: Sequence[PromptMessageExtended],
+    usage_accumulator: "UsageAccumulator" | None = None,
+    *,
+    console: Console | None = None,
+) -> None:
+    if not history:
+        printer = console.print if console else rich_print
+        printer("[dim]No conversation history yet[/dim]")
+        return
+
+    printer = console.print if console else rich_print
+
+    # Create conversation summary for statistics
+    summary = ConversationSummary(messages=list(history))
+    rows = _build_history_rows(history)
+
+    # Render conversation statistics
+    _render_header_line(agent_name, console=console, printer=printer)
+    _render_statistics(summary, console=console, printer=printer)
+    _render_history_chrome(
+        history,
+        usage_accumulator,
+        console=console,
+        printer=printer,
+    )
+
     summary_candidates = [row for row in rows if not row.get("hide_summary")]
     summary_rows = summary_candidates[-SUMMARY_COUNT:]
     start_index = len(summary_candidates) - len(summary_rows) + 1
@@ -678,7 +733,6 @@ def display_history_overview(
     except Exception:
         total_width = 80
 
-    # Responsive column layout based on terminal width
     show_time = total_width >= 60
     show_chars = total_width >= 50
 
@@ -735,6 +789,85 @@ def display_history_overview(
             max_width=summary_width,
         )
         line.append_text(summary_text)
+        printer(line)
+
+    printer("")
+
+
+def display_history_show(
+    agent_name: str,
+    history: Sequence[PromptMessageExtended],
+    usage_accumulator: "UsageAccumulator" | None = None,
+    *,
+    console: Console | None = None,
+) -> None:
+    if not history:
+        printer = console.print if console else rich_print
+        printer("[dim]No conversation history yet[/dim]")
+        return
+
+    printer = console.print if console else rich_print
+
+    turn_report = build_history_turn_report(list(history))
+    _render_header_line(agent_name, console=console, printer=printer)
+    _render_turn_statistics(
+        turn_count=turn_report.turn_count,
+        total_turn_time_ms=turn_report.total_turn_time_ms,
+        total_tool_time_ms=turn_report.total_tool_time_ms,
+        average_ttft_ms=turn_report.average_ttft_ms,
+        average_response_ms=turn_report.average_response_ms,
+        average_tps=turn_report.average_tps,
+        printer=printer,
+    )
+    _render_history_chrome(
+        history,
+        usage_accumulator,
+        console=console,
+        printer=printer,
+    )
+
+    if not turn_report.turns:
+        printer("[dim]No user turns yet[/dim]")
+        printer("")
+        return
+
+    try:
+        total_width = console.width if console else get_terminal_size().columns
+    except Exception:
+        total_width = 100
+
+    fixed_columns = 3 + 8 + 8 + 8 + 8 + 7
+    preview_width = max(24, total_width - fixed_columns - 10)
+
+    header_line = Text(" ")
+    header_line.append(f"{'#':>2}", style="dim")
+    header_line.append(" ", style="dim")
+    header_line.append(f"{'Turn':<{preview_width}}", style="dim")
+    header_line.append(f" {'Turn':>7}", style="dim")
+    header_line.append(f" {'Tool':>7}", style="dim")
+    header_line.append(f" {'TTFT':>7}", style="dim")
+    header_line.append(f" {'Resp':>7}", style="dim")
+    header_line.append(f" {'TPS':>6}", style="dim")
+    printer(header_line)
+
+    for turn in turn_report.turns:
+        turn_preview = Text()
+        turn_preview.append(turn.user_snippet, style=Colours.USER)
+        turn_preview.append(" → ", style="dim")
+        turn_preview.append(turn.assistant_snippet, style=Colours.ASSISTANT)
+        preview_text = _truncate_text_segment(turn_preview, preview_width)
+
+        line = Text(" ")
+        line.append(f"{turn.turn_index:>2}", style="dim")
+        line.append(" ")
+        line.append_text(preview_text)
+        if preview_text.cell_len < preview_width:
+            line.append(" " * (preview_width - preview_text.cell_len))
+        line.append(f" {format_time(turn.turn_time_ms):>7}", style="dim")
+        line.append(f" {format_time(turn.tool_time_ms):>7}", style="dim")
+        line.append(f" {format_time(turn.ttft_ms):>7}", style="dim")
+        line.append(f" {format_time(turn.response_ms):>7}", style="dim")
+        line.append(f" {_format_tps(turn.tps):>6}", style="dim")
         printer(line)
 
     printer("")

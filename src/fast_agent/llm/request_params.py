@@ -108,7 +108,8 @@ class RequestParams(CreateMessageRequestParams):
 
     streaming_timeout: float | None = DEFAULT_STREAMING_TIMEOUT
     """
-    Maximum time in seconds to wait for streaming completion. Set to None to disable.
+    Maximum idle time in seconds to wait between streaming events. Set to None
+    to disable idle timeout enforcement.
     """
 
     top_p: float | None = Field(

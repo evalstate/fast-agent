@@ -33,6 +33,7 @@ from fast_agent.ui.command_payloads import (
     HistoryFixCommand,
     HistoryReviewCommand,
     HistoryRewindCommand,
+    HistoryShowCommand,
     HistoryWebClearCommand,
     InterruptCommand,
     ListPromptsCommand,
@@ -68,6 +69,7 @@ from fast_agent.ui.command_payloads import (
     TitleSessionCommand,
     UnknownCommand,
 )
+from fast_agent.ui.history_display import display_history_show
 
 from .command_context import build_command_context, emit_command_outcome
 from .mcp_connect_flow import handle_mcp_connect
@@ -245,6 +247,15 @@ async def dispatch_command_payload(
                 target_agent=target_agent,
             )
             await emit_command_outcome(context, outcome)
+            return result
+        case HistoryShowCommand(agent=target_agent):
+            target_name = target_agent or agent
+            target = owner._get_agent_or_warn(prompt_provider, target_name)
+            if target is None:
+                return result
+            history = list(getattr(target, "message_history", []))
+            usage = getattr(target, "usage_accumulator", None)
+            display_history_show(target_name, history, usage)
             return result
         case HistoryRewindCommand(turn_index=turn_index, error=error):
             context = build_command_context(prompt_provider, agent)

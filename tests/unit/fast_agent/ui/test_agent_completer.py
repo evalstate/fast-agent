@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 from mcp.types import Completion as MCPCompletion
-from mcp.types import ResourceTemplate
+from mcp.types import ResourceTemplate, TextContent
 from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
 
@@ -24,6 +24,7 @@ from fast_agent.config import (
     get_settings,
     update_global_settings,
 )
+from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.session import get_session_manager, reset_session_manager
 from fast_agent.skills.models import (
     DEFAULT_SKILL_REGISTRIES,
@@ -158,6 +159,24 @@ class _MentionFilteredAggregatorStub(_MentionAggregatorStub):
 class _MentionFilteredAgentStub(_MentionAgentStub):
     def __init__(self) -> None:
         self.aggregator = _MentionFilteredAggregatorStub()
+
+
+class _HistoryAgentStub:
+    def __init__(self, turn_count: int) -> None:
+        self.message_history = [
+            message
+            for turn_index in range(1, turn_count + 1)
+            for message in (
+                PromptMessageExtended(
+                    role="user",
+                    content=[TextContent(type="text", text=f"user turn {turn_index}")],
+                ),
+                PromptMessageExtended(
+                    role="assistant",
+                    content=[TextContent(type="text", text=f"assistant turn {turn_index}")],
+                ),
+            )
+        ]
 
 
 def test_complete_history_files_finds_json_and_md():
@@ -329,10 +348,27 @@ def test_get_completions_for_history_subcommands():
     completions = list(completer.get_completions(doc, None))
     names = [c.text for c in completions]
 
+    assert "detail" in names
     assert "show" in names
     assert "save" in names
     assert "load" in names
     assert "webclear" not in names
+
+
+def test_get_completions_for_history_detail_turns_not_limited_to_summary_window() -> None:
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(_HistoryAgentStub(turn_count=14))),
+    )
+
+    doc = Document("/history detail ", cursor_position=len("/history detail "))
+    completions = list(completer.get_completions(doc, None))
+    names = [completion.text for completion in completions]
+
+    assert len(names) == 14
+    assert "14" in names
+    assert "1" in names
 
 
 def test_get_completions_for_history_subcommands_includes_webclear_when_enabled() -> None:
@@ -1051,7 +1087,7 @@ def test_get_completions_for_skills_registry(monkeypatch):
     assert "2" in names
 
 
-def test_get_completions_for_skills_registry_keeps_distinct_active_source() -> None:
+def test_get_completions_for_skills_registry_dedupes_equivalent_active_source() -> None:
     old_settings = get_settings()
     override = old_settings.model_copy(
         update={
@@ -1070,8 +1106,8 @@ def test_get_completions_for_skills_registry_keeps_distinct_active_source() -> N
         names = [completion.text for completion in completions]
         display_meta = [completion.display_meta_text for completion in completions]
 
-        assert names == ["1", "2", "3", "4"]
-        assert display_meta.count("https://github.com/huggingface/skills") == 2
+        assert names == ["1", "2", "3"]
+        assert display_meta == list(DEFAULT_SKILL_REGISTRIES)
     finally:
         update_global_settings(old_settings)
 
@@ -1185,7 +1221,7 @@ def test_get_completions_for_cards_registry() -> None:
         update_global_settings(old_settings)
 
 
-def test_get_completions_for_cards_registry_keeps_distinct_active_source() -> None:
+def test_get_completions_for_cards_registry_dedupes_equivalent_active_source() -> None:
     old_settings = get_settings()
     override = old_settings.model_copy(
         update={
@@ -1204,11 +1240,8 @@ def test_get_completions_for_cards_registry_keeps_distinct_active_source() -> No
         names = [completion.text for completion in completions]
         display_meta = [completion.display_meta_text for completion in completions]
 
-        assert names == ["1", "2"]
-        assert display_meta == [
-            "https://github.com/fast-agent-ai/card-packs",
-            "https://github.com/fast-agent-ai/card-packs",
-        ]
+        assert names == ["1"]
+        assert display_meta == ["https://github.com/fast-agent-ai/card-packs"]
     finally:
         update_global_settings(old_settings)
 

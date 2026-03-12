@@ -27,7 +27,7 @@ def print_section_header(console: Console, title: str, *, color: str = "blue") -
 
 def print_hint(console: Console, message: str) -> None:
     """Render a low-emphasis CLI hint line."""
-    console.print(f"[dim]▎• {message}[/dim]")
+    console.print(f"[dim]  {message}[/dim]")
 
 
 def print_detail_line(

@@ -20,6 +20,7 @@ from fast_agent.ui.command_payloads import (
     HistoryFixCommand,
     HistoryReviewCommand,
     HistoryRewindCommand,
+    HistoryShowCommand,
     HistoryWebClearCommand,
     ListSessionsCommand,
     ListToolsCommand,
@@ -103,6 +104,26 @@ def _rebuild_mcp_target_text(tokens: list[str]) -> str:
     return " ".join(rebuilt_parts)
 
 
+def _parse_quoted_history_target(text: str) -> str | None:
+    stripped = text.strip()
+    if not stripped:
+        return None
+
+    try:
+        tokens = shlex.split(stripped)
+    except ValueError:
+        return None
+
+    if len(tokens) != 1:
+        return None
+
+    # Allow explicit quoting/escaping to force agent-name parsing for values
+    # that would otherwise collide with /history subcommands.
+    if stripped == tokens[0]:
+        return None
+    return tokens[0]
+
+
 def _parse_mcp_single_server_name(tokens: list[str], *, usage: str) -> tuple[str | None, str | None]:
     name = tokens[1] if len(tokens) > 1 else None
     error = None if name else usage
@@ -144,6 +165,9 @@ def parse_special_input(text: str) -> str | CommandPayload:
             remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
             if not remainder:
                 return ShowHistoryCommand(agent=None)
+            quoted_target = _parse_quoted_history_target(remainder)
+            if quoted_target is not None:
+                return ShowHistoryCommand(agent=quoted_target)
             try:
                 tokens = shlex.split(remainder)
             except ValueError:
@@ -154,7 +178,7 @@ def parse_special_input(text: str) -> str | CommandPayload:
             subcmd = tokens[0].lower()
             argument = " ".join(tokens[1:]).strip()
             if subcmd == "show":
-                return ShowHistoryCommand(agent=argument or None)
+                return HistoryShowCommand(agent=argument or None)
             if subcmd == "save":
                 return SaveHistoryCommand(filename=argument or None)
             if subcmd == "load":
@@ -164,16 +188,19 @@ def parse_special_input(text: str) -> str | CommandPayload:
                         error="Filename required for /history load",
                     )
                 return LoadHistoryCommand(filename=argument, error=None)
-            if subcmd == "review":
+            if subcmd in {"detail", "review"}:
                 if not argument:
                     return HistoryReviewCommand(
                         turn_index=None,
-                        error="Turn number required for /history review",
+                        error="Turn number required for /history detail",
                     )
                 try:
                     turn_index = int(argument)
                 except ValueError:
-                    return HistoryReviewCommand(turn_index=None, error="Turn number must be an integer")
+                    return HistoryReviewCommand(
+                        turn_index=None,
+                        error="Turn number must be an integer",
+                    )
                 return HistoryReviewCommand(turn_index=turn_index, error=None)
             if subcmd == "fix":
                 return HistoryFixCommand(agent=argument or None)

@@ -5,17 +5,98 @@ Loads Python functions from files for use as agent tools.
 Supports both direct callables and string specs like "module.py:function_name".
 """
 
+import asyncio
 import importlib.util
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Self, cast
 
-from mcp.server.fastmcp.tools.base import Tool as FastMCPTool
+from mcp.server.fastmcp.exceptions import ToolError
+from mcp.server.fastmcp.tools.base import Tool as BaseFastMCPTool
+from mcp.shared.exceptions import UrlElicitationRequiredError
+from mcp.types import Icon, ToolAnnotations
 
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+class FastMCPTool(BaseFastMCPTool):
+    """fast-agent wrapper around FastMCP tools.
+
+    FastMCP executes synchronous tool functions inline. For local Python function
+    tools that can block on I/O or long-running computation, that would block the
+    MCP server event loop and serialize otherwise independent requests.
+
+    This override preserves FastMCP's schema/validation behavior while offloading
+    synchronous tool bodies to a worker thread.
+    """
+
+    @classmethod
+    def from_function(
+        cls,
+        fn: Callable[..., Any],
+        name: str | None = None,
+        title: str | None = None,
+        description: str | None = None,
+        context_kwarg: str | None = None,
+        annotations: ToolAnnotations | None = None,
+        icons: list[Icon] | None = None,
+        meta: dict[str, Any] | None = None,
+        structured_output: bool | None = None,
+    ) -> Self:
+        return cast(
+            "Self",
+            super().from_function(
+                fn,
+                name=name,
+                title=title,
+                description=description,
+                context_kwarg=context_kwarg,
+                annotations=annotations,
+                icons=icons,
+                meta=meta,
+                structured_output=structured_output,
+            ),
+        )
+
+    async def run(
+        self,
+        arguments: dict[str, Any],
+        context: Any | None = None,
+        convert_result: bool = False,
+    ) -> Any:
+        """Run the tool with validated arguments.
+
+        Async functions are awaited directly.
+        Sync functions are executed via ``asyncio.to_thread`` to keep the event
+        loop responsive while preserving validated argument and context injection.
+        """
+
+        try:
+            arguments_pre_parsed = self.fn_metadata.pre_parse_json(arguments)
+            arguments_parsed_model = self.fn_metadata.arg_model.model_validate(
+                arguments_pre_parsed
+            )
+            arguments_parsed_dict = arguments_parsed_model.model_dump_one_level()
+
+            if self.context_kwarg is not None:
+                arguments_parsed_dict[self.context_kwarg] = context
+
+            if self.is_async:
+                result = await self.fn(**arguments_parsed_dict)
+            else:
+                result = await asyncio.to_thread(self.fn, **arguments_parsed_dict)
+
+            if convert_result:
+                result = self.fn_metadata.convert_result(result)
+
+            return result
+        except UrlElicitationRequiredError:
+            raise
+        except Exception as exc:
+            raise ToolError(f"Error executing tool {self.name}: {exc}") from exc
 
 
 def load_function_from_spec(spec: str, base_path: Path | None = None) -> Callable[..., Any]:

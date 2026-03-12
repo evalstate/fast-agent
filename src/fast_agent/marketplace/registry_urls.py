@@ -29,13 +29,34 @@ def _canonical_registry_url(url: str) -> str:
     """Return a canonical source URL key for de-duplicating equivalent entries."""
     normalized = url.strip()
     parsed = urlparse(normalized)
+
+    def _is_default_marketplace_path(file_path: str) -> bool:
+        return file_path in {".claude-plugin/marketplace.json", "marketplace.json"}
+
     if parsed.netloc in {"github.com", "www.github.com"}:
         parts = parsed.path.strip("/").split("/")
-        # Treat GitHub blob URLs and their raw equivalents as one source.
+        if len(parts) >= 2:
+            org, repo = parts[:2]
+            if len(parts) == 2:
+                return f"https://github.com/{org}/{repo}"
+            if len(parts) >= 4 and parts[2] == "tree":
+                ref = parts[3]
+                file_path = "/".join(parts[4:])
+                if ref in {"main", "master"} and not file_path:
+                    return f"https://github.com/{org}/{repo}"
         if len(parts) >= 5 and parts[2] == "blob":
             org, repo, _, ref = parts[:4]
             file_path = "/".join(parts[4:])
+            if ref in {"main", "master"} and _is_default_marketplace_path(file_path):
+                return f"https://github.com/{org}/{repo}"
             return f"https://raw.githubusercontent.com/{org}/{repo}/{ref}/{file_path}"
+    if parsed.netloc == "raw.githubusercontent.com":
+        parts = parsed.path.strip("/").split("/")
+        if len(parts) >= 4:
+            org, repo, ref = parts[:3]
+            file_path = "/".join(parts[3:])
+            if ref in {"main", "master"} and _is_default_marketplace_path(file_path):
+                return f"https://github.com/{org}/{repo}"
     return normalized
 
 

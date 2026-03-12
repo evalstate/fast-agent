@@ -118,8 +118,6 @@ class _LoggerSpy:
         self.warning_calls.append((message, data))
 
 
-
-
 def test_convert_tool_calls_serializes_apply_patch_as_custom_tool_call() -> None:
     harness = _ContentHarness()
     harness._tool_kind_map["call_patch"] = "custom"
@@ -132,10 +130,7 @@ def test_convert_tool_calls_serializes_apply_patch_as_custom_tool_call() -> None
                     name="apply_patch",
                     arguments={
                         "input": (
-                            "*** Begin Patch\n"
-                            "*** Add File: hello.txt\n"
-                            "+hello\n"
-                            "*** End Patch\n"
+                            "*** Begin Patch\n*** Add File: hello.txt\n+hello\n*** End Patch\n"
                         )
                     },
                 ),
@@ -148,12 +143,7 @@ def test_convert_tool_calls_serializes_apply_patch_as_custom_tool_call() -> None
             "type": "custom_tool_call",
             "call_id": "call_patch",
             "name": "apply_patch",
-            "input": (
-                "*** Begin Patch\n"
-                "*** Add File: hello.txt\n"
-                "+hello\n"
-                "*** End Patch"
-            ),
+            "input": ("*** Begin Patch\n*** Add File: hello.txt\n+hello\n*** End Patch"),
         }
     ]
 
@@ -230,12 +220,7 @@ def test_extract_custom_tool_call_maps_apply_patch_input() -> None:
                 id="ctc_123",
                 call_id="call_patch",
                 name="apply_patch",
-                input=(
-                    "*** Begin Patch\n"
-                    "*** Add File: hello.txt\n"
-                    "+hello\n"
-                    "*** End Patch\n"
-                ),
+                input=("*** Begin Patch\n*** Add File: hello.txt\n+hello\n*** End Patch\n"),
             )
         ]
     )
@@ -245,12 +230,7 @@ def test_extract_custom_tool_call_maps_apply_patch_input() -> None:
     request = tool_calls["call_patch"]
     assert request.params.name == "apply_patch"
     assert request.params.arguments == {
-        "input": (
-            "*** Begin Patch\n"
-            "*** Add File: hello.txt\n"
-            "+hello\n"
-            "*** End Patch\n"
-        )
+        "input": ("*** Begin Patch\n*** Add File: hello.txt\n+hello\n*** End Patch\n")
     }
 
 
@@ -518,8 +498,6 @@ def test_tool_fallback_notifications():
     assert events[0][1]["tool_name"] == "weather"
 
 
-
-
 def test_tool_fallback_notifications_for_custom_tool_call() -> None:
     harness = _StreamingHarness()
     tool_call = SimpleNamespace(
@@ -534,6 +512,7 @@ def test_tool_fallback_notifications_for_custom_tool_call() -> None:
     assert [event for event, _payload in events] == ["start", "stop"]
     assert events[0][1]["tool_use_id"] == "call_patch"
     assert events[0][1]["tool_name"] == "apply_patch"
+
 
 def test_dedupes_duplicate_reasoning_ids():
     harness = _ContentHarness()
@@ -561,9 +540,7 @@ def test_extract_raw_assistant_message_items_preserves_phase_metadata() -> None:
                 role="assistant",
                 status="completed",
                 phase="commentary",
-                content=[
-                    SimpleNamespace(type="output_text", text="Let me inspect that first.")
-                ],
+                content=[SimpleNamespace(type="output_text", text="Let me inspect that first.")],
             )
         ]
     )
@@ -613,9 +590,7 @@ def test_convert_extended_messages_to_provider_uses_raw_assistant_items_channel(
         role="assistant",
         content=[TextContent(type="text", text="Final answer")],
         channels={
-            OPENAI_ASSISTANT_MESSAGE_ITEMS: [
-                TextContent(type="text", text=json.dumps(raw_item))
-            ]
+            OPENAI_ASSISTANT_MESSAGE_ITEMS: [TextContent(type="text", text=json.dumps(raw_item))]
         },
     )
 
@@ -1008,6 +983,7 @@ def test_codexresponses_request_service_tier_rejects_flex() -> None:
             tools=None,
         )
 
+
 def test_responses_chatgpt_request_service_tier_rejects_flex() -> None:
     llm = _build_responses_family_llm(
         Provider.RESPONSES,
@@ -1224,9 +1200,7 @@ async def test_stream_process_emits_web_search_status_events() -> None:
     assert event_types.count("stop") >= 1
 
     first_start_payload = next(
-        payload
-        for event_type, payload in harness.events
-        if event_type == "start"
+        payload for event_type, payload in harness.events if event_type == "start"
     )
     assert first_start_payload["tool_name"] == "web_search"
     assert first_start_payload["tool_display_name"] == "Searching the web"

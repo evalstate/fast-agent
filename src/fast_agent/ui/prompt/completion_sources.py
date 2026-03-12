@@ -100,6 +100,10 @@ def command_completions(
         partial = text[len("/history rewind ") :]
         return list(completer._complete_history_rewind(partial))
 
+    if text_lower.startswith("/history detail "):
+        partial = text[len("/history detail ") :]
+        return list(completer._complete_history_rewind(partial))
+
     if text_lower.startswith("/history review "):
         partial = text[len("/history review ") :]
         return list(completer._complete_history_rewind(partial))
@@ -787,12 +791,12 @@ def command_completions(
     if text_lower.startswith("/history "):
         partial = text[len("/history ") :]
         subcommands = {
-            "show": "Show history overview",
+            "show": "Show per-turn timing summaries",
+            "detail": "Show a previous user turn in full",
             "save": "Save history to a file",
             "load": "Load history from a file",
             "clear": "Clear history (all or last)",
             "rewind": "Rewind to a previous user turn",
-            "review": "Review a previous user turn in full",
             "fix": "Remove the last pending tool call",
         }
         if completer._current_agent_has_web_tools_enabled():

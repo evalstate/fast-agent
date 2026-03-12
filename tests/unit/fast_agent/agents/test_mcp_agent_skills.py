@@ -316,6 +316,10 @@ def test_format_skills_for_prompt_standard_format(tmp_path: Path) -> None:
     """Test that format_skills_for_prompt outputs Agent Skills standard format."""
     skills_root = tmp_path / "skills"
     create_skill(skills_root, "test-skill", description="Test description")
+    skill_dir = skills_root / "test-skill"
+    (skill_dir / "scripts").mkdir()
+    (skill_dir / "references").mkdir()
+    (skill_dir / "assets").mkdir()
 
     manifests = SkillRegistry.load_directory(skills_root)
     prompt = format_skills_for_prompt(manifests)
@@ -329,9 +333,19 @@ def test_format_skills_for_prompt_standard_format(tmp_path: Path) -> None:
     assert "<description>Test description</description>" in prompt
     assert "<location>" in prompt
     assert "</location>" in prompt
+    assert f"<directory>{skill_dir}</directory>" in prompt
+    assert f"<scripts>{skill_dir / 'scripts'}</scripts>" in prompt
+    assert f"<references>{skill_dir / 'references'}</references>" in prompt
+    assert f"<assets>{skill_dir / 'assets'}</assets>" in prompt
 
     # Check preamble mentions read_skill tool by default
     assert "read_skill" in prompt
+    assert "Prefer that file-reading tool over shell commands" in prompt
+    assert "<directory> is the resolved absolute path to the skill's root directory" in prompt
+    assert "<scripts>, <references>, and <assets>" in prompt
+    assert "resolve them against the skill's" in prompt
+    assert "directory (the parent of SKILL.md)" in prompt
+    assert "use absolute paths in tool calls" in prompt
 
 
 def test_format_skills_for_prompt_custom_read_tool(tmp_path: Path) -> None:

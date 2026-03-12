@@ -152,7 +152,9 @@ class TestA3MessageStyle:
         )
         assert result is not None
         # Should contain the prefix and highlighted item
+        assert result.plain.startswith("▎ ")
         assert "highlighted" in result.plain
+        assert "▎•" not in result.plain
 
     def test_shell_exit_line_with_detail(self) -> None:
         """A3 shell exit lines include optional compact detail text."""

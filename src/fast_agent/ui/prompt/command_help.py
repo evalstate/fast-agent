@@ -33,7 +33,8 @@ def render_help_lines(*, show_webclear_help: bool) -> list[str]:
         "  /model aliases set [<token> [<model-spec>]] [--target env|project] [--dry-run]",
         "  /model aliases unset [<token>] [--target env|project] [--dry-run]",
         "  /model catalog <provider> [--all] - Show curated/all models for a provider",
-        "  /history [agent_name] - Show chat history overview",
+        "  /history [agent_name] - Show chat history overview (quote names that match subcommands)",
+        "  /history show [agent_name] - Show per-turn timing summaries",
         "  /history clear all [agent_name] - Clear conversation history (keeps templates)",
         "  /history clear last [agent_name] - Remove the most recent message from history",
         "  /markdown      - Show last assistant message without markdown formatting",
@@ -55,7 +56,7 @@ def render_help_lines(*, show_webclear_help: bool) -> list[str]:
         "      [dim]Default: Timestamped filename (e.g., 25_01_15_14_30-conversation.json)[/dim]",
         "  /history load <filename> - Load chat history from a file",
         "  /history rewind <turn> - Rewind to a prior user turn",
-        "  /history review <turn> - Review a prior user turn in full",
+        "  /history detail <turn> - Show a prior user turn in full",
         "  /history fix [agent_name] - Remove the last pending tool call",
     ]
     if show_webclear_help:

@@ -10,6 +10,7 @@ from fast_agent.commands.handlers.shared import (
     load_prompt_messages_from_file,
     replace_agent_history,
 )
+from fast_agent.commands.history_summaries import collect_user_turns, group_history_turns
 from fast_agent.commands.results import CommandOutcome
 from fast_agent.constants import (
     ANTHROPIC_ASSISTANT_RAW_CONTENT,
@@ -22,56 +23,6 @@ from fast_agent.types import LlmStopReason, PromptMessageExtended
 
 if TYPE_CHECKING:
     from fast_agent.commands.context import CommandContext
-
-
-def _group_turns_for_history_actions(
-    history: list[PromptMessageExtended],
-) -> list[tuple[int, list[PromptMessageExtended]]]:
-    turns: list[tuple[int, list[PromptMessageExtended]]] = []
-    current: list[PromptMessageExtended] = []
-    current_start = 0
-    saw_assistant = False
-
-    for idx, message in enumerate(history):
-        is_new_user = message.role == "user" and not message.tool_results
-        if is_new_user:
-            if not current:
-                current = [message]
-                current_start = idx
-                saw_assistant = False
-                continue
-            if not saw_assistant:
-                current.append(message)
-                continue
-            turns.append((current_start, current))
-            current = [message]
-            current_start = idx
-            saw_assistant = False
-            continue
-
-        if current:
-            current.append(message)
-            if message.role == "assistant":
-                saw_assistant = True
-
-    if current:
-        turns.append((current_start, current))
-    return turns
-
-
-def _collect_user_turns(
-    history: list[PromptMessageExtended],
-) -> list[tuple[int, PromptMessageExtended]]:
-    turns = _group_turns_for_history_actions(list(history))
-    user_turns: list[tuple[int, PromptMessageExtended]] = []
-    for offset, turn in turns:
-        if not turn:
-            continue
-        first = turn[0]
-        if first.role != "user" or first.tool_results:
-            continue
-        user_turns.append((offset, first))
-    return user_turns
 
 
 def _trim_history_for_rewind(
@@ -217,7 +168,7 @@ async def handle_history_rewind(
 
     agent_obj = ctx.agent_provider._agent(agent_name)
     history = getattr(agent_obj, "message_history", [])
-    user_turns = _collect_user_turns(list(history))
+    user_turns = collect_user_turns(list(history))
     if not user_turns:
         outcome.add_message(
             "No user turns available to rewind.",
@@ -282,12 +233,12 @@ async def handle_history_review(
         return outcome
     if turn_index is None:
         outcome.add_message(
-            "Usage: /history review <turn>",
+            "Usage: /history detail <turn>",
             channel="warning",
             agent_name=agent_name,
         )
         outcome.add_message(
-            "Tip: press Tab after '/history review ' to see turn options.",
+            "Tip: press Tab after '/history detail ' to see turn options.",
             channel="info",
             agent_name=agent_name,
         )
@@ -297,7 +248,7 @@ async def handle_history_review(
     history = getattr(agent_obj, "message_history", [])
     turns = [
         turn
-        for _, turn in _group_turns_for_history_actions(list(history))
+        for _, turn in group_history_turns(list(history))
         if turn and turn[0].role == "user" and not turn[0].tool_results
     ]
     user_turns = turns
@@ -314,7 +265,7 @@ async def handle_history_review(
 
     selected_turn = user_turns[turn_index - 1]
     outcome.add_message(
-        f"History review: turn {turn_index}",
+        f"History detail: turn {turn_index}",
         channel="info",
         agent_name=agent_name,
     )
