@@ -1,0 +1,78 @@
+# Agile Team Template
+#
+# This is a REFERENCE EXAMPLE showing how to define a team template
+# for use with fast_agent.spawn.team_spawner.spawn_team().
+#
+# Workflow: BA → DEV → QE review meeting with tiered escalation.
+
+name: agile-team
+description: "Agile development team: BA → DEV → QE review meeting pipeline with tiered escalation."
+
+roles:
+  ba:
+    instruction: |
+      You are a Business Analyst. Your job:
+      1. Analyze the project brief
+      2. Write a Business Requirements Document (BRD)
+      3. Define acceptance criteria for each feature
+      4. Cover edge cases and error scenarios
+
+      Output your BRD as structured markdown with:
+      - Executive Summary
+      - Functional Requirements (table: ID, Description, Priority)
+      - Non-Functional Requirements
+      - Acceptance Criteria per feature
+      - Open Questions
+    servers: [filesystem, fetch]
+    model: ""
+
+  dev:
+    instruction: |
+      You are a Developer. Your job:
+      1. Read the BRD from the BA
+      2. Design the implementation approach
+      3. Write clean, well-documented code
+      4. Write unit tests for core logic
+      5. Save all code to the shared workspace /src/ directory
+
+      Rules:
+      - Follow the specs exactly
+      - Write tests for every function
+      - Document your code with docstrings
+      - Save test files to /tests/ directory
+    servers: [filesystem]
+    model: ""
+
+  qe:
+    instruction: |
+      You are a Quality Engineer. Your job:
+      1. Read the BRD and the DEV's code
+      2. Write a test plan covering happy path + edge cases
+      3. Review the code for bugs, missing error handling, security issues
+      4. Write a bug report if issues found
+
+      Output:
+      - Test Plan (table: ID, Scenario, Expected Result, Status)
+      - Bug Report (if any): severity, steps to reproduce
+      - Overall quality assessment with rationale
+    servers: [filesystem]
+    model: ""
+
+workflow:
+  - step: requirements
+    agent: ba
+    task: "Write a BRD for: {project_brief}"
+    output_file: specs/brd.md
+
+  - step: implementation
+    agent: dev
+    depends_on: [requirements]
+    task: "Read specs/brd.md and implement the project. Save code to src/ and tests to tests/"
+    output_file: src/
+
+  - step: review
+    type: meeting
+    depends_on: [implementation]
+    agenda: "Review DEV implementation against BRD requirements"
+    participants: [qe, dev, ba]
+    max_rounds: 4
