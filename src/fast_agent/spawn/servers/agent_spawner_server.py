@@ -54,14 +54,14 @@ from fast_agent.spawn.message_bus import MessageBus
 from fast_agent.spawn.signal_store import SignalStore
 from fast_agent.spawn.spawn_display import get_display_manager
 from fast_agent.spawn.spawn_registry import SpawnRegistry
+from fast_agent.spawn.team_orchestration import (
+    run_retrospective as _run_retrospective,
+)
 from fast_agent.spawn.team_spawner import (
     get_team_session,
 )
 from fast_agent.spawn.team_spawner import (
     list_team_templates as _list_templates,
-)
-from fast_agent.spawn.team_spawner import (
-    run_retrospective as _run_retrospective,
 )
 from fast_agent.spawn.team_spawner import (
     spawn_team as _spawn_team,
@@ -685,14 +685,50 @@ def list_available_servers_tool() -> str:
 
 
 @mcp.tool()
-async def spawn_team_tool(template: str, project_brief: str) -> str:
+async def spawn_team_tool(
+    template: str,
+    project_brief: str,
+    mode: str = "blocking",
+) -> str:
     """Spawn a full team of agents from a template.
 
     Args:
         template: Team template name (e.g. "agile-team").
         project_brief: Description for the team.
+        mode: "blocking" (wait for completion) or
+              "background" (return session_id immediately).
     """
+    import asyncio
+
     try:
+        if mode == "background":
+
+            async def _run_team_bg() -> None:
+                try:
+                    await _spawn_team(
+                        template_name=template,
+                        project_brief=project_brief,
+                        registry=_registry,
+                        display_manager=_display,
+                        project_dir=str(_PROJECT_DIR),
+                    )
+                except Exception as exc:
+                    logger.error("Background team spawn failed: %s", exc)
+
+            asyncio.create_task(_run_team_bg())
+
+            return json.dumps(
+                {
+                    "status": "spawned_background",
+                    "message": (
+                        "Team spawned in background. Use "
+                        "get_team_status() or "
+                        "list_team_templates_tool() to check."
+                    ),
+                }
+            )
+
+        # Default: blocking mode
         session = await _spawn_team(
             template_name=template,
             project_brief=project_brief,
