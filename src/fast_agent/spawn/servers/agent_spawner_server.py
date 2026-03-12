@@ -184,7 +184,12 @@ async def spawn_and_run_isolated(
         skills=skill_paths,
     )
 
-    return result.get("formatted_result", json.dumps(result))
+    run_id = result.get("run_id", "")
+    formatted = result.get("formatted_result", json.dumps(result))
+    # Prepend run_id so the caller can resume this agent later
+    if run_id:
+        return f"[run_id: {run_id}]\n{formatted}"
+    return formatted
 
 
 @mcp.tool()
