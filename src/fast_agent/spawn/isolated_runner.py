@@ -70,35 +70,52 @@ def build_child_system_prompt(
 
     # Workspace awareness (only when filesystem server is available)
     if has_filesystem and workspace_dir:
-        lines.extend(
-            [
-                "## Workspace & File Access",
-                f"Your filesystem server root is: `{workspace_dir}`",
-                "All filesystem tool paths are relative to this root.",
-                "",
-                "### Free Zones (read/write freely — no confirmation needed)",
-                "- `.runtime/` — agent runtime data",
-                "  - `.runtime/state/` — persistent (signals, messages, runs)",
-                "  - `.runtime/cache/` — ephemeral (tmp, logs)",
-                "  - `.runtime/data/` — output (agent_cards, workspaces)",
-            ]
-        )
-        if team_workspace:
-            lines.append(f"- `{team_workspace}` — team shared workspace")
-        lines.extend(
-            [
-                "",
-                "### Protected Zones (read OK, modify only if your task requires it)",
-                "- Source code (`*.py`), configs (`*.yaml`), templates",
-                "",
-                "### Forbidden",
-                "- `fastagent.secrets.yaml` — never read or modify",
-                "",
-                "### Path Convention",
-                "- Use relative paths from project root (e.g., `.runtime/data/agent_cards/`)",
-                "",
-            ]
-        )
+        # Check if this is a team workspace (inside .runtime/data/workspaces/)
+        is_team_workspace = "/workspaces/" in workspace_dir
+        if is_team_workspace:
+            lines.extend(
+                [
+                    "## Workspace & File Access",
+                    f"Your workspace root is: `{workspace_dir}`",
+                    "The filesystem server is scoped to this directory.",
+                    "",
+                    "### Rules",
+                    "- Write ALL output files inside this workspace (use relative paths like `src/`, `docs/`, `tests/`)",
+                    "- You CANNOT access files outside this workspace",
+                    "- Read the ROSTER.md file to see your team members",
+                    "",
+                ]
+            )
+        else:
+            lines.extend(
+                [
+                    "## Workspace & File Access",
+                    f"Your filesystem server root is: `{workspace_dir}`",
+                    "All filesystem tool paths are relative to this root.",
+                    "",
+                    "### Free Zones (read/write freely — no confirmation needed)",
+                    "- `.runtime/` — agent runtime data",
+                    "  - `.runtime/state/` — persistent (signals, messages, runs)",
+                    "  - `.runtime/cache/` — ephemeral (tmp, logs)",
+                    "  - `.runtime/data/` — output (agent_cards, workspaces)",
+                ]
+            )
+            if team_workspace:
+                lines.append(f"- `{team_workspace}` — team shared workspace")
+            lines.extend(
+                [
+                    "",
+                    "### Protected Zones (read OK, modify only if your task requires it)",
+                    "- Source code (`*.py`), configs (`*.yaml`), templates",
+                    "",
+                    "### Forbidden",
+                    "- `fastagent.secrets.yaml` — never read or modify",
+                    "",
+                    "### Path Convention",
+                    "- Use relative paths from project root (e.g., `.runtime/data/agent_cards/`)",
+                    "",
+                ]
+            )
 
     lines.extend(
         [
@@ -146,6 +163,7 @@ def create_child_config(
     model: str = "",
     depth: int = 1,
     run_id: str = "",
+    agent_name: str = "",
 ) -> str:
     """Create a temporary fastagent.config.yaml for the child.
 
@@ -190,7 +208,7 @@ def create_child_config(
                 config_lines.append(f"    - name: {srv}")
                 config_lines.append(f'      target: "{server_commands[srv]}"')
                 # Add env vars for servers that need them
-                srv_env = get_server_env(srv, workspace_dir)
+                srv_env = get_server_env(srv, workspace_dir, agent_name=agent_name)
                 if srv_env:
                     config_lines.append("      env:")
                     for k, v in srv_env.items():
@@ -261,6 +279,7 @@ async def run_child_agent(
         model=model,
         depth=depth,
         run_id=run_id,
+        agent_name=os.environ.get("TEAM_MY_NAME", ""),
     )
 
     # Emit started event for TUI
@@ -299,6 +318,9 @@ async def run_child_agent(
 
         fast = FastAgent("Isolated Child Agent")
 
+        # Resume support: load previous conversation history if available
+        history_file = config.get("history_file")
+
         @fast.agent(
             name="child",
             instruction=full_instruction,
@@ -311,6 +333,27 @@ async def run_child_agent(
 
             async with fast.run() as agent:
                 _install_tool_hooks(agent, event_run_id, role)
+
+                # If resuming, load previous session history into agent
+                # This uses FastAgent's native API — no LLM call, just
+                # restores message_history so the next send() has full context
+                if history_file and Path(history_file).exists():
+                    from fast_agent.mcp.prompts.prompt_load import (
+                        load_history_into_agent,
+                    )
+
+                    try:
+                        load_history_into_agent(agent["child"], Path(history_file))
+                        logger.info(
+                            "📂 Loaded previous history from %s",
+                            history_file,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "⚠️ Failed to load history: %s — continuing fresh",
+                            exc,
+                        )
+
                 response = await agent.send(task)
                 return response
 
@@ -381,10 +424,21 @@ def _install_tool_hooks(agent_app: Any, run_id: str, role: str) -> None:
 
     async def before_tool_call(runner: Any, request: Any) -> None:
         tool_calls = getattr(request, "tool_calls", None) or {}
+        cwd = os.getcwd()
         for _corr_id, tool_request in tool_calls.items():
             tool_name = tool_request.params.name
             tool_args = tool_request.params.arguments or {}
-            args_preview = ", ".join(f"{k}={str(v)[:40]}" for k, v in list(tool_args.items())[:3])
+
+            # Shorten absolute paths: replace workspace root with ./
+            def _shorten(v: object) -> str:
+                s = str(v)
+                if cwd and s.startswith(cwd):
+                    s = "." + s[len(cwd):]
+                return s[:40]
+
+            args_preview = ", ".join(
+                f"{k}={_shorten(v)}" for k, v in list(tool_args.items())[:3]
+            )
             _tool_start_times[tool_name] = time.time()
             emit_event(
                 "tool_call",

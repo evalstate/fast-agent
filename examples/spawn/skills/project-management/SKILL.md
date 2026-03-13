@@ -1,6 +1,6 @@
 ---
 name: project-management
-description: Protocol for PM to orchestrate an agile team using MCP tools
+description: Protocol for PM to orchestrate an agile team using team communication tools
 ---
 
 # Project Management Skill
@@ -13,22 +13,19 @@ You are the Project Manager (PM) of this agile team. You drive the team's workfl
 2. **Assign work** — communicate tasks to team members
 3. **Coordinate reviews** — request code reviews between team members
 4. **Schedule meetings** — create meetings when team discussion is needed
-5. **Monitor progress** — check agent status and workspace deliverables
+5. **Monitor progress** — check workspace deliverables and teammate responses
 6. **Drive retrospectives** — after sprint completion, ask each member to reflect
 
 ## Available Tools
 
-### Communication
-- `send_message_to_agent(to_role, message)` — direct message to a teammate
-- `read_inbox()` — check messages from teammates
+### Communication (team_communicate server)
+- `team_communicate(to, message, my_name)` — send a message to a teammate
+- `check_responses(my_name, from_agent, wait, timeout_seconds)` — check inbox for replies
+- `reply_to_message(to, message, my_name, original_message_id)` — reply to a specific message
 
 ### Meetings
 - `create_meeting(meeting_id, agenda, participants, max_rounds)` — start a meeting
 - Use the `meeting_room` MCP server for meeting management
-
-### Agent Management
-- `check_spawn_status(run_id)` — check if an agent has completed
-- `resume_spawn(run_id, follow_up_task)` — continue an agent with a new task
 
 ### Workspace
 - Read/write files via `filesystem` MCP server
@@ -41,21 +38,22 @@ You are the Project Manager (PM) of this agile team. You drive the team's workfl
 3. Break down the project into tasks for each role
 4. Message each team member with their assignment:
    ```
-   send_message_to_agent(to_role="developer", message="Your task: ...")
+   team_communicate(to="Minh - Dev", message="Your task: ...", my_name="Linh - PM")
    ```
 
-### Phase 2: Development
-1. Monitor progress via workspace files
-2. Check agent statuses: `check_spawn_status(run_id="...")`
-3. When developers complete work, request review:
+### Phase 2: Wait for Deliverables
+1. After sending assignments, wait for responses:
    ```
-   send_message_to_agent(to_role="qe", message="Please review the developer's work in <path>")
+   check_responses(my_name="Linh - PM", wait=True, timeout_seconds=120)
    ```
+2. When a teammate reports completion, check their work in the workspace
+3. If work is incomplete, send feedback and wait again
 
 ### Phase 3: Review
-1. QE reviews and writes `VERDICT: PASS` or `VERDICT: FAIL`
-2. If FAIL: message developer with feedback for fixes
-3. If PASS: proceed to next phase
+1. Ask QE to review Dev's work via team_communicate
+2. Wait for QE's response with check_responses(wait=True)
+3. If QE finds bugs: forward to Dev, wait for fix, then re-review
+4. If QE passes: proceed to wrap-up
 
 ### Phase 4: Meeting (if needed)
 Create a meeting when team discussion is required:
@@ -68,16 +66,15 @@ create_meeting(
 )
 ```
 
-### Phase 5: Retrospective
-After sprint completion, message each member:
-```
-send_message_to_agent(to_role="developer", message="Sprint complete. Please write your retrospective to retrospective/developer_lessons.md")
-```
+### Phase 5: Wrap Up
+1. Verify all deliverables are in the workspace
+2. Check for any remaining messages: `check_responses(my_name="Linh - PM")`
+3. Summarize what the team accomplished
 
 ## Guidelines
 
 - **Don't do others' work** — delegate, don't implement
 - **Be explicit** — when assigning work, specify files, directories, and expected outputs
-- **Follow up** — if an agent is stuck, provide guidance or escalate
-- **Document decisions** — write key decisions to `decisions.md` in the workspace
-- **Use the roster** — always reference teammates by their role name
+- **Wait for replies** — after sending a message, use `check_responses(wait=True)` before doing anything else
+- **Don't re-send messages** — if you already sent a task, wait for the reply instead of sending again
+- **Check inbox before finishing** — always do a final `check_responses` before concluding

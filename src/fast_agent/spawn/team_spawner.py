@@ -17,6 +17,7 @@ import yaml
 
 from fast_agent.spawn.isolated_spawner import (
     run_isolated_agent,
+    run_isolated_agent_background,
 )
 from fast_agent.spawn.runtime_paths import get_runtime_paths
 from fast_agent.spawn.workspace_manager import (
@@ -103,7 +104,7 @@ class TeamSession:
         self.template = template
         self.workspace = workspace
         self.parent_session_id = parent_session_id
-        self.agents: dict[str, dict[str, Any]] = {}  # role → {run_id, status, ...}
+        self.agents: dict[str, dict[str, Any]] = {}  # agent_name → {run_id, role, status, ...}
         self.sprint_status = "pending"
 
     def to_dict(self) -> dict[str, Any]:
@@ -119,14 +120,15 @@ class TeamSession:
     # ── Roster ───────────────────────────────────────────
 
     def get_roster(self) -> dict[str, dict[str, Any]]:
-        """Return team roster: role → {run_id, role, status}."""
+        """Return team roster: agent_name → {run_id, role, status}."""
         return {
-            role: {
+            name: {
                 "run_id": info.get("run_id", ""),
-                "role": role,
+                "agent_name": name,
+                "role": info.get("role", ""),
                 "status": info.get("status", "unknown"),
             }
-            for role, info in self.agents.items()
+            for name, info in self.agents.items()
         }
 
     def write_roster(self) -> Path:
@@ -138,12 +140,13 @@ class TeamSession:
     def roster_context(self) -> str:
         """Build roster context string for agent injection."""
         lines = ["## Your Team"]
-        for role, info in self.agents.items():
+        for agent_name, info in self.agents.items():
             run_id = info.get("run_id", "?")
-            instruction = info.get("instruction", "")
-            label = instruction[:60] if instruction else role
-            lines.append(f"- **{role}** (run_id: {run_id}) — {label}")
-        lines.append("\nUse `send_message_to_agent(to_role=..., ...)` to message any teammate.")
+            role = info.get("role", "")
+            lines.append(f"- **{agent_name}** (role: {role}, run_id: {run_id})")
+        lines.append("\nUse `send_message_to_agent(to=\"Agent Name\", ...)` to message any teammate.")
+        lines.append("Use `wait_for_agent(agent_name=\"Agent Name\")` to wait for a teammate to finish.")
+        lines.append("Use `resume_spawn(run_id=\"...\", follow_up_task=\"...\")` to ask a completed agent to revise their work — this preserves their context.")
         return "\n".join(lines)
 
     # ── Persistence ──────────────────────────────────────
@@ -190,12 +193,27 @@ def _build_team_env(
     workspace: Path,
     roles: dict[str, Any],
     my_role: str,
+    my_name: str = "",
 ) -> dict[str, str]:
     """Build environment variables for team agent."""
-    return {
+    env = {
         "TEAM_WORKSPACE": str(workspace),
         "TEAM_MY_ROLE": my_role,
     }
+    if my_name:
+        env["TEAM_MY_NAME"] = my_name
+
+    # Provide team config with agent_name -> role mapping for communication
+    team_config: dict[str, Any] = {}
+    for rname, rcfg in roles.items():
+        if isinstance(rcfg, dict):
+            team_config[rname] = {
+                "agent_name": rcfg.get("agent_name", f"Agent - {rname.upper()}"),
+                "instruction": rcfg.get("instruction", ""),
+                "servers": rcfg.get("servers", []),
+            }
+    env["TEAM_ROLES_CONFIG"] = json.dumps(team_config)
+    return env
 
 
 def _resolve_role_skills(
@@ -286,6 +304,21 @@ async def spawn_team(
     template = load_team_template(template_name, tdir)
     session_id = str(uuid.uuid4())[:8]
 
+    # Clean up previous session artifacts to prevent data leakage
+    template_prefix = template.get("name", template_name).lower().replace(" ", "_")[:50]
+    workspaces_base = workspace_root or paths["workspaces"]
+    if Path(workspaces_base).exists():
+        import shutil
+        for old_ws in Path(workspaces_base).iterdir():
+            if old_ws.is_dir() and old_ws.name.startswith(template_prefix):
+                logger.info("Cleaning old workspace: %s", old_ws)
+                shutil.rmtree(old_ws, ignore_errors=True)
+    # Clean old child configs
+    child_configs = paths["tmp"] / "child_configs"
+    if child_configs.exists():
+        import shutil
+        shutil.rmtree(child_configs, ignore_errors=True)
+
     project_name = f"{template.get('name', template_name)}_{session_id}"
     workspace = create_workspace(
         project_name,
@@ -303,12 +336,14 @@ async def spawn_team(
 
     roles = template.get("roles", {})
 
-    # Pre-generate run_ids and register all agents
+    # Pre-generate run_ids and register all agents by name
     for role_name, role_config in roles.items():
+        agent_name = role_config.get("agent_name", f"Agent - {role_name.upper()}")
         run_id = f"team_{session_id}_{role_name}_{uuid.uuid4().hex[:6]}"
-        session.agents[role_name] = {
+        session.agents[agent_name] = {
             "run_id": run_id,
             "role": role_name,
+            "agent_name": agent_name,
             "instruction": role_config.get("instruction", ""),
             "status": "pending",
         }
@@ -337,6 +372,7 @@ async def spawn_team(
                 project_dir=pdir,
                 skills_dir=sdir,
                 display_manager=display_manager,
+                wait_for_completion=False,
             )
             session.sprint_status = "running"
             session.save(sessions_dir=paths["workspaces"] / "team_sessions")
@@ -372,11 +408,21 @@ async def _spawn_all_agents(
     project_dir: str | Path,
     skills_dir: str | Path,
     display_manager: Any | None = None,
+    wait_for_completion: bool = True,
 ) -> None:
-    """Spawn all team agents with skills and roster context."""
+    """Spawn all team agents concurrently.
+
+    All agents launch in parallel so they can communicate immediately.
+    If wait_for_completion=True, polls until all agents finish.
+    """
+    import asyncio
+
     for role_name, role_config in roles.items():
+        agent_name = role_config.get("agent_name", f"Agent - {role_name.upper()}")
         task = role_config.get("task", project_brief)
-        instruction = role_config.get("instruction", f"You are the {role_name}.")
+        instruction = role_config.get("instruction", f"You are {agent_name}.")
+        # Substitute {agent_name} placeholder in instruction
+        instruction = instruction.replace("{agent_name}", agent_name)
         servers = list(role_config.get("servers", ["filesystem"]))
         model = role_config.get("model", "")
 
@@ -394,50 +440,103 @@ async def _spawn_all_agents(
         ]
         context = "\n\n".join(context_parts)
 
-        team_env = _build_team_env(workspace, roles, role_name)
+        team_env = _build_team_env(workspace, roles, role_name, my_name=agent_name)
 
         logger.info(
-            "Team %s: spawning %s",
+            "Team %s: launching %s [%s] (background)",
             session.session_id,
+            agent_name,
             role_name,
         )
 
-        session.agents[role_name]["status"] = "running"
+        session.agents[agent_name]["status"] = "running"
 
-        result = await run_isolated_agent(
+        # Launch in background — non-blocking
+        run_id = await run_isolated_agent_background(
             task=task,
             project_dir=str(project_dir),
             instruction=instruction,
             context=context,
             servers=servers,
             model=model,
-            timeout_seconds=600,
+            timeout_seconds=role_config.get("timeout_seconds", 600),
             role=role_name,
+            agent_name=agent_name,
             lifecycle="resumable",
             registry=registry,
-            env_vars=team_env,
             display_manager=display_manager,
             skills=_resolve_role_skills(role_config, skills_dir),
+            env_vars=team_env,
+            workspace_dir=str(workspace),
         )
 
-        status = result.get("status", "error")
-        session.agents[role_name].update(
-            {
-                "run_id": result.get("run_id", session.agents[role_name]["run_id"]),
-                "status": status,
-                "result": result.get("result", "")[:5000],
-            }
-        )
-
+        session.agents[agent_name]["run_id"] = run_id
         logger.info(
-            "Team %s: %s → %s",
+            "Team %s: %s launched → run_id=%s",
             session.session_id,
-            role_name,
-            status,
+            agent_name,
+            run_id,
         )
 
-    # Update roster file after all agents complete
+    # Update roster file with actual run_ids
     session.write_roster()
+
+    if not wait_for_completion:
+        return
+
+    # Poll until all agents complete or reach stable idle
+    logger.info("Team %s: waiting for all agents to complete...", session.session_id)
+    max_wait = 600  # 10 minutes
+    poll_interval = 3
+    elapsed = 0
+    idle_stable_cycles = 0  # consecutive cycles where all are idle
+
+    while elapsed < max_wait:
+        await asyncio.sleep(poll_interval)
+        elapsed += poll_interval
+
+        all_terminal = True
+        all_settled = True  # all agents are idle or terminal (no running)
+        for agent_name, agent_info in session.agents.items():
+            run_id = agent_info.get("run_id", "")
+            if not run_id:
+                continue
+            # Follow resume/restart chain to get the latest record
+            record = registry.get_latest(run_id)
+            if record:
+                session.agents[agent_name]["status"] = record.status
+                if record.result:
+                    session.agents[agent_name]["result"] = record.result[:5000]
+
+                if record.status not in ("completed", "error", "cancelled", "timeout"):
+                    all_terminal = False
+                if record.status in ("running", "pending"):
+                    all_settled = False
+            else:
+                all_terminal = False
+                all_settled = False
+
+        # Case 1: all agents in terminal state → done
+        if all_terminal:
+            break
+
+        # Case 2: all agents are idle (no one running) → team settled
+        # Wait 2 stable cycles to avoid race with auto-wake
+        if all_settled:
+            idle_stable_cycles += 1
+            if idle_stable_cycles >= 2:
+                logger.info(
+                    "Team %s: all agents idle/settled — marking complete",
+                    session.session_id,
+                )
+                break
+        else:
+            idle_stable_cycles = 0
+
+    # Final roster update
+    session.write_roster()
+
+
 
 
 # ───────────────────────────────────────────────────────────

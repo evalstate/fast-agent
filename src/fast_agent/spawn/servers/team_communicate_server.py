@@ -1,180 +1,387 @@
-"""Team Communicate MCP Server — agent-initiated inter-role messaging.
+"""Team Communicate MCP Server — agent-initiated inter-agent messaging.
 
-Provides a single tool ``team_communicate`` that allows an agent to
-directly contact another role during execution. Internally spawns a
-fresh agent of the target role with the message + workspace context.
+Provides tools for agents to send messages to teammates and check responses.
+Messages go through the MessageBus queue — no sub-agent clones are spawned.
+
+Tools:
+- ``team_communicate`` — send a message to a teammate's inbox queue
+- ``check_responses`` — read your inbox for responses from teammates
+- ``reply_to_message`` — reply to a specific message
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
-from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
+
+from fast_agent.spawn.message_bus import MessageBus
 
 logger = logging.getLogger(__name__)
 
 mcp = FastMCP("team-communicate")
 
 
-def _get_workspace_context(workspace_dir: str) -> str:
-    """Build context string from workspace files."""
-    workspace = Path(workspace_dir)
-    if not workspace.exists():
-        return ""
+def _get_bus() -> MessageBus | None:
+    """Get MessageBus from TEAM_WORKSPACE env var.
 
-    context_parts = [f"## Shared Workspace: {workspace}"]
+    TEAM_WORKSPACE is injected into fastagent.config.yaml's env section
+    by get_server_env() during child config generation.
+    """
+    from pathlib import Path
 
-    for subdir in ["specs", "src", "tests", "reviews", "docs"]:
-        dir_path = workspace / subdir
-        if dir_path.exists():
-            files = list(dir_path.rglob("*"))
-            file_list = [str(f.relative_to(workspace)) for f in files if f.is_file()]
-            if file_list:
-                context_parts.append(f"\n### {subdir}/\n" + "\n".join(f"- {f}" for f in file_list))
+    workspace = os.environ.get("TEAM_WORKSPACE", "")
+    if not workspace:
+        return None
+    # Workspace is like: .runtime/data/workspaces/agile-team_xxx
+    # We need:           .runtime/state/messages
+    # Walk up until we find .runtime root
+    cur = Path(workspace)
+    while cur != cur.parent:
+        if cur.name == ".runtime":
+            state_dir = cur / "state" / "messages"
+            state_dir.mkdir(parents=True, exist_ok=True)
+            return MessageBus(messages_dir=str(state_dir))
+        cur = cur.parent
+    return None
 
-    changelog = workspace / "changelog.md"
-    if changelog.exists():
-        content = changelog.read_text()
-        if content:
-            context_parts.append(f"\n### Team Changelog\n{content[:2000]}")
 
-    return "\n".join(context_parts)
+def _get_my_name() -> str:
+    """Get current agent's name."""
+    return os.environ.get("TEAM_MY_NAME", os.environ.get("TEAM_MY_ROLE", "agent"))
+
+
+def _get_team_config() -> dict[str, Any]:
+    """Load team roles config from env."""
+    try:
+        return json.loads(os.environ.get("TEAM_ROLES_CONFIG", "{}"))
+    except json.JSONDecodeError:
+        return {}
+
+
+def _resolve_agent_name(to: str) -> str | None:
+    """Resolve target agent name — supports both name and role key lookup."""
+    team_config = _get_team_config()
+
+    # Direct match by agent_name
+    for _role_key, cfg in team_config.items():
+        if isinstance(cfg, dict) and cfg.get("agent_name") == to:
+            return to
+
+    # Fallback: match by role key → return agent_name
+    if to in team_config:
+        cfg = team_config[to]
+        if isinstance(cfg, dict):
+            return cfg.get("agent_name", to)
+
+    return None
+
+
+def _auto_wake_if_idle(agent_name: str) -> None:
+    """Auto-wake an idle agent by triggering inbox resume.
+
+    When a message is sent to an agent that has status=idle,
+    this triggers the auto-resume mechanism to wake them up.
+    """
+    try:
+        from fast_agent.spawn.spawn_registry import SpawnRegistry
+        from pathlib import Path
+
+        workspace = os.environ.get("TEAM_WORKSPACE", "")
+        if not workspace:
+            return
+
+        # Find .runtime root → registry
+        cur = Path(workspace)
+        registry_path = None
+        while cur != cur.parent:
+            if cur.name == ".runtime":
+                registry_path = cur / "state" / "spawn_registry.json"
+                break
+            cur = cur.parent
+
+        if not registry_path or not registry_path.exists():
+            return
+
+        registry = SpawnRegistry(str(registry_path))
+        record = registry.find_by_name(agent_name)
+
+        if not record:
+            return
+
+        if record.status != "idle":
+            return
+
+        if registry.has_running_resume(agent_name):
+            logger.info("📬 %s already has a running instance — skip wake", agent_name)
+            return
+
+        # Trigger async resume
+        import asyncio
+        from fast_agent.spawn.isolated_spawner import _check_and_resume_on_inbox
+
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.ensure_future(
+                    _check_and_resume_on_inbox(
+                        run_id=record.run_id,
+                        agent_name=agent_name,
+                        registry=registry,
+                        display_manager=None,
+                        env_vars=record.original_config.get("env_vars") if record.original_config else None,
+                    )
+                )
+                logger.info("📬 Auto-waking idle agent %s", agent_name)
+        except RuntimeError:
+            pass  # No event loop — skip
+
+    except Exception as e:
+        logger.warning("Auto-wake failed for %s: %s", agent_name, e)
+
+
+def _parse_recipients(value: str) -> list[str]:
+    """Parse a recipient string into a list of names.
+
+    Accepts:
+      - Single name: "Minh - Dev"
+      - Comma-separated: "Minh - Dev, Linh - PM"
+    """
+    if not value:
+        return []
+    return [name.strip() for name in value.split(",") if name.strip()]
 
 
 @mcp.tool()
 def team_communicate(
-    to_role: str,
+    to: str,
     message: str,
+    my_name: str = "",
     message_type: str = "question",
+    cc: str = "",
 ) -> str:
-    """Communicate with another team member by spawning them.
+    """Send a message to one or more teammates' inbox queues.
 
-    This spawns a REAL agent of the target role who will read your
-    message, review relevant workspace files, and give you a
-    genuine response.
-
-    Use this when you need:
-    - Clarification on requirements (ask BA)
-    - Architecture guidance (ask SA)
-    - Code review feedback (ask QE)
-    - Task status or priority info (ask PM)
+    This is NON-BLOCKING — your message is queued and teammates
+    will process it when available. If they are idle, they will be
+    woken up automatically. Use ``check_responses`` to read replies.
 
     Args:
-        to_role: Target role (e.g. "ba", "dev", "qe", "sa", "pm").
+        to: Primary recipient(s) who should take action.
+            Single name: "Minh - Dev"
+            Multiple names (comma-separated): "Minh - Dev, Tuan - QE"
         message: Your message or question.
-        message_type: "question" | "review_request" | "feedback"
+        my_name: YOUR agent name (e.g. "Hoa - BA"). Required for proper sender tracking.
+        message_type: "question" | "task" | "review_request" | "feedback" | "response"
+        cc: Optional FYI recipient(s) — they receive the message tagged as [CC]
+            so they know it was sent directly to the 'to' recipients.
+            Comma-separated: "Linh - PM" or "Linh - PM, Hoa - BA"
     """
-    workspace_dir = os.environ.get("TEAM_WORKSPACE", "")
-    team_config_json = os.environ.get("TEAM_ROLES_CONFIG", "{}")
-    my_role = os.environ.get("TEAM_MY_ROLE", "agent")
-    project_dir = os.environ.get("SPAWN_PROJECT_DIR", os.getcwd())
+    bus = _get_bus()
+    if not bus:
+        return json.dumps({"error": "No workspace configured. Cannot send messages."})
 
-    try:
-        team_config: dict[str, Any] = json.loads(team_config_json)
-    except json.JSONDecodeError:
-        team_config = {}
+    my_name = my_name or _get_my_name()
+    to_list = _parse_recipients(to)
+    cc_list = _parse_recipients(cc)
 
-    target_config = team_config.get(to_role, {})
-    if not target_config and to_role not in team_config:
-        available = list(team_config.keys())
-        return json.dumps(
-            {"error": (f"Role '{to_role}' not found in team. Available roles: {available}")}
+    if not to_list:
+        return json.dumps({"error": "'to' must specify at least one recipient."})
+
+    sent: list[dict[str, str]] = []
+
+    # 1. Send to primary (direct) recipients
+    for recipient in to_list:
+        ctx: dict[str, Any] = {"delivery_type": "direct"}
+        if cc_list:
+            ctx["cc"] = cc_list
+
+        msg = bus.send(
+            from_name=my_name,
+            to_name=recipient,
+            content=message,
+            message_type=message_type,
+            context=ctx,
         )
+        _auto_wake_if_idle(recipient)
+        sent.append({"to": recipient, "message_id": msg.message_id, "delivery": "direct"})
 
-    task = (
-        f"You received a {message_type} from the "
-        f"{my_role} on your team:\n\n"
-        f'"{message}"\n\n'
-        f"Please respond thoughtfully based on your role "
-        f"as {to_role}. "
-        f"Review relevant workspace files if needed."
-    )
-
-    instruction = target_config.get(
-        "instruction",
-        f"You are the {to_role} on an agile team.",
-    )
-
-    workspace_context = _get_workspace_context(workspace_dir) if workspace_dir else ""
-    context = (
-        f"## Communication from {my_role}\n"
-        f"Type: {message_type}\n"
-        f"Message: {message}\n\n"
-        f"{workspace_context}"
-    )
-
-    servers = target_config.get("servers", ["filesystem"])
-    if isinstance(servers, str):
-        servers = [s.strip() for s in servers.split(",") if s.strip()]
-
-    from fast_agent.spawn.isolated_spawner import (
-        run_isolated_agent,
-    )
-
-    current_depth = int(os.environ.get("TEAM_SPAWN_DEPTH", "1"))
-
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            import concurrent.futures
-
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                result = pool.submit(
-                    lambda: asyncio.run(
-                        run_isolated_agent(
-                            task=task,
-                            project_dir=project_dir,
-                            instruction=instruction,
-                            context=context,
-                            servers=servers,
-                            timeout_seconds=120,
-                            role=to_role,
-                            lifecycle="oneshot",
-                            depth=current_depth + 1,
-                        )
-                    )
-                ).result(timeout=180)
-        else:
-            result = loop.run_until_complete(
-                run_isolated_agent(
-                    task=task,
-                    project_dir=project_dir,
-                    instruction=instruction,
-                    context=context,
-                    servers=servers,
-                    timeout_seconds=120,
-                    role=to_role,
-                    lifecycle="oneshot",
-                    depth=current_depth + 1,
-                )
-            )
-    except Exception as e:
-        logger.error("team_communicate to %s failed: %s", to_role, e)
-        return json.dumps(
-            {
-                "error": f"Failed to reach {to_role}: {e!s}",
-                "from": my_role,
-                "to": to_role,
-            }
+    # 2. Send to CC (FYI) recipients
+    for recipient in cc_list:
+        ctx = {
+            "delivery_type": "cc",
+            "direct_to": to_list,
+        }
+        msg = bus.send(
+            from_name=my_name,
+            to_name=recipient,
+            content=message,
+            message_type=message_type,
+            context=ctx,
         )
+        _auto_wake_if_idle(recipient)
+        sent.append({"to": recipient, "message_id": msg.message_id, "delivery": "cc"})
 
-    response_text = result.get("result", result.get("formatted_result", "No response"))
-
+    # Build response
+    all_recipients = [s["to"] for s in sent]
     return json.dumps(
         {
-            "status": "received",
-            "from": to_role,
-            "to": my_role,
-            "message_type": f"{message_type}_response",
-            "response": response_text,
-            "source": "agent",
+            "status": "queued",
+            "sent": sent,
+            "from": my_name,
+            "to": to_list,
+            "cc": cc_list,
+            "note": (
+                f"Message queued for {', '.join(all_recipients)}. "
+                f"Use check_responses(wait=True) to wait for replies."
+            ),
         }
     )
+
+
+@mcp.tool()
+def check_responses(
+    my_name: str,
+    from_agent: str = "",
+    wait: bool = False,
+    timeout_seconds: int = 120,
+) -> str:
+    """Check your inbox for messages from teammates.
+
+    Args:
+        my_name: YOUR agent name (e.g. "Minh - Dev"). Required to identify your inbox.
+        from_agent: Optional — filter to only show messages from this agent.
+                    Leave empty to see all messages.
+        wait: If True, poll every 3s until a message arrives or timeout.
+              If False (default), check once and return immediately.
+        timeout_seconds: Max time to wait when wait=True. Default 120s.
+    """
+    import time as _time
+
+    bus = _get_bus()
+    if not bus:
+        return json.dumps({"error": "No workspace configured."})
+
+    my_name = my_name or _get_my_name()
+
+    poll_interval = 3.0
+    start = _time.time()
+
+    while True:
+        messages = bus.read_unread(my_name)
+
+        if from_agent:
+            resolved = _resolve_agent_name(from_agent)
+            if resolved:
+                messages = [m for m in messages if m.from_name == resolved]
+            else:
+                messages = [m for m in messages if m.from_name == from_agent]
+
+        if messages:
+            result = []
+            for msg in messages:
+                entry: dict[str, Any] = {
+                    "message_id": msg.message_id,
+                    "from": msg.from_name,
+                    "type": msg.message_type,
+                    "content": msg.content,
+                    "timestamp": msg.timestamp,
+                    "reply_to": msg.reply_to,
+                }
+                # Add delivery metadata if available
+                ctx = msg.context or {}
+                delivery = ctx.get("delivery_type", "direct")
+                entry["delivery"] = delivery
+                if delivery == "cc":
+                    direct_to = ctx.get("direct_to", [])
+                    entry["direct_to"] = direct_to
+                    entry["note"] = (
+                        f"[CC] This message was sent directly to "
+                        f"{', '.join(direct_to)}. You are CC'd for awareness only."
+                    )
+                elif ctx.get("cc"):
+                    entry["cc"] = ctx["cc"]
+
+                result.append(entry)
+                # Mark message as done after reading
+                bus.mark_done(my_name, msg.message_id)
+
+            return json.dumps({
+                "status": "has_messages",
+                "count": len(result),
+                "messages": result,
+            })
+
+        # No messages found
+        if not wait or (_time.time() - start) >= timeout_seconds:
+            break
+
+        _time.sleep(poll_interval)
+
+    # No messages after waiting (or immediate check)
+    filter_note = f" from {from_agent}" if from_agent else ""
+    if wait:
+        return json.dumps({
+            "status": "waiting",
+            "message": (
+                f"No reply{filter_note} after {timeout_seconds}s. "
+                f"The agent may still be working. You can try again later."
+            ),
+        })
+
+    return json.dumps({
+        "status": "empty",
+        "message": f"No unread messages{filter_note} in your inbox.",
+    })
+
+
+@mcp.tool()
+def reply_to_message(
+    to: str,
+    message: str,
+    my_name: str = "",
+    original_message_id: str = "",
+) -> str:
+    """Reply to a message from a teammate.
+
+    Args:
+        to: Agent name to reply to.
+        message: Your reply content.
+        my_name: YOUR agent name (e.g. "Hoa - BA"). Required for proper sender tracking.
+        original_message_id: The message_id you're replying to (optional).
+    """
+    bus = _get_bus()
+    if not bus:
+        return json.dumps({"error": "No workspace configured."})
+
+    my_name = my_name or _get_my_name()
+    resolved = to
+
+    msg = bus.send(
+        from_name=my_name,
+        to_name=resolved,
+        content=message,
+        message_type="response",
+        reply_to=original_message_id,
+    )
+
+    # Mark the original message as done in our inbox
+    if original_message_id:
+        bus.mark_done(my_name, original_message_id)
+
+    # Auto-wake if receiver is idle
+    _auto_wake_if_idle(resolved)
+
+    return json.dumps({
+        "status": "sent",
+        "message_id": msg.message_id,
+        "from": my_name,
+        "to": resolved,
+        "reply_to": original_message_id,
+    })
 
 
 if __name__ == "__main__":

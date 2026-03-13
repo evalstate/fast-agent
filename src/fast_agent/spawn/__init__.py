@@ -4,12 +4,10 @@ Core capabilities:
 
 - **Single agent spawn**: isolated subprocess with full FastAgent instance
 - **Background spawn**: fire-and-forget with status polling
-- **Team spawn**: template-driven multi-agent orchestration with DAG deps
-- **Review loops**: iterative review with escalation policies
+- **Team spawn**: template-driven multi-agent orchestration
 - **Meetings**: multi-agent concurrent discussion with turn management
 - **Registry**: file-based tracking of all spawned agent lifecycles
-- **Signals**: cross-process completion notification
-- **Message bus**: file-based inter-agent communication
+- **Message bus**: file-based inter-agent communication with CC support
 """
 
 from __future__ import annotations

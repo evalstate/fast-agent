@@ -94,10 +94,16 @@ class SpawnPanel:
     role: str
     task: str
     lifecycle: str = "oneshot"
+    agent_name: str = ""
     status: str = "starting"
     model: str = ""
     servers: list[str] = field(default_factory=list)
     mcp_status: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def display_name(self) -> str:
+        """Human-readable name for display."""
+        return self.agent_name or self.role
     tool_calls: list[dict[str, object]] = field(default_factory=list)
     current_tool: str = ""
     start_time: float = field(default_factory=time.time)
@@ -157,7 +163,7 @@ class SpawnDisplayManager:
     Usage::
 
         mgr = SpawnDisplayManager()
-        mgr.add_spawn(run_id, role, task, lifecycle)
+        mgr.add_spawn(run_id, agent_name, task, lifecycle)
         mgr.handle_event(event)   # from child stderr
         mgr.remove_spawn(run_id)
     """
@@ -196,19 +202,20 @@ class SpawnDisplayManager:
     def add_spawn(
         self,
         run_id: str,
-        role: str,
+        agent_name: str,
         task: str,
         lifecycle: str = "oneshot",
     ) -> None:
         """Register a new spawn for display."""
         self._panels[run_id] = SpawnPanel(
             run_id=run_id,
-            role=role,
+            role=agent_name,
             task=task[:80],
             lifecycle=lifecycle,
+            agent_name=agent_name,
         )
         short_id = run_id[:8]
-        self._write(f"  🔀 ── {role} [{short_id}] ({lifecycle}) ──────────────────")
+        self._write(f"  🔀 ── {agent_name} [{short_id}] ({lifecycle}) ──────────────────")
         self._write(f"  📋 Task: {task[:80]}")
         self._write("  🚀 Starting...")
 
@@ -262,7 +269,7 @@ class SpawnDisplayManager:
                 }
             )
             args_str = f" ({args_preview[:60]})" if args_preview else ""
-            self._write(f"  🔧 {tool_name}{args_str}")
+            self._write(f"  🔧 [{panel.display_name}] {tool_name}{args_str}")
 
         elif event.event == "tool_result":
             tool_name = data.get("tool_name", "")
@@ -275,7 +282,7 @@ class SpawnDisplayManager:
                     tc["duration_ms"] = duration_ms
                     break
             icon = "✓" if status == "ok" else "✗"
-            self._write(f"     {icon} {tool_name} ({duration_ms:.0f}ms)")
+            self._write(f"     {icon} [{panel.display_name}] {tool_name} ({duration_ms:.0f}ms)")
 
         elif event.event == "result":
             panel.status = "completed"
@@ -284,7 +291,7 @@ class SpawnDisplayManager:
             dur = f"{panel.duration:.1f}s"
             n_tools = len(panel.tool_calls)
             self._write(f"  ✅ Completed ({dur}, {n_tools} tool calls)")
-            self._write(f"  ── {panel.role} [{short_id}] done ──────────────────\n")
+            self._write(f"  ── {panel.display_name} [{short_id}] done ──────────────────\n")
 
         elif event.event == "error":
             panel.status = "error"
@@ -292,7 +299,7 @@ class SpawnDisplayManager:
             panel.error_message = data.get("message", "unknown error")
             dur = f"{panel.duration:.1f}s"
             self._write(f"  ❌ Error ({dur}): {panel.error_message[:100]}")
-            self._write(f"  ── {panel.role} [{short_id}] failed ────────────────\n")
+            self._write(f"  ── {panel.display_name} [{short_id}] failed ────────────────\n")
 
     # ─── Team Management ───
 

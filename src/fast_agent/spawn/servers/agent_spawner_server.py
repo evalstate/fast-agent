@@ -46,12 +46,13 @@ from fast_agent.spawn.card_generator import (
 )
 from fast_agent.spawn.config_reader import get_available_servers
 from fast_agent.spawn.isolated_spawner import (
+    _check_and_resume_on_inbox,
     cancel_spawn,
     run_isolated_agent,
     run_isolated_agent_background,
 )
 from fast_agent.spawn.message_bus import MessageBus
-from fast_agent.spawn.signal_store import SignalStore
+
 from fast_agent.spawn.spawn_display import get_display_manager
 from fast_agent.spawn.spawn_registry import SpawnRegistry
 from fast_agent.spawn.team_spawner import (
@@ -88,7 +89,7 @@ _registry = SpawnRegistry(
     registry_file=str(_PROJECT_DIR / ".runtime" / "state" / "spawn_registry.json"),
 )
 _bus = MessageBus(messages_dir=str(_PROJECT_DIR / ".runtime" / "state" / "messages"))
-_signals = SignalStore(signals_dir=str(_PROJECT_DIR / ".runtime" / "state" / "signals"))
+
 _display = get_display_manager()
 
 
@@ -261,7 +262,7 @@ def check_spawn_status(run_id: str) -> str:
     Args:
         run_id: The run_id from spawn_and_run_background.
     """
-    record = _registry.get(run_id)
+    record = _registry.get_latest(run_id)
     if not record:
         return json.dumps({"error": f"No spawn found with run_id '{run_id}'"})
 
@@ -455,9 +456,12 @@ async def resume_spawn(run_id: str, follow_up_task: str) -> str:
         model=cfg.get("model", ""),
         timeout_seconds=cfg.get("timeout_seconds", 600),
         role=cfg.get("role", record.role),
+        agent_name=cfg.get("agent_name", record.agent_name),
+        workspace_dir=cfg.get("workspace_dir") or None,
         lifecycle="resumable",
         registry=_registry,
         display_manager=_display,
+        env_vars=cfg.get("env_vars") or None,
     )
 
     _registry._load()
@@ -485,70 +489,112 @@ async def resume_spawn(run_id: str, follow_up_task: str) -> str:
 
 @mcp.tool()
 def send_message_to_agent(
-    from_role: str,
-    to_role: str,
+    to: str,
     message: str,
     message_type: str = "task",
     priority: str = "normal",
 ) -> str:
-    """Send a message to another agent's inbox.
+    """Send a message to another agent's inbox by name.
+
+    If the target agent is idle, it will be automatically woken up
+    to process the message.
 
     Args:
-        from_role: Sender agent role.
-        to_role: Target agent role.
+        to: Target agent name (e.g. "Minh - Dev").
         message: Message content.
         message_type: "task" | "question" | "response" | "notification"
         priority: "low" | "normal" | "high" | "urgent"
     """
+    my_name = os.environ.get("TEAM_MY_NAME", os.environ.get("TEAM_MY_ROLE", "orchestrator"))
     msg = _bus.send(
-        from_role=from_role,
-        to_role=to_role,
+        from_name=my_name,
+        to_name=to,
         content=message,
         message_type=message_type,
         priority=priority,
     )
+
+    # Auto-wake idle agent
+    record = _registry.find_by_name(to)
+    if (
+        record
+        and record.status == "idle"
+        and not _registry.has_running_resume(to)
+    ):
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.ensure_future(
+                    _check_and_resume_on_inbox(
+                        run_id=record.run_id,
+                        agent_name=to,
+                        registry=_registry,
+                        display_manager=_display,
+                        env_vars=record.original_config.get("env_vars") if record.original_config else None,
+                    )
+                )
+        except RuntimeError:
+            pass  # No event loop — skip auto-wake
+
     return json.dumps(
         {
             "status": "sent",
             "message_id": msg.message_id,
-            "from": from_role,
-            "to": to_role,
+            "from": my_name,
+            "to": to,
         }
     )
 
 
 @mcp.tool()
-def read_agent_inbox(role: str) -> str:
+def read_agent_inbox(agent_name: str) -> str:
     """Read all messages in an agent's inbox.
 
     Args:
-        role: Agent role whose inbox to read.
+        agent_name: Agent name whose inbox to read.
     """
-    return _bus.read_inbox_formatted(role)
+    return _bus.read_inbox_formatted(agent_name)
 
 
 @mcp.tool()
-def wait_for_agent(target_role: str, timeout_seconds: int = 300) -> str:
-    """Wait (block) until a target agent completes.
+def wait_for_agent(agent_name: str, timeout_seconds: int = 300) -> str:
+    """Wait (block) until a named agent completes.
+
+    Polls the spawn registry by agent_name — unique lookup, no ambiguity.
 
     Args:
-        target_role: Role of the agent to wait for.
+        agent_name: Name of the agent to wait for (e.g. "Minh - Dev").
         timeout_seconds: Max wait time (default 300s).
     """
-    signal = _signals.wait_for_role(role=target_role, timeout_seconds=timeout_seconds)
-    if signal:
-        return json.dumps(
-            {
-                "status": signal.status,
-                "role": signal.role,
-                "result_summary": signal.result_summary,
-                "output_files": signal.output_files,
-            }
-        )
+    import time as _time
+
+    poll_interval = 2.0
+    start = _time.time()
+
+    while _time.time() - start < timeout_seconds:
+        record = _registry.find_by_name(agent_name)
+        if (
+            record
+            and record.status in ("completed", "error", "timeout", "cancelled")
+            and not _registry.has_running_resume(agent_name)
+        ):
+            return json.dumps(
+                {
+                    "status": record.status,
+                    "agent_name": record.agent_name,
+                    "role": record.role,
+                    "run_id": record.run_id,
+                    "result_summary": record.result[:500] if record.result else "",
+                    "error": record.error or "",
+                }
+            )
+        _time.sleep(poll_interval)
+
     return json.dumps(
         {
             "status": "timeout",
-            "message": (f"Agent '{target_role}' did not complete within {timeout_seconds}s"),
+            "message": f"Agent '{agent_name}' did not complete within {timeout_seconds}s",
         }
     )
 
@@ -740,7 +786,7 @@ async def spawn_team_tool(
                 f"'{session.session_id}') for team overview."
             )
         else:
-            ws_summary = get_workspace_summary(str(session.workspace))
+            ws_summary = get_workspace_summary(session.workspace)
             result["workspace_contents"] = ws_summary.get("directories", {})
             result["message"] = (
                 "Team completed. Use resume_spawn(run_id, "
@@ -808,7 +854,7 @@ def get_team_result(session_id: str) -> str:
             "result": info.get("result", "")[:3000],
         }
 
-    ws_summary = get_workspace_summary(str(session.workspace))
+    ws_summary = get_workspace_summary(session.workspace)
 
     return json.dumps(
         {

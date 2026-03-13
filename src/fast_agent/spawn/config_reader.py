@@ -79,13 +79,20 @@ def get_server_commands(
 _WORKSPACE_SERVERS = {"meeting_room", "team_communicate"}
 
 
-def get_server_env(server_name: str, workspace_dir: str | None = None) -> dict[str, str] | None:
+def get_server_env(
+    server_name: str,
+    workspace_dir: str | None = None,
+    agent_name: str | None = None,
+) -> dict[str, str] | None:
     """Get extra environment variables needed by a specific MCP server.
 
     Returns dict of env vars, or None if no extra env is needed.
     """
     if server_name in _WORKSPACE_SERVERS and workspace_dir:
-        return {"TEAM_WORKSPACE": workspace_dir}
+        env: dict[str, str] = {"TEAM_WORKSPACE": workspace_dir}
+        if agent_name:
+            env["TEAM_MY_NAME"] = agent_name
+        return env
     return None
 
 

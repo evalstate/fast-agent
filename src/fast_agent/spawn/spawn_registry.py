@@ -52,6 +52,7 @@ class SpawnRecord:
     """Record of a spawned agent."""
 
     run_id: str = ""
+    agent_name: str = ""
     role: str = ""
     task: str = ""
     status: str = SpawnStatus.RUNNING.value
@@ -131,6 +132,43 @@ class SpawnRegistry:
             return SpawnRecord.from_dict(data)
         return None
 
+    def get_latest(self, run_id: str) -> SpawnRecord | None:
+        """Follow the resume/restart chain and return the most current record.
+
+        Given a root run_id, follows metadata.latest_resume_run_id and
+        metadata.latest_restart_run_id links to find the final (leaf)
+        record in the chain.
+        """
+        self._load()
+        visited: set[str] = set()
+        current_id = run_id
+
+        while current_id and current_id not in visited:
+            visited.add(current_id)
+            data = self._data.get(current_id)
+            if not data:
+                break
+            meta = data.get("metadata", {})
+            next_id = meta.get("latest_resume_run_id") or meta.get("latest_restart_run_id")
+            if next_id and next_id in self._data:
+                current_id = next_id
+            else:
+                break
+
+        data = self._data.get(current_id)
+        return SpawnRecord.from_dict(data) if data else None
+
+    def has_running_resume(self, agent_name: str) -> bool:
+        """Check if this agent already has a running instance (guard double-resume)."""
+        self._load()
+        for d in self._data.values():
+            if (
+                d.get("agent_name") == agent_name
+                and d.get("status") in ("running", "pending")
+            ):
+                return True
+        return False
+
     def update_status(
         self,
         run_id: str,
@@ -155,6 +193,19 @@ class SpawnRegistry:
     def find_by_role(self, role: str) -> list[SpawnRecord]:
         self._load()
         return [SpawnRecord.from_dict(d) for d in self._data.values() if d.get("role") == role]
+
+    def find_by_name(self, agent_name: str) -> SpawnRecord | None:
+        """Find the latest agent record by agent_name (unique identity)."""
+        self._load()
+        matches = [
+            SpawnRecord.from_dict(d)
+            for d in self._data.values()
+            if d.get("agent_name") == agent_name
+        ]
+        if not matches:
+            return None
+        # Return the most recent one
+        return max(matches, key=lambda r: r.started_at)
 
     def find_by_session_id(self, session_id: str) -> SpawnRecord | None:
         self._load()
@@ -201,6 +252,7 @@ class SpawnRegistry:
         return [
             {
                 "run_id": d["run_id"],
+                "agent_name": d.get("agent_name", ""),
                 "role": d.get("role", ""),
                 "status": d.get("status", ""),
                 "lifecycle": d.get("lifecycle", ""),

@@ -1,7 +1,7 @@
 """Central path constants for all spawn runtime artifacts.
 
 All runtime-generated files live under .runtime/ with semantic subdirectories:
-  - state/  — persistent across sessions (signals, messages, runs, registry)
+  - state/  — persistent across sessions (messages, runs, registry)
   - cache/  — ephemeral, safe to delete (tmp, logs)
   - data/   — user-facing output (agent_cards, workspaces)
 
@@ -28,7 +28,7 @@ def get_runtime_paths(project_dir: str | Path) -> dict[str, Path]:
 
     # state/ — persistent across sessions
     state = runtime / "state"
-    signals = state / "signals"
+
     messages = state / "messages"
     runs = state / "runs"
     registry_file = state / "spawn_registry.json"
@@ -46,7 +46,6 @@ def get_runtime_paths(project_dir: str | Path) -> dict[str, Path]:
     return {
         "runtime": runtime,
         "state": state,
-        "signals": signals,
         "messages": messages,
         "runs": runs,
         "registry_file": registry_file,
@@ -64,7 +63,6 @@ def ensure_runtime_dirs(project_dir: str | Path) -> None:
     """Create all runtime directories if they don't exist."""
     paths = get_runtime_paths(project_dir)
     for key in (
-        "signals",
         "messages",
         "runs",
         "tmp",

@@ -38,6 +38,34 @@ _background_tasks: dict[str, asyncio.Task[None]] = {}
 _background_processes: dict[str, asyncio.subprocess.Process] = {}
 
 
+def _find_latest_history(workspace_dir: str) -> str | None:
+    """Find the latest history_child.json from FastAgent sessions.
+
+    FastAgent saves conversation history at:
+      {workspace}/.fast-agent/sessions/{session_id}/history_child.json
+
+    Returns the path to the most recent history file, or None.
+    """
+    sessions_dir = Path(workspace_dir) / ".fast-agent" / "sessions"
+    if not sessions_dir.is_dir():
+        return None
+
+    best_file: Path | None = None
+    best_mtime: float = 0.0
+
+    for session_dir in sessions_dir.iterdir():
+        if not session_dir.is_dir():
+            continue
+        history_file = session_dir / "history_child.json"
+        if history_file.exists():
+            mtime = history_file.stat().st_mtime
+            if mtime > best_mtime:
+                best_mtime = mtime
+                best_file = history_file
+
+    return str(best_file) if best_file else None
+
+
 def _build_handoff_config(
     run_id: str,
     task: str,
@@ -52,6 +80,7 @@ def _build_handoff_config(
     workspace_dir: str | None = None,
     role: str = "agent",
     skills: list[str] | None = None,
+    history_file: str | None = None,
 ) -> dict[str, Any]:
     """Build Layer 1 handoff config for the child agent."""
     servers = servers or []
@@ -65,7 +94,7 @@ def _build_handoff_config(
     result_file = str(paths["runs"] / f"run_{run_id}_result.json")
     ws_dir = workspace_dir or str(Path(project_dir).resolve())
 
-    return {
+    cfg: dict[str, Any] = {
         "run_id": run_id,
         "parent_run_id": run_id,
         "task": task,
@@ -81,6 +110,9 @@ def _build_handoff_config(
         "result_file": result_file,
         "role": role,
     }
+    if history_file:
+        cfg["history_file"] = history_file
+    return cfg
 
 
 def _format_tool_result(result: dict[str, Any]) -> str:
@@ -263,12 +295,14 @@ async def run_isolated_agent(
     max_depth: int = DEFAULT_MAX_DEPTH,
     workspace_dir: str | None = None,
     role: str = "",
+    agent_name: str = "",
     lifecycle: str = "oneshot",
     registry: Any | None = None,
     display_manager: Any | None = None,
     run_id: str = "",
     env_vars: dict[str, str] | None = None,
     skills: list[str] | None = None,
+    history_file: str | None = None,
 ) -> dict[str, Any]:
     """Spawn and run an isolated FastAgent child process (BLOCKING).
 
@@ -311,6 +345,7 @@ async def run_isolated_agent(
         workspace_dir=workspace_dir,
         role=role or "agent",
         skills=skills,
+        history_file=history_file,
     )
 
     config_file = str(paths["runs"] / f"run_{run_id}.json")
@@ -348,7 +383,7 @@ async def run_isolated_agent(
         registry.register(record)
 
     if display_manager:
-        display_manager.add_spawn(run_id, role or "agent", task[:80], lifecycle)
+        display_manager.add_spawn(run_id, agent_name or role or "agent", task[:80], lifecycle)
 
     try:
         with open(config_file, "w") as f:
@@ -386,9 +421,14 @@ async def run_isolated_agent(
                 SpawnStatus,
             )
 
-            status_enum = (
-                SpawnStatus.COMPLETED if result["status"] == "completed" else SpawnStatus.ERROR
-            )
+            if result["status"] != "completed":
+                status_enum = SpawnStatus.ERROR
+            elif lifecycle == Lifecycle.RESUMABLE.value:
+                # Team agents go idle (not completed) — still reachable
+                status_enum = SpawnStatus.IDLE
+            else:
+                status_enum = SpawnStatus.COMPLETED
+
             registry.update_status(
                 run_id,
                 status_enum,
@@ -417,6 +457,169 @@ async def run_isolated_agent(
                 pass
 
 
+async def _check_and_resume_on_inbox(
+    run_id: str,
+    agent_name: str,
+    registry: Any | None = None,
+    display_manager: Any | None = None,
+    env_vars: dict[str, str] | None = None,
+) -> None:
+    """Check inbox for unread messages and auto-resume agent if any.
+
+    Called after an agent completes its task. If the agent has unread
+    messages in its MessageBus inbox, it is automatically resumed with
+    those messages as the follow-up task — preserving full conversation
+    context.
+    """
+    if not agent_name or not registry:
+        return
+
+    # Guard: skip if agent already has a running instance
+    if registry.has_running_resume(agent_name):
+        logger.info(
+            "📬 %s already has a running instance — skipping auto-resume",
+            agent_name,
+        )
+        return
+
+    # Determine messages dir from env or registry
+    workspace_dir = ""
+    if env_vars:
+        workspace_dir = env_vars.get("TEAM_WORKSPACE", "")
+
+    if not workspace_dir:
+        record = registry.get(run_id)
+        if record and record.original_config:
+            ctx = record.original_config.get("context", "")
+            # Try to extract workspace path from context
+            for line in ctx.split("\n"):
+                if "Shared Workspace" in line or "workspaces/" in line:
+                    import re
+                    match = re.search(r"(/\S+workspaces/\S+)", line)
+                    if match:
+                        workspace_dir = match.group(1)
+                        break
+
+    if not workspace_dir:
+        return
+
+    from pathlib import Path
+    # Walk up to find .runtime root
+    cur = Path(workspace_dir)
+    messages_dir = None
+    while cur != cur.parent:
+        if cur.name == ".runtime":
+            messages_dir = cur / "state" / "messages"
+            break
+        cur = cur.parent
+    if not messages_dir or not messages_dir.exists():
+        return
+
+    from fast_agent.spawn.message_bus import MessageBus
+    bus = MessageBus(messages_dir=str(messages_dir))
+    unread = bus.read_unread(agent_name)
+
+    if not unread:
+        return
+
+    logger.info(
+        "📬 %s has %d unread message(s) — auto-resuming",
+        agent_name, len(unread),
+    )
+
+    # Format inbox messages as follow-up task
+    inbox_lines = [f"## New Messages ({len(unread)} unread)\n"]
+    for msg in unread:
+        inbox_lines.append(
+            f"### From {msg.from_name} [{msg.message_type}] (id: {msg.message_id})\n"
+            f"{msg.content}\n"
+        )
+    inbox_lines.append(
+        "\n## Instructions\n"
+        "You have new messages. Follow these steps:\n"
+        "1. Read ALL messages above to understand the overall situation\n"
+        "2. Prioritize: bugs > tasks > questions > responses\n"
+        "3. For each message: take action if needed, then reply using "
+        "`reply_to_message(to=sender, message=your_response, original_message_id=id)`\n"
+        "4. When all messages are handled, finish your work"
+    )
+    follow_up = "\n".join(inbox_lines)
+
+    # Mark all as done (agent will process them in the resumed session)
+    bus.mark_all_done(agent_name)
+
+    # Resume the agent
+    record = registry.get(run_id)
+    if not record or not record.original_config:
+        return
+
+    cfg = record.original_config
+    prev_result = record.result or ""
+
+    # Find previous session history for native FastAgent resume
+    workspace_dir = cfg.get("workspace_dir", "")
+    history_file = _find_latest_history(workspace_dir) if workspace_dir else None
+
+    if history_file:
+        # History file found — agent will get full conversation via
+        # load_history_into_agent(). Resume task is just the new messages.
+        enriched_context = follow_up
+        logger.info(
+            "📂 Found previous history for %s: %s", agent_name, history_file,
+        )
+    else:
+        # No history file — fall back to text-based context
+        enriched_parts: list[str] = []
+        original_task = cfg.get("task", "")
+        if original_task:
+            enriched_parts.append(f"## Your Original Task\n{original_task}")
+        original_context = cfg.get("context", "")
+        if original_context:
+            enriched_parts.append(f"## Project Context\n{original_context}")
+        if prev_result:
+            enriched_parts.append(f"## Your Previous Work Summary\n{prev_result}")
+        enriched_parts.append(follow_up)
+        enriched_context = "\n\n".join(enriched_parts)
+        logger.info(
+            "⚠️ No history file for %s — using text-based context", agent_name,
+        )
+
+    project_dir = "."
+    if env_vars and env_vars.get("SPAWN_PROJECT_DIR"):
+        project_dir = env_vars["SPAWN_PROJECT_DIR"]
+
+    new_run_id = await run_isolated_agent_background(
+        task=follow_up,
+        project_dir=project_dir,
+        instruction=cfg.get("instruction", ""),
+        context=enriched_context,
+        servers=cfg.get("servers", []),
+        model=cfg.get("model", ""),
+        timeout_seconds=cfg.get("timeout_seconds", 600),
+        role=cfg.get("role", ""),
+        agent_name=agent_name,
+        lifecycle="resumable",
+        registry=registry,
+        display_manager=display_manager,
+        env_vars=env_vars,
+        history_file=history_file,
+    )
+
+    # Track the resume chain
+    registry._load()
+    if run_id in registry._data:
+        restart_count = registry._data[run_id].get("restart_count", 0)
+        registry._data[run_id]["restart_count"] = restart_count + 1
+        registry._data[run_id].setdefault("metadata", {})["latest_resume_run_id"] = new_run_id
+        registry._data[run_id].setdefault("metadata", {})["resume_reason"] = "inbox_messages"
+        registry._save()
+
+    logger.info(
+        "📬 %s auto-resumed as %s to process %d message(s)",
+        agent_name, new_run_id, len(unread),
+    )
+
+
 async def run_isolated_agent_background(
     task: str,
     project_dir: str | Path,
@@ -429,11 +632,13 @@ async def run_isolated_agent_background(
     max_depth: int = DEFAULT_MAX_DEPTH,
     workspace_dir: str | None = None,
     role: str = "",
+    agent_name: str = "",
     lifecycle: str = "oneshot",
     registry: Any | None = None,
     display_manager: Any | None = None,
     env_vars: dict[str, str] | None = None,
     skills: list[str] | None = None,
+    history_file: str | None = None,
 ) -> str:
     """Spawn an isolated agent in the BACKGROUND (fire-and-forget).
 
@@ -460,9 +665,13 @@ async def run_isolated_agent_background(
                 "model": model,
                 "timeout_seconds": timeout_seconds,
                 "role": role or "agent",
+                "agent_name": agent_name or role or "agent",
+                "workspace_dir": workspace_dir or "",
+                "env_vars": env_vars or {},
             }
         record = SpawnRecord(
             run_id=run_id,
+            agent_name=agent_name or role or "agent",
             role=role or "agent",
             task=task[:200],
             lifecycle=lifecycle,
@@ -485,27 +694,45 @@ async def run_isolated_agent_background(
                 max_depth=max_depth,
                 workspace_dir=workspace_dir,
                 role=role,
+                agent_name=agent_name,
                 lifecycle=lifecycle,
                 registry=None,
                 display_manager=display_manager,
                 run_id=run_id,
                 env_vars=env_vars,
                 skills=skills,
+                history_file=history_file,
             )
             if registry:
-                from fast_agent.spawn.spawn_registry import SpawnStatus
-
-                status_enum = (
-                    SpawnStatus.COMPLETED
-                    if result.get("status") == "completed"
-                    else SpawnStatus.ERROR
+                from fast_agent.spawn.spawn_registry import (
+                    Lifecycle,
+                    SpawnStatus,
                 )
+
+                if result.get("status") != "completed":
+                    status_enum = SpawnStatus.ERROR
+                elif lifecycle == Lifecycle.RESUMABLE.value:
+                    # Team agents go idle (not completed) — still reachable
+                    status_enum = SpawnStatus.IDLE
+                else:
+                    status_enum = SpawnStatus.COMPLETED
+
                 registry.update_status(
                     run_id,
                     status_enum,
                     result=result.get("result", ""),
                     error=result.get("error", ""),
                 )
+
+            # ── Auto-resume on inbox messages ──
+            await _check_and_resume_on_inbox(
+                run_id=run_id,
+                agent_name=agent_name,
+                registry=registry,
+                display_manager=display_manager,
+                env_vars=env_vars,
+            )
+
         except asyncio.CancelledError:
             if registry:
                 from fast_agent.spawn.spawn_registry import SpawnStatus
