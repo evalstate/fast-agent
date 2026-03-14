@@ -25,10 +25,15 @@ def _load_config(project_dir: str | Path) -> dict[str, Any]:
 
 
 def get_available_servers(project_dir: str | Path) -> list[str]:
-    """Get list of all available MCP server names from config."""
+    """Get list of all available MCP server names from config.
+
+    Reads from ``mcp.servers`` dict in fastagent.config.yaml.
+    """
     config = _load_config(project_dir)
-    targets = config.get("mcp", {}).get("targets", [])
-    return [t["name"] for t in targets if "name" in t]
+    servers = config.get("mcp", {}).get("servers", {})
+    if isinstance(servers, dict):
+        return list(servers.keys())
+    return []
 
 
 def get_server_commands(
@@ -44,22 +49,52 @@ def get_server_commands(
             root). Defaults to ``project_dir``.
     """
     config = _load_config(project_dir)
-    targets = config.get("mcp", {}).get("targets", [])
+    servers = config.get("mcp", {}).get("servers", {})
     workspace = workspace_dir or str(project_dir)
     project = str(Path(project_dir).resolve())
 
+    # Detect if this is a team workspace (inside .runtime/data/workspaces/)
+    is_team_workspace = workspace_dir and "/workspaces/" in workspace_dir
+
     commands: dict[str, str] = {}
-    for t in targets:
-        name = t.get("name", "")
-        target = t.get("target", "")
-        if not (name and target):
+    if not isinstance(servers, dict):
+        return commands
+
+    for name, srv_config in servers.items():
+        if not isinstance(srv_config, dict):
             continue
 
-        resolved = target
+        # Build command string from command + args
+        cmd = srv_config.get("command", "")
+        args = srv_config.get("args", [])
+        if cmd and args:
+            resolved = f"{cmd} {' '.join(str(a) for a in args)}"
+        elif cmd:
+            resolved = cmd
+        elif srv_config.get("url"):
+            # SSE/URL-based servers — store the URL
+            commands[name] = srv_config["url"]
+            continue
+        else:
+            continue
 
-        # Replace relative path "." with workspace dir
-        if " ." in resolved and " .." not in resolved:
-            resolved = resolved.replace(" .", f" {workspace}")
+        # For team workspaces, filesystem server should serve just the
+        # workspace root — not project-specific subdirs like ./data
+        if is_team_workspace and name == "filesystem":
+            # Extract base command (everything before the path arguments)
+            # e.g. "npx -y @modelcontextprotocol/server-filesystem ./data ./ws"
+            #   -> "npx -y @modelcontextprotocol/server-filesystem {workspace}"
+            parts = resolved.split()
+            base_parts = []
+            for p in parts:
+                if p.startswith(".") or p.startswith("/"):
+                    break  # Stop at first path argument
+                base_parts.append(p)
+            resolved = " ".join(base_parts) + f" {workspace}"
+        else:
+            # Replace relative path "." with workspace dir
+            if " ." in resolved and " .." not in resolved:
+                resolved = resolved.replace(" .", f" {workspace}")
 
         # Replace relative "servers/" paths with absolute PROJECT paths
         if " servers/" in resolved:

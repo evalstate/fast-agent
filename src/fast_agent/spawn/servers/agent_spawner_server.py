@@ -625,13 +625,22 @@ def spawn_agent(
     """
     try:
         server_list = [s.strip() for s in servers.split(",") if s.strip()] if servers else []
+        # Resolve agent_cards dir from runtime paths
+        agent_cards_dir = get_runtime_paths(str(_PROJECT_DIR))["agent_cards"]
+        agent_cards_dir.mkdir(parents=True, exist_ok=True)
+
+        # Also try the legacy .fast-agent/agent_cards location
+        legacy_cards = _PROJECT_DIR / ".fast-agent" / "agent_cards"
+        if legacy_cards.exists():
+            agent_cards_dir = legacy_cards
+
         card_path = generate_agent_card(
             name=name,
             instruction=instruction,
+            agent_cards_dir=str(agent_cards_dir),
             servers=server_list,
             model=model if model else None,
             extra_instruction=extra_instruction,
-            project_dir=str(_PROJECT_DIR),
         )
 
         reload_signal = Path(get_runtime_paths(str(_PROJECT_DIR))["reload_signal"])
