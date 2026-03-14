@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shlex
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable
 
@@ -20,6 +19,7 @@ from fast_agent.commands.handlers import sessions as sessions_handlers
 from fast_agent.commands.handlers import skills as skills_handlers
 from fast_agent.commands.handlers import tools as tools_handlers
 from fast_agent.commands.handlers.shared import clear_agent_histories
+from fast_agent.commands.mcp_command_intents import build_mcp_connect_runtime_target
 from fast_agent.ui import enhanced_prompt
 from fast_agent.ui.command_payloads import (
     AgentCommand,
@@ -349,32 +349,13 @@ async def dispatch_command_payload(
         case McpConnectCommand(
             target_text=target_text,
             server_name=server_name,
-            auth_token=auth_token,
-            timeout_seconds=timeout_seconds,
-            trigger_oauth=trigger_oauth,
-            reconnect_on_disconnect=reconnect_on_disconnect,
-            force_reconnect=force_reconnect,
             error=error,
         ):
             context = build_command_context(prompt_provider, agent)
             if error:
                 rich_print(f"[red]{error}[/red]")
                 return result
-            runtime_target = target_text
-            if server_name:
-                runtime_target += f" --name {server_name}"
-            if auth_token:
-                runtime_target += f" --auth {shlex.quote(auth_token)}"
-            if timeout_seconds is not None:
-                runtime_target += f" --timeout {timeout_seconds}"
-            if trigger_oauth is True:
-                runtime_target += " --oauth"
-            elif trigger_oauth is False:
-                runtime_target += " --no-oauth"
-            if reconnect_on_disconnect is False:
-                runtime_target += " --no-reconnect"
-            if force_reconnect:
-                runtime_target += " --reconnect"
+            runtime_target = build_mcp_connect_runtime_target(payload)
 
             outcome = await handle_mcp_connect(
                 context=context,

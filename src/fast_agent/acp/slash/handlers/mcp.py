@@ -16,6 +16,11 @@ from acp.schema import (
 )
 
 from fast_agent.commands.handlers import mcp_runtime as mcp_runtime_handlers
+from fast_agent.commands.mcp_command_intents import (
+    build_mcp_connect_runtime_target,
+    parse_mcp_connect_tokens,
+    parse_mcp_session_tokens,
+)
 
 if TYPE_CHECKING:
     from fast_agent.acp.command_io import ACPCommandIO
@@ -58,11 +63,374 @@ async def _refresh_acp_instruction_cache(handler: "SlashCommandHandler") -> None
     await handler._acp_context.send_available_commands_update()
 
 
+async def _send_connect_tool_update(
+    handler: "SlashCommandHandler",
+    *,
+    tool_call_id: str,
+    title: str,
+    status: str,
+    message: str | None = None,
+) -> None:
+    if handler._acp_context is None:
+        return
+    try:
+        content: (
+            list[
+                ContentToolCallContent
+                | FileEditToolCallContent
+                | TerminalToolCallContent
+            ]
+            | None
+        ) = [tool_content(text_block(message))] if message else None
+        await handler._acp_context.send_session_update(
+            ToolCallProgress(
+                tool_call_id=tool_call_id,
+                title=title,
+                status=status,  # type: ignore[arg-type]
+                content=content,
+                session_update="tool_call_update",
+            )
+        )
+    except Exception:
+        return
+
+
+def _connect_tool_call_title(parsed_connect) -> str:
+    connect_label = "MCP server"
+    if parsed_connect.server_name:
+        connect_label = f"MCP server '{parsed_connect.server_name}'"
+    elif parsed_connect.target_text:
+        first_target_token = parsed_connect.target_text.split()[0]
+        connect_label = f"MCP target '{first_target_token}'"
+    return f"Connect {connect_label}"
+
+
+def _rewrite_connect_progress_message(
+    handler: "SlashCommandHandler",
+    *,
+    message: str,
+    oauth_authorization_url: str | None,
+) -> tuple[str, str | None]:
+    if message.startswith("Open this link to authorize:"):
+        oauth_authorization_url = message.split(":", 1)[1].strip() or None
+
+    if (
+        oauth_authorization_url
+        and (
+            "Waiting for OAuth callback" in message
+            or "Waiting for pasted OAuth callback URL" in message
+        )
+        and "OAuth authorization link:" not in message
+    ):
+        message = f"{message}\nOAuth authorization link: {oauth_authorization_url}"
+
+    if handler._acp_context is not None and "Waiting for OAuth callback" in message:
+        if "Stop/Cancel" not in message:
+            message = f"{message}\nTo cancel, use your ACP client's Stop/Cancel action."
+        if "fast-agent auth login" not in message:
+            message = (
+                f"{message}\n"
+                "If the browser cannot reach the callback host, run "
+                "`fast-agent auth login <server-name-or-mcp-name>` on the "
+                "fast-agent host, then retry `/mcp connect ...`."
+            )
+
+    return message, oauth_authorization_url
+
+
+async def _start_connect_tool_call(
+    handler: "SlashCommandHandler",
+    *,
+    tool_call_id: str,
+    tool_call_title: str,
+    runtime_target: str,
+) -> None:
+    if handler._acp_context is None:
+        return
+    try:
+        await handler._acp_context.send_session_update(
+            ToolCallStart(
+                tool_call_id=tool_call_id,
+                title=f"{tool_call_title} (open for details)",
+                kind="fetch",
+                status="in_progress",
+                session_update="tool_call",
+            )
+        )
+        await _send_connect_tool_update(
+            handler,
+            tool_call_id=tool_call_id,
+            title=tool_call_title,
+            status="in_progress",
+            message=(
+                f"{runtime_target}\n"
+                "Open this tool call to view OAuth links and live connection status."
+            ),
+        )
+    except Exception:
+        return
+
+
+def _summarize_connect_outcome(outcome) -> tuple[bool, str | None, str | None]:
+    has_error = any(msg.channel == "error" for msg in outcome.messages)
+    if has_error:
+        first_error = next((msg for msg in outcome.messages if msg.channel == "error"), None)
+        failure_details = str(first_error.text) if first_error is not None else None
+        return True, failure_details, None
+
+    success_message = next(
+        (
+            str(msg.text)
+            for msg in outcome.messages
+            if (
+                "Connected MCP server" in str(msg.text)
+                or "Reconnected MCP server" in str(msg.text)
+                or "already attached" in str(msg.text).lower()
+            )
+        ),
+        "MCP connection complete.",
+    )
+    oauth_link_message = next(
+        (
+            str(msg.text)
+            for msg in outcome.messages
+            if str(msg.text).startswith("OAuth authorization link:")
+        ),
+        None,
+    )
+    completion_details = (
+        f"{success_message}\n{oauth_link_message}" if oauth_link_message else success_message
+    )
+    return False, None, completion_details
+
+
+def _strip_oauth_link_messages(outcome, *, oauth_authorization_url: str | None) -> None:
+    if oauth_authorization_url is None:
+        return
+    outcome.messages = [
+        message
+        for message in outcome.messages
+        if not str(message.text).startswith("OAuth authorization link:")
+    ]
+
+
+async def _emit_connect_completion_progress(
+    handler: "SlashCommandHandler",
+    *,
+    has_error: bool,
+    failure_details: str | None,
+    completion_details: str | None,
+) -> None:
+    if has_error:
+        if failure_details:
+            await handler._send_progress_update(f"❌ {failure_details}")
+        return
+    if completion_details:
+        await handler._send_progress_update(f"✅ {completion_details}")
+
+
+async def _handle_mcp_list_command(
+    handler: "SlashCommandHandler",
+    *,
+    heading: str,
+    ctx,
+    io: "ACPCommandIO",
+    manager,
+    tokens: list[str] | None = None,
+) -> str:
+    del tokens
+    if handler._list_attached_mcp_servers_callback is None:
+        return "mcp\n\nRuntime MCP server listing is not available."
+    outcome = await mcp_runtime_handlers.handle_mcp_list(
+        ctx,
+        manager=manager,
+        agent_name=handler.current_agent_name,
+    )
+    return handler._format_outcome_as_markdown(outcome, heading, io=io)
+
+
+async def _handle_mcp_connect_command(
+    handler: "SlashCommandHandler",
+    *,
+    heading: str,
+    ctx,
+    io: "ACPCommandIO",
+    manager,
+    tokens: list[str],
+) -> str:
+    if handler._attach_mcp_server_callback is None:
+        return "mcp\n\nRuntime MCP server attachment is not available."
+    parsed_connect = parse_mcp_connect_tokens(tokens[1:])
+    if parsed_connect.error:
+        return f"{heading}\n\n{parsed_connect.error}"
+
+    runtime_target = build_mcp_connect_runtime_target(parsed_connect)
+    tool_call_id = handler._build_tool_call_id()
+    oauth_authorization_url: str | None = None
+    tool_call_title = _connect_tool_call_title(parsed_connect)
+
+    async def _send_connect_progress(message: str) -> None:
+        nonlocal oauth_authorization_url
+
+        message, oauth_authorization_url = _rewrite_connect_progress_message(
+            handler,
+            message=message,
+            oauth_authorization_url=oauth_authorization_url,
+        )
+
+        if handler._acp_context is None:
+            await handler._send_progress_update(message)
+            return
+        await _send_connect_tool_update(
+            handler,
+            tool_call_id=tool_call_id,
+            title=tool_call_title,
+            status="in_progress",
+            message=message,
+        )
+
+    await _start_connect_tool_call(
+        handler,
+        tool_call_id=tool_call_id,
+        tool_call_title=tool_call_title,
+        runtime_target=runtime_target,
+    )
+
+    try:
+        outcome = await mcp_runtime_handlers.handle_mcp_connect(
+            ctx,
+            manager=manager,
+            agent_name=handler.current_agent_name,
+            target_text=runtime_target,
+            on_progress=_send_connect_progress,
+        )
+    except asyncio.CancelledError:
+        await _send_connect_tool_update(
+            handler,
+            tool_call_id=tool_call_id,
+            title="Connection cancelled",
+            status="failed",
+            message="Connection cancelled by client.",
+        )
+        raise
+
+    if handler._acp_context is not None:
+        _strip_oauth_link_messages(
+            outcome,
+            oauth_authorization_url=oauth_authorization_url,
+        )
+
+    has_error, failure_details, completion_details = _summarize_connect_outcome(outcome)
+    await _send_connect_tool_update(
+        handler,
+        tool_call_id=tool_call_id,
+        title=tool_call_title,
+        status="failed" if has_error else "completed",
+        message=failure_details if has_error else completion_details,
+    )
+
+    await _emit_connect_completion_progress(
+        handler,
+        has_error=has_error,
+        failure_details=failure_details,
+        completion_details=completion_details,
+    )
+
+    if handler._acp_context:
+        agent = handler._get_current_agent()
+        await handler._acp_context.invalidate_instruction_cache(
+            handler.current_agent_name,
+            getattr(agent, "instruction", None) if agent else None,
+        )
+        await handler._acp_context.send_available_commands_update()
+    return handler._format_outcome_as_markdown(outcome, heading, io=io)
+
+
+async def _handle_mcp_session_command(
+    handler: "SlashCommandHandler",
+    *,
+    heading: str,
+    ctx,
+    io: "ACPCommandIO",
+    tokens: list[str],
+    manager=None,
+) -> str:
+    del manager
+    parsed_session = parse_mcp_session_tokens(tokens[1:])
+    if parsed_session.error:
+        return f"{heading}\n\n{parsed_session.error}"
+
+    outcome = await mcp_runtime_handlers.handle_mcp_session(
+        ctx,
+        agent_name=handler.current_agent_name,
+        action=parsed_session.action,
+        server_identity=parsed_session.server_identity,
+        session_id=parsed_session.session_id,
+        title=parsed_session.title,
+        clear_all=parsed_session.clear_all,
+    )
+    return handler._format_outcome_as_markdown(outcome, heading, io=io)
+
+
+async def _handle_mcp_disconnect_command(
+    handler: "SlashCommandHandler",
+    *,
+    heading: str,
+    ctx,
+    io: "ACPCommandIO",
+    manager,
+    tokens: list[str],
+) -> str:
+    if handler._detach_mcp_server_callback is None:
+        return "mcp\n\nRuntime MCP server detachment is not available."
+    usage_error = _parse_mcp_server_name_argument(
+        tokens,
+        heading=heading,
+        subcommand="disconnect",
+    )
+    if usage_error:
+        return usage_error
+    outcome = await mcp_runtime_handlers.handle_mcp_disconnect(
+        ctx,
+        manager=manager,
+        agent_name=handler.current_agent_name,
+        server_name=tokens[1],
+    )
+    await _refresh_acp_instruction_cache(handler)
+    return handler._format_outcome_as_markdown(outcome, heading, io=io)
+
+
+async def _handle_mcp_reconnect_command(
+    handler: "SlashCommandHandler",
+    *,
+    heading: str,
+    ctx,
+    io: "ACPCommandIO",
+    manager,
+    tokens: list[str],
+) -> str:
+    if handler._attach_mcp_server_callback is None:
+        return "mcp\n\nRuntime MCP server attachment is not available."
+    usage_error = _parse_mcp_server_name_argument(
+        tokens,
+        heading=heading,
+        subcommand="reconnect",
+    )
+    if usage_error:
+        return usage_error
+    outcome = await mcp_runtime_handlers.handle_mcp_reconnect(
+        ctx,
+        manager=manager,
+        agent_name=handler.current_agent_name,
+        server_name=tokens[1],
+    )
+    await _refresh_acp_instruction_cache(handler)
+    return handler._format_outcome_as_markdown(outcome, heading, io=io)
+
+
 async def handle_mcp(handler: "SlashCommandHandler", arguments: str | None = None) -> str:
     heading = "mcp"
-    args = (arguments or "").strip()
-    if not args:
-        args = "list"
+    args = (arguments or "").strip() or "list"
 
     try:
         tokens = shlex.split(args)
@@ -80,323 +448,22 @@ async def handle_mcp(handler: "SlashCommandHandler", arguments: str | None = Non
     io = cast("ACPCommandIO", ctx.io)
     manager = cast("mcp_runtime_handlers.McpRuntimeManager", handler.instance.app)
 
-    if subcmd == "list":
-        if handler._list_attached_mcp_servers_callback is None:
-            return "mcp\n\nRuntime MCP server listing is not available."
-        outcome = await mcp_runtime_handlers.handle_mcp_list(
-            ctx,
-            manager=manager,
-            agent_name=handler.current_agent_name,
-        )
-        return handler._format_outcome_as_markdown(outcome, heading, io=io)
+    command_handlers = {
+        "list": _handle_mcp_list_command,
+        "connect": _handle_mcp_connect_command,
+        "session": _handle_mcp_session_command,
+        "disconnect": _handle_mcp_disconnect_command,
+        "reconnect": _handle_mcp_reconnect_command,
+    }
+    handler_func = command_handlers.get(subcmd)
+    if handler_func is None:
+        return _mcp_usage_text(heading)
 
-    if subcmd == "connect":
-        if handler._attach_mcp_server_callback is None:
-            return "mcp\n\nRuntime MCP server attachment is not available."
-        if len(tokens) < 2:
-            return (
-                f"{heading}\n\n"
-                "Usage: /mcp connect <target> [--name <server>] [--auth <token-value>] [--timeout <seconds>] "
-                "[--oauth|--no-oauth] [--reconnect|--no-reconnect]"
-            )
-        target_text = " ".join(tokens[1:])
-        tool_call_id = handler._build_tool_call_id()
-        oauth_authorization_url: str | None = None
-
-        connect_label = "MCP server"
-        try:
-            parsed_connect = mcp_runtime_handlers.parse_connect_input(target_text)
-            if parsed_connect.server_name:
-                connect_label = f"MCP server '{parsed_connect.server_name}'"
-            elif parsed_connect.target_text:
-                first_target_token = parsed_connect.target_text.split()[0]
-                connect_label = f"MCP target '{first_target_token}'"
-        except Exception:
-            pass
-        tool_call_title = f"Connect {connect_label}"
-
-        async def _send_connect_tool_update(*, title: str, status: str, message: str | None = None) -> None:
-            if handler._acp_context is None:
-                return
-            try:
-                content: (
-                    list[
-                        ContentToolCallContent
-                        | FileEditToolCallContent
-                        | TerminalToolCallContent
-                    ]
-                    | None
-                ) = [tool_content(text_block(message))] if message else None
-                await handler._acp_context.send_session_update(
-                    ToolCallProgress(
-                        tool_call_id=tool_call_id,
-                        title=title,
-                        status=status,  # type: ignore[arg-type]
-                        content=content,
-                        session_update="tool_call_update",
-                    )
-                )
-            except Exception:
-                return
-
-        async def _send_connect_progress(message: str) -> None:
-            nonlocal oauth_authorization_url
-
-            if message.startswith("Open this link to authorize:"):
-                oauth_authorization_url = message.split(":", 1)[1].strip() or None
-
-            if (
-                oauth_authorization_url
-                and (
-                    "Waiting for OAuth callback" in message
-                    or "Waiting for pasted OAuth callback URL" in message
-                )
-                and "OAuth authorization link:" not in message
-            ):
-                message = f"{message}\nOAuth authorization link: {oauth_authorization_url}"
-
-            if handler._acp_context is not None and "Waiting for OAuth callback" in message:
-                if "Stop/Cancel" not in message:
-                    message = f"{message}\nTo cancel, use your ACP client's Stop/Cancel action."
-                if "fast-agent auth login" not in message:
-                    message = (
-                        f"{message}\n"
-                        "If the browser cannot reach the callback host, run "
-                        "`fast-agent auth login <server-name-or-mcp-name>` on the "
-                        "fast-agent host, then retry `/mcp connect ...`."
-                    )
-
-            if handler._acp_context is None:
-                await handler._send_progress_update(message)
-                return
-            await _send_connect_tool_update(
-                title=tool_call_title,
-                status="in_progress",
-                message=message,
-            )
-
-        if handler._acp_context is not None:
-            try:
-                await handler._acp_context.send_session_update(
-                    ToolCallStart(
-                        tool_call_id=tool_call_id,
-                        title=f"{tool_call_title} (open for details)",
-                        kind="fetch",
-                        status="in_progress",
-                        session_update="tool_call",
-                    )
-                )
-                await _send_connect_tool_update(
-                    title=tool_call_title,
-                    status="in_progress",
-                    message=(
-                        f"{target_text}\n"
-                        "Open this tool call to view OAuth links and live connection status."
-                    ),
-                )
-            except Exception:
-                pass
-
-        try:
-            outcome = await mcp_runtime_handlers.handle_mcp_connect(
-                ctx,
-                manager=manager,
-                agent_name=handler.current_agent_name,
-                target_text=target_text,
-                on_progress=_send_connect_progress,
-            )
-        except asyncio.CancelledError:
-            await _send_connect_tool_update(
-                title="Connection cancelled",
-                status="failed",
-                message="Connection cancelled by client.",
-            )
-            raise
-
-        if handler._acp_context is not None and oauth_authorization_url:
-            outcome.messages = [
-                message
-                for message in outcome.messages
-                if not str(message.text).startswith("OAuth authorization link:")
-            ]
-
-        has_error = any(msg.channel == "error" for msg in outcome.messages)
-        failure_details = None
-        completion_details = None
-        if has_error:
-            first_error = next((msg for msg in outcome.messages if msg.channel == "error"), None)
-            if first_error is not None:
-                failure_details = str(first_error.text)
-        else:
-            success_message = next(
-                (
-                    str(msg.text)
-                    for msg in outcome.messages
-                    if (
-                        "Connected MCP server" in str(msg.text)
-                        or "Reconnected MCP server" in str(msg.text)
-                        or "already attached" in str(msg.text).lower()
-                    )
-                ),
-                "MCP connection complete.",
-            )
-            oauth_link_message = next(
-                (
-                    str(msg.text)
-                    for msg in outcome.messages
-                    if str(msg.text).startswith("OAuth authorization link:")
-                ),
-                None,
-            )
-            completion_details = (
-                f"{success_message}\n{oauth_link_message}" if oauth_link_message else success_message
-            )
-        await _send_connect_tool_update(
-            title=tool_call_title,
-            status="failed" if has_error else "completed",
-            message=failure_details if has_error else completion_details,
-        )
-
-        if has_error:
-            if failure_details:
-                await handler._send_progress_update(f"❌ {failure_details}")
-        elif completion_details:
-            await handler._send_progress_update(f"✅ {completion_details}")
-
-        if handler._acp_context:
-            agent = handler._get_current_agent()
-            await handler._acp_context.invalidate_instruction_cache(
-                handler.current_agent_name,
-                getattr(agent, "instruction", None) if agent else None,
-            )
-            await handler._acp_context.send_available_commands_update()
-        return handler._format_outcome_as_markdown(outcome, heading, io=io)
-
-    if subcmd == "session":
-        session_tokens = tokens[1:]
-        action = "list"
-        server_identity: str | None = None
-        session_id: str | None = None
-        title: str | None = None
-        clear_all = False
-
-        if session_tokens:
-            action = session_tokens[0].lower()
-            args = session_tokens[1:]
-
-            if action == "list":
-                if len(args) > 1:
-                    return f"{heading}\n\nUsage: /mcp session list [<server_or_mcp_name>]"
-                server_identity = args[0] if args else None
-            elif action == "jar":
-                if len(args) > 1:
-                    return f"{heading}\n\nUsage: /mcp session jar [<server_or_mcp_name>]"
-                server_identity = args[0] if args else None
-            elif action in {"new", "create"}:
-                idx = 0
-                while idx < len(args):
-                    token = args[idx]
-                    if token == "--title":
-                        idx += 1
-                        if idx >= len(args):
-                            return f"{heading}\n\nMissing value for --title"
-                        title = args[idx]
-                    elif token.startswith("--title="):
-                        title = token.split("=", 1)[1] or None
-                        if title is None:
-                            return f"{heading}\n\nMissing value for --title"
-                    elif token.startswith("--"):
-                        return f"{heading}\n\nUnknown flag: {token}"
-                    elif server_identity is None:
-                        server_identity = token
-                    else:
-                        return f"{heading}\n\nUnexpected argument: {token}"
-                    idx += 1
-                action = "new"
-            elif action in {"resume", "use"}:
-                if len(args) != 2:
-                    return (
-                        f"{heading}\n\n"
-                        "Usage: /mcp session use <server_or_mcp_name> <session_id>"
-                    )
-                server_identity, session_id = args
-                action = "use"
-            elif action == "clear":
-                for token in args:
-                    if token == "--all":
-                        clear_all = True
-                        continue
-                    if token.startswith("--"):
-                        return f"{heading}\n\nUnknown flag: {token}"
-                    if server_identity is None:
-                        server_identity = token
-                    else:
-                        return f"{heading}\n\nUnexpected argument: {token}"
-
-                if clear_all and server_identity is not None:
-                    return f"{heading}\n\nUse either --all or a specific server, not both"
-
-                if not clear_all and server_identity is None:
-                    clear_all = True
-            else:
-                if args:
-                    return (
-                        f"{heading}\n\n"
-                        "Usage: /mcp session [list [server]|jar [server]|new [server] [--title <title>]"
-                        "|use <server> <session_id>|clear [server|--all]]"
-                    )
-                server_identity = action
-                action = "list"
-
-        session_action = cast("mcp_runtime_handlers.McpSessionAction", action)
-
-        outcome = await mcp_runtime_handlers.handle_mcp_session(
-            ctx,
-            agent_name=handler.current_agent_name,
-            action=session_action,
-            server_identity=server_identity,
-            session_id=session_id,
-            title=title,
-            clear_all=clear_all,
-        )
-        return handler._format_outcome_as_markdown(outcome, heading, io=io)
-
-    if subcmd == "disconnect":
-        if handler._detach_mcp_server_callback is None:
-            return "mcp\n\nRuntime MCP server detachment is not available."
-        usage_error = _parse_mcp_server_name_argument(
-            tokens,
-            heading=heading,
-            subcommand="disconnect",
-        )
-        if usage_error:
-            return usage_error
-        outcome = await mcp_runtime_handlers.handle_mcp_disconnect(
-            ctx,
-            manager=manager,
-            agent_name=handler.current_agent_name,
-            server_name=tokens[1],
-        )
-        await _refresh_acp_instruction_cache(handler)
-        return handler._format_outcome_as_markdown(outcome, heading, io=io)
-
-    if subcmd == "reconnect":
-        if handler._attach_mcp_server_callback is None:
-            return "mcp\n\nRuntime MCP server attachment is not available."
-        usage_error = _parse_mcp_server_name_argument(
-            tokens,
-            heading=heading,
-            subcommand="reconnect",
-        )
-        if usage_error:
-            return usage_error
-        outcome = await mcp_runtime_handlers.handle_mcp_reconnect(
-            ctx,
-            manager=manager,
-            agent_name=handler.current_agent_name,
-            server_name=tokens[1],
-        )
-        await _refresh_acp_instruction_cache(handler)
-        return handler._format_outcome_as_markdown(outcome, heading, io=io)
-
-    return _mcp_usage_text(heading)
+    return await handler_func(
+        handler,
+        heading=heading,
+        ctx=ctx,
+        io=io,
+        manager=manager,
+        tokens=tokens,
+    )

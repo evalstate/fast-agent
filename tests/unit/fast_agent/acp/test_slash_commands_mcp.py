@@ -89,6 +89,7 @@ class _Agent:
 class _App:
     def __init__(self) -> None:
         self._attached = ["local"]
+        self.attached_configs: list[object | None] = []
 
     def _agent(self, _name: str):
         return _Agent()
@@ -107,7 +108,7 @@ class _App:
         return ["docs"]
 
     async def attach_mcp_server(self, _agent_name, server_name, server_config=None, options=None):
-        del server_config
+        self.attached_configs.append(server_config)
         if options and options.oauth_event_handler is not None:
             await options.oauth_event_handler(
                 OAuthEvent(
@@ -240,6 +241,36 @@ async def test_slash_command_mcp_connect_sends_acp_progress_updates() -> None:
         for update in acp_context.updates
     )
     assert any("Connected MCP server 'demo'" in str(update) for update in acp_context.updates)
+
+
+@pytest.mark.asyncio
+async def test_slash_command_mcp_connect_preserves_quoted_target_arguments() -> None:
+    app = _App()
+    instance = AgentInstance(
+        app=cast("AgentApp", app),
+        agents={"main": cast("AgentProtocol", _Agent())},
+        registry_version=0,
+    )
+    handler = SlashCommandHandler(
+        session_id="s1",
+        instance=instance,
+        primary_agent_name="main",
+        attach_mcp_server_callback=app.attach_mcp_server,
+        detach_mcp_server_callback=app.detach_mcp_server,
+        list_attached_mcp_servers_callback=app.list_attached_mcp_servers,
+        list_configured_detached_mcp_servers_callback=app.list_configured_detached_mcp_servers,
+    )
+
+    connected = await handler.execute_command(
+        "mcp",
+        'connect demo-server --root "My Folder" --name docs',
+    )
+
+    assert "Connected MCP server 'docs'" in connected
+    assert app.attached_configs
+    server_config = app.attached_configs[-1]
+    assert getattr(server_config, "command", None) == "demo-server"
+    assert getattr(server_config, "args", None) == ["--root", "My Folder"]
 
 
 @pytest.mark.asyncio

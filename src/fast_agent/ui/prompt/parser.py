@@ -12,7 +12,10 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-from fast_agent.commands.handlers import mcp_runtime as mcp_runtime_handlers
+from fast_agent.commands.mcp_command_intents import (
+    parse_mcp_connect_tokens,
+    parse_mcp_session_tokens,
+)
 from fast_agent.ui.command_payloads import (
     AgentCommand,
     CardsCommand,
@@ -37,7 +40,6 @@ from fast_agent.ui.command_payloads import (
     McpDisconnectCommand,
     McpListCommand,
     McpReconnectCommand,
-    McpSessionCommand,
     ModelFastCommand,
     ModelReasoningCommand,
     ModelsCommand,
@@ -434,209 +436,6 @@ def _validate_agent_command(command: AgentCommand) -> AgentCommand:
     return command
 
 
-def _parse_mcp_session_command(session_tokens: list[str]) -> McpSessionCommand:
-    if not session_tokens:
-        return McpSessionCommand(
-            action="list",
-            server_identity=None,
-            session_id=None,
-            title=None,
-            clear_all=False,
-            error=None,
-        )
-
-    action = session_tokens[0].lower()
-    args = session_tokens[1:]
-
-    if action in {"list", "jar"}:
-        return _parse_mcp_session_single_optional_arg(
-            action=action,
-            args=args,
-            usage=f"Usage: /mcp session {action} [<server_or_mcp_name>]",
-        )
-    if action in {"new", "create"}:
-        return _parse_mcp_session_new(args)
-    if action in {"resume", "use"}:
-        return _parse_mcp_session_use(args)
-    if action == "clear":
-        return _parse_mcp_session_clear(args)
-
-    return McpSessionCommand(
-        action="list",
-        server_identity=action,
-        session_id=None,
-        title=None,
-        clear_all=False,
-        error=(
-            None
-            if not args
-            else "Usage: /mcp session [list [server]|jar [server]|new [server] [--title <title>]|use <server> <session_id>|clear [server|--all]]"
-        ),
-    )
-
-
-def _parse_mcp_session_single_optional_arg(
-    *,
-    action: str,
-    args: list[str],
-    usage: str,
-) -> McpSessionCommand:
-    if len(args) > 1:
-        return McpSessionCommand(
-            action=action,  # ty: ignore[invalid-argument-type]
-            server_identity=None,
-            session_id=None,
-            title=None,
-            clear_all=False,
-            error=usage,
-        )
-    return McpSessionCommand(
-        action=action,  # ty: ignore[invalid-argument-type]
-        server_identity=args[0] if args else None,
-        session_id=None,
-        title=None,
-        clear_all=False,
-        error=None,
-    )
-
-
-def _parse_mcp_session_new(args: list[str]) -> McpSessionCommand:
-    server_identity: str | None = None
-    title: str | None = None
-    parse_error: str | None = None
-    idx = 0
-    while idx < len(args):
-        token = args[idx]
-        if token == "--title":
-            idx += 1
-            if idx >= len(args):
-                parse_error = "Missing value for --title"
-                break
-            title = args[idx]
-        elif token.startswith("--title="):
-            title = token.split("=", 1)[1] or None
-            if title is None:
-                parse_error = "Missing value for --title"
-                break
-        elif token.startswith("--"):
-            parse_error = f"Unknown flag: {token}"
-            break
-        elif server_identity is None:
-            server_identity = token
-        else:
-            parse_error = f"Unexpected argument: {token}"
-            break
-        idx += 1
-
-    return McpSessionCommand(
-        action="new",
-        server_identity=server_identity,
-        session_id=None,
-        title=title,
-        clear_all=False,
-        error=parse_error,
-    )
-
-
-def _parse_mcp_session_use(args: list[str]) -> McpSessionCommand:
-    if len(args) != 2:
-        return McpSessionCommand(
-            action="use",
-            server_identity=None,
-            session_id=None,
-            title=None,
-            clear_all=False,
-            error="Usage: /mcp session use <server_or_mcp_name> <session_id>",
-        )
-    return McpSessionCommand(
-        action="use",
-        server_identity=args[0],
-        session_id=args[1],
-        title=None,
-        clear_all=False,
-        error=None,
-    )
-
-
-def _parse_mcp_session_clear(args: list[str]) -> McpSessionCommand:
-    clear_all = False
-    server_identity: str | None = None
-    parse_error: str | None = None
-    for token in args:
-        if token == "--all":
-            clear_all = True
-            continue
-        if token.startswith("--"):
-            parse_error = f"Unknown flag: {token}"
-            break
-        if server_identity is None:
-            server_identity = token
-        else:
-            parse_error = f"Unexpected argument: {token}"
-            break
-
-    if parse_error is None and clear_all and server_identity is not None:
-        parse_error = "Use either --all or a specific server, not both"
-
-    if parse_error is None and not clear_all and server_identity is None:
-        clear_all = True
-
-    return McpSessionCommand(
-        action="clear",
-        server_identity=server_identity,
-        session_id=None,
-        title=None,
-        clear_all=clear_all,
-        error=parse_error,
-    )
-
-
-def _parse_mcp_connect_command(tokens: list[str]) -> McpConnectCommand:
-    if len(tokens) < 2:
-        return McpConnectCommand(
-            target_text="",
-            parsed_mode="stdio",
-            server_name=None,
-            auth_token=None,
-            timeout_seconds=None,
-            trigger_oauth=None,
-            reconnect_on_disconnect=None,
-            force_reconnect=False,
-            error=(
-                "Usage: /mcp connect <target> [--name <server>] [--auth <token-value>] [--timeout <seconds>] "
-                "[--oauth|--no-oauth] [--reconnect|--no-reconnect]"
-            ),
-        )
-
-    connect_text = _rebuild_mcp_target_text(tokens[1:]).strip()
-    try:
-        parsed = mcp_runtime_handlers.parse_connect_input(connect_text)
-    except ValueError as exc:
-        return McpConnectCommand(
-            target_text="",
-            parsed_mode="stdio",
-            server_name=None,
-            auth_token=None,
-            timeout_seconds=None,
-            trigger_oauth=None,
-            reconnect_on_disconnect=None,
-            force_reconnect=False,
-            error=str(exc),
-        )
-
-    return McpConnectCommand(
-        target_text=parsed.target_text,
-        parsed_mode=_infer_mcp_connect_mode(parsed.target_text),
-        server_name=parsed.server_name,
-        auth_token=parsed.auth_token,
-        timeout_seconds=parsed.timeout_seconds,
-        trigger_oauth=parsed.trigger_oauth,
-        reconnect_on_disconnect=parsed.reconnect_on_disconnect,
-        force_reconnect=parsed.force_reconnect,
-        error=None,
-    )
-
-
 def _parse_mcp_command(remainder: str) -> CommandPayload:
     if not remainder:
         return ShowMcpStatusCommand()
@@ -672,9 +471,9 @@ def _parse_mcp_command(remainder: str) -> CommandPayload:
         )
         return McpReconnectCommand(server_name=name, error=error)
     if subcmd == "session":
-        return _parse_mcp_session_command(tokens[1:])
+        return parse_mcp_session_tokens(tokens[1:])
     if subcmd == "connect":
-        return _parse_mcp_connect_command(tokens)
+        return parse_mcp_connect_tokens(tokens[1:])
     return UnknownCommand(command="mcp")
 
 
