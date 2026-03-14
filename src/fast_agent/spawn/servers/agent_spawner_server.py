@@ -708,7 +708,13 @@ def remove_spawned_agent(name: str) -> str:
     Args:
         name: Name of the agent to remove.
     """
-    removed = remove_agent_card(name, project_dir=str(_PROJECT_DIR))
+    # Resolve agent_cards dir (same logic as spawn_agent)
+    agent_cards_dir = get_runtime_paths(str(_PROJECT_DIR))["agent_cards"]
+    legacy_cards = _PROJECT_DIR / ".fast-agent" / "agent_cards"
+    if legacy_cards.exists():
+        agent_cards_dir = legacy_cards
+
+    removed = remove_agent_card(name, agent_cards_dir=str(agent_cards_dir))
     if removed:
         return json.dumps(
             {
