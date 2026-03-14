@@ -240,3 +240,65 @@ def test_scan_agent_cards_reports_invalid_tool_input_schema(tmp_path: Path) -> N
     results = scan_agent_card_directory(tmp_path)
     assert len(results) == 1
     assert any("tool_input_schema" in err and "type" in err for err in results[0].errors)
+
+
+def test_scan_agent_cards_reports_unsupported_fields_by_type(tmp_path: Path) -> None:
+    card_path = tmp_path / "router.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: router_agent",
+                "type: router",
+                "agents:",
+                "  - child_agent",
+                "mcp_connect:",
+                '  - target: "https://demo.hf.space"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    child_path = tmp_path / "child.yaml"
+    child_path.write_text("name: child_agent\n", encoding="utf-8")
+
+    results = scan_agent_card_directory(tmp_path)
+    assert len(results) == 2
+
+    router_result = next(result for result in results if result.name == "router_agent")
+    assert any("Unsupported fields for type 'router'" in err for err in router_result.errors)
+    assert any("mcp_connect" in err for err in router_result.errors)
+
+
+def test_scan_agent_cards_normalizes_maker_type_casing(tmp_path: Path) -> None:
+    card_path = tmp_path / "maker.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: maker_agent",
+                "type: maker",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    results = scan_agent_card_directory(tmp_path)
+    assert len(results) == 1
+    assert any("Missing required field 'worker'" in err for err in results[0].errors)
+
+
+def test_scan_agent_cards_reports_missing_maker_worker_dependency(tmp_path: Path) -> None:
+    card_path = tmp_path / "maker.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: maker_agent",
+                "type: maker",
+                "worker: missing_worker",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    results = scan_agent_card_directory(tmp_path)
+    assert len(results) == 1
+    assert any("References missing agents: missing_worker" in err for err in results[0].errors)

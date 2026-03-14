@@ -3,7 +3,8 @@ Validation utilities for FastAgent configuration and dependencies.
 """
 
 from collections.abc import Iterator, Mapping, Sequence
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Callable
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.core.agent_card_types import AgentCardData
@@ -14,6 +15,295 @@ from fast_agent.core.exceptions import (
 )
 from fast_agent.interfaces import LlmAgentProtocol
 from fast_agent.llm.fastagent_llm import FastAgentLLM
+
+_BASIC_LIKE_AGENT_TYPE_VALUES = frozenset(
+    {
+        AgentType.LLM.value,
+        AgentType.BASIC.value,
+    }
+)
+
+_PLANNER_COMPATIBLE_WORKFLOW_TYPES = frozenset(
+    {
+        AgentType.CHAIN.value,
+        AgentType.EVALUATOR_OPTIMIZER.value,
+        AgentType.ITERATIVE_PLANNER.value,
+        AgentType.MAKER.value,
+        AgentType.ORCHESTRATOR.value,
+        AgentType.PARALLEL.value,
+        AgentType.ROUTER.value,
+    }
+)
+
+
+@dataclass(frozen=True)
+class _DependencyFieldRule:
+    field_name: str
+    missing_label: str
+
+
+@dataclass(frozen=True)
+class DependencyFieldSpec:
+    field_name: str
+    multiple: bool
+
+
+CompatibilityCheck = Callable[
+    [str, Mapping[str, Any], Mapping[str, AgentCardData | dict[str, Any]]],
+    None,
+]
+
+
+@dataclass(frozen=True)
+class _WorkflowReferenceRule:
+    component_label: str
+    dependency_fields: tuple[_DependencyFieldRule, ...] = ()
+    compatibility_check: CompatibilityCheck | None = None
+    combine_missing_fields: bool = False
+
+
+_WORKFLOW_REFERENCE_RULES: dict[str, _WorkflowReferenceRule] = {
+    AgentType.PARALLEL.value: _WorkflowReferenceRule(
+        component_label="Parallel workflow",
+        dependency_fields=(
+            _DependencyFieldRule("fan_in", "fan_in component"),
+            _DependencyFieldRule("fan_out", "fan_out components"),
+        ),
+    ),
+    AgentType.ORCHESTRATOR.value: _WorkflowReferenceRule(
+        component_label="Orchestrator",
+        dependency_fields=(
+            _DependencyFieldRule("child_agents", "agents"),
+        ),
+    ),
+    AgentType.ITERATIVE_PLANNER.value: _WorkflowReferenceRule(
+        component_label="Iterative planner",
+        dependency_fields=(
+            _DependencyFieldRule("child_agents", "agents"),
+        ),
+    ),
+    AgentType.ROUTER.value: _WorkflowReferenceRule(
+        component_label="Router",
+        dependency_fields=(
+            _DependencyFieldRule("router_agents", "agents"),
+        ),
+    ),
+    AgentType.EVALUATOR_OPTIMIZER.value: _WorkflowReferenceRule(
+        component_label="Evaluator-Optimizer",
+        dependency_fields=(
+            _DependencyFieldRule("evaluator", "evaluator"),
+            _DependencyFieldRule("generator", "generator"),
+        ),
+        combine_missing_fields=True,
+    ),
+    AgentType.CHAIN.value: _WorkflowReferenceRule(
+        component_label="Chain",
+        dependency_fields=(
+            _DependencyFieldRule("sequence", "agents"),
+        ),
+    ),
+    AgentType.MAKER.value: _WorkflowReferenceRule(
+        component_label="Maker",
+        dependency_fields=(
+            _DependencyFieldRule("worker", "worker"),
+        ),
+    ),
+}
+
+_AGENT_DEPENDENCY_FIELD_SPECS: dict[str, tuple[DependencyFieldSpec, ...]] = {
+    AgentType.CHAIN.value: (DependencyFieldSpec("sequence", multiple=True),),
+    AgentType.CUSTOM.value: (DependencyFieldSpec("child_agents", multiple=True),),
+    AgentType.EVALUATOR_OPTIMIZER.value: (
+        DependencyFieldSpec("evaluator", multiple=False),
+        DependencyFieldSpec("generator", multiple=False),
+        DependencyFieldSpec("eval_optimizer_agents", multiple=True),
+    ),
+    AgentType.ITERATIVE_PLANNER.value: (DependencyFieldSpec("child_agents", multiple=True),),
+    AgentType.MAKER.value: (DependencyFieldSpec("worker", multiple=False),),
+    AgentType.ORCHESTRATOR.value: (DependencyFieldSpec("child_agents", multiple=True),),
+    AgentType.SMART.value: (DependencyFieldSpec("child_agents", multiple=True),),
+    AgentType.PARALLEL.value: (
+        DependencyFieldSpec("fan_out", multiple=True),
+        DependencyFieldSpec("fan_in", multiple=False),
+        DependencyFieldSpec("parallel_agents", multiple=True),
+    ),
+    AgentType.ROUTER.value: (DependencyFieldSpec("router_agents", multiple=True),),
+}
+
+_CARD_DEPENDENCY_FIELD_SPECS: dict[str, tuple[DependencyFieldSpec, ...]] = {
+    "agent": (DependencyFieldSpec("agents", multiple=True),),
+    "smart": (DependencyFieldSpec("agents", multiple=True),),
+    "chain": (DependencyFieldSpec("sequence", multiple=True),),
+    "parallel": (
+        DependencyFieldSpec("fan_out", multiple=True),
+        DependencyFieldSpec("fan_in", multiple=False),
+    ),
+    "router": (DependencyFieldSpec("agents", multiple=True),),
+    "orchestrator": (DependencyFieldSpec("agents", multiple=True),),
+    "iterative_planner": (DependencyFieldSpec("agents", multiple=True),),
+    "evaluator_optimizer": (
+        DependencyFieldSpec("evaluator", multiple=False),
+        DependencyFieldSpec("generator", multiple=False),
+    ),
+    "MAKER": (DependencyFieldSpec("worker", multiple=False),),
+}
+
+
+def normalize_agent_type_value(agent_type: AgentType | str | None) -> str | None:
+    if isinstance(agent_type, AgentType):
+        return agent_type.value
+    if not isinstance(agent_type, str):
+        return None
+
+    normalized = agent_type.strip().lower()
+    return normalized or None
+
+
+def is_basic_like_agent_type(agent_type: AgentType | str | None) -> bool:
+    return normalize_agent_type_value(agent_type) in _BASIC_LIKE_AGENT_TYPE_VALUES
+
+
+def get_agent_dependency_attribute_names(agent_type: AgentType | str | None) -> tuple[str, ...]:
+    return tuple(
+        field_spec.field_name
+        for field_spec in get_agent_dependency_field_specs(agent_type)
+    )
+
+
+def get_agent_dependency_field_specs(
+    agent_type: AgentType | str | None,
+) -> tuple[DependencyFieldSpec, ...]:
+    normalized = normalize_agent_type_value(agent_type)
+    if normalized is None:
+        return ()
+    if is_basic_like_agent_type(normalized):
+        return (DependencyFieldSpec("child_agents", multiple=True),)
+    return _AGENT_DEPENDENCY_FIELD_SPECS.get(normalized, ())
+
+
+def get_card_dependency_field_specs(card_type: str | None) -> tuple[DependencyFieldSpec, ...]:
+    if not isinstance(card_type, str) or not card_type:
+        return ()
+    return _CARD_DEPENDENCY_FIELD_SPECS.get(card_type, ())
+
+
+def get_custom_agent_class_reference(agent_data: Mapping[str, Any]) -> Any:
+    return agent_data.get("agent_class") or agent_data.get("cls")
+
+
+def _validate_custom_agent_reference(name: str, agent_data: Mapping[str, Any]) -> None:
+    if get_custom_agent_class_reference(agent_data) is None:
+        raise AgentConfigError(
+            f"Custom agent '{name}' missing class reference ('agent_class' or 'cls')"
+        )
+
+
+def _iter_dependency_values(
+    agent_data: Mapping[str, Any],
+    field_name: str,
+) -> list[str]:
+    dependency_value = agent_data.get(field_name)
+    if dependency_value is None:
+        return []
+    if isinstance(dependency_value, str):
+        return [dependency_value] if dependency_value else []
+    return [value for value in dependency_value if isinstance(value, str)]
+
+
+def collect_dependencies_from_fields(
+    agent_data: Mapping[str, Any],
+    dependency_fields: tuple[DependencyFieldSpec, ...],
+) -> set[str]:
+    deps: set[str] = set()
+    for field_spec in dependency_fields:
+        deps.update(_iter_dependency_values(agent_data, field_spec.field_name))
+    return deps
+
+
+def _missing_dependency_values(
+    agent_data: Mapping[str, Any],
+    field_rule: _DependencyFieldRule,
+    available_components: set[str],
+) -> list[str]:
+    return [
+        value
+        for value in _iter_dependency_values(agent_data, field_rule.field_name)
+        if value not in available_components
+    ]
+
+
+def _raise_missing_dependency_error(
+    name: str,
+    rule: _WorkflowReferenceRule,
+    missing_by_field: list[tuple[_DependencyFieldRule, list[str]]],
+) -> None:
+    non_empty = [(field_rule, values) for field_rule, values in missing_by_field if values]
+    if not non_empty:
+        return
+
+    if not rule.combine_missing_fields or len(non_empty) == 1:
+        field_rule, values = non_empty[0]
+        raise AgentConfigError(
+            f"{rule.component_label} '{name}' references non-existent {field_rule.missing_label}: "
+            f"{', '.join(values)}"
+        )
+
+    missing_parts = [
+        f"{field_rule.missing_label}: {value}"
+        for field_rule, values in non_empty
+        for value in values
+    ]
+    raise AgentConfigError(
+        f"{rule.component_label} '{name}' references non-existent components: "
+        f"{', '.join(missing_parts)}"
+    )
+
+
+def _validate_planner_children(
+    name: str,
+    agent_data: Mapping[str, Any],
+    agents: Mapping[str, AgentCardData | dict[str, Any]],
+) -> None:
+    child_agents = _iter_dependency_values(agent_data, "child_agents")
+    for agent_name in child_agents:
+        child_data = agents[agent_name]
+        child_type = normalize_agent_type_value(child_data.get("type"))
+        if is_basic_like_agent_type(child_type) or child_type in {
+            AgentType.SMART.value,
+            AgentType.CUSTOM.value,
+        }:
+            continue
+
+        func = child_data["func"]
+        if not (
+            isinstance(func, FastAgentLLM)
+            or child_type in _PLANNER_COMPATIBLE_WORKFLOW_TYPES
+            or (isinstance(func, LlmAgentProtocol) and func.llm is not None)
+        ):
+            raise AgentConfigError(
+                f"Agent '{agent_name}' used by '{name}' lacks LLM capability",
+                "All agents used by orchestrators or iterative planners must be LLM-capable "
+                "(either an AugmentedLLM or implement LlmAgentProtocol)",
+            )
+
+
+_WORKFLOW_REFERENCE_RULES = {
+    **_WORKFLOW_REFERENCE_RULES,
+    AgentType.ORCHESTRATOR.value: _WorkflowReferenceRule(
+        component_label="Orchestrator",
+        dependency_fields=(
+            _DependencyFieldRule("child_agents", "agents"),
+        ),
+        compatibility_check=_validate_planner_children,
+    ),
+    AgentType.ITERATIVE_PLANNER.value: _WorkflowReferenceRule(
+        component_label="Iterative planner",
+        dependency_fields=(
+            _DependencyFieldRule("child_agents", "agents"),
+        ),
+        compatibility_check=_validate_planner_children,
+    ),
+}
 
 
 def validate_server_references(context, agents: Mapping[str, AgentCardData | dict[str, Any]]) -> None:
@@ -54,95 +344,25 @@ def validate_workflow_references(agents: Mapping[str, AgentCardData | dict[str, 
     available_components = set(agents.keys())
 
     for name, agent_data in agents.items():
-        agent_type = agent_data["type"]  # This is a string from config
+        agent_type = normalize_agent_type_value(agent_data.get("type"))
+        if agent_type == AgentType.CUSTOM.value:
+            _validate_custom_agent_reference(name, agent_data)
 
-        # Note: Compare string values from config with the Enum's string value
-        if agent_type == AgentType.PARALLEL.value:
-            # Check fan_in exists
-            fan_in = agent_data["fan_in"]
-            if fan_in and fan_in not in available_components:
-                raise AgentConfigError(
-                    f"Parallel workflow '{name}' references non-existent fan_in component: {fan_in}"
-                )
+        rule = _WORKFLOW_REFERENCE_RULES.get(agent_type or "")
+        if rule is None:
+            continue
 
-            # Check fan_out agents exist
-            fan_out = agent_data["fan_out"]
-            missing = [a for a in fan_out if a not in available_components]
-            if missing:
-                raise AgentConfigError(
-                    f"Parallel workflow '{name}' references non-existent fan_out components: {', '.join(missing)}"
-                )
+        missing_by_field = [
+            (
+                field_rule,
+                _missing_dependency_values(agent_data, field_rule, available_components),
+            )
+            for field_rule in rule.dependency_fields
+        ]
+        _raise_missing_dependency_error(name, rule, missing_by_field)
 
-        elif agent_type == AgentType.ORCHESTRATOR.value:
-            # Check all child agents exist and are properly configured
-            child_agents = agent_data["child_agents"]
-            missing = [a for a in child_agents if a not in available_components]
-            if missing:
-                raise AgentConfigError(
-                    f"Orchestrator '{name}' references non-existent agents: {', '.join(missing)}"
-                )
-
-            # Validate child agents have required LLM configuration
-            for agent_name in child_agents:
-                child_data = agents[agent_name]
-                if child_data["type"] in {
-                    AgentType.LLM.value,
-                    AgentType.BASIC.value,
-                    AgentType.SMART.value,
-                }:
-                    # For basic agents, we'll validate LLM config during creation
-                    continue
-                # Check if it's a workflow type or has LLM capability
-                # Workflows like EvaluatorOptimizer and Parallel are valid for orchestrator
-                func = child_data["func"]
-                workflow_types = [
-                    AgentType.EVALUATOR_OPTIMIZER.value,
-                    AgentType.PARALLEL.value,
-                    AgentType.ROUTER.value,
-                    AgentType.CHAIN.value,
-                ]
-
-                if not (
-                    isinstance(func, FastAgentLLM)
-                    or child_data["type"] in workflow_types
-                    or (isinstance(func, LlmAgentProtocol) and func.llm is not None)
-                ):
-                    raise AgentConfigError(
-                        f"Agent '{agent_name}' used by orchestrator '{name}' lacks LLM capability",
-                        "All agents used by orchestrators must be LLM-capable (either an AugmentedLLM or implement LlmAgentProtocol)",
-                    )
-
-        elif agent_type == AgentType.ROUTER.value:
-            # Check all referenced agents exist
-            router_agents = agent_data["router_agents"]
-            missing = [a for a in router_agents if a not in available_components]
-            if missing:
-                raise AgentConfigError(
-                    f"Router '{name}' references non-existent agents: {', '.join(missing)}"
-                )
-
-        elif agent_type == AgentType.EVALUATOR_OPTIMIZER.value:
-            # Check both evaluator and optimizer exist
-            evaluator = agent_data["evaluator"]
-            generator = agent_data["generator"]
-            missing = []
-            if evaluator not in available_components:
-                missing.append(f"evaluator: {evaluator}")
-            if generator not in available_components:
-                missing.append(f"generator: {generator}")
-            if missing:
-                raise AgentConfigError(
-                    f"Evaluator-Optimizer '{name}' references non-existent components: {', '.join(missing)}"
-                )
-
-        elif agent_type == AgentType.CHAIN.value:
-            # Check that all agents in the sequence exist
-            sequence = agent_data.get("sequence", agent_data.get("agents", []))
-            missing = [a for a in sequence if a not in available_components]
-            if missing:
-                raise AgentConfigError(
-                    f"Chain '{name}' references non-existent agents: {', '.join(missing)}"
-                )
+        if rule.compatibility_check is not None:
+            rule.compatibility_check(name, agent_data, agents)
 
 
 def get_dependencies(
@@ -180,20 +400,21 @@ def get_dependencies(
         return []
 
     config = agents[name]
+    config_agent_type = normalize_agent_type_value(config.get("type"))
 
     # Skip if not the requested type (when filtering)
-    if agent_type and config["type"] != agent_type.value:
+    if agent_type and config_agent_type != agent_type.value:
         return []
 
     path.add(name)
     deps = []
 
     # Handle dependencies based on agent type
-    if config["type"] == AgentType.PARALLEL.value:
+    if config_agent_type == AgentType.PARALLEL.value:
         # Get dependencies from fan-out agents
         for fan_out in config["fan_out"]:
             deps.extend(get_dependencies(fan_out, agents, visited, path, agent_type))
-    elif config["type"] == AgentType.CHAIN.value:
+    elif config_agent_type == AgentType.CHAIN.value:
         # Get dependencies from sequence agents
         sequence = config.get("sequence", config.get("router_agents", []))
         for agent_name in sequence:
@@ -208,34 +429,10 @@ def get_dependencies(
 
 
 def get_agent_dependencies(agent_data: AgentCardData | dict[str, Any]) -> set[str]:
-    deps: set[str] = set()
-    agent_dependency_attribute_names: dict[str, tuple[str, ...]] = {
-        AgentType.CHAIN.value: ("sequence",),
-        AgentType.EVALUATOR_OPTIMIZER.value: ("evaluator", "generator", "eval_optimizer_agents"),
-        AgentType.ITERATIVE_PLANNER.value: ("child_agents",),
-        AgentType.ORCHESTRATOR.value: ("child_agents",),
-        AgentType.LLM.value: ("child_agents",),
-        AgentType.BASIC.value: ("child_agents",),
-        AgentType.SMART.value: ("child_agents",),
-        AgentType.PARALLEL.value: ("fan_out", "fan_in", "parallel_agents"),
-        AgentType.ROUTER.value: ("router_agents",),
-    }
-    agent_type = agent_data["type"]
-    dependency_names = agent_dependency_attribute_names.get(agent_type, None)
-    if dependency_names is None:
-        return deps
-
-    for dependency_name in dependency_names:
-        dependency_value = agent_data.get(dependency_name)
-        if dependency_value is None:
-            continue
-        if isinstance(dependency_value, str):
-            deps.add(dependency_value)
-        else:
-            # here, we have an implicit assumption that if it is not a None or a string, then it is a list
-            deps.update(dependency_value)
-
-    return deps
+    dependency_fields = get_agent_dependency_field_specs(agent_data.get("type"))
+    if not dependency_fields:
+        return set()
+    return collect_dependencies_from_fields(agent_data, dependency_fields)
 
 
 def find_dependency_cycle(

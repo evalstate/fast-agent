@@ -11,25 +11,25 @@ from typing import Any, Iterable, Mapping
 import yaml
 from frontmatter import loads as load_frontmatter
 
-from fast_agent.agents.agent_types import AgentType
+from fast_agent.core.agent_card_rules import (
+    ALLOWED_FIELDS_BY_TYPE,
+    MCP_CONNECT_ALLOWED_KEYS,
+    REQUIRED_FIELDS_BY_TYPE,
+    CardType,
+    normalize_card_type,
+)
 from fast_agent.core.exceptions import AgentConfigError, format_fast_agent_error
 from fast_agent.core.tool_input_schema import validate_tool_input_schema
-from fast_agent.core.validation import find_dependency_cycle
+from fast_agent.core.validation import (
+    collect_dependencies_from_fields,
+    find_dependency_cycle,
+    get_agent_dependencies,
+    get_card_dependency_field_specs,
+)
 from fast_agent.mcp.connect_targets import resolve_target_entry
 from fast_agent.utils.type_narrowing import is_str_object_dict
 
 CARD_EXTENSIONS = {".md", ".markdown", ".yaml", ".yml"}
-
-_CARD_REQUIRED_FIELDS = {
-    "chain": ("sequence",),
-    "parallel": ("fan_out",),
-    "evaluator_optimizer": ("generator", "evaluator"),
-    "router": ("agents",),
-    "orchestrator": ("agents",),
-    "iterative_planner": ("agents",),
-    "maker": ("worker",),
-    "smart": (),
-}
 
 _FILE_PLACEHOLDER_PATTERN = re.compile(r"\{\{file:([^}]+)\}\}")
 
@@ -200,7 +200,12 @@ def _scan_single_agent_card_file(card_path: Path) -> _ScannedCardDetails:
     if schema_version is not None and not isinstance(schema_version, int):
         errors.append("'schema_version' must be an integer")
 
-    required_fields = _CARD_REQUIRED_FIELDS.get(type_key, ())
+    unknown_fields = set(raw.keys()) - ALLOWED_FIELDS_BY_TYPE[type_key]
+    if unknown_fields:
+        unknown_text = ", ".join(sorted(unknown_fields))
+        errors.append(f"Unsupported fields for type '{type_key}': {unknown_text}")
+
+    required_fields = REQUIRED_FIELDS_BY_TYPE[type_key]
     for field in required_fields:
         if raw.get(field) is None:
             errors.append(f"Missing required field '{field}'")
@@ -496,25 +501,16 @@ def _normalize_card_name(raw_name: Any, path: Path, errors: list[str]) -> str:
     return raw_name.strip().replace(" ", "_")
 
 
-def _normalize_card_type(raw_type: Any, errors: list[str]) -> str:
+def _normalize_card_type(raw_type: Any, errors: list[str]) -> CardType:
     if raw_type is None:
         return "agent"
     if not isinstance(raw_type, str):
         errors.append("'type' must be a string")
         return "agent"
-    type_key = raw_type.strip().lower() or "agent"
-    if type_key not in {
-        "agent",
-        "smart",
-        "chain",
-        "parallel",
-        "evaluator_optimizer",
-        "router",
-        "orchestrator",
-        "iterative_planner",
-        "maker",
-    }:
+    type_key = normalize_card_type(raw_type)
+    if type_key is None:
         errors.append(f"Unsupported agent type '{raw_type}'")
+        return "agent"
     return type_key
 
 
@@ -589,7 +585,7 @@ def _validate_mcp_connect_entries(value: Any, errors: list[str]) -> None:
             errors.append(f"'mcp_connect[{idx}]' must be a mapping")
             continue
 
-        unknown_keys = set(raw_entry.keys()) - {"target", "name", "headers", "auth"}
+        unknown_keys = set(raw_entry.keys()) - MCP_CONNECT_ALLOWED_KEYS
         if unknown_keys:
             unknown_text = ", ".join(sorted(str(key) for key in unknown_keys))
             errors.append(f"'mcp_connect[{idx}]' has unsupported keys: {unknown_text}")
@@ -715,65 +711,23 @@ def _check_function_tool_spec(spec: str, base_path: Path) -> str | None:
 
 
 def _card_dependencies(type_key: str, raw: dict[str, Any], errors: list[str]) -> set[str]:
-    deps: set[str] = set()
-    if type_key in {"agent", "smart"}:
-        deps.update(_ensure_str_list(raw.get("agents"), "agents", errors))
-    elif type_key == "chain":
-        deps.update(_ensure_str_list(raw.get("sequence"), "sequence", errors))
-    elif type_key == "parallel":
-        deps.update(_ensure_str_list(raw.get("fan_out"), "fan_out", errors))
-        fan_in = _ensure_str(raw.get("fan_in"), "fan_in", errors)
-        if fan_in:
-            deps.add(fan_in)
-    elif type_key in {"router", "orchestrator", "iterative_planner"}:
-        deps.update(_ensure_str_list(raw.get("agents"), "agents", errors))
-    elif type_key == "evaluator_optimizer":
-        evaluator = _ensure_str(raw.get("evaluator"), "evaluator", errors)
-        generator = _ensure_str(raw.get("generator"), "generator", errors)
-        if evaluator:
-            deps.add(evaluator)
-        if generator:
-            deps.add(generator)
-    elif type_key == "maker":
-        worker = _ensure_str(raw.get("worker"), "worker", errors)
-        if worker:
-            deps.add(worker)
-    return deps
+    dependency_fields = get_card_dependency_field_specs(type_key)
+    if not dependency_fields:
+        return set()
+
+    normalized_raw: dict[str, Any] = {}
+    for field_spec in dependency_fields:
+        field_name = field_spec.field_name
+        if field_spec.multiple:
+            normalized_raw[field_name] = _ensure_str_list(raw.get(field_name), field_name, errors)
+            continue
+        normalized_raw[field_name] = _ensure_str(raw.get(field_name), field_name, errors)
+
+    return collect_dependencies_from_fields(normalized_raw, dependency_fields)
 
 
 def _loaded_agent_dependencies(agent_data: dict[str, Any]) -> set[str]:
-    agent_type = agent_data.get("type")
-    if isinstance(agent_type, AgentType):
-        agent_type = agent_type.value
-    if not isinstance(agent_type, str):
-        return set()
-
-    deps: set[str] = set()
-    if agent_type in {AgentType.BASIC.value, AgentType.SMART.value}:
-        deps.update(agent_data.get("child_agents") or [])
-    elif agent_type == AgentType.CHAIN.value:
-        deps.update(agent_data.get("sequence") or [])
-    elif agent_type == AgentType.PARALLEL.value:
-        deps.update(agent_data.get("fan_out") or [])
-        fan_in = agent_data.get("fan_in")
-        if fan_in:
-            deps.add(fan_in)
-    elif agent_type in {AgentType.ORCHESTRATOR.value, AgentType.ITERATIVE_PLANNER.value}:
-        deps.update(agent_data.get("child_agents") or [])
-    elif agent_type == AgentType.ROUTER.value:
-        deps.update(agent_data.get("router_agents") or [])
-    elif agent_type == AgentType.EVALUATOR_OPTIMIZER.value:
-        evaluator = agent_data.get("evaluator")
-        generator = agent_data.get("generator")
-        if evaluator:
-            deps.add(evaluator)
-        if generator:
-            deps.add(generator)
-    elif agent_type == AgentType.MAKER.value:
-        worker = agent_data.get("worker")
-        if worker:
-            deps.add(worker)
-    return {dep for dep in deps if isinstance(dep, str)}
+    return get_agent_dependencies(agent_data)
 
 
 def _iter_function_tool_specs(tool_specs: Iterable[Any]) -> Iterable[str]:

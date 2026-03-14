@@ -24,7 +24,11 @@ from fast_agent.core.agent_card_types import AgentCardData
 from fast_agent.core.exceptions import AgentConfigError, ModelConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.model_resolution import HARDCODED_DEFAULT_MODEL, resolve_model_spec
-from fast_agent.core.validation import get_dependencies_groups
+from fast_agent.core.validation import (
+    get_dependencies_groups,
+    is_basic_like_agent_type,
+    normalize_agent_type_value,
+)
 from fast_agent.event_progress import ProgressAction
 from fast_agent.hooks.hook_messages import show_hook_failure
 from fast_agent.interfaces import (
@@ -74,9 +78,7 @@ class _ContextCoreShim:
 def _ensure_basic_only_agents(agents_dict: AgentConfigDict) -> None:
     for name, agent_data in agents_dict.items():
         agent_type = agent_data.get("type") if isinstance(agent_data, Mapping) else None
-        if isinstance(agent_type, AgentType):
-            agent_type = agent_type.value
-        if agent_type not in {AgentType.LLM.value, AgentType.BASIC.value}:
+        if not is_basic_like_agent_type(agent_type):
             raise AgentConfigError(
                 "Smart tool only supports 'agent' cards",
                 f"Card '{name}' has unsupported type '{agent_type}'",
@@ -136,7 +138,7 @@ def _iter_agents_of_type(
     return [
         (name, agent_data)
         for name, agent_data in agents_dict.items()
-        if agent_data["type"] == agent_type.value
+        if normalize_agent_type_value(agent_data.get("type")) == agent_type.value
     ]
 
 
@@ -967,7 +969,7 @@ async def active_agents_in_dependency_group(
         agents_dict_local = {
             name: agents_dict[name]
             for name in group
-            if agents_dict[name]["type"] == agent_type_value
+            if normalize_agent_type_value(agents_dict[name].get("type")) == agent_type_value
         }
         agents = await create_agents_by_type(
             app_instance,
