@@ -104,12 +104,14 @@ def _normalize_hf_model(model: str) -> str:
     """
     from fast_agent.llm.model_factory import ModelFactory
 
+    presets = ModelFactory.get_runtime_presets()
+
     # Already has hf. prefix
     if model.startswith("hf."):
         return model
 
     # Check if it's a known alias
-    if model in ModelFactory.MODEL_ALIASES:
+    if model in presets:
         return model
 
     # If it has org/model format, add hf. prefix
@@ -131,7 +133,7 @@ def _resolve_alias_display(model: str) -> tuple[str, str] | None:
     if ":" in model:
         alias_key, alias_suffix = model.rsplit(":", 1)
 
-    alias_target = ModelFactory.MODEL_ALIASES.get(alias_key)
+    alias_target = ModelFactory.get_runtime_presets().get(alias_key)
     if not alias_target:
         return None
 
@@ -333,7 +335,7 @@ class SetupAgent(ACPAwareMixin, McpAgent):
             return f"Error: Invalid model `{model}` - {e}"
 
         # Validate model exists on HuggingFace and has providers
-        validation = await validate_hf_model(model, aliases=ModelFactory.MODEL_ALIASES)
+        validation = await validate_hf_model(model, aliases=ModelFactory.get_runtime_presets())
         if not validation.valid:
             return validation.error or "Error: Model validation failed"
 
@@ -743,7 +745,7 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
             return f"Error: Invalid model `{model}` - {e}"
 
         # Validate model exists on HuggingFace and has providers
-        validation = await validate_hf_model(model, aliases=ModelFactory.MODEL_ALIASES)
+        validation = await validate_hf_model(model, aliases=ModelFactory.get_runtime_presets())
         if not validation.valid:
             return validation.error or "Error: Model validation failed"
 

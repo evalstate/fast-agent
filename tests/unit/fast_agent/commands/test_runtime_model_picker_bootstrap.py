@@ -71,10 +71,10 @@ def test_should_not_prompt_for_model_picker_when_message_mode() -> None:
     )
 
 
-def test_should_not_prompt_for_model_picker_when_cards_present() -> None:
+def test_should_prompt_for_model_picker_when_cards_present() -> None:
     request = _make_request(agent_cards=["cards/"])
 
-    assert not _should_prompt_for_model_picker(
+    assert _should_prompt_for_model_picker(
         request,
         stdin_is_tty=True,
         stdout_is_tty=True,

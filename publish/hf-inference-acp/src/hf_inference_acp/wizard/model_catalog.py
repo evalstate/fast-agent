@@ -15,10 +15,10 @@ class CuratedModel:
 
 
 def _get_model_string(alias: str) -> str:
-    """Look up the full model string from MODEL_ALIASES."""
+    """Look up the full model string from the runtime preset catalog."""
     from fast_agent.llm.model_factory import ModelFactory
 
-    return ModelFactory.MODEL_ALIASES.get(alias, alias)
+    return ModelFactory.get_runtime_presets().get(alias, alias)
 
 
 # Curated list of recommended models for HuggingFace inference

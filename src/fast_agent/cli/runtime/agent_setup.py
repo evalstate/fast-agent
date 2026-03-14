@@ -15,6 +15,7 @@ from prompt_toolkit import PromptSession
 from fast_agent.cli.commands.server_helpers import add_servers_to_config
 from fast_agent.cli.constants import RESUME_LATEST_SENTINEL
 from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.core.keyring_utils import emit_keyring_access_notice
 from fast_agent.llm.provider_types import Provider
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 from fast_agent.ui.model_picker_common import normalize_generic_model_spec
@@ -59,9 +60,6 @@ def _should_prompt_for_model_picker(
 ) -> bool:
     """Return True when interactive startup can safely prompt for model selection."""
     if not _is_interactive_startup_notice_context(request):
-        return False
-    if request.agent_cards or request.card_tools:
-        # Phase 1: only use picker for plain CLI bootstrap (no AgentCards).
         return False
     return stdin_is_tty and stdout_is_tty
 
@@ -179,6 +177,14 @@ def _emit_startup_notice(request: AgentRunRequest, message: str) -> None:
         return
 
     typer.echo(message, err=True)
+
+
+def _emit_model_picker_keyring_notice(request: AgentRunRequest) -> None:
+    """Explain the one-time keyring probe that happens while building the model picker."""
+    emit_keyring_access_notice(
+        purpose="checking stored Codex OAuth tokens for model setup",
+        emitter=lambda message: _emit_startup_notice(request, message),
+    )
 
 
 def _format_shell_cwd_policy_message(
@@ -653,6 +659,7 @@ async def run_agent_request(request: AgentRunRequest) -> None:
             stdin_is_tty=sys.stdin.isatty(),
             stdout_is_tty=sys.stdout.isatty(),
         ):
+            _emit_model_picker_keyring_notice(request)
             request.model = await _select_model_from_picker(request)
             picker_model_source_override = "model picker"
 

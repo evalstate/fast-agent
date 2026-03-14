@@ -319,30 +319,3 @@ class TestAttachLLMFlow:
             f"After ACP merge, maxTokens should still be 16384, got {merged.maxTokens}"
         )
         assert merged.systemPrompt == "Updated for ACP session"
-
-    @pytest.mark.asyncio
-    async def test_colon_syntax_bug_model_name_corrupted(self):
-        """
-        BUG TEST: Using hf:model syntax (colon) corrupts the model name.
-
-        The model name becomes ':moonshotai/kimi-k2-instruct-0905' (with leading colon)
-        which causes ModelDatabase lookup to fail, resulting in maxTokens=2048.
-        """
-        from fast_agent.llm.model_factory import ModelFactory
-
-        agent = LlmAgent(AgentConfig(name="Test Agent"))
-        # This is the WRONG syntax but users may try it - exposes the bug
-        factory = ModelFactory.create_factory("hf:moonshotai/kimi-k2-instruct-0905")
-
-        llm = await agent.attach_llm(factory)
-        assert _is_fastagent_llm(llm)
-
-        # This documents the current buggy behavior
-        # The model name gets corrupted with a leading colon
-        assert llm.default_request_params.model == ":moonshotai/kimi-k2-instruct-0905", (
-            f"BUG: Expected corrupted model name, got {llm.default_request_params.model}"
-        )
-        # And maxTokens falls back to 2048 because the model lookup fails
-        assert llm.default_request_params.maxTokens == 2048, (
-            f"BUG: Expected 2048 (fallback), got {llm.default_request_params.maxTokens}"
-        )

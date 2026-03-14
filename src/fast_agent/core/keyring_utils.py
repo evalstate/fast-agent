@@ -7,6 +7,10 @@ import secrets
 import sys
 import threading
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 @dataclass(frozen=True)
@@ -20,46 +24,64 @@ _KEYRING_ACCESS_NOTICE_LOCK = threading.Lock()
 _KEYRING_ACCESS_NOTICE_SHOWN = False
 
 
-def maybe_print_keyring_access_notice(*, purpose: str | None = None) -> None:
-    """Print a one-time note before first keyring access in interactive sessions.
+def format_keyring_access_notice(*, purpose: str | None = None) -> str:
+    """Return the standard one-time keyring access notice."""
+    message = (
+        "fast-agent is accessing the OS keyring for stored tokens. "
+        "Some platforms may pause and show a prompt."
+    )
+    if purpose:
+        return f"{message} ({purpose})"
+    return message
 
-    Some keyring backends may block while showing an OS keychain prompt.
-    This hint makes startup pauses easier to understand for users.
-    """
 
+def _keyring_access_notice_enabled() -> bool:
+    suppress_notice = os.getenv("FAST_AGENT_KEYRING_NOTICE", "1").strip().lower()
+    return suppress_notice not in {"0", "false", "no", "off"}
+
+
+def emit_keyring_access_notice(
+    *,
+    purpose: str | None = None,
+    emitter: Callable[[str], None] | None = None,
+) -> bool:
+    """Emit the one-time keyring access notice through the supplied emitter."""
     global _KEYRING_ACCESS_NOTICE_SHOWN
 
-    if _KEYRING_ACCESS_NOTICE_SHOWN:
-        return
-
-    suppress_notice = os.getenv("FAST_AGENT_KEYRING_NOTICE", "1").strip().lower()
-    if suppress_notice in {"0", "false", "no", "off"}:
-        return
-
-    try:
-        if not sys.stderr.isatty():
-            return
-    except Exception:
-        return
+    if _KEYRING_ACCESS_NOTICE_SHOWN or not _keyring_access_notice_enabled():
+        return False
 
     with _KEYRING_ACCESS_NOTICE_LOCK:
-        if _KEYRING_ACCESS_NOTICE_SHOWN:
-            return
+        if _KEYRING_ACCESS_NOTICE_SHOWN or not _keyring_access_notice_enabled():
+            return False
 
-        message = (
-            "fast-agent is accessing the OS keyring for stored tokens. "
-            "Some platforms may pause and show a prompt."
-        )
-        if purpose:
-            message = f"{message} ({purpose})"
+        message = format_keyring_access_notice(purpose=purpose)
+
+        if emitter is None:
+            try:
+                if not sys.stderr.isatty():
+                    return False
+            except Exception:
+                return False
+
+            def _stderr_emitter(text: str) -> None:
+                sys.stderr.write(f"{text}\n")
+                sys.stderr.flush()
+
+            emitter = _stderr_emitter
 
         try:
-            sys.stderr.write(f"{message}\n")
-            sys.stderr.flush()
+            emitter(message)
         except Exception:
-            return
+            return False
 
         _KEYRING_ACCESS_NOTICE_SHOWN = True
+        return True
+
+
+def maybe_print_keyring_access_notice(*, purpose: str | None = None) -> None:
+    """Print a one-time note before first keyring access in interactive sessions."""
+    emit_keyring_access_notice(purpose=purpose)
 
 
 def _probe_keyring_write(service: str) -> bool:
