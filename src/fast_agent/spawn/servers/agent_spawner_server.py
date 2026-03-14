@@ -92,6 +92,37 @@ _bus = MessageBus(messages_dir=str(_PROJECT_DIR / ".runtime" / "state" / "messag
 
 _display = get_display_manager()
 
+# ── Wire file-based event forwarding ──
+# The MCP server runs in a subprocess — in-memory callbacks cannot
+# reach the main backend process. Instead, write events as JSON lines
+# to a shared file that the main process can tail-follow.
+_SPAWN_EVENTS_FILE = _PROJECT_DIR / ".runtime" / "state" / "spawn_events.jsonl"
+
+
+def _write_spawn_event_to_file(event: Any) -> None:
+    """Append a SpawnEvent as JSON line to the shared events file."""
+    try:
+        import time as _time
+
+        line = json.dumps(
+            {
+                "timestamp": _time.time(),
+                "role": getattr(event, "role", ""),
+                "event_type": getattr(event, "event", ""),
+                "run_id": getattr(event, "run_id", ""),
+                "data": getattr(event, "data", {}),
+            }
+        )
+        _SPAWN_EVENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(_SPAWN_EVENTS_FILE, "a") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass  # Never crash the MCP server for a display event
+
+
+_display.set_event_callback(_write_spawn_event_to_file)
+
+
 
 def _resolve_skills_for_spawn(
     skills_csv: str,
