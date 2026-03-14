@@ -1,175 +1,184 @@
-# Handover: hot MCP runtime work + follow-up hardening
+# Handover: cyclomatic-complexity follow-up
 
-Date: 2026-02-09
+Date: 2026-03-14
 
-## Context
+## Current status
 
-This session implemented and iterated on the **hot MCP** runtime attach/detach feature set described in:
-- `plan/hot-mcp.md`
-- `plan/hot-mcp-slices.md`
+This refactor stream has moved well past the original command-parser hotspot.
+The major command-surface and prompt-input work now landed includes:
 
-A review document was written to:
-- `plan/hot-mcp-impl-review.md`
+- `src/fast_agent/ui/prompt/parser.py`
+  - split into command-family helpers
+  - restored `/history rewind` intent parsing
+- `src/fast_agent/ui/interactive/command_dispatch.py`
+  - split into command-family dispatch helpers
+  - agent refresh logic separated from agent-card handling
+- `src/fast_agent/ui/prompt/completion_sources.py`
+  - command completions split by family
+  - kept partial-input handling local instead of forcing reuse of full intent parsers
+- test cleanup
+  - redundant parser-only assertions trimmed
+  - shared command-surface test support moved to `tests/support/command_surface.py`
+- prompt-input naming cleanup
+  - canonical modules are now:
+    - `src/fast_agent/ui/prompt/input.py`
+    - `src/fast_agent/ui/prompt/input_runtime.py`
+  - compatibility wrappers kept in:
+    - `src/fast_agent/ui/prompt/session.py`
+    - `src/fast_agent/ui/prompt/session_runtime.py`
+- prompt-input decomposition
+  - `src/fast_agent/ui/prompt/input.py::get_enhanced_input`
+    - reduced to orchestration
+  - new cohesive siblings:
+    - `src/fast_agent/ui/prompt/input_toolbar.py`
+    - `src/fast_agent/ui/prompt/agent_info.py`
 
----
+Validation already run in this stream:
 
-## High-level outcomes
+- `uv run pytest tests/unit/fast_agent/ui`
+- targeted command-surface integration suites
+- `uv run scripts/lint.py --fix`
+- `uv run scripts/typecheck.py`
+- `uv run scripts/cpd.py --check`
 
-Implemented end-to-end runtime MCP server management across:
-- core runtime (`MCPAggregator`, `MCPConnectionManager`, `McpAgent`)
-- app wiring (`AgentApp`, `FastAgent`)
-- TUI (`/mcp`, `/connect`)
-- ACP slash commands (`/mcp list|connect|disconnect`)
+## Small follow-up targets still above threshold
 
-Also implemented auth unification for runtime URL connect:
-- `/mcp connect ... --auth <token>` now supported
-- URL auth/HF token behavior now reuses CLI URL parser path (`parse_server_urls` + HF auth header logic)
+These are now small enough to be optional cleanup passes rather than primary
+refactor drivers:
 
----
+- `src/fast_agent/ui/interactive/command_dispatch.py::dispatch_command_payload`
+  - current C901: `11`
+  - likely one more tiny split/flatten pass if desired
+- `src/fast_agent/ui/prompt/completion_sources.py::_model_command_completions`
+  - current C901: `14`
+  - can likely be finished by splitting `aliases` / `catalog` handling one step further
 
-## Commits made
+Do these only if you want to clean up the remaining near-threshold command UI
+functions before moving on.
 
-### Main feature commit
-- **`570e4fa2`**
-- Message: `Implement runtime MCP connect/disconnect across core, TUI, and ACP`
-- Includes:
-  - runtime attach/detach models + APIs
-  - startup MCP load path routed through attach path
-  - TUI `/mcp` + `/connect`
-  - ACP `/mcp`
-  - command handlers + tests
-  - implementation review doc
+## Recommended next substantial target
 
-### Post-commit updates (NOT yet committed in this transcript)
-After `570e4fa2`, additional fixes were made but not committed yet:
-1. Scoped npm shorthand improvements for `/mcp connect` (`@scope/pkg` -> `npx` + args)
-2. Better already-attached messaging (suggest `--reconnect`)
-3. Removed earlier delay/retry behavior from aggregator attach path (by user request)
-4. Added runtime `/mcp connect --auth` support + shared CLI URL/HF auth handling
-5. Reduced noisy network-failure output:
-   - suppress MCP SDK `Error in post_writer` tracebacks for streamable-http
-   - dedupe repeated `MCP server ... offline` prints during outage
+### Pick next
 
-You should inspect working tree and commit these follow-up changes.
+- `src/fast_agent/ui/interactive_prompt.py::prompt_loop`
+- current C901: `89`
 
----
+### Why this should be next
 
-## Key files touched
+This is now the best adjacent target after the `input.py` split:
 
-### Core MCP runtime
-- `src/fast_agent/mcp/mcp_aggregator.py`
-- `src/fast_agent/mcp/mcp_connection_manager.py`
-- `src/fast_agent/mcp/mcp_agent_client_session.py`
-- `src/fast_agent/mcp/types.py`
-- `src/fast_agent/mcp/interfaces.py`
-- `src/fast_agent/agents/mcp_agent.py`
+- `get_enhanced_input(...)` is no longer the right next move
+- command parsing/dispatch/completion seams are already much cleaner
+- `prompt_loop` is now the dominant UI orchestrator still mixing too many concerns
+- it sits directly above the code that was just decomposed, so the new seams should help
 
-### App/server wiring
-- `src/fast_agent/core/agent_app.py`
-- `src/fast_agent/core/fastagent.py`
-- `src/fast_agent/acp/server/agent_acp_server.py`
-- `src/fast_agent/acp/slash_commands.py`
+### Why not jump elsewhere first
 
-### TUI / command flow
-- `src/fast_agent/ui/command_payloads.py`
-- `src/fast_agent/ui/enhanced_prompt.py`
-- `src/fast_agent/ui/interactive_prompt.py`
-- `src/fast_agent/commands/handlers/mcp_runtime.py`
+There are larger or comparable hotspots, but most have a worse blast radius:
 
-### Tests added/updated
-- `tests/unit/fast_agent/mcp/test_mcp_aggregator_runtime_attach.py`
-- `tests/unit/fast_agent/core/test_agent_app_mcp_callbacks.py`
-- `tests/unit/fast_agent/ui/test_parse_mcp_commands.py`
+- `src/fast_agent/core/fastagent.py::run` (`120`)
+  - very high-value eventually, but much broader application lifecycle risk
+- `src/fast_agent/ui/tool_display.py::show_tool_result` (`30`)
+  - meaningful, but more isolated display logic and less central than `prompt_loop`
+- `src/fast_agent/ui/streaming.py::_render_current_buffer` (`25`)
+  - useful later, but more rendering-state specific
+- `src/fast_agent/ui/stream_segments.py::handle_tool_event` (`21`)
+  - smaller and more tactical than `prompt_loop`
+
+## Refactor goal for `prompt_loop`
+
+Current `prompt_loop` still mixes:
+
+- prompt acquisition
+- pre-dispatch agent refresh handling
+- command dispatch result handling
+- hash-agent execution
+- shell execution
+- normal send flow
+- interrupt/retry control flow
+- buffer-prefill and available-agent mutation
+
+The goal should be to split by **interaction phase**, not invent a new
+framework.
+
+## Recommended refactor shape
+
+### Keep
+
+- `prompt_loop(...)` as the public orchestration entrypoint
+- `DispatchResult` contract unchanged
+- `get_enhanced_input(...)` and `dispatch_command_payload(...)` as already-cleaned lower layers
+
+### Extract
+
+Prefer phase-oriented helpers, for example:
+
+- `_refresh_agents_if_needed(...)`
+- `_apply_dispatch_result(...)`
+- `_handle_hash_send(...)`
+- `_handle_shell_command(...)`
+- `_should_continue_after_command(...)`
+- `_send_regular_message(...)`
+
+If one of those grows too much, split by the next real seam, not by arbitrary
+line count.
+
+### Avoid
+
+- giant mutable context objects unless parameter passing becomes truly unmanageable
+- reflective “step registries”
+- abstractions that hide the actual prompt flow
+
+## Existing test seam to rely on
+
+These already give useful coverage around the surrounding behavior:
+
+- `tests/unit/fast_agent/ui/test_interactive_prompt_agent_commands.py`
+- `tests/unit/fast_agent/ui/test_interactive_prompt_refresh.py`
+- `tests/unit/fast_agent/ui/test_interactive_prompt_hash_send.py`
+- `tests/unit/fast_agent/ui/test_interactive_prompt_resource_mentions.py`
 - `tests/unit/fast_agent/ui/test_agent_completer.py`
-- `tests/unit/fast_agent/commands/test_mcp_runtime_handlers.py`
-- `tests/unit/fast_agent/acp/test_slash_commands_mcp.py`
+- `tests/unit/fast_agent/ui/test_prompt_input_runtime.py`
+- `tests/integration/ui/test_command_dispatch_flows.py`
+- `tests/integration/test_command_surface_parity.py`
 
-### Docs
-- `plan/hot-mcp-impl-review.md`
-- (this file) `handover.md`
+Prefer reusing those seams before adding more tests.
 
----
+## Secondary target after `prompt_loop`
 
-## Notable behavior discussions and decisions
+If `prompt_loop` lands cleanly, the next sensible targets are:
 
-1. **Startup uses attach path**
-   - User explicitly requested startup MCP server loading to use same attach/detach routines.
-   - Implemented by routing `load_servers()` through `attach_server(...)`.
+1. `src/fast_agent/ui/tool_display.py::show_tool_result` (`30`)
+2. `src/fast_agent/ui/streaming.py::_render_current_buffer` (`25`)
+3. `src/fast_agent/ui/stream_segments.py::handle_tool_event` (`21`)
 
-2. **Delay/retry on attach removed**
-   - There was a brief retry/delay heuristic added for empty tool lists.
-   - User rejected this as cargo-cult; it was removed.
-   - Current behavior: no delay; rely on proper initialize + tool fetch.
+That keeps the work in the UI/rendering layer before escalating to
+`fastagent.py::run`.
 
-3. **Scoped npm shorthand support**
-   - `/mcp connect @modelcontextprotocol/server-everything` now treated as npx form.
+## Naming/layout note now in effect
 
-4. **Auth parity request**
-   - User requested runtime TUI/ACP connect to share CLI auth/HF_TOKEN logic.
-   - Implemented via `parse_server_urls` reuse for URL mode.
+The current convention established in this pass:
 
-5. **Network sleep/wake failure handling**
-   - User reported huge traceback spam (`Error in post_writer`) + repeated offline lines after laptop sleep/network change.
-   - Added logging filter for streamable-http post_writer noise.
-   - Added deduping for repeated offline notices.
+- reserve `session` for persisted chat/thread concepts
+- use `input*` names for prompt-toolkit input collection/runtime modules
 
-6. **Stuck Ctrl+C in interactive session**
-   - User could not break with Ctrl+C; `SIGQUIT` (Ctrl+\) worked.
-   - No code change yet for this specific SIGINT robustness; follow-up recommended.
+This is now reflected in `AGENTS.md`.
 
----
+## Compatibility cleanup to keep in mind
 
-## Validation performed
+There are still compatibility wrappers:
 
-Repeatedly ran:
-- `uv run scripts/lint.py --fix`
-- `uv run scripts/typecheck.py`
-- targeted unit tests for changed areas
+- `src/fast_agent/ui/prompt/session.py`
+- `src/fast_agent/ui/prompt/session_runtime.py`
 
-Known unrelated/environment-sensitive failures in full unit suite remain in this workspace:
-- `tests/unit/core/test_prompt_templates.py::test_load_skills_for_context_handles_missing_directory`
-- `tests/unit/fast_agent/session/test_session_manager.py::test_apply_session_window_appends_pinned_overflow`
+Do **not** prioritize deleting them immediately. Keep them until the next
+round of UI refactors settles and imports are clearly stable.
 
-These were pre-existing and align with repo notes about environment/session ordering effects.
+## Summary
 
----
+The best next move is:
 
-## Current user-reported state
-
-- Runtime `/mcp connect` now works in scenarios that previously failed.
-- User observed one session where Ctrl+C no longer interrupted; SIGQUIT terminated it.
-- User wants robust behavior around long-lived remote MCP connections over sleep/wake.
-
----
-
-## Suggested next steps for new operator
-
-1. **Commit pending follow-up changes**
-   - Check `git status`
-   - Commit post-`570e4fa2` fixes as a new commit
-
-2. **Run focused regression checks**
-   - hot MCP TUI commands (`/mcp`, `/connect`, `--auth`)
-   - ACP `/mcp ...`
-   - sleep/wake or temporary DNS failure behavior for streamable-http MCP server
-
-3. **Optional hardening**
-   - Improve SIGINT handling in interactive loop:
-     - first Ctrl+C -> graceful cancel
-     - second Ctrl+C within timeout -> forced exit
-   - Consider user-facing reconnect status line for network outages
-
-4. **Operator e2e**
-   - Ask operator to run e2e scenarios (as required by project workflow)
-
----
-
-## Quick commands used during session
-
-- `uv run scripts/lint.py --fix`
-- `uv run scripts/typecheck.py`
-- `uv run pytest tests/unit/...`
-- log checks:
-  - `tail -n 80 fastagent.jsonl`
-  - `rg -n "..." fastagent.jsonl`
-
+1. refactor `interactive_prompt.py::prompt_loop`
+2. keep the split phase-oriented and explicit
+3. rely on the existing UI unit suite plus command-surface integration tests
+4. optionally clean up the small remaining >10 helpers afterward
