@@ -54,6 +54,7 @@ class SpawnRecord:
     run_id: str = ""
     agent_name: str = ""
     role: str = ""
+    team_name: str = ""  # Groups agents by team (e.g. "agile_team")
     task: str = ""
     status: str = SpawnStatus.RUNNING.value
     lifecycle: str = Lifecycle.ONESHOT.value
@@ -233,6 +234,28 @@ class SpawnRegistry:
             self._save()
             return True
         return False
+
+    def find_by_team(self, team_name: str) -> list[SpawnRecord]:
+        """Find all agents belonging to a team."""
+        self._load()
+        return [
+            SpawnRecord.from_dict(d)
+            for d in self._data.values()
+            if d.get("team_name") == team_name
+        ]
+
+    def remove_team(self, team_name: str) -> int:
+        """Remove all registry entries for a team. Returns count removed."""
+        self._load()
+        to_remove = [
+            rid for rid, d in self._data.items()
+            if d.get("team_name") == team_name
+        ]
+        for rid in to_remove:
+            del self._data[rid]
+        if to_remove:
+            self._save()
+        return len(to_remove)
 
     def cleanup_oneshots(self) -> list[str]:
         self._load()

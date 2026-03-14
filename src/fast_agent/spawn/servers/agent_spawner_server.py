@@ -741,13 +741,14 @@ def list_spawned_agents() -> str:
 
 @mcp.tool()
 def remove_spawned_agent(name: str) -> str:
-    """Remove a persistent agent by name.
+    """Remove a persistent agent or an entire team by name.
 
-    Removes the agent card file AND the spawn registry entry,
-    so the agent disappears from both the runtime and the UI.
+    First tries to remove an individual agent by name.
+    If not found, checks if the name matches a team_name
+    and removes all agents in that team.
 
     Args:
-        name: Name of the agent to remove.
+        name: Name of the agent or team to remove.
     """
     # Resolve agent_cards dir (same logic as spawn_agent)
     agent_cards_dir = get_runtime_paths(str(_PROJECT_DIR))["agent_cards"]
@@ -757,7 +758,7 @@ def remove_spawned_agent(name: str) -> str:
 
     card_removed = remove_agent_card(name, agent_cards_dir=str(agent_cards_dir))
 
-    # Also remove from spawn registry (by agent_name)
+    # Try individual agent removal from registry
     registry_removed = False
     record = _registry.find_by_name(name)
     if record:
@@ -775,10 +776,34 @@ def remove_spawned_agent(name: str) -> str:
                 "message": f"Agent '{name}' removed ({', '.join(parts)}).",
             }
         )
+
+    # Try team-level removal — name might match a team_name
+    team_members = _registry.find_by_team(name)
+    if team_members:
+        # Remove all agent cards for team members
+        cards_removed = 0
+        for member in team_members:
+            if remove_agent_card(member.agent_name, agent_cards_dir=str(agent_cards_dir)):
+                cards_removed += 1
+
+        # Remove all registry entries for the team
+        registry_count = _registry.remove_team(name)
+
+        return json.dumps(
+            {
+                "status": "success",
+                "message": (
+                    f"Team '{name}' removed: {registry_count} agents "
+                    f"({cards_removed} cards removed)."
+                ),
+                "removed_agents": [m.agent_name for m in team_members],
+            }
+        )
+
     return json.dumps(
         {
             "status": "error",
-            "message": f"Agent '{name}' not found.",
+            "message": f"Agent or team '{name}' not found.",
         }
     )
 

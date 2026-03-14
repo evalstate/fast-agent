@@ -462,6 +462,7 @@ async def _spawn_all_agents(
             timeout_seconds=role_config.get("timeout_seconds", 600),
             role=role_name,
             agent_name=agent_name,
+            team_name=session.template.get("name", ""),
             lifecycle="resumable",
             registry=registry,
             display_manager=display_manager,
