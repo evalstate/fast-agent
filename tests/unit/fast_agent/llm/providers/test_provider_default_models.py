@@ -27,7 +27,7 @@ def test_openai_provider_default_model_used_when_model_missing() -> None:
 def test_openai_provider_default_model_alias_is_resolved() -> None:
     settings = Settings(
         openai=OpenAISettings(default_model="$system.fast"),
-        model_aliases={"system": {"fast": "gpt-4.1-mini"}},
+        model_references={"system": {"fast": "gpt-4.1-mini"}},
     )
     llm = OpenAILLM(context=Context(config=settings), model="")
 

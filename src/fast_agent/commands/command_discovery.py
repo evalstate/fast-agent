@@ -90,7 +90,7 @@ def _discovery_top_level_catalog() -> tuple[dict[str, object], ...]:
         {
             "name": "model",
             "summary": "Request behavior, switching, and model diagnostics",
-            "usage": "/model [reasoning|verbosity|fast|web_search|web_fetch|switch|doctor|aliases|catalog|help] [args]",
+            "usage": "/model [reasoning|verbosity|fast|web_search|web_fetch|switch|doctor|references|catalog|help] [args]",
             "actions": [
                 {"name": "reasoning", "summary": "set reasoning effort"},
                 {"name": "verbosity", "summary": "set response length"},
@@ -99,7 +99,7 @@ def _discovery_top_level_catalog() -> tuple[dict[str, object], ...]:
                 {"name": "web_fetch", "summary": "toggle web fetch"},
                 {"name": "switch", "summary": "switch model (starts a new session)"},
                 {"name": "doctor", "summary": "inspect model onboarding readiness"},
-                {"name": "aliases", "summary": "list or manage model aliases"},
+                {"name": "references", "summary": "list or manage model references"},
                 {"name": "catalog", "summary": "show provider model catalog"},
                 {"name": "help", "summary": "show model usage"},
             ],
@@ -107,7 +107,7 @@ def _discovery_top_level_catalog() -> tuple[dict[str, object], ...]:
                 "/model reasoning high",
                 "/model switch",
                 "/model doctor",
-                "/model aliases",
+                "/model references",
             ],
         },
         {

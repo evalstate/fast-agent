@@ -467,14 +467,14 @@ def _cards_command_completions(
         return _cards_publish_completions(completer, argument, results)
     return results
 
-def _model_aliases_completions(
+def _model_references_completions(
     completer: "AgentCompleter",
     argument: str,
     results: list[Completion],
 ) -> list[Completion]:
     alias_parts = argument.split(maxsplit=1)
     alias_subcommands = {
-        "list": "List configured alias mappings",
+        "list": "List configured reference mappings",
         "set": "Set an alias: set [<token> [<model-spec>]]",
         "unset": "Unset an alias: unset [<token>]",
     }
@@ -599,7 +599,7 @@ def _model_command_completions(
         subcommands["web_fetch"] = "Set web fetch tool state (on/off/default)"
     subcommands["switch"] = "Switch model (starts new session)"
     subcommands["doctor"] = "Inspect model onboarding readiness"
-    subcommands["aliases"] = "List or update configured model alias mappings"
+    subcommands["references"] = "List or update configured model reference mappings"
     subcommands["catalog"] = "Show curated models for a provider"
     results = list(completer._complete_subcommands(parts, remainder, subcommands))
     if not parts or (len(parts) == 1 and not remainder.endswith(" ")):
@@ -667,8 +667,8 @@ def _model_command_completions(
             if value.startswith(argument.lower())
         )
         return results
-    if subcmd == "aliases":
-        return _model_aliases_completions(completer, argument, results)
+    if subcmd == "references":
+        return _model_references_completions(completer, argument, results)
     if subcmd == "catalog":
         return _model_catalog_completions(argument, results)
     return results

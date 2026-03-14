@@ -5,16 +5,20 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from random import Random
-from typing import Iterable
+from typing import TYPE_CHECKING
 
 import typer
 
 from fast_agent.ui.console_display import ConsoleDisplay
 from fast_agent.ui.message_primitives import MESSAGE_CONFIGS, MessageType
 from fast_agent.ui.streaming import StreamingMessageHandle
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable, Iterable
 
 
 def _build_demo_stream_handle(
@@ -55,6 +59,12 @@ def _demo_root(ctx: typer.Context) -> None:
 def _chunk_text(text: str, chunk_size: int) -> Iterable[str]:
     for idx in range(0, len(text), chunk_size):
         yield text[idx : idx + chunk_size]
+
+
+@dataclass(frozen=True, slots=True)
+class StreamSection:
+    scenario_name: str
+    content: str
 
 
 class MetricsWriter:
@@ -150,6 +160,7 @@ class DemoScenario(str, Enum):
     large_code = "large-code"
     many_code = "many-code"
     code_growth = "code-growth"
+    viewport_bounce = "viewport-bounce"
     small_tables = "small-tables"
     large_tables = "large-tables"
     long_paragraphs = "long-paragraphs"
@@ -161,6 +172,7 @@ _SCENARIO_ORDER = [
     DemoScenario.large_code,
     DemoScenario.many_code,
     DemoScenario.code_growth,
+    DemoScenario.viewport_bounce,
     DemoScenario.small_tables,
     DemoScenario.large_tables,
     DemoScenario.long_paragraphs,
@@ -173,6 +185,9 @@ _SCENARIO_DESCRIPTIONS = {
     DemoScenario.large_code: "One oversized code block to stress markdown height measurement.",
     DemoScenario.many_code: "Many small code blocks to stress fence detection and padding.",
     DemoScenario.code_growth: "Code blocks that grow in size to stress progressive truncation.",
+    DemoScenario.viewport_bounce: (
+        "Repeated near-threshold waves intended to trigger truncate/fit oscillations."
+    ),
     DemoScenario.small_tables: "Repeated short tables to test header preservation.",
     DemoScenario.large_tables: "A large, wide table to stress wrapping and truncation.",
     DemoScenario.long_paragraphs: "Long paragraphs to test soft wrapping across widths.",
@@ -273,6 +288,55 @@ def _build_code_growth(scale: int) -> str:
             content.append(f"row_{line:02d} = {line} + {idx}")
         content.extend(["```", ""])
         size *= 2
+    return "\n".join(content)
+
+
+def _build_viewport_bounce(scale: int) -> str:
+    waves = max(5, scale * 3)
+    content = [
+        "### Viewport Bounce Stress",
+        "",
+        "This scenario is tuned to hover around the live viewport limit.",
+        "Use a narrow terminal and smaller chunk sizes to make the transitions easier to observe.",
+        "",
+    ]
+
+    for idx in range(waves):
+        content.append(f"#### Wave {idx + 1}")
+        content.append(
+            _repeat_sentence(
+                "A near-threshold paragraph should briefly fit, then spill, then fit again after compaction.",
+                220 + (idx % 3) * 40,
+            )
+        )
+        content.append("")
+        content.extend(
+            [
+                "| phase | value | note |",
+                "| --- | --- | --- |",
+                f"| wave | {idx + 1} | paragraph settles before the code block lands |",
+                f"| goal | {idx % 4} | watch for overlay stability and stale indicators |",
+                "",
+                "```python",
+            ]
+        )
+        line_count = 14 + (idx % 4) * 3
+        for line in range(line_count):
+            content.append(
+                f"window_{idx:02d}_{line:02d} = 'segment boundary pressure test {idx}-{line}'"
+            )
+        content.extend(
+            [
+                "```",
+                "",
+                _repeat_sentence(
+                    "The tail should stay readable while earlier material gets compacted out of view.",
+                    180 + (idx % 2) * 50,
+                ),
+                "",
+            ]
+        )
+
     return "\n".join(content)
 
 
@@ -395,11 +459,146 @@ _SCENARIO_BUILDERS = {
     DemoScenario.large_code: _build_large_codeblock,
     DemoScenario.many_code: _build_many_small_codeblocks,
     DemoScenario.code_growth: _build_code_growth,
+    DemoScenario.viewport_bounce: _build_viewport_bounce,
     DemoScenario.small_tables: _build_small_tables,
     DemoScenario.large_tables: _build_large_table,
     DemoScenario.long_paragraphs: _build_long_paragraphs,
     DemoScenario.interspersed: _build_interspersed,
 }
+
+_SECTION_SEPARATOR = "\n\n---\n\n"
+
+
+def _validate_streaming_options(
+    *,
+    chunk_size: int,
+    delay: float,
+    section_pause: float,
+    metrics_interval: int,
+) -> None:
+    if chunk_size <= 0:
+        raise typer.BadParameter("chunk-size must be a positive integer.")
+    if delay < 0:
+        raise typer.BadParameter("delay must be >= 0.")
+    if section_pause < 0:
+        raise typer.BadParameter("section-pause must be >= 0.")
+    if metrics_interval <= 0:
+        raise typer.BadParameter("metrics-interval must be a positive integer.")
+
+
+def _resolve_demo_scenarios(
+    *,
+    scenarios: list[DemoScenario] | None,
+    cycle: bool,
+) -> list[DemoScenario]:
+    return list(_SCENARIO_ORDER) if cycle else list(scenarios or [DemoScenario.mixed])
+
+
+def _build_stream_sections(
+    *,
+    scenario_list: list[DemoScenario],
+    lines: int,
+    scale: int,
+    seed: int | None,
+) -> tuple[list[StreamSection], str]:
+    sections = [
+        StreamSection(
+            scenario_name=scenario.value,
+            content=_build_scenario_markdown(scenario, lines=lines, scale=scale, seed=seed),
+        )
+        for scenario in scenario_list
+    ]
+    content = _SECTION_SEPARATOR.join(section.content for section in sections)
+    return sections, content
+
+
+def _record_stream_chunk(
+    metrics_writer: MetricsWriter | None,
+    *,
+    chunk_index: int,
+    chunk: str,
+) -> None:
+    if metrics_writer is None:
+        return
+    metrics_writer.update_chunk_index(chunk_index)
+    metrics_writer.record_chunk(len(chunk))
+
+
+def _record_cache_snapshot(
+    *,
+    cache_stats: bool,
+    cache_snapshots: list[tuple[str, dict[str, int]]],
+    scenario_name: str,
+    handle: StreamingMessageHandle,
+) -> None:
+    if not cache_stats:
+        return
+    cache_snapshots.append((scenario_name, handle._markdown_truncator.cache_sizes()))
+
+
+def _close_stream_resources(
+    *,
+    handle: StreamingMessageHandle,
+    metrics_writer: MetricsWriter | None,
+) -> None:
+    handle.close()
+    if metrics_writer is not None:
+        metrics_writer.close()
+
+
+async def _pause_async(delay: float) -> None:
+    if delay:
+        await asyncio.sleep(delay)
+    else:
+        await asyncio.sleep(0)
+
+
+async def _pause_sync(delay: float) -> None:
+    if delay:
+        time.sleep(delay)
+
+
+async def _run_stream(
+    *,
+    sections: list[StreamSection],
+    content: str,
+    plain: bool,
+    metrics_writer: MetricsWriter | None,
+    cache_stats: bool,
+    cache_snapshots: list[tuple[str, dict[str, int]]],
+    chunk_size: int,
+    delay: float,
+    section_pause: float,
+    pause: Callable[[float], Awaitable[None]],
+) -> None:
+    handle = _build_demo_stream_handle(plain=plain, metrics_writer=metrics_writer)
+    try:
+        for idx, section in enumerate(sections):
+            if metrics_writer:
+                metrics_writer.set_context(section.scenario_name)
+
+            for chunk_index, chunk in enumerate(_chunk_text(section.content, chunk_size), start=1):
+                _record_stream_chunk(metrics_writer, chunk_index=chunk_index, chunk=chunk)
+                handle.update(chunk)
+                await pause(delay)
+
+            if metrics_writer:
+                metrics_writer.finalize_context()
+            _record_cache_snapshot(
+                cache_stats=cache_stats,
+                cache_snapshots=cache_snapshots,
+                scenario_name=section.scenario_name,
+                handle=handle,
+            )
+            if idx < len(sections) - 1:
+                for chunk in _chunk_text(_SECTION_SEPARATOR, chunk_size):
+                    handle.update(chunk)
+                    await pause(delay)
+                if section_pause:
+                    await pause(section_pause)
+        handle.finalize(content)
+    finally:
+        _close_stream_resources(handle=handle, metrics_writer=metrics_writer)
 
 
 def _build_scenario_markdown(
@@ -481,114 +680,43 @@ def streaming(
     ),
 ) -> None:
     """Stream a synthetic markdown document without any model calls."""
-    if chunk_size <= 0:
-        raise typer.BadParameter("chunk-size must be a positive integer.")
-    if delay < 0:
-        raise typer.BadParameter("delay must be >= 0.")
-    if section_pause < 0:
-        raise typer.BadParameter("section-pause must be >= 0.")
-    if metrics_interval <= 0:
-        raise typer.BadParameter("metrics-interval must be a positive integer.")
+    _validate_streaming_options(
+        chunk_size=chunk_size,
+        delay=delay,
+        section_pause=section_pause,
+        metrics_interval=metrics_interval,
+    )
 
     scale = max(1, lines // 40)
-    if cycle:
-        scenario_list = _SCENARIO_ORDER
-    else:
-        scenario_list = scenarios or [DemoScenario.mixed]
+    scenario_list = _resolve_demo_scenarios(scenarios=scenarios, cycle=cycle)
 
     if seed == -1:
         seed = None
 
-    sections = [
-        _build_scenario_markdown(scenario, lines=lines, scale=scale, seed=seed)
-        for scenario in scenario_list
-    ]
-    content = "\n\n---\n\n".join(sections)
+    sections, content = _build_stream_sections(
+        scenario_list=scenario_list,
+        lines=lines,
+        scale=scale,
+        seed=seed,
+    )
     cache_snapshots: list[tuple[str, dict[str, int]]] = []
-    metrics_writer = None
-    if metrics_path:
-        metrics_writer = MetricsWriter(metrics_path, metrics_interval)
+    metrics_writer = MetricsWriter(metrics_path, metrics_interval) if metrics_path else None
 
-    async def _run_stream() -> None:
-        handle = _build_demo_stream_handle(plain=plain, metrics_writer=metrics_writer)
-        try:
-            for idx, section in enumerate(sections):
-                scenario_name = scenario_list[idx].value
-                chunk_index = 0
-                if metrics_writer:
-                    metrics_writer.set_context(scenario_name)
-
-                for chunk in _chunk_text(section, chunk_size):
-                    chunk_index += 1
-                    if metrics_writer:
-                        metrics_writer.update_chunk_index(chunk_index)
-                        metrics_writer.record_chunk(len(chunk))
-                    handle.update(chunk)
-                    if delay:
-                        await asyncio.sleep(delay)
-                    else:
-                        await asyncio.sleep(0)
-                if metrics_writer:
-                    metrics_writer.finalize_context()
-                if cache_stats:
-                    cache_snapshots.append(
-                        (scenario_name, handle._markdown_truncator.cache_sizes())
-                    )
-                if idx < len(sections) - 1:
-                    for chunk in _chunk_text("\n\n---\n\n", chunk_size):
-                        handle.update(chunk)
-                        if delay:
-                            await asyncio.sleep(delay)
-                        else:
-                            await asyncio.sleep(0)
-                    if section_pause:
-                        await asyncio.sleep(section_pause)
-            handle.finalize(content)
-        finally:
-            handle.close()
-            if metrics_writer:
-                metrics_writer.close()
-
-    def _run_sync() -> None:
-        handle = _build_demo_stream_handle(plain=plain, metrics_writer=metrics_writer)
-        try:
-            for idx, section in enumerate(sections):
-                scenario_name = scenario_list[idx].value
-                chunk_index = 0
-                if metrics_writer:
-                    metrics_writer.set_context(scenario_name)
-
-                for chunk in _chunk_text(section, chunk_size):
-                    chunk_index += 1
-                    if metrics_writer:
-                        metrics_writer.update_chunk_index(chunk_index)
-                        metrics_writer.record_chunk(len(chunk))
-                    handle.update(chunk)
-                    if delay:
-                        time.sleep(delay)
-                if metrics_writer:
-                    metrics_writer.finalize_context()
-                if cache_stats:
-                    cache_snapshots.append(
-                        (scenario_name, handle._markdown_truncator.cache_sizes())
-                    )
-                if idx < len(sections) - 1:
-                    for chunk in _chunk_text("\n\n---\n\n", chunk_size):
-                        handle.update(chunk)
-                        if delay:
-                            time.sleep(delay)
-                    if section_pause:
-                        time.sleep(section_pause)
-            handle.finalize(content)
-        finally:
-            handle.close()
-            if metrics_writer:
-                metrics_writer.close()
-
-    if async_mode:
-        asyncio.run(_run_stream())
-    else:
-        _run_sync()
+    pause = _pause_async if async_mode else _pause_sync
+    asyncio.run(
+        _run_stream(
+            sections=sections,
+            content=content,
+            plain=plain,
+            metrics_writer=metrics_writer,
+            cache_stats=cache_stats,
+            cache_snapshots=cache_snapshots,
+            chunk_size=chunk_size,
+            delay=delay,
+            section_pause=section_pause,
+            pause=pause,
+        )
+    )
 
     if cache_stats and cache_snapshots:
         typer.echo("cache stats (entries):")

@@ -119,7 +119,7 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
     CommandSpec(
         command="model",
         summary="Model inspection, switching, and runtime settings",
-        usage="/model [reasoning|verbosity|fast|web_search|web_fetch|switch|doctor|aliases|catalog|help] [args]",
+        usage="/model [reasoning|verbosity|fast|web_search|web_fetch|switch|doctor|references|catalog|help] [args]",
         actions=(
             CommandActionSpec(action="reasoning", help="Inspect or set reasoning effort"),
             CommandActionSpec(action="verbosity", help="Inspect or set text verbosity"),
@@ -128,7 +128,7 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
             CommandActionSpec(action="web_fetch", help="Inspect or set web fetch state"),
             CommandActionSpec(action="switch", help="Switch model (starts a new session)"),
             CommandActionSpec(action="doctor", help="Inspect model onboarding readiness"),
-            CommandActionSpec(action="aliases", aliases=("alias",), help="List or manage model aliases"),
+            CommandActionSpec(action="references", help="List or manage model references"),
             CommandActionSpec(action="catalog", help="Show model catalog for a provider"),
             CommandActionSpec(
                 action="help",
@@ -140,17 +140,17 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
         examples=(
             "/model switch",
             "/model doctor",
-            "/model aliases",
+            "/model references",
             "/model catalog openai --all",
         ),
     ),
     CommandSpec(
         command="models",
-        summary="Model onboarding and alias diagnostics",
-        usage="/models [doctor|aliases|catalog|help] [args]",
+        summary="Model onboarding and reference diagnostics",
+        usage="/models [doctor|references|catalog|help] [args]",
         actions=(
             CommandActionSpec(action="doctor", help="Inspect model onboarding readiness"),
-            CommandActionSpec(action="aliases", aliases=("alias",), help="List or manage model aliases"),
+            CommandActionSpec(action="references", help="List or manage model references"),
             CommandActionSpec(action="catalog", help="Show model catalog for a provider"),
             CommandActionSpec(
                 action="help",
@@ -161,7 +161,7 @@ COMMAND_SPECS: Final[tuple[CommandSpec, ...]] = (
         default_action="doctor",
         examples=(
             "/models doctor",
-            "/models aliases",
+            "/models references",
             "/models catalog anthropic",
         ),
     ),

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from fast_agent.constants import DEFAULT_MAX_ITERATIONS
-from fast_agent.core.model_resolution import get_context_model_aliases, resolve_model_alias
+from fast_agent.core.model_resolution import get_context_model_references, resolve_model_reference
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.request_params import RequestParams
 
@@ -82,9 +82,9 @@ def resolve_config_default_model(
     return normalized or None
 
 
-def resolve_model_aliases(*, context: object, value: str) -> str:
-    aliases = get_context_model_aliases(context)
-    return resolve_model_alias(value, aliases)
+def resolve_model_references(*, context: object, value: str) -> str:
+    aliases = get_context_model_references(context)
+    return resolve_model_reference(value, aliases)
 
 
 def initialize_base_default_params(

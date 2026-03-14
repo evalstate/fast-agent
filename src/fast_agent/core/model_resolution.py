@@ -11,22 +11,22 @@ from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.logging.logger import get_logger
 
 HARDCODED_DEFAULT_MODEL = "gpt-5-mini?reasoning=low"
-_MODEL_ALIAS_PATTERN = re.compile(
+_MODEL_REFERENCE_PATTERN = re.compile(
     r"^\$(?P<namespace>[A-Za-z_][A-Za-z0-9_-]*)\.(?P<key>[A-Za-z_][A-Za-z0-9_-]*)$"
 )
 logger = get_logger(__name__)
 
 
 def _is_system_default_alias(value: str | None) -> bool:
-    """Return True when a value is the special ``$system.default`` alias token."""
+    """Return True when a value is the special ``$system.default`` reference token."""
     return value is not None and value.strip() == "$system.default"
 
 
-def parse_model_alias_token(token: str) -> tuple[str, str]:
-    """Parse and validate a model alias token.
+def parse_model_reference_token(token: str) -> tuple[str, str]:
+    """Parse and validate a model reference token.
 
     Args:
-        token: Alias token in ``$<namespace>.<key>`` format.
+        token: Reference token in ``$<namespace>.<key>`` format.
 
     Returns:
         ``(namespace, key)`` tuple.
@@ -35,61 +35,61 @@ def parse_model_alias_token(token: str) -> tuple[str, str]:
         ModelConfigError: If token format is invalid.
     """
     normalized = token.strip()
-    match = _MODEL_ALIAS_PATTERN.fullmatch(normalized)
+    match = _MODEL_REFERENCE_PATTERN.fullmatch(normalized)
     if match is None:
         raise ModelConfigError(
-            f"Invalid model alias '{normalized}'",
-            "Model aliases must be exact tokens in the format '$<namespace>.<key>' "
+            f"Invalid model reference '{normalized}'",
+            "Model references must be exact tokens in the format '$<namespace>.<key>' "
             "(for example '$system.fast').",
         )
     return match.group("namespace"), match.group("key")
 
 
-def resolve_model_alias(
+def resolve_model_reference(
     model: str,
-    aliases: Mapping[str, Mapping[str, str]] | None,
+    references: Mapping[str, Mapping[str, str]] | None,
 ) -> str:
-    """Resolve a model alias token like ``$system.fast`` to its model string.
+    """Resolve a model reference token like ``$system.fast`` to its model string.
 
-    Phase 1 intentionally supports only exact alias tokens. Values may recursively
-    point to other alias tokens and are expanded with cycle protection.
+    Phase 1 intentionally supports only exact reference tokens. Values may recursively
+    point to other reference tokens and are expanded with cycle protection.
     """
     model_spec = model.strip()
     if not model_spec.startswith("$"):
         return model_spec
 
-    return _resolve_alias_recursive(model_spec, aliases, stack=[])
+    return _resolve_reference_recursive(model_spec, references, stack=[])
 
 
-def _resolve_alias_recursive(
+def _resolve_reference_recursive(
     token: str,
-    aliases: Mapping[str, Mapping[str, str]] | None,
+    references: Mapping[str, Mapping[str, str]] | None,
     *,
     stack: list[str],
 ) -> str:
-    namespace, key = parse_model_alias_token(token)
+    namespace, key = parse_model_reference_token(token)
 
-    if aliases is None or len(aliases) == 0:
+    if references is None or len(references) == 0:
         raise ModelConfigError(
-            f"Model alias '{token}' could not be resolved",
-            "No model_aliases are configured. Add a model_aliases section in fastagent.config.yaml.",
+            f"Model reference '{token}' could not be resolved",
+            "No model_references are configured. Add a model_references section in fastagent.config.yaml.",
         )
 
     if token in stack:
         cycle = " -> ".join([*stack, token])
         raise ModelConfigError(
-            "Model alias cycle detected",
-            f"Detected alias cycle: {cycle}",
+            "Model reference cycle detected",
+            f"Detected reference cycle: {cycle}",
         )
 
-    namespace_map = aliases.get(namespace)
+    namespace_map = references.get(namespace)
 
     if namespace_map is None:
-        available_namespaces = ", ".join(sorted(aliases.keys()))
+        available_namespaces = ", ".join(sorted(references.keys()))
         details = f"Unknown namespace '{namespace}'."
         if available_namespaces:
             details += f" Available namespaces: {available_namespaces}."
-        raise ModelConfigError(f"Model alias '{token}' could not be resolved", details)
+        raise ModelConfigError(f"Model reference '{token}' could not be resolved", details)
 
     raw_value = namespace_map.get(key)
     if raw_value is None:
@@ -97,32 +97,32 @@ def _resolve_alias_recursive(
         details = f"Unknown key '{key}' in namespace '{namespace}'."
         if available_keys:
             details += f" Available keys: {available_keys}."
-        raise ModelConfigError(f"Model alias '{token}' could not be resolved", details)
+        raise ModelConfigError(f"Model reference '{token}' could not be resolved", details)
 
     value = raw_value.strip()
     if not value:
         raise ModelConfigError(
-            f"Model alias '{token}' could not be resolved",
-            f"Alias '{namespace}.{key}' maps to an empty value.",
+            f"Model reference '{token}' could not be resolved",
+            f"Reference '{namespace}.{key}' maps to an empty value.",
         )
 
     if not value.startswith("$"):
         return value
 
-    return _resolve_alias_recursive(value, aliases, stack=[*stack, token])
+    return _resolve_reference_recursive(value, references, stack=[*stack, token])
 
 
-def get_context_model_aliases(
+def get_context_model_references(
     context: Any,
 ) -> Mapping[str, Mapping[str, str]] | None:
-    """Return configured model aliases from context, if available."""
+    """Return configured model references from context, if available."""
     if not context:
         return None
     config = getattr(context, "config", None)
     if not config:
         return None
-    model_aliases = getattr(config, "model_aliases", None)
-    return model_aliases if isinstance(model_aliases, Mapping) else None
+    model_references = getattr(config, "model_references", None)
+    return model_references if isinstance(model_references, Mapping) else None
 
 
 def resolve_model_spec(
@@ -134,7 +134,7 @@ def resolve_model_spec(
     env_var: str = "FAST_AGENT_MODEL",
     hardcoded_default: str | None = None,
     fallback_to_hardcoded: bool = True,
-    model_aliases: Mapping[str, Mapping[str, str]] | None = None,
+    model_references: Mapping[str, Mapping[str, str]] | None = None,
 ) -> tuple[str | None, str | None]:
     """
     Resolve the model specification and report the source used.
@@ -183,19 +183,23 @@ def resolve_model_spec(
     if fallback_to_hardcoded:
         _add_candidate(hardcoded_default, "hardcoded default")
 
-    aliases = model_aliases if model_aliases is not None else get_context_model_aliases(context)
+    references = (
+        model_references
+        if model_references is not None
+        else get_context_model_references(context)
+    )
 
     for index, (candidate, source) in enumerate(candidates):
         try:
-            return resolve_model_alias(candidate, aliases), source
+            return resolve_model_reference(candidate, references), source
         except ModelConfigError as exc:
             if not candidate.startswith("$"):
                 raise
 
             fallback_source = next((label for _, label in candidates[index + 1 :]), None)
             logger.warning(
-                "Failed to resolve model alias; trying lower-precedence default",
-                model_alias=candidate,
+                "Failed to resolve model reference; trying lower-precedence default",
+                model_reference=candidate,
                 source=source,
                 fallback_source=fallback_source,
                 error=exc.message,

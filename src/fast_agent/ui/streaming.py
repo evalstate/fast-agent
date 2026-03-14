@@ -40,6 +40,7 @@ PLAIN_STREAM_HEIGHT_FUDGE = 3
 STREAM_BATCH_PERIOD = 1 / 100
 STREAM_BATCH_MAX_DURATION = 1 / 60
 STREAM_CURSOR_BLOCK = "●"
+SCROLL_INDICATOR_DEBOUNCE_SECONDS = 0.2
 
 
 def _resolve_progress_resume_debounce_seconds() -> float:
@@ -161,6 +162,8 @@ class StreamingMessageHandle:
         self._scrolling_started = False
         self._scroll_start_time: float | None = None
         self._display_truncated = False
+        self._scroll_indicator_visible = False
+        self._scroll_indicator_pending_since: float | None = None
         self._header_cache: dict[tuple[int, bool], Text] = {}
         self._next_render_deadline: float | None = None
         try:
@@ -248,13 +251,13 @@ class StreamingMessageHandle:
 
     def _build_header(self) -> Text:
         width = console.console.size.width
-        cache_key = (width, self._display_truncated)
+        cache_key = (width, self._scroll_indicator_visible)
         cached = self._header_cache.get(cache_key)
         if cached is not None:
             return cached
 
         right_content = self._header_right.strip()
-        if self._display_truncated:
+        if self._scroll_indicator_visible:
             indicator = "[black on blue]scrolling[/black on blue]"
             right_content = f"{right_content} {indicator}" if right_content else indicator
 
@@ -342,12 +345,44 @@ class StreamingMessageHandle:
             return f"{text}{closing_fence}\n"
         return f"{text}\n{closing_fence}\n"
 
+    def _set_scroll_indicator_visible(self, visible: bool) -> None:
+        if self._scroll_indicator_visible == visible:
+            return
+        self._scroll_indicator_visible = visible
+        self._header_cache.clear()
+
+    def _reset_scroll_indicator(self) -> None:
+        self._scroll_indicator_pending_since = None
+        self._set_scroll_indicator_visible(False)
+
+    def _update_scroll_status(self, *, is_truncated: bool, now: float) -> None:
+        self._display_truncated = is_truncated
+        if is_truncated and not self._scrolling_started:
+            self._scrolling_started = True
+            self._scroll_start_time = now
+
+        if not is_truncated:
+            self._scroll_indicator_pending_since = None
+            return
+
+        if self._scroll_indicator_visible:
+            return
+
+        if self._scroll_indicator_pending_since is None:
+            self._scroll_indicator_pending_since = now
+            return
+
+        if now - self._scroll_indicator_pending_since >= SCROLL_INDICATOR_DEBOUNCE_SECONDS:
+            self._set_scroll_indicator_visible(True)
+
     def finalize(self, _message: "PromptMessageExtended | str") -> None:
         if not self._active or self._finalized:
             return
 
         # Remove the transient cursor in the final frame before closing Live rendering.
         self._show_stream_cursor = False
+        if not self._preserve_final_frame:
+            self._reset_scroll_indicator()
 
         if self._preserve_final_frame:
             # Avoid carrying the anti-flicker height padding into the persisted
@@ -588,10 +623,8 @@ class StreamingMessageHandle:
         is_truncated = len(window_segments) < len(segments) or (
             bool(window_segments) and bool(segments) and window_segments[0] is not segments[0]
         )
-        self._display_truncated = is_truncated
-        if is_truncated and not self._scrolling_started:
-            self._scrolling_started = True
-            self._scroll_start_time = time.monotonic()
+        now = time.monotonic()
+        self._update_scroll_status(is_truncated=is_truncated, now=now)
         self._segment_assembler.compact(window_segments)
 
         renderables: list[RenderableType] = []
@@ -681,7 +714,6 @@ class StreamingMessageHandle:
         header_with_spacing.append("\n", style="default")
 
         combined = Group(header_with_spacing, content)
-        now = time.monotonic()
         render_interval_ms = (
             (now - self._last_render_time) * 1000 if self._last_render_time else None
         )

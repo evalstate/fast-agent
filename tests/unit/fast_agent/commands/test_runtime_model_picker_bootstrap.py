@@ -87,7 +87,7 @@ def test_resolve_model_without_hardcoded_default_returns_none_without_sources() 
         model, source = _resolve_model_without_hardcoded_default(
             model=None,
             config_default_model=None,
-            model_aliases=None,
+            model_references=None,
         )
     finally:
         if previous is not None:
@@ -103,7 +103,7 @@ def test_resolve_model_without_hardcoded_default_prefers_config_default() -> Non
         model, source = _resolve_model_without_hardcoded_default(
             model=None,
             config_default_model="openai.gpt-4.1-mini",
-            model_aliases=None,
+            model_references=None,
         )
     finally:
         if previous is not None:
@@ -120,7 +120,7 @@ def test_resolve_model_without_hardcoded_default_uses_environment_variable() -> 
         model, source = _resolve_model_without_hardcoded_default(
             model=None,
             config_default_model=None,
-            model_aliases=None,
+            model_references=None,
         )
     finally:
         if previous is not None:

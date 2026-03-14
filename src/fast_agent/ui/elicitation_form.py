@@ -21,7 +21,7 @@ from prompt_toolkit.widgets import (
     Label,
     RadioList,
 )
-from pydantic import AnyUrl, EmailStr
+from pydantic import AnyUrl, EmailStr, TypeAdapter
 from pydantic import ValidationError as PydanticValidationError
 
 from fast_agent.human_input.form_elements import ValidatedCheckboxList
@@ -102,8 +102,38 @@ class SimpleStringValidator(Validator):
 class FormatValidator(Validator):
     """Format-specific validator using Pydantic validators."""
 
+    _EMAIL_ADAPTER = TypeAdapter(EmailStr)
+    _URI_ADAPTER = TypeAdapter(AnyUrl)
+
     def __init__(self, format_type: str):
         self.format_type = format_type
+
+    def _validate_non_empty_text(self, text: str) -> None:
+        if self.format_type == "email":
+            self._EMAIL_ADAPTER.validate_python(text)
+            return
+
+        if self.format_type == "uri":
+            self._URI_ADAPTER.validate_strings(text)
+            return
+
+        if self.format_type == "date":
+            date.fromisoformat(text)
+            return
+
+        if self.format_type == "date-time":
+            datetime.fromisoformat(text.replace("Z", "+00:00"))
+
+    def _validation_error_message(self) -> str:
+        if self.format_type == "email":
+            return "Invalid email format"
+        if self.format_type == "uri":
+            return "Invalid URI format"
+        if self.format_type == "date":
+            return "Invalid date (use YYYY-MM-DD)"
+        if self.format_type == "date-time":
+            return "Invalid datetime (use ISO 8601)"
+        return f"Invalid {self.format_type} format"
 
     def validate(self, document):
         text = document.text.strip()
@@ -111,42 +141,12 @@ class FormatValidator(Validator):
             return  # Empty is OK for optional fields
 
         try:
-            if self.format_type == "email":
-                # Use Pydantic model validation for email
-                from pydantic import BaseModel
-
-                class EmailModel(BaseModel):
-                    email: EmailStr
-
-                EmailModel(email=text)
-            elif self.format_type == "uri":
-                # Use Pydantic model validation for URI
-                from pydantic import BaseModel
-
-                class UriModel(BaseModel):
-                    uri: AnyUrl
-
-                UriModel(uri=text)
-            elif self.format_type == "date":
-                # Validate ISO date format (YYYY-MM-DD)
-                date.fromisoformat(text)
-            elif self.format_type == "date-time":
-                # Validate ISO datetime format
-                datetime.fromisoformat(text.replace("Z", "+00:00"))
+            self._validate_non_empty_text(text)
         except (PydanticValidationError, ValueError):
-            # Extract readable error message
-            if self.format_type == "email":
-                message = "Invalid email format"
-            elif self.format_type == "uri":
-                message = "Invalid URI format"
-            elif self.format_type == "date":
-                message = "Invalid date (use YYYY-MM-DD)"
-            elif self.format_type == "date-time":
-                message = "Invalid datetime (use ISO 8601)"
-            else:
-                message = f"Invalid {self.format_type} format"
-
-            raise ValidationError(message=message, cursor_position=len(text))
+            raise ValidationError(
+                message=self._validation_error_message(),
+                cursor_position=len(text),
+            )
 
 
 class ElicitationForm:
@@ -175,10 +175,7 @@ class ElicitationForm:
         # Build form
         self._build_form()
 
-    def _build_form(self):
-        """Build the form layout."""
-
-        # Fast-agent provided data (Agent and MCP Server) - compact A3-style line
+    def _build_fastagent_header(self) -> Window:
         fastagent_info = FormattedText(
             [
                 ("class:agent-name", self.agent_name),
@@ -187,60 +184,55 @@ class ElicitationForm:
                 ("class:label", ")"),
             ]
         )
-        fastagent_header = Window(FormattedTextControl(fastagent_info), height=1)
+        return Window(FormattedTextControl(fastagent_info), height=1)
 
-        # MCP Server provided message
+    def _build_message_header(self) -> Window:
         mcp_message = FormattedText([("class:message", self.message)])
-        mcp_header = Window(
+        return Window(
             FormattedTextControl(mcp_message),
             height=len(self.message.split("\n")),
         )
 
-        # Create sticky headers (outside scrollable area)
-        sticky_headers = HSplit(
+    def _build_sticky_headers(self) -> HSplit:
+        fastagent_header = self._build_fastagent_header()
+        mcp_header = self._build_message_header()
+        return HSplit(
             [
                 VSplit(
                     [
-                        Window(width=1),  # Left padding
-                        fastagent_header,  # Fast-agent info
-                        Window(width=1),  # Right padding
+                        Window(width=1),
+                        fastagent_header,
+                        Window(width=1),
                     ]
                 ),
                 VSplit(
                     [
-                        Window(width=1),  # Left padding
-                        mcp_header,  # MCP server message
-                        Window(width=1),  # Right padding
+                        Window(width=1),
+                        mcp_header,
+                        Window(width=1),
                     ]
                 ),
             ]
         )
 
-        # Create scrollable form fields (without headers)
-        form_fields = []
-
+    def _build_form_fields(self) -> list[Any]:
+        form_fields: list[Any] = []
         for field_index, (field_name, field_def) in enumerate(self.properties.items()):
             field_widget = self._create_field(field_name, field_def)
             if field_widget:
                 form_fields.append(field_widget)
                 if field_index < len(self.properties) - 1:
-                    form_fields.append(Window(height=1))  # Spacing between fields
+                    form_fields.append(Window(height=1))
+        return form_fields
 
-        # Status line for error display (disabled ValidationToolbar to avoid confusion)
+    def _build_buttons(self) -> tuple[VSplit, Button]:
         self.status_control = FormattedTextControl(text="")
-        self.status_line = Window(
-            self.status_control, height=1
-        )  # Store reference for later clearing
-
-        # Buttons - ensure they accept focus
+        self.status_line = Window(self.status_control, height=1)
         submit_btn = Button("Accept", handler=self._accept)
         cancel_btn = Button("Cancel", handler=self._cancel)
         decline_btn = Button("Decline", handler=self._decline)
         cancel_all_btn = Button("Cancel All", handler=self._cancel_all)
-
-        # Store button references for focus debugging
         self.buttons = [submit_btn, decline_btn, cancel_btn, cancel_all_btn]
-
         buttons = VSplit(
             [
                 submit_btn,
@@ -252,71 +244,92 @@ class ElicitationForm:
                 cancel_all_btn,
             ]
         )
+        return buttons, submit_btn
 
-        # Main scrollable content (form fields and buttons only)
+    def _build_scrollable_content(self, buttons: VSplit) -> ScrollablePane:
+        form_fields = self._build_form_fields()
         form_fields.extend([self.status_line, buttons])
         scrollable_form_content = HSplit(form_fields)
-
-        # Add padding around scrollable content
         padded_scrollable_content = HSplit(
             [
                 VSplit(
                     [
-                        Window(width=1),  # Left padding
+                        Window(width=1),
                         scrollable_form_content,
-                        Window(width=1),  # Right padding
+                        Window(width=1),
                     ]
                 )
             ]
         )
-
-        # Wrap only form fields in ScrollablePane (headers stay fixed)
-        scrollable_content = ScrollablePane(
+        return ScrollablePane(
             content=padded_scrollable_content,
-            show_scrollbar=False,  # Only show when content exceeds available space
-            display_arrows=False,  # Only show when content exceeds available space
+            show_scrollbar=False,
+            display_arrows=False,
             keep_cursor_visible=True,
             keep_focused_window_visible=True,
         )
 
-        # Combine sticky headers and scrollable content (no separate title bar needed)
-        full_content = HSplit(
-            [
-                sticky_headers,  # Headers stay fixed at top
-                Window(height=1),  # Space before form fields
-                scrollable_content,  # Form fields can scroll
-            ]
-        )
-
-        # Choose dialog title: prefer schema.title if provided
+    def _dialog_title(self) -> str:
         dialog_title = self.schema.get("title") if isinstance(self.schema, dict) else None
         if not dialog_title or not isinstance(dialog_title, str):
-            dialog_title = "Elicitation Request"
+            return "Elicitation Request"
+        return dialog_title
 
-        # Create dialog frame with dynamic title
+    def _build_dialog(self, sticky_headers: HSplit, scrollable_content: ScrollablePane) -> VSplit:
+        full_content = HSplit(
+            [
+                sticky_headers,
+                Window(height=1),
+                scrollable_content,
+            ]
+        )
         dialog = Frame(
             body=full_content,
-            title=dialog_title,
+            title=self._dialog_title(),
             style="class:dialog",
         )
+        self._dialog = dialog
+        return VSplit([Window(width=4), dialog, Window(width=4)])
 
-        # Apply width constraints by putting Frame in VSplit with flexible spacers
-        # This prevents console display interference and constrains the Frame border
-        constrained_dialog = VSplit(
+    def _toolbar_text(self) -> FormattedText:
+        if hasattr(self, "_toolbar_hidden") and self._toolbar_hidden:
+            return FormattedText([])
+
+        mode_label = "TEXT MODE" if text_navigation_mode else "FIELD MODE"
+        mode_color = "ansired" if text_navigation_mode else "ansigreen"
+        navigation_tail = (
+            " | <CTRL+T> toggle text mode. <TAB> navigate. <ENTER> insert new line."
+            if text_navigation_mode
+            else (
+                " | <CTRL+T> toggle text mode. "
+                "<TAB>/↑↓→← navigate. <Ctrl+J> insert new line."
+            )
+        )
+        actions_line = (
+            "  <ESC> cancel. <Cancel All> Auto-Cancel further elicitations from this Server."
+            if text_navigation_mode
+            else (
+                "  <ENTER> submit. <ESC> cancel. <Cancel All> Auto-Cancel further "
+                "elicitations from this Server."
+            )
+        )
+        return FormattedText(
             [
-                Window(width=4),  # Smaller left spacer
-                dialog,
-                Window(width=4),  # Smaller right spacer
+                ("class:bottom-toolbar.text", actions_line),
+                ("", "\n"),
+                ("class:bottom-toolbar.text", " | "),
+                (f"fg:{mode_color} bg:ansiblack", f" {mode_label} "),
+                ("class:bottom-toolbar.text", navigation_tail),
             ]
         )
 
-        # Use field navigation mode as default
-        global text_navigation_mode
-        text_navigation_mode = False
+    def _track_multiline_buffer(self, current_buffer: Buffer) -> None:
+        for field_name, widget in self.field_widgets.items():
+            if isinstance(widget, Buffer) and widget == current_buffer:
+                self.multiline_fields.add(field_name)
+                break
 
-        # Key bindings
-        kb = KeyBindings()
-
+    def _add_navigation_key_bindings(self, kb: KeyBindings) -> None:
         @kb.add("tab")
         def focus_next_with_refresh(event):
             focus_next(event)
@@ -325,14 +338,12 @@ class ElicitationForm:
         def focus_previous_with_refresh(event):
             focus_previous(event)
 
-        # Toggle between text navigation mode and field navigation mode
         @kb.add("c-t")
         def toggle_text_navigation_mode(event):
             global text_navigation_mode
             text_navigation_mode = not text_navigation_mode
-            event.app.invalidate()  # Force redraw the app to update toolbar
+            event.app.invalidate()
 
-        # Arrow key navigation - let radio lists handle up/down first
         @kb.add("down", filter=Condition(lambda: not text_navigation_mode))
         def focus_next_arrow(event):
             focus_next(event)
@@ -349,132 +360,81 @@ class ElicitationForm:
         def focus_previous_left(event):
             focus_previous(event)
 
-        # Enter submits in field navigation mode
+    def _add_submission_key_bindings(self, kb: KeyBindings) -> None:
         @kb.add("c-m", filter=Condition(lambda: not text_navigation_mode))
         def submit_enter(event):
             self._accept()
 
-        # Ctrl+J inserts newlines in field navigation mode
         @kb.add("c-j", filter=Condition(lambda: not text_navigation_mode))
         def insert_newline_cj(event):
-            # Insert a newline at the cursor position
             event.current_buffer.insert_text("\n")
-            # Mark this field as multiline when user adds a newline
-            for field_name, widget in self.field_widgets.items():
-                if isinstance(widget, Buffer) and widget == event.current_buffer:
-                    self.multiline_fields.add(field_name)
-                    break
+            self._track_multiline_buffer(event.current_buffer)
 
-        # Enter inserts new lines in text navigation mode
         @kb.add("c-m", filter=Condition(lambda: text_navigation_mode))
         def insert_newline_enter(event):
-            # Insert a newline at the cursor position
             event.current_buffer.insert_text("\n")
-            # Mark this field as multiline when user adds a newline
-            for field_name, widget in self.field_widgets.items():
-                if isinstance(widget, Buffer) and widget == event.current_buffer:
-                    self.multiline_fields.add(field_name)
-                    break
+            self._track_multiline_buffer(event.current_buffer)
 
-        # deactivate ctrl+j in text navigation mode
         @kb.add("c-j", filter=Condition(lambda: text_navigation_mode))
         def _(event):
             pass
 
-        # ESC should ALWAYS cancel immediately, no matter what
         @kb.add("escape", eager=True, is_global=True)
         def cancel(event):
             self._cancel()
 
-        # Create a root layout with the dialog and bottom toolbar
-        def get_toolbar():
-            # When clearing, return empty to hide the toolbar completely
-            if hasattr(self, "_toolbar_hidden") and self._toolbar_hidden:
-                return FormattedText([])
+    def _build_key_bindings(self) -> KeyBindings:
+        global text_navigation_mode
+        text_navigation_mode = False
+        kb = KeyBindings()
+        self._add_navigation_key_bindings(kb)
+        self._add_submission_key_bindings(kb)
+        return kb
 
-            mode_label = "TEXT MODE" if text_navigation_mode else "FIELD MODE"
-            mode_color = "ansired" if text_navigation_mode else "ansigreen"
-
-            arrow_up = "↑"
-            arrow_down = "↓"
-            arrow_left = "←"
-            arrow_right = "→"
-
-            if text_navigation_mode:
-                actions_line = "  <ESC> cancel. <Cancel All> Auto-Cancel further elicitations from this Server."
-                navigation_tail = (
-                    " | <CTRL+T> toggle text mode. <TAB> navigate. <ENTER> insert new line."
-                )
-            else:
-                actions_line = (
-                    "  <ENTER> submit. <ESC> cancel. <Cancel All> Auto-Cancel further elicitations "
-                    "from this Server."
-                )
-                navigation_tail = (
-                    " | <CTRL+T> toggle text mode. "
-                    f"<TAB>/{arrow_up}{arrow_down}{arrow_right}{arrow_left} navigate. "
-                    "<Ctrl+J> insert new line."
-                )
-
-            formatted_segments = [
-                ("class:bottom-toolbar.text", actions_line),
-                ("", "\n"),
-                ("class:bottom-toolbar.text", " | "),
-                (f"fg:{mode_color} bg:ansiblack", f" {mode_label} "),
-                ("class:bottom-toolbar.text", navigation_tail),
-            ]
-            return FormattedText(formatted_segments)
-
-        # Store toolbar function reference for later control
-        self._get_toolbar = get_toolbar
-        self._dialog = dialog
-
-        # Create toolbar window that we can reference later
+    def _build_root_layout(self, constrained_dialog: VSplit) -> HSplit:
+        self._get_toolbar = self._toolbar_text
         self._toolbar_window = Window(
-            FormattedTextControl(get_toolbar), height=2, style="class:bottom-toolbar"
+            FormattedTextControl(self._toolbar_text),
+            height=2,
+            style="class:bottom-toolbar",
         )
-
-        # Add toolbar to the layout
-        root_layout = HSplit(
-            [
-                constrained_dialog,  # The width-constrained dialog
-                self._toolbar_window,
-            ]
-        )
+        root_layout = HSplit([constrained_dialog, self._toolbar_window])
         self._root_layout = root_layout
+        return root_layout
 
-        # Application with toolbar and validation - ensure our styles override defaults
+    def _set_initial_focus(self, submit_btn: Button) -> None:
+        try:
+            first_field = None
+            for field_name in self.properties.keys():
+                widget = self.field_widgets.get(field_name)
+                if widget:
+                    first_field = widget
+                    break
+
+            if first_field:
+                self.app.layout.focus(first_field)
+            else:
+                self.app.layout.focus(submit_btn)
+        except Exception:
+            pass
+
+    def _build_form(self):
+        """Build the form layout."""
+        sticky_headers = self._build_sticky_headers()
+        buttons, submit_btn = self._build_buttons()
+        scrollable_content = self._build_scrollable_content(buttons)
+        constrained_dialog = self._build_dialog(sticky_headers, scrollable_content)
+        root_layout = self._build_root_layout(constrained_dialog)
         self.app = Application(
             layout=Layout(root_layout),
-            key_bindings=kb,
-            full_screen=False,  # Back to windowed mode for better integration
+            key_bindings=self._build_key_bindings(),
+            full_screen=False,
             mouse_support=False,
             style=ELICITATION_STYLE,
-            include_default_pygments_style=False,  # Use only our custom style
+            include_default_pygments_style=False,
         )
-
-        # Set initial focus to first form field
-        def set_initial_focus():
-            try:
-                # Find first form field to focus on
-                first_field = None
-                for field_name in self.properties.keys():
-                    widget = self.field_widgets.get(field_name)
-                    if widget:
-                        first_field = widget
-                        break
-
-                if first_field:
-                    self.app.layout.focus(first_field)
-                else:
-                    # Fallback to first button if no fields
-                    self.app.layout.focus(submit_btn)
-            except Exception:
-                pass  # If focus fails, continue without it
-
-        # Schedule focus setting for after layout is ready
-        self.app.invalidate()  # Ensure layout is built
-        set_initial_focus()
+        self.app.invalidate()
+        self._set_initial_focus(submit_btn)
 
     def _extract_enum_schema_options(self, schema_def: dict[str, Any]) -> list[Tuple[str, str]]:
         """Extract options from oneOf/anyOf/enum schema patterns.
@@ -534,85 +494,84 @@ class ElicitationForm:
 
         return constraints
 
-    def _create_field(self, field_name: str, field_def: dict[str, Any]):
-        """Create a field widget."""
+    def _field_type_hint(self, field_type: str, field_def: dict[str, Any]) -> str | None:
+        if field_type != "string":
+            return None
 
-        field_type = field_def.get("type", "string")
+        constraints = self._extract_string_constraints(field_def)
+        if constraints.get("pattern"):
+            return f"Pattern ({constraints['pattern']})"
+
+        format_type = field_def.get("format")
+        if not format_type:
+            return None
+
+        format_info = {
+            "email": ("Email", "user@example.com"),
+            "uri": ("URI", "https://example.com"),
+            "date": ("Date", "YYYY-MM-DD"),
+            "date-time": ("Date Time", "YYYY-MM-DD HH:MM:SS"),
+        }
+        if format_type in format_info:
+            friendly_name, example = format_info[format_type]
+            return f"{friendly_name} ({example})"
+        return str(format_type)
+
+    def _array_field_hints(self, field_def: dict[str, Any]) -> list[str]:
+        hints: list[str] = []
+        min_items = field_def.get("minItems")
+        max_items = field_def.get("maxItems")
+        if min_items is not None and max_items is not None:
+            if min_items == max_items:
+                hints.append(f"select exactly {min_items}")
+            else:
+                hints.append(f"select {min_items}-{max_items}")
+        elif min_items is not None:
+            hints.append(f"select at least {min_items}")
+        elif max_items is not None:
+            hints.append(f"select up to {max_items}")
+        return hints
+
+    def _string_field_hints(self, field_def: dict[str, Any]) -> list[str]:
+        hints: list[str] = []
+        constraints = self._extract_string_constraints(field_def)
+        if constraints.get("minLength"):
+            hints.append(f"min {constraints['minLength']} chars")
+        if constraints.get("maxLength"):
+            hints.append(f"max {constraints['maxLength']} chars")
+        return hints
+
+    def _number_field_hints(self, field_def: dict[str, Any]) -> list[str]:
+        hints: list[str] = []
+        if field_def.get("minimum") is not None:
+            hints.append(f"min {field_def['minimum']}")
+        if field_def.get("maximum") is not None:
+            hints.append(f"max {field_def['maximum']}")
+        return hints
+
+    def _field_hints(self, field_type: str, field_def: dict[str, Any]) -> list[str]:
+        if field_type == "array" and "items" in field_def:
+            return self._array_field_hints(field_def)
+        if field_type == "string":
+            return self._string_field_hints(field_def)
+        if field_type in {"number", "integer"}:
+            return self._number_field_hints(field_def)
+        return []
+
+    def _build_field_label(self, field_name: str, field_type: str, field_def: dict[str, Any]) -> Label:
         title = field_def.get("title", field_name)
         description = field_def.get("description", "")
-        is_required = field_name in self.required_fields
-
-        # Build label with validation hints
-        label_text = title
-        if is_required:
-            label_text += " *"
+        label_text = title + (" *" if field_name in self.required_fields else "")
         if description:
             label_text += f" - {description}"
 
-        # Add validation hints (simple ones stay on same line)
-        hints = []
-        format_hint = None
-
-        # Check if this is an array type with enum/oneOf/anyOf items
-        if field_type == "array" and "items" in field_def:
-            items_def = field_def["items"]
-
-            # Add minItems/maxItems hints
-            min_items = field_def.get("minItems")
-            max_items = field_def.get("maxItems")
-
-            if min_items is not None and max_items is not None:
-                if min_items == max_items:
-                    hints.append(f"select exactly {min_items}")
-                else:
-                    hints.append(f"select {min_items}-{max_items}")
-            elif min_items is not None:
-                hints.append(f"select at least {min_items}")
-            elif max_items is not None:
-                hints.append(f"select up to {max_items}")
-
-        if field_type == "string":
-            constraints = self._extract_string_constraints(field_def)
-            if constraints.get("minLength"):
-                hints.append(f"min {constraints['minLength']} chars")
-            if constraints.get("maxLength"):
-                hints.append(f"max {constraints['maxLength']} chars")
-
-            if constraints.get("pattern"):
-                # TODO: Wrap or truncate line if too long
-                format_hint = f"Pattern ({constraints['pattern']})"
-
-            # Handle format hints separately (these go on next line)
-            format_type = field_def.get("format")
-            if format_type:
-                format_info = {
-                    "email": ("Email", "user@example.com"),
-                    "uri": ("URI", "https://example.com"),
-                    "date": ("Date", "YYYY-MM-DD"),
-                    "date-time": ("Date Time", "YYYY-MM-DD HH:MM:SS"),
-                }
-                if format_type in format_info:
-                    friendly_name, example = format_info[format_type]
-                    format_hint = f"{friendly_name} ({example})"
-                else:
-                    format_hint = format_type
-
-        elif field_type in ["number", "integer"]:
-            if field_def.get("minimum") is not None:
-                hints.append(f"min {field_def['minimum']}")
-            if field_def.get("maximum") is not None:
-                hints.append(f"max {field_def['maximum']}")
-        elif field_type == "string" and "enum" in field_def:
-            enum_names = field_def.get("enumNames", field_def["enum"])
-            hints.append(f"choose from: {', '.join(enum_names)}")
-
-        # Add simple hints to main label line
+        hints = self._field_hints(field_type, field_def)
         if hints:
             label_text += f" ({', '.join(hints)})"
 
-        # Create multiline label if we have format hints
+        format_hint = self._field_type_hint(field_type, field_def)
         if format_hint:
-            label = Label(
+            return Label(
                 text=FormattedText(
                     [
                         ("class:field-label", label_text),
@@ -621,256 +580,253 @@ class ElicitationForm:
                     ]
                 )
             )
-        else:
-            label = Label(text=FormattedText([("class:field-label", label_text)]))
+        return Label(text=FormattedText([("class:field-label", label_text)]))
 
-        # Create input widget based on type
+    def _build_boolean_field(self, field_name: str, label: Label, field_def: dict[str, Any]) -> HSplit:
+        checkbox = Checkbox(text="Yes")
+        checkbox.checked = field_def.get("default", False)
+        self.field_widgets[field_name] = checkbox
+        return HSplit([label, Frame(checkbox)])
+
+    def _build_enum_radio_field(
+        self,
+        field_name: str,
+        label: Label,
+        values: list[Tuple[str, str]],
+        *,
+        default_value: Any = None,
+    ) -> HSplit:
+        radio_list = RadioList(values=values, default=default_value)
+        self.field_widgets[field_name] = radio_list
+        return HSplit([label, Frame(radio_list, height=min(len(values) + 2, 6))])
+
+    def _build_array_field(
+        self,
+        field_name: str,
+        label: Label,
+        field_def: dict[str, Any],
+    ) -> HSplit | None:
+        items_def = field_def["items"]
+        values = self._extract_enum_schema_options(items_def)
+        if not values:
+            return None
+
+        checkbox_list = ValidatedCheckboxList(
+            values=values,
+            default_values=field_def.get("default", []),
+            min_items=field_def.get("minItems"),
+            max_items=field_def.get("maxItems"),
+        )
+        self.field_widgets[field_name] = checkbox_list
+        return HSplit([label, Frame(checkbox_list, height=min(len(values) + 2, 8))])
+
+    def _input_validator(self, field_type: str, field_def: dict[str, Any]) -> Validator | None:
+        if field_type in {"number", "integer"}:
+            return SimpleNumberValidator(
+                field_type=field_type,
+                minimum=field_def.get("minimum"),
+                maximum=field_def.get("maximum"),
+            )
+        if field_type != "string":
+            return None
+
+        constraints = self._extract_string_constraints(field_def)
+        format_type = field_def.get("format")
+        if format_type in ["email", "uri", "date", "date-time"]:
+            return FormatValidator(format_type)
+        return SimpleStringValidator(
+            min_length=constraints.get("minLength"),
+            max_length=constraints.get("maxLength"),
+            pattern=constraints.get("pattern"),
+        )
+
+    def _multiline_config(self, field_name: str, field_type: str, field_def: dict[str, Any]) -> tuple[bool, int]:
+        default_value = field_def.get("default")
+        if field_type == "string" and default_value is not None and "\n" in str(default_value):
+            self.multiline_fields.add(field_name)
+            return True, str(default_value).count("\n") + 1
+
+        max_length = None
+        if field_type == "string":
+            constraints = self._extract_string_constraints(field_def)
+            max_length = constraints.get("maxLength")
+            if not max_length and default_value is not None:
+                max_length = len(str(default_value))
+
+        if max_length and max_length > 100:
+            self.multiline_fields.add(field_name)
+            return True, 3 if max_length <= 300 else 5
+
+        return False, 1
+
+    def _build_text_input_field(
+        self,
+        field_name: str,
+        label: Label,
+        field_type: str,
+        field_def: dict[str, Any],
+    ) -> HSplit:
+        validator = self._input_validator(field_type, field_def)
+        multiline, initial_height = self._multiline_config(field_name, field_type, field_def)
+        buffer = Buffer(
+            validator=validator,
+            multiline=multiline,
+            validate_while_typing=True,
+            complete_while_typing=False,
+            enable_history_search=False,
+        )
+        default_value = field_def.get("default")
+        if default_value is not None:
+            buffer.text = str(default_value)
+        self.field_widgets[field_name] = buffer
+        text_input = Window(
+            BufferControl(buffer=buffer),
+            height=lambda: self._field_display_height(buffer, initial_height),
+            style=lambda: self._field_style(buffer),
+            wrap_lines=multiline,
+            char=" ",
+        )
+        input_with_prefix = VSplit(
+            [
+                Window(width=1, char="▎", style="class:prefix"),
+                Window(width=1),
+                text_input,
+            ]
+        )
+        return HSplit([label, input_with_prefix])
+
+    def _field_style(self, buffer: Buffer) -> str:
+        from prompt_toolkit.application.current import get_app
+
+        if buffer.validation_error:
+            return "class:input-field.error"
+        if get_app().layout.has_focus(buffer):
+            return "class:input-field.focused"
+        return "class:input-field"
+
+    def _field_display_height(self, buffer: Buffer, initial_height: int) -> int:
+        if not buffer.text:
+            return initial_height
+        line_count = buffer.text.count("\n") + 1
+        return min(max(line_count, initial_height), 20)
+
+    def _create_field(self, field_name: str, field_def: dict[str, Any]):
+        """Create a field widget."""
+        field_type = field_def.get("type", "string")
+        label = self._build_field_label(field_name, field_type, field_def)
         if field_type == "boolean":
-            default = field_def.get("default", False)
-            checkbox = Checkbox(text="Yes")
-            checkbox.checked = default
-            self.field_widgets[field_name] = checkbox
-
-            return HSplit([label, Frame(checkbox)])
-
-        elif field_type == "string" and "enum" in field_def:
-            # Leaving this here for existing enum schema
+            return self._build_boolean_field(field_name, label, field_def)
+        if field_type == "string" and "enum" in field_def:
             enum_values = field_def["enum"]
             enum_names = field_def.get("enumNames", enum_values)
             values = [(val, name) for val, name in zip(enum_values, enum_names)]
-
-            default_value = field_def.get("default")
-            radio_list = RadioList(values=values, default=default_value)
-            self.field_widgets[field_name] = radio_list
-
-            return HSplit([label, Frame(radio_list, height=min(len(values) + 2, 6))])
-
-        elif field_type == "string" and "oneOf" in field_def:
-            # Handle oneOf pattern for single selection enums
+            return self._build_enum_radio_field(
+                field_name,
+                label,
+                values,
+                default_value=field_def.get("default"),
+            )
+        if field_type == "string" and "oneOf" in field_def:
             values = self._extract_enum_schema_options(field_def)
             if values:
-                default_value = field_def.get("default")
-                radio_list = RadioList(values=values, default=default_value)
-                self.field_widgets[field_name] = radio_list
-                return HSplit([label, Frame(radio_list, height=min(len(values) + 2, 6))])
-
-        elif field_type == "array" and "items" in field_def:
-            # Handle array types with enum/oneOf/anyOf items
-            items_def = field_def["items"]
-            values = self._extract_enum_schema_options(items_def)
-            if values:
-                # Create checkbox list for multi-selection
-                min_items = field_def.get("minItems")
-                max_items = field_def.get("maxItems")
-                default_values = field_def.get("default", [])
-
-                checkbox_list = ValidatedCheckboxList(
-                    values=values,
-                    default_values=default_values,
-                    min_items=min_items,
-                    max_items=max_items,
+                return self._build_enum_radio_field(
+                    field_name,
+                    label,
+                    values,
+                    default_value=field_def.get("default"),
                 )
+        if field_type == "array" and "items" in field_def:
+            return self._build_array_field(field_name, label, field_def)
+        return self._build_text_input_field(field_name, label, field_type, field_def)
 
-                # Store the widget directly (consistent with other widgets)
-                self.field_widgets[field_name] = checkbox_list
+    def _validation_error_for_widget(
+        self,
+        field_name: str,
+        field_def: dict[str, Any],
+        widget: Any,
+    ) -> str | None:
+        title = field_def.get("title", field_name)
+        if isinstance(widget, Buffer) and widget.validation_error:
+            return f"'{title}': {widget.validation_error.message}"
+        if isinstance(widget, ValidatedCheckboxList) and widget.validation_error:
+            return f"'{title}': {widget.validation_error.message}"
+        return None
 
-                # Create scrollable frame if many options
-                height = min(len(values) + 2, 8)
-                return HSplit([label, Frame(checkbox_list, height=height)])
-
-        else:
-            # Text/number input
-            validator: Validator | None = None
-
-            if field_type in ["number", "integer"]:
-                validator = SimpleNumberValidator(
-                    field_type=field_type,
-                    minimum=field_def.get("minimum"),
-                    maximum=field_def.get("maximum"),
-                )
-            elif field_type == "string":
-                constraints = self._extract_string_constraints(field_def)
-                format_type = field_def.get("format")
-
-                if format_type in ["email", "uri", "date", "date-time"]:
-                    # Use format validator for specific formats
-                    validator = FormatValidator(format_type)
-                else:
-                    # Use string length validator for regular strings
-                    validator = SimpleStringValidator(
-                        min_length=constraints.get("minLength"),
-                        max_length=constraints.get("maxLength"),
-                        pattern=constraints.get("pattern"),
-                    )
-            else:
-                constraints = {}
-
-            default_value = field_def.get("default")
-
-            # Determine if field should be multiline based on max_length or default value length
-            if field_type == "string":
-                max_length = constraints.get("maxLength")
-                # Check default value length if maxLength not specified
-                if not max_length and default_value is not None:
-                    max_length = len(str(default_value))
-            else:
-                max_length = None
-
-            # Check if default value contains newlines
-            if field_type == "string" and default_value is not None and "\n" in str(default_value):
-                multiline = True
-                self.multiline_fields.add(field_name)  # Track multiline fields
-                # Set height to actual line count for fields with newlines in default
-                initial_height = str(default_value).count("\n") + 1
-            elif max_length and max_length > 100:
-                # Use multiline for longer fields
-                multiline = True
-                self.multiline_fields.add(field_name)  # Track multiline fields
-                if max_length <= 300:
-                    initial_height = 3
-                else:
-                    initial_height = 5
-            else:
-                # Single line for shorter fields
-                multiline = False
-                initial_height = 1
-
-            buffer = Buffer(
-                validator=validator,
-                multiline=multiline,
-                validate_while_typing=True,  # Enable real-time validation
-                complete_while_typing=False,  # Disable completion for cleaner experience
-                enable_history_search=False,  # Disable history for cleaner experience
-            )
-            if default_value is not None:
-                buffer.text = str(default_value)
-            self.field_widgets[field_name] = buffer
-
-            # Create dynamic style function for focus highlighting and validation errors
-            def get_field_style():
-                """Dynamic style that changes based on focus and validation state."""
-                from prompt_toolkit.application.current import get_app
-
-                # Check if buffer has validation errors
-                if buffer.validation_error:
-                    return "class:input-field.error"
-                elif get_app().layout.has_focus(buffer):
-                    return "class:input-field.focused"
-                else:
-                    return "class:input-field"
-
-            # Create a dynamic height function based on content
-            def get_dynamic_height():
-                if not buffer.text:
-                    return initial_height
-                # Calculate height based on number of newlines in buffer
-                line_count = buffer.text.count("\n") + 1
-                # Use initial height as minimum, grow up to 20 lines
-                return min(max(line_count, initial_height), 20)
-
-            text_input = Window(
-                BufferControl(buffer=buffer),
-                height=get_dynamic_height,  # Use dynamic height function
-                style=get_field_style,  # Use dynamic style function
-                wrap_lines=True if multiline else False,  # Enable word wrap for multiline
-                char=" ",  # Fill background so the style spans the field width
-            )
-            input_with_prefix = VSplit(
-                [
-                    Window(width=1, char="▎", style="class:prefix"),
-                    Window(width=1),
-                    text_input,
-                ]
-            )
-
-            return HSplit([label, input_with_prefix])
+    def _required_widget_missing(self, field_name: str, widget: Any) -> bool:
+        if isinstance(widget, Buffer):
+            return not widget.text.strip()
+        if isinstance(widget, RadioList):
+            return widget.current_value is None
+        if isinstance(widget, ValidatedCheckboxList):
+            return not widget.current_values
+        return False
 
     def _validate_form(self) -> tuple[bool, str | None]:
         """Validate the entire form."""
-
-        # First, check all fields for validation errors from their validators
         for field_name, field_def in self.properties.items():
             widget = self.field_widgets.get(field_name)
             if widget is None:
                 continue
+            error = self._validation_error_for_widget(field_name, field_def, widget)
+            if error is not None:
+                return False, error
 
-            # Check for validation errors from validators
-            if isinstance(widget, Buffer):
-                if widget.validation_error:
-                    title = field_def.get("title", field_name)
-                    return False, f"'{title}': {widget.validation_error.message}"
-            elif isinstance(widget, ValidatedCheckboxList):
-                if widget.validation_error:
-                    title = field_def.get("title", field_name)
-                    return False, f"'{title}': {widget.validation_error.message}"
-
-        # Then check if required fields are empty
         for field_name in self.required_fields:
             widget = self.field_widgets.get(field_name)
             if widget is None:
                 continue
-
-            # Check if required field has value
-            if isinstance(widget, Buffer):
-                if not widget.text.strip():
-                    title = self.properties[field_name].get("title", field_name)
-                    return False, f"'{title}' is required"
-            elif isinstance(widget, RadioList):
-                if widget.current_value is None:
-                    title = self.properties[field_name].get("title", field_name)
-                    return False, f"'{title}' is required"
-            elif isinstance(widget, ValidatedCheckboxList):
-                if not widget.current_values:
-                    title = self.properties[field_name].get("title", field_name)
-                    return False, f"'{title}' is required"
+            if self._required_widget_missing(field_name, widget):
+                title = self.properties[field_name].get("title", field_name)
+                return False, f"'{title}' is required"
 
         return True, None
+
+    def _buffer_field_value(self, field_name: str, field_type: str, widget: Buffer) -> Any | None:
+        value = widget.text.strip()
+        if not value:
+            if field_name in self.required_fields:
+                return ""
+            return None
+        if field_type == "integer":
+            try:
+                return int(value)
+            except ValueError as exc:
+                raise ValueError(f"Invalid integer value for {field_name}: {value}") from exc
+        if field_type == "number":
+            try:
+                return float(value)
+            except ValueError as exc:
+                raise ValueError(f"Invalid number value for {field_name}: {value}") from exc
+        return value
+
+    def _widget_field_value(self, field_name: str, field_def: dict[str, Any], widget: Any) -> Any:
+        field_type = field_def.get("type", "string")
+        if isinstance(widget, Buffer):
+            return self._buffer_field_value(field_name, field_type, widget)
+        if isinstance(widget, Checkbox):
+            return widget.checked
+        if isinstance(widget, RadioList):
+            return widget.current_value
+        if isinstance(widget, ValidatedCheckboxList):
+            selected_values = widget.current_values
+            if selected_values:
+                return list(selected_values)
+            if field_name not in self.required_fields:
+                return []
+            return None
+        return None
 
     def _get_form_data(self) -> dict[str, Any]:
         """Extract data from form fields."""
         data: dict[str, Any] = {}
-
         for field_name, field_def in self.properties.items():
             widget = self.field_widgets.get(field_name)
             if widget is None:
                 continue
-
-            field_type = field_def.get("type", "string")
-
-            if isinstance(widget, Buffer):
-                value = widget.text.strip()
-                if value:
-                    if field_type == "integer":
-                        try:
-                            data[field_name] = int(value)
-                        except ValueError:
-                            # This should not happen due to validation, but be safe
-                            raise ValueError(f"Invalid integer value for {field_name}: {value}")
-                    elif field_type == "number":
-                        try:
-                            data[field_name] = float(value)
-                        except ValueError:
-                            # This should not happen due to validation, but be safe
-                            raise ValueError(f"Invalid number value for {field_name}: {value}")
-                    else:
-                        data[field_name] = value
-                elif field_name not in self.required_fields:
-                    continue
-
-            elif isinstance(widget, Checkbox):
-                data[field_name] = widget.checked
-
-            elif isinstance(widget, RadioList):
-                if widget.current_value is not None:
-                    data[field_name] = widget.current_value
-
-            elif isinstance(widget, ValidatedCheckboxList):
-                selected_values = widget.current_values
-                if selected_values:
-                    data[field_name] = list(selected_values)
-                elif field_name not in self.required_fields:
-                    data[field_name] = []
-
+            value = self._widget_field_value(field_name, field_def, widget)
+            if value is None and field_name not in self.required_fields:
+                continue
+            data[field_name] = value
         return data
 
     def _accept(self):

@@ -26,14 +26,15 @@ def parse_current_agent_history_intent(remainder: str) -> HistoryActionIntent:
 
     try:
         tokens = shlex.split(stripped)
+        argument = " ".join(tokens[1:]).strip() or None
     except ValueError:
         tokens = stripped.split(maxsplit=1)
+        argument = stripped[len(tokens[0]) :].strip() or None if tokens else None
 
     if not tokens:
         return HistoryActionIntent(action="overview")
 
     subcmd = tokens[0].lower()
-    argument = stripped[len(tokens[0]) :].strip() or None
 
     simple_actions: dict[str, HistoryAction] = {
         "list": "overview",

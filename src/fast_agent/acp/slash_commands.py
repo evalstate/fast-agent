@@ -415,7 +415,7 @@ class SlashCommandHandler:
             [
                 "switch [<model>]",
                 "doctor",
-                "aliases [list|set|unset]",
+                "references [list|set|unset]",
                 "catalog <provider> [--all]",
             ]
         )

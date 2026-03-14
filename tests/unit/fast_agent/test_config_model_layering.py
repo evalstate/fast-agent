@@ -24,7 +24,7 @@ def test_get_settings_layers_model_settings_project_then_env(tmp_path: Path) -> 
         workspace / "fastagent.config.yaml",
         {
             "default_model": "project-default",
-            "model_aliases": {
+            "model_references": {
                 "system": {
                     "fast": "project-fast",
                     "code": "project-code",
@@ -39,7 +39,7 @@ def test_get_settings_layers_model_settings_project_then_env(tmp_path: Path) -> 
         env_dir / "fastagent.config.yaml",
         {
             "default_model": "env-default",
-            "model_aliases": {
+            "model_references": {
                 "system": {
                     "fast": "env-fast",
                 },
@@ -61,10 +61,10 @@ def test_get_settings_layers_model_settings_project_then_env(tmp_path: Path) -> 
         settings = get_settings()
 
         assert settings.default_model == "env-default"
-        assert settings.model_aliases["system"]["fast"] == "env-fast"
-        assert settings.model_aliases["system"]["code"] == "project-code"
-        assert settings.model_aliases["project"]["only"] == "project-only"
-        assert settings.model_aliases["env"]["only"] == "env-only"
+        assert settings.model_references["system"]["fast"] == "env-fast"
+        assert settings.model_references["system"]["code"] == "project-code"
+        assert settings.model_references["project"]["only"] == "project-only"
+        assert settings.model_references["env"]["only"] == "env-only"
     finally:
         os.chdir(previous_cwd)
         config_module._settings = previous_settings
@@ -83,7 +83,7 @@ def test_get_settings_keeps_secrets_last_for_model_settings(tmp_path: Path) -> N
         workspace / "fastagent.config.yaml",
         {
             "default_model": "project-default",
-            "model_aliases": {
+            "model_references": {
                 "system": {
                     "fast": "project-fast",
                 }
@@ -94,7 +94,7 @@ def test_get_settings_keeps_secrets_last_for_model_settings(tmp_path: Path) -> N
         env_dir / "fastagent.config.yaml",
         {
             "default_model": "env-default",
-            "model_aliases": {
+            "model_references": {
                 "system": {
                     "fast": "env-fast",
                 }
@@ -105,7 +105,7 @@ def test_get_settings_keeps_secrets_last_for_model_settings(tmp_path: Path) -> N
         env_dir / "fastagent.secrets.yaml",
         {
             "default_model": "secret-default",
-            "model_aliases": {
+            "model_references": {
                 "system": {
                     "fast": "secret-fast",
                 }
@@ -124,7 +124,7 @@ def test_get_settings_keeps_secrets_last_for_model_settings(tmp_path: Path) -> N
         settings = get_settings()
 
         assert settings.default_model == "secret-default"
-        assert settings.model_aliases["system"]["fast"] == "secret-fast"
+        assert settings.model_references["system"]["fast"] == "secret-fast"
     finally:
         os.chdir(previous_cwd)
         config_module._settings = previous_settings

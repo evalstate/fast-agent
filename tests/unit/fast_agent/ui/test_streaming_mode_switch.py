@@ -237,6 +237,49 @@ def test_preserve_final_frame_finalize_disables_padding(monkeypatch) -> None:
     assert captured == [(0, 0)]
 
 
+def test_scrolling_indicator_is_debounced_and_sticky() -> None:
+    handle = _make_handle("markdown")
+
+    handle._update_scroll_status(is_truncated=True, now=0.0)
+    assert handle._scrolling_started is True
+    assert handle._scroll_indicator_visible is False
+    assert "scrolling" not in handle._build_header().plain
+
+    handle._update_scroll_status(is_truncated=False, now=0.05)
+    assert handle._scroll_indicator_visible is False
+
+    handle._update_scroll_status(is_truncated=True, now=0.1)
+    handle._update_scroll_status(
+        is_truncated=True,
+        now=0.1 + streaming_module.SCROLL_INDICATOR_DEBOUNCE_SECONDS + 0.01,
+    )
+    assert handle._scroll_indicator_visible is True
+    assert "scrolling" in handle._build_header().plain
+
+    handle._update_scroll_status(is_truncated=False, now=1.0)
+    assert handle._scroll_indicator_visible is True
+    assert "scrolling" in handle._build_header().plain
+
+
+def test_finalize_hides_scrolling_indicator_from_last_live_frame(monkeypatch) -> None:
+    handle = _make_handle("markdown")
+    handle._scroll_indicator_visible = True
+    handle._handle_chunk("final response")
+
+    monkeypatch.setattr(handle._segment_assembler, "flush", lambda: False)
+
+    captured: list[bool] = []
+
+    def _capture_render() -> None:
+        captured.append(handle._scroll_indicator_visible)
+
+    monkeypatch.setattr(handle, "_render_current_buffer", _capture_render)
+
+    handle.finalize("final response")
+
+    assert captured == [False]
+
+
 def test_close_incomplete_code_blocks_keeps_closed_fence_with_trailing_text() -> None:
     handle = _make_handle("markdown")
     text = """Here is code:\n```python\nprint(1)\n```\nAnd more text."""

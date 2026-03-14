@@ -29,7 +29,7 @@ from fast_agent.ui.mermaid_utils import (
     extract_mermaid_diagrams,
 )
 from fast_agent.ui.message_primitives import MESSAGE_CONFIGS, MessageType
-from fast_agent.ui.message_styles import MessageStyle, resolve_message_style
+from fast_agent.ui.message_styles import A3MessageStyle
 from fast_agent.ui.model_display import format_model_display
 from fast_agent.ui.shell_output_truncation import format_shell_output_line_count
 from fast_agent.ui.streaming import (
@@ -83,7 +83,7 @@ class ConsoleDisplay:
                 pass
         self._markup = getattr(self._logger_settings, "enable_markup", True)
         self._escape_xml = True
-        self._style = resolve_message_style(getattr(self._logger_settings, "message_style", "a3"))
+        self._style = A3MessageStyle()
         self._tool_display = ToolDisplay(self)
 
     @staticmethod
@@ -123,7 +123,7 @@ class ConsoleDisplay:
         return CODE_STYLE
 
     @property
-    def style(self) -> MessageStyle:
+    def style(self) -> A3MessageStyle:
         return self._style
 
     def show_status_message(self, content: Text) -> None:
@@ -574,11 +574,10 @@ class ConsoleDisplay:
             highlight_index: Optional index of the item to highlight
             max_item_length: Optional maximum length for individual items
         """
-        if self._style.bottom_metadata_requires_highlight:
-            if not bottom_metadata or highlight_index is None:
-                return
-            if highlight_index < 0 or highlight_index >= len(bottom_metadata):
-                return
+        if not bottom_metadata or highlight_index is None:
+            return
+        if highlight_index < 0 or highlight_index >= len(bottom_metadata):
+            return
 
         line = self._style.bottom_metadata_line(
             bottom_metadata,

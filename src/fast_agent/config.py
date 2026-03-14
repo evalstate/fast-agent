@@ -1102,9 +1102,6 @@ class LoggerSettings(BaseModel):
     streaming: Literal["markdown", "plain", "none"] = "markdown"
     """Streaming renderer for assistant responses"""
 
-    message_style: Literal["classic", "a3"] = "a3"
-    """Chat message layout style for console output."""
-
 
 def find_fastagent_config_files(start_path: Path) -> tuple[Path | None, Path | None]:
     """
@@ -1320,7 +1317,7 @@ def load_layered_model_settings(
     """Load layered model settings from project + env config.
 
     Precedence: project config < env config.
-    ``model_aliases`` uses deep-merge semantics, while ``default_model`` uses
+    ``model_references`` uses deep-merge semantics, while ``default_model`` uses
     scalar replacement semantics.
     """
     layered_settings, _ = load_layered_settings(start_path=start_path, env_dir=env_dir)
@@ -1329,8 +1326,8 @@ def load_layered_model_settings(
     if "default_model" in layered_settings:
         layered["default_model"] = layered_settings["default_model"]
 
-    if "model_aliases" in layered_settings:
-        layered["model_aliases"] = layered_settings["model_aliases"]
+    if "model_references" in layered_settings:
+        layered["model_references"] = layered_settings["model_references"]
 
     return layered
 
@@ -1361,12 +1358,12 @@ class Settings(BaseSettings):
     """
     Default model for agents. Format is provider.model_name.<reasoning_effort> or provider.model?reasoning=<value>,
     for example openai.o3-mini.low or openai.o3-mini?reasoning=high.
-    Aliases are provided for common models e.g. sonnet, haiku, gpt-4.1, o3-mini etc.
+    Built-in model presets are provided for common models e.g. sonnet, haiku, gpt-4.1, o3-mini etc.
     If not set, falls back to FAST_AGENT_MODEL env var, then to "gpt-5-mini.low".
     """
 
-    model_aliases: dict[str, dict[str, str]] = Field(default_factory=dict)
-    """Model aliases grouped by namespace (e.g. $system.default)."""
+    model_references: dict[str, dict[str, str]] = Field(default_factory=dict)
+    """Model references grouped by namespace (e.g. $system.default)."""
 
     auto_sampling: bool = True
     """Enable automatic sampling model selection if not explicitly configured"""
@@ -1464,29 +1461,29 @@ class Settings(BaseSettings):
     _config_file: str | None = PrivateAttr(default=None)
     _secrets_file: str | None = PrivateAttr(default=None)
 
-    @field_validator("model_aliases")
+    @field_validator("model_references")
     @classmethod
-    def _validate_model_aliases(
+    def _validate_model_references(
         cls,
         value: dict[str, dict[str, str]],
     ) -> dict[str, dict[str, str]]:
-        """Validate model alias namespace/key names and normalize values."""
+        """Validate model reference namespace/key names and normalize values."""
         valid_name = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
         normalized: dict[str, dict[str, str]] = {}
 
         for namespace, entries in value.items():
             if not valid_name.fullmatch(namespace):
-                raise ValueError("model_aliases namespace names must match [A-Za-z_][A-Za-z0-9_-]*")
+                raise ValueError("model_references namespace names must match [A-Za-z_][A-Za-z0-9_-]*")
 
             normalized_entries: dict[str, str] = {}
             for key, model in entries.items():
                 if not valid_name.fullmatch(key):
-                    raise ValueError("model_aliases keys must match [A-Za-z_][A-Za-z0-9_-]*")
+                    raise ValueError("model_references keys must match [A-Za-z_][A-Za-z0-9_-]*")
 
                 model_value = model.strip()
                 if not model_value:
                     raise ValueError(
-                        f"model_aliases.{namespace}.{key} must be a non-empty model string"
+                        f"model_references.{namespace}.{key} must be a non-empty model string"
                     )
                 normalized_entries[key] = model_value
 

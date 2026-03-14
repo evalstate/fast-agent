@@ -51,6 +51,15 @@ class LoadedAgentIssue:
     message: str
 
 
+@dataclass(frozen=True)
+class _ScannedCardDetails:
+    result: AgentCardScanResult
+    servers: list[str]
+    function_tools: list[str]
+    messages: list[str]
+    shell_cwd: Path | None
+
+
 def collect_agent_card_files(directory: Path) -> list[Path]:
     if not directory.is_dir():
         return []
@@ -130,185 +139,240 @@ def scan_agent_card_path(
     )
 
 
-def _scan_agent_card_files(
-    card_files: list[Path],
-    *,
-    server_names: set[str] | None = None,
-    extra_agent_names: set[str] | None = None,
-) -> list[AgentCardScanResult]:
-    entries: list[AgentCardScanResult] = []
-    name_to_paths: dict[str, list[Path]] = {}
-    for card_path in card_files:
-        errors: list[str] = []
-        if (
-            card_path.suffix.lower() in {".md", ".markdown"}
-            and not _markdown_has_frontmatter(card_path)
-        ):
-            entries.append(
-                AgentCardScanResult(
-                    name=card_path.stem.replace(" ", "_"),
-                    type="ignored",
-                    path=card_path,
-                    errors=[],
-                    dependencies=set(),
-                    ignored_reason="no frontmatter",
-                )
-            )
-            continue
-        try:
-            raw, body = _load_card_raw(card_path)
-        except Exception as exc:  # noqa: BLE001
-            entries.append(
-                AgentCardScanResult(
-                    name="—",
-                    type="unknown",
-                    path=card_path,
-                    errors=[str(exc)],
-                    dependencies=set(),
-                    ignored_reason=None,
-                )
-            )
-            continue
+def _replace_scan_errors(
+    entry: AgentCardScanResult,
+    errors: list[str],
+) -> AgentCardScanResult:
+    return AgentCardScanResult(
+        name=entry.name,
+        type=entry.type,
+        path=entry.path,
+        errors=errors,
+        dependencies=entry.dependencies,
+        ignored_reason=entry.ignored_reason,
+    )
 
-        name = _normalize_card_name(raw.get("name"), card_path, errors)
-        type_key = _normalize_card_type(raw.get("type"), errors)
 
-        schema_version = raw.get("schema_version")
-        if schema_version is not None and not isinstance(schema_version, int):
-            errors.append("'schema_version' must be an integer")
+def _append_scan_error(entry: AgentCardScanResult, error: str) -> AgentCardScanResult:
+    return _replace_scan_errors(entry, entry.errors + [error])
 
-        required_fields = _CARD_REQUIRED_FIELDS.get(type_key, ())
-        for field in required_fields:
-            if raw.get(field) is None:
-                errors.append(f"Missing required field '{field}'")
 
-        servers = _ensure_str_list(raw.get("servers"), "servers", errors)
-        _validate_mcp_connect_entries(raw.get("mcp_connect"), errors)
-        function_tools = _ensure_str_list(raw.get("function_tools"), "function_tools", errors)
-        messages = _ensure_str_list(raw.get("messages"), "messages", errors)
-        _validate_tool_input_schema(raw.get("tool_input_schema"), errors)
-        shell_cwd = _resolve_shell_cwd(raw.get("cwd"), errors)
-        dependencies = _card_dependencies(type_key, raw, errors)
-
-        instruction_texts: list[str] = []
-        raw_instruction = raw.get("instruction")
-        if isinstance(raw_instruction, str) and raw_instruction.strip():
-            instruction_texts.append(raw_instruction)
-        if isinstance(body, str) and body.strip():
-            instruction_texts.append(body)
-
-        for instruction_text in instruction_texts:
-            for file_path_str in _iter_file_placeholders(instruction_text):
-                file_path = Path(file_path_str).expanduser()
-                if file_path.is_absolute():
-                    errors.append(
-                        "Instruction file template paths must be relative "
-                        f"({{{{file:{file_path_str}}}}})"
-                    )
-                    continue
-                resolved_path = (Path.cwd() / file_path).resolve()
-                if not resolved_path.exists():
-                    errors.append(
-                        "Instruction file not found "
-                        f"({{{{file:{file_path_str}}}}} -> {resolved_path})"
-                    )
-
-        entries.append(
-            AgentCardScanResult(
-                name=name,
-                type=type_key,
+def _scan_single_agent_card_file(card_path: Path) -> _ScannedCardDetails:
+    errors: list[str] = []
+    if card_path.suffix.lower() in {".md", ".markdown"} and not _markdown_has_frontmatter(card_path):
+        return _ScannedCardDetails(
+            result=AgentCardScanResult(
+                name=card_path.stem.replace(" ", "_"),
+                type="ignored",
                 path=card_path,
-                errors=errors,
-                dependencies=dependencies,
-                ignored_reason=None,
-            )
+                errors=[],
+                dependencies=set(),
+                ignored_reason="no frontmatter",
+            ),
+            servers=[],
+            function_tools=[],
+            messages=[],
+            shell_cwd=None,
         )
 
-        name_to_paths.setdefault(name, []).append(card_path)
+    try:
+        raw, body = _load_card_raw(card_path)
+    except Exception as exc:  # noqa: BLE001
+        return _ScannedCardDetails(
+            result=AgentCardScanResult(
+                name="—",
+                type="unknown",
+                path=card_path,
+                errors=[str(exc)],
+                dependencies=set(),
+                ignored_reason=None,
+            ),
+            servers=[],
+            function_tools=[],
+            messages=[],
+            shell_cwd=None,
+        )
 
-        if server_names is not None and servers:
-            missing_servers = sorted(s for s in servers if s not in server_names)
-            if missing_servers:
-                errors.append(f"References missing servers: {', '.join(missing_servers)}")
+    name = _normalize_card_name(raw.get("name"), card_path, errors)
+    type_key = _normalize_card_type(raw.get("type"), errors)
 
-        if function_tools:
-            base_path = card_path.parent
-            for spec in function_tools:
-                error = _check_function_tool_spec(spec, base_path)
-                if error:
-                    errors.append(error)
+    schema_version = raw.get("schema_version")
+    if schema_version is not None and not isinstance(schema_version, int):
+        errors.append("'schema_version' must be an integer")
 
-        if messages:
-            _validate_message_files(messages, card_path.parent, errors)
+    required_fields = _CARD_REQUIRED_FIELDS.get(type_key, ())
+    for field in required_fields:
+        if raw.get(field) is None:
+            errors.append(f"Missing required field '{field}'")
 
-        if shell_cwd is not None:
-            _validate_shell_cwd(shell_cwd, errors)
+    servers = _ensure_str_list(raw.get("servers"), "servers", errors)
+    _validate_mcp_connect_entries(raw.get("mcp_connect"), errors)
+    function_tools = _ensure_str_list(raw.get("function_tools"), "function_tools", errors)
+    messages = _ensure_str_list(raw.get("messages"), "messages", errors)
+    _validate_tool_input_schema(raw.get("tool_input_schema"), errors)
+    shell_cwd = _resolve_shell_cwd(raw.get("cwd"), errors)
+    dependencies = _card_dependencies(type_key, raw, errors)
 
-        entries[-1] = AgentCardScanResult(
+    instruction_texts: list[str] = []
+    raw_instruction = raw.get("instruction")
+    if isinstance(raw_instruction, str) and raw_instruction.strip():
+        instruction_texts.append(raw_instruction)
+    if isinstance(body, str) and body.strip():
+        instruction_texts.append(body)
+
+    for instruction_text in instruction_texts:
+        for file_path_str in _iter_file_placeholders(instruction_text):
+            file_path = Path(file_path_str).expanduser()
+            if file_path.is_absolute():
+                errors.append(
+                    "Instruction file template paths must be relative "
+                    f"({{{{file:{file_path_str}}}}})"
+                )
+                continue
+            resolved_path = (Path.cwd() / file_path).resolve()
+            if not resolved_path.exists():
+                errors.append(
+                    "Instruction file not found "
+                    f"({{{{file:{file_path_str}}}}} -> {resolved_path})"
+                )
+
+    return _ScannedCardDetails(
+        result=AgentCardScanResult(
             name=name,
             type=type_key,
             path=card_path,
             errors=errors,
             dependencies=dependencies,
             ignored_reason=None,
-        )
+        ),
+        servers=servers,
+        function_tools=function_tools,
+        messages=messages,
+        shell_cwd=shell_cwd,
+    )
 
+
+def _apply_supplemental_scan_checks(
+    details: _ScannedCardDetails,
+    *,
+    server_names: set[str] | None,
+) -> AgentCardScanResult:
+    entry = details.result
+    errors = list(entry.errors)
+
+    if server_names is not None and details.servers:
+        missing_servers = sorted(server for server in details.servers if server not in server_names)
+        if missing_servers:
+            errors.append(f"References missing servers: {', '.join(missing_servers)}")
+
+    if details.function_tools:
+        base_path = entry.path.parent
+        for spec in details.function_tools:
+            error = _check_function_tool_spec(spec, base_path)
+            if error:
+                errors.append(error)
+
+    if details.messages:
+        _validate_message_files(details.messages, entry.path.parent, errors)
+
+    if details.shell_cwd is not None:
+        _validate_shell_cwd(details.shell_cwd, errors)
+
+    return _replace_scan_errors(entry, errors)
+
+
+def _apply_duplicate_name_errors(entries: list[AgentCardScanResult]) -> list[AgentCardScanResult]:
+    name_to_paths: dict[str, list[Path]] = {}
+    for entry in entries:
+        if entry.name == "—" or entry.ignored_reason is not None:
+            continue
+        name_to_paths.setdefault(entry.name, []).append(entry.path)
+
+    updated_entries = list(entries)
     for name, paths in name_to_paths.items():
         if len(paths) <= 1:
             continue
-        for idx, entry in enumerate(entries):
+        for idx, entry in enumerate(updated_entries):
             if entry.path in paths:
-                entries[idx] = AgentCardScanResult(
-                    name=entry.name,
-                    type=entry.type,
-                    path=entry.path,
-                    errors=entry.errors + [f"Duplicate agent name '{name}'"],
-                    dependencies=entry.dependencies,
-                    ignored_reason=entry.ignored_reason,
+                updated_entries[idx] = _append_scan_error(
+                    entry,
+                    f"Duplicate agent name '{name}'",
                 )
+    return updated_entries
 
+
+def _available_scan_names(
+    entries: list[AgentCardScanResult],
+    extra_agent_names: set[str] | None,
+) -> set[str]:
     available_names = {
-        entry.name
-        for entry in entries
-        if entry.name != "—" and entry.ignored_reason is None
+        entry.name for entry in entries if entry.name != "—" and entry.ignored_reason is None
     }
     if extra_agent_names:
         available_names |= extra_agent_names
-    for idx, entry in enumerate(entries):
+    return available_names
+
+
+def _apply_missing_dependency_errors(
+    entries: list[AgentCardScanResult],
+    *,
+    available_names: set[str],
+) -> list[AgentCardScanResult]:
+    updated_entries = list(entries)
+    for idx, entry in enumerate(updated_entries):
         missing = sorted(dep for dep in entry.dependencies if dep not in available_names)
         if missing:
-            entries[idx] = AgentCardScanResult(
-                name=entry.name,
-                type=entry.type,
-                path=entry.path,
-                errors=entry.errors + [f"References missing agents: {', '.join(missing)}"],
-                dependencies=entry.dependencies,
-                ignored_reason=entry.ignored_reason,
+            updated_entries[idx] = _append_scan_error(
+                entry,
+                f"References missing agents: {', '.join(missing)}",
             )
+    return updated_entries
 
+
+def _apply_cycle_errors(
+    entries: list[AgentCardScanResult],
+    *,
+    available_names: set[str],
+) -> list[AgentCardScanResult]:
     cycle_candidates = sorted(available_names)
-    if cycle_candidates:
-        dependencies = {
-            entry.name: {dep for dep in entry.dependencies if dep in available_names}
-            for entry in entries
-            if entry.name in available_names
-        }
-        cycle = find_dependency_cycle(cycle_candidates, dependencies)
-        if cycle:
-            cycle_message = f"Circular dependency detected: {' -> '.join(cycle)}"
-            cycle_nodes = set(cycle)
-            for idx, entry in enumerate(entries):
-                if entry.name in cycle_nodes:
-                    entries[idx] = AgentCardScanResult(
-                        name=entry.name,
-                        type=entry.type,
-                        path=entry.path,
-                        errors=entry.errors + [cycle_message],
-                        dependencies=entry.dependencies,
-                        ignored_reason=entry.ignored_reason,
-                    )
+    if not cycle_candidates:
+        return entries
 
-    return entries
+    dependencies = {
+        entry.name: {dep for dep in entry.dependencies if dep in available_names}
+        for entry in entries
+        if entry.name in available_names
+    }
+    cycle = find_dependency_cycle(cycle_candidates, dependencies)
+    if not cycle:
+        return entries
+
+    cycle_message = f"Circular dependency detected: {' -> '.join(cycle)}"
+    cycle_nodes = set(cycle)
+    updated_entries = list(entries)
+    for idx, entry in enumerate(updated_entries):
+        if entry.name in cycle_nodes:
+            updated_entries[idx] = _append_scan_error(entry, cycle_message)
+    return updated_entries
+
+
+def _scan_agent_card_files(
+    card_files: list[Path],
+    *,
+    server_names: set[str] | None = None,
+    extra_agent_names: set[str] | None = None,
+) -> list[AgentCardScanResult]:
+    entries = [
+        _apply_supplemental_scan_checks(
+            _scan_single_agent_card_file(card_path),
+            server_names=server_names,
+        )
+        for card_path in card_files
+    ]
+    entries = _apply_duplicate_name_errors(entries)
+    available_names = _available_scan_names(entries, extra_agent_names)
+    entries = _apply_missing_dependency_errors(entries, available_names=available_names)
+    return _apply_cycle_errors(entries, available_names=available_names)
 
 
 def _iter_file_placeholders(text: str) -> Iterable[str]:

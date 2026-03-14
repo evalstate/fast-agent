@@ -539,7 +539,7 @@ def _parse_model_command(cmd_line: str, remainder: str) -> CommandPayload:
     factory = value_command_factories.get(subcmd)
     if factory is not None:
         return factory(value)
-    if subcmd in {"doctor", "aliases", "catalog", "help"}:
+    if subcmd in {"doctor", "references", "catalog", "help"}:
         return ModelsCommand(action=subcmd, argument=value)
     return UnknownCommand(command=cmd_line)
 

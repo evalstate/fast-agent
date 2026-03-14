@@ -358,7 +358,7 @@ async def _run_named_command_call(
 
     if normalized_command == "model":
         selected_action = normalized_action or "reasoning"
-        management_actions = {"doctor", "aliases", "alias", "catalog", "help"}
+        management_actions = {"doctor", "references", "catalog", "help"}
         if selected_action in management_actions:
             outcome = await models_handlers.handle_models_command(
                 context,
@@ -537,7 +537,7 @@ def _mcp_usage_text() -> str:
 def _model_usage_text() -> str:
     return (
         "Usage: /model "
-        "[reasoning|verbosity|fast|web_search|web_fetch|switch|doctor|aliases|catalog|help] [args]"
+        "[reasoning|verbosity|fast|web_search|web_fetch|switch|doctor|references|catalog|help] [args]"
     )
 
 

@@ -71,7 +71,7 @@ async def _handle_model_like(
             elif subcmd == "switch":
                 command_kind = "switch"
                 value = argument or None
-            elif subcmd in {"doctor", "aliases", "catalog", "help"}:
+            elif subcmd in {"doctor", "references", "catalog", "help"}:
                 command_kind = subcmd
                 value = argument or None
             else:
@@ -86,11 +86,11 @@ async def _handle_model_like(
     )
     if command_kind == "doctor":
         return models_manager_handlers.render_models_doctor_markdown(ctx)
-    elif command_kind == "aliases":
+    elif command_kind == "references":
         outcome = await models_manager_handlers.handle_models_command(
             ctx,
             agent_name=handler.current_agent_name,
-            action="aliases",
+            action="references",
             argument=value,
         )
     elif command_kind == "catalog":

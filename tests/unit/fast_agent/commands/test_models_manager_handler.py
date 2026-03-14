@@ -181,7 +181,7 @@ async def test_models_aliases_lists_layered_alias_values(tmp_path: Path) -> None
     _write_yaml(
         workspace / "fastagent.config.yaml",
         {
-            "model_aliases": {
+            "model_references": {
                 "system": {
                     "fast": "project-fast",
                     "code": "project-code",
@@ -192,7 +192,7 @@ async def test_models_aliases_lists_layered_alias_values(tmp_path: Path) -> None
     _write_yaml(
         env_dir / "fastagent.config.yaml",
         {
-            "model_aliases": {
+            "model_references": {
                 "system": {
                     "fast": "env-fast",
                 }
@@ -206,7 +206,7 @@ async def test_models_aliases_lists_layered_alias_values(tmp_path: Path) -> None
         outcome = await models_manager.handle_models_command(
             _context(Settings(environment_dir=str(env_dir))),
             agent_name="main",
-            action="aliases",
+            action="references",
             argument=None,
         )
     finally:
@@ -214,7 +214,7 @@ async def test_models_aliases_lists_layered_alias_values(tmp_path: Path) -> None
 
     assert outcome.messages
     rendered = str(outcome.messages[0].text)
-    assert "▎ model aliases" in rendered
+    assert "▎ model references" in rendered
     assert "▎•" not in rendered
     assert "$system.fast = env-fast" in rendered
     assert "$system.code = project-code" in rendered
@@ -262,7 +262,7 @@ async def test_models_doctor_lists_all_agents_including_tool_only(tmp_path: Path
     _write_yaml(
         env_dir / "fastagent.config.yaml",
         {
-            "model_aliases": {
+            "model_references": {
                 "system": {
                     "fast": "claude-haiku-4-5",
                 }
@@ -338,7 +338,7 @@ async def test_models_doctor_marks_runtime_fallback_when_alias_unresolved(tmp_pa
     assert "Agent summary:" in rendered
     assert "◐" in rendered
     assert "claude-haiku-4-5" in rendered
-    assert "No model_aliases are configured." in rendered
+    assert "No model_references are configured." in rendered
 
 
 @pytest.mark.asyncio
@@ -374,7 +374,7 @@ async def test_models_doctor_dedupes_repeated_alias_missing_note(tmp_path: Path)
 
     assert outcome.messages
     rendered = str(outcome.messages[0].text)
-    expected_note = "No model_aliases are configured. Add a model_aliases section in fastagent.config.yaml."
+    expected_note = "No model_references are configured. Add a model_references section in fastagent.config.yaml."
     assert rendered.count(expected_note) == 1
 
 
@@ -474,7 +474,7 @@ async def test_models_aliases_set_writes_env_target(tmp_path: Path) -> None:
         outcome = await models_manager.handle_models_command(
             _context(Settings(environment_dir=str(env_dir))),
             agent_name="main",
-            action="aliases",
+            action="references",
             argument="set $system.fast claude-haiku-4-5 --target env",
         )
     finally:
@@ -483,13 +483,13 @@ async def test_models_aliases_set_writes_env_target(tmp_path: Path) -> None:
     config_path = env_dir / "fastagent.config.yaml"
     assert config_path.exists()
     saved = _read_yaml(config_path)
-    assert saved["model_aliases"]["system"]["fast"] == "claude-haiku-4-5"
+    assert saved["model_references"]["system"]["fast"] == "claude-haiku-4-5"
 
     rendered = str(outcome.messages[0].text)
-    assert "▎ model aliases set" in rendered
+    assert "▎ model references set" in rendered
     assert "Result: applied" in rendered
     assert f"Target: {config_path}" in rendered
-    assert "model_aliases.system.fast:" in rendered
+    assert "model_references.system.fast:" in rendered
     assert "old: <unset>" in rendered
     assert "new: claude-haiku-4-5" in rendered
 
@@ -502,7 +502,7 @@ async def test_models_aliases_set_uses_model_selector_for_existing_alias(tmp_pat
     _write_yaml(
         env_dir / "fastagent.config.yaml",
         {
-            "model_aliases": {
+            "model_references": {
                 "system": {
                     "fast": "claude-sonnet-4-5",
                 }
@@ -518,18 +518,18 @@ async def test_models_aliases_set_uses_model_selector_for_existing_alias(tmp_pat
         outcome = await models_manager.handle_models_command(
             _context_with_io(Settings(environment_dir=str(env_dir)), io),
             agent_name="main",
-            action="aliases",
+            action="references",
             argument="set $system.fast",
         )
     finally:
         os.chdir(previous_cwd)
 
     saved = _read_yaml(env_dir / "fastagent.config.yaml")
-    assert saved["model_aliases"]["system"]["fast"] == "claude-haiku-4-5"
+    assert saved["model_references"]["system"]["fast"] == "claude-haiku-4-5"
 
     rendered = str(outcome.messages[0].text)
-    assert "▎ model aliases set" in rendered
-    assert "model_aliases.system.fast:" in rendered
+    assert "▎ model references set" in rendered
+    assert "model_references.system.fast:" in rendered
     assert "old: claude-sonnet-4-5" in rendered
     assert "new: claude-haiku-4-5" in rendered
 
@@ -551,18 +551,18 @@ async def test_models_aliases_set_can_create_new_alias_interactively(tmp_path: P
         outcome = await models_manager.handle_models_command(
             _context_with_io(Settings(environment_dir=str(env_dir)), io),
             agent_name="main",
-            action="aliases",
+            action="references",
             argument="set",
         )
     finally:
         os.chdir(previous_cwd)
 
     saved = _read_yaml(env_dir / "fastagent.config.yaml")
-    assert saved["model_aliases"]["custom"]["review"] == "gpt-4.1-mini"
+    assert saved["model_references"]["custom"]["review"] == "gpt-4.1-mini"
 
     rendered = str(outcome.messages[0].text)
-    assert "▎ model aliases set" in rendered
-    assert "model_aliases.custom.review:" in rendered
+    assert "▎ model references set" in rendered
+    assert "model_references.custom.review:" in rendered
     assert "old: <unset>" in rendered
     assert "new: gpt-4.1-mini" in rendered
 
@@ -575,7 +575,7 @@ async def test_models_aliases_set_can_choose_existing_alias_by_number(tmp_path: 
     _write_yaml(
         env_dir / "fastagent.config.yaml",
         {
-            "model_aliases": {
+            "model_references": {
                 "system": {
                     "fast": "claude-sonnet-4-5",
                 }
@@ -594,14 +594,14 @@ async def test_models_aliases_set_can_choose_existing_alias_by_number(tmp_path: 
         outcome = await models_manager.handle_models_command(
             _context_with_io(Settings(environment_dir=str(env_dir)), io),
             agent_name="main",
-            action="aliases",
+            action="references",
             argument="set",
         )
     finally:
         os.chdir(previous_cwd)
 
     saved = _read_yaml(env_dir / "fastagent.config.yaml")
-    assert saved["model_aliases"]["system"]["fast"] == "gpt-4.1-mini"
+    assert saved["model_references"]["system"]["fast"] == "gpt-4.1-mini"
     assert io.emitted_messages
     assert _message_text(io.emitted_messages[0]).find(
         str((env_dir / "fastagent.config.yaml").resolve())
@@ -621,7 +621,7 @@ async def test_models_aliases_unset_writes_project_target(tmp_path: Path) -> Non
     _write_yaml(
         project_config,
         {
-            "model_aliases": {
+            "model_references": {
                 "system": {
                     "fast": "claude-haiku-4-5",
                     "code": "claude-sonnet-4-5",
@@ -636,21 +636,21 @@ async def test_models_aliases_unset_writes_project_target(tmp_path: Path) -> Non
         outcome = await models_manager.handle_models_command(
             _context(Settings(environment_dir=str(env_dir))),
             agent_name="main",
-            action="aliases",
+            action="references",
             argument="unset $system.fast --target project",
         )
     finally:
         os.chdir(previous_cwd)
 
     saved = _read_yaml(project_config)
-    assert "fast" not in saved["model_aliases"]["system"]
-    assert saved["model_aliases"]["system"]["code"] == "claude-sonnet-4-5"
+    assert "fast" not in saved["model_references"]["system"]
+    assert saved["model_references"]["system"]["code"] == "claude-sonnet-4-5"
 
     rendered = str(outcome.messages[0].text)
-    assert "▎ model aliases unset" in rendered
+    assert "▎ model references unset" in rendered
     assert "Result: applied" in rendered
     assert f"Target: {project_config}" in rendered
-    assert "model_aliases.system.fast:" in rendered
+    assert "model_references.system.fast:" in rendered
     assert "old: claude-haiku-4-5" in rendered
     assert "new: <unset>" in rendered
 
@@ -667,7 +667,7 @@ async def test_models_aliases_set_dry_run_is_deterministic(tmp_path: Path) -> No
         outcome = await models_manager.handle_models_command(
             _context(Settings(environment_dir=str(env_dir))),
             agent_name="main",
-            action="aliases",
+            action="references",
             argument="set $system.fast claude-haiku-4-5 --target env --dry-run",
         )
     finally:
@@ -676,9 +676,9 @@ async def test_models_aliases_set_dry_run_is_deterministic(tmp_path: Path) -> No
     assert (env_dir / "fastagent.config.yaml").exists() is False
 
     rendered = str(outcome.messages[0].text)
-    assert "▎ model aliases set" in rendered
+    assert "▎ model references set" in rendered
     assert "Mode: dry-run" in rendered
-    assert "model_aliases.system.fast:" in rendered
+    assert "model_references.system.fast:" in rendered
     assert "old: <unset>" in rendered
     assert "new: claude-haiku-4-5" in rendered
     assert "Dry run only (no files changed)" in rendered
@@ -696,15 +696,15 @@ async def test_models_aliases_set_invalid_token_returns_usage(tmp_path: Path) ->
         outcome = await models_manager.handle_models_command(
             _context(Settings(environment_dir=str(env_dir))),
             agent_name="main",
-            action="aliases",
+            action="references",
             argument="set system.fast claude-haiku-4-5",
         )
     finally:
         os.chdir(previous_cwd)
 
     rendered = str(outcome.messages[0].text)
-    assert "Model aliases must be exact tokens in the format '$<namespace>.<key>'" in rendered
-    assert "Usage: /model aliases" in rendered
+    assert "Model references must be exact tokens in the format '$<namespace>.<key>'" in rendered
+    assert "Usage: /model references" in rendered
 
 
 @pytest.mark.asyncio
@@ -745,7 +745,7 @@ async def test_models_doctor_displays_runtime_config_context(tmp_path: Path) -> 
 
 
 @pytest.mark.asyncio
-async def test_models_aliases_prefers_cwd_env_overlay_even_with_parent_config_file(
+async def test_models_references_follow_loaded_config_root_instead_of_cwd_overlay(
     tmp_path: Path,
 ) -> None:
     parent = tmp_path / "parent"
@@ -754,11 +754,20 @@ async def test_models_aliases_prefers_cwd_env_overlay_even_with_parent_config_fi
     parent.mkdir(parents=True)
     workspace.mkdir(parents=True)
 
-    _write_yaml(parent / "fastagent.config.yaml", {"logger": {"show_chat": True}})
+    _write_yaml(
+        parent / "fastagent.config.yaml",
+        {
+            "model_references": {
+                "system": {
+                    "code": "parent-code",
+                }
+            }
+        },
+    )
     _write_yaml(
         env_dir / "fastagent.config.yaml",
         {
-            "model_aliases": {
+            "model_references": {
                 "system": {
                     "fast": "gpt-oss",
                 }
@@ -777,7 +786,7 @@ async def test_models_aliases_prefers_cwd_env_overlay_even_with_parent_config_fi
         outcome = await models_manager.handle_models_command(
             _context(settings),
             agent_name="main",
-            action="aliases",
+            action="references",
             argument=None,
         )
     finally:
@@ -788,4 +797,5 @@ async def test_models_aliases_prefers_cwd_env_overlay_even_with_parent_config_fi
             os.environ["ENVIRONMENT_DIR"] = previous_env_dir
 
     rendered = str(outcome.messages[0].text)
-    assert "$system.fast = gpt-oss" in rendered
+    assert "$system.code = parent-code" in rendered
+    assert "$system.fast = gpt-oss" not in rendered

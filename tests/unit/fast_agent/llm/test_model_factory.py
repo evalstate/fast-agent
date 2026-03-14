@@ -4,7 +4,7 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.llm.model_database import ModelDatabase
-from fast_agent.llm.model_factory import ModelFactory, Provider
+from fast_agent.llm.model_factory import ModelFactory, ParsedModelSpec, Provider
 from fast_agent.llm.model_selection import ModelSelectionCatalog
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
 from fast_agent.llm.provider.openai.llm_generic import GenericLLM
@@ -14,7 +14,7 @@ from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
 from fast_agent.types import RequestParams
 
-# Test aliases - decoupled from production MODEL_ALIASES
+# Test aliases - decoupled from production MODEL_PRESETS
 # These provide stable test data that won't break when production aliases change
 TEST_ALIASES = {
     "kimi": "hf.moonshotai/Kimi-K2-Instruct-0905",  # No default provider
@@ -173,6 +173,27 @@ def test_alias_sampling_defaults_allow_user_query_overrides() -> None:
     assert config.top_p == 0.7
     assert config.top_k == 20
     assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=True)
+
+
+def test_parse_model_spec_returns_typed_intermediate_representation() -> None:
+    parsed = ModelFactory.parse_model_spec("qwen35?temperature=0.9&top_p=0.7")
+
+    assert isinstance(parsed, ParsedModelSpec)
+    assert parsed.raw_input == "qwen35?temperature=0.9&top_p=0.7"
+    assert parsed.expanded_input == "hf.Qwen/Qwen3.5-397B-A17B:novita"
+    assert parsed.provider == Provider.HUGGINGFACE
+    assert parsed.model_name == "Qwen/Qwen3.5-397B-A17B:novita"
+    assert parsed.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=True)
+    assert parsed.query_overrides.temperature == 0.9
+    assert parsed.query_overrides.top_p == 0.7
+    assert parsed.query_overrides.top_k == 20
+
+
+def test_parse_model_spec_to_model_config_matches_parse_model_string() -> None:
+    parsed = ModelFactory.parse_model_spec("codexplan?transport=ws&reasoning=high&verbosity=low")
+    config = ModelFactory.parse_model_string("codexplan?transport=ws&reasoning=high&verbosity=low")
+
+    assert parsed.to_model_config() == config
 
 
 def test_alias_sampling_defaults_preserve_user_provider_suffix_override() -> None:
@@ -485,7 +506,7 @@ def test_allows_generic_model():
 
 def test_huggingface_alias_without_provider():
     """Test HuggingFace alias without explicit provider"""
-    config = ModelFactory.parse_model_string("kimi", aliases=TEST_ALIASES)
+    config = ModelFactory.parse_model_string("kimi", presets=TEST_ALIASES)
     assert config.provider == Provider.HUGGINGFACE
     assert config.model_name == "moonshotai/Kimi-K2-Instruct-0905"
 
@@ -547,7 +568,7 @@ def test_codexplan_aliases_use_codex_oauth_provider():
 def test_huggingface_alias_with_default_provider():
     """Test HuggingFace alias that includes a default provider in the alias"""
     # glm alias has :cerebras as default provider
-    config = ModelFactory.parse_model_string("glm", aliases=TEST_ALIASES)
+    config = ModelFactory.parse_model_string("glm", presets=TEST_ALIASES)
     assert config.provider == Provider.HUGGINGFACE
     assert config.model_name == "zai-org/GLM-4.6:cerebras"
 
@@ -555,7 +576,7 @@ def test_huggingface_alias_with_default_provider():
 def test_huggingface_alias_provider_override():
     """Test that user-specified provider overrides the alias default"""
     # glm alias is "hf.zai-org/GLM-4.6:cerebras" - user specifies :groq
-    config = ModelFactory.parse_model_string("glm:groq", aliases=TEST_ALIASES)
+    config = ModelFactory.parse_model_string("glm:groq", presets=TEST_ALIASES)
     assert config.provider == Provider.HUGGINGFACE
     # User's :groq should replace the alias's :cerebras
     assert config.model_name == "zai-org/GLM-4.6:groq"
@@ -564,7 +585,7 @@ def test_huggingface_alias_provider_override():
 def test_huggingface_alias_without_default_provider_gets_user_provider():
     """Test that an alias without a default provider can receive a user provider"""
     # kimi alias is "hf.moonshotai/Kimi-K2-Instruct-0905" (no default provider)
-    config = ModelFactory.parse_model_string("kimi:groq", aliases=TEST_ALIASES)
+    config = ModelFactory.parse_model_string("kimi:groq", presets=TEST_ALIASES)
     assert config.provider == Provider.HUGGINGFACE
     assert config.model_name == "moonshotai/Kimi-K2-Instruct-0905:groq"
 
@@ -572,7 +593,7 @@ def test_huggingface_alias_without_default_provider_gets_user_provider():
 def test_huggingface_alias_provider_override_together():
     """Test provider override with together"""
     # qwen3 alias is "hf.Qwen/Qwen3-Next-80B-A3B-Instruct:together"
-    config = ModelFactory.parse_model_string("qwen3:nebius", aliases=TEST_ALIASES)
+    config = ModelFactory.parse_model_string("qwen3:nebius", presets=TEST_ALIASES)
     assert config.provider == Provider.HUGGINGFACE
     # User's :nebius should replace the alias's :together
     assert config.model_name == "Qwen/Qwen3-Next-80B-A3B-Instruct:nebius"
@@ -581,7 +602,7 @@ def test_huggingface_alias_provider_override_together():
 def test_huggingface_display_info_with_provider():
     """Test HuggingFaceLLM displays correct model and provider info"""
     # Create HuggingFace LLM with explicit provider
-    factory = ModelFactory.create_factory("glm", aliases=TEST_ALIASES)  # glm has :cerebras default
+    factory = ModelFactory.create_factory("glm", presets=TEST_ALIASES)  # glm has :cerebras default
     agent = LlmAgent(AgentConfig(name="test"))
     llm = factory(agent)
 
@@ -597,7 +618,7 @@ def test_huggingface_display_info_auto_routing():
     """Test HuggingFaceLLM displays auto-routing when no provider specified"""
     # Create HuggingFace LLM without provider suffix
     factory = ModelFactory.create_factory(
-        "minimax", aliases=TEST_ALIASES
+        "minimax", presets=TEST_ALIASES
     )  # minimax has no default provider
     agent = LlmAgent(AgentConfig(name="test"))
     llm = factory(agent)
@@ -611,7 +632,7 @@ def test_huggingface_display_info_auto_routing():
 def test_huggingface_display_info_user_override():
     """Test HuggingFaceLLM displays user-specified provider correctly"""
     # User overrides glm's :cerebras with :groq
-    factory = ModelFactory.create_factory("glm:groq", aliases=TEST_ALIASES)
+    factory = ModelFactory.create_factory("glm:groq", presets=TEST_ALIASES)
     agent = LlmAgent(AgentConfig(name="test"))
     llm = factory(agent)
 

@@ -585,8 +585,8 @@ async def test_model_switch_returns_model_config_errors_without_raising() -> Non
     agent = _StubAgent(
         llm,
         set_model_error=ModelConfigError(
-            "Model alias '$system.typo' could not be resolved",
-            "Available aliases: $system.default",
+            "Model reference '$system.typo' could not be resolved",
+            "Available references: $system.default",
         ),
     )
     provider = _StubAgentProvider(agent)
@@ -602,5 +602,5 @@ async def test_model_switch_returns_model_config_errors_without_raising() -> Non
 
     assert outcome.reset_session is False
     assert text_messages == [
-        "Model alias '$system.typo' could not be resolved: Available aliases: $system.default"
+        "Model reference '$system.typo' could not be resolved: Available references: $system.default"
     ]

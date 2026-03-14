@@ -6,7 +6,6 @@ import os
 import shlex
 from collections import Counter
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from rich.text import Text
@@ -14,19 +13,22 @@ from rich.text import Text
 from fast_agent.commands.command_catalog import suggest_command_action
 from fast_agent.commands.results import CommandMessage, CommandOutcome
 from fast_agent.core.exceptions import ModelConfigError
-from fast_agent.core.model_resolution import parse_model_alias_token, resolve_model_alias
-from fast_agent.llm.model_alias_config import (
-    ModelAliasConfigService,
-    ModelAliasMutationResult,
-    ModelAliasWriteTarget,
-)
+from fast_agent.core.model_resolution import parse_model_reference_token, resolve_model_reference
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
+from fast_agent.llm.model_reference_config import (
+    ModelReferenceConfigService,
+    ModelReferenceMutationResult,
+    ModelReferenceWriteTarget,
+    resolve_model_reference_start_path,
+)
 from fast_agent.llm.model_selection import ModelSelectionCatalog
 from fast_agent.llm.provider_types import Provider
 from fast_agent.ui.a3_headers import build_a3_section_header
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from fast_agent.commands.context import CommandContext
 
 _PROVIDER_NAME_ALIASES: dict[str, str] = {
@@ -35,23 +37,23 @@ _PROVIDER_NAME_ALIASES: dict[str, str] = {
     "codex_responses": "codexresponses",
 }
 
-_NO_MODEL_ALIASES_NOTE = (
-    "No model_aliases are configured. Add a model_aliases section in fastagent.config.yaml."
+_NO_MODEL_REFERENCES_NOTE = (
+    "No model_references are configured. Add a model_references section in fastagent.config.yaml."
 )
-_ALIASES_USAGE = (
-    "Usage: /model aliases "
+_REFERENCES_USAGE = (
+    "Usage: /model references "
     "[list|set [<token> [<model-spec>]] [--target env|project] [--dry-run]|"
     "unset [<token>] [--target env|project] [--dry-run]]"
 )
-_MODELS_USAGE = "Usage: /model [doctor|aliases|catalog|help] [args]"
+_MODELS_USAGE = "Usage: /model [doctor|references|catalog|help] [args]"
 
 
 @dataclass(frozen=True)
-class _AliasesMutationArgs:
+class _ReferencesMutationArgs:
     operation: Literal["set", "unset"]
     token: str | None
     model_spec: str | None
-    target: ModelAliasWriteTarget
+    target: ModelReferenceWriteTarget
     dry_run: bool
 
 
@@ -150,7 +152,7 @@ def _canonical_model_name(model_spec: str) -> str:
     try:
         parsed = ModelFactory.parse_model_string(
             normalized,
-            aliases=ModelFactory.MODEL_ALIASES,
+            presets=ModelFactory.MODEL_PRESETS,
         )
     except Exception:
         return normalized
@@ -176,7 +178,7 @@ def _models_equivalent(expected: str, runtime: str) -> bool:
 def _build_agent_model_rows(
     ctx: "CommandContext",
     *,
-    aliases: dict[str, dict[str, str]],
+    references: dict[str, dict[str, str]],
     default_model: str | None,
 ) -> list[_AgentModelDoctorRow]:
     rows: list[_AgentModelDoctorRow] = []
@@ -197,30 +199,30 @@ def _build_agent_model_rows(
         status_symbol = "…"
         status_style = "dim"
         resolution_note: str | None = None
-        alias_error: str | None = None
+        reference_error: str | None = None
 
         if effective_spec and effective_spec.startswith("$"):
             try:
-                resolved_from_spec = resolve_model_alias(effective_spec, aliases)
+                resolved_from_spec = resolve_model_reference(effective_spec, references)
             except ModelConfigError as exc:
-                alias_error = exc.details
+                reference_error = exc.details
         elif effective_spec:
             resolved_from_spec = effective_spec
 
         llm = getattr(agent, "llm", None) or getattr(agent, "_llm", None)
         llm_model = _safe_stripped(getattr(llm, "model_name", None)) if llm is not None else None
 
-        if alias_error:
+        if reference_error:
             if llm_model:
                 resolved_display = llm_model
                 status_symbol = "◐"
                 status_style = "yellow"
-                resolution_note = alias_error
+                resolution_note = reference_error
             else:
                 resolved_display = "<unresolved>"
                 status_symbol = "✗"
                 status_style = "red"
-                resolution_note = alias_error
+                resolution_note = reference_error
         elif resolved_from_spec and llm_model:
             if _models_equivalent(resolved_from_spec, llm_model):
                 resolved_display = llm_model
@@ -409,37 +411,38 @@ def _provider_display_choices() -> str:
     return ", ".join(provider.config_name for provider in _catalog_providers())
 
 
-def _resolve_alias_service(ctx: "CommandContext") -> ModelAliasConfigService:
+def _resolve_reference_service(ctx: "CommandContext") -> ModelReferenceConfigService:
     settings = ctx.resolve_settings()
     env_dir = getattr(settings, "environment_dir", None)
-    return ModelAliasConfigService(cwd=Path.cwd(), env_dir=env_dir)
+    start_path = resolve_model_reference_start_path(settings=settings)
+    return ModelReferenceConfigService(start_path=start_path, env_dir=env_dir)
 
 
-def _flatten_aliases(aliases: dict[str, dict[str, str]]) -> list[tuple[str, str]]:
+def _flatten_references(references: dict[str, dict[str, str]]) -> list[tuple[str, str]]:
     rows: list[tuple[str, str]] = []
-    for namespace, entries in sorted(aliases.items(), key=lambda item: str(item[0])):
+    for namespace, entries in sorted(references.items(), key=lambda item: str(item[0])):
         for key, model_spec in sorted(entries.items(), key=lambda item: str(item[0])):
             rows.append((f"${namespace}.{key}", model_spec))
     return rows
 
 
-def _collect_unresolved_aliases(
-    aliases: dict[str, dict[str, str]],
+def _collect_unresolved_references(
+    references: dict[str, dict[str, str]],
     *,
     default_model: str | None,
 ) -> list[tuple[str, str, str]]:
     unresolved: dict[tuple[str, str], str] = {}
 
-    for token, _ in _flatten_aliases(aliases):
+    for token, _ in _flatten_references(references):
         try:
-            resolve_model_alias(token, aliases)
+            resolve_model_reference(token, references)
         except ModelConfigError as exc:
-            unresolved[(token, f"alias: {token}")] = exc.details
+            unresolved[(token, f"reference: {token}")] = exc.details
 
     if default_model and default_model.strip().startswith("$"):
         token = default_model.strip()
         try:
-            resolve_model_alias(token, aliases)
+            resolve_model_reference(token, references)
         except ModelConfigError as exc:
             unresolved[(token, "default_model")] = exc.details
 
@@ -461,20 +464,20 @@ def _resolve_config_payload(settings: Any) -> dict[str, Any]:
 def _default_model_provider(
     *,
     default_model: str | None,
-    aliases: dict[str, dict[str, str]],
+    references: dict[str, dict[str, str]],
 ) -> Provider | None:
     if not default_model:
         return None
 
     try:
-        resolved_model = resolve_model_alias(default_model, aliases)
+        resolved_model = resolve_model_reference(default_model, references)
     except ModelConfigError:
         return None
 
     try:
         parsed = ModelFactory.parse_model_string(
             resolved_model,
-            aliases=ModelFactory.MODEL_ALIASES,
+            presets=ModelFactory.MODEL_PRESETS,
         )
     except Exception:
         return None
@@ -496,19 +499,22 @@ def _build_models_doctor_report(ctx: "CommandContext") -> _ModelsDoctorReport:
     effective_env_dir = getattr(settings, "environment_dir", None)
     loaded_config_file = getattr(settings, "_config_file", None)
 
-    service = _resolve_alias_service(ctx)
-    aliases = service.list_aliases_tolerant()
+    service = _resolve_reference_service(ctx)
+    references = service.list_references_tolerant()
     config_payload = _resolve_config_payload(settings)
     configured_providers = set(ModelSelectionCatalog.configured_providers(config_payload))
     default_model = getattr(settings, "default_model", None)
-    unresolved = _collect_unresolved_aliases(aliases, default_model=default_model)
+    unresolved = _collect_unresolved_references(references, default_model=default_model)
     agent_rows = _build_agent_model_rows(
         ctx,
-        aliases=aliases,
+        references=references,
         default_model=_safe_stripped(default_model),
     )
 
-    default_provider = _default_model_provider(default_model=default_model, aliases=aliases)
+    default_provider = _default_model_provider(
+        default_model=default_model,
+        references=references,
+    )
     default_provider_ready = True
     if default_provider is not None:
         default_provider_ready = _provider_is_ready(default_provider, configured_providers)
@@ -548,7 +554,7 @@ def render_models_doctor_markdown(ctx: "CommandContext") -> str:
     try:
         report = _build_models_doctor_report(ctx)
     except Exception as exc:  # noqa: BLE001
-        return f"# model.doctor\n\n**Error:** Failed to load model aliases: {exc}"
+        return f"# model.doctor\n\n**Error:** Failed to load model references: {exc}"
 
     lines: list[str] = ["# model.doctor", ""]
     lines.append("## Readiness")
@@ -562,7 +568,7 @@ def render_models_doctor_markdown(ctx: "CommandContext") -> str:
     lines.append(f"- **FAST_AGENT_MODEL**: `{report.fast_agent_model_env or '<unset>'}`")
     lines.append(f"- **Loaded config file**: `{report.loaded_config_file or '<none>'}`")
 
-    lines.extend(["", "## Unresolved aliases"])
+    lines.extend(["", "## Unresolved references"])
     if report.unresolved:
         for token, source, details in report.unresolved:
             lines.append(f"- `{token}` ({source})")
@@ -645,7 +651,7 @@ def render_models_doctor_markdown(ctx: "CommandContext") -> str:
     if not report.readiness_ready:
         lines.extend(["", "## Next steps"])
         if report.unresolved:
-            lines.append("- `/model aliases`")
+            lines.append("- `/model references`")
         lines.append("- `/model catalog <provider>`")
 
     return "\n".join(lines)
@@ -665,7 +671,7 @@ async def handle_models_command(
         outcome.add_message(_a3_header("model help"), right_info="model")
         outcome.add_message(_MODELS_USAGE, right_info="model")
         outcome.add_message(
-            "Examples: /model doctor, /model aliases, /model catalog openai",
+            "Examples: /model doctor, /model references, /model catalog openai",
             right_info="model",
         )
         return outcome
@@ -676,8 +682,8 @@ async def handle_models_command(
 
     if normalized_action == "doctor":
         return await _handle_models_doctor(ctx)
-    if normalized_action in {"aliases", "alias"}:
-        return await _handle_models_aliases(ctx, argument=argument)
+    if normalized_action == "references":
+        return await _handle_models_references(ctx, argument=argument)
     if normalized_action == "catalog":
         return await _handle_models_catalog(ctx, argument=argument)
     if normalized_action == "help":
@@ -695,7 +701,7 @@ async def handle_models_command(
             "model",
             (
                 "Unknown /model action. "
-                "Use /model, /model doctor, /model aliases, "
+                "Use /model, /model doctor, /model references, "
                 f"/model catalog <provider> [--all], or /model help.{suggestion_text}"
             ),
         ),
@@ -711,7 +717,7 @@ async def _handle_models_doctor(ctx: "CommandContext") -> CommandOutcome:
         report = _build_models_doctor_report(ctx)
     except Exception as exc:  # noqa: BLE001
         outcome.add_message(
-            _a3_error_block("model doctor", f"Failed to load model aliases: {exc}"),
+            _a3_error_block("model doctor", f"Failed to load model references: {exc}"),
             channel="error",
             right_info="model",
         )
@@ -751,7 +757,7 @@ async def _handle_models_doctor(ctx: "CommandContext") -> CommandOutcome:
     )
 
     _append_line(content)
-    _append_line(content, _a3_section("Unresolved aliases:"))
+    _append_line(content, _a3_section("Unresolved references:"))
     if report.unresolved:
         for token, source, details in report.unresolved:
             _append_line(content, _a3_bullet(f"{token} ({source})", style="yellow"))
@@ -793,23 +799,23 @@ async def _handle_models_doctor(ctx: "CommandContext") -> CommandOutcome:
         _append_line(content)
         _append_line(content, _a3_section("Next steps:"))
         if report.unresolved:
-            _append_line(content, _a3_bullet("/model aliases", style="cyan"))
+            _append_line(content, _a3_bullet("/model references", style="cyan"))
         _append_line(content, _a3_bullet("/model catalog <provider>", style="cyan"))
 
     outcome.add_message(content, right_info="model")
     return outcome
 
 
-def _parse_aliases_arguments(
+def _parse_references_arguments(
     argument: str | None,
-) -> tuple[Literal["list", "mutate"], _AliasesMutationArgs | None, str | None]:
+) -> tuple[Literal["list", "mutate"], _ReferencesMutationArgs | None, str | None]:
     if not argument:
         return "list", None, None
 
     try:
         tokens = shlex.split(argument)
     except ValueError as exc:
-        return "list", None, f"Invalid aliases arguments: {exc}"
+        return "list", None, f"Invalid references arguments: {exc}"
 
     if not tokens:
         return "list", None, None
@@ -821,9 +827,9 @@ def _parse_aliases_arguments(
         return "list", None, None
 
     if subcmd not in {"set", "unset"}:
-        return "list", None, f"Unknown aliases action '{tokens[0]}'."
+        return "list", None, f"Unknown references action '{tokens[0]}'."
 
-    target: ModelAliasWriteTarget = "env"
+    target: ModelReferenceWriteTarget = "env"
     dry_run = False
     positional: list[str] = []
 
@@ -865,11 +871,11 @@ def _parse_aliases_arguments(
 
     if subcmd == "set":
         if len(positional) > 2:
-            return "list", None, "Too many positional arguments for aliases set."
+            return "list", None, "Too many positional arguments for references set."
 
         return (
             "mutate",
-            _AliasesMutationArgs(
+            _ReferencesMutationArgs(
                 operation="set",
                 token=positional[0] if positional else None,
                 model_spec=positional[1] if len(positional) > 1 else None,
@@ -880,11 +886,11 @@ def _parse_aliases_arguments(
         )
 
     if len(positional) > 1:
-        return "list", None, "Too many positional arguments for aliases unset."
+        return "list", None, "Too many positional arguments for references unset."
 
     return (
         "mutate",
-        _AliasesMutationArgs(
+        _ReferencesMutationArgs(
             operation="unset",
             token=positional[0] if positional else None,
             model_spec=None,
@@ -895,12 +901,12 @@ def _parse_aliases_arguments(
     )
 
 
-def _canonicalize_alias_token(token: str) -> str:
-    namespace, key = parse_model_alias_token(token)
+def _canonicalize_reference_token(token: str) -> str:
+    namespace, key = parse_model_reference_token(token)
     return f"${namespace}.{key}"
 
 
-def _normalize_interactive_alias_token(token: str) -> str:
+def _normalize_interactive_reference_token(token: str) -> str:
     stripped = token.strip()
     if not stripped or stripped.startswith("$"):
         return stripped
@@ -918,7 +924,7 @@ def _infer_initial_provider_name(model_spec: str | None) -> str | None:
     try:
         parsed = ModelFactory.parse_model_string(
             normalized,
-            aliases=ModelFactory.MODEL_ALIASES,
+            presets=ModelFactory.MODEL_PRESETS,
         )
     except Exception:
         return None
@@ -926,33 +932,33 @@ def _infer_initial_provider_name(model_spec: str | None) -> str | None:
     return parsed.provider.config_name
 
 
-async def _prompt_for_alias_token(
+async def _prompt_for_reference_token(
     ctx: "CommandContext",
     *,
-    aliases: dict[str, dict[str, str]],
+    references: dict[str, dict[str, str]],
     operation: Literal["set", "unset"],
     target_path: Path,
 ) -> str | None:
-    rows = _flatten_aliases(aliases)
+    rows = _flatten_references(references)
     if operation == "unset" and not rows:
         return None
 
     if operation == "set":
         if rows:
             selection_content = Text()
-            _append_line(selection_content, _a3_section("Alias setup target:"))
+            _append_line(selection_content, _a3_section("Reference setup target:"))
             _append_line(
                 selection_content,
                 _a3_bullet(str(target_path.resolve()), style="cyan"),
             )
             _append_line(selection_content)
-            _append_line(selection_content, _a3_section("Available aliases:"))
+            _append_line(selection_content, _a3_section("Available references:"))
             for index, (token, model_spec) in enumerate(rows, start=1):
                 _append_line(
                     selection_content,
                     _a3_bullet(f"{index}. {token} → {model_spec}"),
                 )
-            _append_line(selection_content, _a3_bullet("new. Create a new alias", style="cyan"))
+            _append_line(selection_content, _a3_bullet("new. Create a new reference", style="cyan"))
             await ctx.io.emit(
                 CommandMessage(
                     text=selection_content,
@@ -962,7 +968,7 @@ async def _prompt_for_alias_token(
 
             option_labels = {str(index): token for index, (token, _) in enumerate(rows, start=1)}
             selection = await ctx.io.prompt_selection(
-                "Alias to update (number or 'new'):",
+                "Reference to update (number or 'new'):",
                 options=[*option_labels.keys(), "new"],
                 allow_cancel=True,
             )
@@ -974,25 +980,25 @@ async def _prompt_for_alias_token(
 
         prompt_default = "$system.default" if not rows else None
         entered = await ctx.io.prompt_text(
-            "Alias token ($namespace.key):",
+            "Reference token ($namespace.key):",
             default=prompt_default,
             allow_empty=False,
         )
         if entered is None:
             return None
         try:
-            return _canonicalize_alias_token(_normalize_interactive_alias_token(entered))
+            return _canonicalize_reference_token(_normalize_interactive_reference_token(entered))
         except ModelConfigError as exc:
             raise ValueError(exc.details) from exc
 
     selection_content = Text()
-    _append_line(selection_content, _a3_section("Alias setup target:"))
+    _append_line(selection_content, _a3_section("Reference setup target:"))
     _append_line(
         selection_content,
         _a3_bullet(str(target_path.resolve()), style="cyan"),
     )
     _append_line(selection_content)
-    _append_line(selection_content, _a3_section("Available aliases:"))
+    _append_line(selection_content, _a3_section("Available references:"))
     option_labels = {}
     for index, (token, model_spec) in enumerate(rows, start=1):
         _append_line(
@@ -1007,7 +1013,7 @@ async def _prompt_for_alias_token(
         )
     )
     selection = await ctx.io.prompt_selection(
-        "Alias to remove (number):",
+        "Reference to remove (number):",
         options=list(option_labels.keys()),
         allow_cancel=True,
     )
@@ -1016,13 +1022,13 @@ async def _prompt_for_alias_token(
     return option_labels.get(selection.strip().lower())
 
 
-async def _resolve_alias_mutation_args(
+async def _resolve_reference_mutation_args(
     ctx: "CommandContext",
     *,
-    service: ModelAliasConfigService,
-    mutation_args: _AliasesMutationArgs,
-) -> tuple[_AliasesMutationArgs | None, str | None]:
-    aliases = service.list_aliases_tolerant()
+    service: ModelReferenceConfigService,
+    mutation_args: _ReferencesMutationArgs,
+) -> tuple[_ReferencesMutationArgs | None, str | None]:
+    references = service.list_references_tolerant()
     target_path = (
         service.paths.env_path
         if mutation_args.target == "env"
@@ -1031,16 +1037,16 @@ async def _resolve_alias_mutation_args(
     token = mutation_args.token
     try:
         if token is None:
-            token = await _prompt_for_alias_token(
+            token = await _prompt_for_reference_token(
                 ctx,
-                aliases=aliases,
+                references=references,
                 operation=mutation_args.operation,
                 target_path=target_path,
             )
             if token is None:
-                return None, "Alias update cancelled."
+                return None, "Reference update cancelled."
         else:
-            token = _canonicalize_alias_token(token)
+            token = _canonicalize_reference_token(token)
     except ValueError as exc:
         return None, str(exc)
     except ModelConfigError as exc:
@@ -1048,7 +1054,7 @@ async def _resolve_alias_mutation_args(
 
     if mutation_args.operation == "unset":
         return (
-            _AliasesMutationArgs(
+            _ReferencesMutationArgs(
                 operation="unset",
                 token=token,
                 model_spec=None,
@@ -1060,16 +1066,23 @@ async def _resolve_alias_mutation_args(
 
     model_spec = mutation_args.model_spec
     if model_spec is None:
-        current_model = next((value for alias_token, value in _flatten_aliases(aliases) if alias_token == token), None)
+        current_model = next(
+            (
+                value
+                for reference_token, value in _flatten_references(references)
+                if reference_token == token
+            ),
+            None,
+        )
         model_spec = await ctx.io.prompt_model_selection(
             initial_provider=_infer_initial_provider_name(current_model),
             default_model=current_model,
         )
         if model_spec is None:
-            return None, "Alias update cancelled."
+            return None, "Reference update cancelled."
 
     return (
-        _AliasesMutationArgs(
+        _ReferencesMutationArgs(
             operation="set",
             token=token,
             model_spec=model_spec,
@@ -1080,10 +1093,10 @@ async def _resolve_alias_mutation_args(
     )
 
 
-def _render_alias_mutation(
+def _render_reference_mutation(
     *,
     title: str,
-    result: ModelAliasMutationResult,
+    result: ModelReferenceMutationResult,
 ) -> Text:
     content = Text()
     _append_line(content, _a3_header(title))
@@ -1117,33 +1130,33 @@ def _render_alias_mutation(
     return content
 
 
-async def _handle_models_aliases(ctx: "CommandContext", *, argument: str | None) -> CommandOutcome:
+async def _handle_models_references(ctx: "CommandContext", *, argument: str | None) -> CommandOutcome:
     outcome = CommandOutcome()
 
-    mode, mutation_args, parse_error = _parse_aliases_arguments(argument)
+    mode, mutation_args, parse_error = _parse_references_arguments(argument)
     if parse_error is not None:
         error = Text()
-        _append_line(error, _a3_header("model aliases", color="red"))
+        _append_line(error, _a3_header("model references", color="red"))
         _append_line(error)
         _append_line(error, _a3_bullet(parse_error, style="red"))
-        _append_line(error, Text(_ALIASES_USAGE, style="dim"))
+        _append_line(error, Text(_REFERENCES_USAGE, style="dim"))
         outcome.add_message(error, channel="error", right_info="model")
         return outcome
 
     try:
-        service = _resolve_alias_service(ctx)
+        service = _resolve_reference_service(ctx)
         if mode == "mutate":
             assert mutation_args is not None
-            resolved_args, interactive_error = await _resolve_alias_mutation_args(
+            resolved_args, interactive_error = await _resolve_reference_mutation_args(
                 ctx,
                 service=service,
                 mutation_args=mutation_args,
             )
             if interactive_error is not None:
-                content = _a3_error_block("model aliases", interactive_error)
+                content = _a3_error_block("model references", interactive_error)
                 is_cancelled = interactive_error.endswith("cancelled.")
                 if not is_cancelled:
-                    _append_line(content, Text(_ALIASES_USAGE, style="dim"))
+                    _append_line(content, Text(_REFERENCES_USAGE, style="dim"))
                 outcome.add_message(
                     content,
                     channel="warning" if is_cancelled else "error",
@@ -1155,15 +1168,15 @@ async def _handle_models_aliases(ctx: "CommandContext", *, argument: str | None)
             if mutation_args.operation == "set":
                 assert resolved_args.token is not None
                 assert resolved_args.model_spec is not None
-                mutation_result = service.set_alias(
+                mutation_result = service.set_reference(
                     resolved_args.token,
                     resolved_args.model_spec,
                     target=resolved_args.target,
                     dry_run=resolved_args.dry_run,
                 )
                 outcome.add_message(
-                    _render_alias_mutation(
-                        title="model aliases set",
+                    _render_reference_mutation(
+                        title="model references set",
                         result=mutation_result,
                     ),
                     right_info="model",
@@ -1171,53 +1184,53 @@ async def _handle_models_aliases(ctx: "CommandContext", *, argument: str | None)
                 return outcome
 
             assert resolved_args.token is not None
-            mutation_result = service.unset_alias(
+            mutation_result = service.unset_reference(
                 resolved_args.token,
                 target=resolved_args.target,
                 dry_run=resolved_args.dry_run,
             )
             outcome.add_message(
-                _render_alias_mutation(
-                    title="model aliases unset",
+                _render_reference_mutation(
+                    title="model references unset",
                     result=mutation_result,
                 ),
                 right_info="model",
             )
             return outcome
 
-        aliases = service.list_aliases()
+        references = service.list_references()
     except ValueError as exc:
         error = Text()
-        _append_line(error, _a3_header("model aliases", color="red"))
+        _append_line(error, _a3_header("model references", color="red"))
         _append_line(error)
         _append_line(error, _a3_bullet(str(exc), style="red"))
-        _append_line(error, Text(_ALIASES_USAGE, style="dim"))
+        _append_line(error, Text(_REFERENCES_USAGE, style="dim"))
         outcome.add_message(error, channel="error", right_info="model")
         return outcome
     except Exception as exc:  # noqa: BLE001
         outcome.add_message(
-            _a3_error_block("model aliases", f"Failed to load model aliases: {exc}"),
+            _a3_error_block("model references", f"Failed to load model references: {exc}"),
             channel="error",
             right_info="model",
         )
         return outcome
 
-    rows = _flatten_aliases(aliases)
+    rows = _flatten_references(references)
     if not rows:
         empty = Text()
-        _append_line(empty, _a3_header("model aliases"))
+        _append_line(empty, _a3_header("model references"))
         _append_line(empty)
-        _append_line(empty, _a3_bullet("No model aliases configured.", style="yellow"))
+        _append_line(empty, _a3_bullet("No model references configured.", style="yellow"))
         outcome.add_message(empty, channel="warning", right_info="model")
         return outcome
 
     content = Text()
-    _append_line(content, _a3_header("model aliases"))
+    _append_line(content, _a3_header("model references"))
     _append_line(content)
-    _append_line(content, _a3_section("Model aliases:"))
+    _append_line(content, _a3_section("Model references:"))
     for token, model_spec in rows:
         try:
-            resolved = resolve_model_alias(token, aliases)
+            resolved = resolve_model_reference(token, references)
         except ModelConfigError as exc:
             _append_line(content, _a3_bullet(f"{token} = {model_spec}", style="yellow"))
             _append_line(content, Text(f"  unresolved: {exc.details}", style="dim"))
@@ -1232,10 +1245,10 @@ async def _handle_models_aliases(ctx: "CommandContext", *, argument: str | None)
             _append_line(content, _a3_bullet(f"{token} = {model_spec}"))
 
     _append_line(content)
-    _append_line(content, _a3_section("Manage aliases:"))
-    _append_line(content, _a3_bullet("/model aliases set", style="cyan"))
-    _append_line(content, _a3_bullet("/model aliases set <token>", style="cyan"))
-    _append_line(content, _a3_bullet("/model aliases unset", style="cyan"))
+    _append_line(content, _a3_section("Manage references:"))
+    _append_line(content, _a3_bullet("/model references set", style="cyan"))
+    _append_line(content, _a3_bullet("/model references set <token>", style="cyan"))
+    _append_line(content, _a3_bullet("/model references unset", style="cyan"))
 
     outcome.add_message(content, right_info="model")
     return outcome
@@ -1310,9 +1323,12 @@ async def _handle_models_catalog(ctx: "CommandContext", *, argument: str | None)
     if curated_entries:
         for entry in curated_entries:
             fast_tag = " [fast]" if entry.fast else ""
-            alias = entry.alias or "-"
+            preset_token = entry.alias or "-"
             style = "green" if entry.fast else "white"
-            _append_line(content, _a3_bullet(f"{alias} -> {entry.model}{fast_tag}", style=style))
+            _append_line(
+                content,
+                _a3_bullet(f"{preset_token} -> {entry.model}{fast_tag}", style=style),
+            )
     else:
         _append_line(content, _a3_bullet("none", style="dim"))
 

@@ -250,7 +250,7 @@ async def test_slash_command_hints_use_catalog_actions() -> None:
 
 
 @pytest.mark.asyncio
-async def test_slash_command_model_aliases_set_dry_run(tmp_path: Path) -> None:
+async def test_slash_command_model_references_set_dry_run(tmp_path: Path) -> None:
     app = _App()
     instance = AgentInstance(
         app=cast("AgentApp", app),
@@ -268,11 +268,11 @@ async def test_slash_command_model_aliases_set_dry_run(tmp_path: Path) -> None:
         os.chdir(tmp_path)
         output = await handler.execute_command(
             "model",
-            "aliases set $system.fast claude-haiku-4-5 --dry-run",
+            "references set $system.fast claude-haiku-4-5 --dry-run",
         )
     finally:
         os.chdir(previous_cwd)
 
-    assert "# model.aliases" in output
+    assert "# model.references" in output
     assert "Mode: dry-run" in output
-    assert "model_aliases.system.fast" in output
+    assert "model_references.system.fast" in output

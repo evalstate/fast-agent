@@ -106,3 +106,27 @@ def test_shell_tool_result_parallel_deferred_uses_source_line_count() -> None:
     assert "line-10" not in rendered
     assert SHELL_OUTPUT_TRUNCATION_MARKER in rendered
     assert "12 lines" in rendered
+
+
+def test_structured_tool_result_shows_transport_timing_and_structured_footer() -> None:
+    display = ConsoleDisplay()
+    result = CallToolResult(
+        content=[TextContent(type="text", text='{"ok": true}')],
+        structuredContent={"ok": True},
+        isError=False,
+    )
+    setattr(result, "transport_channel", "post-json")
+
+    with console.console.capture() as capture:
+        display.show_tool_result(
+            result,
+            name="dev",
+            tool_name="demo_tool",
+            timing_ms=1500,
+        )
+
+    rendered = capture.get()
+    assert '{"ok": true}' in rendered
+    assert "HTTP (JSON-RPC)" in rendered
+    assert "1.50s" in rendered
+    assert "Structured ■" in rendered

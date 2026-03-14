@@ -69,7 +69,7 @@ def is_image_mime_type(mime_type: str) -> bool:
     return mime_type.startswith("image/") and mime_type != "image/svg+xml"
 
 
-# Common alias mapping and normalization helpers
+# Common reference mapping and normalization helpers
 _MIME_ALIASES = {
     # Friendly or non-standard labels
     "document/pdf": "application/pdf",

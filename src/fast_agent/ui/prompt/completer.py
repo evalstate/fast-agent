@@ -78,7 +78,7 @@ class AgentCompleter(Completer):
             "tools": "List tools",
             "model": (
                 "Inspect/switch models and update runtime settings "
-                "(/model reasoning|verbosity|fast|web_search|web_fetch|switch [starts new session]|doctor|aliases|catalog)"
+                "(/model reasoning|verbosity|fast|web_search|web_fetch|switch [starts new session]|doctor|references|catalog)"
             ),
             "skills": (
                 "Manage skills "

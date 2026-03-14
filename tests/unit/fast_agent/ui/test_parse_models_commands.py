@@ -9,10 +9,10 @@ def test_parse_model_catalog_command() -> None:
     assert result.argument == "anthropic --all"
 
 
-def test_parse_model_aliases_set_argument_passthrough() -> None:
+def test_parse_model_references_set_argument_passthrough() -> None:
     result = parse_special_input(
-        "/model aliases set $system.fast claude-haiku-4-5 --target env --dry-run"
+        "/model references set $system.fast claude-haiku-4-5 --target env --dry-run"
     )
     assert isinstance(result, ModelsCommand)
-    assert result.action == "aliases"
+    assert result.action == "references"
     assert result.argument == "set $system.fast claude-haiku-4-5 --target env --dry-run"

@@ -2,7 +2,7 @@ from fast_agent.commands.command_catalog import command_action_names, get_comman
 
 
 def test_command_action_names_for_models() -> None:
-    assert command_action_names("models") == ("doctor", "aliases", "catalog", "help")
+    assert command_action_names("models") == ("doctor", "references", "catalog", "help")
 
 
 def test_get_command_spec_returns_expected_default_action() -> None:

@@ -153,12 +153,12 @@ def _get_named_alias_rows(config_payload: dict[str, Any] | None) -> list[tuple[s
     if not isinstance(config_payload, dict):
         return []
 
-    aliases_payload = config_payload.get("model_aliases")
-    if not isinstance(aliases_payload, dict):
+    references_payload = config_payload.get("model_references")
+    if not isinstance(references_payload, dict):
         return []
 
     rows: list[tuple[str, str]] = []
-    for namespace, entries in sorted(aliases_payload.items(), key=lambda item: str(item[0])):
+    for namespace, entries in sorted(references_payload.items(), key=lambda item: str(item[0])):
         if not isinstance(namespace, str) or not isinstance(entries, dict):
             continue
         for alias_name, model in sorted(entries.items(), key=lambda item: str(item[0])):
@@ -706,7 +706,7 @@ def show_models_overview(env_dir: Path | None = None) -> None:
             alias_table.add_row(alias_token, model)
         console.print(alias_table)
     else:
-        console.print("[dim]No model_aliases configured in fastagent.config.yaml[/dim]")
+        console.print("[dim]No model_references configured in fastagent.config.yaml[/dim]")
 
     console.print()
     console.print(
@@ -856,13 +856,13 @@ def _split_model_specs(raw_models: str) -> list[str]:
     return [chunk.strip() for chunk in raw_models.split(",") if chunk.strip()]
 
 
-def _build_model_aliases(config_payload: dict[str, Any] | None) -> dict[str, str]:
-    aliases = ModelFactory.get_runtime_aliases()
+def _build_model_references(config_payload: dict[str, Any] | None) -> dict[str, str]:
+    aliases = ModelFactory.get_runtime_presets()
 
     if not isinstance(config_payload, dict):
         return aliases
 
-    alias_tree = config_payload.get("model_aliases")
+    alias_tree = config_payload.get("model_references")
     if not isinstance(alias_tree, dict):
         return aliases
 
@@ -885,7 +885,7 @@ def _resolve_model_secret_entry(
     aliases: dict[str, str],
     api_keys: dict[str, dict[str, str]],
 ) -> tuple[dict[str, Any], str | None]:
-    parsed = ModelFactory.parse_model_string(spec, aliases=aliases)
+    parsed = ModelFactory.parse_model_string(spec, presets=aliases)
     provider = parsed.provider
     provider_key = provider.config_name
     env_var_value = ProviderKeyManager.get_env_key_name(provider_key)
@@ -1018,7 +1018,7 @@ def show_model_secret_requirements(
     secrets_summary = get_secrets_summary(config_files["secrets"])
     api_keys = check_api_keys(secrets_summary, config_summary)
     config_payload = _load_catalog_config(env_dir)
-    aliases = _build_model_aliases(config_payload)
+    aliases = _build_model_references(config_payload)
     resolved_entries, unique_secret_envs = _resolve_model_secret_entries(
         specs,
         aliases=aliases,

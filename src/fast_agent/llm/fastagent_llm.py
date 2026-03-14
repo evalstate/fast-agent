@@ -55,7 +55,7 @@ from fast_agent.llm.request_param_resolution import (
     merge_request_params,
     normalize_model_name,
     resolve_config_default_model,
-    resolve_model_aliases,
+    resolve_model_references,
 )
 from fast_agent.llm.response_telemetry import (
     RequestTimingCapture,
@@ -327,8 +327,8 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     def _normalize_model_name(value: str | None) -> str | None:
         return normalize_model_name(value)
 
-    def _resolve_model_aliases(self, value: str) -> str:
-        return resolve_model_aliases(context=self.context, value=value)
+    def _resolve_model_references(self, value: str) -> str:
+        return resolve_model_references(context=self.context, value=value)
 
     def _resolve_default_model_name(
         self,
@@ -338,17 +338,17 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         """Resolve model name using explicit value, then provider config, then fallback."""
         normalized_requested = self._normalize_model_name(requested_model)
         if normalized_requested:
-            return self._resolve_model_aliases(normalized_requested)
+            return self._resolve_model_references(normalized_requested)
 
         config_default = self._resolve_config_default_model()
         if config_default:
-            return self._resolve_model_aliases(config_default)
+            return self._resolve_model_references(config_default)
 
         normalized_fallback = self._normalize_model_name(hardcoded_default)
         if not normalized_fallback:
             return None
 
-        return self._resolve_model_aliases(normalized_fallback)
+        return self._resolve_model_references(normalized_fallback)
 
     def _initialize_default_params_with_model_fallback(
         self,

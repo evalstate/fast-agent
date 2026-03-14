@@ -499,6 +499,261 @@ class ToolDisplay:
             return first
         return Text.assemble(first, "\n", second)
 
+    def _prepare_tool_result_content(
+        self,
+        *,
+        content,
+        tool_name: str | None,
+        truncate_content: bool,
+    ) -> tuple[object, object, bool, int]:
+        source_content = content
+        display_content = content
+        read_omitted_line_count = 0
+
+        if not truncate_content:
+            return display_content, source_content, truncate_content, read_omitted_line_count
+
+        show_bash_output = self._shell_show_bash(tool_name)
+        if not show_bash_output:
+            display_content = self._limit_shell_output_content(content, 0)
+            return display_content, source_content, False, read_omitted_line_count
+
+        shell_line_limit = self._shell_output_line_limit(tool_name)
+        if shell_line_limit is not None:
+            display_content = self._limit_shell_output_content(content, shell_line_limit)
+            return display_content, source_content, False, read_omitted_line_count
+
+        read_line_limit = self._read_text_file_output_line_limit(tool_name)
+        if read_line_limit is None:
+            return display_content, source_content, truncate_content, read_omitted_line_count
+
+        display_content, read_omitted_line_count = self._limit_read_text_output_content(
+            content,
+            read_line_limit,
+        )
+        return display_content, source_content, False, read_omitted_line_count
+
+    @staticmethod
+    def _resolve_skybridge_result_details(
+        *,
+        has_structured: bool,
+        tool_name: str | None,
+        skybridge_config: "SkybridgeServerConfig | None",
+    ) -> tuple[bool, str | None]:
+        if not has_structured or not tool_name or skybridge_config is None:
+            return False, None
+
+        for tool_cfg in skybridge_config.tools:
+            if tool_cfg.tool_name == tool_name and tool_cfg.is_valid:
+                resource_uri = (
+                    str(tool_cfg.resource_uri) if tool_cfg.resource_uri is not None else None
+                )
+                return True, resource_uri
+
+        return False, None
+
+    def _default_tool_result_status(self, result: "CallToolResult") -> str:
+        from fast_agent.mcp.helpers.content_helpers import get_text, is_text_content
+
+        content = result.content
+        if result.isError:
+            return "ERROR"
+
+        if not content:
+            return "No Content"
+
+        if len(content) == 1 and is_text_content(content[0]):
+            text_content = get_text(content[0])
+            char_count = len(text_content) if text_content else 0
+            return f"text only {char_count} chars"
+
+        text_count = sum(1 for item in content if is_text_content(item))
+        if text_count == len(content):
+            return f"{len(content)} Text Blocks" if len(content) > 1 else "1 Text Block"
+
+        return f"{len(content)} Content Blocks" if len(content) > 1 else "1 Content Block"
+
+    def _tool_result_status(
+        self,
+        result: "CallToolResult",
+        *,
+        tool_name: str | None,
+    ) -> str:
+        if self._is_read_text_file_tool(tool_name) and not result.isError:
+            return self._read_text_file_header_status(
+                getattr(result, "read_text_file_path", None),
+                line_value=getattr(result, "read_text_file_line", None),
+                limit_value=getattr(result, "read_text_file_limit", None),
+            )
+
+        return self._default_tool_result_status(result)
+
+    @staticmethod
+    def _transport_metadata_label(channel: str) -> str:
+        if channel == "post-json":
+            return "HTTP (JSON-RPC)"
+        if channel == "post-sse":
+            return "HTTP (SSE)"
+        if channel == "get":
+            return "Legacy SSE"
+        if channel == "resumption":
+            return "Resumption"
+        if channel == "stdio":
+            return "STDIO"
+        return channel.upper()
+
+    def _build_tool_result_bottom_metadata(
+        self,
+        *,
+        result: "CallToolResult",
+        timing_ms: float | None,
+        has_structured: bool,
+    ) -> list[str] | None:
+        bottom_metadata_items: list[str] = []
+
+        channel = getattr(result, "transport_channel", None)
+        if isinstance(channel, str) and channel:
+            bottom_metadata_items.append(self._transport_metadata_label(channel))
+
+        if timing_ms is not None:
+            timing_seconds = timing_ms / 1000.0
+            bottom_metadata_items.append(self._display._format_elapsed(timing_seconds))
+
+        if has_structured:
+            bottom_metadata_items.append("Structured ■")
+
+        return bottom_metadata_items or None
+
+    def _prepare_read_text_file_result_display(
+        self,
+        *,
+        result: "CallToolResult",
+        tool_name: str | None,
+        source_content,
+        display_content,
+        read_omitted_line_count: int,
+    ) -> tuple[object, bool | None, Text | None]:
+        if not self._is_read_text_file_tool(tool_name) or result.isError:
+            return display_content, None, None
+
+        render_markdown: bool | None = None
+        source_line_count = self._read_text_file_line_count_from_content(source_content)
+        no_lines_returned = source_line_count == 0 or not source_content
+        read_no_lines_message: Text | None = None
+
+        if no_lines_returned and read_omitted_line_count == 0:
+            display_content = ""
+            render_markdown = False
+            read_no_lines_message = self._read_text_file_no_lines_message()
+        else:
+            markdown_content = self._format_read_text_file_content_as_markdown(
+                display_content,
+                path_value=getattr(result, "read_text_file_path", None),
+            )
+            if markdown_content is not None:
+                display_content = markdown_content
+                render_markdown = True
+
+        read_more_lines_message = self._read_text_file_more_lines_message(read_omitted_line_count)
+        read_additional_message = self._combine_additional_messages(
+            read_more_lines_message,
+            read_no_lines_message,
+        )
+        return display_content, render_markdown, read_additional_message
+
+    def _render_tool_result_footer(
+        self,
+        *,
+        highlight_color: str,
+        bottom_metadata_items: list[str] | None,
+    ) -> None:
+        line = self._display.style.bottom_metadata_line(
+            bottom_metadata_items,
+            None,
+            highlight_color,
+            None,
+            console.console.size.width,
+        )
+        if line is None:
+            return
+
+        console.console.print(line, markup=self._markup)
+        console.console.print()
+
+    def _render_skybridge_structured_content(
+        self,
+        *,
+        structured_content: object,
+        resource_uri: str | None,
+    ) -> None:
+        total_width = console.console.size.width
+        resource_label = (
+            f"skybridge resource: {resource_uri}" if resource_uri else "skybridge resource"
+        )
+        resource_text = Text(resource_label, style="magenta")
+        line = self._display.style.metadata_line(resource_text, total_width)
+        console.console.print(line, markup=self._markup)
+        console.console.print()
+
+        json_str = json.dumps(structured_content, indent=2)
+        syntax_obj = Syntax(
+            json_str,
+            "json",
+            theme=self._display.code_style,
+            background_color="default",
+        )
+        console.console.print(syntax_obj, markup=self._markup)
+
+    def _render_structured_tool_result(
+        self,
+        *,
+        result: "CallToolResult",
+        name: str | None,
+        display_content,
+        truncate_content: bool,
+        right_info: str,
+        bottom_metadata_items: list[str] | None,
+        structured_content: object,
+        is_skybridge_tool: bool,
+        skybridge_resource_uri: str | None,
+        show_hook_indicator: bool,
+    ) -> None:
+        config_map = MESSAGE_CONFIGS[MessageType.TOOL_RESULT]
+        block_color = "red" if result.isError else config_map["block_color"]
+        arrow = config_map["arrow"]
+        arrow_style = config_map["arrow_style"]
+
+        left = self._display.build_header_left(
+            block_color=block_color,
+            arrow=arrow,
+            arrow_style=arrow_style,
+            name=name,
+            is_error=result.isError,
+            show_hook_indicator=show_hook_indicator,
+        )
+
+        self._display._create_combined_separator_status(left, right_info)
+        self._display._display_content(
+            display_content,
+            truncate_content,
+            result.isError,
+            MessageType.TOOL_RESULT,
+            check_markdown_markers=False,
+        )
+        console.console.print()
+
+        if is_skybridge_tool:
+            self._render_skybridge_structured_content(
+                structured_content=structured_content,
+                resource_uri=skybridge_resource_uri,
+            )
+            return
+
+        self._render_tool_result_footer(
+            highlight_color=config_map["highlight_color"],
+            bottom_metadata_items=bottom_metadata_items,
+        )
+
     def show_tool_result(
         self,
         result: "CallToolResult",
@@ -519,107 +774,27 @@ class ToolDisplay:
             return
 
         try:
-            from fast_agent.mcp.helpers.content_helpers import get_text, is_text_content
-
-            style = self._display.style
-
-            content = result.content
             structured_content = getattr(result, "structuredContent", None)
             has_structured = structured_content is not None
-            source_content = content
-            display_content = content
-            read_omitted_line_count = 0
-            if truncate_content:
-                show_bash_output = self._shell_show_bash(tool_name)
-                if not show_bash_output:
-                    display_content = self._limit_shell_output_content(content, 0)
-                    truncate_content = False
-                else:
-                    line_limit = self._shell_output_line_limit(tool_name)
-                    if line_limit is not None:
-                        display_content = self._limit_shell_output_content(content, line_limit)
-                        truncate_content = False
-                    else:
-                        read_line_limit = self._read_text_file_output_line_limit(tool_name)
-                        if read_line_limit is not None:
-                            display_content, read_omitted_line_count = (
-                                self._limit_read_text_output_content(
-                                content,
-                                read_line_limit,
-                            )
-                            )
-                            truncate_content = False
-
-            is_skybridge_tool = False
-            skybridge_resource_uri: str | None = None
-            if has_structured and tool_name and skybridge_config:
-                for tool_cfg in skybridge_config.tools:
-                    if tool_cfg.tool_name == tool_name and tool_cfg.is_valid:
-                        is_skybridge_tool = True
-                        skybridge_resource_uri = (
-                            str(tool_cfg.resource_uri)
-                            if tool_cfg.resource_uri is not None
-                            else None
-                        )
-                        break
-
-            if result.isError:
-                status = "ERROR"
-            else:
-                if not content:
-                    status = "No Content"
-                elif len(content) == 1 and is_text_content(content[0]):
-                    text_content = get_text(content[0])
-                    char_count = len(text_content) if text_content else 0
-                    status = f"text only {char_count} chars"
-                else:
-                    text_count = sum(1 for item in content if is_text_content(item))
-                    if text_count == len(content):
-                        status = (
-                            f"{len(content)} Text Blocks" if len(content) > 1 else "1 Text Block"
-                        )
-                    else:
-                        status = (
-                            f"{len(content)} Content Blocks"
-                            if len(content) > 1
-                            else "1 Content Block"
-                        )
-
-            if self._is_read_text_file_tool(tool_name) and not result.isError:
-                status = self._read_text_file_header_status(
-                    getattr(result, "read_text_file_path", None),
-                    line_value=getattr(result, "read_text_file_line", None),
-                    limit_value=getattr(result, "read_text_file_limit", None),
+            display_content, source_content, truncate_content, read_omitted_line_count = (
+                self._prepare_tool_result_content(
+                    content=result.content,
+                    tool_name=tool_name,
+                    truncate_content=truncate_content,
                 )
+            )
 
-            channel = getattr(result, "transport_channel", None)
-            bottom_metadata_items: list[str] = []
-            if channel:
-                if channel == "post-json":
-                    transport_info = "HTTP (JSON-RPC)"
-                elif channel == "post-sse":
-                    transport_info = "HTTP (SSE)"
-                elif channel == "get":
-                    transport_info = "Legacy SSE"
-                elif channel == "resumption":
-                    transport_info = "Resumption"
-                elif channel == "stdio":
-                    transport_info = "STDIO"
-                else:
-                    transport_info = channel.upper()
-
-                bottom_metadata_items.append(transport_info)
-
-            # Use timing from FAST_AGENT_TOOL_TIMING (passed as parameter)
-            if timing_ms is not None:
-                # Convert ms to seconds for display
-                timing_seconds = timing_ms / 1000.0
-                bottom_metadata_items.append(self._display._format_elapsed(timing_seconds))
-
-            if has_structured:
-                bottom_metadata_items.append("Structured ■")
-
-            bottom_metadata = bottom_metadata_items or None
+            is_skybridge_tool, skybridge_resource_uri = self._resolve_skybridge_result_details(
+                has_structured=has_structured,
+                tool_name=tool_name,
+                skybridge_config=skybridge_config,
+            )
+            status = self._tool_result_status(result, tool_name=tool_name)
+            bottom_metadata = self._build_tool_result_bottom_metadata(
+                result=result,
+                timing_ms=timing_ms,
+                has_structured=has_structured,
+            )
             display_type_label = type_label
             if self._is_read_text_file_tool(tool_name) and type_label == "tool result":
                 display_type_label = "file read"
@@ -638,96 +813,33 @@ class ToolDisplay:
                 )
             )
 
-            render_markdown: bool | None = None
-            read_more_lines_message: Text | None = None
-            read_no_lines_message: Text | None = None
-            if self._is_read_text_file_tool(tool_name) and not result.isError:
-                source_line_count = self._read_text_file_line_count_from_content(source_content)
-                no_lines_returned = source_line_count == 0 or not source_content
-
-                if no_lines_returned and read_omitted_line_count == 0:
-                    display_content = ""
-                    render_markdown = False
-                    read_no_lines_message = self._read_text_file_no_lines_message()
-                else:
-                    markdown_content = self._format_read_text_file_content_as_markdown(
-                        display_content,
-                        path_value=getattr(result, "read_text_file_path", None),
-                    )
-                    if markdown_content is not None:
-                        display_content = markdown_content
-                        render_markdown = True
-                read_more_lines_message = self._read_text_file_more_lines_message(
-                    read_omitted_line_count
+            display_content, render_markdown, read_additional_message = (
+                self._prepare_read_text_file_result_display(
+                    result=result,
+                    tool_name=tool_name,
+                    source_content=source_content,
+                    display_content=display_content,
+                    read_omitted_line_count=read_omitted_line_count,
                 )
-
-            additional_message = self._combine_additional_messages(
-                shell_exit_additional_message,
-                read_more_lines_message,
             )
             additional_message = self._combine_additional_messages(
-                additional_message,
-                read_no_lines_message,
+                shell_exit_additional_message,
+                read_additional_message,
             )
 
             if has_structured:
-                config_map = MESSAGE_CONFIGS[MessageType.TOOL_RESULT]
-                block_color = "red" if result.isError else config_map["block_color"]
-                arrow = config_map["arrow"]
-                arrow_style = config_map["arrow_style"]
-
-                # Use build_header_left for consistency with hook indicator
-                left = self._display.build_header_left(
-                    block_color=block_color,
-                    arrow=arrow,
-                    arrow_style=arrow_style,
+                self._render_structured_tool_result(
+                    result=result,
                     name=name,
-                    is_error=result.isError,
+                    display_content=display_content,
+                    truncate_content=truncate_content,
+                    right_info=right_info,
+                    bottom_metadata_items=bottom_metadata,
+                    structured_content=structured_content,
+                    is_skybridge_tool=is_skybridge_tool,
+                    skybridge_resource_uri=skybridge_resource_uri,
                     show_hook_indicator=show_hook_indicator,
                 )
-
-                self._display._create_combined_separator_status(left, right_info)
-
-                self._display._display_content(
-                    display_content,
-                    truncate_content,
-                    result.isError,
-                    MessageType.TOOL_RESULT,
-                    check_markdown_markers=False,
-                )
-                console.console.print()
-                total_width = console.console.size.width
-
-                if is_skybridge_tool:
-                    resource_label = (
-                        f"skybridge resource: {skybridge_resource_uri}"
-                        if skybridge_resource_uri
-                        else "skybridge resource"
-                    )
-                    resource_text = Text(resource_label, style="magenta")
-                    line = style.metadata_line(resource_text, total_width)
-                    console.console.print(line, markup=self._markup)
-                    console.console.print()
-
-                    json_str = json.dumps(structured_content, indent=2)
-                    syntax_obj = Syntax(
-                        json_str,
-                        "json",
-                        theme=self._display.code_style,
-                        background_color="default",
-                    )
-                    console.console.print(syntax_obj, markup=self._markup)
-                else:
-                    line = style.bottom_metadata_line(
-                        bottom_metadata_items,
-                        None,
-                        config_map["highlight_color"],
-                        None,
-                        total_width,
-                    )
-                    if line is not None:
-                        console.console.print(line, markup=self._markup)
-                        console.console.print()
             else:
                 self._display.display_message(
                     content=display_content,

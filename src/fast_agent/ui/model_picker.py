@@ -570,7 +570,7 @@ def _find_initial_model_index(
         return None
 
     for index, option in enumerate(options):
-        if option.spec == normalized_spec or option.alias == normalized_spec:
+        if option.spec == normalized_spec or option.preset_token == normalized_spec:
             return index
 
     target_identity = model_identity(normalized_spec)

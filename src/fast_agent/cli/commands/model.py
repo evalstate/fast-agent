@@ -1,4 +1,4 @@
-"""Interactive CLI helpers for model alias setup."""
+"""Interactive CLI helpers for model reference setup."""
 
 from __future__ import annotations
 
@@ -25,20 +25,21 @@ from fast_agent.config import (
     load_yaml_mapping,
     resolve_config_search_root,
 )
-from fast_agent.llm.model_alias_diagnostics import (
-    ModelAliasSetupDiagnostics,
-    ModelAliasSetupItem,
-    collect_model_alias_setup_diagnostics,
+from fast_agent.llm.model_reference_config import resolve_model_reference_start_path
+from fast_agent.llm.model_reference_diagnostics import (
+    ModelReferenceSetupDiagnostics,
+    ModelReferenceSetupItem,
+    collect_model_reference_setup_diagnostics,
 )
 from fast_agent.ui.adapters.tui_io import TuiCommandIO
-from fast_agent.ui.model_alias_picker import (
-    ModelAliasPickerItem,
-    run_model_alias_picker_async,
+from fast_agent.ui.model_reference_picker import (
+    ModelReferencePickerItem,
+    run_model_reference_picker_async,
 )
 
 type WriteTarget = Literal["env", "project"]
 
-app = typer.Typer(help="Interactive model alias setup.")
+app = typer.Typer(help="Interactive model reference setup.")
 
 
 class _CliModelAgentProvider(AgentProvider):
@@ -59,7 +60,7 @@ class _CliModelAgentProvider(AgentProvider):
         return {}
 
 
-def _build_alias_setup_argument(
+def _build_reference_setup_argument(
     *,
     token: str | None,
     target: WriteTarget,
@@ -83,7 +84,7 @@ def _normalize_write_target(value: str) -> WriteTarget:
     raise typer.BadParameter("--target must be either 'env' or 'project'.")
 
 
-def _normalize_interactive_alias_token(token: str | None) -> str | None:
+def _normalize_interactive_reference_token(token: str | None) -> str | None:
     if token is None:
         return None
     stripped = token.strip()
@@ -94,10 +95,22 @@ def _normalize_interactive_alias_token(token: str | None) -> str | None:
     return f"${stripped}"
 
 
-async def _prompt_manual_alias_token(io: CommandIO) -> str | None:
-    return _normalize_interactive_alias_token(
+def _bootstrap_settings_start_path(env_dir: str | Path | None) -> Path:
+    if isinstance(env_dir, str) and env_dir.strip():
+        env_root = Path(env_dir).expanduser()
+        if env_root.is_absolute():
+            return env_root.resolve().parent
+    elif isinstance(env_dir, Path):
+        env_root = env_dir.expanduser()
+        if env_root.is_absolute():
+            return env_root.resolve().parent
+    return Path.cwd()
+
+
+async def _prompt_manual_reference_token(io: CommandIO) -> str | None:
+    return _normalize_interactive_reference_token(
         await io.prompt_text(
-            "Alias token ($namespace.key):",
+            "Reference token ($namespace.key):",
             allow_empty=False,
         )
     )
@@ -111,16 +124,17 @@ async def run_model_setup(
     target: WriteTarget = "env",
     dry_run: bool = False,
 ) -> CommandOutcome:
-    """Execute the shared interactive alias-setup flow."""
+    """Execute the shared interactive reference-setup flow."""
     resolved_token = token
+    start_path = resolve_model_reference_start_path(settings=settings)
     if resolved_token is None:
-        diagnostics = collect_model_alias_setup_diagnostics(
-            cwd=Path.cwd(),
+        diagnostics = collect_model_reference_setup_diagnostics(
+            cwd=start_path,
             env_dir=getattr(settings, "environment_dir", None),
         )
         has_guided_choices = bool(diagnostics.items) or (
             isinstance(io, TuiCommandIO)
-            and bool(_build_common_setup_items(diagnostics.valid_aliases))
+            and bool(_build_common_setup_items(diagnostics.valid_references))
         )
         resolved_token = await _select_model_setup_token(
             io,
@@ -138,7 +152,7 @@ async def run_model_setup(
         io=io,
         settings=settings,
     )
-    argument = _build_alias_setup_argument(
+    argument = _build_reference_setup_argument(
         token=resolved_token,
         target=target,
         dry_run=dry_run,
@@ -146,7 +160,7 @@ async def run_model_setup(
     return await models_manager.handle_models_command(
         ctx,
         agent_name="cli",
-        action="aliases",
+        action="references",
         argument=argument,
     )
 
@@ -161,10 +175,11 @@ async def run_model_doctor(
     if (
         getattr(settings, "_config_file", None) is None
         and settings.default_model is None
-        and not settings.model_aliases
+        and not settings.model_references
     ):
+        start_path = _bootstrap_settings_start_path(getattr(settings, "environment_dir", None))
         effective_settings = _load_cli_settings(
-            cwd=Path.cwd(),
+            cwd=start_path,
             env_dir=getattr(settings, "environment_dir", None),
         )
 
@@ -186,20 +201,20 @@ async def run_model_doctor(
 async def _select_model_setup_token(
     io: CommandIO,
     *,
-    diagnostics: ModelAliasSetupDiagnostics,
+    diagnostics: ModelReferenceSetupDiagnostics,
 ) -> str | None:
     items = diagnostics.items
-    common_items = _build_common_setup_items(diagnostics.valid_aliases)
+    common_items = _build_common_setup_items(diagnostics.valid_references)
     if not items:
         if isinstance(io, TuiCommandIO) and common_items:
-            return await _pick_or_prompt_alias_token(
+            return await _pick_or_prompt_reference_token(
                 io,
                 items=common_items,
             )
         return None
 
     if isinstance(io, TuiCommandIO):
-        return await _pick_or_prompt_alias_token(
+        return await _pick_or_prompt_reference_token(
             io,
             items=_merge_setup_items(items, common_items),
         )
@@ -210,7 +225,7 @@ async def _select_model_setup_token(
             CommandMessage(
                 text=_render_setup_item_summary(
                     item,
-                    title="Detected one alias that needs setup",
+                    title="Detected one reference that needs setup",
                 ),
                 right_info="model",
             )
@@ -228,7 +243,7 @@ async def _select_model_setup_token(
         for index, item in enumerate(items, start=1)
     }
     selection = await io.prompt_selection(
-        "Alias to configure (number or 'custom'):",
+        "Reference to configure (number or 'custom'):",
         options=[*option_labels.keys(), "custom"],
         allow_cancel=True,
     )
@@ -237,17 +252,17 @@ async def _select_model_setup_token(
 
     normalized_selection = selection.strip().lower()
     if normalized_selection == "custom":
-        return await _prompt_manual_alias_token(io)
+        return await _prompt_manual_reference_token(io)
     return option_labels.get(normalized_selection)
 
 
-async def _pick_or_prompt_alias_token(
+async def _pick_or_prompt_reference_token(
     io: TuiCommandIO,
     *,
-    items: tuple[ModelAliasSetupItem, ...],
+    items: tuple[ModelReferenceSetupItem, ...],
 ) -> str | None:
     picker_items = tuple(
-        ModelAliasPickerItem(
+        ModelReferencePickerItem(
             token=item.token,
             priority=item.priority,
             status=f"{item.priority}/{item.status}",
@@ -258,15 +273,15 @@ async def _pick_or_prompt_alias_token(
         )
         for item in items
     )
-    result = await run_model_alias_picker_async(picker_items)
+    result = await run_model_reference_picker_async(picker_items)
     if result is None:
         return None
     if result.action == "custom":
-        return await _prompt_manual_alias_token(io)
+        return await _prompt_manual_reference_token(io)
     return result.token
 
 
-def _render_setup_item_summary(item: ModelAliasSetupItem, *, title: str) -> Text:
+def _render_setup_item_summary(item: ModelReferenceSetupItem, *, title: str) -> Text:
     content = Text()
     content.append(f"{title}\n", style="bold")
     content.append(f"• {item.token}\n", style="cyan")
@@ -279,9 +294,9 @@ def _render_setup_item_summary(item: ModelAliasSetupItem, *, title: str) -> Text
     return content
 
 
-def _render_setup_item_list(items: tuple[ModelAliasSetupItem, ...]) -> Text:
+def _render_setup_item_list(items: tuple[ModelReferenceSetupItem, ...]) -> Text:
     content = Text()
-    content.append("Aliases that need setup\n", style="bold")
+    content.append("References that need setup\n", style="bold")
     for index, item in enumerate(items, start=1):
         content.append(
             f"{index}. {item.token}  [{item.priority}/{item.status}]\n",
@@ -296,37 +311,37 @@ def _render_setup_item_list(items: tuple[ModelAliasSetupItem, ...]) -> Text:
         if item.current_value is not None:
             current_value = item.current_value if item.current_value else "<empty>"
             content.append(f"   current: {current_value}\n", style="dim")
-    content.append("\nType 'custom' to enter a different alias token.", style="dim")
+    content.append("\nType 'custom' to enter a different reference token.", style="dim")
     return content
 
 
 def _build_common_setup_items(
-    valid_aliases: dict[str, dict[str, str]],
+    valid_references: dict[str, dict[str, str]],
     *,
     suppressed_tokens: set[str] | None = None,
-) -> tuple[ModelAliasSetupItem, ...]:
-    items: list[ModelAliasSetupItem] = []
+) -> tuple[ModelReferenceSetupItem, ...]:
+    items: list[ModelReferenceSetupItem] = []
     hidden_tokens = suppressed_tokens or set()
-    system_aliases = valid_aliases.get("system", {})
-    if "default" not in system_aliases and "$system.default" not in hidden_tokens:
+    system_references = valid_references.get("system", {})
+    if "default" not in system_references and "$system.default" not in hidden_tokens:
         items.append(
-            ModelAliasSetupItem(
+            ModelReferenceSetupItem(
                 token="$system.default",
                 priority="required",
                 status="missing",
                 current_value=None,
-                summary="Recommended starter alias for your main default model.",
+                summary="Recommended starter reference for your main default model.",
                 references=("starter setup",),
             )
         )
-    if "fast" not in system_aliases and "$system.fast" not in hidden_tokens:
+    if "fast" not in system_references and "$system.fast" not in hidden_tokens:
         items.append(
-            ModelAliasSetupItem(
+            ModelReferenceSetupItem(
                 token="$system.fast",
                 priority="recommended",
                 status="missing",
                 current_value=None,
-                summary="Optional starter alias for a faster or cheaper model.",
+                summary="Optional starter reference for a faster or cheaper model.",
                 references=("starter setup",),
             )
         )
@@ -334,10 +349,10 @@ def _build_common_setup_items(
 
 
 def _merge_setup_items(
-    primary_items: tuple[ModelAliasSetupItem, ...],
-    extra_items: tuple[ModelAliasSetupItem, ...],
-) -> tuple[ModelAliasSetupItem, ...]:
-    merged: list[ModelAliasSetupItem] = list(primary_items)
+    primary_items: tuple[ModelReferenceSetupItem, ...],
+    extra_items: tuple[ModelReferenceSetupItem, ...],
+) -> tuple[ModelReferenceSetupItem, ...]:
+    merged: list[ModelReferenceSetupItem] = list(primary_items)
     seen_tokens = {item.token for item in primary_items}
     for item in extra_items:
         if item.token in seen_tokens:
@@ -347,15 +362,15 @@ def _merge_setup_items(
 
 
 def _build_picker_items(
-    diagnostics: ModelAliasSetupDiagnostics,
+    diagnostics: ModelReferenceSetupDiagnostics,
     *,
     suppressed_tokens: set[str] | None = None,
-) -> tuple[ModelAliasPickerItem, ...]:
-    items: list[ModelAliasPickerItem] = []
+) -> tuple[ModelReferencePickerItem, ...]:
+    items: list[ModelReferencePickerItem] = []
     seen_tokens: set[str] = set()
     hidden_tokens = suppressed_tokens or set()
 
-    def _add_item(item: ModelAliasPickerItem) -> None:
+    def _add_item(item: ModelReferencePickerItem) -> None:
         if item.token in seen_tokens:
             return
         seen_tokens.add(item.token)
@@ -363,7 +378,7 @@ def _build_picker_items(
 
     for item in diagnostics.items:
         _add_item(
-            ModelAliasPickerItem(
+            ModelReferencePickerItem(
                 token=item.token,
                 priority=item.priority,
                 status=f"{item.priority}/{item.status}",
@@ -375,11 +390,11 @@ def _build_picker_items(
         )
 
     for item in _build_common_setup_items(
-        diagnostics.valid_aliases,
+        diagnostics.valid_references,
         suppressed_tokens=hidden_tokens,
     ):
         _add_item(
-            ModelAliasPickerItem(
+            ModelReferencePickerItem(
                 token=item.token,
                 priority=item.priority,
                 status=f"{item.priority}/{item.status}",
@@ -390,15 +405,15 @@ def _build_picker_items(
             )
         )
 
-    for namespace, entries in sorted(diagnostics.valid_aliases.items()):
+    for namespace, entries in sorted(diagnostics.valid_references.items()):
         for key, model_spec in sorted(entries.items()):
             token = f"${namespace}.{key}"
             _add_item(
-                ModelAliasPickerItem(
+                ModelReferencePickerItem(
                     token=token,
                     priority="configured",
                     status="configured",
-                    summary="Existing alias mapping.",
+                    summary="Existing reference mapping.",
                     current_value=model_spec,
                     references=(),
                     removable=True,
@@ -408,7 +423,7 @@ def _build_picker_items(
     return tuple(items)
 
 
-async def _run_model_alias_unset(
+async def _run_model_reference_unset(
     *,
     io: CommandIO,
     settings: Settings,
@@ -429,7 +444,7 @@ async def _run_model_alias_unset(
     return await models_manager.handle_models_command(
         ctx,
         agent_name="cli",
-        action="aliases",
+        action="references",
         argument=argument,
     )
 
@@ -441,8 +456,9 @@ async def _run_model_setup_command(
     target: WriteTarget,
     dry_run: bool,
 ) -> None:
+    start_path = resolve_model_reference_start_path(settings=settings)
     config_payload = _load_tolerant_config_payload(
-        cwd=Path.cwd(),
+        cwd=start_path,
         env_dir=getattr(settings, "environment_dir", None),
     )
     provider = _CliModelAgentProvider()
@@ -466,22 +482,22 @@ async def _run_model_setup_command(
 
     suppressed_tokens: set[str] = set()
     while True:
-        diagnostics = collect_model_alias_setup_diagnostics(
-            cwd=Path.cwd(),
+        diagnostics = collect_model_reference_setup_diagnostics(
+            cwd=start_path,
             env_dir=getattr(settings, "environment_dir", None),
         )
         picker_items = _build_picker_items(
             diagnostics,
             suppressed_tokens=suppressed_tokens,
         )
-        picker_result = await run_model_alias_picker_async(picker_items)
+        picker_result = await run_model_reference_picker_async(picker_items)
         if picker_result is None:
             return
         if picker_result.action == "done":
             return
 
         if picker_result.action == "custom":
-            selected_token = await _prompt_manual_alias_token(io)
+            selected_token = await _prompt_manual_reference_token(io)
             if selected_token is None:
                 return
             outcome = await run_model_setup(
@@ -493,7 +509,7 @@ async def _run_model_setup_command(
             )
         elif picker_result.action == "unset":
             assert picker_result.token is not None
-            outcome = await _run_model_alias_unset(
+            outcome = await _run_model_reference_unset(
                 io=io,
                 settings=settings,
                 token=picker_result.token,
@@ -528,13 +544,14 @@ async def _run_model_setup_command(
 
 
 async def _run_model_doctor_command(*, settings: Settings) -> None:
+    start_path = resolve_model_reference_start_path(settings=settings)
     provider = _CliModelAgentProvider()
     io = TuiCommandIO(
         prompt_provider=provider,
         agent_name="cli",
         settings=settings,
         config_payload=_load_tolerant_config_payload(
-            cwd=Path.cwd(),
+            cwd=start_path,
             env_dir=getattr(settings, "environment_dir", None),
         ),
     )
@@ -604,13 +621,13 @@ def model_setup(
     ctx: typer.Context,
     token: str | None = typer.Argument(
         None,
-        help="Alias token to update, such as $system.fast. Omit to choose or create one interactively.",
+        help="Reference token to update, such as $system.fast. Omit to choose or create one interactively.",
     ),
     env: str | None = CommonAgentOptions.env_dir(),
     target: str = typer.Option(
         "env",
         "--target",
-        help="Where to save alias changes.",
+        help="Where to save reference changes.",
     ),
     dry_run: bool = typer.Option(
         False,
@@ -618,7 +635,7 @@ def model_setup(
         help="Preview changes without writing files.",
     ),
 ) -> None:
-    """Interactively create or update a model alias using the model selector."""
+    """Interactively create or update a model reference using the model selector."""
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         typer.echo("fast-agent model setup requires an interactive terminal.", err=True)
         raise typer.Exit(1)
@@ -653,12 +670,15 @@ def model_doctor(
     ctx: typer.Context,
     env: str | None = CommonAgentOptions.env_dir(),
 ) -> None:
-    """Inspect model onboarding readiness and alias resolution."""
+    """Inspect model onboarding readiness and reference resolution."""
     resolved_env_dir = resolve_environment_dir_option(
         ctx,
         Path(env) if env is not None else None,
     )
-    settings = _load_cli_settings(cwd=Path.cwd(), env_dir=resolved_env_dir)
+    settings = _load_cli_settings(
+        cwd=_bootstrap_settings_start_path(resolved_env_dir),
+        env_dir=resolved_env_dir,
+    )
 
     try:
         asyncio.run(

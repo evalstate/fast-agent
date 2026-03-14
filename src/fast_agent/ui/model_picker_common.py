@@ -59,7 +59,7 @@ class ProviderOption:
 class ModelOption:
     spec: str
     label: str
-    alias: str | None = None
+    preset_token: str | None = None
     fast: bool = False
     curated: bool = False
     activation_action: ProviderActivationAction | None = None
@@ -272,7 +272,7 @@ def model_options_for_provider(
             ModelOption(
                 spec=entry.model,
                 label=label,
-                alias=entry.alias,
+                preset_token=entry.alias,
                 fast=entry.fast,
                 curated=entry.current,
             )

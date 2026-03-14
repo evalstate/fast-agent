@@ -1,4 +1,4 @@
-"""Model alias config layering and targeted mutation helpers."""
+"""Model reference config layering and targeted mutation helpers."""
 
 from __future__ import annotations
 
@@ -22,14 +22,14 @@ from fast_agent.config import (
     resolve_environment_config_file,
 )
 from fast_agent.core.exceptions import ModelConfigError
-from fast_agent.core.model_resolution import parse_model_alias_token
+from fast_agent.core.model_resolution import parse_model_reference_token
 
-ModelAliasWriteTarget = Literal["env", "project"]
+ModelReferenceWriteTarget = Literal["env", "project"]
 
 
 @dataclass(frozen=True)
-class ModelAliasConfigPaths:
-    """Resolved paths used by model alias mutation helpers."""
+class ModelReferenceConfigPaths:
+    """Resolved paths used by model reference mutation helpers."""
 
     project_read_path: Path | None
     project_write_path: Path
@@ -38,7 +38,7 @@ class ModelAliasConfigPaths:
 
 
 @dataclass(frozen=True)
-class ModelAliasChange:
+class ModelReferenceChange:
     """Single mutation preview entry."""
 
     key_path: str
@@ -47,33 +47,33 @@ class ModelAliasChange:
 
 
 @dataclass(frozen=True)
-class ModelAliasMutationResult:
+class ModelReferenceMutationResult:
     """Result payload for set/unset mutations."""
 
-    target: ModelAliasWriteTarget
+    target: ModelReferenceWriteTarget
     target_path: Path
     dry_run: bool
     applied: bool
-    changes: tuple[ModelAliasChange, ...]
+    changes: tuple[ModelReferenceChange, ...]
 
 
-class ModelAliasConfigService:
-    """Read/write service for ``model_aliases`` config subtree operations."""
+class ModelReferenceConfigService:
+    """Read/write service for ``model_references`` config subtree operations."""
 
     def __init__(
         self,
         *,
-        cwd: Path | None = None,
+        start_path: Path | None = None,
         env_dir: str | Path | None = None,
     ) -> None:
-        self._cwd = (cwd or Path.cwd()).resolve()
+        self._start_path = (start_path or Path.cwd()).resolve()
         self._env_dir = env_dir if env_dir is not None else os.getenv("ENVIRONMENT_DIR")
-        self.paths = _discover_paths(start_path=self._cwd, env_dir=self._env_dir)
+        self.paths = _discover_paths(start_path=self._start_path, env_dir=self._env_dir)
 
     def load_effective_model_settings(self) -> dict[str, Any]:
         """Return layered model settings merged with any secrets overlay."""
         layered_model_settings = load_layered_model_settings(
-            start_path=self._cwd,
+            start_path=self._start_path,
             env_dir=self._env_dir,
         )
 
@@ -83,29 +83,29 @@ class ModelAliasConfigService:
 
         return layered_model_settings
 
-    def list_aliases(self) -> dict[str, dict[str, str]]:
-        """Return effective aliases from layered project/env config (+ secrets overlay)."""
+    def list_references(self) -> dict[str, dict[str, str]]:
+        """Return effective references from layered project/env config (+ secrets overlay)."""
         layered_model_settings = self.load_effective_model_settings()
-        aliases_payload = layered_model_settings.get("model_aliases", {})
-        validated = Settings(model_aliases=aliases_payload)
-        return validated.model_aliases
+        references_payload = layered_model_settings.get("model_references", {})
+        validated = Settings(model_references=references_payload)
+        return validated.model_references
 
-    def list_aliases_tolerant(self) -> dict[str, dict[str, str]]:
-        """Return only valid, non-empty alias entries from effective settings."""
-        aliases_payload = self.load_effective_model_settings().get("model_aliases", {})
-        return _extract_valid_aliases(aliases_payload)
+    def list_references_tolerant(self) -> dict[str, dict[str, str]]:
+        """Return only valid, non-empty reference entries from effective settings."""
+        references_payload = self.load_effective_model_settings().get("model_references", {})
+        return _extract_valid_references(references_payload)
 
-    def set_alias(
+    def set_reference(
         self,
         token: str,
         model_spec: str,
         *,
-        target: ModelAliasWriteTarget = "env",
+        target: ModelReferenceWriteTarget = "env",
         dry_run: bool = False,
-    ) -> ModelAliasMutationResult:
-        """Set a model alias token at the selected write target."""
+    ) -> ModelReferenceMutationResult:
+        """Set a model reference token at the selected write target."""
         try:
-            namespace, key = parse_model_alias_token(token)
+            namespace, key = parse_model_reference_token(token)
         except ModelConfigError as exc:
             raise ValueError(exc.details) from exc
 
@@ -113,72 +113,72 @@ class ModelAliasConfigService:
         if not normalized_model:
             raise ValueError("model-spec must be a non-empty string")
 
-        # Reuse existing Settings validator semantics for alias values.
-        Settings(model_aliases={namespace: {key: normalized_model}})
+        # Reuse existing Settings validator semantics for reference values.
+        Settings(model_references={namespace: {key: normalized_model}})
 
         target_path = self._resolve_target_path(target)
         document = _load_round_trip_yaml(target_path)
-        old_value = _extract_alias_value(document, namespace, key)
+        old_value = _extract_reference_value(document, namespace, key)
 
-        _set_alias_value(document, namespace, key, normalized_model)
+        _set_reference_value(document, namespace, key, normalized_model)
         new_value = normalized_model
         changed = old_value != new_value
 
         if changed and not dry_run:
             _atomic_write_round_trip_yaml(document, target_path)
 
-        return ModelAliasMutationResult(
+        return ModelReferenceMutationResult(
             target=target,
             target_path=target_path,
             dry_run=dry_run,
             applied=changed and (not dry_run),
             changes=(
-                ModelAliasChange(
-                    key_path=f"model_aliases.{namespace}.{key}",
+                ModelReferenceChange(
+                    key_path=f"model_references.{namespace}.{key}",
                     old=old_value,
                     new=new_value,
                 ),
             ),
         )
 
-    def unset_alias(
+    def unset_reference(
         self,
         token: str,
         *,
-        target: ModelAliasWriteTarget = "env",
+        target: ModelReferenceWriteTarget = "env",
         dry_run: bool = False,
-    ) -> ModelAliasMutationResult:
-        """Unset a model alias token from the selected write target."""
+    ) -> ModelReferenceMutationResult:
+        """Unset a model reference token from the selected write target."""
         try:
-            namespace, key = parse_model_alias_token(token)
+            namespace, key = parse_model_reference_token(token)
         except ModelConfigError as exc:
             raise ValueError(exc.details) from exc
 
         target_path = self._resolve_target_path(target)
         document = _load_round_trip_yaml(target_path)
-        old_value = _extract_alias_value(document, namespace, key)
+        old_value = _extract_reference_value(document, namespace, key)
 
-        _unset_alias_value(document, namespace, key)
+        _unset_reference_value(document, namespace, key)
         changed = old_value is not None
 
         if changed and not dry_run:
             _atomic_write_round_trip_yaml(document, target_path)
 
-        return ModelAliasMutationResult(
+        return ModelReferenceMutationResult(
             target=target,
             target_path=target_path,
             dry_run=dry_run,
             applied=changed and (not dry_run),
             changes=(
-                ModelAliasChange(
-                    key_path=f"model_aliases.{namespace}.{key}",
+                ModelReferenceChange(
+                    key_path=f"model_references.{namespace}.{key}",
                     old=old_value,
                     new=None,
                 ),
             ),
         )
 
-    def _resolve_target_path(self, target: ModelAliasWriteTarget) -> Path:
+    def _resolve_target_path(self, target: ModelReferenceWriteTarget) -> Path:
         if target == "env":
             return self.paths.env_path
         if target == "project":
@@ -186,7 +186,34 @@ class ModelAliasConfigService:
         raise ValueError("target must be 'env' or 'project'")
 
 
-def _discover_paths(*, start_path: Path, env_dir: str | Path | None) -> ModelAliasConfigPaths:
+def resolve_model_reference_start_path(
+    *,
+    settings: Settings | None = None,
+    fallback_path: Path | None = None,
+) -> Path:
+    """Resolve the deterministic base path for model reference config discovery."""
+    if settings is not None:
+        config_file = getattr(settings, "_config_file", None)
+        if isinstance(config_file, str) and config_file.strip():
+            return Path(config_file).expanduser().resolve().parent
+
+        env_dir = getattr(settings, "environment_dir", None)
+        if isinstance(env_dir, str) and env_dir.strip():
+            env_root = Path(env_dir).expanduser()
+            if env_root.is_absolute():
+                return env_root.resolve().parent
+        elif isinstance(env_dir, Path):
+            env_root = env_dir.expanduser()
+            if env_root.is_absolute():
+                return env_root.resolve().parent
+
+    if fallback_path is not None:
+        return fallback_path.resolve()
+
+    return Path.cwd().resolve()
+
+
+def _discover_paths(*, start_path: Path, env_dir: str | Path | None) -> ModelReferenceConfigPaths:
     project_read_path = find_project_config_file(start_path)
     project_write_path = project_read_path or (start_path / "fastagent.config.yaml")
     env_path = resolve_environment_config_file(start_path, env_dir=env_dir)
@@ -194,7 +221,7 @@ def _discover_paths(*, start_path: Path, env_dir: str | Path | None) -> ModelAli
     search_root = resolve_config_search_root(start_path, env_dir=env_dir)
     _, secrets_path = find_fastagent_config_files(search_root)
 
-    return ModelAliasConfigPaths(
+    return ModelReferenceConfigPaths(
         project_read_path=project_read_path,
         project_write_path=project_write_path,
         env_path=env_path,
@@ -208,23 +235,23 @@ def _merge_model_settings(base: dict[str, Any], overlay: dict[str, Any]) -> dict
     if "default_model" in overlay:
         merged["default_model"] = overlay["default_model"]
 
-    if "model_aliases" in overlay:
-        overlay_aliases = overlay["model_aliases"]
-        base_aliases = merged.get("model_aliases")
-        if isinstance(base_aliases, dict) and isinstance(overlay_aliases, dict):
-            merged["model_aliases"] = deep_merge(base_aliases, overlay_aliases)
+    if "model_references" in overlay:
+        overlay_references = overlay["model_references"]
+        base_references = merged.get("model_references")
+        if isinstance(base_references, dict) and isinstance(overlay_references, dict):
+            merged["model_references"] = deep_merge(base_references, overlay_references)
         else:
-            merged["model_aliases"] = overlay_aliases
+            merged["model_references"] = overlay_references
 
     return merged
 
 
-def _extract_valid_aliases(aliases_payload: Any) -> dict[str, dict[str, str]]:
-    if not isinstance(aliases_payload, dict):
+def _extract_valid_references(references_payload: Any) -> dict[str, dict[str, str]]:
+    if not isinstance(references_payload, dict):
         return {}
 
-    valid_aliases: dict[str, dict[str, str]] = {}
-    for namespace, entries in aliases_payload.items():
+    valid_references: dict[str, dict[str, str]] = {}
+    for namespace, entries in references_payload.items():
         if not isinstance(namespace, str) or not isinstance(entries, dict):
             continue
 
@@ -238,9 +265,9 @@ def _extract_valid_aliases(aliases_payload: Any) -> dict[str, dict[str, str]]:
             normalized_entries[key] = model_value
 
         if normalized_entries:
-            valid_aliases[namespace] = normalized_entries
+            valid_references[namespace] = normalized_entries
 
-    return valid_aliases
+    return valid_references
 
 
 _ROUND_TRIP_YAML = YAML()
@@ -264,12 +291,12 @@ def _load_round_trip_yaml(path: Path) -> CommentedMap:
     raise ValueError(f"Top-level YAML at {path} must be a mapping")
 
 
-def _extract_alias_value(document: CommentedMap, namespace: str, key: str) -> str | None:
-    aliases = document.get("model_aliases")
-    if not isinstance(aliases, dict):
+def _extract_reference_value(document: CommentedMap, namespace: str, key: str) -> str | None:
+    references = document.get("model_references")
+    if not isinstance(references, dict):
         return None
 
-    namespace_entries = aliases.get(namespace)
+    namespace_entries = references.get(namespace)
     if not isinstance(namespace_entries, dict):
         return None
 
@@ -281,37 +308,37 @@ def _extract_alias_value(document: CommentedMap, namespace: str, key: str) -> st
     return str(value)
 
 
-def _set_alias_value(document: CommentedMap, namespace: str, key: str, model_spec: str) -> None:
-    aliases = document.get("model_aliases")
-    if not isinstance(aliases, dict):
-        aliases = CommentedMap()
-        document["model_aliases"] = aliases
+def _set_reference_value(document: CommentedMap, namespace: str, key: str, model_spec: str) -> None:
+    references = document.get("model_references")
+    if not isinstance(references, dict):
+        references = CommentedMap()
+        document["model_references"] = references
 
-    namespace_entries = aliases.get(namespace)
+    namespace_entries = references.get(namespace)
     if not isinstance(namespace_entries, dict):
         namespace_entries = CommentedMap()
-        aliases[namespace] = namespace_entries
+        references[namespace] = namespace_entries
 
     namespace_entries[key] = model_spec
 
 
-def _unset_alias_value(document: CommentedMap, namespace: str, key: str) -> None:
-    aliases = document.get("model_aliases")
-    if not isinstance(aliases, dict):
+def _unset_reference_value(document: CommentedMap, namespace: str, key: str) -> None:
+    references = document.get("model_references")
+    if not isinstance(references, dict):
         return
 
-    namespace_entries = aliases.get(namespace)
+    namespace_entries = references.get(namespace)
     if not isinstance(namespace_entries, dict):
         return
 
     if key in namespace_entries:
         del namespace_entries[key]
 
-    if len(namespace_entries) == 0 and namespace in aliases:
-        del aliases[namespace]
+    if len(namespace_entries) == 0 and namespace in references:
+        del references[namespace]
 
-    if len(aliases) == 0 and "model_aliases" in document:
-        del document["model_aliases"]
+    if len(references) == 0 and "model_references" in document:
+        del document["model_references"]
 
 
 def _atomic_write_round_trip_yaml(document: CommentedMap, path: Path) -> None:

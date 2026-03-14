@@ -31,7 +31,7 @@ class TestGetDefaultModelSource:
         result = get_default_model_source(
             config_default_model="$system.default",
             cli_model=None,
-            model_aliases={"system": {"default": "passthrough"}},
+            model_references={"system": {"default": "passthrough"}},
         )
         assert result == "config file"
 

@@ -70,7 +70,7 @@ def _resolve_model_without_hardcoded_default(
     *,
     model: str | None,
     config_default_model: str | None,
-    model_aliases: Mapping[str, Mapping[str, str]] | None,
+    model_references: Mapping[str, Mapping[str, str]] | None,
 ) -> tuple[str | None, str | None]:
     """Resolve model precedence without falling back to the hardcoded system default."""
     from fast_agent.core.model_resolution import resolve_model_spec
@@ -81,7 +81,7 @@ def _resolve_model_without_hardcoded_default(
         default_model=config_default_model,
         cli_model=model,
         fallback_to_hardcoded=False,
-        model_aliases=model_aliases,
+        model_references=model_references,
     )
 
 
@@ -645,7 +645,7 @@ async def run_agent_request(request: AgentRunRequest) -> None:
         _, explicit_source = _resolve_model_without_hardcoded_default(
             model=request.model,
             config_default_model=getattr(settings, "default_model", None),
-            model_aliases=getattr(settings, "model_aliases", None),
+            model_references=getattr(settings, "model_references", None),
         )
 
         if explicit_source is None and _should_prompt_for_model_picker(

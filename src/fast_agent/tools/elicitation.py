@@ -62,63 +62,62 @@ class HumanFormArgs(BaseModel):
 # -----------------------
 
 
-def get_elicitation_tool() -> McpTool:
-    """Build the MCP Tool schema for the elicitation-backed human input tool.
+def _resolve_schema_refs(fragment: Any, root: dict[str, Any]) -> Any:
+    """Inline local schema refs of the form ``#/$defs/Name``."""
+    if not isinstance(fragment, dict):
+        return fragment
 
-    Uses Pydantic models to derive a clean, portable JSON Schema suitable for providers.
-    """
+    if "$ref" in fragment:
+        ref_path: str = fragment["$ref"]
+        if ref_path.startswith("#/$defs/") and "$defs" in root:
+            key = (
+                ref_path.split("/#/$defs/")[-1]
+                if "/#/$defs/" in ref_path
+                else ref_path[len("#/$defs/") :]
+            )
+            target = root.get("$defs", {}).get(key)
+            if isinstance(target, dict):
+                return _resolve_schema_refs(target, root)
+        fragment = {k: v for k, v in fragment.items() if k != "$ref"}
+        fragment.setdefault("type", "object")
+        fragment.setdefault("properties", {})
+        return fragment
 
+    resolved: dict[str, Any] = {}
+    for key, value in fragment.items():
+        if isinstance(value, dict):
+            resolved[key] = _resolve_schema_refs(value, root)
+        elif isinstance(value, list):
+            resolved[key] = [
+                _resolve_schema_refs(item, root) if isinstance(item, (dict, list)) else item
+                for item in value
+            ]
+        else:
+            resolved[key] = value
+    return resolved
+
+
+def _sanitized_elicitation_schema() -> dict[str, Any]:
     schema = HumanFormArgs.model_json_schema()
-
-    def _resolve_refs(fragment: Any, root: dict[str, Any]) -> Any:
-        """Inline $ref references within a JSON schema fragment using the given root schema.
-
-        Supports local references of the form '#/$defs/Name'.
-        """
-        if not isinstance(fragment, dict):
-            return fragment
-
-        if "$ref" in fragment:
-            ref_path: str = fragment["$ref"]
-            if ref_path.startswith("#/$defs/") and "$defs" in root:
-                key = (
-                    ref_path.split("/#/$defs/")[-1]
-                    if "/#/$defs/" in ref_path
-                    else ref_path[len("#/$defs/") :]
-                )
-                target = root.get("$defs", {}).get(key)
-                if isinstance(target, dict):
-                    return _resolve_refs(target, root)
-            fragment = {k: v for k, v in fragment.items() if k != "$ref"}
-            fragment.setdefault("type", "object")
-            fragment.setdefault("properties", {})
-            return fragment
-
-        resolved: dict[str, Any] = {}
-        for k, v in fragment.items():
-            if isinstance(v, dict):
-                resolved[k] = _resolve_refs(v, root)
-            elif isinstance(v, list):
-                resolved[k] = [
-                    _resolve_refs(item, root) if isinstance(item, (dict, list)) else item
-                    for item in v
-                ]
-            else:
-                resolved[k] = v
-        return resolved
-
     sanitized: dict[str, Any] = {"type": "object"}
     if "properties" in schema:
-        props = dict(schema["properties"])  # copy
+        props = dict(schema["properties"])
         if "form_schema" in props:
             props["schema"] = props.pop("form_schema")
-        props = _resolve_refs(props, schema)
-        sanitized["properties"] = props
+        sanitized["properties"] = _resolve_schema_refs(props, schema)
     else:
         sanitized["properties"] = {}
     if "required" in schema:
         sanitized["required"] = schema["required"]
     sanitized["additionalProperties"] = True
+    return sanitized
+
+
+def get_elicitation_tool() -> McpTool:
+    """Build the MCP Tool schema for the elicitation-backed human input tool.
+
+    Uses Pydantic models to derive a clean, portable JSON Schema suitable for providers.
+    """
 
     return McpTool(
         name=HUMAN_INPUT_TOOL_NAME,
@@ -128,7 +127,7 @@ def get_elicitation_tool() -> McpTool:
             "Each field may include label, help, default; numbers may include min/max; radio may include options (value/label). "
             "You may also add an optional message shown above the form."
         ),
-        inputSchema=sanitized,
+        inputSchema=_sanitized_elicitation_schema(),
     )
 
 
@@ -141,7 +140,7 @@ ElicitationCallback = Callable[[dict, str | None, str | None, dict | None], Awai
 _elicitation_input_callback: ElicitationCallback | None = None
 
 
-def set_elicitation_input_callback(callback: ElicitationCallback) -> None:
+def set_elicitation_input_callback(callback: ElicitationCallback | None) -> None:
     """Register the UI/backend-specific elicitation handler.
 
     The callback should accept a request dict with fields: prompt, description, request_id, metadata,
@@ -161,180 +160,216 @@ def get_elicitation_input_callback() -> ElicitationCallback | None:
 # -----------------------
 
 
+def _parse_schema_json_string(value: str) -> dict[str, Any] | None:
+    stripped = value.strip()
+    if stripped.startswith("```"):
+        lines = stripped.splitlines()
+        if lines:
+            lines = lines[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        stripped = "\n".join(lines)
+    try:
+        parsed = json.loads(stripped)
+    except Exception:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _coerce_elicitation_arguments(arguments: dict | str) -> dict[str, Any]:
+    if isinstance(arguments, dict):
+        return arguments
+    if isinstance(arguments, str):
+        parsed = _parse_schema_json_string(arguments)
+        if parsed is not None:
+            return parsed
+    raise ValueError("Invalid arguments. Provide FormSpec or JSON Schema object.")
+
+
+def _field_string_property(field: dict[str, Any]) -> dict[str, Any]:
+    return {"type": "string"}
+
+
+def _field_number_property(field: dict[str, Any]) -> dict[str, Any]:
+    prop: dict[str, Any] = {"type": "number"}
+    minimum = field.get("min")
+    maximum = field.get("max")
+    if isinstance(minimum, int | float):
+        prop["minimum"] = minimum
+    if isinstance(maximum, int | float):
+        prop["maximum"] = maximum
+    return prop
+
+
+def _field_radio_property(field: dict[str, Any]) -> dict[str, Any]:
+    prop: dict[str, Any] = {"type": "string"}
+    options = field.get("options") or []
+    enum_vals: list[Any] = []
+    enum_names: list[str] = []
+    for option in options:
+        if isinstance(option, dict) and "value" in option:
+            enum_vals.append(option["value"])
+            label = option.get("label")
+            if isinstance(label, str):
+                enum_names.append(label)
+        elif option is not None:
+            enum_vals.append(option)
+    if enum_vals:
+        prop["enum"] = enum_vals
+        if enum_names and len(enum_names) == len(enum_vals):
+            prop["enumNames"] = enum_names
+    return prop
+
+
+def _build_form_field_property(field: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
+    name = field.get("name")
+    field_type = field.get("type")
+    if not isinstance(name, str) or not isinstance(field_type, str):
+        return None
+
+    if field_type in {"text", "textarea"}:
+        prop = _field_string_property(field)
+    elif field_type == "number":
+        prop = _field_number_property(field)
+    elif field_type == "checkbox":
+        prop = {"type": "boolean"}
+    elif field_type == "radio":
+        prop = _field_radio_property(field)
+    else:
+        return None
+
+    label = field.get("label")
+    help_text = field.get("help")
+    default = field.get("default")
+    desc_parts: list[str] = []
+    if isinstance(label, str) and label:
+        desc_parts.append(label)
+    if isinstance(help_text, str) and help_text:
+        desc_parts.append(help_text)
+    if desc_parts:
+        prop["description"] = " - ".join(desc_parts)
+    if default is not None:
+        prop["default"] = default
+    return name, prop
+
+
+def _build_schema_from_fields(arguments: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+    fields_value = arguments.get("fields")
+    assert isinstance(fields_value, list)
+    if len(fields_value) > 7:
+        raise ValueError(f"Error: form requests {len(fields_value)} fields; the maximum allowed is 7.")
+
+    properties: dict[str, Any] = {}
+    required_fields: list[str] = []
+    for field in fields_value:
+        if not isinstance(field, dict):
+            continue
+        field_property = _build_form_field_property(field)
+        if field_property is None:
+            continue
+        name, prop = field_property
+        properties[name] = prop
+        if field.get("required") is True:
+            required_fields.append(name)
+
+    if not properties:
+        raise ValueError("Invalid form specification: no valid fields provided.")
+
+    schema: dict[str, Any] = {"type": "object", "properties": properties}
+    if required_fields:
+        schema["required"] = required_fields
+
+    title = arguments.get("title") if isinstance(arguments.get("title"), str) else None
+    description = (
+        arguments.get("description") if isinstance(arguments.get("description"), str) else None
+    )
+    message = arguments.get("message") if isinstance(arguments.get("message"), str) else None
+    if title:
+        schema["title"] = title
+    if description:
+        schema["description"] = description
+    return schema, message
+
+
+def _merge_schema_overrides(
+    schema: dict[str, Any],
+    arguments: dict[str, Any],
+) -> tuple[dict[str, Any], str | None]:
+    message = arguments.get("message") if isinstance(arguments.get("message"), str) else None
+    if isinstance(arguments.get("title"), str) and "title" not in schema:
+        schema["title"] = arguments["title"]
+    if isinstance(arguments.get("description"), str) and "description" not in schema:
+        schema["description"] = arguments["description"]
+    if isinstance(arguments.get("required"), list) and "required" not in schema:
+        schema["required"] = arguments["required"]
+    if isinstance(arguments.get("properties"), dict) and "properties" not in schema:
+        schema["properties"] = arguments["properties"]
+    return schema, message
+
+
+def _build_schema_from_schema_argument(arguments: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+    schema_value = arguments.get("schema")
+    if isinstance(schema_value, str):
+        parsed = _parse_schema_json_string(schema_value)
+        if parsed is None:
+            raise ValueError("Missing or invalid schema. Provide a JSON Schema object.")
+        schema_value = parsed
+    if not isinstance(schema_value, dict):
+        raise ValueError("Missing or invalid schema. Provide a JSON Schema object.")
+    return _merge_schema_overrides(schema_value, arguments)
+
+
+def _resolve_elicitation_schema(arguments: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+    fields_value = arguments.get("fields")
+    if isinstance(fields_value, list):
+        return _build_schema_from_fields(arguments)
+    if isinstance(arguments.get("schema"), (dict, str)):
+        return _build_schema_from_schema_argument(arguments)
+    if ("type" in arguments and "properties" in arguments) or (
+        "$schema" in arguments and "properties" in arguments
+    ):
+        return arguments, None
+    raise ValueError("Missing or invalid schema or fields in arguments.")
+
+
+def _validate_elicitation_schema_field_limit(schema: dict[str, Any]) -> None:
+    properties = schema.get("properties")
+    props = properties if isinstance(properties, dict) else {}
+    if len(props) > 7:
+        raise ValueError(f"Error: schema requests {len(props)} fields; the maximum allowed is 7.")
+
+
+def _build_elicitation_request_payload(
+    *,
+    schema: dict[str, Any],
+    message: str | None,
+    agent_name: str | None,
+) -> dict[str, Any]:
+    resolved_agent_name = agent_name or "Unknown Agent"
+    return {
+        "prompt": message or schema.get("title") or "Please complete this form:",
+        "description": schema.get("description"),
+        "request_id": f"__human_input__{uuid.uuid4()}",
+        "metadata": {
+            "agent_name": resolved_agent_name,
+            "requested_schema": schema,
+        },
+    }
+
+
 async def run_elicitation_form(arguments: dict | str, agent_name: str | None = None) -> str:
     """Parse arguments into a JSON Schema or simplified fields spec and invoke the registered callback.
 
     Returns the response string from the callback. Raises if no callback is registered.
     """
-
-    def parse_schema_string(val: str) -> dict | None:
-        if not isinstance(val, str):
-            return None
-        s = val.strip()
-        if s.startswith("```"):
-            lines = s.splitlines()
-            if lines:
-                lines = lines[1:]
-            if lines and lines[-1].strip().startswith("```"):
-                lines = lines[:-1]
-            s = "\n".join(lines)
-        try:
-            return json.loads(s)
-        except Exception:
-            return None
-
-    if not isinstance(arguments, dict):
-        if isinstance(arguments, str):
-            parsed = parse_schema_string(arguments)
-            if isinstance(parsed, dict):
-                arguments = parsed
-            else:
-                raise ValueError("Invalid arguments. Provide FormSpec or JSON Schema object.")
-        else:
-            raise ValueError("Invalid arguments. Provide FormSpec or JSON Schema object.")
-
-    schema: dict | None = None
-    message: str | None = None
-    title: str | None = None
-    description: str | None = None
-
-    fields_value = arguments.get("fields")
-    if isinstance(fields_value, list):
-        fields = fields_value
-        if len(fields) > 7:
-            raise ValueError(
-                f"Error: form requests {len(fields)} fields; the maximum allowed is 7."
-            )
-
-        properties: dict[str, Any] = {}
-        required_fields: list[str] = []
-        for field in fields:
-            if not isinstance(field, dict):
-                continue
-            name = field.get("name")
-            ftype = field.get("type")
-            if not isinstance(name, str) or not isinstance(ftype, str):
-                continue
-            prop: dict[str, Any] = {}
-            label = field.get("label")
-            help_text = field.get("help")
-            default = field.get("default")
-            required_flag = field.get("required")
-
-            if ftype in ("text", "textarea"):
-                prop["type"] = "string"
-            elif ftype == "number":
-                prop["type"] = "number"
-                if isinstance(field.get("min"), (int, float)):
-                    prop["minimum"] = field.get("min")
-                if isinstance(field.get("max"), (int, float)):
-                    prop["maximum"] = field.get("max")
-            elif ftype == "checkbox":
-                prop["type"] = "boolean"
-            elif ftype == "radio":
-                prop["type"] = "string"
-                options = field.get("options") or []
-                enum_vals = []
-                enum_names = []
-                for opt in options:
-                    if isinstance(opt, dict) and "value" in opt:
-                        enum_vals.append(opt["value"])
-                        if isinstance(opt.get("label"), str):
-                            enum_names.append(opt.get("label"))
-                    elif opt is not None:
-                        enum_vals.append(opt)
-                if enum_vals:
-                    prop["enum"] = enum_vals
-                    if enum_names and len(enum_names) == len(enum_vals):
-                        prop["enumNames"] = enum_names
-            else:
-                continue
-
-            desc_parts = []
-            if isinstance(label, str) and label:
-                desc_parts.append(label)
-            if isinstance(help_text, str) and help_text:
-                desc_parts.append(help_text)
-            if desc_parts:
-                prop["description"] = " - ".join(desc_parts)
-            if default is not None:
-                prop["default"] = default
-            properties[name] = prop
-            if isinstance(required_flag, bool) and required_flag:
-                required_fields.append(name)
-
-        if len(properties) == 0:
-            raise ValueError("Invalid form specification: no valid fields provided.")
-
-        schema = {"type": "object", "properties": properties}
-        if required_fields:
-            schema["required"] = required_fields
-
-        title = arguments.get("title") if isinstance(arguments.get("title"), str) else None
-        description = (
-            arguments.get("description") if isinstance(arguments.get("description"), str) else None
-        )
-        msg = arguments.get("message")
-        if isinstance(msg, str):
-            message = msg
-        if title:
-            schema["title"] = title
-        if description:
-            schema["description"] = description
-
-    elif isinstance(arguments.get("schema"), (dict, str)):
-        schema = arguments.get("schema")
-        if isinstance(schema, str):
-            parsed = parse_schema_string(schema)
-            if isinstance(parsed, dict):
-                schema = parsed
-            else:
-                raise ValueError("Missing or invalid schema. Provide a JSON Schema object.")
-        if not isinstance(schema, dict):
-            raise ValueError("Missing or invalid schema. Provide a JSON Schema object.")
-        schema_dict: dict[str, Any] = schema
-        msg = arguments.get("message")
-        if isinstance(msg, str):
-            message = msg
-        if isinstance(arguments.get("title"), str) and "title" not in schema_dict:
-            schema_dict["title"] = arguments.get("title")
-        if isinstance(arguments.get("description"), str) and "description" not in schema_dict:
-            schema_dict["description"] = arguments.get("description")
-        if isinstance(arguments.get("required"), list) and "required" not in schema_dict:
-            schema_dict["required"] = arguments.get("required")
-        if isinstance(arguments.get("properties"), dict) and "properties" not in schema_dict:
-            schema_dict["properties"] = arguments.get("properties")
-
-    elif ("type" in arguments and "properties" in arguments) or (
-        "$schema" in arguments and "properties" in arguments
-    ):
-        schema = arguments
-        message = None
-    else:
-        raise ValueError("Missing or invalid schema or fields in arguments.")
-
-    if not isinstance(schema, dict):
-        raise ValueError("Missing or invalid schema or fields in arguments.")
-
-    schema_dict: dict[str, Any] = schema
-    props = (
-        schema_dict.get("properties", {})
-        if isinstance(schema_dict.get("properties"), dict)
-        else {}
+    arguments_dict = _coerce_elicitation_arguments(arguments)
+    schema_dict, message = _resolve_elicitation_schema(arguments_dict)
+    _validate_elicitation_schema_field_limit(schema_dict)
+    request_payload = _build_elicitation_request_payload(
+        schema=schema_dict,
+        message=message,
+        agent_name=agent_name,
     )
-    if len(props) > 7:
-        raise ValueError(f"Error: schema requests {len(props)} fields; the maximum allowed is 7.")
-
-    request_payload: dict[str, Any] = {
-        "prompt": message or schema_dict.get("title") or "Please complete this form:",
-        "description": schema_dict.get("description"),
-        "request_id": f"__human_input__{uuid.uuid4()}",
-        "metadata": {
-            "agent_name": agent_name or "Unknown Agent",
-            "requested_schema": schema_dict,
-        },
-    }
-
     cb = get_elicitation_input_callback()
     if not cb:
         raise RuntimeError("No elicitation input callback registered")

@@ -290,7 +290,7 @@ def format_inference_lookup_message(result: InferenceProviderLookupResult) -> st
 async def validate_hf_model(
     model: str,
     *,
-    aliases: dict[str, str] | None = None,
+    presets: dict[str, str] | None = None,
     lookup_fn: InferenceLookupFn | None = None,
 ) -> ModelValidationResult:
     """Validate that an HF model exists and has inference providers.
@@ -298,16 +298,16 @@ async def validate_hf_model(
     Args:
         model: The model string (e.g., "hf.moonshotai/Kimi-K2-Thinking:together")
             Can also be an alias like "kimi" or "glm" that resolves to an HF model.
-        aliases: Optional dict of model aliases (e.g., {"kimi": "hf.moonshotai/..."}).
-            If not provided, no alias resolution is performed.
+        presets: Optional dict of model presets (e.g., {"kimi": "hf.moonshotai/..."}).
+            If not provided, no preset resolution is performed.
         lookup_fn: Optional function to use for lookup (for testing)
 
     Returns:
         ModelValidationResult with validation status and messages
     """
-    # Resolve aliases first (e.g., "kimi" -> "hf.moonshotai/Kimi-K2-Instruct-0905:groq")
-    if aliases:
-        model = aliases.get(model, model)
+    # Resolve presets first (e.g., "kimi" -> "hf.moonshotai/Kimi-K2-Instruct-0905:groq")
+    if presets:
+        model = presets.get(model, model)
 
     model_id = normalize_hf_model_id(model)
     if model_id is None:

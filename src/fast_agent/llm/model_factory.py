@@ -1,5 +1,7 @@
 import math
-from typing import Literal, Type, Union
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import Callable, Literal, Self, Type, Union
 from urllib.parse import parse_qs
 
 from pydantic import BaseModel
@@ -22,6 +24,8 @@ from fast_agent.types import RequestParams
 
 # Type alias for LLM classes
 LLMClass = Union[Type[PassthroughLLM], Type[PlaybackLLM], Type[SilentLLM], Type[SlowLLM], type]
+TransportSetting = Literal["sse", "websocket", "auto"]
+ServiceTierSetting = Literal["fast", "flex"]
 
 
 class ModelConfig(BaseModel):
@@ -33,8 +37,8 @@ class ModelConfig(BaseModel):
     text_verbosity: TextVerbosityLevel | None = None
     structured_output_mode: StructuredOutputMode | None = None
     long_context: bool = False
-    transport: Literal["sse", "websocket", "auto"] | None = None
-    service_tier: Literal["fast", "flex"] | None = None
+    transport: TransportSetting | None = None
+    service_tier: ServiceTierSetting | None = None
     web_search: bool | None = None
     web_fetch: bool | None = None
     temperature: float | None = None
@@ -45,10 +49,469 @@ class ModelConfig(BaseModel):
     repetition_penalty: float | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class ModelQueryOverrides:
+    """Typed query overrides parsed from a model spec query string."""
+
+    reasoning_effort: ReasoningEffortSetting | None = None
+    instant: bool | None = None
+    text_verbosity: TextVerbosityLevel | None = None
+    structured_output_mode: StructuredOutputMode | None = None
+    long_context: bool = False
+    transport: TransportSetting | None = None
+    service_tier: ServiceTierSetting | None = None
+    web_search: bool | None = None
+    web_fetch: bool | None = None
+    temperature: float | None = None
+    top_p: float | None = None
+    top_k: int | None = None
+    min_p: float | None = None
+    presence_penalty: float | None = None
+    repetition_penalty: float | None = None
+
+    def with_defaults(self, defaults: Self) -> "ModelQueryOverrides":
+        """Return a copy with unset values filled from defaults."""
+        return ModelQueryOverrides(
+            reasoning_effort=(
+                self.reasoning_effort
+                if self.reasoning_effort is not None
+                else defaults.reasoning_effort
+            ),
+            instant=self.instant if self.instant is not None else defaults.instant,
+            text_verbosity=(
+                self.text_verbosity if self.text_verbosity is not None else defaults.text_verbosity
+            ),
+            structured_output_mode=(
+                self.structured_output_mode
+                if self.structured_output_mode is not None
+                else defaults.structured_output_mode
+            ),
+            long_context=self.long_context or defaults.long_context,
+            transport=self.transport if self.transport is not None else defaults.transport,
+            service_tier=(
+                self.service_tier if self.service_tier is not None else defaults.service_tier
+            ),
+            web_search=self.web_search if self.web_search is not None else defaults.web_search,
+            web_fetch=self.web_fetch if self.web_fetch is not None else defaults.web_fetch,
+            temperature=self.temperature if self.temperature is not None else defaults.temperature,
+            top_p=self.top_p if self.top_p is not None else defaults.top_p,
+            top_k=self.top_k if self.top_k is not None else defaults.top_k,
+            min_p=self.min_p if self.min_p is not None else defaults.min_p,
+            presence_penalty=(
+                self.presence_penalty
+                if self.presence_penalty is not None
+                else defaults.presence_penalty
+            ),
+            repetition_penalty=(
+                self.repetition_penalty
+                if self.repetition_penalty is not None
+                else defaults.repetition_penalty
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ParsedModelSpec:
+    """Canonical parsed representation of a model specification string."""
+
+    raw_input: str
+    expanded_input: str
+    provider: Provider
+    model_name: str
+    reasoning_effort: ReasoningEffortSetting | None
+    query_overrides: ModelQueryOverrides
+
+    def to_model_config(self) -> ModelConfig:
+        """Convert the parsed spec into the public ModelConfig object."""
+        return ModelConfig(
+            provider=self.provider,
+            model_name=self.model_name,
+            reasoning_effort=self.reasoning_effort,
+            text_verbosity=self.query_overrides.text_verbosity,
+            structured_output_mode=self.query_overrides.structured_output_mode,
+            long_context=self.query_overrides.long_context,
+            transport=self.query_overrides.transport,
+            service_tier=self.query_overrides.service_tier,
+            web_search=self.query_overrides.web_search,
+            web_fetch=self.query_overrides.web_fetch,
+            temperature=self.query_overrides.temperature,
+            top_p=self.query_overrides.top_p,
+            top_k=self.query_overrides.top_k,
+            min_p=self.query_overrides.min_p,
+            presence_penalty=self.query_overrides.presence_penalty,
+            repetition_penalty=self.query_overrides.repetition_penalty,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _ExpandedModelPreset:
+    model_spec: str
+    query_defaults: ModelQueryOverrides
+
+
+def _collect_query_values(
+    query_params: Mapping[str, list[str]],
+    keys: tuple[str, ...],
+) -> list[str]:
+    values: list[str] = []
+    for key in keys:
+        values.extend(query_params.get(key) or [])
+    return values
+
+
+def _parse_float_query(
+    query_params: Mapping[str, list[str]],
+    model_spec: str,
+    *,
+    keys: tuple[str, ...],
+    label: str,
+) -> float | None:
+    values = _collect_query_values(query_params, keys)
+    if not values:
+        return None
+
+    raw_value = values[-1]
+    try:
+        parsed_value = float(raw_value)
+    except ValueError as exc:
+        raise ModelConfigError(
+            f"Invalid {label} query value: '{raw_value}' in '{model_spec}'"
+        ) from exc
+
+    if not math.isfinite(parsed_value):
+        raise ModelConfigError(f"Invalid {label} query value: '{raw_value}' in '{model_spec}'")
+
+    return parsed_value
+
+
+def _parse_int_query(
+    query_params: Mapping[str, list[str]],
+    model_spec: str,
+    *,
+    keys: tuple[str, ...],
+    label: str,
+) -> int | None:
+    values = _collect_query_values(query_params, keys)
+    if not values:
+        return None
+
+    raw_value = values[-1]
+    try:
+        return int(raw_value)
+    except ValueError as exc:
+        raise ModelConfigError(
+            f"Invalid {label} query value: '{raw_value}' in '{model_spec}'"
+        ) from exc
+
+
+def _parse_on_off_query(raw_value: str, query_key: str, model_spec: str) -> bool:
+    parsed = parse_reasoning_setting(raw_value)
+    if parsed is not None and parsed.kind == "toggle":
+        return bool(parsed.value)
+    raise ModelConfigError(
+        f"Invalid {query_key} query value: '{raw_value}' in '{model_spec}'. "
+        "Use on/off (or true/false, 1/0)."
+    )
+
+
+def _parse_query_overrides(
+    query_params: Mapping[str, list[str]],
+    model_spec: str,
+) -> ModelQueryOverrides:
+    reasoning_effort: ReasoningEffortSetting | None = None
+    text_verbosity: TextVerbosityLevel | None = None
+    structured_output_mode: StructuredOutputMode | None = None
+    instant: bool | None = None
+    long_context = False
+    transport: TransportSetting | None = None
+    service_tier: ServiceTierSetting | None = None
+    web_search: bool | None = None
+    web_fetch: bool | None = None
+
+    if "reasoning" in query_params:
+        raw_value = _collect_query_values(query_params, ("reasoning",))[-1]
+        parsed_reasoning = parse_reasoning_setting(raw_value)
+        if parsed_reasoning is None:
+            raise ModelConfigError(
+                f"Invalid reasoning query value: '{raw_value}' in '{model_spec}'"
+            )
+        reasoning_effort = parsed_reasoning
+
+    if "verbosity" in query_params:
+        raw_value = _collect_query_values(query_params, ("verbosity",))[-1]
+        parsed_verbosity = parse_text_verbosity(raw_value)
+        if parsed_verbosity is None:
+            raise ModelConfigError(
+                f"Invalid verbosity query value: '{raw_value}' in '{model_spec}'"
+            )
+        text_verbosity = parsed_verbosity
+
+    if "structured" in query_params:
+        raw_value = _collect_query_values(query_params, ("structured",))[-1]
+        parsed_structured = parse_structured_output_mode(raw_value)
+        if parsed_structured is None:
+            raise ModelConfigError(
+                f"Invalid structured query value: '{raw_value}' in '{model_spec}'"
+            )
+        structured_output_mode = parsed_structured
+
+    if "instant" in query_params:
+        raw_value = _collect_query_values(query_params, ("instant",))[-1]
+        instant_setting = parse_reasoning_setting(raw_value)
+        if instant_setting is None or instant_setting.kind != "toggle":
+            raise ModelConfigError(
+                f"Invalid instant query value: '{raw_value}' in '{model_spec}'"
+            )
+        instant = bool(instant_setting.value)
+
+    if "context" in query_params:
+        raw_value = _collect_query_values(query_params, ("context",))[-1].strip().lower()
+        if raw_value == "1m":
+            long_context = True
+        else:
+            raise ModelConfigError(
+                f"Invalid context query value: '{raw_value}' — only '1m' is supported"
+            )
+
+    if "transport" in query_params:
+        raw_value = _collect_query_values(query_params, ("transport",))[-1].strip().lower()
+        transport_presets: dict[str, TransportSetting] = {
+            "ws": "websocket",
+            "websocket": "websocket",
+            "sse": "sse",
+            "auto": "auto",
+        }
+        normalized_transport = transport_presets.get(raw_value)
+        if normalized_transport is None:
+            raise ModelConfigError(
+                f"Invalid transport query value: '{raw_value}' in '{model_spec}'"
+            )
+        transport = normalized_transport
+
+    if "service_tier" in query_params:
+        raw_value = _collect_query_values(query_params, ("service_tier",))[-1].strip().lower()
+        if raw_value not in {"fast", "flex"}:
+            raise ModelConfigError(
+                f"Invalid service_tier query value: '{raw_value}' in '{model_spec}'"
+            )
+        service_tier = "fast" if raw_value == "fast" else "flex"
+
+    if "web_search" in query_params:
+        raw_value = _collect_query_values(query_params, ("web_search",))[-1]
+        web_search = _parse_on_off_query(raw_value, "web_search", model_spec)
+
+    if "web_fetch" in query_params:
+        raw_value = _collect_query_values(query_params, ("web_fetch",))[-1]
+        web_fetch = _parse_on_off_query(raw_value, "web_fetch", model_spec)
+
+    return ModelQueryOverrides(
+        reasoning_effort=reasoning_effort,
+        instant=instant,
+        text_verbosity=text_verbosity,
+        structured_output_mode=structured_output_mode,
+        long_context=long_context,
+        transport=transport,
+        service_tier=service_tier,
+        web_search=web_search,
+        web_fetch=web_fetch,
+        temperature=_parse_float_query(
+            query_params,
+            model_spec,
+            keys=("temperature", "temp"),
+            label="temperature",
+        ),
+        top_p=_parse_float_query(
+            query_params,
+            model_spec,
+            keys=("top_p", "topP"),
+            label="top_p",
+        ),
+        top_k=_parse_int_query(
+            query_params,
+            model_spec,
+            keys=("top_k", "topK"),
+            label="top_k",
+        ),
+        min_p=_parse_float_query(
+            query_params,
+            model_spec,
+            keys=("min_p", "minP"),
+            label="min_p",
+        ),
+        presence_penalty=_parse_float_query(
+            query_params,
+            model_spec,
+            keys=("presence_penalty", "presencePenalty"),
+            label="presence_penalty",
+        ),
+        repetition_penalty=_parse_float_query(
+            query_params,
+            model_spec,
+            keys=("repetition_penalty", "repetitionPenalty"),
+            label="repetition_penalty",
+        ),
+    )
+
+
+def _split_model_spec_and_query(model_string: str) -> tuple[str, ModelQueryOverrides]:
+    if "?" not in model_string:
+        return model_string, ModelQueryOverrides()
+
+    model_spec, _, query = model_string.partition("?")
+    return model_spec, _parse_query_overrides(parse_qs(query), model_spec)
+
+
+def _split_model_suffix(model_spec: str) -> tuple[str, str | None]:
+    if ":" not in model_spec:
+        return model_spec, None
+
+    base, suffix = model_spec.rsplit(":", 1)
+    if not base:
+        return model_spec, None
+    return base, suffix
+
+
+def _expand_model_preset(
+    model_spec: str,
+    presets: Mapping[str, str],
+) -> _ExpandedModelPreset:
+    expanded = presets.get(model_spec, model_spec)
+    if "?" not in expanded:
+        return _ExpandedModelPreset(model_spec=expanded, query_defaults=ModelQueryOverrides())
+
+    expanded_spec, _, preset_query = expanded.partition("?")
+    return _ExpandedModelPreset(
+        model_spec=expanded_spec,
+        query_defaults=_parse_query_overrides(parse_qs(preset_query), expanded_spec),
+    )
+
+
+def _split_reasoning_suffix(
+    model_spec: str,
+) -> tuple[str, ReasoningEffortSetting | None]:
+    parts = model_spec.split(".")
+    if len(parts) <= 1:
+        return model_spec, None
+
+    suffix_setting = parse_reasoning_setting(parts[-1].lower())
+    if suffix_setting is None or suffix_setting.kind != "effort":
+        return model_spec, None
+
+    return ".".join(parts[:-1]), suffix_setting
+
+
+def _resolve_provider_and_model_name(
+    model_spec: str,
+    *,
+    bedrock_pattern_matches: Callable[[str], bool],
+) -> tuple[Provider, str]:
+    provider_override: Provider | None = None
+    normalized_spec = model_spec
+    if "/" in normalized_spec:
+        prefix, rest = normalized_spec.split("/", 1)
+        if prefix and rest and any(p.value == prefix for p in Provider):
+            provider_override = Provider(prefix)
+            normalized_spec = rest
+
+    parts = normalized_spec.split(".")
+    provider = provider_override
+    identified_provider_parts = 0
+
+    if provider is None and len(parts) >= 2:
+        potential_provider_str = f"{parts[0]}.{parts[1]}"
+        if any(p.value == potential_provider_str for p in Provider):
+            provider = Provider(potential_provider_str)
+            identified_provider_parts = 2
+
+    if provider is None and len(parts) >= 1:
+        potential_provider_str = parts[0]
+        if any(p.value == potential_provider_str for p in Provider):
+            provider = Provider(potential_provider_str)
+            identified_provider_parts = 1
+
+    if identified_provider_parts > 0:
+        model_name = ".".join(parts[identified_provider_parts:])
+    else:
+        model_name = ".".join(parts)
+
+    if provider is None:
+        provider = ModelDatabase.get_default_provider(model_name)
+        if provider is None and bedrock_pattern_matches(model_name):
+            provider = Provider.BEDROCK
+
+        if provider is None:
+            raise ModelConfigError(
+                f"Unknown model or provider for: {model_spec}. "
+                f"Model name parsed as '{model_name}'"
+            )
+
+    if provider == Provider.TENSORZERO and not model_name:
+        raise ModelConfigError(
+            f"TensorZero provider requires a function name after the provider "
+            f"(e.g., tensorzero.my-function), got: {model_spec}"
+        )
+
+    return provider, model_name
+
+
+def _validate_transport_constraints(
+    provider: Provider,
+    model_name: str,
+    transport: TransportSetting | None,
+) -> None:
+    if transport not in {"websocket", "auto"}:
+        return
+
+    if provider not in {Provider.CODEX_RESPONSES, Provider.RESPONSES}:
+        raise ModelConfigError(
+            "WebSocket transport is experimental and currently supported only for "
+            "the codexresponses and responses providers."
+        )
+
+    supports_transport = ModelDatabase.supports_response_transport(model_name, "websocket")
+    if supports_transport is False:
+        raise ModelConfigError(
+            f"Transport '{transport}' is not supported for model '{model_name}'."
+        )
+
+    supports_provider = ModelDatabase.supports_response_websocket_provider(model_name, provider)
+    if supports_provider is False:
+        raise ModelConfigError(
+            f"Transport '{transport}' is not supported for model '{model_name}' "
+            f"with provider '{provider.value}'."
+        )
+
+
+def _validate_service_tier_constraints(
+    provider: Provider,
+    model_name: str,
+    service_tier: ServiceTierSetting | None,
+) -> None:
+    if service_tier != "flex":
+        return
+
+    if provider == Provider.CODEX_RESPONSES:
+        raise ModelConfigError(
+            "Provider 'codexresponses' does not support service_tier=flex. "
+            "Allowed values are fast or unset (standard)."
+        )
+
+    if provider not in {Provider.RESPONSES, Provider.OPENRESPONSES}:
+        return
+
+    supports_flex = ModelDatabase.supports_response_service_tier(model_name, "flex")
+    if supports_flex is False:
+        raise ModelConfigError(
+            f"Model '{model_name}' does not support service_tier=flex "
+            f"with provider '{provider.value}'. Allowed values are fast or unset "
+            "(standard)."
+        )
+
+
 class ModelFactory:
     """Factory for creating LLM instances based on model specifications"""
 
-    MODEL_ALIASES = {
+    MODEL_PRESETS = {
         "gpt51": "responses.gpt-5.1",
         "gpt52": "responses.gpt-5.2",
         "gpt54": "responses.gpt-5.4",
@@ -182,464 +645,116 @@ class ModelFactory:
         cls.MODEL_SPECIFIC_CLASSES.pop(model_name, None)
 
     @classmethod
-    def get_runtime_aliases(cls) -> dict[str, str]:
-        """Return parser aliases, including curated catalog aliases."""
-        aliases = dict(cls.MODEL_ALIASES)
+    def get_runtime_presets(cls) -> dict[str, str]:
+        """Return built-in model presets, including curated catalog presets."""
+        presets = dict(cls.MODEL_PRESETS)
 
         from fast_agent.llm.model_selection import ModelSelectionCatalog
 
         for entry in ModelSelectionCatalog.list_current_entries():
-            alias = entry.alias.strip()
-            if not alias or "?" in entry.model:
+            preset_token = entry.alias.strip()
+            if not preset_token or "?" in entry.model:
                 continue
-            aliases.setdefault(alias, entry.model)
+            presets.setdefault(preset_token, entry.model)
 
-        return aliases
+        return presets
 
     @classmethod
-    def parse_model_string(
-        cls, model_string: str, aliases: dict[str, str] | None = None
-    ) -> ModelConfig:
-        """Parse a model string into a ModelConfig object
+    def parse_model_spec(
+        cls,
+        model_string: str,
+        presets: Mapping[str, str] | None = None,
+    ) -> ParsedModelSpec:
+        """Parse a model string into a canonical ParsedModelSpec.
 
         Args:
             model_string: The model specification string (e.g. "gpt-4.1", "kimi:groq")
-            aliases: Optional custom aliases map. Defaults to MODEL_ALIASES.
+            presets: Optional custom parser preset map.
         """
-        if aliases is None:
-            aliases = cls.get_runtime_aliases()
+        if presets is None:
+            presets = cls.get_runtime_presets()
 
-        query_setting: ReasoningEffortSetting | None = None
-        query_structured: StructuredOutputMode | None = None
-        query_text_verbosity: TextVerbosityLevel | None = None
-        query_instant: bool | None = None
-        query_long_context: bool = False
-        query_transport: Literal["sse", "websocket", "auto"] | None = None
-        query_service_tier: Literal["fast", "flex"] | None = None
-        query_web_search: bool | None = None
-        query_web_fetch: bool | None = None
-        query_temperature: float | None = None
-        query_top_p: float | None = None
-        query_top_k: int | None = None
-        query_min_p: float | None = None
-        query_presence_penalty: float | None = None
-        query_repetition_penalty: float | None = None
+        raw_input = model_string
+        model_spec, explicit_overrides = _split_model_spec_and_query(model_string)
+        model_spec, user_suffix = _split_model_suffix(model_spec)
 
-        def _parse_float_query(
-            query_params: dict[str, list[str]],
-            model_spec: str,
-            *,
-            keys: tuple[str, ...],
-            label: str,
-        ) -> float | None:
-            values: list[str] = []
-            for key in keys:
-                values.extend(query_params.get(key) or [])
-            if not values:
-                return None
+        expanded_preset = _expand_model_preset(model_spec, presets)
+        expanded_model_spec = expanded_preset.model_spec
+        if user_suffix and ":" in expanded_model_spec:
+            expanded_model_spec = expanded_model_spec.rsplit(":", 1)[0]
+        if user_suffix:
+            expanded_model_spec = f"{expanded_model_spec}:{user_suffix}"
 
-            raw_value = values[-1]
-            try:
-                parsed_value = float(raw_value)
-            except ValueError as exc:
-                raise ModelConfigError(
-                    f"Invalid {label} query value: '{raw_value}' in '{model_spec}'"
-                ) from exc
+        merged_overrides = explicit_overrides.with_defaults(expanded_preset.query_defaults)
+        provider_model_spec, suffix_reasoning = _split_reasoning_suffix(expanded_model_spec)
 
-            if not math.isfinite(parsed_value):
-                raise ModelConfigError(
-                    f"Invalid {label} query value: '{raw_value}' in '{model_spec}'"
-                )
-
-            return parsed_value
-
-        def _parse_int_query(
-            query_params: dict[str, list[str]],
-            model_spec: str,
-            *,
-            keys: tuple[str, ...],
-            label: str,
-        ) -> int | None:
-            values: list[str] = []
-            for key in keys:
-                values.extend(query_params.get(key) or [])
-            if not values:
-                return None
-
-            raw_value = values[-1]
-            try:
-                return int(raw_value)
-            except ValueError as exc:
-                raise ModelConfigError(
-                    f"Invalid {label} query value: '{raw_value}' in '{model_spec}'"
-                ) from exc
-
-        def _parse_on_off_query(raw_value: str, query_key: str) -> bool:
-            parsed = parse_reasoning_setting(raw_value)
-            if parsed is not None and parsed.kind == "toggle":
-                return bool(parsed.value)
+        if suffix_reasoning is not None and merged_overrides.reasoning_effort is not None:
             raise ModelConfigError(
-                f"Invalid {query_key} query value: '{raw_value}' in '{model_string}'. "
-                "Use on/off (or true/false, 1/0)."
+                f"Multiple reasoning settings provided for '{expanded_model_spec}'."
             )
 
-        def _apply_query_params(
-            query_params: dict[str, list[str]],
-            model_spec: str,
-            *,
-            allow_override: bool,
-        ) -> None:
-            nonlocal query_setting
-            nonlocal query_structured
-            nonlocal query_text_verbosity
-            nonlocal query_instant
-            nonlocal query_long_context
-            nonlocal query_transport
-            nonlocal query_service_tier
-            nonlocal query_web_search
-            nonlocal query_web_fetch
-            nonlocal query_temperature
-            nonlocal query_top_p
-            nonlocal query_top_k
-            nonlocal query_min_p
-            nonlocal query_presence_penalty
-            nonlocal query_repetition_penalty
+        provider, model_name = _resolve_provider_and_model_name(
+            provider_model_spec,
+            bedrock_pattern_matches=cls._bedrock_pattern_matches,
+        )
 
-            if "reasoning" in query_params:
-                values = query_params.get("reasoning") or []
-                raw_value = values[-1] if values else ""
-                parsed_reasoning = parse_reasoning_setting(raw_value)
-                if parsed_reasoning is None:
-                    raise ModelConfigError(
-                        f"Invalid reasoning query value: '{raw_value}' in '{model_spec}'"
-                    )
-                if allow_override or query_setting is None:
-                    query_setting = parsed_reasoning
-
-            if "verbosity" in query_params:
-                values = query_params.get("verbosity") or []
-                raw_value = values[-1] if values else ""
-                parsed_verbosity = parse_text_verbosity(raw_value)
-                if parsed_verbosity is None:
-                    raise ModelConfigError(
-                        f"Invalid verbosity query value: '{raw_value}' in '{model_spec}'"
-                    )
-                if allow_override or query_text_verbosity is None:
-                    query_text_verbosity = parsed_verbosity
-
-            if "structured" in query_params:
-                values = query_params.get("structured") or []
-                raw_value = values[-1] if values else ""
-                parsed_structured = parse_structured_output_mode(raw_value)
-                if parsed_structured is None:
-                    raise ModelConfigError(
-                        f"Invalid structured query value: '{raw_value}' in '{model_spec}'"
-                    )
-                if allow_override or query_structured is None:
-                    query_structured = parsed_structured
-
-            if "instant" in query_params:
-                values = query_params.get("instant") or []
-                raw_value = values[-1] if values else ""
-                instant_setting = parse_reasoning_setting(raw_value)
-                if instant_setting is None or instant_setting.kind != "toggle":
-                    raise ModelConfigError(
-                        f"Invalid instant query value: '{raw_value}' in '{model_spec}'"
-                    )
-                if allow_override or query_instant is None:
-                    query_instant = bool(instant_setting.value)
-
-            if "context" in query_params:
-                values = query_params.get("context") or []
-                raw_value = (values[-1] if values else "").strip().lower()
-                if raw_value == "1m":
-                    query_long_context = True
-                else:
-                    raise ModelConfigError(
-                        f"Invalid context query value: '{raw_value}' \u2014 only '1m' is supported"
-                    )
-
-            if "transport" in query_params:
-                values = query_params.get("transport") or []
-                raw_value = (values[-1] if values else "").strip().lower()
-                transport_aliases: dict[str, Literal["sse", "websocket", "auto"]] = {
-                    "ws": "websocket",
-                    "websocket": "websocket",
-                    "sse": "sse",
-                    "auto": "auto",
-                }
-                normalized_transport = transport_aliases.get(raw_value)
-                if normalized_transport is None:
-                    raise ModelConfigError(
-                        f"Invalid transport query value: '{raw_value}' in '{model_spec}'"
-                    )
-                if allow_override or query_transport is None:
-                    query_transport = normalized_transport
-
-            if "service_tier" in query_params:
-                values = query_params.get("service_tier") or []
-                raw_value = (values[-1] if values else "").strip().lower()
-                if raw_value not in {"fast", "flex"}:
-                    raise ModelConfigError(
-                        f"Invalid service_tier query value: '{raw_value}' in '{model_spec}'"
-                    )
-                normalized_service_tier: Literal["fast", "flex"] = (
-                    "fast" if raw_value == "fast" else "flex"
-                )
-                if allow_override or query_service_tier is None:
-                    query_service_tier = normalized_service_tier
-
-            if "web_search" in query_params:
-                values = query_params.get("web_search") or []
-                raw_value = values[-1] if values else ""
-                parsed_web_search = _parse_on_off_query(raw_value, "web_search")
-                if allow_override or query_web_search is None:
-                    query_web_search = parsed_web_search
-
-            if "web_fetch" in query_params:
-                values = query_params.get("web_fetch") or []
-                raw_value = values[-1] if values else ""
-                parsed_web_fetch = _parse_on_off_query(raw_value, "web_fetch")
-                if allow_override or query_web_fetch is None:
-                    query_web_fetch = parsed_web_fetch
-
-            parsed_temperature = _parse_float_query(
-                query_params,
-                model_spec,
-                keys=("temperature", "temp"),
-                label="temperature",
-            )
-            if parsed_temperature is not None and (allow_override or query_temperature is None):
-                query_temperature = parsed_temperature
-
-            parsed_top_p = _parse_float_query(
-                query_params,
-                model_spec,
-                keys=("top_p", "topP"),
-                label="top_p",
-            )
-            if parsed_top_p is not None and (allow_override or query_top_p is None):
-                query_top_p = parsed_top_p
-
-            parsed_top_k = _parse_int_query(
-                query_params,
-                model_spec,
-                keys=("top_k", "topK"),
-                label="top_k",
-            )
-            if parsed_top_k is not None and (allow_override or query_top_k is None):
-                query_top_k = parsed_top_k
-
-            parsed_min_p = _parse_float_query(
-                query_params,
-                model_spec,
-                keys=("min_p", "minP"),
-                label="min_p",
-            )
-            if parsed_min_p is not None and (allow_override or query_min_p is None):
-                query_min_p = parsed_min_p
-
-            parsed_presence_penalty = _parse_float_query(
-                query_params,
-                model_spec,
-                keys=("presence_penalty", "presencePenalty"),
-                label="presence_penalty",
-            )
-            if parsed_presence_penalty is not None and (
-                allow_override or query_presence_penalty is None
-            ):
-                query_presence_penalty = parsed_presence_penalty
-
-            parsed_repetition_penalty = _parse_float_query(
-                query_params,
-                model_spec,
-                keys=("repetition_penalty", "repetitionPenalty"),
-                label="repetition_penalty",
-            )
-            if parsed_repetition_penalty is not None and (
-                allow_override or query_repetition_penalty is None
-            ):
-                query_repetition_penalty = parsed_repetition_penalty
-
-        if "?" in model_string:
-            model_string, _, query = model_string.partition("?")
-            _apply_query_params(parse_qs(query), model_string, allow_override=True)
-
-        suffix: str | None = None
-        if ":" in model_string:
-            base, suffix = model_string.rsplit(":", 1)
-            if base:
-                model_string = base
-
-        model_string = aliases.get(model_string, model_string)
-
-        if "?" in model_string:
-            model_string, _, alias_query = model_string.partition("?")
-            _apply_query_params(parse_qs(alias_query), model_string, allow_override=False)
-
-        # If user provided a suffix (e.g., kimi:groq), strip any existing suffix
-        # from the resolved alias (e.g., hf.model:cerebras -> hf.model)
-        if suffix and ":" in model_string:
-            model_string = model_string.rsplit(":", 1)[0]
-        provider_override: Provider | None = None
-        if "/" in model_string:
-            prefix, rest = model_string.split("/", 1)
-            if prefix and rest and any(p.value == prefix for p in Provider):
-                provider_override = Provider(prefix)
-                model_string = rest
-
-        parts = model_string.split(".")
-
-        model_name_str = model_string  # Default full string as model name initially
-        provider: Provider | None = provider_override
-        reasoning_effort = query_setting
-        parts_for_provider_model = []
-
-        # Check for reasoning effort first (last part)
-        if len(parts) > 1 and parse_reasoning_setting(parts[-1].lower()):
-            suffix_setting = parse_reasoning_setting(parts[-1].lower())
-            if suffix_setting and suffix_setting.kind == "effort":
-                if query_setting is not None:
-                    raise ModelConfigError(
-                        f"Multiple reasoning settings provided for '{model_string}'."
-                    )
-                reasoning_effort = suffix_setting
-                parts_for_provider_model = parts[:-1]
-            else:
-                parts_for_provider_model = parts[:]
-        else:
-            parts_for_provider_model = parts[:]
-
-        # Try to match longest possible provider string
-        identified_provider_parts = 0  # How many parts belong to the provider string
-
-        if provider is None and len(parts_for_provider_model) >= 2:
-            potential_provider_str = f"{parts_for_provider_model[0]}.{parts_for_provider_model[1]}"
-            if any(p.value == potential_provider_str for p in Provider):
-                provider = Provider(potential_provider_str)
-                identified_provider_parts = 2
-
-        if provider is None and len(parts_for_provider_model) >= 1:
-            potential_provider_str = parts_for_provider_model[0]
-            if any(p.value == potential_provider_str for p in Provider):
-                provider = Provider(potential_provider_str)
-                identified_provider_parts = 1
-
-        # Construct model_name from remaining parts
-        if identified_provider_parts > 0:
-            model_name_str = ".".join(parts_for_provider_model[identified_provider_parts:])
-        else:
-            # If no provider prefix was matched, the whole string (after effort removal) is the model name
-            model_name_str = ".".join(parts_for_provider_model)
-
-        # If provider still None, try to resolve from model metadata.
-        if provider is None:
-            provider = ModelDatabase.get_default_provider(model_name_str)
-
-            # If still None, try pattern matching for Bedrock models
-            if provider is None and cls._bedrock_pattern_matches(model_name_str):
-                provider = Provider.BEDROCK
-
-            if provider is None:
-                raise ModelConfigError(
-                    f"Unknown model or provider for: {model_string}. Model name parsed as '{model_name_str}'"
-                )
-
-        if provider == Provider.TENSORZERO and not model_name_str:
-            raise ModelConfigError(
-                f"TensorZero provider requires a function name after the provider "
-                f"(e.g., tensorzero.my-function), got: {model_string}"
-            )
-
-        if suffix:
-            model_name_str = f"{model_name_str}:{suffix}"
-
-        if query_instant is not None:
+        reasoning_effort = merged_overrides.reasoning_effort or suffix_reasoning
+        if merged_overrides.instant is not None:
             if reasoning_effort is not None:
                 raise ModelConfigError(
-                    f"Multiple reasoning settings provided for '{model_string}'."
+                    f"Multiple reasoning settings provided for '{expanded_model_spec}'."
                 )
-            base_model = model_name_str.rsplit(":", 1)[0].strip().lower()
+            base_model = model_name.rsplit(":", 1)[0].strip().lower()
             if base_model != "moonshotai/kimi-k2.5":
                 raise ModelConfigError(
-                    f"Instant mode is only supported for moonshotai/kimi-k2.5, got '{model_name_str}'."
+                    f"Instant mode is only supported for moonshotai/kimi-k2.5, got '{model_name}'."
                 )
-            reasoning_effort = ReasoningEffortSetting(kind="toggle", value=not query_instant)
-
-        if query_transport in {"websocket", "auto"}:
-            if provider not in {Provider.CODEX_RESPONSES, Provider.RESPONSES}:
-                raise ModelConfigError(
-                    "WebSocket transport is experimental and currently supported only for "
-                    "the codexresponses and responses providers."
-                )
-            supports_transport = ModelDatabase.supports_response_transport(
-                model_name_str, "websocket"
+            reasoning_effort = ReasoningEffortSetting(
+                kind="toggle",
+                value=not merged_overrides.instant,
             )
-            if supports_transport is False:
-                raise ModelConfigError(
-                    f"Transport '{query_transport}' is not supported for model '{model_name_str}'."
-                )
-            supports_provider = ModelDatabase.supports_response_websocket_provider(
-                model_name_str, provider
-            )
-            if supports_provider is False:
-                raise ModelConfigError(
-                    f"Transport '{query_transport}' is not supported for model '{model_name_str}' "
-                    f"with provider '{provider.value}'."
-                )
 
-        if query_service_tier == "flex":
-            if provider == Provider.CODEX_RESPONSES:
-                raise ModelConfigError(
-                    "Provider 'codexresponses' does not support service_tier=flex. "
-                    "Allowed values are fast or unset (standard)."
-                )
-            if provider in {Provider.RESPONSES, Provider.OPENRESPONSES}:
-                supports_flex = ModelDatabase.supports_response_service_tier(
-                    model_name_str,
-                    "flex",
-                )
-                if supports_flex is False:
-                    raise ModelConfigError(
-                        f"Model '{model_name_str}' does not support service_tier=flex "
-                        f"with provider '{provider.value}'. Allowed values are fast or unset "
-                        "(standard)."
-                    )
+        _validate_transport_constraints(provider, model_name, merged_overrides.transport)
+        _validate_service_tier_constraints(provider, model_name, merged_overrides.service_tier)
 
-        return ModelConfig(
+        return ParsedModelSpec(
+            raw_input=raw_input,
+            expanded_input=expanded_model_spec,
             provider=provider,
-            model_name=model_name_str,
+            model_name=model_name,
             reasoning_effort=reasoning_effort,
-            text_verbosity=query_text_verbosity,
-            structured_output_mode=query_structured,
-            long_context=query_long_context,
-            transport=query_transport,
-            service_tier=query_service_tier,
-            web_search=query_web_search,
-            web_fetch=query_web_fetch,
-            temperature=query_temperature,
-            top_p=query_top_p,
-            top_k=query_top_k,
-            min_p=query_min_p,
-            presence_penalty=query_presence_penalty,
-            repetition_penalty=query_repetition_penalty,
+            query_overrides=merged_overrides,
         )
 
     @classmethod
+    def parse_model_string(
+        cls,
+        model_string: str,
+        presets: Mapping[str, str] | None = None,
+    ) -> ModelConfig:
+        """Parse a model string into a ModelConfig object.
+
+        Args:
+            model_string: The model specification string (e.g. "gpt-4.1", "kimi:groq")
+            presets: Optional custom parser preset map.
+        """
+        return cls.parse_model_spec(model_string, presets=presets).to_model_config()
+
+    @classmethod
     def create_factory(
-        cls, model_string: str, aliases: dict[str, str] | None = None
+        cls, model_string: str, presets: Mapping[str, str] | None = None
     ) -> LLMFactoryProtocol:
         """
         Creates a factory function that follows the attach_llm protocol.
 
         Args:
             model_string: The model specification string (e.g. "gpt-4.1")
-            aliases: Optional custom aliases map. Defaults to MODEL_ALIASES.
+            presets: Optional custom parser preset map.
 
         Returns:
             A callable that takes an agent parameter and returns an LLM instance
         """
-        config = cls.parse_model_string(model_string, aliases=aliases)
+        config = cls.parse_model_string(model_string, presets=presets)
 
         # Ensure provider is valid before trying to access PROVIDER_CLASSES with it
         # Lazily ensure provider class map is populated and supports this provider

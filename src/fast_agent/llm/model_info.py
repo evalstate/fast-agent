@@ -72,7 +72,7 @@ class ModelInfo:
 
     @classmethod
     def from_name(cls, name: str, provider: Provider | None = None) -> "ModelInfo" | None:
-        canonical_name = ModelFactory.MODEL_ALIASES.get(name, name)
+        canonical_name = ModelFactory.MODEL_PRESETS.get(name, name)
         params = ModelDatabase.get_model_params(canonical_name)
         if not params:
             # Unknown model: return a conservative default that supports text only.

@@ -56,7 +56,7 @@ from fast_agent.constants import (
 from fast_agent.context import Context
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.core.model_resolution import get_context_model_aliases, resolve_model_alias
+from fast_agent.core.model_resolution import get_context_model_references, resolve_model_reference
 from fast_agent.hooks.hook_messages import show_hook_failure
 from fast_agent.interfaces import (
     AgentProtocol,
@@ -337,7 +337,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
         from fast_agent.llm.model_factory import ModelFactory
 
-        model_with_aliases = resolve_model_alias(model, get_context_model_aliases(self._context))
+        model_with_aliases = resolve_model_reference(model, get_context_model_references(self._context))
         model_config = ModelFactory.parse_model_string(model_with_aliases)
         resolved_model = model_config.model_name
         if self._default_request_params:

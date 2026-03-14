@@ -19,8 +19,8 @@ from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.model_resolution import (
     HARDCODED_DEFAULT_MODEL,
-    get_context_model_aliases,
-    resolve_model_alias,
+    get_context_model_references,
+    resolve_model_reference,
     resolve_model_spec,
 )
 from fast_agent.interfaces import FastAgentLLMProtocol
@@ -175,7 +175,7 @@ async def sample(
                 "No model configured for sampling (server config, agent model, or system default)"
             )
 
-        model = resolve_model_alias(model, get_context_model_aliases(app_context))
+        model = resolve_model_reference(model, get_context_model_references(app_context))
 
         # Create an LLM instance
         llm = create_sampling_llm(params, model, api_key)

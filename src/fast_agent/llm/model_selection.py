@@ -27,7 +27,7 @@ class ProviderModelSuggestions:
 
 @dataclass(frozen=True)
 class CatalogModelEntry:
-    """An explicit model catalog entry for a provider."""
+    """An explicit model catalog entry for a provider preset token."""
 
     alias: str
     model: str
@@ -36,7 +36,7 @@ class CatalogModelEntry:
 
 
 class ModelSelectionCatalog:
-    """Catalog of current/listed and fast model aliases."""
+    """Catalog of current/listed and fast model preset tokens."""
 
     CATALOG_ENTRIES_BY_PROVIDER: dict[Provider, tuple[CatalogModelEntry, ...]] = {
         Provider.RESPONSES: (

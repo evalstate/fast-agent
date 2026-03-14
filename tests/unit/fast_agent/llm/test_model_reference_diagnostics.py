@@ -2,16 +2,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from fast_agent.llm.model_alias_diagnostics import (
-    ModelAliasSetupItem,
-    collect_model_alias_setup_diagnostics,
+from fast_agent.llm.model_reference_diagnostics import (
+    ModelReferenceSetupItem,
+    collect_model_reference_setup_diagnostics,
 )
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 
-def test_collect_model_alias_setup_diagnostics_reports_pack_and_card_aliases(
+def test_collect_model_reference_setup_diagnostics_reports_pack_and_card_references(
     tmp_path: Path,
 ) -> None:
     workspace = tmp_path / "workspace"
@@ -20,7 +20,7 @@ def test_collect_model_alias_setup_diagnostics_reports_pack_and_card_aliases(
 
     (workspace / "fastagent.config.yaml").write_text(
         'default_model: "$system.default"\n'
-        "model_aliases:\n"
+        "model_references:\n"
         "  system:\n"
         '    default: ""\n',
         encoding="utf-8",
@@ -32,9 +32,9 @@ def test_collect_model_alias_setup_diagnostics_reports_pack_and_card_aliases(
         "schema_version: 1\n"
         "name: smart\n"
         "kind: card\n"
-        "model_aliases_required:\n"
+        "model_references_required:\n"
         "  - $system.default\n"
-        "model_aliases_recommended:\n"
+        "model_references_recommended:\n"
         "  - $system.fast\n"
         "install:\n"
         "  agent_cards: []\n"
@@ -53,27 +53,27 @@ def test_collect_model_alias_setup_diagnostics_reports_pack_and_card_aliases(
         encoding="utf-8",
     )
 
-    diagnostics = collect_model_alias_setup_diagnostics(
+    diagnostics = collect_model_reference_setup_diagnostics(
         cwd=workspace,
         env_dir=env_dir,
     )
 
-    assert diagnostics.valid_aliases == {}
+    assert diagnostics.valid_references == {}
     assert diagnostics.items == (
-        ModelAliasSetupItem(
+        ModelReferenceSetupItem(
             token="$system.default",
             priority="required",
             status="invalid",
             current_value="",
-            summary="Configured alias value is empty.",
+            summary="Configured reference value is empty.",
             references=("card pack smart", "default_model"),
         ),
-        ModelAliasSetupItem(
+        ModelReferenceSetupItem(
             token="$system.fast",
             priority="required",
             status="missing",
             current_value=None,
-            summary="Referenced alias is not configured.",
+            summary="Referenced model reference is not configured.",
             references=("agent card helper", "card pack smart"),
         ),
     )

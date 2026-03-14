@@ -2,8 +2,6 @@
 
 from fast_agent.ui.message_styles import (
     A3MessageStyle,
-    ClassicMessageStyle,
-    _format_bottom_metadata,
     _format_bottom_metadata_compact,
     _render_items_normal,
     _render_items_with_jump,
@@ -63,23 +61,6 @@ class TestFormatBottomMetadataCompact:
         result = _format_bottom_metadata_compact(items, 2, "bold", max_width=11)
         assert "▶" in result.plain
         assert "bb" in result.plain
-
-
-class TestFormatBottomMetadata:
-    """Tests for the classic (' | ' separator) formatter."""
-
-    def test_all_items_fit_no_highlight(self) -> None:
-        """When all items fit and no highlight, render normally."""
-        items = ["aaa", "bbb", "ccc"]
-        result = _format_bottom_metadata(items, None, "bold", max_width=50)
-        assert result.plain == "aaa | bbb | ccc"
-
-    def test_truncation_highlight_not_visible_shows_jump(self) -> None:
-        """When highlighted item would be truncated, show jump indicator."""
-        items = ["aaa", "bbb", "ccc", "ddd", "eee"]
-        result = _format_bottom_metadata(items, 4, "bold", max_width=20)
-        assert "▶" in result.plain
-        assert "eee" in result.plain
 
 
 class TestRenderItemsNormal:
@@ -166,36 +147,6 @@ class TestA3MessageStyle:
         )
         assert result.plain.startswith("▎ exit code 0")
         assert "▎•" not in result.plain
-        assert "exit code 0" in result.plain
-        assert "(no output)" in result.plain
-        assert "id: call_…123456" in result.plain
-
-
-class TestClassicMessageStyle:
-    """Tests for ClassicMessageStyle."""
-
-    def test_bottom_metadata_with_jump(self) -> None:
-        """Classic style integrates the jump functionality."""
-        style = ClassicMessageStyle()
-        items = ["tool1", "tool2", "tool3", "tool4", "highlighted"]
-        result = style.bottom_metadata_line(
-            items=items,
-            highlight_index=4,
-            highlight_color="bold",
-            max_item_length=None,
-            width=50,
-        )
-        assert result is not None
-        assert "highlighted" in result.plain
-
-    def test_shell_exit_line_with_detail(self) -> None:
-        """Classic shell exit lines include optional compact detail text."""
-        style = ClassicMessageStyle()
-        result = style.shell_exit_line(
-            exit_code=0,
-            width=80,
-            detail="(no output) id: call_…123456",
-        )
         assert "exit code 0" in result.plain
         assert "(no output)" in result.plain
         assert "id: call_…123456" in result.plain

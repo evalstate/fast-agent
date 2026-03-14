@@ -177,14 +177,14 @@ async def test_validate_resolves_aliases_to_hf_models() -> None:
     # Find an alias that resolves to an HF model
     hf_alias = None
     resolved_model = None
-    for alias, model in ModelFactory.MODEL_ALIASES.items():
+    for alias, model in ModelFactory.MODEL_PRESETS.items():
         if model.startswith("hf."):
             hf_alias = alias
             resolved_model = model
             break
 
     if hf_alias is None or resolved_model is None:
-        pytest.skip("No HF model aliases found in MODEL_ALIASES")
+        pytest.skip("No HF model presets found in MODEL_PRESETS")
     assert hf_alias is not None
     assert resolved_model is not None
 
@@ -213,7 +213,7 @@ async def test_validate_resolves_aliases_to_hf_models() -> None:
 
     # Call with the alias (e.g., "kimi") and pass aliases dict
     result = await validate_hf_model(
-        hf_alias, aliases=ModelFactory.MODEL_ALIASES, lookup_fn=stub_lookup
+        hf_alias, presets=ModelFactory.MODEL_PRESETS, lookup_fn=stub_lookup
     )
 
     # Should have resolved the alias and looked up the HF model

@@ -73,7 +73,7 @@ def test_show_models_overview_includes_provider_args_and_named_aliases(
     config_path.write_text(
         "\n".join(
             [
-                "model_aliases:",
+                "model_references:",
                 "  system:",
                 "    fast: responses.gpt-5-mini?reasoning=low",
             ]
@@ -104,7 +104,7 @@ def test_show_models_overview_uses_default_env_config_aliases(tmp_path: Path, ca
     (env_dir / "fastagent.config.yaml").write_text(
         "\n".join(
             [
-                "model_aliases:",
+                "model_references:",
                 "  system:",
                 "    envfast: responses.gpt-5-mini?reasoning=low",
             ]
@@ -134,7 +134,7 @@ def test_show_provider_model_catalog_rejects_unknown_provider() -> None:
         show_provider_model_catalog("not-a-provider")
 
 
-def test_show_check_summary_reports_invalid_effective_model_aliases(
+def test_show_check_summary_reports_invalid_effective_model_references(
     tmp_path: Path,
     capsys,
 ) -> None:
@@ -145,7 +145,7 @@ def test_show_check_summary_reports_invalid_effective_model_aliases(
     (env_dir / "fastagent.config.yaml").write_text(
         "\n".join(
             [
-                "model_aliases:",
+                "model_references:",
                 "  system: foo=bar",
             ]
         ),
@@ -161,7 +161,7 @@ def test_show_check_summary_reports_invalid_effective_model_aliases(
 
     output = " ".join(capsys.readouterr().out.split())
     assert "Effective Config Errors" in output
-    assert "model_aliases" in output
+    assert "model_references" in output
     assert "Input should be a valid dictionary" in output
 
 
@@ -176,7 +176,7 @@ def test_show_check_summary_reports_malformed_yaml_as_effective_config_error(
     (env_dir / "fastagent.config.yaml").write_text(
         "\n".join(
             [
-                "model_aliases:",
+                "model_references:",
                 "  system.code=codexplan?transport=ws",
             ]
         ),

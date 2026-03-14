@@ -1,4 +1,4 @@
-"""Tests for namespaced model alias resolution."""
+"""Tests for namespaced model reference resolution."""
 
 import os
 
@@ -8,14 +8,14 @@ from pydantic import ValidationError
 from fast_agent.config import Settings
 from fast_agent.context import Context
 from fast_agent.core.exceptions import ModelConfigError
-from fast_agent.core.model_resolution import resolve_model_alias, resolve_model_spec
+from fast_agent.core.model_resolution import resolve_model_reference, resolve_model_spec
 
 
 def _build_context() -> Context:
     return Context(
         config=Settings(
             default_model="$system.default",
-            model_aliases={
+            model_references={
                 "system": {
                     "default": "passthrough",
                     "plan": "codexplan",
@@ -29,35 +29,35 @@ def _build_context() -> Context:
     )
 
 
-def test_resolve_model_alias_passthrough() -> None:
-    assert resolve_model_alias("gpt-5-mini.low", {"system": {"fast": "haiku"}}) == "gpt-5-mini.low"
+def test_resolve_model_reference_passthrough() -> None:
+    assert resolve_model_reference("gpt-5-mini.low", {"system": {"fast": "haiku"}}) == "gpt-5-mini.low"
 
 
-def test_resolve_model_alias_happy_path() -> None:
+def test_resolve_model_reference_happy_path() -> None:
     context = _build_context()
     assert context.config is not None
-    assert resolve_model_alias("$system.fast", context.config.model_aliases) == "claude-haiku-4-5"
+    assert resolve_model_reference("$system.fast", context.config.model_references) == "claude-haiku-4-5"
 
 
-def test_resolve_model_alias_recursive() -> None:
+def test_resolve_model_reference_recursive() -> None:
     context = _build_context()
     assert context.config is not None
-    assert resolve_model_alias("$custom.indirect", context.config.model_aliases) == "claude-haiku-4-5"
+    assert resolve_model_reference("$custom.indirect", context.config.model_references) == "claude-haiku-4-5"
 
 
-def test_resolve_model_alias_unknown_namespace() -> None:
+def test_resolve_model_reference_unknown_namespace() -> None:
     with pytest.raises(ModelConfigError, match="Unknown namespace"):
-        resolve_model_alias("$unknown.fast", {"system": {"fast": "haiku"}})
+        resolve_model_reference("$unknown.fast", {"system": {"fast": "haiku"}})
 
 
-def test_resolve_model_alias_unknown_key() -> None:
+def test_resolve_model_reference_unknown_key() -> None:
     with pytest.raises(ModelConfigError, match="Unknown key"):
-        resolve_model_alias("$system.unknown", {"system": {"fast": "haiku"}})
+        resolve_model_reference("$system.unknown", {"system": {"fast": "haiku"}})
 
 
-def test_resolve_model_alias_cycle_detected() -> None:
+def test_resolve_model_reference_cycle_detected() -> None:
     with pytest.raises(ModelConfigError, match="cycle"):
-        resolve_model_alias(
+        resolve_model_reference(
             "$system.fast",
             {
                 "system": {
@@ -70,9 +70,9 @@ def test_resolve_model_alias_cycle_detected() -> None:
         )
 
 
-def test_resolve_model_alias_rejects_non_exact_token_format() -> None:
+def test_resolve_model_reference_rejects_non_exact_token_format() -> None:
     with pytest.raises(ModelConfigError, match="exact tokens"):
-        resolve_model_alias("$system.fast?reasoning=low", {"system": {"fast": "haiku"}})
+        resolve_model_reference("$system.fast?reasoning=low", {"system": {"fast": "haiku"}})
 
 
 def test_resolve_model_spec_resolves_default_alias_from_context() -> None:
@@ -127,7 +127,7 @@ def test_resolve_model_spec_falls_back_to_hardcoded_when_config_alias_unresolved
     context = Context(
         config=Settings(
             default_model="$system.missing",
-            model_aliases={
+            model_references={
                 "system": {
                     "fast": "claude-haiku-4-5",
                 }
@@ -149,7 +149,7 @@ def test_resolve_model_spec_env_alias() -> None:
     context = Context(
         config=Settings(
             default_model=None,
-            model_aliases={
+            model_references={
                 "system": {
                     "plan": "codexplan",
                 }
@@ -176,14 +176,14 @@ def test_resolve_model_spec_env_alias() -> None:
 
 def test_settings_rejects_invalid_model_alias_namespace() -> None:
     with pytest.raises(ValidationError, match="namespace"):
-        Settings(model_aliases={"bad.namespace": {"default": "passthrough"}})
+        Settings(model_references={"bad.namespace": {"default": "passthrough"}})
 
 
 def test_settings_rejects_invalid_model_alias_key() -> None:
     with pytest.raises(ValidationError, match="keys"):
-        Settings(model_aliases={"system": {"bad.key": "passthrough"}})
+        Settings(model_references={"system": {"bad.key": "passthrough"}})
 
 
 def test_settings_rejects_empty_model_alias_value() -> None:
     with pytest.raises(ValidationError, match="non-empty"):
-        Settings(model_aliases={"system": {"default": "   "}})
+        Settings(model_references={"system": {"default": "   "}})

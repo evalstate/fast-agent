@@ -85,7 +85,11 @@ def validate_workflow_references(agents: Mapping[str, AgentCardData | dict[str, 
             # Validate child agents have required LLM configuration
             for agent_name in child_agents:
                 child_data = agents[agent_name]
-                if child_data["type"] in {AgentType.BASIC.value, AgentType.SMART.value}:
+                if child_data["type"] in {
+                    AgentType.LLM.value,
+                    AgentType.BASIC.value,
+                    AgentType.SMART.value,
+                }:
                     # For basic agents, we'll validate LLM config during creation
                     continue
                 # Check if it's a workflow type or has LLM capability
@@ -210,6 +214,7 @@ def get_agent_dependencies(agent_data: AgentCardData | dict[str, Any]) -> set[st
         AgentType.EVALUATOR_OPTIMIZER.value: ("evaluator", "generator", "eval_optimizer_agents"),
         AgentType.ITERATIVE_PLANNER.value: ("child_agents",),
         AgentType.ORCHESTRATOR.value: ("child_agents",),
+        AgentType.LLM.value: ("child_agents",),
         AgentType.BASIC.value: ("child_agents",),
         AgentType.SMART.value: ("child_agents",),
         AgentType.PARALLEL.value: ("fan_out", "fan_in", "parallel_agents"),

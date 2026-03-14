@@ -109,12 +109,12 @@ def test_find_initial_model_index_matches_model_identity() -> None:
         ModelOption(
             spec="responses.chatgpt-5.3-instant",
             label="chatgpt → responses.chatgpt-5.3-instant",
-            alias="chatgpt",
+            preset_token="chatgpt",
         ),
         ModelOption(
             spec="responses.gpt-5.4",
             label="gpt-5.4 → responses.gpt-5.4",
-            alias="gpt-5.4",
+            preset_token="gpt-5.4",
         ),
     ]
 

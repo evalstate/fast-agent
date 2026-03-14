@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import warnings
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable
+from typing import Any, Literal
 
 import frontmatter
 import yaml
@@ -17,6 +18,7 @@ from fast_agent.agents.agent_types import (
     MCPConnectTarget,
 )
 from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION, SMART_AGENT_INSTRUCTION
+from fast_agent.core.agent_card_types import AgentCardData
 from fast_agent.core.direct_decorators import _resolve_instruction
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.tool_input_schema import validate_tool_input_schema
@@ -24,8 +26,19 @@ from fast_agent.skills import SKILLS_DEFAULT
 from fast_agent.types import RequestParams
 from fast_agent.utils.type_narrowing import is_str_object_dict
 
-if TYPE_CHECKING:
-    from fast_agent.core.agent_card_types import AgentCardData
+CardType = Literal[
+    "agent",
+    "smart",
+    "chain",
+    "parallel",
+    "evaluator_optimizer",
+    "router",
+    "orchestrator",
+    "iterative_planner",
+    "MAKER",
+]
+
+CardTypeSerializer = Callable[[dict[str, Any], AgentCardData, AgentConfig], None]
 
 
 _TYPE_MAP: dict[str, AgentType] = {
@@ -71,7 +84,7 @@ _AGENT_FIELDS = {
     "cwd",
 }
 
-_ALLOWED_FIELDS_BY_TYPE: dict[str, set[str]] = {
+_ALLOWED_FIELDS_BY_TYPE: dict[CardType, set[str]] = {
     "agent": set(_AGENT_FIELDS),
     "smart": set(_AGENT_FIELDS),
     "chain": {
@@ -140,7 +153,7 @@ _ALLOWED_FIELDS_BY_TYPE: dict[str, set[str]] = {
     },
 }
 
-_REQUIRED_FIELDS_BY_TYPE: dict[str, set[str]] = {
+_REQUIRED_FIELDS_BY_TYPE: dict[CardType, set[str]] = {
     "agent": set(),
     "smart": set(),
     "chain": {"sequence"},
@@ -154,7 +167,7 @@ _REQUIRED_FIELDS_BY_TYPE: dict[str, set[str]] = {
 
 _HISTORY_DELIMITERS = {"---USER", "---ASSISTANT", "---RESOURCE"}
 
-_AGENT_TYPE_TO_CARD_TYPE: dict[str, str] = {
+_AGENT_TYPE_TO_CARD_TYPE: dict[str, CardType] = {
     AgentType.BASIC.value: "agent",
     AgentType.SMART.value: "smart",
     AgentType.CHAIN.value: "chain",
@@ -166,7 +179,7 @@ _AGENT_TYPE_TO_CARD_TYPE: dict[str, str] = {
     AgentType.MAKER.value: "MAKER",
 }
 
-_DEFAULT_USE_HISTORY_BY_TYPE: dict[str, bool] = {
+_DEFAULT_USE_HISTORY_BY_TYPE: dict[CardType, bool] = {
     "agent": True,
     "smart": True,
     "chain": True,
@@ -921,32 +934,43 @@ def dump_agent_to_string(
     return f"---\n{frontmatter}\n---\n{instruction.rstrip()}\n"
 
 
-def _build_card_dump(
-    name: str,
-    agent_data: AgentCardData,
-    message_paths: list[Path] | None,
-) -> tuple[dict[str, Any], str]:
+def _resolve_dump_card_type(name: str, agent_data: AgentCardData) -> CardType:
     agent_type_value = agent_data.get("type")
     if not isinstance(agent_type_value, str):
         raise AgentConfigError(f"Agent '{name}' is missing a valid type")
+
     card_type = _AGENT_TYPE_TO_CARD_TYPE.get(agent_type_value)
     if card_type is None:
         raise AgentConfigError(f"Agent '{name}' has unsupported type '{agent_type_value}'")
+    return card_type
 
+
+def _resolve_dump_config(name: str, agent_data: AgentCardData) -> AgentConfig:
     config = agent_data.get("config")
     if not isinstance(config, AgentConfig):
         raise AgentConfigError(f"Agent '{name}' is missing AgentConfig")
+    return config
 
+
+def _resolve_dump_instruction(name: str, config: AgentConfig) -> str:
     instruction = config.instruction
     if not instruction:
         raise AgentConfigError(f"Agent '{name}' is missing instruction")
+    return instruction
 
-    card: dict[str, Any] = {"type": card_type, "name": name}
+
+def _serialize_common_card_fields(
+    card: dict[str, Any],
+    card_type: CardType,
+    agent_data: AgentCardData,
+    config: AgentConfig,
+    message_paths: list[Path] | None,
+) -> None:
     schema_version = agent_data.get("schema_version")
     if isinstance(schema_version, int):
         card["schema_version"] = schema_version
 
-    allowed_fields = _ALLOWED_FIELDS_BY_TYPE.get(card_type, set())
+    allowed_fields = _ALLOWED_FIELDS_BY_TYPE[card_type]
 
     if config.default and "default" in allowed_fields:
         card["default"] = True
@@ -964,7 +988,7 @@ def _build_card_dump(
         card["model"] = config.model
 
     if "use_history" in allowed_fields:
-        default_use_history = _DEFAULT_USE_HISTORY_BY_TYPE.get(card_type, True)
+        default_use_history = _DEFAULT_USE_HISTORY_BY_TYPE[card_type]
         if config.use_history != default_use_history:
             card["use_history"] = config.use_history
 
@@ -978,17 +1002,7 @@ def _build_card_dump(
         card["servers"] = list(config.servers)
 
     if config.mcp_connect and "mcp_connect" in allowed_fields:
-        serialized_mcp_connect: list[dict[str, Any]] = []
-        for entry in config.mcp_connect:
-            serialized_entry: dict[str, Any] = {"target": entry.target}
-            if entry.name:
-                serialized_entry["name"] = entry.name
-            if entry.headers is not None:
-                serialized_entry["headers"] = dict(entry.headers)
-            if entry.auth is not None:
-                serialized_entry["auth"] = dict(entry.auth)
-            serialized_mcp_connect.append(serialized_entry)
-        card["mcp_connect"] = serialized_mcp_connect
+        card["mcp_connect"] = _serialize_mcp_connect_targets(config.mcp_connect)
 
     if config.tools and "tools" in allowed_fields:
         card["tools"] = config.tools
@@ -1010,81 +1024,187 @@ def _build_card_dump(
     if message_paths and "messages" in allowed_fields:
         card["messages"] = [str(path) for path in message_paths]
 
-    if card_type in {"agent", "smart"}:
-        child_agents = agent_data.get("child_agents") or []
-        if child_agents:
-            card["agents"] = list(child_agents)
-        opts = agent_data.get("agents_as_tools_options") or {}
-        if "history_source" in opts and opts["history_source"] is not None:
-            history_source = opts["history_source"]
-            card["history_source"] = (
-                history_source.value
-                if hasattr(history_source, "value")
-                else history_source
-            )
-        if "history_merge_target" in opts and opts["history_merge_target"] is not None:
-            history_merge_target = opts["history_merge_target"]
-            card["history_merge_target"] = (
-                history_merge_target.value
-                if hasattr(history_merge_target, "value")
-                else history_merge_target
-            )
-        if "max_parallel" in opts and opts["max_parallel"] is not None:
-            card["max_parallel"] = opts["max_parallel"]
-        if "child_timeout_sec" in opts and opts["child_timeout_sec"] is not None:
-            card["child_timeout_sec"] = opts["child_timeout_sec"]
-        if "max_display_instances" in opts and opts["max_display_instances"] is not None:
-            card["max_display_instances"] = opts["max_display_instances"]
-        function_tools = _serialize_string_list(agent_data.get("function_tools"))
-        if function_tools is not None:
-            card["function_tools"] = function_tools
-        # tool_hooks is a dict, get from config
-        config = agent_data.get("config")
-        if isinstance(config, AgentConfig) and config.tool_hooks:
-            card["tool_hooks"] = config.tool_hooks
-        if isinstance(config, AgentConfig) and config.lifecycle_hooks:
-            card["lifecycle_hooks"] = config.lifecycle_hooks
-        if config and config.trim_tool_history:
-            card["trim_tool_history"] = True
-    elif card_type == "chain":
-        card["sequence"] = list(agent_data.get("sequence") or [])
-        cumulative = agent_data.get("cumulative", False)
-        if cumulative:
-            card["cumulative"] = True
-    elif card_type == "parallel":
-        card["fan_out"] = list(agent_data.get("fan_out") or [])
-        fan_in = agent_data.get("fan_in")
-        if fan_in:
-            card["fan_in"] = fan_in
-        include_request = agent_data.get("include_request")
-        if include_request is False:
-            card["include_request"] = False
-    elif card_type == "evaluator_optimizer":
-        card["generator"] = agent_data.get("generator")
-        card["evaluator"] = agent_data.get("evaluator")
-        if "min_rating" in agent_data:
-            card["min_rating"] = agent_data.get("min_rating")
-        if "max_refinements" in agent_data:
-            card["max_refinements"] = agent_data.get("max_refinements")
-        if "refinement_instruction" in agent_data:
-            card["refinement_instruction"] = agent_data.get("refinement_instruction")
-    elif card_type == "router":
-        card["agents"] = list(agent_data.get("router_agents") or [])
-    elif card_type == "orchestrator":
-        card["agents"] = list(agent_data.get("child_agents") or [])
-        card["plan_type"] = agent_data.get("plan_type", "full")
-        card["plan_iterations"] = agent_data.get("plan_iterations", 5)
-    elif card_type == "iterative_planner":
-        card["agents"] = list(agent_data.get("child_agents") or [])
-        card["plan_iterations"] = agent_data.get("plan_iterations", -1)
-    elif card_type == "MAKER":
-        card["worker"] = agent_data.get("worker")
-        card["k"] = agent_data.get("k", 3)
-        card["max_samples"] = agent_data.get("max_samples", 50)
-        card["match_strategy"] = agent_data.get("match_strategy", "exact")
-        red_flag = agent_data.get("red_flag_max_length")
-        if red_flag is not None:
-            card["red_flag_max_length"] = red_flag
+
+def _serialize_mcp_connect_targets(targets: list[MCPConnectTarget]) -> list[dict[str, Any]]:
+    serialized_targets: list[dict[str, Any]] = []
+    for entry in targets:
+        serialized_entry: dict[str, Any] = {"target": entry.target}
+        if entry.name:
+            serialized_entry["name"] = entry.name
+        if entry.headers is not None:
+            serialized_entry["headers"] = dict(entry.headers)
+        if entry.auth is not None:
+            serialized_entry["auth"] = dict(entry.auth)
+        serialized_targets.append(serialized_entry)
+    return serialized_targets
+
+
+def _serialize_agent_like_fields(
+    card: dict[str, Any],
+    agent_data: AgentCardData,
+    config: AgentConfig,
+) -> None:
+    child_agents = agent_data.get("child_agents") or []
+    if child_agents:
+        card["agents"] = list(child_agents)
+
+    _serialize_agents_as_tools_options(card, agent_data.get("agents_as_tools_options"))
+
+    function_tools = _serialize_string_list(agent_data.get("function_tools"))
+    if function_tools is not None:
+        card["function_tools"] = function_tools
+
+    if config.tool_hooks:
+        card["tool_hooks"] = config.tool_hooks
+
+    if config.lifecycle_hooks:
+        card["lifecycle_hooks"] = config.lifecycle_hooks
+
+    if config.trim_tool_history:
+        card["trim_tool_history"] = True
+
+
+def _serialize_agents_as_tools_options(card: dict[str, Any], options: object) -> None:
+    if not is_str_object_dict(options):
+        return
+
+    history_source = options.get("history_source")
+    if history_source is not None:
+        card["history_source"] = (
+            history_source.value if hasattr(history_source, "value") else history_source
+        )
+
+    history_merge_target = options.get("history_merge_target")
+    if history_merge_target is not None:
+        card["history_merge_target"] = (
+            history_merge_target.value
+            if hasattr(history_merge_target, "value")
+            else history_merge_target
+        )
+
+    max_parallel = options.get("max_parallel")
+    if max_parallel is not None:
+        card["max_parallel"] = max_parallel
+
+    child_timeout_sec = options.get("child_timeout_sec")
+    if child_timeout_sec is not None:
+        card["child_timeout_sec"] = child_timeout_sec
+
+    max_display_instances = options.get("max_display_instances")
+    if max_display_instances is not None:
+        card["max_display_instances"] = max_display_instances
+
+
+def _serialize_chain_fields(
+    card: dict[str, Any],
+    agent_data: AgentCardData,
+    _config: AgentConfig,
+) -> None:
+    card["sequence"] = list(agent_data.get("sequence") or [])
+    cumulative = agent_data.get("cumulative", False)
+    if cumulative:
+        card["cumulative"] = True
+
+
+def _serialize_parallel_fields(
+    card: dict[str, Any],
+    agent_data: AgentCardData,
+    _config: AgentConfig,
+) -> None:
+    card["fan_out"] = list(agent_data.get("fan_out") or [])
+    fan_in = agent_data.get("fan_in")
+    if fan_in:
+        card["fan_in"] = fan_in
+
+    include_request = agent_data.get("include_request")
+    if include_request is False:
+        card["include_request"] = False
+
+
+def _serialize_evaluator_optimizer_fields(
+    card: dict[str, Any],
+    agent_data: AgentCardData,
+    _config: AgentConfig,
+) -> None:
+    card["generator"] = agent_data.get("generator")
+    card["evaluator"] = agent_data.get("evaluator")
+
+    if "min_rating" in agent_data:
+        card["min_rating"] = agent_data.get("min_rating")
+    if "max_refinements" in agent_data:
+        card["max_refinements"] = agent_data.get("max_refinements")
+    if "refinement_instruction" in agent_data:
+        card["refinement_instruction"] = agent_data.get("refinement_instruction")
+
+
+def _serialize_router_fields(
+    card: dict[str, Any],
+    agent_data: AgentCardData,
+    _config: AgentConfig,
+) -> None:
+    card["agents"] = list(agent_data.get("router_agents") or [])
+
+
+def _serialize_orchestrator_fields(
+    card: dict[str, Any],
+    agent_data: AgentCardData,
+    _config: AgentConfig,
+) -> None:
+    card["agents"] = list(agent_data.get("child_agents") or [])
+    card["plan_type"] = agent_data.get("plan_type", "full")
+    card["plan_iterations"] = agent_data.get("plan_iterations", 5)
+
+
+def _serialize_iterative_planner_fields(
+    card: dict[str, Any],
+    agent_data: AgentCardData,
+    _config: AgentConfig,
+) -> None:
+    card["agents"] = list(agent_data.get("child_agents") or [])
+    card["plan_iterations"] = agent_data.get("plan_iterations", -1)
+
+
+def _serialize_maker_fields(
+    card: dict[str, Any],
+    agent_data: AgentCardData,
+    _config: AgentConfig,
+) -> None:
+    card["worker"] = agent_data.get("worker")
+    card["k"] = agent_data.get("k", 3)
+    card["max_samples"] = agent_data.get("max_samples", 50)
+    card["match_strategy"] = agent_data.get("match_strategy", "exact")
+
+    red_flag = agent_data.get("red_flag_max_length")
+    if red_flag is not None:
+        card["red_flag_max_length"] = red_flag
+
+
+_CARD_SERIALIZERS: dict[CardType, CardTypeSerializer] = {
+    "agent": _serialize_agent_like_fields,
+    "smart": _serialize_agent_like_fields,
+    "chain": _serialize_chain_fields,
+    "parallel": _serialize_parallel_fields,
+    "evaluator_optimizer": _serialize_evaluator_optimizer_fields,
+    "router": _serialize_router_fields,
+    "orchestrator": _serialize_orchestrator_fields,
+    "iterative_planner": _serialize_iterative_planner_fields,
+    "MAKER": _serialize_maker_fields,
+}
+
+
+def _build_card_dump(
+    name: str,
+    agent_data: AgentCardData,
+    message_paths: list[Path] | None,
+) -> tuple[dict[str, Any], str]:
+    card_type = _resolve_dump_card_type(name, agent_data)
+    config = _resolve_dump_config(name, agent_data)
+    instruction = _resolve_dump_instruction(name, config)
+
+    card: dict[str, Any] = {"type": card_type, "name": name}
+    _serialize_common_card_fields(card, card_type, agent_data, config, message_paths)
+    serializer = _CARD_SERIALIZERS[card_type]
+    serializer(card, agent_data, config)
 
     return card, instruction
 

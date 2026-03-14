@@ -16,14 +16,14 @@ from prompt_toolkit.widgets import Frame
 
 StyleFragments = list[tuple[str, str]]
 
-type ModelAliasPickerPriority = Literal["required", "repair", "recommended", "configured"]
-type ModelAliasPickerAction = Literal["set", "unset", "custom", "done"]
+type ModelReferencePickerPriority = Literal["required", "repair", "recommended", "configured"]
+type ModelReferencePickerAction = Literal["set", "unset", "custom", "done"]
 
 
 @dataclass(frozen=True)
-class ModelAliasPickerItem:
+class ModelReferencePickerItem:
     token: str
-    priority: ModelAliasPickerPriority
+    priority: ModelReferencePickerPriority
     status: str
     summary: str
     current_value: str | None
@@ -32,23 +32,23 @@ class ModelAliasPickerItem:
 
 
 @dataclass(frozen=True)
-class ModelAliasPickerResult:
-    action: ModelAliasPickerAction
+class ModelReferencePickerResult:
+    action: ModelReferencePickerAction
     token: str | None
 
 
 @dataclass
-class _AliasPickerState:
+class _ReferencePickerState:
     index: int = 0
     scroll_top: int = 0
 
 
-class _AliasPicker:
+class _ReferencePicker:
     LIST_VISIBLE_ROWS = 10
 
-    def __init__(self, items: tuple[ModelAliasPickerItem, ...]) -> None:
+    def __init__(self, items: tuple[ModelReferencePickerItem, ...]) -> None:
         self.items = items
-        self.state = _AliasPickerState()
+        self.state = _ReferencePickerState()
         self.selection_control = FormattedTextControl(
             self._render_rows,
             show_cursor=False,
@@ -71,7 +71,7 @@ class _AliasPicker:
         )
         body = HSplit(
             [
-                Frame(self.selection_window, title="Aliases to configure"),
+                Frame(self.selection_window, title="References to configure"),
                 details_window,
             ]
         )
@@ -95,7 +95,7 @@ class _AliasPicker:
         self._sync_scroll()
 
     @property
-    def current_item(self) -> ModelAliasPickerItem | None:
+    def current_item(self) -> ModelReferencePickerItem | None:
         if self.state.index >= len(self.items):
             return None
         return self.items[self.state.index]
@@ -148,14 +148,14 @@ class _AliasPicker:
         @kb.add("enter")
         def _accept(event) -> None:
             if self._is_done_row():
-                event.app.exit(result=ModelAliasPickerResult(action="done", token=None))
+                event.app.exit(result=ModelReferencePickerResult(action="done", token=None))
                 return
             if self._is_custom_row():
-                event.app.exit(result=ModelAliasPickerResult(action="custom", token=None))
+                event.app.exit(result=ModelReferencePickerResult(action="custom", token=None))
                 return
             item = self.current_item
             assert item is not None
-            event.app.exit(result=ModelAliasPickerResult(action="set", token=item.token))
+            event.app.exit(result=ModelReferencePickerResult(action="set", token=item.token))
 
         @kb.add("delete")
         @kb.add("backspace")
@@ -164,7 +164,7 @@ class _AliasPicker:
             item = self.current_item
             if item is None or not item.removable:
                 return
-            event.app.exit(result=ModelAliasPickerResult(action="unset", token=item.token))
+            event.app.exit(result=ModelReferencePickerResult(action="unset", token=item.token))
 
         @kb.add("escape")
         @kb.add("q")
@@ -178,7 +178,7 @@ class _AliasPicker:
         self,
         *,
         selected: bool,
-        priority: ModelAliasPickerPriority,
+        priority: ModelReferencePickerPriority,
     ) -> str:
         parts: list[str] = []
         if selected:
@@ -187,7 +187,7 @@ class _AliasPicker:
         return " ".join(parts)
 
     def _render_rows(self) -> StyleFragments:
-        rows: list[ModelAliasPickerItem | Literal["custom", "done"]] = [
+        rows: list[ModelReferencePickerItem | Literal["custom", "done"]] = [
             *self.items,
             "custom",
             "done",
@@ -200,14 +200,14 @@ class _AliasPicker:
             selected = index == self.state.index
             if item == "custom":
                 priority = "configured"
-                token_text = "Add a new alias"
+                token_text = "Add a new reference"
                 status_text = "manual entry"
             elif item == "done":
                 priority = "configured"
                 token_text = "Done"
                 status_text = "exit setup"
             else:
-                assert isinstance(item, ModelAliasPickerItem)
+                assert isinstance(item, ModelReferencePickerItem)
                 priority = item.priority
                 token_text = item.token[: token_width - 1]
                 if len(item.token) > token_width:
@@ -232,11 +232,11 @@ class _AliasPicker:
         item = self.current_item
         if self._is_custom_row():
             return [
-                ("", "Create or update a different alias token.\n"),
+                ("", "Create or update a different reference token.\n"),
                 ("class:muted", "current: <manual entry>\n"),
                 ("class:muted", "used by: custom setup path\n"),
                 ("class:muted", "Enter = type token manually • Esc/Ctrl+C = cancel\n"),
-                ("class:muted", "Delete/X removes the selected configured alias."),
+                ("class:muted", "Delete/X removes the selected configured reference."),
             ]
         if self._is_done_row():
             return [
@@ -244,14 +244,14 @@ class _AliasPicker:
                 ("class:muted", "current: <none>\n"),
                 ("class:muted", "used by: setup session\n"),
                 ("class:muted", "Enter = exit setup • Esc/Ctrl+C = cancel\n"),
-                ("class:muted", "Delete/X removes the selected configured alias."),
+                ("class:muted", "Delete/X removes the selected configured reference."),
             ]
 
         assert item is not None
         references_text = ", ".join(item.references) if item.references else "No references"
         current_value = item.current_value if item.current_value is not None else "<unset>"
         remove_hint = (
-            "Delete/X = remove alias"
+            "Delete/X = remove reference"
             if item.removable
             else "Delete/X = unavailable for this row"
         )
@@ -259,17 +259,17 @@ class _AliasPicker:
             ("", f"{item.summary}\n"),
             ("class:muted", f"current: {current_value}\n"),
             ("class:muted", f"used by: {references_text}\n"),
-            ("class:muted", "Enter = configure alias • Esc/Ctrl+C = cancel\n"),
+            ("class:muted", "Enter = configure reference • Esc/Ctrl+C = cancel\n"),
             ("class:muted", remove_hint),
         ]
 
-    async def run_async(self) -> ModelAliasPickerResult | None:
+    async def run_async(self) -> ModelReferencePickerResult | None:
         return await self.app.run_async()
 
 
-async def run_model_alias_picker_async(
-    items: tuple[ModelAliasPickerItem, ...],
-) -> ModelAliasPickerResult | None:
-    """Run the interactive alias picker."""
-    picker = _AliasPicker(items)
+async def run_model_reference_picker_async(
+    items: tuple[ModelReferencePickerItem, ...],
+) -> ModelReferencePickerResult | None:
+    """Run the interactive reference picker."""
+    picker = _ReferencePicker(items)
     return await picker.run_async()

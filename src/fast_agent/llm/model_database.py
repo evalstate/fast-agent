@@ -811,10 +811,10 @@ class ModelDatabase:
         if direct_key in cls.MODELS:
             return direct_key
 
-        # Apply aliases first (case-insensitive).
-        aliased = ModelFactory.MODEL_ALIASES.get(model_spec)
+        # Apply built-in model presets first (case-insensitive).
+        aliased = ModelFactory.MODEL_PRESETS.get(model_spec)
         if not aliased:
-            aliased = ModelFactory.MODEL_ALIASES.get(model_spec.lower())
+            aliased = ModelFactory.MODEL_PRESETS.get(model_spec.lower())
         if aliased:
             model_spec = aliased
             direct_key = model_spec.strip().lower()
