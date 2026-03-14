@@ -31,6 +31,7 @@ from fast_agent.ui.command_payloads import (
     HashAgentCommand,
     HistoryFixCommand,
     HistoryReviewCommand,
+    HistoryRewindCommand,
     HistoryShowCommand,
     HistoryWebClearCommand,
     ListSessionsCommand,
@@ -188,6 +189,8 @@ def _parse_history_command(remainder: str) -> CommandPayload:
 
 
 def _parse_targeted_history_action(subcmd: str, argument: str) -> CommandPayload | None:
+    if subcmd == "rewind":
+        return _parse_history_rewind_command(argument)
     if subcmd == "fix":
         return HistoryFixCommand(agent=argument or None)
     if subcmd == "webclear":
@@ -195,6 +198,20 @@ def _parse_targeted_history_action(subcmd: str, argument: str) -> CommandPayload
     if subcmd == "clear":
         return _parse_history_clear_command(argument)
     return None
+
+
+def _parse_history_rewind_command(argument: str) -> HistoryRewindCommand:
+    stripped = argument.strip()
+    if not stripped:
+        return HistoryRewindCommand(turn_index=None, error=None)
+    try:
+        turn_index = int(stripped)
+    except ValueError:
+        return HistoryRewindCommand(
+            turn_index=None,
+            error="Turn number must be an integer",
+        )
+    return HistoryRewindCommand(turn_index=turn_index, error=None)
 
 
 def _history_payload_from_shared_intent(intent) -> CommandPayload | None:

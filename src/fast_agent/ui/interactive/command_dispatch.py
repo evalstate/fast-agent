@@ -127,18 +127,13 @@ async def _apply_model_switch_session_reset(
         )
 
 
-async def dispatch_command_payload(
-    owner: "InteractivePrompt",
+async def _dispatch_local_ui_payload(
     payload: CommandPayload,
     *,
     prompt_provider: "AgentApp",
-    agent: str,
-    available_agents: list[str],
     available_agents_set: set[str],
-    merge_pinned_agents: Callable[[list[str]], list[str]],
-) -> DispatchResult:
+) -> DispatchResult | None:
     result = DispatchResult(handled=True)
-
     match payload:
         case InterruptCommand():
             raise KeyboardInterrupt()
@@ -165,6 +160,21 @@ async def dispatch_command_payload(
         case ShellCommand(command=shell_cmd):
             result.shell_execute_cmd = shell_cmd
             return result
+        case UnknownCommand(command=command):
+            rich_print(f"[red]Command not found: {command}[/red]")
+            return result
+        case _:
+            return None
+
+
+async def _dispatch_prompt_payload(
+    payload: CommandPayload,
+    *,
+    prompt_provider: "AgentApp",
+    agent: str,
+) -> DispatchResult | None:
+    result = DispatchResult(handled=True)
+    match payload:
         case ListPromptsCommand():
             context = build_command_context(prompt_provider, agent)
             outcome = await prompt_handlers.handle_list_prompts(context, agent_name=agent)
@@ -192,6 +202,18 @@ async def dispatch_command_payload(
             await emit_command_outcome(context, outcome)
             result.buffer_prefill = outcome.buffer_prefill
             return result
+        case _:
+            return None
+
+
+async def _dispatch_catalog_payload(
+    payload: CommandPayload,
+    *,
+    prompt_provider: "AgentApp",
+    agent: str,
+) -> DispatchResult | None:
+    result = DispatchResult(handled=True)
+    match payload:
         case ListToolsCommand():
             context = build_command_context(prompt_provider, agent)
             outcome = await tools_handlers.handle_list_tools(context, agent_name=agent)
@@ -232,11 +254,51 @@ async def dispatch_command_payload(
             )
             await emit_command_outcome(context, outcome)
             return result
+        case _:
+            return None
+
+
+async def _dispatch_display_payload(
+    payload: CommandPayload,
+    *,
+    prompt_provider: "AgentApp",
+    agent: str,
+) -> DispatchResult | None:
+    result = DispatchResult(handled=True)
+    match payload:
         case ShowUsageCommand():
             context = build_command_context(prompt_provider, agent)
             outcome = await display_handlers.handle_show_usage(context, agent_name=agent)
             await emit_command_outcome(context, outcome)
             return result
+        case ShowSystemCommand():
+            context = build_command_context(prompt_provider, agent)
+            outcome = await display_handlers.handle_show_system(context, agent_name=agent)
+            await emit_command_outcome(context, outcome)
+            return result
+        case ShowMarkdownCommand():
+            context = build_command_context(prompt_provider, agent)
+            outcome = await display_handlers.handle_show_markdown(context, agent_name=agent)
+            await emit_command_outcome(context, outcome)
+            return result
+        case ShowMcpStatusCommand():
+            context = build_command_context(prompt_provider, agent)
+            outcome = await display_handlers.handle_show_mcp_status(context, agent_name=agent)
+            await emit_command_outcome(context, outcome)
+            return result
+        case _:
+            return None
+
+
+async def _dispatch_history_payload(
+    owner: "InteractivePrompt",
+    payload: CommandPayload,
+    *,
+    prompt_provider: "AgentApp",
+    agent: str,
+) -> DispatchResult | None:
+    result = DispatchResult(handled=True)
+    match payload:
         case ShowHistoryCommand(agent=target_agent):
             if target_agent and owner._get_agent_or_warn(prompt_provider, target_agent) is None:
                 return result
@@ -322,21 +384,18 @@ async def dispatch_command_payload(
             )
             await emit_command_outcome(context, outcome)
             return result
-        case ShowSystemCommand():
-            context = build_command_context(prompt_provider, agent)
-            outcome = await display_handlers.handle_show_system(context, agent_name=agent)
-            await emit_command_outcome(context, outcome)
-            return result
-        case ShowMarkdownCommand():
-            context = build_command_context(prompt_provider, agent)
-            outcome = await display_handlers.handle_show_markdown(context, agent_name=agent)
-            await emit_command_outcome(context, outcome)
-            return result
-        case ShowMcpStatusCommand():
-            context = build_command_context(prompt_provider, agent)
-            outcome = await display_handlers.handle_show_mcp_status(context, agent_name=agent)
-            await emit_command_outcome(context, outcome)
-            return result
+        case _:
+            return None
+
+
+async def _dispatch_mcp_payload(
+    payload: CommandPayload,
+    *,
+    prompt_provider: "AgentApp",
+    agent: str,
+) -> DispatchResult | None:
+    result = DispatchResult(handled=True)
+    match payload:
         case McpListCommand():
             context = build_command_context(prompt_provider, agent)
             outcome = await mcp_runtime_handlers.handle_mcp_list(
@@ -417,6 +476,18 @@ async def dispatch_command_payload(
             )
             await emit_command_outcome(context, outcome)
             return result
+        case _:
+            return None
+
+
+async def _dispatch_model_payload(
+    payload: CommandPayload,
+    *,
+    prompt_provider: "AgentApp",
+    agent: str,
+) -> DispatchResult | None:
+    result = DispatchResult(handled=True)
+    match payload:
         case ModelReasoningCommand(value=value):
             context = build_command_context(prompt_provider, agent)
             outcome = await model_handlers.handle_model_reasoning(
@@ -476,6 +547,18 @@ async def dispatch_command_payload(
             )
             await emit_command_outcome(context, outcome)
             return result
+        case _:
+            return None
+
+
+async def _dispatch_session_payload(
+    payload: CommandPayload,
+    *,
+    prompt_provider: "AgentApp",
+    agent: str,
+) -> DispatchResult | None:
+    result = DispatchResult(handled=True)
+    match payload:
         case CreateSessionCommand(session_name=session_name):
             context = build_command_context(prompt_provider, agent)
             outcome = await sessions_handlers.handle_create_session(context, session_name=session_name)
@@ -520,6 +603,32 @@ async def dispatch_command_payload(
             outcome = await sessions_handlers.handle_fork_session(context, title=title)
             await emit_command_outcome(context, outcome)
             return result
+        case _:
+            return None
+
+
+def _refresh_available_agents(
+    owner: "InteractivePrompt",
+    prompt_provider: "AgentApp",
+    merge_pinned_agents: Callable[[list[str]], list[str]],
+) -> tuple[list[str], set[str]]:
+    next_available_agents = merge_pinned_agents(list(prompt_provider.agent_names()))
+    owner.agent_types = prompt_provider.agent_types()
+    next_available_agents_set = set(next_available_agents)
+    enhanced_prompt.available_agents = set(next_available_agents)
+    return next_available_agents, next_available_agents_set
+
+
+async def _dispatch_agent_card_payload(
+    owner: "InteractivePrompt",
+    payload: CommandPayload,
+    *,
+    prompt_provider: "AgentApp",
+    agent: str,
+    merge_pinned_agents: Callable[[list[str]], list[str]],
+) -> DispatchResult | None:
+    result = DispatchResult(handled=True)
+    match payload:
         case LoadAgentCardCommand(
             filename=filename,
             add_tool=add_tool,
@@ -540,10 +649,11 @@ async def dispatch_command_payload(
             )
             await emit_command_outcome(context, outcome)
             if outcome.requires_refresh:
-                next_available_agents = merge_pinned_agents(list(prompt_provider.agent_names()))
-                next_available_agents_set = set(next_available_agents)
-                owner.agent_types = prompt_provider.agent_types()
-                enhanced_prompt.available_agents = set(next_available_agents)
+                next_available_agents, next_available_agents_set = _refresh_available_agents(
+                    owner,
+                    prompt_provider,
+                    merge_pinned_agents,
+                )
                 result.available_agents = next_available_agents
                 result.available_agents_set = next_available_agents_set
                 if agent not in next_available_agents_set:
@@ -575,15 +685,30 @@ async def dispatch_command_payload(
             )
             await emit_command_outcome(context, outcome)
             return result
+        case _:
+            return None
+
+
+async def _dispatch_reload_payload(
+    owner: "InteractivePrompt",
+    payload: CommandPayload,
+    *,
+    prompt_provider: "AgentApp",
+    agent: str,
+    merge_pinned_agents: Callable[[list[str]], list[str]],
+) -> DispatchResult | None:
+    result = DispatchResult(handled=True)
+    match payload:
         case ReloadAgentsCommand():
             context = build_command_context(prompt_provider, agent)
             outcome = await agent_card_handlers.handle_reload_agents(context, manager=prompt_provider)
             await emit_command_outcome(context, outcome)
             if outcome.requires_refresh:
-                next_available_agents = merge_pinned_agents(list(prompt_provider.agent_names()))
-                next_available_agents_set = set(next_available_agents)
-                owner.agent_types = prompt_provider.agent_types()
-                enhanced_prompt.available_agents = set(next_available_agents)
+                next_available_agents, next_available_agents_set = _refresh_available_agents(
+                    owner,
+                    prompt_provider,
+                    merge_pinned_agents,
+                )
                 result.available_agents = next_available_agents
                 result.available_agents_set = next_available_agents_set
                 if agent not in next_available_agents_set:
@@ -593,9 +718,105 @@ async def dispatch_command_payload(
                         rich_print("[red]No agents available after reload.[/red]")
                         result.should_return = True
             return result
-        case UnknownCommand(command=command):
-            rich_print(f"[red]Command not found: {command}[/red]")
-            return result
         case _:
-            result.handled = False
-            return result
+            return None
+
+
+async def dispatch_command_payload(
+    owner: "InteractivePrompt",
+    payload: CommandPayload,
+    *,
+    prompt_provider: "AgentApp",
+    agent: str,
+    available_agents: list[str],
+    available_agents_set: set[str],
+    merge_pinned_agents: Callable[[list[str]], list[str]],
+) -> DispatchResult:
+    del available_agents
+
+    local_result = await _dispatch_local_ui_payload(
+        payload,
+        prompt_provider=prompt_provider,
+        available_agents_set=available_agents_set,
+    )
+    if local_result is not None:
+        return local_result
+
+    prompt_result = await _dispatch_prompt_payload(
+        payload,
+        prompt_provider=prompt_provider,
+        agent=agent,
+    )
+    if prompt_result is not None:
+        return prompt_result
+
+    catalog_result = await _dispatch_catalog_payload(
+        payload,
+        prompt_provider=prompt_provider,
+        agent=agent,
+    )
+    if catalog_result is not None:
+        return catalog_result
+
+    display_result = await _dispatch_display_payload(
+        payload,
+        prompt_provider=prompt_provider,
+        agent=agent,
+    )
+    if display_result is not None:
+        return display_result
+
+    history_result = await _dispatch_history_payload(
+        owner,
+        payload,
+        prompt_provider=prompt_provider,
+        agent=agent,
+    )
+    if history_result is not None:
+        return history_result
+
+    mcp_result = await _dispatch_mcp_payload(
+        payload,
+        prompt_provider=prompt_provider,
+        agent=agent,
+    )
+    if mcp_result is not None:
+        return mcp_result
+
+    model_result = await _dispatch_model_payload(
+        payload,
+        prompt_provider=prompt_provider,
+        agent=agent,
+    )
+    if model_result is not None:
+        return model_result
+
+    session_result = await _dispatch_session_payload(
+        payload,
+        prompt_provider=prompt_provider,
+        agent=agent,
+    )
+    if session_result is not None:
+        return session_result
+
+    agent_card_result = await _dispatch_agent_card_payload(
+        owner,
+        payload,
+        prompt_provider=prompt_provider,
+        agent=agent,
+        merge_pinned_agents=merge_pinned_agents,
+    )
+    if agent_card_result is not None:
+        return agent_card_result
+
+    reload_result = await _dispatch_reload_payload(
+        owner,
+        payload,
+        prompt_provider=prompt_provider,
+        agent=agent,
+        merge_pinned_agents=merge_pinned_agents,
+    )
+    if reload_result is not None:
+        return reload_result
+
+    return DispatchResult(handled=False)
