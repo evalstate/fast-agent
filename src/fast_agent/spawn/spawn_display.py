@@ -168,9 +168,10 @@ class SpawnDisplayManager:
         mgr.remove_spawn(run_id)
     """
 
-    def __init__(self, tty: TextIO | None = None) -> None:
+    def __init__(self, tty: TextIO | None = None, event_callback=None) -> None:
         self._tty = tty
         self._tty_tried = tty is not None
+        self._event_callback = event_callback
         self._panels: dict[str, SpawnPanel] = {}
         self._teams: dict[str, TeamPanel] = {}
 
@@ -223,8 +224,19 @@ class SpawnDisplayManager:
         """Remove a spawn panel."""
         self._panels.pop(run_id, None)
 
+    def set_event_callback(self, callback) -> None:
+        """Set a callback to receive all spawn events (for external integrations)."""
+        self._event_callback = callback
+
     def handle_event(self, event: SpawnEvent) -> None:
         """Process a spawn event from a child and print to terminal."""
+        # Forward to callback (e.g. SSE progress bridge) regardless of panel state
+        if self._event_callback:
+            try:
+                self._event_callback(event)
+            except Exception:
+                pass  # Never crash display for callback errors
+
         panel = self._panels.get(event.run_id)
         if not panel:
             return
