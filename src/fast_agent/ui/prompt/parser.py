@@ -203,7 +203,10 @@ def _parse_targeted_history_action(subcmd: str, argument: str) -> CommandPayload
 def _parse_history_rewind_command(argument: str) -> HistoryRewindCommand:
     stripped = argument.strip()
     if not stripped:
-        return HistoryRewindCommand(turn_index=None, error=None)
+        return HistoryRewindCommand(
+            turn_index=None,
+            error="Turn number required for /history rewind",
+        )
     try:
         turn_index = int(stripped)
     except ValueError:

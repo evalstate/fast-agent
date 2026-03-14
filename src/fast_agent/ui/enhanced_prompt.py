@@ -58,7 +58,7 @@ _agent_info_shown: set[str] = set()
 _startup_notices: list[object] = []
 
 
-def _sync_to_session() -> None:
+def _sync_to_input_module() -> None:
     from fast_agent.ui.prompt import input as _input
 
     _input.agent_histories = agent_histories
@@ -72,7 +72,7 @@ def _sync_to_session() -> None:
     _input._startup_notices = _startup_notices
 
 
-def _sync_from_session() -> None:
+def _sync_from_input_module() -> None:
     global agent_histories, available_agents, in_multiline_mode
     global _last_copyable_output, _copy_notice, _copy_notice_until
     global help_message_shown, _agent_info_shown, _startup_notices
@@ -93,15 +93,15 @@ def _sync_from_session() -> None:
 def set_last_copyable_output(output: str) -> None:
     global _last_copyable_output
     _last_copyable_output = output
-    _sync_to_session()
+    _sync_to_input_module()
 
 
 def queue_startup_notice(notice: object) -> None:
     from fast_agent.ui.prompt.input import queue_startup_notice as _queue_startup_notice
 
-    _sync_to_session()
+    _sync_to_input_module()
     _queue_startup_notice(notice)
-    _sync_from_session()
+    _sync_from_input_module()
 
 
 def queue_startup_markdown_notice(
@@ -116,7 +116,7 @@ def queue_startup_markdown_notice(
         queue_startup_markdown_notice as _queue_startup_markdown_notice,
     )
 
-    _sync_to_session()
+    _sync_to_input_module()
     _queue_startup_markdown_notice(
         text,
         title=title,
@@ -124,22 +124,22 @@ def queue_startup_markdown_notice(
         right_info=right_info,
         agent_name=agent_name,
     )
-    _sync_from_session()
+    _sync_from_input_module()
 
 
 async def get_enhanced_input(*args, **kwargs) -> str | CommandPayload:
-    _sync_to_session()
+    _sync_to_input_module()
     result = await _get_enhanced_input(*args, **kwargs)
-    _sync_from_session()
+    _sync_from_input_module()
     return result
 
 
 async def handle_special_commands(
     command: str | CommandPayload | None, agent_app: "AgentApp | bool | None" = None
 ) -> bool | CommandPayload:
-    _sync_to_session()
+    _sync_to_input_module()
     result = await _handle_special_commands(command, agent_app)
-    _sync_from_session()
+    _sync_from_input_module()
     return result
 
 

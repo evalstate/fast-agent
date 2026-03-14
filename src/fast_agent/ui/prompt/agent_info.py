@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any
 
 from rich import print as rich_print
 
-from fast_agent.agents.agent_types import AgentType
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.agents.workflow.router_agent import RouterAgent
 from fast_agent.mcp.types import McpAgentProtocol

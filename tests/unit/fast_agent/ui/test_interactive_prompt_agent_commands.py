@@ -20,7 +20,11 @@ from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui import enhanced_prompt, interactive_prompt
 from fast_agent.ui.command_payloads import InterruptCommand
-from fast_agent.ui.interactive_prompt import InteractivePrompt
+from fast_agent.ui.interactive_prompt import (
+    InteractivePrompt,
+    PromptLoopAgents,
+    PromptLoopRuntimeState,
+)
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
@@ -355,6 +359,61 @@ async def test_history_fix_notice_on_cancelled_turn(monkeypatch, capsys: Any) ->
         prompt_provider=cast("AgentApp", agent_app),
     )
 
+    output = capsys.readouterr().out
+    assert "Previous turn was cancelled" in output
+
+
+@pytest.mark.asyncio
+async def test_prepare_prompt_turn_reports_cancelled_agent_before_refresh_switch(
+    capsys: Any,
+) -> None:
+    class _CancelledAgent(_FakeAgent):
+        def __init__(self) -> None:
+            self._last_turn_cancelled = True
+            self._last_turn_cancel_reason = "cancelled"
+
+    cancelled_agent = _CancelledAgent()
+
+    class _RefreshSwitchAgentApp(_FakeAgentApp):
+        def __init__(self) -> None:
+            super().__init__(["old", "new"])
+            self._agents = {
+                "old": cancelled_agent,
+                "new": _FakeAgent(),
+            }
+            self._refreshed = False
+
+        async def refresh_if_needed(self) -> bool:
+            if self._refreshed:
+                return False
+            self._agents.pop("old", None)
+            self._refreshed = True
+            return True
+
+        def _agent(self, agent_name: str | None):
+            if agent_name is None:
+                return self._agents["new"]
+            return self._agents[agent_name]
+
+    prompt_ui = InteractivePrompt()
+    agent_app = _RefreshSwitchAgentApp()
+
+    turn_preparation = await prompt_ui._prepare_prompt_turn(
+        prompt_provider=cast("AgentApp", agent_app),
+        agent_state=PromptLoopAgents(
+            current_agent="old",
+            available_agents=["old", "new"],
+            available_agents_set={"old", "new"},
+        ),
+        pinned_agent=None,
+        runtime_state=PromptLoopRuntimeState(),
+        ctrl_c_exit_window_seconds=2.0,
+        shell_cwd_policy="warn",
+    )
+
+    assert turn_preparation.agent_state is not None
+    assert turn_preparation.agent_state.current_agent == "new"
+    assert cancelled_agent._last_turn_cancelled is False
     output = capsys.readouterr().out
     assert "Previous turn was cancelled" in output
     assert "Use /history" in output

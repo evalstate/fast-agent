@@ -1,5 +1,6 @@
 from fast_agent.ui.command_payloads import (
     HistoryReviewCommand,
+    HistoryRewindCommand,
     HistoryWebClearCommand,
     ShowHistoryCommand,
 )
@@ -30,6 +31,14 @@ def test_parse_history_detail_requires_turn() -> None:
     assert isinstance(result, HistoryReviewCommand)
     assert result.turn_index is None
     assert result.error == "Turn number required for /history detail"
+
+
+def test_parse_history_rewind_requires_turn() -> None:
+    result = parse_special_input("/history rewind")
+    assert isinstance(result, HistoryRewindCommand)
+    assert result.turn_index is None
+    assert result.error == "Turn number required for /history rewind"
+
 
 def test_parse_history_quoted_reserved_detail_agent_name_uses_history_overview() -> None:
     result = parse_special_input('/history "detail"')

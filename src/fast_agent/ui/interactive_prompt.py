@@ -45,6 +45,7 @@ from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui import enhanced_prompt
 from fast_agent.ui.command_payloads import (
+    CommandPayload,
     InterruptCommand,
     ShellCommand,
     is_command_payload,
@@ -80,6 +81,72 @@ class HashSendExecution:
     """Result of executing a delegated hash-send request."""
 
     buffer_prefill: str | None
+
+
+@dataclass(slots=True)
+class PromptLoopAgents:
+    """Mutable agent roster tracked across interactive turns."""
+
+    current_agent: str
+    available_agents: list[str]
+    available_agents_set: set[str]
+
+
+@dataclass(slots=True)
+class PendingCommandExecution:
+    """Post-dispatch work that should happen outside command handling."""
+
+    hash_send_target: str | None = None
+    hash_send_message: str | None = None
+    hash_send_quiet: bool = False
+    shell_execute_cmd: str | None = None
+
+    def has_pending_execution(self) -> bool:
+        return (
+            self.hash_send_target is not None
+            and self.hash_send_message is not None
+            or self.shell_execute_cmd is not None
+        )
+
+
+@dataclass(slots=True)
+class PromptTurnPreparation:
+    """Outcome of pre-input prompt-turn orchestration."""
+
+    agent_state: PromptLoopAgents | None
+    should_continue: bool = False
+    should_return: bool = False
+
+
+@dataclass(slots=True)
+class PromptInputPhase:
+    """Collected input and post-input refresh state for a turn."""
+
+    user_input: str | CommandPayload | None
+    agent_state: PromptLoopAgents | None
+    buffer_prefill: str
+    should_continue: bool = False
+    should_return: bool = False
+
+
+@dataclass(slots=True)
+class PromptCommandPhase:
+    """Result of command handling prior to send execution."""
+
+    agent_state: PromptLoopAgents
+    pending: PendingCommandExecution
+    buffer_prefill: str
+    should_continue: bool = False
+    should_return: bool = False
+
+
+@dataclass(slots=True)
+class PromptLoopRuntimeState:
+    """Cross-turn interactive prompt control state."""
+
+    ctrl_c_deadline: float | None = None
+    startup_warning_digest_checked: bool = False
+    shell_cwd_startup_prompt_checked: bool = False
 
 
 def _clear_current_task_cancellation_requests() -> int:
@@ -142,6 +209,732 @@ class InteractivePrompt:
         context = build_command_context(prompt_provider, target_agent)
         return await prompt_handlers._get_all_prompts(context, agent_name)
 
+    def _merge_pinned_agents(
+        self,
+        *,
+        prompt_provider: "AgentApp",
+        agent_names: list[str],
+        pinned_agent: str | None,
+    ) -> list[str]:
+        if not pinned_agent or pinned_agent in agent_names:
+            return agent_names
+        try:
+            agent_types = prompt_provider.agent_types()
+        except Exception:
+            return agent_names
+        if pinned_agent in agent_types:
+            return [pinned_agent, *agent_names]
+        return agent_names
+
+    def _sync_enhanced_prompt_agents(
+        self,
+        *,
+        prompt_provider: "AgentApp",
+        available_agents: list[str],
+    ) -> None:
+        self.agent_types = prompt_provider.agent_types()
+        enhanced_prompt.available_agents = set(available_agents)
+
+    def _build_initial_agent_state(
+        self,
+        *,
+        default_agent: str,
+        available_agents: list[str],
+        prompt_provider: "AgentApp",
+        pinned_agent: str | None,
+    ) -> PromptLoopAgents:
+        agent = default_agent
+        if not agent:
+            if available_agents:
+                agent = available_agents[0]
+            else:
+                raise ValueError("No default agent available")
+
+        next_available_agents = self._merge_pinned_agents(
+            prompt_provider=prompt_provider,
+            agent_names=list(available_agents),
+            pinned_agent=pinned_agent,
+        )
+        if agent not in next_available_agents:
+            raise ValueError(f"No agent named '{agent}'")
+
+        self._sync_enhanced_prompt_agents(
+            prompt_provider=prompt_provider,
+            available_agents=next_available_agents,
+        )
+        return PromptLoopAgents(
+            current_agent=agent,
+            available_agents=next_available_agents,
+            available_agents_set=set(next_available_agents),
+        )
+
+    def _current_agent_roster(
+        self,
+        *,
+        prompt_provider: "AgentApp",
+        pinned_agent: str | None,
+    ) -> tuple[list[str], set[str]]:
+        available_agents = self._merge_pinned_agents(
+            prompt_provider=prompt_provider,
+            agent_names=list(prompt_provider.agent_names()),
+            pinned_agent=pinned_agent,
+        )
+        return available_agents, set(available_agents)
+
+    def _select_active_agent_or_exit(
+        self,
+        *,
+        current_agent: str,
+        available_agents: list[str],
+        available_agents_set: set[str],
+        no_agents_message: str,
+    ) -> str | None:
+        if current_agent in available_agents_set:
+            return current_agent
+        if available_agents:
+            return available_agents[0]
+        rich_print(no_agents_message)
+        return None
+
+    async def _refresh_agents_if_needed(
+        self,
+        *,
+        prompt_provider: "AgentApp",
+        state: PromptLoopAgents,
+        pinned_agent: str | None,
+        skip_refresh: bool = False,
+        no_agents_message: str = "[red]No agents available.[/red]",
+    ) -> PromptLoopAgents | None:
+        refreshed = False
+        if not skip_refresh:
+            refreshed = await prompt_provider.refresh_if_needed()
+
+        next_available_agents, next_available_agents_set = self._current_agent_roster(
+            prompt_provider=prompt_provider,
+            pinned_agent=pinned_agent,
+        )
+        if (
+            not refreshed
+            and next_available_agents == state.available_agents
+            and next_available_agents_set == state.available_agents_set
+        ):
+            return state
+
+        next_agent = self._select_active_agent_or_exit(
+            current_agent=state.current_agent,
+            available_agents=next_available_agents,
+            available_agents_set=next_available_agents_set,
+            no_agents_message=no_agents_message,
+        )
+        if next_agent is None:
+            return None
+
+        self._sync_enhanced_prompt_agents(
+            prompt_provider=prompt_provider,
+            available_agents=next_available_agents,
+        )
+        if refreshed:
+            rich_print("[green]AgentCards reloaded.[/green]")
+
+        return PromptLoopAgents(
+            current_agent=next_agent,
+            available_agents=next_available_agents,
+            available_agents_set=next_available_agents_set,
+        )
+
+    def _describe_cancelled_history_state(self, history_state: object | None) -> str:
+        status = getattr(history_state, "status", None)
+        removed_messages = getattr(history_state, "removed_messages", 0)
+
+        if status == "history_disabled":
+            return (
+                "Agent history is configured with use_history=false, so no per-turn "
+                "history was persisted."
+            )
+
+        if status == "history_empty":
+            return "History was already empty."
+
+        if status == "appended_interrupted_tool_result":
+            return (
+                "Added an interrupted tool-result marker "
+                "('**The user interrupted this tool call**')."
+            )
+
+        if status == "history_unchanged":
+            return "No dangling tool call was found; history was left unchanged."
+
+        return (
+            f"History reconciliation completed (removed {removed_messages} "
+            "message(s))."
+        )
+
+    def _report_previous_turn_cancellation(
+        self,
+        *,
+        prompt_provider: "AgentApp",
+        agent_name: str,
+        clear_progress_for_agent: Callable[[str | None], None],
+    ) -> None:
+        try:
+            agent_obj = prompt_provider._agent(agent_name)
+        except Exception:
+            agent_obj = None
+
+        if agent_obj is None or not getattr(agent_obj, "_last_turn_cancelled", False):
+            return
+
+        _clear_current_task_cancellation_requests()
+        clear_progress_for_agent(agent_name)
+        reason = getattr(agent_obj, "_last_turn_cancel_reason", "cancelled")
+        setattr(agent_obj, "_last_turn_cancelled", False)
+        history_state = getattr(agent_obj, "_last_turn_history_state", None)
+        setattr(agent_obj, "_last_turn_history_state", None)
+        state_message = self._describe_cancelled_history_state(history_state)
+        write_interactive_trace(
+            "prompt.previous_turn_cancelled",
+            agent=agent_name,
+            reason=reason,
+            state=state_message,
+        )
+        rich_print(
+            "[yellow]Previous turn was {reason}. {state} "
+            "Use /history to inspect or manipulate history.[/yellow]".format(
+                reason=reason,
+                state=state_message,
+            )
+        )
+
+    def _handle_ctrl_c_interrupt(
+        self,
+        *,
+        runtime_state: PromptLoopRuntimeState,
+        exit_window_seconds: float,
+    ) -> None:
+        now = time.monotonic()
+        if runtime_state.ctrl_c_deadline is not None and now <= runtime_state.ctrl_c_deadline:
+            rich_print("[red]Second Ctrl+C received; exiting fast-agent session.[/red]")
+            raise PromptExitError("User requested to exit fast-agent session")
+
+        runtime_state.ctrl_c_deadline = now + exit_window_seconds
+        rich_print(
+            "[yellow]Interrupted operation; returning to prompt. "
+            "Press Ctrl+C again within 2 seconds to exit.[/yellow]"
+        )
+
+    def _clear_ctrl_c_interrupt(self, *, runtime_state: PromptLoopRuntimeState) -> None:
+        runtime_state.ctrl_c_deadline = None
+
+    def _handle_inflight_cancel(self, *, runtime_state: PromptLoopRuntimeState) -> None:
+        """Handle user cancellation while generation or tool calling is active."""
+        runtime_state.ctrl_c_deadline = None
+        _clear_current_task_cancellation_requests()
+        write_interactive_trace("prompt.inflight_cancel")
+        rich_print("[yellow]Generation cancelled by user.[/yellow]")
+
+    def _clear_progress_for_agent(self, agent_name: str | None) -> None:
+        """Remove stale progress rows after an interrupted/cancelled send."""
+        try:
+            progress_display.clear_agent_tasks(agent_name)
+        except Exception:
+            pass
+
+    def _last_assistant_message_cancelled(
+        self,
+        *,
+        prompt_provider: "AgentApp",
+        agent_name: str | None,
+    ) -> bool:
+        """Return True when an agent's latest history message is assistant CANCELLED."""
+        if not agent_name:
+            return False
+
+        try:
+            agent_obj = prompt_provider._agent(agent_name)
+        except Exception:
+            return False
+
+        try:
+            history = getattr(agent_obj, "message_history", [])
+            last_message = history[-1] if history else None
+            return bool(
+                last_message is not None
+                and getattr(last_message, "role", None) == "assistant"
+                and getattr(last_message, "stop_reason", None) == LlmStopReason.CANCELLED
+            )
+        except Exception:
+            return False
+
+    def _emit_startup_warning_digest_once(
+        self,
+        *,
+        runtime_state: PromptLoopRuntimeState,
+    ) -> None:
+        if runtime_state.startup_warning_digest_checked:
+            return
+        runtime_state.startup_warning_digest_checked = True
+
+        try:
+            from fast_agent.ui import notification_tracker
+
+            startup_warnings = notification_tracker.pop_startup_warnings()
+        except Exception:
+            return
+
+        if not startup_warnings:
+            return
+
+        count = len(startup_warnings)
+        if count == 1:
+            rich_print("[yellow]Startup warning:[/yellow]")
+            rich_print(f"  {startup_warnings[0]}")
+            return
+
+        rich_print(f"[yellow]Startup warnings ({count}):[/yellow]")
+        for warning in startup_warnings:
+            rich_print(f"  • {warning}")
+
+    async def _maybe_prompt_for_shell_cwd_startup_once(
+        self,
+        *,
+        runtime_state: PromptLoopRuntimeState,
+        prompt_provider: "AgentApp",
+        shell_cwd_policy: str,
+    ) -> None:
+        if runtime_state.shell_cwd_startup_prompt_checked:
+            return
+        runtime_state.shell_cwd_startup_prompt_checked = True
+
+        if shell_cwd_policy != "ask":
+            return
+
+        runtime_agents = getattr(prompt_provider, "_agents", None)
+        if not isinstance(runtime_agents, dict):
+            return
+
+        issues = collect_shell_cwd_issues_from_runtime_agents(runtime_agents, cwd=Path.cwd())
+        if not issues:
+            return
+
+        issue_word = "issue" if len(issues) == 1 else "issues"
+        rich_print(f"[yellow]Shell cwd startup check:[/yellow] {len(issues)} {issue_word} found.")
+
+        selection = await get_selection_input(
+            "Create missing shell directories now? [Y/n] ",
+            default="y",
+            allow_cancel=False,
+            complete_options=False,
+        )
+        answer = (selection or "").strip().lower()
+        if answer not in {"", "y", "yes"}:
+            return
+
+        created_paths, creation_errors = create_missing_shell_cwd_directories(issues)
+        if created_paths:
+            rich_print("[green]Created missing shell cwd directories:[/green]")
+            for path in created_paths:
+                rich_print(f"  • {path}")
+
+        if creation_errors:
+            rich_print("[red]Failed to create one or more shell cwd directories:[/red]")
+            for item in creation_errors:
+                rich_print(f"  • {item.path}: {item.message}")
+
+        remaining_issues = collect_shell_cwd_issues_from_runtime_agents(
+            runtime_agents,
+            cwd=Path.cwd(),
+        )
+        if not remaining_issues:
+            try:
+                from fast_agent.ui import notification_tracker
+
+                notification_tracker.remove_startup_warnings_containing("shell cwd")
+            except Exception:
+                pass
+
+    def _apply_dispatch_result(
+        self,
+        *,
+        state: PromptLoopAgents,
+        dispatch_result: Any,
+        buffer_prefill: str,
+    ) -> tuple[PromptLoopAgents, PendingCommandExecution, str, bool]:
+        next_available_agents = dispatch_result.available_agents or state.available_agents
+        next_available_agents_set = (
+            dispatch_result.available_agents_set or state.available_agents_set
+        )
+        next_state = PromptLoopAgents(
+            current_agent=dispatch_result.next_agent or state.current_agent,
+            available_agents=next_available_agents,
+            available_agents_set=next_available_agents_set,
+        )
+        pending = PendingCommandExecution(
+            hash_send_target=dispatch_result.hash_send_target,
+            hash_send_message=dispatch_result.hash_send_message,
+            hash_send_quiet=dispatch_result.hash_send_quiet,
+            shell_execute_cmd=dispatch_result.shell_execute_cmd,
+        )
+        next_buffer_prefill = dispatch_result.buffer_prefill or buffer_prefill
+        should_continue = dispatch_result.handled and not pending.has_pending_execution()
+        return next_state, pending, next_buffer_prefill, should_continue
+
+    async def _prepare_prompt_turn(
+        self,
+        *,
+        prompt_provider: "AgentApp",
+        agent_state: PromptLoopAgents,
+        pinned_agent: str | None,
+        runtime_state: PromptLoopRuntimeState,
+        ctrl_c_exit_window_seconds: float,
+        shell_cwd_policy: str,
+    ) -> PromptTurnPreparation:
+        progress_display.pause(cancel_deferred_on_noop=True)
+        self._report_previous_turn_cancellation(
+            prompt_provider=prompt_provider,
+            agent_name=agent_state.current_agent,
+            clear_progress_for_agent=self._clear_progress_for_agent,
+        )
+        try:
+            refreshed_state = await self._refresh_agents_if_needed(
+                prompt_provider=prompt_provider,
+                state=agent_state,
+                pinned_agent=pinned_agent,
+                no_agents_message="[red]No agents available after refresh.[/red]",
+            )
+        except KeyboardInterrupt:
+            self._handle_ctrl_c_interrupt(
+                runtime_state=runtime_state,
+                exit_window_seconds=ctrl_c_exit_window_seconds,
+            )
+            return PromptTurnPreparation(agent_state=agent_state, should_continue=True)
+
+        if refreshed_state is None:
+            return PromptTurnPreparation(agent_state=None, should_return=True)
+
+        await self._maybe_prompt_for_shell_cwd_startup_once(
+            runtime_state=runtime_state,
+            prompt_provider=prompt_provider,
+            shell_cwd_policy=shell_cwd_policy,
+        )
+        self._emit_startup_warning_digest_once(runtime_state=runtime_state)
+        return PromptTurnPreparation(agent_state=refreshed_state)
+
+    async def _collect_turn_input(
+        self,
+        *,
+        prompt_provider: "AgentApp",
+        agent_state: PromptLoopAgents,
+        pinned_agent: str | None,
+        default: str,
+        buffer_prefill: str,
+        runtime_state: PromptLoopRuntimeState,
+        ctrl_c_exit_window_seconds: float,
+    ) -> PromptInputPhase:
+        noenv_mode = bool(getattr(prompt_provider, "_noenv_mode", False))
+        try:
+            user_input = await get_enhanced_input(
+                agent_name=agent_state.current_agent,
+                default=default,
+                show_default=(default != ""),
+                show_stop_hint=True,
+                multiline=False,
+                available_agent_names=agent_state.available_agents,
+                agent_types=self.agent_types,
+                agent_provider=prompt_provider,
+                noenv_mode=noenv_mode,
+                pre_populate_buffer=buffer_prefill,
+            )
+        except KeyboardInterrupt:
+            self._handle_ctrl_c_interrupt(
+                runtime_state=runtime_state,
+                exit_window_seconds=ctrl_c_exit_window_seconds,
+            )
+            return PromptInputPhase(
+                user_input=None,
+                agent_state=agent_state,
+                buffer_prefill=buffer_prefill,
+                should_continue=True,
+            )
+
+        next_buffer_prefill = ""
+        if isinstance(user_input, str):
+            user_input = parse_special_input(user_input)
+
+        if not isinstance(user_input, InterruptCommand):
+            self._clear_ctrl_c_interrupt(runtime_state=runtime_state)
+
+        if isinstance(user_input, ShellCommand):
+            return PromptInputPhase(
+                user_input=user_input,
+                agent_state=agent_state,
+                buffer_prefill=next_buffer_prefill,
+            )
+
+        try:
+            refreshed_state = await self._refresh_agents_if_needed(
+                prompt_provider=prompt_provider,
+                state=agent_state,
+                pinned_agent=pinned_agent,
+                no_agents_message="[red]No agents available after refresh.[/red]",
+            )
+        except KeyboardInterrupt:
+            self._handle_ctrl_c_interrupt(
+                runtime_state=runtime_state,
+                exit_window_seconds=ctrl_c_exit_window_seconds,
+            )
+            return PromptInputPhase(
+                user_input=None,
+                agent_state=agent_state,
+                buffer_prefill=next_buffer_prefill,
+                should_continue=True,
+            )
+
+        if refreshed_state is None:
+            return PromptInputPhase(
+                user_input=None,
+                agent_state=None,
+                buffer_prefill=next_buffer_prefill,
+                should_return=True,
+            )
+
+        return PromptInputPhase(
+            user_input=user_input,
+            agent_state=refreshed_state,
+            buffer_prefill=next_buffer_prefill,
+        )
+
+    async def _process_turn_command_phase(
+        self,
+        *,
+        prompt_provider: "AgentApp",
+        agent_state: PromptLoopAgents,
+        user_input: str | CommandPayload,
+        buffer_prefill: str,
+        pinned_agent: str | None,
+        runtime_state: PromptLoopRuntimeState,
+        ctrl_c_exit_window_seconds: float,
+    ) -> PromptCommandPhase:
+        pending = PendingCommandExecution()
+        command_result = await handle_special_commands(user_input, prompt_provider)
+
+        if is_command_payload(command_result):
+            from fast_agent.ui.interactive.command_dispatch import dispatch_command_payload
+
+            try:
+                dispatch_result = await dispatch_command_payload(
+                    self,
+                    command_result,
+                    prompt_provider=prompt_provider,
+                    agent=agent_state.current_agent,
+                    available_agents=agent_state.available_agents,
+                    available_agents_set=agent_state.available_agents_set,
+                    merge_pinned_agents=lambda agent_names: self._merge_pinned_agents(
+                        prompt_provider=prompt_provider,
+                        agent_names=agent_names,
+                        pinned_agent=pinned_agent,
+                    ),
+                )
+            except KeyboardInterrupt:
+                self._handle_ctrl_c_interrupt(
+                    runtime_state=runtime_state,
+                    exit_window_seconds=ctrl_c_exit_window_seconds,
+                )
+                return PromptCommandPhase(
+                    agent_state=agent_state,
+                    pending=pending,
+                    buffer_prefill=buffer_prefill,
+                    should_continue=True,
+                )
+
+            agent_state, pending, buffer_prefill, should_continue = self._apply_dispatch_result(
+                state=agent_state,
+                dispatch_result=dispatch_result,
+                buffer_prefill=buffer_prefill,
+            )
+            if dispatch_result.should_return:
+                return PromptCommandPhase(
+                    agent_state=agent_state,
+                    pending=pending,
+                    buffer_prefill=buffer_prefill,
+                    should_return=True,
+                )
+            if should_continue:
+                return PromptCommandPhase(
+                    agent_state=agent_state,
+                    pending=pending,
+                    buffer_prefill=buffer_prefill,
+                    should_continue=True,
+                )
+
+        if not pending.has_pending_execution() and isinstance(user_input, str):
+            if user_input.strip().upper() == "STOP":
+                return PromptCommandPhase(
+                    agent_state=agent_state,
+                    pending=pending,
+                    buffer_prefill=buffer_prefill,
+                    should_return=True,
+                )
+
+        if self._should_continue_after_command(
+            user_input=user_input,
+            command_result=command_result,
+            pending=pending,
+        ):
+            return PromptCommandPhase(
+                agent_state=agent_state,
+                pending=pending,
+                buffer_prefill=buffer_prefill,
+                should_continue=True,
+            )
+
+        return PromptCommandPhase(
+            agent_state=agent_state,
+            pending=pending,
+            buffer_prefill=buffer_prefill,
+        )
+
+    def _should_continue_after_command(
+        self,
+        *,
+        user_input: object,
+        command_result: object,
+        pending: PendingCommandExecution,
+    ) -> bool:
+        if pending.has_pending_execution():
+            return False
+        if command_result or is_command_payload(user_input) or is_command_payload(command_result):
+            return True
+        if not isinstance(user_input, str):
+            return True
+        return user_input == ""
+
+    async def _handle_pending_execution(
+        self,
+        *,
+        pending: PendingCommandExecution,
+        send_func: SendFunc,
+        quiet_send_func: SendFunc | None,
+        prompt_provider: "AgentApp",
+        display: "ConsoleDisplay",
+        current_result: PromptLoopResult,
+        runtime_state: PromptLoopRuntimeState,
+    ) -> tuple[PromptLoopResult, str | None, bool]:
+        if pending.hash_send_target is not None and pending.hash_send_message is not None:
+            active_send_func = (
+                quiet_send_func if pending.hash_send_quiet and quiet_send_func else send_func
+            )
+            hash_send_execution = await self._execute_hash_send(
+                send_func=active_send_func,
+                target_agent=pending.hash_send_target,
+                message=pending.hash_send_message,
+                quiet=pending.hash_send_quiet,
+                clear_progress_for_agent=self._clear_progress_for_agent,
+                clear_ctrl_c_interrupt=lambda: self._clear_ctrl_c_interrupt(
+                    runtime_state=runtime_state
+                ),
+                handle_inflight_cancel=lambda: self._handle_inflight_cancel(
+                    runtime_state=runtime_state
+                ),
+                last_assistant_message_cancelled=lambda agent_name: (
+                    self._last_assistant_message_cancelled(
+                        prompt_provider=prompt_provider,
+                        agent_name=agent_name,
+                    )
+                ),
+            )
+            return current_result, hash_send_execution.buffer_prefill, True
+
+        if pending.shell_execute_cmd:
+            emit_prompt_mark("C")
+            result = run_interactive_shell_command(pending.shell_execute_cmd)
+            emit_prompt_mark("D")
+
+            if result.output.strip():
+                set_last_copyable_output(result.output.rstrip())
+
+            if result.return_code != 0:
+                display.show_shell_exit_code(result.return_code)
+
+            return result, None, True
+
+        return current_result, None, False
+
+    async def _resolve_prompt_payload(
+        self,
+        *,
+        prompt_provider: "AgentApp",
+        agent_name: str,
+        user_input: str,
+    ) -> str | PromptMessageExtended | None:
+        prompt_payload: str | PromptMessageExtended = user_input
+        parsed_mentions = parse_mentions(user_input)
+        for warning in parsed_mentions.warnings:
+            rich_print(f"[yellow]{warning}[/yellow]")
+
+        if not parsed_mentions.mentions:
+            return prompt_payload
+
+        try:
+            agent_for_mentions = prompt_provider._agent(agent_name)
+        except Exception:
+            rich_print(f"[red]Unable to resolve resource mentions: agent '{agent_name}' unavailable[/red]")
+            return None
+
+        try:
+            resolved_mentions = await resolve_mentions(agent_for_mentions, parsed_mentions)
+            return build_prompt_with_resources(user_input, resolved_mentions)
+        except Exception as exc:
+            rich_print(f"[red]Failed to resolve resource mentions: {exc}[/red]")
+            return None
+
+    async def _send_regular_message(
+        self,
+        *,
+        send_func: SendFunc,
+        prompt_payload: str | PromptMessageExtended,
+        prompt_provider: "AgentApp",
+        agent_name: str,
+        runtime_state: PromptLoopRuntimeState,
+    ) -> PromptLoopResult | None:
+        emit_prompt_mark("C")
+        write_interactive_trace("prompt.send.start", agent=agent_name)
+        progress_display.resume()
+        try:
+            result = await send_func(prompt_payload, agent_name)
+        except KeyboardInterrupt:
+            write_interactive_trace("prompt.send.keyboard_interrupt", agent=agent_name)
+            self._clear_progress_for_agent(agent_name)
+            self._handle_inflight_cancel(runtime_state=runtime_state)
+            return None
+        except asyncio.CancelledError:
+            write_interactive_trace("prompt.send.cancelled_error", agent=agent_name)
+            self._clear_progress_for_agent(agent_name)
+            task = asyncio.current_task()
+            if task is not None and task.cancelling() > 0:
+                raise
+            self._handle_inflight_cancel(runtime_state=runtime_state)
+            return None
+        finally:
+            write_interactive_trace("prompt.send.finally_pause", agent=agent_name)
+            progress_display.pause(cancel_deferred_on_noop=True)
+            emit_prompt_mark("D")
+
+        if result and result.startswith("▲ **System Error:**"):
+            print(result)
+
+        if self._last_assistant_message_cancelled(
+            prompt_provider=prompt_provider,
+            agent_name=agent_name,
+        ):
+            _clear_current_task_cancellation_requests()
+            self._clear_progress_for_agent(agent_name)
+            self._clear_ctrl_c_interrupt(runtime_state=runtime_state)
+
+        if result:
+            set_last_copyable_output(result)
+
+        return result
+
     async def prompt_loop(
         self,
         send_func: SendFunc,
@@ -167,30 +960,12 @@ class InteractivePrompt:
         Returns:
             The result of the interactive session
         """
-        def _merge_pinned_agents(agent_names: list[str]) -> list[str]:
-            if not pinned_agent or pinned_agent in agent_names:
-                return agent_names
-            try:
-                agent_types = prompt_provider.agent_types()
-            except Exception:
-                return agent_names
-            if pinned_agent in agent_types:
-                return [pinned_agent, *agent_names]
-            return agent_names
-
-        agent = default_agent
-        if not agent:
-            if available_agents:
-                agent = available_agents[0]
-            else:
-                raise ValueError("No default agent available")
-
-        available_agents = _merge_pinned_agents(list(available_agents))
-        if agent not in available_agents:
-            raise ValueError(f"No agent named '{agent}'")
-
-        # Ensure we track available agents in a set for fast lookup
-        available_agents_set = set(available_agents)
+        agent_state = self._build_initial_agent_state(
+            default_agent=default_agent,
+            available_agents=available_agents,
+            prompt_provider=prompt_provider,
+            pinned_agent=pinned_agent,
+        )
 
         from fast_agent.ui.console_display import ConsoleDisplay
 
@@ -199,9 +974,7 @@ class InteractivePrompt:
         result: PromptLoopResult = ""
         buffer_prefill = ""  # One-off buffer content for # command results
         ctrl_c_exit_window_seconds = 2.0
-        ctrl_c_deadline: float | None = None
-        startup_warning_digest_checked = False
-        shell_cwd_startup_prompt_checked = False
+        runtime_state = PromptLoopRuntimeState()
         configured_shell_cwd_policy = getattr(
             getattr(get_settings(), "shell_execution", None),
             "missing_cwd_policy",
@@ -222,460 +995,95 @@ class InteractivePrompt:
             ),
         )
 
-        def _handle_ctrl_c_interrupt() -> None:
-            nonlocal ctrl_c_deadline
-
-            now = time.monotonic()
-            if ctrl_c_deadline is not None and now <= ctrl_c_deadline:
-                rich_print("[red]Second Ctrl+C received; exiting fast-agent session.[/red]")
-                raise PromptExitError("User requested to exit fast-agent session")
-
-            ctrl_c_deadline = now + ctrl_c_exit_window_seconds
-            rich_print(
-                "[yellow]Interrupted operation; returning to prompt. "
-                "Press Ctrl+C again within 2 seconds to exit.[/yellow]"
-            )
-
-        def _clear_ctrl_c_interrupt() -> None:
-            nonlocal ctrl_c_deadline
-
-            ctrl_c_deadline = None
-
-        def _handle_inflight_cancel() -> None:
-            """Handle user cancellation while generation or tool calling is active."""
-            nonlocal ctrl_c_deadline
-
-            ctrl_c_deadline = None
-            _clear_current_task_cancellation_requests()
-            write_interactive_trace("prompt.inflight_cancel")
-            rich_print("[yellow]Generation cancelled by user.[/yellow]")
-
-        def _clear_progress_for_agent(agent_name: str | None) -> None:
-            """Remove stale progress rows after an interrupted/cancelled send."""
-            try:
-                progress_display.clear_agent_tasks(agent_name)
-            except Exception:
-                pass
-
-        def _last_assistant_message_cancelled(agent_name: str | None) -> bool:
-            """Return True when an agent's latest history message is assistant CANCELLED."""
-            if not agent_name:
-                return False
-
-            try:
-                agent_obj = prompt_provider._agent(agent_name)
-            except Exception:
-                return False
-
-            try:
-                history = getattr(agent_obj, "message_history", [])
-                last_message = history[-1] if history else None
-                return bool(
-                    last_message is not None
-                    and getattr(last_message, "role", None) == "assistant"
-                    and getattr(last_message, "stop_reason", None) == LlmStopReason.CANCELLED
-                )
-            except Exception:
-                return False
-
-        def _emit_startup_warning_digest_once() -> None:
-            nonlocal startup_warning_digest_checked
-
-            if startup_warning_digest_checked:
-                return
-            startup_warning_digest_checked = True
-
-            try:
-                from fast_agent.ui import notification_tracker
-
-                startup_warnings = notification_tracker.pop_startup_warnings()
-            except Exception:
-                return
-
-            if not startup_warnings:
-                return
-
-            count = len(startup_warnings)
-            if count == 1:
-                rich_print("[yellow]Startup warning:[/yellow]")
-                rich_print(f"  {startup_warnings[0]}")
-                return
-
-            rich_print(f"[yellow]Startup warnings ({count}):[/yellow]")
-            for warning in startup_warnings:
-                rich_print(f"  • {warning}")
-
-        async def _maybe_prompt_for_shell_cwd_startup_once() -> None:
-            nonlocal shell_cwd_startup_prompt_checked
-
-            if shell_cwd_startup_prompt_checked:
-                return
-            shell_cwd_startup_prompt_checked = True
-
-            if shell_cwd_policy != "ask":
-                return
-
-            runtime_agents = getattr(prompt_provider, "_agents", None)
-            if not isinstance(runtime_agents, dict):
-                return
-
-            issues = collect_shell_cwd_issues_from_runtime_agents(runtime_agents, cwd=Path.cwd())
-            if not issues:
-                return
-
-            issue_word = "issue" if len(issues) == 1 else "issues"
-            rich_print(f"[yellow]Shell cwd startup check:[/yellow] {len(issues)} {issue_word} found.")
-
-            selection = await get_selection_input(
-                "Create missing shell directories now? [Y/n] ",
-                default="y",
-                allow_cancel=False,
-                complete_options=False,
-            )
-            answer = (selection or "").strip().lower()
-            if answer not in {"", "y", "yes"}:
-                return
-
-            created_paths, creation_errors = create_missing_shell_cwd_directories(issues)
-            if created_paths:
-                rich_print("[green]Created missing shell cwd directories:[/green]")
-                for path in created_paths:
-                    rich_print(f"  • {path}")
-
-            if creation_errors:
-                rich_print("[red]Failed to create one or more shell cwd directories:[/red]")
-                for item in creation_errors:
-                    rich_print(f"  • {item.path}: {item.message}")
-
-            remaining_issues = collect_shell_cwd_issues_from_runtime_agents(
-                runtime_agents,
-                cwd=Path.cwd(),
-            )
-            if not remaining_issues:
-                try:
-                    from fast_agent.ui import notification_tracker
-
-                    notification_tracker.remove_startup_warnings_containing("shell cwd")
-                except Exception:
-                    pass
-
-        def _describe_cancelled_history_state(history_state: object | None) -> str:
-            status = getattr(history_state, "status", None)
-            removed_messages = getattr(history_state, "removed_messages", 0)
-
-            if status == "history_disabled":
-                return (
-                    "Agent history is configured with use_history=false, so no per-turn "
-                    "history was persisted."
-                )
-
-            if status == "history_empty":
-                return "History was already empty."
-
-            if status == "appended_interrupted_tool_result":
-                return (
-                    "Added an interrupted tool-result marker "
-                    "('**The user interrupted this tool call**')."
-                )
-
-            if status == "history_unchanged":
-                return "No dangling tool call was found; history was left unchanged."
-
-            return (
-                f"History reconciliation completed (removed {removed_messages} "
-                "message(s))."
-            )
-
         while True:
-            # Variables for hash command - sent after input handling
-            hash_send_target: str | None = None
-            hash_send_message: str | None = None
-            hash_send_quiet = False
-            # Variable for shell command - executed after input handling
-            shell_execute_cmd: str | None = None
-
-            progress_display.pause(cancel_deferred_on_noop=True)
-
-            try:
-                refreshed = await prompt_provider.refresh_if_needed()
-            except KeyboardInterrupt:
-                _handle_ctrl_c_interrupt()
+            turn_preparation = await self._prepare_prompt_turn(
+                prompt_provider=prompt_provider,
+                agent_state=agent_state,
+                pinned_agent=pinned_agent,
+                runtime_state=runtime_state,
+                ctrl_c_exit_window_seconds=ctrl_c_exit_window_seconds,
+                shell_cwd_policy=shell_cwd_policy,
+            )
+            if turn_preparation.should_return:
+                return result
+            if turn_preparation.should_continue or turn_preparation.agent_state is None:
                 continue
-            try:
-                agent_obj = prompt_provider._agent(agent)
-            except Exception:
-                agent_obj = None
+            agent_state = turn_preparation.agent_state
 
-            if agent_obj is not None and getattr(agent_obj, "_last_turn_cancelled", False):
-                _clear_current_task_cancellation_requests()
-                _clear_progress_for_agent(agent)
-                reason = getattr(agent_obj, "_last_turn_cancel_reason", "cancelled")
-                setattr(agent_obj, "_last_turn_cancelled", False)
-                history_state = getattr(agent_obj, "_last_turn_history_state", None)
-                setattr(agent_obj, "_last_turn_history_state", None)
-                state_message = _describe_cancelled_history_state(history_state)
-                write_interactive_trace(
-                    "prompt.previous_turn_cancelled",
-                    agent=agent,
-                    reason=reason,
-                    state=state_message,
-                )
-                rich_print(
-                    "[yellow]Previous turn was {reason}. {state} "
-                    "Use /history to inspect or manipulate history.[/yellow]".format(
-                        reason=reason,
-                        state=state_message,
-                    )
-                )
-
-            if refreshed:
-                available_agents = _merge_pinned_agents(list(prompt_provider.agent_names()))
-                available_agents_set = set(available_agents)
-                self.agent_types = prompt_provider.agent_types()
-                enhanced_prompt.available_agents = set(available_agents)
-
-                if agent not in available_agents_set:
-                    if available_agents:
-                        agent = available_agents[0]
-                    else:
-                        rich_print("[red]No agents available after refresh.[/red]")
-                        return result
-
-                rich_print("[green]AgentCards reloaded.[/green]")
-
-            current_agents = _merge_pinned_agents(list(prompt_provider.agent_names()))
-            if current_agents and set(current_agents) != available_agents_set:
-                available_agents = current_agents
-                available_agents_set = set(available_agents)
-                enhanced_prompt.available_agents = set(available_agents)
-            if agent not in available_agents_set:
-                if available_agents:
-                    agent = available_agents[0]
-                else:
-                    rich_print("[red]No agents available.[/red]")
-                    return result
-
-            await _maybe_prompt_for_shell_cwd_startup_once()
-            _emit_startup_warning_digest_once()
-
-            # Use the enhanced input method with advanced features
-            noenv_mode = bool(getattr(prompt_provider, "_noenv_mode", False))
-            try:
-                user_input = await get_enhanced_input(
-                    agent_name=agent,
-                    default=default,
-                    show_default=(default != ""),
-                    show_stop_hint=True,
-                    multiline=False,  # Default to single-line mode
-                    available_agent_names=available_agents,
-                    agent_types=self.agent_types,  # Pass agent types for display
-                    agent_provider=prompt_provider,  # Pass agent provider for info display
-                    noenv_mode=noenv_mode,
-                    pre_populate_buffer=buffer_prefill,  # One-off buffer content
-                )
-            except KeyboardInterrupt:
-                _handle_ctrl_c_interrupt()
-                continue
-            buffer_prefill = ""  # Clear after use - it's one-off
-
-            if isinstance(user_input, str):
-                user_input = parse_special_input(user_input)
-
-            if not isinstance(user_input, InterruptCommand):
-                _clear_ctrl_c_interrupt()
-
-            # Avoid blocking quick shell commands on agent refresh.
-            skip_refresh = isinstance(user_input, ShellCommand)
-            if not skip_refresh:
-                try:
-                    refreshed = await prompt_provider.refresh_if_needed()
-                except KeyboardInterrupt:
-                    _handle_ctrl_c_interrupt()
-                    continue
-                if refreshed:
-                    available_agents = _merge_pinned_agents(list(prompt_provider.agent_names()))
-                    available_agents_set = set(available_agents)
-                    self.agent_types = prompt_provider.agent_types()
-                    enhanced_prompt.available_agents = set(available_agents)
-
-                    if agent not in available_agents_set:
-                        if available_agents:
-                            agent = available_agents[0]
-                        else:
-                            rich_print("[red]No agents available after refresh.[/red]")
-                            return result
-
-                    rich_print("[green]AgentCards reloaded.[/green]")
-
-            # Handle special commands with access to the agent provider
-            command_result = await handle_special_commands(user_input, prompt_provider)
-
-            # Check if we should switch agents
-            if is_command_payload(command_result):
-                command_payload = command_result
-                from fast_agent.ui.interactive.command_dispatch import dispatch_command_payload
-
-                try:
-                    dispatch_result = await dispatch_command_payload(
-                        self,
-                        command_payload,
-                        prompt_provider=prompt_provider,
-                        agent=agent,
-                        available_agents=available_agents,
-                        available_agents_set=available_agents_set,
-                        merge_pinned_agents=_merge_pinned_agents,
-                    )
-                except KeyboardInterrupt:
-                    _handle_ctrl_c_interrupt()
-                    continue
-
-                if dispatch_result.available_agents is not None:
-                    available_agents = dispatch_result.available_agents
-                if dispatch_result.available_agents_set is not None:
-                    available_agents_set = dispatch_result.available_agents_set
-
-                if dispatch_result.next_agent is not None:
-                    agent = dispatch_result.next_agent
-
-                if dispatch_result.buffer_prefill:
-                    buffer_prefill = dispatch_result.buffer_prefill
-
-                if (
-                    dispatch_result.hash_send_target is not None
-                    and dispatch_result.hash_send_message is not None
-                ):
-                    hash_send_target = dispatch_result.hash_send_target
-                    hash_send_message = dispatch_result.hash_send_message
-                    hash_send_quiet = dispatch_result.hash_send_quiet
-
-                if dispatch_result.shell_execute_cmd:
-                    shell_execute_cmd = dispatch_result.shell_execute_cmd
-
-                if dispatch_result.should_return:
-                    return result
-
-                if (
-                    dispatch_result.handled
-                    and hash_send_target is None
-                    and shell_execute_cmd is None
-                ):
-                    continue
-
-            # Skip further processing if:
-            # 1. The command was handled (command_result is truthy)
-            # 2. The original input was a command payload (special command like /prompt)
-            # 3. The command result itself is a command payload (special command handling result)
-            # This fixes the issue where /prompt without arguments gets sent to the LLM
-            # Skip these checks if we have a pending hash or shell command to handle outside
-            if hash_send_target is None and shell_execute_cmd is None:
-                if (
-                    command_result
-                    or is_command_payload(user_input)
-                    or is_command_payload(command_result)
-                ):
-                    continue
-
-                if not isinstance(user_input, str):
-                    continue
-
-                if user_input.strip().upper() == "STOP":
-                    return result
-
-                if user_input == "":
-                    continue
-
-            # Handle hash command after input handling; resume progress display only for the send.
-            if hash_send_target is not None and hash_send_message is not None:
-                active_send_func = quiet_send_func if hash_send_quiet and quiet_send_func else send_func
-                hash_send_execution = await self._execute_hash_send(
-                    send_func=active_send_func,
-                    target_agent=hash_send_target,
-                    message=hash_send_message,
-                    quiet=hash_send_quiet,
-                    clear_progress_for_agent=_clear_progress_for_agent,
-                    clear_ctrl_c_interrupt=_clear_ctrl_c_interrupt,
-                    handle_inflight_cancel=_handle_inflight_cancel,
-                    last_assistant_message_cancelled=_last_assistant_message_cancelled,
-                )
-                if hash_send_execution.buffer_prefill:
-                    buffer_prefill = hash_send_execution.buffer_prefill
+            input_phase = await self._collect_turn_input(
+                prompt_provider=prompt_provider,
+                agent_state=agent_state,
+                pinned_agent=pinned_agent,
+                default=default,
+                buffer_prefill=buffer_prefill,
+                runtime_state=runtime_state,
+                ctrl_c_exit_window_seconds=ctrl_c_exit_window_seconds,
+            )
+            if input_phase.should_return:
+                return result
+            if (
+                input_phase.should_continue
+                or input_phase.user_input is None
+                or input_phase.agent_state is None
+            ):
                 continue
 
-            # Handle shell command after input handling
-            if shell_execute_cmd:
-                emit_prompt_mark("C")
-                result = run_interactive_shell_command(shell_execute_cmd)
-                emit_prompt_mark("D")
+            agent_state = input_phase.agent_state
+            buffer_prefill = input_phase.buffer_prefill
+            user_input = input_phase.user_input
 
-                if result.output.strip():
-                    set_last_copyable_output(result.output.rstrip())
+            command_phase = await self._process_turn_command_phase(
+                prompt_provider=prompt_provider,
+                agent_state=agent_state,
+                user_input=user_input,
+                buffer_prefill=buffer_prefill,
+                pinned_agent=pinned_agent,
+                runtime_state=runtime_state,
+                ctrl_c_exit_window_seconds=ctrl_c_exit_window_seconds,
+            )
+            if command_phase.should_return:
+                return result
+            if command_phase.should_continue:
+                continue
 
-                if result.return_code != 0:
-                    display.show_shell_exit_code(result.return_code)
+            agent_state = command_phase.agent_state
+            buffer_prefill = command_phase.buffer_prefill
 
-                shell_execute_cmd = None
+            result, hash_buffer_prefill, handled_pending = await self._handle_pending_execution(
+                pending=command_phase.pending,
+                send_func=send_func,
+                quiet_send_func=quiet_send_func,
+                prompt_provider=prompt_provider,
+                display=display,
+                current_result=result,
+                runtime_state=runtime_state,
+            )
+            if handled_pending:
+                if hash_buffer_prefill:
+                    buffer_prefill = hash_buffer_prefill
                 continue
 
             # Send the message to the agent
             # Type narrowing: by this point user_input is str (non-str inputs continue above)
             assert isinstance(user_input, str)
-
-            prompt_payload: str | PromptMessageExtended = user_input
-            parsed_mentions = parse_mentions(user_input)
-            for warning in parsed_mentions.warnings:
-                rich_print(f"[yellow]{warning}[/yellow]")
-
-            if parsed_mentions.mentions:
-                try:
-                    agent_for_mentions = prompt_provider._agent(agent)
-                except Exception:
-                    rich_print(
-                        f"[red]Unable to resolve resource mentions: agent '{agent}' unavailable[/red]"
-                    )
-                    continue
-
-                try:
-                    resolved_mentions = await resolve_mentions(agent_for_mentions, parsed_mentions)
-                    prompt_payload = build_prompt_with_resources(user_input, resolved_mentions)
-                except Exception as exc:
-                    rich_print(f"[red]Failed to resolve resource mentions: {exc}[/red]")
-                    continue
-
-            emit_prompt_mark("C")
-            write_interactive_trace("prompt.send.start", agent=agent)
-            progress_display.resume()
-            try:
-                result = await send_func(prompt_payload, agent)
-            except KeyboardInterrupt:
-                write_interactive_trace("prompt.send.keyboard_interrupt", agent=agent)
-                _clear_progress_for_agent(agent)
-                _handle_inflight_cancel()
+            prompt_payload = await self._resolve_prompt_payload(
+                prompt_provider=prompt_provider,
+                agent_name=agent_state.current_agent,
+                user_input=user_input,
+            )
+            if prompt_payload is None:
                 continue
-            except asyncio.CancelledError:
-                write_interactive_trace("prompt.send.cancelled_error", agent=agent)
-                _clear_progress_for_agent(agent)
-                task = asyncio.current_task()
-                if task is not None and task.cancelling() > 0:
-                    raise
-                _handle_inflight_cancel()
+
+            send_result = await self._send_regular_message(
+                send_func=send_func,
+                prompt_payload=prompt_payload,
+                prompt_provider=prompt_provider,
+                agent_name=agent_state.current_agent,
+                runtime_state=runtime_state,
+            )
+            if send_result is None:
                 continue
-            finally:
-                write_interactive_trace("prompt.send.finally_pause", agent=agent)
-                progress_display.pause(cancel_deferred_on_noop=True)
-                emit_prompt_mark("D")
-
-            if result and result.startswith("▲ **System Error:**"):
-                # rich_print(result)
-                print(result)
-
-            if _last_assistant_message_cancelled(agent):
-                _clear_current_task_cancellation_requests()
-                _clear_progress_for_agent(agent)
-                ctrl_c_deadline = None
-
-            # Update last copyable output with assistant response for Ctrl+Y
-            if result:
-                set_last_copyable_output(result)
+            result = send_result
 
         return result
 
