@@ -87,6 +87,31 @@ def build_tool_use_additional_message(
     return Text(message_text, style="dim green italic")
 
 
+def resolve_highlight_index(
+    items: "Sequence[str] | None",
+    highlight_items: str | "Sequence[str]" | None,
+) -> int | None:
+    """Resolve a highlighted item name (or names) to its index in a displayed list."""
+    if items is None or len(items) == 0 or highlight_items is None:
+        return None
+
+    target: str
+    if isinstance(highlight_items, str):
+        if not highlight_items:
+            return None
+        target = highlight_items
+    else:
+        if len(highlight_items) == 0:
+            return None
+        target = highlight_items[0]
+
+    for index, item in enumerate(items):
+        if item == target:
+            return index
+
+    return None
+
+
 def tool_use_requests_shell_access(
     message: "PromptMessageExtended",
     *,
@@ -162,6 +187,7 @@ __all__ = [
     "build_tool_use_additional_message",
     "build_user_message_display",
     "extract_user_attachments",
+    "resolve_highlight_index",
     "tool_use_requests_file_read_access",
     "tool_use_requests_shell_access",
 ]

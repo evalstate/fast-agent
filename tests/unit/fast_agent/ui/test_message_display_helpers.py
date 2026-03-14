@@ -4,6 +4,7 @@ from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.message_display_helpers import (
     build_tool_use_additional_message,
+    resolve_highlight_index,
     tool_use_requests_file_read_access,
     tool_use_requests_shell_access,
 )
@@ -75,3 +76,27 @@ def test_build_tool_use_additional_message_pluralizes_file_reads() -> None:
     additional = build_tool_use_additional_message(message, file_read=True)
 
     assert additional is None
+
+
+def test_resolve_highlight_index_for_string_target() -> None:
+    assert resolve_highlight_index(["shell", "web"], "web") == 1
+
+
+def test_resolve_highlight_index_for_first_list_target() -> None:
+    assert resolve_highlight_index(["shell", "web"], ["web", "shell"]) == 1
+
+
+def test_resolve_highlight_index_only_uses_first_list_candidate() -> None:
+    assert resolve_highlight_index(["shell", "web"], ["missing", "web"]) is None
+
+
+def test_resolve_highlight_index_ignores_empty_string_target() -> None:
+    assert resolve_highlight_index(["shell", "web"], "") is None
+
+
+def test_resolve_highlight_index_handles_empty_candidate_list() -> None:
+    assert resolve_highlight_index(["shell", "web"], []) is None
+
+
+def test_resolve_highlight_index_returns_none_without_items() -> None:
+    assert resolve_highlight_index(None, "shell") is None

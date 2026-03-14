@@ -24,6 +24,7 @@ from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
 from fast_agent.tools.elicitation import get_elicitation_fastmcp_tool
 from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams, ToolTimingInfo
+from fast_agent.ui.message_display_helpers import resolve_highlight_index
 from fast_agent.utils.async_utils import gather_with_cancel
 
 logger = get_logger(__name__)
@@ -546,11 +547,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
 
         if should_parallel and planned_calls:
             for correlation_id, tool_name, tool_args in planned_calls:
-                highlight_index = None
-                try:
-                    highlight_index = available_tools.index(tool_name)
-                except ValueError:
-                    pass
+                highlight_index = resolve_highlight_index(available_tools, tool_name)
 
                 self.display.show_tool_call(
                     name=self.name,
@@ -606,12 +603,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
 
         for correlation_id, tool_name, tool_args in planned_calls:
             # Find the index of the current tool in available_tools for highlighting
-            highlight_index = None
-            try:
-                highlight_index = available_tools.index(tool_name)
-            except ValueError:
-                # Tool not found in list, no highlighting
-                pass
+            highlight_index = resolve_highlight_index(available_tools, tool_name)
 
             self.display.show_tool_call(
                 name=self.name,

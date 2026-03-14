@@ -18,6 +18,7 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
 from fast_agent.interfaces import FastAgentLLMProtocol, LLMFactoryProtocol, ModelT
 from fast_agent.types import PromptMessageExtended, RequestParams
+from fast_agent.ui.message_display_helpers import resolve_highlight_index
 
 if TYPE_CHECKING:
     from a2a.types import AgentCard
@@ -344,13 +345,8 @@ class RouterAgent(LlmAgent):
             if response.reasoning:
                 routing_message += f" ({response.reasoning})"
 
-            # Convert highlight_items to highlight_index
             agent_keys = list(self.agent_map.keys())
-            highlight_index = None
-            try:
-                highlight_index = agent_keys.index(response.agent)
-            except ValueError:
-                pass
+            highlight_index = resolve_highlight_index(agent_keys, response.agent)
 
             await self.display.show_assistant_message(
                 routing_message,

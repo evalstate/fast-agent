@@ -41,6 +41,7 @@ from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 from fast_agent.ui.message_display_helpers import (
     build_tool_use_additional_message,
     build_user_message_display,
+    resolve_highlight_index,
     tool_use_requests_file_read_access,
     tool_use_requests_shell_access,
 )
@@ -134,191 +135,39 @@ class LlmAgent(LlmDecorator):
             render_markdown: Force markdown rendering (True) or plain rendering (False)
             render_message: When False, skip reprinting body text and only show post-turn output
         """
-
-        # Determine display content based on stop reason if not provided
-        additional_segments: List[Text] = []
         shell_only_tool_use = tool_use_requests_shell_access(
             message,
             shell_tool_name=self._shell_tool_name_for_display(),
         )
         read_only_tool_use = tool_use_requests_file_read_access(message)
-
-        # Generate additional message based on stop reason
-        match message.stop_reason:
-            case LlmStopReason.END_TURN:
-                pass
-
-            case LlmStopReason.MAX_TOKENS:
-                additional_segments.append(
-                    Text(
-                        "\n\nMaximum output tokens reached - generation stopped.",
-                        style="dim red italic",
-                    )
-                )
-
-            case LlmStopReason.SAFETY:
-                additional_segments.append(
-                    Text(
-                        "\n\nContent filter activated - generation stopped.",
-                        style="dim red italic",
-                    )
-                )
-
-            case LlmStopReason.PAUSE:
-                additional_segments.append(
-                    Text("\n\nLLM has requested a pause.", style="dim green italic")
-                )
-
-            case LlmStopReason.STOP_SEQUENCE:
-                additional_segments.append(
-                    Text(
-                        "\n\nStop Sequence activated - generation stopped.",
-                        style="dim red italic",
-                    )
-                )
-
-            case LlmStopReason.TOOL_USE:
-                tool_use_message = build_tool_use_additional_message(
-                    message,
-                    shell_access=shell_only_tool_use,
-                    file_read=read_only_tool_use,
-                )
-                if tool_use_message is not None:
-                    additional_segments.append(tool_use_message)
-
-            case LlmStopReason.ERROR:
-                # Check if there's detailed error information in the error channel
-                if message.channels and FAST_AGENT_ERROR_CHANNEL in message.channels:
-                    error_blocks = message.channels[FAST_AGENT_ERROR_CHANNEL]
-                    if error_blocks:
-                        # Extract text from the error block using the helper function
-                        error_text = get_text(error_blocks[0])
-                        if error_text:
-                            additional_segments.append(
-                                Text(f"\n\nError details: {error_text}", style="dim red italic")
-                            )
-                        else:
-                            # Fallback if we couldn't extract text
-                            additional_segments.append(
-                                Text(
-                                    f"\n\nError details: {str(error_blocks[0])}",
-                                    style="dim red italic",
-                                )
-                            )
-                else:
-                    # Fallback if no detailed error is available
-                    additional_segments.append(
-                        Text("\n\nAn error occurred during generation.", style="dim red italic")
-                    )
-
-            case LlmStopReason.CANCELLED:
-                additional_segments.append(
-                    Text("\n\nGeneration cancelled by user.", style="dim yellow italic")
-                )
-
-            case _:
-                if message.stop_reason:
-                    additional_segments.append(
-                        Text(
-                            f"\n\nGeneration stopped for an unhandled reason ({message.stop_reason})",
-                            style="dim red italic",
-                        )
-                    )
-
-        if additional_message is not None:
-            additional_segments.append(
-                additional_message
-                if isinstance(additional_message, Text)
-                else Text(str(additional_message))
-            )
-
-        message_text = message
-        show_post_turn_metadata = message.stop_reason != LlmStopReason.TOOL_USE
-
-        sources_text = render_sources_additional_text(message) if show_post_turn_metadata else None
-        debug_web = bool(os.environ.get("FAST_AGENT_WEBDEBUG"))
-        if debug_web:
-            channels = message.channels or {}
-            channel_names = sorted(channels.keys()) if isinstance(channels, dict) else []
-            source_count = len(collect_citation_sources(message))
-            print(
-                "[webdebug]"
-                f" agent={self.name}"
-                f" channels={channel_names}"
-                f" server_tool_blocks={len(channels.get(ANTHROPIC_SERVER_TOOLS_CHANNEL, [])) if isinstance(channels, dict) else 0}"
-                f" citation_blocks={len(channels.get(ANTHROPIC_CITATIONS_CHANNEL, [])) if isinstance(channels, dict) else 0}"
-                f" source_count={source_count}"
-                f" show_post_turn_metadata={show_post_turn_metadata}"
-                f" sources_rendered={bool(sources_text)}"
-            )
-        if sources_text is not None:
-            additional_segments.append(sources_text)
-
-        badge_items = web_tool_badges(message) if show_post_turn_metadata else []
-        if debug_web:
-            print(f"[webdebug] agent={self.name} badges={badge_items}")
-        if badge_items:
-            additional_segments.append(
-                Text(f"\n\nWeb activity: {', '.join(badge_items)}", style="bright_cyan")
-            )
-
-            merged_bottom = list(bottom_items or [])
-            for badge in badge_items:
-                if badge not in merged_bottom:
-                    merged_bottom.append(badge)
-            bottom_items = merged_bottom
-            if highlight_items is None:
-                # A3 style only renders bottom metadata when a highlight is provided.
-                highlight_items = badge_items[0]
-
-        additional_message_text = None
-        if additional_segments:
-            combined = Text()
-            for segment in additional_segments:
-                combined += segment
-            additional_message_text = combined
-
-        # Use provided name/model or fall back to defaults
-        display_name = name if name is not None else self.name
-        display_model = model if model is not None else (self.llm.model_name if self.llm else None)
-
-        if display_model is not None and self.llm is not None:
-            websocket_indicator = getattr(self.llm, "websocket_turn_indicator", None)
-            if isinstance(websocket_indicator, str) and websocket_indicator:
-                display_model = f"{display_model} {websocket_indicator}"
-
-        if message.tool_calls and display_model is not None:
-            usage_accumulator = self.usage_accumulator
-            context_percentage = (
-                usage_accumulator.context_usage_percentage if usage_accumulator else None
-            )
-            if context_percentage is not None:
-                display_model = f"{display_model} ({context_percentage:.1f}%)"
-
-        # Convert highlight_items to highlight_index
-        if shell_only_tool_use or read_only_tool_use:
-            bottom_items = None
-            highlight_items = None
-
-        highlight_index = None
-        if highlight_items and bottom_items:
-            if isinstance(highlight_items, str):
-                try:
-                    highlight_index = bottom_items.index(highlight_items)
-                except ValueError:
-                    pass
-            elif isinstance(highlight_items, list) and len(highlight_items) > 0:
-                try:
-                    highlight_index = bottom_items.index(highlight_items[0])
-                except ValueError:
-                    pass
-
-        # Use explicit show_hook_indicator if provided, otherwise check for after_llm_call hook
-        hook_indicator = (
-            show_hook_indicator
-            if show_hook_indicator is not None
-            else getattr(self, "has_after_llm_call_hook", False)
+        additional_segments = self._build_stop_reason_additional_segments(
+            message,
+            shell_only_tool_use=shell_only_tool_use,
+            read_only_tool_use=read_only_tool_use,
         )
+        caller_additional_segment = self._coerce_additional_message_segment(additional_message)
+        if caller_additional_segment is not None:
+            additional_segments.append(caller_additional_segment)
+
+        metadata_segments, bottom_items, highlight_items = self._collect_post_turn_metadata(
+            message,
+            bottom_items=bottom_items,
+            highlight_items=highlight_items,
+        )
+        additional_segments.extend(metadata_segments)
+
+        additional_message_text = self._combine_additional_segments(additional_segments)
+        display_name = self._resolve_assistant_display_name(name)
+        display_model = self._resolve_assistant_display_model(message=message, model=model)
+        bottom_items, highlight_items = self._filter_bottom_metadata_for_tool_use(
+            bottom_items=bottom_items,
+            highlight_items=highlight_items,
+            shell_only_tool_use=shell_only_tool_use,
+            read_only_tool_use=read_only_tool_use,
+        )
+        highlight_index = resolve_highlight_index(bottom_items, highlight_items)
+        hook_indicator = self._resolve_assistant_hook_indicator(show_hook_indicator)
+        message_text = message
         if render_message:
             await self.display.show_assistant_message(
                 message_text,
@@ -336,6 +185,201 @@ class LlmAgent(LlmDecorator):
                 self.display.show_status_message(additional_message_text)
             self.display.show_mermaid_diagrams_from_message_text(message_text)
         self._display_url_elicitations_from_history(display_name)
+
+    def _build_stop_reason_additional_segments(
+        self,
+        message: PromptMessageExtended,
+        *,
+        shell_only_tool_use: bool,
+        read_only_tool_use: bool,
+    ) -> list[Text]:
+        segments: list[Text] = []
+        match message.stop_reason:
+            case LlmStopReason.END_TURN:
+                pass
+            case LlmStopReason.MAX_TOKENS:
+                segments.append(
+                    Text(
+                        "\n\nMaximum output tokens reached - generation stopped.",
+                        style="dim red italic",
+                    )
+                )
+            case LlmStopReason.SAFETY:
+                segments.append(
+                    Text(
+                        "\n\nContent filter activated - generation stopped.",
+                        style="dim red italic",
+                    )
+                )
+            case LlmStopReason.PAUSE:
+                segments.append(Text("\n\nLLM has requested a pause.", style="dim green italic"))
+            case LlmStopReason.STOP_SEQUENCE:
+                segments.append(
+                    Text(
+                        "\n\nStop Sequence activated - generation stopped.",
+                        style="dim red italic",
+                    )
+                )
+            case LlmStopReason.TOOL_USE:
+                tool_use_message = build_tool_use_additional_message(
+                    message,
+                    shell_access=shell_only_tool_use,
+                    file_read=read_only_tool_use,
+                )
+                if tool_use_message is not None:
+                    segments.append(tool_use_message)
+            case LlmStopReason.ERROR:
+                error_segment = self._build_error_additional_segment(message)
+                if error_segment is not None:
+                    segments.append(error_segment)
+            case LlmStopReason.CANCELLED:
+                segments.append(Text("\n\nGeneration cancelled by user.", style="dim yellow italic"))
+            case _:
+                if message.stop_reason:
+                    segments.append(
+                        Text(
+                            f"\n\nGeneration stopped for an unhandled reason ({message.stop_reason})",
+                            style="dim red italic",
+                        )
+                    )
+        return segments
+
+    def _build_error_additional_segment(self, message: PromptMessageExtended) -> Text | None:
+        """Build error detail text while preserving current channel fallback behavior."""
+        channels = message.channels
+        if channels and FAST_AGENT_ERROR_CHANNEL in channels:
+            error_blocks = channels[FAST_AGENT_ERROR_CHANNEL]
+            if not error_blocks:
+                return None
+            error_text = get_text(error_blocks[0])
+            if error_text:
+                return Text(f"\n\nError details: {error_text}", style="dim red italic")
+            return Text(f"\n\nError details: {str(error_blocks[0])}", style="dim red italic")
+        return Text("\n\nAn error occurred during generation.", style="dim red italic")
+
+    def _coerce_additional_message_segment(self, additional_message: Text | str | None) -> Text | None:
+        if additional_message is None:
+            return None
+        if isinstance(additional_message, Text):
+            return additional_message
+        return Text(str(additional_message))
+
+    def _should_show_post_turn_metadata(self, message: PromptMessageExtended) -> bool:
+        return message.stop_reason != LlmStopReason.TOOL_USE
+
+    def _collect_post_turn_metadata(
+        self,
+        message: PromptMessageExtended,
+        *,
+        bottom_items: list[str] | None,
+        highlight_items: str | list[str] | None,
+    ) -> tuple[list[Text], list[str] | None, str | list[str] | None]:
+        additional_segments: list[Text] = []
+        show_post_turn_metadata = self._should_show_post_turn_metadata(message)
+        sources_text = render_sources_additional_text(message) if show_post_turn_metadata else None
+        badge_items = web_tool_badges(message) if show_post_turn_metadata else []
+        self._log_web_metadata_debug(
+            message,
+            show_post_turn_metadata=show_post_turn_metadata,
+            sources_text=sources_text,
+            badge_items=badge_items,
+        )
+
+        if sources_text is not None:
+            additional_segments.append(sources_text)
+
+        if badge_items:
+            additional_segments.append(
+                Text(f"\n\nWeb activity: {', '.join(badge_items)}", style="bright_cyan")
+            )
+            merged_bottom = list(bottom_items or [])
+            for badge in badge_items:
+                if badge not in merged_bottom:
+                    merged_bottom.append(badge)
+            bottom_items = merged_bottom
+            if highlight_items is None:
+                highlight_items = badge_items[0]
+
+        return additional_segments, bottom_items, highlight_items
+
+    def _log_web_metadata_debug(
+        self,
+        message: PromptMessageExtended,
+        *,
+        show_post_turn_metadata: bool,
+        sources_text: Text | None,
+        badge_items: Sequence[str],
+    ) -> None:
+        if not os.environ.get("FAST_AGENT_WEBDEBUG"):
+            return
+
+        channels = message.channels or {}
+        channel_names = sorted(channels.keys()) if isinstance(channels, dict) else []
+        source_count = len(collect_citation_sources(message))
+        print(
+            "[webdebug]"
+            f" agent={self.name}"
+            f" channels={channel_names}"
+            f" server_tool_blocks={len(channels.get(ANTHROPIC_SERVER_TOOLS_CHANNEL, [])) if isinstance(channels, dict) else 0}"
+            f" citation_blocks={len(channels.get(ANTHROPIC_CITATIONS_CHANNEL, [])) if isinstance(channels, dict) else 0}"
+            f" source_count={source_count}"
+            f" show_post_turn_metadata={show_post_turn_metadata}"
+            f" sources_rendered={bool(sources_text)}"
+        )
+        print(f"[webdebug] agent={self.name} badges={list(badge_items)}")
+
+    def _combine_additional_segments(self, segments: Sequence[Text]) -> Text | None:
+        if not segments:
+            return None
+        combined = Text()
+        for segment in segments:
+            combined += segment
+        return combined
+
+    def _resolve_assistant_display_name(self, name: str | None) -> str | None:
+        return name if name is not None else self.name
+
+    def _resolve_assistant_display_model(
+        self,
+        *,
+        message: PromptMessageExtended,
+        model: str | None,
+    ) -> str | None:
+        display_model = model if model is not None else (self.llm.model_name if self.llm else None)
+        if display_model is None:
+            return None
+
+        if self.llm is not None:
+            websocket_indicator = getattr(self.llm, "websocket_turn_indicator", None)
+            if isinstance(websocket_indicator, str) and websocket_indicator:
+                display_model = f"{display_model} {websocket_indicator}"
+
+        if message.tool_calls:
+            usage_accumulator = self.usage_accumulator
+            context_percentage = (
+                usage_accumulator.context_usage_percentage if usage_accumulator else None
+            )
+            if context_percentage is not None:
+                display_model = f"{display_model} ({context_percentage:.1f}%)"
+
+        return display_model
+
+    def _filter_bottom_metadata_for_tool_use(
+        self,
+        *,
+        bottom_items: list[str] | None,
+        highlight_items: str | list[str] | None,
+        shell_only_tool_use: bool,
+        read_only_tool_use: bool,
+    ) -> tuple[list[str] | None, str | list[str] | None]:
+        if shell_only_tool_use or read_only_tool_use:
+            return None, None
+        return bottom_items, highlight_items
+
+    def _resolve_assistant_hook_indicator(self, show_hook_indicator: bool | None) -> bool:
+        if show_hook_indicator is not None:
+            return show_hook_indicator
+        return getattr(self, "has_after_llm_call_hook", False)
 
     def _shell_tool_name_for_display(self) -> str | None:
         """Return the tool name used for local shell execution, if any."""

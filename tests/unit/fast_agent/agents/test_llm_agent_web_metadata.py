@@ -22,6 +22,8 @@ class _CaptureDisplay(ConsoleDisplay):
     def __init__(self) -> None:
         super().__init__(config=None)
         self.calls: list[dict[str, Any]] = []
+        self.status_messages: list[Text] = []
+        self.mermaid_messages: list[str | Text | PromptMessageExtended] = []
 
     async def show_assistant_message(
         self,
@@ -47,6 +49,24 @@ class _CaptureDisplay(ConsoleDisplay):
             "show_hook_indicator": show_hook_indicator,
         }
         self.calls.append(payload)
+
+    def show_status_message(self, content: Text) -> None:
+        self.status_messages.append(content)
+
+    def show_mermaid_diagrams_from_message_text(
+        self,
+        message_text: str | Text | PromptMessageExtended,
+    ) -> None:
+        self.mermaid_messages.append(message_text)
+
+
+class _UrlCaptureAgent(LlmAgent):
+    def __init__(self, name: str) -> None:
+        super().__init__(AgentConfig(name))
+        self.url_display_names: list[str | None] = []
+
+    def _display_url_elicitations_from_history(self, agent_name: str | None) -> None:
+        self.url_display_names.append(agent_name)
 
 
 class _SummaryHarnessAgent(LlmAgent):
@@ -152,6 +172,61 @@ async def test_show_assistant_message_renders_web_metadata_for_final_turn() -> N
     plain = additional.plain
     assert "Sources" in plain
     assert "Web activity: web_search x1" in plain
+    assert call.get("highlight_index") == 0
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_show_assistant_message_suppresses_bottom_metadata_for_shell_tool_use() -> None:
+    agent = LlmAgent(AgentConfig("shell-tool-use"))
+    capture_display = _CaptureDisplay()
+    agent.display = capture_display
+
+    tool_call = CallToolRequest(
+        method="tools/call",
+        params=CallToolRequestParams(name="bash", arguments={"command": "pwd"}),
+    )
+    tool_use_message = PromptMessageExtended(
+        role="assistant",
+        content=[],
+        tool_calls={"call_1": tool_call},
+        stop_reason=LlmStopReason.TOOL_USE,
+    )
+
+    await agent.show_assistant_message(
+        tool_use_message,
+        bottom_items=["shell", "web"],
+        highlight_items="shell",
+    )
+
+    assert len(capture_display.calls) == 1
+    call = capture_display.calls[0]
+    assert call.get("bottom_items") is None
+    assert call.get("highlight_index") is None
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_show_assistant_message_render_message_false_shows_status_and_mermaid() -> None:
+    agent = _UrlCaptureAgent("web-debug")
+    capture_display = _CaptureDisplay()
+    agent.display = capture_display
+
+    end_turn_message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="done")],
+        stop_reason=LlmStopReason.END_TURN,
+        channels=_web_channels(),
+    )
+
+    await agent.show_assistant_message(end_turn_message, render_message=False)
+
+    assert capture_display.calls == []
+    assert len(capture_display.status_messages) == 1
+    assert "Sources" in capture_display.status_messages[0].plain
+    assert "Web activity: web_search x1" in capture_display.status_messages[0].plain
+    assert capture_display.mermaid_messages == [end_turn_message]
+    assert agent.url_display_names == ["web-debug"]
 
 
 @pytest.mark.unit

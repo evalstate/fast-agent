@@ -84,6 +84,7 @@ from fast_agent.types import (
     ToolTimingInfo,
 )
 from fast_agent.ui import console
+from fast_agent.ui.message_display_helpers import resolve_highlight_index
 from fast_agent.utils.async_utils import gather_with_cancel
 
 # Define a TypeVar for models
@@ -1629,20 +1630,12 @@ class McpAgent(ABC, ToolAgent):
             bottom_items = [HUMAN_INPUT_TOOL_NAME]
             highlight_target = HUMAN_INPUT_TOOL_NAME
 
-        highlight_index: int | None = None
-        if bottom_items and highlight_target:
-            try:
-                highlight_index = bottom_items.index(highlight_target)
-            except ValueError:
-                highlight_index = None
+        highlight_index = resolve_highlight_index(bottom_items, highlight_target)
 
         if bottom_items is None and fallback_order:
             bottom_items = fallback_order
             fallback_target = display_tool_name if display_tool_name in bottom_items else tool_name
-            try:
-                highlight_index = bottom_items.index(fallback_target)
-            except ValueError:
-                highlight_index = None
+            highlight_index = resolve_highlight_index(bottom_items, fallback_target)
 
         if bottom_items is not None:
             bottom_items = [TOOL_DISPLAY_NAMES.get(name, name) for name in bottom_items]
