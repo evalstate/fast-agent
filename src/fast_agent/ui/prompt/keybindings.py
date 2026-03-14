@@ -99,9 +99,9 @@ def create_keybindings(
     kb = AgentKeyBindings()
 
     def _session_state_module():
-        from fast_agent.ui.prompt import session as session_state
+        from fast_agent.ui.prompt import input as input_state
 
-        return session_state
+        return input_state
 
     def _should_start_completion(text: str) -> bool:
         stripped = text.lstrip()
