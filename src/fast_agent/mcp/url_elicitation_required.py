@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import cast
 
 from mcp.types import ElicitRequestURLParams
 from pydantic import ValidationError
+
+from fast_agent.utils.type_narrowing import is_str_object_dict
 
 
 @dataclass(slots=True)
@@ -50,12 +51,11 @@ def parse_url_elicitation_required_data(data: object) -> ParsedURLElicitationErr
         issues.append("error.data is missing")
         return ParsedURLElicitationErrorData(elicitations=elicitations, issues=issues)
 
-    if not isinstance(data, dict):
+    if not is_str_object_dict(data):
         issues.append(f"error.data must be an object, got {type(data).__name__}")
         return ParsedURLElicitationErrorData(elicitations=elicitations, issues=issues)
 
-    data_dict = cast("dict[str, object]", data)
-    raw_elicitations = data_dict.get("elicitations")
+    raw_elicitations = data.get("elicitations")
     if raw_elicitations is None:
         issues.append("error.data.elicitations is missing")
         return ParsedURLElicitationErrorData(elicitations=elicitations, issues=issues)
@@ -72,7 +72,7 @@ def parse_url_elicitation_required_data(data: object) -> ParsedURLElicitationErr
         return ParsedURLElicitationErrorData(elicitations=elicitations, issues=issues)
 
     for index, raw_elicitation in enumerate(raw_elicitations):
-        if not isinstance(raw_elicitation, dict):
+        if not is_str_object_dict(raw_elicitation):
             issues.append(
                 f"error.data.elicitations[{index}] must be an object, "
                 f"got {type(raw_elicitation).__name__}"

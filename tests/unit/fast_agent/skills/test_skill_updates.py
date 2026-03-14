@@ -117,6 +117,32 @@ def test_install_writes_sidecar_with_provenance(tmp_path: Path) -> None:
     assert source.content_fingerprint.startswith("sha256:")
 
 
+def test_install_from_dirty_local_git_repo_records_unknown_revision(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _write_skill(repo, name="alpha", body="v1")
+    _commit_all(repo, "initial")
+    _write_skill(repo, name="alpha", body="dirty working tree")
+
+    managed_dir = tmp_path / "managed"
+    installed_dir = install_marketplace_skill_sync(
+        _make_marketplace_skill(repo, name="alpha"),
+        managed_dir,
+    )
+
+    source, error = read_installed_skill_source(installed_dir)
+    assert error is None
+    assert source is not None
+    assert source.source_origin == "local"
+    assert source.installed_commit is None
+    assert source.installed_path_oid is None
+    assert source.installed_revision == "local"
+
+    updates = check_skill_updates(destination_root=managed_dir)
+    assert len(updates) == 1
+    assert updates[0].status == "unknown_revision"
+
+
 def test_check_and_apply_update_from_local_git_repo(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     _init_repo(repo)

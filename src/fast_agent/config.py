@@ -23,6 +23,7 @@ from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
 from fast_agent.llm.structured_output_mode import StructuredOutputMode
 from fast_agent.llm.text_verbosity import TextVerbosityLevel
+from fast_agent.utils.type_narrowing import is_str_object_dict
 
 
 class MCPServerAuthSettings(BaseModel):
@@ -451,10 +452,9 @@ class MCPSettings(BaseModel):
 
         normalized_targets: dict[str, dict[str, Any]] = {}
         for index, raw_entry in enumerate(raw_targets):
-            entry: dict[str, Any]
             if isinstance(raw_entry, str):
-                entry = {"target": raw_entry}
-            elif isinstance(raw_entry, dict):
+                entry: dict[str, object] = {"target": raw_entry}
+            elif is_str_object_dict(raw_entry):
                 entry = raw_entry
             else:
                 raise ValueError(f"`mcp.targets[{index}]` must be a string or mapping")

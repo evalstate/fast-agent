@@ -71,7 +71,7 @@ class MarketplaceEntryModel(BaseModel):
         bundle_name = _first_str(data, "bundle_name")
         bundle_description = _first_str(data, "bundle_description")
         if not name and repo_path:
-            guessed = PurePosixPath(repo_path).parent.name
+            guessed = PurePosixPath(repo_path).name
             name = guessed or repo_path
 
         repo_url = repo_url or default_repo_url

@@ -21,7 +21,7 @@ jobs:
 
       - name: Install the project
         run: |
-          uv sync --group dev
+          uv sync --locked --group dev
 
       - name: Run ruff format check
         run: uv run scripts/format.py
@@ -43,9 +43,9 @@ jobs:
 
       - name: Install the project
         run: |
-          uv sync --group dev
+          uv sync --locked --group dev
 
-      - name: Run pyright
+      - name: Run ruff
         run: uv run scripts/lint.py
 
       - name: Run ty
@@ -71,7 +71,7 @@ jobs:
 
       - name: Install the project
         run: |
-          uv sync --group dev
+          uv sync --locked --group dev
 
       - name: Run unit tests
         run: uv run pytest tests/unit -v
@@ -113,7 +113,7 @@ jobs:
 
       - name: Install the project
         run: |
-          uv sync --group dev
+          uv sync --locked --group dev
 
       - name: Run integration tests
         run: uv run pytest -m integration -v ${{ matrix.path }} ${{ matrix.args }}

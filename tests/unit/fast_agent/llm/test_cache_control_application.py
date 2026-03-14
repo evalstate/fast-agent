@@ -5,6 +5,7 @@ from mcp.types import TextContent
 
 from fast_agent.llm.provider.anthropic.multipart_converter_anthropic import AnthropicConverter
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+from fast_agent.utils.type_narrowing import is_str_object_dict
 
 
 def _as_dict(value: object) -> dict[str, Any]:
@@ -39,7 +40,7 @@ def apply_cache_control_to_message(message: dict[str, Any], position: int) -> bo
 
     # Apply cache control to the last content block of this message
     for content_block in reversed(content_list):
-        if isinstance(content_block, dict):
+        if is_str_object_dict(content_block):
             content_block["cache_control"] = {"type": "ephemeral"}
             return True
 

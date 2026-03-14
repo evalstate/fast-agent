@@ -108,22 +108,27 @@ def install_marketplace_skill_sync(skill: MarketplaceSkill, destination_root: Pa
     if install_dir.exists():
         raise FileExistsError(f"Skill already exists: {install_dir}")
 
-    installed_commit, installed_path_oid, source_origin = _copy_skill_from_marketplace_source(
-        skill,
-        destination_dir=install_dir,
-        pinned_revision=None,
-    )
-    fingerprint = compute_skill_content_fingerprint(install_dir)
-    write_installed_skill_source(
-        install_dir,
-        build_installed_skill_source(
-            skill=skill,
-            source_origin=source_origin,
-            installed_commit=installed_commit,
-            installed_path_oid=installed_path_oid,
-            fingerprint=fingerprint,
-        ),
-    )
+    try:
+        installed_commit, installed_path_oid, source_origin = _copy_skill_from_marketplace_source(
+            skill,
+            destination_dir=install_dir,
+            pinned_revision=None,
+        )
+        fingerprint = compute_skill_content_fingerprint(install_dir)
+        write_installed_skill_source(
+            install_dir,
+            build_installed_skill_source(
+                skill=skill,
+                source_origin=source_origin,
+                installed_commit=installed_commit,
+                installed_path_oid=installed_path_oid,
+                fingerprint=fingerprint,
+            ),
+        )
+    except Exception:
+        if install_dir.exists():
+            shutil.rmtree(install_dir)
+        raise
     return install_dir
 
 
@@ -664,6 +669,8 @@ def _copy_skill_from_marketplace_source(
         if not source_dir.exists():
             raise FileNotFoundError(f"Skill path not found in repository: {skill.repo_subdir}")
         _copy_skill_source(source_dir, destination_dir)
+        if _is_git_source_dirty(local_repo, source_dir):
+            return None, None, "local"
         commit = _resolve_git_commit(local_repo, skill.repo_ref or "HEAD")
         path_oid = None
         if commit is not None:
@@ -721,6 +728,10 @@ def _resolve_git_path_oid(repo_root: Path, commit: str, repo_path: str) -> str |
 
 def _run_git(args: list[str]) -> None:
     marketplace_source_utils.run_git(args)
+
+
+def _is_git_source_dirty(repo_root: Path, source_path: Path) -> bool:
+    return marketplace_source_utils.is_git_source_dirty(repo_root, source_path)
 
 
 def _load_local_marketplace_payload(url: str) -> Any | None:

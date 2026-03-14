@@ -10,7 +10,7 @@ import time
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from mcp.types import ResourceTemplate
 from prompt_toolkit.completion import Completer, Completion
@@ -24,10 +24,14 @@ from fast_agent.llm.text_verbosity import available_text_verbosity_values
 from fast_agent.ui.prompt.resource_mentions import template_argument_names
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Iterator, Sequence
+    from collections.abc import Callable, Coroutine, Iterable, Iterator, Sequence
 
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.types import PromptMessageExtended
+
+
+CompletionResultT = TypeVar("CompletionResultT")
+
 
 class AgentCompleter(Completer):
     """Provide completion for agent names and common commands."""
@@ -1037,7 +1041,9 @@ class AgentCompleter(Completer):
             completions=tuple(completions),
         )
 
-    def _run_async_completion(self, awaitable) -> Any:
+    def _run_async_completion(
+        self, awaitable: Coroutine[Any, Any, CompletionResultT]
+    ) -> CompletionResultT | None:
         owner_loop = self._owner_loop
         if owner_loop is not None and owner_loop.is_running():
             try:

@@ -16,6 +16,7 @@ from fast_agent.core.exceptions import AgentConfigError, format_fast_agent_error
 from fast_agent.core.tool_input_schema import validate_tool_input_schema
 from fast_agent.core.validation import find_dependency_cycle
 from fast_agent.mcp.connect_targets import resolve_target_entry
+from fast_agent.utils.type_narrowing import is_str_object_dict
 
 CARD_EXTENSIONS = {".md", ".markdown", ".yaml", ".yml"}
 
@@ -520,7 +521,7 @@ def _validate_mcp_connect_entries(value: Any, errors: list[str]) -> None:
         return
 
     for idx, raw_entry in enumerate(value):
-        if not isinstance(raw_entry, dict):
+        if not is_str_object_dict(raw_entry):
             errors.append(f"'mcp_connect[{idx}]' must be a mapping")
             continue
 
@@ -562,10 +563,10 @@ def _validate_mcp_connect_entries(value: Any, errors: list[str]) -> None:
         auth_value = raw_entry.get("auth")
         resolved_auth: dict[str, Any] | None = None
         if auth_value is not None:
-            if not isinstance(auth_value, dict):
+            if not is_str_object_dict(auth_value):
                 errors.append(f"'mcp_connect[{idx}].auth' must be a mapping")
                 continue
-            resolved_auth = dict(auth_value)
+            resolved_auth = auth_value.copy()
 
         try:
             overrides: dict[str, Any] = {}

@@ -22,6 +22,7 @@ from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.tool_input_schema import validate_tool_input_schema
 from fast_agent.skills import SKILLS_DEFAULT
 from fast_agent.types import RequestParams
+from fast_agent.utils.type_narrowing import is_str_object_dict
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_card_types import AgentCardData
@@ -742,7 +743,7 @@ def _ensure_mcp_connect_entries(value: Any, path: Path) -> list[MCPConnectTarget
 
     entries: list[MCPConnectTarget] = []
     for idx, raw_entry in enumerate(value):
-        if not isinstance(raw_entry, dict):
+        if not is_str_object_dict(raw_entry):
             raise AgentConfigError(
                 f"'mcp_connect[{idx}]' must be a mapping in {path}",
             )
@@ -1126,5 +1127,5 @@ def _serialize_string_list(value: Any) -> list[str] | None:
     if not value:
         return []
     if all(isinstance(item, str) for item in value):
-        return list(value)
+        return [item for item in value if isinstance(item, str)]
     return None

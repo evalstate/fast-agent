@@ -10,6 +10,7 @@ from fast_agent.skills.operations import (
     install_marketplace_skill_sync,
 )
 from fast_agent.skills.provenance import read_installed_skill_source
+from fast_agent.skills.service import install_skill_sync
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -75,3 +76,45 @@ def test_operations_scan_local_registry_and_install_into_managed_path(tmp_path: 
     assert source is not None
     assert source.source_origin == "local"
     assert (managed_root / "alpha" / "SKILL.md").exists()
+
+
+def test_install_skill_rolls_back_when_installed_skill_cannot_be_reloaded(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    skill_dir = repo / "skills" / "alpha"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: alpha\n---\n\nbroken\n",
+        encoding="utf-8",
+    )
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", "initial")
+
+    registry_path = repo / ".claude-plugin" / "marketplace.json"
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "plugins": [
+                    {
+                        "name": "alpha",
+                        "description": "Broken skill",
+                        "source": "./skills/alpha",
+                        "skills": "./",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    managed_root = tmp_path / "managed"
+
+    try:
+        install_skill_sync(registry_path.as_posix(), "alpha", destination_root=managed_root)
+    except RuntimeError as exc:
+        assert "Installed skill could not be reloaded" in str(exc)
+    else:
+        raise AssertionError("expected install to fail")
+
+    assert not (managed_root / "alpha").exists()

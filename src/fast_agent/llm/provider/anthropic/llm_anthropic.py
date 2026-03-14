@@ -88,6 +88,7 @@ from fast_agent.llm.structured_output_mode import StructuredOutputMode
 from fast_agent.llm.usage_tracking import TurnUsage
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
+from fast_agent.utils.type_narrowing import is_str_object_dict
 
 DEFAULT_ANTHROPIC_MODEL = "sonnet"
 STRUCTURED_OUTPUT_TOOL_NAME = "return_structured_output"
@@ -714,7 +715,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
     @staticmethod
     def _apply_cache_control_to_message(message: MessageParam, ttl: str = "5m") -> bool:
         """Apply cache control to the last content block of a message."""
-        if not isinstance(message, dict) or "content" not in message:
+        if not is_str_object_dict(message) or "content" not in message:
             return False
 
         content_list = message["content"]
@@ -722,7 +723,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             return False
 
         for content_block in reversed(content_list):
-            if isinstance(content_block, dict):
+            if is_str_object_dict(content_block):
                 content_block["cache_control"] = {"type": "ephemeral", "ttl": ttl}
                 return True
 

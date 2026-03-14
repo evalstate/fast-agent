@@ -7,6 +7,7 @@ plain registry sources (local paths or URLs) and managed destination roots.
 from __future__ import annotations
 
 import asyncio
+import shutil
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -89,7 +90,12 @@ async def install_skill(
         selected,
         destination_root=destination_root,
     )
-    return _record_from_install_dir(destination_root, install_dir)
+    try:
+        return _record_from_install_dir(destination_root, install_dir)
+    except Exception:
+        if install_dir.exists():
+            shutil.rmtree(install_dir)
+        raise
 
 
 def install_skill_sync(

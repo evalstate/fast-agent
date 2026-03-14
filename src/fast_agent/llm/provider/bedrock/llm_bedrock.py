@@ -30,6 +30,7 @@ from fast_agent.llm.reasoning_effort import (
 from fast_agent.llm.usage_tracking import TurnUsage
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
+from fast_agent.utils.type_narrowing import is_str_object_dict
 
 # Mapping from Bedrock's snake_case stop reasons to MCP's camelCase
 BEDROCK_TO_MCP_STOP_REASON = {
@@ -77,6 +78,21 @@ BEDROCK_REASONING_SPEC = ReasoningEffortSpec(
 # Bedrock message format types
 BedrockMessage = dict[str, Any]  # Bedrock message format
 BedrockMessageParam = dict[str, Any]  # Bedrock message parameter format
+
+
+def _extract_tool_call_payload(value: object) -> tuple[str, dict[str, object]] | None:
+    """Return normalized tool call data from a parsed JSON-like object."""
+
+    if not is_str_object_dict(value):
+        return None
+
+    name_value = value.get("name")
+    if not isinstance(name_value, str):
+        return None
+
+    arguments_value = value.get("arguments", {})
+    arguments = arguments_value if is_str_object_dict(arguments_value) else {}
+    return name_value, arguments
 
 
 class ToolSchemaType(Enum):
@@ -668,15 +684,18 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                 parsed_calls = json.loads(json_str)
                 if isinstance(parsed_calls, list):
                     for i, call in enumerate(parsed_calls):
-                        if isinstance(call, dict) and "name" in call:
-                            tool_calls.append(
-                                {
-                                    "type": "system_prompt_tool",
-                                    "name": call["name"],
-                                    "arguments": call.get("arguments", {}),
-                                    "id": f"system_prompt_{call['name']}_{i}",
-                                }
-                            )
+                        tool_call_payload = _extract_tool_call_payload(call)
+                        if tool_call_payload is None:
+                            continue
+                        name_value, arguments = tool_call_payload
+                        tool_calls.append(
+                            {
+                                "type": "system_prompt_tool",
+                                "name": name_value,
+                                "arguments": arguments,
+                                "id": f"system_prompt_{name_value}_{i}",
+                            }
+                        )
                     return tool_calls
             except json.JSONDecodeError as e:
                 self.logger.warning(f"Failed to parse Tool Call JSON array: {json_str} - {e}")
@@ -690,15 +709,18 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                 parsed_calls = json.loads(json_str)
                 if isinstance(parsed_calls, list):
                     for i, call in enumerate(parsed_calls):
-                        if isinstance(call, dict) and "name" in call:
-                            tool_calls.append(
-                                {
-                                    "type": "system_prompt_tool",
-                                    "name": call["name"],
-                                    "arguments": call.get("arguments", {}),
-                                    "id": f"system_prompt_{call['name']}_{i}",
-                                }
-                            )
+                        tool_call_payload = _extract_tool_call_payload(call)
+                        if tool_call_payload is None:
+                            continue
+                        name_value, arguments = tool_call_payload
+                        tool_calls.append(
+                            {
+                                "type": "system_prompt_tool",
+                                "name": name_value,
+                                "arguments": arguments,
+                                "id": f"system_prompt_{name_value}_{i}",
+                            }
+                        )
                     return tool_calls
             except json.JSONDecodeError as e:
                 self.logger.debug(f"Failed to parse JSON array: {json_str} - {e}")
@@ -710,13 +732,15 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                 json_str = json_match.group(0)
                 function_call = json.loads(json_str)
 
-                if "name" in function_call:
+                tool_call_payload = _extract_tool_call_payload(function_call)
+                if tool_call_payload is not None:
+                    name_value, arguments = tool_call_payload
                     return [
                         {
                             "type": "system_prompt_tool",
-                            "name": function_call["name"],
-                            "arguments": function_call.get("arguments", {}),
-                            "id": f"system_prompt_{function_call['name']}",
+                            "name": name_value,
+                            "arguments": arguments,
+                            "id": f"system_prompt_{name_value}",
                         }
                     ]
 
@@ -838,20 +862,21 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                 match = _re.search(r"\[(?:.|\n)*?\]", text_content)
                 if match:
                     arr = _json.loads(match.group(0))
-                    if isinstance(arr, list) and arr and isinstance(arr[0], dict):
+                    if isinstance(arr, list) and arr and is_str_object_dict(arr[0]):
                         parsed_calls = []
                         for i, call in enumerate(arr):
-                            name = call.get("name")
-                            args = call.get("arguments", {})
-                            if name:
-                                parsed_calls.append(
-                                    {
-                                        "type": "system_prompt_tool",
-                                        "name": name,
-                                        "arguments": args,
-                                        "id": f"system_prompt_{name}_{i}",
-                                    }
-                                )
+                            tool_call_payload = _extract_tool_call_payload(call)
+                            if tool_call_payload is None:
+                                continue
+                            name_value, arguments = tool_call_payload
+                            parsed_calls.append(
+                                {
+                                    "type": "system_prompt_tool",
+                                    "name": name_value,
+                                    "arguments": arguments,
+                                    "id": f"system_prompt_{name_value}_{i}",
+                                }
+                            )
                         if parsed_calls:
                             return parsed_calls
         except Exception:
@@ -2326,11 +2351,10 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                 if isinstance(parsed, dict) and len(parsed) == 1:
                     key = list(parsed.keys())[0]
                     # Common wrapper patterns: class name, "response", "result", etc.
-                    if key in [
-                        "FormattedResponse",
-                        "WeatherResponse",
-                        "SimpleResponse",
-                    ] or key.endswith("Response"):
+                    if isinstance(key, str) and (
+                        key in ["FormattedResponse", "WeatherResponse", "SimpleResponse"]
+                        or key.endswith("Response")
+                    ):
                         inner_value = parsed[key]
                         if isinstance(inner_value, dict):
                             return json.dumps(inner_value)

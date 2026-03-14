@@ -3,6 +3,22 @@ from __future__ import annotations
 from fast_agent.skills.marketplace_parsing import parse_marketplace_payload
 
 
+def test_parse_marketplace_payload_derives_fallback_name_from_repo_path_leaf() -> None:
+    payload = {
+        "entries": [
+            {
+                "repo_url": "https://github.com/example/skills",
+                "repo_path": "skills/alpha",
+            }
+        ]
+    }
+
+    skills = parse_marketplace_payload(payload)
+
+    assert len(skills) == 1
+    assert skills[0].name == "alpha"
+
+
 def test_parse_marketplace_payload_expands_plugin_bundle_entries() -> None:
     payload = {
         "metadata": {"pluginRoot": "bundles"},

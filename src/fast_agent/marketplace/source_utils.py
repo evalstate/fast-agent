@@ -241,6 +241,32 @@ def resolve_git_path_oid(repo_root: Path, commit: str, repo_path: str) -> str | 
     return path_oid or None
 
 
+def is_git_source_dirty(repo_root: Path, source_path: Path) -> bool:
+    try:
+        relative_source = source_path.resolve().relative_to(repo_root.resolve())
+    except ValueError:
+        return False
+
+    result = subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo_root),
+            "status",
+            "--porcelain",
+            "--untracked-files=all",
+            "--",
+            relative_source.as_posix(),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return False
+    return bool(result.stdout.strip())
+
+
 def run_git(args: list[str]) -> None:
     result = subprocess.run(args, capture_output=True, text=True, check=False)
     if result.returncode != 0:
