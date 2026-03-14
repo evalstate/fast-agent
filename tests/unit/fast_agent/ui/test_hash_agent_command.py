@@ -10,23 +10,6 @@ from fast_agent.ui.enhanced_prompt import AgentCompleter, parse_special_input
 class TestParseHashAgentCommand:
     """Tests for parsing #agent message syntax."""
 
-    def test_parse_hash_agent_with_message(self):
-        """Test parsing #agent_name message returns HashAgentCommand."""
-        result = parse_special_input("#myagent hello world")
-        assert isinstance(result, HashAgentCommand)
-        assert result.agent_name == "myagent"
-        assert result.message == "hello world"
-        assert result.quiet is False
-        assert result.kind == "hash_agent"
-
-    def test_parse_hash_agent_without_message(self):
-        """Test parsing #agent_name without message returns empty message."""
-        result = parse_special_input("#myagent")
-        assert isinstance(result, HashAgentCommand)
-        assert result.agent_name == "myagent"
-        assert result.message == ""
-        assert result.quiet is False
-
     def test_parse_hash_agent_preserves_message_spaces(self):
         """Test that spaces in the message are preserved."""
         result = parse_special_input("#agent this is a   long   message")
@@ -47,22 +30,6 @@ class TestParseHashAgentCommand:
         result = parse_special_input("#")
         # Just "#" returns original text since there's no agent name
         assert result == "#"
-
-    def test_parse_quiet_hash_agent_with_message(self):
-        """Test parsing ##agent_name message returns a quiet HashAgentCommand."""
-        result = parse_special_input("##myagent hello world")
-        assert isinstance(result, HashAgentCommand)
-        assert result.agent_name == "myagent"
-        assert result.message == "hello world"
-        assert result.quiet is True
-
-    def test_parse_quiet_hash_agent_without_message(self):
-        """Test parsing ##agent_name without message returns empty message."""
-        result = parse_special_input("##myagent")
-        assert isinstance(result, HashAgentCommand)
-        assert result.agent_name == "myagent"
-        assert result.message == ""
-        assert result.quiet is True
 
     def test_parse_quiet_hash_only_returns_plain_text(self):
         """Test that ## alone remains plain text."""

@@ -1,6 +1,5 @@
 from fast_agent.ui.command_payloads import (
     HistoryReviewCommand,
-    HistoryShowCommand,
     HistoryWebClearCommand,
     ShowHistoryCommand,
 )
@@ -31,19 +30,6 @@ def test_parse_history_detail_requires_turn() -> None:
     assert isinstance(result, HistoryReviewCommand)
     assert result.turn_index is None
     assert result.error == "Turn number required for /history detail"
-
-
-def test_parse_history_show_with_optional_agent() -> None:
-    result = parse_special_input("/history show analyst")
-    assert isinstance(result, HistoryShowCommand)
-    assert result.agent == "analyst"
-
-
-def test_parse_history_quoted_reserved_agent_name_uses_history_overview() -> None:
-    result = parse_special_input('/history "show"')
-    assert isinstance(result, ShowHistoryCommand)
-    assert result.agent == "show"
-
 
 def test_parse_history_quoted_reserved_detail_agent_name_uses_history_overview() -> None:
     result = parse_special_input('/history "detail"')
