@@ -1,6 +1,6 @@
 default_model: $system.demo
 
-model_aliases:
+model_references:
   system:
     demo: kimi
 

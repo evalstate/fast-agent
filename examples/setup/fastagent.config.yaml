@@ -12,8 +12,8 @@
 
 default_model: gpt-5-mini.low
 
-# Optional namespaced model aliases (Phase 1: string targets only)
-# model_aliases:
+# Optional namespaced model references (Phase 1: string targets only)
+# model_references:
 #   system:
 #     default: "responses.gpt-5-mini.low"
 #     plan: "codexplan"
