@@ -29,6 +29,13 @@ def test_parse_mcp_connect_extracts_flags() -> None:
     assert result.error is None
 
 
+def test_parse_mcp_connect_preserves_unresolved_auth_reference() -> None:
+    result = parse_special_input("/mcp connect https://example.com/mcp --auth $DOCS_TOKEN")
+    assert isinstance(result, McpConnectCommand)
+    assert result.auth_token == "$DOCS_TOKEN"
+    assert result.error is None
+
+
 def test_parse_mcp_connect_preserves_quoted_target_arguments() -> None:
     result = parse_special_input('/mcp connect demo-server --root "My Folder" --name docs')
     assert isinstance(result, McpConnectCommand)

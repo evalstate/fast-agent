@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import math
 import shlex
-from typing import Literal, cast
+from typing import Literal
 
-from fast_agent.commands.handlers import mcp_runtime as mcp_runtime_handlers
 from fast_agent.ui.command_payloads import McpConnectCommand, McpConnectMode, McpSessionCommand
 
 
@@ -39,9 +39,16 @@ def parse_mcp_connect_tokens(connect_tokens: list[str]) -> McpConnectCommand:
             ),
         )
 
-    connect_text = _rebuild_target_text(connect_tokens).strip()
     try:
-        parsed = mcp_runtime_handlers.parse_connect_input(connect_text)
+        (
+            target_text,
+            server_name,
+            auth_token,
+            timeout_seconds,
+            trigger_oauth,
+            reconnect_on_disconnect,
+            force_reconnect,
+        ) = _parse_connect_components(connect_tokens)
     except ValueError as exc:
         return McpConnectCommand(
             target_text="",
@@ -56,19 +63,100 @@ def parse_mcp_connect_tokens(connect_tokens: list[str]) -> McpConnectCommand:
         )
 
     return McpConnectCommand(
-        target_text=parsed.target_text,
-        parsed_mode=cast(
-            "McpConnectMode",
-            mcp_runtime_handlers.infer_connect_mode(parsed.target_text),
-        ),
-        server_name=parsed.server_name,
-        auth_token=parsed.auth_token,
-        timeout_seconds=parsed.timeout_seconds,
-        trigger_oauth=parsed.trigger_oauth,
-        reconnect_on_disconnect=parsed.reconnect_on_disconnect,
-        force_reconnect=parsed.force_reconnect,
+        target_text=target_text,
+        parsed_mode=_infer_connect_mode(target_text),
+        server_name=server_name,
+        auth_token=auth_token,
+        timeout_seconds=timeout_seconds,
+        trigger_oauth=trigger_oauth,
+        reconnect_on_disconnect=reconnect_on_disconnect,
+        force_reconnect=force_reconnect,
         error=None,
     )
+
+
+def _parse_connect_components(
+    connect_tokens: list[str],
+) -> tuple[
+    str,
+    str | None,
+    str | None,
+    float | None,
+    bool | None,
+    bool | None,
+    bool,
+]:
+    target_tokens: list[str] = []
+    server_name: str | None = None
+    auth_token: str | None = None
+    timeout_seconds: float | None = None
+    trigger_oauth: bool | None = None
+    reconnect_on_disconnect: bool | None = None
+    force_reconnect = False
+    idx = 0
+    while idx < len(connect_tokens):
+        token = connect_tokens[idx]
+        if token in {"--name", "-n"}:
+            idx += 1
+            if idx >= len(connect_tokens):
+                raise ValueError("Missing value for --name")
+            server_name = connect_tokens[idx]
+        elif token == "--timeout":
+            idx += 1
+            if idx >= len(connect_tokens):
+                raise ValueError("Missing value for --timeout")
+            timeout_seconds = float(connect_tokens[idx])
+            if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+                raise ValueError(
+                    "Invalid value for --timeout: expected a finite number greater than 0"
+                )
+        elif token == "--auth":
+            idx += 1
+            if idx >= len(connect_tokens):
+                raise ValueError("Missing value for --auth")
+            auth_token = connect_tokens[idx]
+        elif token.startswith("--auth="):
+            auth_token = token.split("=", 1)[1]
+            if not auth_token:
+                raise ValueError("Missing value for --auth")
+        elif token == "--oauth":
+            trigger_oauth = True
+        elif token == "--no-oauth":
+            trigger_oauth = False
+        elif token == "--reconnect":
+            force_reconnect = True
+        elif token == "--no-reconnect":
+            reconnect_on_disconnect = False
+        else:
+            target_tokens.append(token)
+        idx += 1
+
+    target_text = _rebuild_target_text(target_tokens).strip()
+    if not target_text:
+        raise ValueError("Connection target is required")
+
+    return (
+        target_text,
+        server_name,
+        auth_token,
+        timeout_seconds,
+        trigger_oauth,
+        reconnect_on_disconnect,
+        force_reconnect,
+    )
+
+
+def _infer_connect_mode(target_text: str) -> McpConnectMode:
+    stripped = target_text.strip().lower()
+    if stripped.startswith(("http://", "https://")):
+        return "url"
+    if stripped.startswith("@"):
+        return "npx"
+    if stripped.startswith("npx "):
+        return "npx"
+    if stripped.startswith("uvx "):
+        return "uvx"
+    return "stdio"
 
 
 def build_mcp_connect_runtime_target(
