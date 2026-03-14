@@ -45,6 +45,7 @@ from fast_agent.spawn.card_generator import (
     remove_agent_card,
 )
 from fast_agent.spawn.config_reader import get_available_servers
+from fast_agent.spawn.runtime_paths import get_runtime_paths
 from fast_agent.spawn.isolated_spawner import (
     _check_and_resume_on_inbox,
     cancel_spawn,
@@ -702,7 +703,13 @@ def spawn_agent(
 @mcp.tool()
 def list_spawned_agents() -> str:
     """List all dynamically spawned persistent agents."""
-    cards = list_agent_cards(project_dir=str(_PROJECT_DIR))
+    # Resolve agent_cards dir (same logic as spawn_agent / remove_spawned_agent)
+    agent_cards_dir = get_runtime_paths(str(_PROJECT_DIR))["agent_cards"]
+    legacy_cards = _PROJECT_DIR / ".fast-agent" / "agent_cards"
+    if legacy_cards.exists():
+        agent_cards_dir = legacy_cards
+
+    cards = list_agent_cards(agent_cards_dir=str(agent_cards_dir))
     if not cards:
         return json.dumps(
             {
@@ -715,7 +722,7 @@ def list_spawned_agents() -> str:
 
     enriched = []
     for card in cards:
-        content = get_agent_card_content(card["name"], project_dir=str(_PROJECT_DIR))
+        content = get_agent_card_content(card["name"], agent_cards_dir=str(agent_cards_dir))
         enriched.append(
             {
                 "name": card["name"],
