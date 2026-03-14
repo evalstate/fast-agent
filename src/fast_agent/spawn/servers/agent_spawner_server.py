@@ -705,6 +705,9 @@ def list_spawned_agents() -> str:
 def remove_spawned_agent(name: str) -> str:
     """Remove a persistent agent by name.
 
+    Removes the agent card file AND the spawn registry entry,
+    so the agent disappears from both the runtime and the UI.
+
     Args:
         name: Name of the agent to remove.
     """
@@ -714,12 +717,24 @@ def remove_spawned_agent(name: str) -> str:
     if legacy_cards.exists():
         agent_cards_dir = legacy_cards
 
-    removed = remove_agent_card(name, agent_cards_dir=str(agent_cards_dir))
-    if removed:
+    card_removed = remove_agent_card(name, agent_cards_dir=str(agent_cards_dir))
+
+    # Also remove from spawn registry (by agent_name)
+    registry_removed = False
+    record = _registry.find_by_name(name)
+    if record:
+        registry_removed = _registry.remove(record.run_id)
+
+    if card_removed or registry_removed:
+        parts = []
+        if card_removed:
+            parts.append("card removed")
+        if registry_removed:
+            parts.append("registry cleaned")
         return json.dumps(
             {
                 "status": "success",
-                "message": f"Agent '{name}' removed.",
+                "message": f"Agent '{name}' removed ({', '.join(parts)}).",
             }
         )
     return json.dumps(
