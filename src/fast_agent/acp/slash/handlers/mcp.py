@@ -143,7 +143,7 @@ async def _start_connect_tool_call(
     *,
     tool_call_id: str,
     tool_call_title: str,
-    runtime_target: str,
+    display_target: str,
 ) -> None:
     if handler._acp_context is None:
         return
@@ -163,7 +163,7 @@ async def _start_connect_tool_call(
             title=tool_call_title,
             status="in_progress",
             message=(
-                f"{runtime_target}\n"
+                f"{display_target}\n"
                 "Open this tool call to view OAuth links and live connection status."
             ),
         )
@@ -265,6 +265,7 @@ async def _handle_mcp_connect_command(
         return f"{heading}\n\n{parsed_connect.error}"
 
     runtime_target = build_mcp_connect_runtime_target(parsed_connect)
+    display_target = build_mcp_connect_runtime_target(parsed_connect, redact_auth=True)
     tool_call_id = handler._build_tool_call_id()
     oauth_authorization_url: str | None = None
     tool_call_title = _connect_tool_call_title(parsed_connect)
@@ -293,7 +294,7 @@ async def _handle_mcp_connect_command(
         handler,
         tool_call_id=tool_call_id,
         tool_call_title=tool_call_title,
-        runtime_target=runtime_target,
+        display_target=display_target,
     )
 
     try:

@@ -71,12 +71,17 @@ def parse_mcp_connect_tokens(connect_tokens: list[str]) -> McpConnectCommand:
     )
 
 
-def build_mcp_connect_runtime_target(command: McpConnectCommand) -> str:
+def build_mcp_connect_runtime_target(
+    command: McpConnectCommand,
+    *,
+    redact_auth: bool = False,
+) -> str:
     runtime_target = command.target_text
     if command.server_name:
         runtime_target += f" --name {command.server_name}"
     if command.auth_token:
-        runtime_target += f" --auth {shlex.quote(command.auth_token)}"
+        auth_token = "[REDACTED]" if redact_auth else command.auth_token
+        runtime_target += f" --auth {shlex.quote(auth_token)}"
     if command.timeout_seconds is not None:
         runtime_target += f" --timeout {command.timeout_seconds}"
     if command.trigger_oauth is True:

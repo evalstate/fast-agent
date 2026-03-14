@@ -12,6 +12,7 @@ from fast_agent.commands.renderers.history_markdown import (
     render_history_overview_markdown,
     render_history_turn_report_markdown,
 )
+from fast_agent.commands.shared_command_intents import parse_current_agent_history_intent
 
 if TYPE_CHECKING:
     from fast_agent.acp.command_io import ACPCommandIO
@@ -32,36 +33,70 @@ async def handle_history(handler: "SlashCommandHandler", arguments: str | None =
         return await render_history_overview(handler)
 
     subcmd = tokens[0].lower()
-    argument = remainder[len(tokens[0]) :].strip()
     webclear_enabled = history_handlers.web_tools_enabled_for_agent(handler._get_current_agent())
 
-    if subcmd == "show":
-        return await handle_show(handler)
-    if subcmd == "list":
-        return await render_history_overview(handler)
-    if subcmd in {"detail", "review"}:
-        return await handle_detail(handler, argument)
-    if subcmd == "save":
-        return await handle_save(handler, argument)
-    if subcmd == "load":
-        return await handle_load(handler, argument)
     if subcmd == "webclear":
-        if not webclear_enabled:
-            return "\n".join(
-                [
-                    "# history",
-                    "",
-                    "Unknown /history action: webclear",
-                    "Usage: /history [show|detail <turn>|save|load] [args]",
-                ]
-            )
-        return await handle_history_webclear(handler)
+        return await _handle_history_webclear_command(
+            handler,
+            webclear_enabled=webclear_enabled,
+        )
 
+    intent = parse_current_agent_history_intent(remainder)
+    handled = await _dispatch_shared_history_intent(handler, intent=intent)
+    if handled is not None:
+        return handled
+
+    return _unknown_history_action_response(
+        raw_subcommand=intent.raw_subcommand or subcmd,
+        webclear_enabled=webclear_enabled,
+    )
+
+
+async def _handle_history_webclear_command(
+    handler: "SlashCommandHandler",
+    *,
+    webclear_enabled: bool,
+) -> str:
+    if not webclear_enabled:
+        return "\n".join(
+            [
+                "# history",
+                "",
+                "Unknown /history action: webclear",
+                "Usage: /history [show|detail <turn>|save|load] [args]",
+            ]
+        )
+    return await handle_history_webclear(handler)
+
+
+async def _dispatch_shared_history_intent(
+    handler: "SlashCommandHandler",
+    *,
+    intent,
+) -> str | None:
+    if intent.action == "overview":
+        return await render_history_overview(handler)
+    if intent.action == "show":
+        return await handle_show(handler)
+    if intent.action == "detail":
+        return await handle_detail(
+            handler,
+            turn_index=intent.turn_index,
+            turn_error=intent.turn_error,
+        )
+    if intent.action == "save":
+        return await handle_save(handler, intent.argument)
+    if intent.action == "load":
+        return await handle_load(handler, intent.argument)
+    return None
+
+
+def _unknown_history_action_response(*, raw_subcommand: str, webclear_enabled: bool) -> str:
     return "\n".join(
         [
             "# history",
             "",
-            f"Unknown /history action: {subcmd}",
+            f"Unknown /history action: {raw_subcommand}",
             (
                 "Usage: /history [show|detail <turn>|save|load|webclear] [args]"
                 if webclear_enabled
@@ -105,7 +140,12 @@ async def handle_show(handler: "SlashCommandHandler") -> str:
     return render_history_turn_report_markdown(report, heading="history show")
 
 
-async def handle_detail(handler: "SlashCommandHandler", arguments: str | None = None) -> str:
+async def handle_detail(
+    handler: "SlashCommandHandler",
+    *,
+    turn_index: int | None,
+    turn_error: str | None,
+) -> str:
     heading = "# history detail"
 
     _, error = handler._get_current_agent_or_error(
@@ -115,16 +155,11 @@ async def handle_detail(handler: "SlashCommandHandler", arguments: str | None = 
     if error:
         return error
 
-    turn_argument = arguments.strip() if arguments and arguments.strip() else ""
     error_message = None
-    turn_index: int | None = None
-    if not turn_argument:
+    if turn_error == "missing":
         error_message = "Turn number required for /history detail."
-    else:
-        try:
-            turn_index = int(turn_argument)
-        except ValueError:
-            error_message = "Turn number must be an integer."
+    elif turn_error == "invalid":
+        error_message = "Turn number must be an integer."
 
     ctx = handler._build_command_context()
     io = cast("ACPCommandIO", ctx.io)

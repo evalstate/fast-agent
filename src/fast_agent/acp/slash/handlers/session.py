@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import shlex
 from typing import TYPE_CHECKING, cast
 
 from fast_agent.commands.handlers import sessions as sessions_handlers
 from fast_agent.commands.handlers.shared import clear_agent_histories
 from fast_agent.commands.renderers.session_markdown import render_session_list_markdown
 from fast_agent.commands.session_summaries import build_session_list_summary
+from fast_agent.commands.shared_command_intents import parse_session_command_intent
 
 if TYPE_CHECKING:
     from fast_agent.acp.command_io import ACPCommandIO
@@ -26,40 +26,29 @@ async def handle_session(handler: "SlashCommandHandler", arguments: str | None =
         )
 
     remainder = (arguments or "").strip()
-    if not remainder:
+    intent = parse_session_command_intent(remainder)
+    if intent.action == "help":
         return render_session_list(handler)
-
-    try:
-        tokens = shlex.split(remainder)
-    except ValueError:
-        tokens = remainder.split(maxsplit=1)
-
-    if not tokens:
+    if intent.action == "list":
         return render_session_list(handler)
-
-    subcmd = tokens[0].lower()
-    argument = remainder[len(tokens[0]) :].strip()
-
-    if subcmd == "list":
-        return render_session_list(handler)
-    if subcmd == "new":
-        return await handle_session_new(handler, argument)
-    if subcmd == "resume":
-        return await handle_session_resume(handler, argument)
-    if subcmd == "title":
-        return await handle_session_title(handler, argument)
-    if subcmd == "fork":
-        return await handle_session_fork(handler, argument)
-    if subcmd in {"delete", "clear"}:
-        return await handle_session_delete(handler, argument)
-    if subcmd == "pin":
-        return await handle_session_pin(handler, argument)
+    if intent.action == "new":
+        return await handle_session_new(handler, intent.argument)
+    if intent.action == "resume":
+        return await handle_session_resume(handler, intent.argument)
+    if intent.action == "title":
+        return await handle_session_title(handler, intent.argument)
+    if intent.action == "fork":
+        return await handle_session_fork(handler, intent.argument)
+    if intent.action == "delete":
+        return await handle_session_delete(handler, intent.argument)
+    if intent.action == "pin":
+        return await handle_session_pin(handler, value=intent.pin_value, target=intent.pin_target)
 
     return "\n".join(
         [
             "# session",
             "",
-            f"Unknown /session action: {subcmd}",
+            f"Unknown /session action: {intent.raw_subcommand or ''}",
             "Usage: /session [list|new|resume|title|fork|delete|pin] [args]",
         ]
     )
@@ -78,7 +67,7 @@ def render_session_list(handler: "SlashCommandHandler") -> str:
     return render_session_list_markdown(summary, heading="sessions")
 
 
-async def handle_session_resume(handler: "SlashCommandHandler", argument: str) -> str:
+async def handle_session_resume(handler: "SlashCommandHandler", argument: str | None) -> str:
     session_id = argument or None
     ctx = handler._build_command_context()
     io = cast("ACPCommandIO", ctx.io)
@@ -92,10 +81,10 @@ async def handle_session_resume(handler: "SlashCommandHandler", argument: str) -
     return handler._format_outcome_as_markdown(outcome, "session resume", io=io)
 
 
-async def handle_session_title(handler: "SlashCommandHandler", argument: str) -> str:
+async def handle_session_title(handler: "SlashCommandHandler", argument: str | None) -> str:
     ctx = handler._build_command_context()
     io = cast("ACPCommandIO", ctx.io)
-    title = argument.strip() or None
+    title = argument.strip() or None if argument is not None else None
     outcome = await sessions_handlers.handle_title_session(
         ctx,
         title=title,
@@ -106,22 +95,22 @@ async def handle_session_title(handler: "SlashCommandHandler", argument: str) ->
     return handler._format_outcome_as_markdown(outcome, "session title", io=io)
 
 
-async def handle_session_fork(handler: "SlashCommandHandler", argument: str) -> str:
+async def handle_session_fork(handler: "SlashCommandHandler", argument: str | None) -> str:
     ctx = handler._build_command_context()
     io = cast("ACPCommandIO", ctx.io)
     outcome = await sessions_handlers.handle_fork_session(
         ctx,
-        title=argument.strip() or None,
+        title=argument.strip() or None if argument is not None else None,
     )
     return handler._format_outcome_as_markdown(outcome, "session fork", io=io)
 
 
-async def handle_session_new(handler: "SlashCommandHandler", argument: str) -> str:
+async def handle_session_new(handler: "SlashCommandHandler", argument: str | None) -> str:
     ctx = handler._build_command_context()
     io = cast("ACPCommandIO", ctx.io)
     outcome = await sessions_handlers.handle_create_session(
         ctx,
-        session_name=argument.strip() or None,
+        session_name=argument.strip() or None if argument is not None else None,
     )
     cleared = clear_agent_histories(handler.instance.agents, handler._logger)
     if cleared:
@@ -132,47 +121,30 @@ async def handle_session_new(handler: "SlashCommandHandler", argument: str) -> s
     return handler._format_outcome_as_markdown(outcome, "session new", io=io)
 
 
-async def handle_session_delete(handler: "SlashCommandHandler", argument: str) -> str:
+async def handle_session_delete(handler: "SlashCommandHandler", argument: str | None) -> str:
     ctx = handler._build_command_context()
     io = cast("ACPCommandIO", ctx.io)
     outcome = await sessions_handlers.handle_clear_sessions(
         ctx,
-        target=argument.strip() or None,
+        target=argument.strip() or None if argument is not None else None,
     )
     return handler._format_outcome_as_markdown(outcome, "session delete", io=io)
 
 
-async def handle_session_pin(handler: "SlashCommandHandler", argument: str) -> str:
+async def handle_session_pin(
+    handler: "SlashCommandHandler",
+    argument: str | None = None,
+    *,
+    value: str | None = None,
+    target: str | None = None,
+) -> str:
+    if argument is not None:
+        intent = parse_session_command_intent(f"pin {argument}")
+        value = intent.pin_value
+        target = intent.pin_target
+
     ctx = handler._build_command_context()
     io = cast("ACPCommandIO", ctx.io)
-    pin_argument = argument.strip() if argument else ""
-    value: str | None = None
-    target: str | None = None
-    if pin_argument:
-        try:
-            pin_tokens = shlex.split(pin_argument)
-        except ValueError:
-            pin_tokens = pin_argument.split(maxsplit=1)
-        if pin_tokens:
-            first = pin_tokens[0].lower()
-            value_tokens = {
-                "on",
-                "off",
-                "toggle",
-                "true",
-                "false",
-                "yes",
-                "no",
-                "enable",
-                "enabled",
-                "disable",
-                "disabled",
-            }
-            if first in value_tokens:
-                value = first
-                target = " ".join(pin_tokens[1:]).strip() or None
-            else:
-                target = pin_argument
     outcome = await sessions_handlers.handle_pin_session(
         ctx,
         value=value,

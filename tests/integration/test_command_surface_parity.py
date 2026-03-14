@@ -247,3 +247,19 @@ async def test_tui_and_acp_share_mcp_session_use_state_effect() -> None:
 
     assert session_client.session_id == "sess-123"
     assert "Selected MCP session for demo." in response
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_tui_and_acp_share_history_detail_error_intent() -> None:
+    provider = _Provider({"main": _Agent(name="main")})
+    owner = _Owner(agent_types=provider.agent_types())
+
+    await _dispatch_tui("/history detail", owner=owner, provider=provider)
+    emitted = "\n".join(provider._agent("main").display.messages)
+    assert "Turn number required for /history detail" in emitted
+
+    handler = _build_acp_handler(provider)
+    response = await handler.execute_command("history", "detail")
+
+    assert "Turn number required for /history detail" in response

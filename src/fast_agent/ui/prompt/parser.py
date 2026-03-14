@@ -16,6 +16,10 @@ from fast_agent.commands.mcp_command_intents import (
     parse_mcp_connect_tokens,
     parse_mcp_session_tokens,
 )
+from fast_agent.commands.shared_command_intents import (
+    parse_current_agent_history_intent,
+    parse_session_command_intent,
+)
 from fast_agent.ui.command_payloads import (
     AgentCommand,
     CardsCommand,
@@ -27,7 +31,6 @@ from fast_agent.ui.command_payloads import (
     HashAgentCommand,
     HistoryFixCommand,
     HistoryReviewCommand,
-    HistoryRewindCommand,
     HistoryShowCommand,
     HistoryWebClearCommand,
     ListSessionsCommand,
@@ -172,53 +175,62 @@ def _parse_history_command(remainder: str) -> CommandPayload:
     subcmd = tokens[0].lower()
     argument = " ".join(tokens[1:]).strip()
 
-    simple_factories: dict[str, Callable[[str | None], CommandPayload]] = {
-        "show": HistoryShowCommand,
-        "save": SaveHistoryCommand,
-        "fix": HistoryFixCommand,
-        "webclear": HistoryWebClearCommand,
-    }
-    factory = simple_factories.get(subcmd)
-    if factory is not None:
-        return factory(argument or None)
+    targeted_payload = _parse_targeted_history_action(subcmd, argument)
+    if targeted_payload is not None:
+        return targeted_payload
 
-    if subcmd == "load":
-        if not argument:
-            return LoadHistoryCommand(
-                filename=None,
-                error="Filename required for /history load",
-            )
-        return LoadHistoryCommand(filename=argument, error=None)
-
-    turn_payload = _parse_history_turn_command(subcmd, argument)
-    if turn_payload is not None:
-        return turn_payload
-    if subcmd == "clear":
-        return _parse_history_clear_command(argument)
+    intent = parse_current_agent_history_intent(remainder)
+    shared_payload = _history_payload_from_shared_intent(intent)
+    if shared_payload is not None:
+        return shared_payload
 
     return ShowHistoryCommand(agent=remainder)
 
 
-def _parse_history_turn_command(subcmd: str, argument: str) -> CommandPayload | None:
-    if subcmd not in {"detail", "review", "rewind"}:
-        return None
+def _parse_targeted_history_action(subcmd: str, argument: str) -> CommandPayload | None:
+    if subcmd == "fix":
+        return HistoryFixCommand(agent=argument or None)
+    if subcmd == "webclear":
+        return HistoryWebClearCommand(agent=argument or None)
+    if subcmd == "clear":
+        return _parse_history_clear_command(argument)
+    return None
 
-    if subcmd in {"detail", "review"}:
-        missing = "Turn number required for /history detail"
-        build_payload = HistoryReviewCommand
-    else:
-        missing = "Turn number required for /history rewind"
-        build_payload = HistoryRewindCommand
 
-    if not argument:
-        return build_payload(turn_index=None, error=missing)
+def _history_payload_from_shared_intent(intent) -> CommandPayload | None:
+    if intent.action == "overview":
+        return ShowHistoryCommand(agent=None)
+    if intent.action == "show":
+        return HistoryShowCommand(agent=intent.argument)
+    if intent.action == "save":
+        return SaveHistoryCommand(filename=intent.argument)
+    if intent.action == "load":
+        if not intent.argument:
+            return LoadHistoryCommand(
+                filename=None,
+                error="Filename required for /history load",
+            )
+        return LoadHistoryCommand(filename=intent.argument, error=None)
+    if intent.action == "detail":
+        return _history_review_payload_from_intent(intent.turn_index, intent.turn_error)
+    return None
 
-    try:
-        turn_index = int(argument)
-    except ValueError:
-        return build_payload(turn_index=None, error="Turn number must be an integer")
 
-    return build_payload(turn_index=turn_index, error=None)
+def _history_review_payload_from_intent(
+    turn_index: int | None,
+    turn_error: str | None,
+) -> HistoryReviewCommand:
+    if turn_error == "missing":
+        return HistoryReviewCommand(
+            turn_index=None,
+            error="Turn number required for /history detail",
+        )
+    if turn_error == "invalid":
+        return HistoryReviewCommand(
+            turn_index=None,
+            error="Turn number must be an integer",
+        )
+    return HistoryReviewCommand(turn_index=turn_index, error=None)
 
 
 def _parse_history_clear_command(argument: str) -> ClearCommand:
@@ -233,70 +245,22 @@ def _parse_history_clear_command(argument: str) -> ClearCommand:
 
 
 def _parse_session_command(remainder: str) -> CommandPayload:
-    if not remainder:
+    intent = parse_session_command_intent(remainder)
+    if intent.action in {"help", "unknown"}:
         return ListSessionsCommand(show_help=True)
-
-    try:
-        tokens = shlex.split(remainder)
-    except ValueError:
-        return ListSessionsCommand(show_help=True)
-
-    if not tokens:
-        return ListSessionsCommand(show_help=True)
-
-    subcmd = tokens[0].lower()
-    argument = remainder[len(tokens[0]) :].strip()
-
-    if subcmd in {"resume", "list", "new", "delete", "clear", "title", "fork"}:
-        return _parse_simple_session_command(subcmd, argument)
-    if subcmd == "pin":
-        return _parse_session_pin_command(argument)
-
-    return ListSessionsCommand(show_help=True)
-
-
-def _parse_simple_session_command(subcmd: str, argument: str) -> CommandPayload:
-    if subcmd == "resume":
-        return ResumeSessionCommand(session_id=argument if argument else None)
-    if subcmd == "list":
+    if intent.action == "list":
         return ListSessionsCommand()
-    if subcmd == "new":
-        return CreateSessionCommand(session_name=argument or None)
-    if subcmd in {"delete", "clear"}:
-        return ClearSessionsCommand(target=argument or None)
-    if subcmd == "title":
-        return TitleSessionCommand(title=argument if argument else "")
-    return ForkSessionCommand(title=argument if argument else None)
-
-
-def _parse_session_pin_command(argument: str) -> PinSessionCommand:
-    if argument:
-        try:
-            pin_tokens = shlex.split(argument)
-        except ValueError:
-            pin_tokens = argument.split(maxsplit=1)
-    else:
-        pin_tokens = []
-    if not pin_tokens:
-        return PinSessionCommand(value=None, target=None)
-    first = pin_tokens[0].lower()
-    value_tokens = {
-        "on",
-        "off",
-        "toggle",
-        "true",
-        "false",
-        "yes",
-        "no",
-        "enable",
-        "enabled",
-        "disable",
-        "disabled",
-    }
-    if first in value_tokens:
-        target = " ".join(pin_tokens[1:]).strip() or None
-        return PinSessionCommand(value=first, target=target)
-    return PinSessionCommand(value=None, target=argument or None)
+    if intent.action == "new":
+        return CreateSessionCommand(session_name=intent.argument)
+    if intent.action == "resume":
+        return ResumeSessionCommand(session_id=intent.argument)
+    if intent.action == "title":
+        return TitleSessionCommand(title=intent.argument or "")
+    if intent.action == "fork":
+        return ForkSessionCommand(title=intent.argument)
+    if intent.action == "delete":
+        return ClearSessionsCommand(target=intent.argument)
+    return PinSessionCommand(value=intent.pin_value, target=intent.pin_target)
 
 
 def _parse_card_command(remainder: str) -> CommandPayload:

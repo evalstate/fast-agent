@@ -244,6 +244,42 @@ async def test_slash_command_mcp_connect_sends_acp_progress_updates() -> None:
 
 
 @pytest.mark.asyncio
+async def test_slash_command_mcp_connect_redacts_auth_in_acp_updates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MCP_TOKEN", "secret-token-value")
+
+    app = _App()
+    instance = AgentInstance(
+        app=cast("AgentApp", app),
+        agents={"main": cast("AgentProtocol", _Agent())},
+        registry_version=0,
+    )
+    handler = SlashCommandHandler(
+        session_id="s1",
+        instance=instance,
+        primary_agent_name="main",
+        attach_mcp_server_callback=app.attach_mcp_server,
+        detach_mcp_server_callback=app.detach_mcp_server,
+        list_attached_mcp_servers_callback=app.list_attached_mcp_servers,
+        list_configured_detached_mcp_servers_callback=app.list_configured_detached_mcp_servers,
+    )
+    acp_context = _FakeACPContext()
+    handler.set_acp_context(cast("ACPContext", acp_context))
+
+    connected = await handler.execute_command(
+        "mcp",
+        "connect https://example.com/mcp --name demo --auth $MCP_TOKEN",
+    )
+
+    assert "Connected MCP server 'demo'" in connected
+    rendered_updates = "\n".join(str(update) for update in acp_context.updates)
+    assert "secret-token-value" not in rendered_updates
+    assert "--auth" in rendered_updates
+    assert "[REDACTED]" in rendered_updates
+
+
+@pytest.mark.asyncio
 async def test_slash_command_mcp_connect_preserves_quoted_target_arguments() -> None:
     app = _App()
     instance = AgentInstance(
