@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Iterable, Literal
 
@@ -15,6 +16,23 @@ if TYPE_CHECKING:
 
 
 type CapabilityState = bool | Literal["blue", "red", "warn"]
+
+
+@dataclass(frozen=True, slots=True)
+class _ChannelSummaryEntry:
+    label: str
+    arrow: str
+    channel: ChannelSnapshot | None
+
+
+@dataclass(frozen=True, slots=True)
+class _ChannelSummaryLayout:
+    transport_display: str
+    default_bucket_seconds: int
+    default_bucket_count: int
+    metrics_prefix_width: int
+    is_stdio: bool
+    health_insert_label: str | None
 
 
 # Centralized color configuration
@@ -289,6 +307,67 @@ def _cap_attr(source, attr: str | None) -> bool:
     return bool(target)
 
 
+def _instruction_capability_state(
+    status: ServerStatus,
+    *,
+    template_expected: bool,
+) -> CapabilityState:
+    if not status.instructions_available:
+        return False
+    if status.instructions_enabled is False:
+        return "red"
+    if status.instructions_enabled is None and not template_expected:
+        return "warn"
+    if status.instructions_enabled is None:
+        return True
+    if template_expected:
+        return True
+    return "blue"
+
+
+def _skybridge_capability_state(status: ServerStatus) -> CapabilityState:
+    skybridge_config = getattr(status, "skybridge", None)
+    if not skybridge_config:
+        return False
+    if getattr(skybridge_config, "warnings", None):
+        return "warn"
+    if getattr(skybridge_config, "enabled", False):
+        return True
+    return False
+
+
+def _elicitation_capability_state(mode: str | None) -> CapabilityState:
+    normalized_mode = (mode or "").lower()
+    if normalized_mode == "auto-cancel":
+        return "red"
+    if normalized_mode and normalized_mode != "none":
+        return True
+    return False
+
+
+def _sampling_capability_state(mode: str | None) -> CapabilityState:
+    normalized_mode = (mode or "").lower()
+    if normalized_mode == "configured":
+        return "blue"
+    if normalized_mode == "auto":
+        return True
+    return False
+
+
+def _capability_token_style(supported: CapabilityState, highlighted: bool) -> str:
+    if supported == "red":
+        return Colours.TOKEN_ERROR
+    if supported == "blue":
+        return Colours.TOKEN_WARNING
+    if supported == "warn":
+        return Colours.CAP_TOKEN_CAUTION
+    if not supported:
+        return Colours.TOKEN_DISABLED
+    if highlighted:
+        return Colours.CAP_TOKEN_HIGHLIGHTED
+    return Colours.CAP_TOKEN_ENABLED
+
+
 def _format_capability_shorthand(
     status: ServerStatus, template_expected: bool
 ) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
@@ -304,9 +383,6 @@ def _format_capability_shorthand(
     )
     experimental_caps = getattr(caps, "experimental", None)
 
-    instructions_available = bool(status.instructions_available)
-    instructions_enabled = status.instructions_enabled
-
     entries: list[tuple[str, CapabilityState, bool]] = [
         ("To", _cap_attr(tools, None), _cap_attr(tools, "listChanged")),
         ("Pr", _cap_attr(prompts, None), _cap_attr(prompts, "listChanged")),
@@ -319,71 +395,17 @@ def _format_capability_shorthand(
         ("Lo", _cap_attr(logging_caps, None), False),
         ("Co", _cap_attr(completion_caps, None), _cap_attr(completion_caps, "listChanged")),
         ("Ex", _cap_attr(experimental_caps, None), False),
+        ("In", _instruction_capability_state(status, template_expected=template_expected), False),
+        ("Sk", _skybridge_capability_state(status), False),
+        ("Ro", bool(status.roots_configured), False),
+        ("El", _elicitation_capability_state(status.elicitation_mode), False),
+        ("Sa", _sampling_capability_state(status.sampling_mode), False),
+        ("Sp", bool(status.spoofing_enabled), False),
     ]
 
-    if not instructions_available:
-        entries.append(("In", False, False))
-    elif instructions_enabled is False:
-        entries.append(("In", "red", False))
-    elif instructions_enabled is None and not template_expected:
-        entries.append(("In", "warn", False))
-    elif instructions_enabled is None:
-        entries.append(("In", True, False))
-    elif template_expected:
-        entries.append(("In", True, False))
-    else:
-        entries.append(("In", "blue", False))
-
-    skybridge_config = getattr(status, "skybridge", None)
-    if not skybridge_config:
-        entries.append(("Sk", False, False))
-    else:
-        has_warnings = bool(getattr(skybridge_config, "warnings", None))
-        if has_warnings:
-            entries.append(("Sk", "warn", False))
-        elif getattr(skybridge_config, "enabled", False):
-            entries.append(("Sk", True, False))
-        else:
-            entries.append(("Sk", False, False))
-
-    if status.roots_configured:
-        entries.append(("Ro", True, False))
-    else:
-        entries.append(("Ro", False, False))
-
-    mode = (status.elicitation_mode or "").lower()
-    if mode == "auto-cancel":
-        entries.append(("El", "red", False))
-    elif mode and mode != "none":
-        entries.append(("El", True, False))
-    else:
-        entries.append(("El", False, False))
-
-    sampling_mode = (status.sampling_mode or "").lower()
-    if sampling_mode == "configured":
-        entries.append(("Sa", "blue", False))
-    elif sampling_mode == "auto":
-        entries.append(("Sa", True, False))
-    else:
-        entries.append(("Sa", False, False))
-
-    entries.append(("Sp", bool(status.spoofing_enabled), False))
-
-    def token_style(supported, highlighted) -> str:
-        if supported == "red":
-            return Colours.TOKEN_ERROR
-        if supported == "blue":
-            return Colours.TOKEN_WARNING
-        if supported == "warn":
-            return Colours.CAP_TOKEN_CAUTION
-        if not supported:
-            return Colours.TOKEN_DISABLED
-        if highlighted:
-            return Colours.CAP_TOKEN_HIGHLIGHTED
-        return Colours.CAP_TOKEN_ENABLED
-
     tokens = [
-        (label, token_style(supported, highlighted)) for label, supported, highlighted in entries
+        (_label, _capability_token_style(supported, highlighted))
+        for _label, supported, highlighted in entries
     ]
     return tokens[:8], tokens[8:]
 
@@ -449,6 +471,31 @@ def _build_health_text(status: ServerStatus) -> Text | None:
     return health
 
 
+def _offline_health_state(status: ServerStatus) -> tuple[str, str] | None:
+    if status.is_connected is not False:
+        return None
+    if status.error_message and "initializing" in status.error_message:
+        return ("pending", Colours.TEXT_DIM)
+    return ("offline", Colours.TEXT_ERROR)
+
+
+def _stale_health_state(
+    status: ServerStatus,
+    *,
+    interval: int,
+    max_missed: int,
+) -> tuple[str, str] | None:
+    last_ping_at = status.ping_last_ok_at or status.ping_last_fail_at
+    if last_ping_at is None or max_missed <= 0:
+        return None
+    if last_ping_at.tzinfo is None:
+        last_ping_at = last_ping_at.replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+    if (now - last_ping_at).total_seconds() > interval * max_missed:
+        return ("stale", Colours.TEXT_ERROR)
+    return None
+
+
 def _get_health_state(status: ServerStatus) -> tuple[str, str]:
     interval = status.ping_interval_seconds
     if interval is None:
@@ -456,10 +503,9 @@ def _get_health_state(status: ServerStatus) -> tuple[str, str]:
     if interval <= 0:
         return ("disabled", Colours.TEXT_DIM)
 
-    if status.is_connected is False:
-        if status.error_message and "initializing" in status.error_message:
-            return ("pending", Colours.TEXT_DIM)
-        return ("offline", Colours.TEXT_ERROR)
+    offline_state = _offline_health_state(status)
+    if offline_state is not None:
+        return offline_state
 
     if _has_transport_error(status):
         return ("error", Colours.TEXT_ERROR)
@@ -467,14 +513,9 @@ def _get_health_state(status: ServerStatus) -> tuple[str, str]:
     max_missed = status.ping_max_missed or 0
     misses = _compute_display_misses(status)
     has_activity = bool(status.ping_last_ok_at or status.ping_last_fail_at)
-
-    last_ping_at = status.ping_last_ok_at or status.ping_last_fail_at
-    if last_ping_at is not None and max_missed > 0:
-        if last_ping_at.tzinfo is None:
-            last_ping_at = last_ping_at.replace(tzinfo=timezone.utc)
-        now = datetime.now(timezone.utc)
-        if (now - last_ping_at).total_seconds() > interval * max_missed:
-            return ("stale", Colours.TEXT_ERROR)
+    stale_state = _stale_health_state(status, interval=interval, max_missed=max_missed)
+    if stale_state is not None:
+        return stale_state
 
     if not has_activity:
         return ("pending", Colours.TEXT_DIM)
@@ -563,396 +604,385 @@ def _build_inline_timeline(
 
     for state in bucket_list:
         color = TIMELINE_COLORS.get(state, Colours.NONE)
-        if state in {"idle", "none"}:
-            symbol = SYMBOL_IDLE
-        elif state == "request":
-            symbol = SYMBOL_REQUEST
-        elif state == "notification":
-            symbol = SYMBOL_NOTIFICATION
-        elif state == "error":
-            symbol = SYMBOL_ERROR
-        elif state == "ping":
-            symbol = SYMBOL_PING
-        elif state == "disabled":
-            symbol = SYMBOL_DISABLED
-        else:
-            symbol = SYMBOL_RESPONSE
+        symbol = _timeline_symbol_for_state(state)
         timeline += f"[bold {color}]{symbol}[/bold {color}]"
     timeline += " [dim]now[/dim]"
     return timeline
 
 
-def _render_channel_summary(status: ServerStatus, indent: str, total_width: int) -> None:
+def _timeline_symbol_for_state(state: str, *, is_stdio: bool = False) -> str:
+    if state in {"idle", "none"}:
+        return SYMBOL_IDLE
+    if state == "error":
+        return SYMBOL_ERROR
+    if state == "ping":
+        return SYMBOL_PING
+    if state == "disabled":
+        return SYMBOL_DISABLED
+    if is_stdio:
+        return SYMBOL_STDIO_ACTIVITY
+    if state == "request":
+        return SYMBOL_REQUEST
+    if state == "notification":
+        return SYMBOL_NOTIFICATION
+    return SYMBOL_RESPONSE
+
+
+def _timeline_color_map(*, is_stdio: bool) -> dict[str, str]:
+    return TIMELINE_COLORS_STDIO if is_stdio else TIMELINE_COLORS
+
+
+def _normalise_timeline_states(
+    bucket_states: Iterable[str] | None,
+    bucket_count: int,
+) -> list[str]:
+    states = list(bucket_states or [])
+    if len(states) < bucket_count:
+        states.extend(["none"] * (bucket_count - len(states)))
+    elif len(states) > bucket_count:
+        states = states[-bucket_count:]
+    return states
+
+
+def _build_channel_entries(status: ServerStatus) -> list[_ChannelSummaryEntry]:
     snapshot = getattr(status, "transport_channels", None)
     if snapshot is None:
-        return
+        return []
 
-    transport_value = getattr(status, "transport", None)
-    transport_lower = (transport_value or "").lower()
-    is_sse_transport = transport_lower == "sse"
-
-    # Show channel types based on what's available
-    entries: list[tuple[str, str, ChannelSnapshot | None]] = []
-
-    # Check if we have HTTP transport channels
+    transport_lower = (getattr(status, "transport", None) or "").lower()
     http_channels = [
         getattr(snapshot, "get", None),
         getattr(snapshot, "post_sse", None),
         getattr(snapshot, "post_json", None),
     ]
-
-    # Check if we have stdio transport channel
     stdio_channel = getattr(snapshot, "stdio", None)
 
     if any(channel is not None for channel in http_channels):
-        # HTTP or SSE transport - show available channels
         entries = [
-            ("GET (SSE)", "◀", getattr(snapshot, "get", None)),
-            ("POST (SSE)", "▶", getattr(snapshot, "post_sse", None)),
+            _ChannelSummaryEntry("GET (SSE)", "◀", getattr(snapshot, "get", None)),
+            _ChannelSummaryEntry("POST (SSE)", "▶", getattr(snapshot, "post_sse", None)),
         ]
-        if not is_sse_transport:
-            entries.append(("POST (JSON)", "▶", getattr(snapshot, "post_json", None)))
-    elif stdio_channel is not None:
-        # STDIO transport - show single bidirectional channel
-        entries = [
-            ("STDIO", "⇄", stdio_channel),
-        ]
+        if transport_lower != "sse":
+            entries.append(
+                _ChannelSummaryEntry("POST (JSON)", "▶", getattr(snapshot, "post_json", None))
+            )
+        return entries
 
-    # Skip if no channels have data
-    if not any(channel is not None for _, _, channel in entries):
-        return
+    if stdio_channel is None:
+        return []
 
-    console.console.print()  # Add space before channels
+    return [_ChannelSummaryEntry("STDIO", "⇄", stdio_channel)]
 
-    # Determine if we're showing stdio or HTTP channels
-    is_stdio = stdio_channel is not None
 
+def _get_channel_health_insert_label(
+    status: ServerStatus,
+    entries: list[_ChannelSummaryEntry],
+) -> str | None:
+    if status.ping_interval_seconds is None:
+        return None
+
+    label_names = [entry.label for entry in entries]
+    if "POST (JSON)" in label_names:
+        return "POST (JSON)"
+    if "POST (SSE)" in label_names:
+        return "POST (SSE)"
+    if "STDIO" in label_names:
+        return "STDIO"
+    if label_names:
+        return label_names[-1]
+    return None
+
+
+def _build_channel_summary_layout(
+    status: ServerStatus,
+    entries: list[_ChannelSummaryEntry],
+) -> _ChannelSummaryLayout:
+    snapshot = getattr(status, "transport_channels", None)
     default_bucket_seconds = getattr(snapshot, "activity_bucket_seconds", None) or 30
     default_bucket_count = getattr(snapshot, "activity_bucket_count", None) or 20
     timeline_header_label = _format_timeline_label(default_bucket_seconds * default_bucket_count)
-
-    # Total characters before the metrics section in each row (excluding indent)
-    # Structure: "│ " + arrow + " " + label(13) + timeline_label + " " + buckets + " now"
     metrics_prefix_width = 22 + len(timeline_header_label) + default_bucket_count
-
-    # Get transport type for display
-    transport = transport_value or "unknown"
+    transport = getattr(status, "transport", None) or "unknown"
     transport_display = transport.upper() if transport != "unknown" else "Channels"
+    is_stdio = len(entries) == 1 and entries[0].label == "STDIO"
+    return _ChannelSummaryLayout(
+        transport_display=transport_display,
+        default_bucket_seconds=default_bucket_seconds,
+        default_bucket_count=default_bucket_count,
+        metrics_prefix_width=metrics_prefix_width,
+        is_stdio=is_stdio,
+        health_insert_label=_get_channel_health_insert_label(status, entries),
+    )
 
-    # Header with column labels
+
+def _render_channel_summary_header(indent: str, layout: _ChannelSummaryLayout) -> None:
+    console.console.print()
+
     header = Text(indent)
-    header_intro = f"┌ {transport_display} "
+    header_intro = f"┌ {layout.transport_display} "
     header.append(header_intro, style="dim")
-
-    # Calculate padding needed based on transport display length
-    header_prefix_len = len(header_intro)
-
-    dash_count = max(1, metrics_prefix_width - header_prefix_len + 2)
-    if is_stdio:
-        header.append("─" * dash_count, style="dim")
-        header.append("  activity", style="dim")
-    else:
-        header.append("─" * dash_count, style="dim")
-        header.append("  req  resp notif  ping", style="dim")
-
+    dash_count = max(1, layout.metrics_prefix_width - len(header_intro) + 2)
+    header.append("─" * dash_count, style="dim")
+    header.append(
+        "  activity" if layout.is_stdio else "  req  resp notif  ping",
+        style="dim",
+    )
     console.console.print(header)
 
-    # Empty row after header for cleaner spacing
     empty_header = Text(indent)
     empty_header.append("│", style="dim")
     console.console.print(empty_header)
 
-    # Collect any errors to show at bottom
-    errors = []
 
-    # Get appropriate timeline color map
-    timeline_color_map = TIMELINE_COLORS_STDIO if is_stdio else TIMELINE_COLORS
+def _channel_arrow_style(channel: ChannelSnapshot | None) -> str:
+    if channel is None:
+        return Colours.ARROW_OFF
 
-    health_insert_label = None
-    if status.ping_interval_seconds is not None:
-        label_names = [entry[0] for entry in entries]
-        if "POST (JSON)" in label_names:
-            health_insert_label = "POST (JSON)"
-        elif "POST (SSE)" in label_names:
-            health_insert_label = "POST (SSE)"
-        elif "STDIO" in label_names:
-            health_insert_label = "STDIO"
-        elif label_names:
-            health_insert_label = label_names[-1]
+    state = (channel.state or "open").lower()
+    if channel.last_status_code == 405:
+        return Colours.ARROW_METHOD_NOT_ALLOWED
+    if state == "error":
+        return Colours.ARROW_ERROR
+    if state in {"off", "disabled"}:
+        return Colours.ARROW_OFF
+    if channel.request_count == 0 and channel.response_count == 0:
+        return Colours.ARROW_IDLE
+    if state in {"open", "connected"}:
+        return Colours.ARROW_ACTIVE
+    return Colours.ARROW_IDLE
 
-    def render_health_row() -> None:
-        line = Text(indent)
-        line.append("│ ", style="dim")
-        _, state_style = _get_health_state(status)
-        line.append(SYMBOL_PING, style=state_style)
-        line.append(f" {'HEALTH':<13}", style=state_style)
 
-        bucket_seconds = status.ping_activity_bucket_seconds or default_bucket_seconds
-        bucket_count = status.ping_activity_bucket_count or default_bucket_count
-        timeline_label = _format_timeline_label(bucket_seconds * bucket_count)
-        line.append(f"{timeline_label} ", style="dim")
+def _display_channel_arrow(arrow: str, channel: ChannelSnapshot | None) -> str:
+    if channel is None or channel.last_status_code != 405:
+        return arrow
+    return {"◀": "◁", "▶": "▷", "⇄": "⇄"}.get(arrow, arrow)
 
-        bucket_states = status.ping_activity_buckets or []
-        if len(bucket_states) < bucket_count:
-            bucket_states = list(bucket_states) + ["none"] * (bucket_count - len(bucket_states))
-        elif len(bucket_states) > bucket_count:
-            bucket_states = bucket_states[-bucket_count:]
 
+def _channel_error_entry(
+    label: str,
+    channel: ChannelSnapshot | None,
+) -> tuple[str, str] | None:
+    if channel is None:
+        return None
+    if (channel.state or "").lower() != "error" or channel.last_status_code == 405:
+        return None
+    if not channel.last_error:
+        return None
+
+    error_message = channel.last_error
+    if channel.last_status_code:
+        error_message = f"{error_message} ({channel.last_status_code})"
+    return label.split()[0], error_message
+
+
+def _channel_label_style(
+    label: str,
+    channel: ChannelSnapshot | None,
+    arrow_style: str,
+) -> str:
+    if channel is None:
+        return Colours.TEXT_DIM
+    if channel.last_status_code == 405 and "GET" in label:
+        return Colours.TEXT_DIM
+    if arrow_style == Colours.ARROW_ERROR and "GET" in label:
+        return Colours.TEXT_ERROR
+    if (
+        channel.request_count == 0
+        and channel.response_count == 0
+        and channel.notification_count == 0
+        and (channel.ping_count or 0) == 0
+    ):
+        return Colours.TEXT_DIM
+    return Colours.TEXT_DEFAULT
+
+
+def _append_channel_timeline(
+    line: Text,
+    channel: ChannelSnapshot | None,
+    *,
+    layout: _ChannelSummaryLayout,
+) -> None:
+    channel_bucket_seconds = (
+        getattr(channel, "activity_bucket_seconds", None) or layout.default_bucket_seconds
+    )
+    bucket_count = (
+        len(channel.activity_buckets)
+        if channel is not None and channel.activity_buckets
+        else getattr(channel, "activity_bucket_count", None)
+    )
+    if not bucket_count or bucket_count <= 0:
+        bucket_count = layout.default_bucket_count
+
+    line.append(
+        f"{_format_timeline_label(channel_bucket_seconds * bucket_count)} ",
+        style="dim",
+    )
+
+    bucket_states = channel.activity_buckets if channel is not None and channel.activity_buckets else []
+    if bucket_states:
+        color_map = _timeline_color_map(is_stdio=layout.is_stdio)
         for bucket_state in bucket_states:
-            color = timeline_color_map.get(bucket_state, "dim")
-            if bucket_state in {"idle", "none"}:
-                symbol = SYMBOL_IDLE
-            elif bucket_state == "error":
-                symbol = SYMBOL_ERROR
-            elif bucket_state == "ping":
-                symbol = SYMBOL_PING
-            else:
-                symbol = SYMBOL_RESPONSE
+            color = color_map.get(bucket_state, "dim")
+            symbol = _timeline_symbol_for_state(bucket_state, is_stdio=layout.is_stdio)
             line.append(symbol, style=f"bold {color}")
+    else:
+        for _ in range(bucket_count):
+            line.append(SYMBOL_IDLE, style="black dim")
 
-        line.append(" now", style="dim")
-        ping_attempts = _get_ping_attempts(status)
-        if is_stdio:
-            activity = str(ping_attempts).rjust(8) if ping_attempts > 0 else "-".rjust(8)
-            activity_style = Colours.TEXT_DEFAULT if ping_attempts > 0 else Colours.TEXT_DIM
-            line.append(f"  {activity}", style=activity_style)
+    line.append(" now", style="dim")
+
+
+def _append_channel_metrics(
+    line: Text,
+    channel: ChannelSnapshot | None,
+    *,
+    is_stdio: bool,
+) -> None:
+    if is_stdio:
+        if channel is not None and channel.message_count > 0:
+            activity = str(channel.message_count).rjust(8)
+            activity_style = Colours.TEXT_DEFAULT
         else:
-            req = "-".rjust(5)
-            resp = "-".rjust(5)
-            notif = "-".rjust(5)
-            ping = str(ping_attempts).rjust(5) if ping_attempts > 0 else "-".rjust(5)
-            ping_style = Colours.TEXT_DEFAULT if ping_attempts > 0 else Colours.TEXT_DIM
-            line.append("  ", style="dim")
-            line.append(req, style=Colours.TEXT_DIM)
-            line.append(" ", style="dim")
-            line.append(resp, style=Colours.TEXT_DIM)
-            line.append(" ", style="dim")
-            line.append(notif, style=Colours.TEXT_DIM)
-            line.append(" ", style="dim")
-            line.append(ping, style=ping_style)
-        console.console.print(line)
+            activity = "-".rjust(8)
+            activity_style = Colours.TEXT_DIM
+        line.append(f"  {activity}", style=activity_style)
+        return
 
-    health_inserted = False
-
-    for label, arrow, channel in entries:
-        line = Text(indent)
-        line.append("│ ", style="dim")
-
-        # Determine arrow color based on state
-        arrow_style = Colours.ARROW_OFF  # default no channel
-        if channel:
-            state = (channel.state or "open").lower()
-
-            # Check for 405 status code (method not allowed = not an error, just unsupported)
-            if channel.last_status_code == 405:
-                arrow_style = Colours.ARROW_METHOD_NOT_ALLOWED
-                # Don't add 405 to errors list - it's not an error, just method not supported
-            # Error state (non-405 errors)
-            elif state == "error":
-                arrow_style = Colours.ARROW_ERROR
-                if channel.last_error and channel.last_status_code != 405:
-                    error_msg = channel.last_error
-                    if channel.last_status_code:
-                        errors.append(
-                            (label.split()[0], f"{error_msg} ({channel.last_status_code})")
-                        )
-                    else:
-                        errors.append((label.split()[0], error_msg))
-            # Explicitly disabled or off
-            elif state in {"off", "disabled"}:
-                arrow_style = Colours.ARROW_OFF
-            # No activity (idle)
-            elif channel.request_count == 0 and channel.response_count == 0:
-                arrow_style = Colours.ARROW_IDLE
-            # Active/connected with activity
-            elif state in {"open", "connected"}:
-                arrow_style = Colours.ARROW_ACTIVE
-            # Fallback for other states
-            else:
-                arrow_style = Colours.ARROW_IDLE
-
-        # Arrow and label with better spacing
-        # Use hollow arrow for 405 Method Not Allowed
-        if channel and channel.last_status_code == 405:
-            # Convert solid arrows to hollow for 405
-            hollow_arrows = {"◀": "◁", "▶": "▷", "⇄": "⇄"}  # bidirectional stays same
-            display_arrow = hollow_arrows.get(arrow, arrow)
+    if channel is None:
+        req = resp = notif = ping = "-".rjust(5)
+        metrics_style = Colours.TEXT_DIM
+    else:
+        channel_state = (channel.state or "open").lower()
+        is_shut = channel.last_status_code == 405 or channel_state in {"off", "disabled"}
+        if is_shut:
+            req = resp = notif = ping = "-".rjust(5)
+            metrics_style = Colours.TEXT_DIM
         else:
-            display_arrow = arrow
-        line.append(display_arrow, style=arrow_style)
+            req = str(channel.request_count).rjust(5)
+            resp = str(channel.response_count).rjust(5)
+            notif = str(channel.notification_count).rjust(5)
+            ping = str(channel.ping_count).rjust(5) if channel.ping_count else "-".rjust(5)
+            metrics_style = Colours.TEXT_DEFAULT
 
-        # Determine label style based on activity and special cases
-        if not channel:
-            # No channel = dim
-            label_style = Colours.TEXT_DIM
-        elif channel.last_status_code == 405 and "GET" in label:
-            # Special case: GET (SSE) with 405 = dim (hollow arrow already handled above)
-            label_style = Colours.TEXT_DIM
-        elif arrow_style == Colours.ARROW_ERROR and "GET" in label:
-            # Highlight GET stream errors in red to match the arrow indicator
-            label_style = Colours.TEXT_ERROR
-        elif (
-            channel.request_count == 0
-            and channel.response_count == 0
-            and channel.notification_count == 0
-            and (channel.ping_count or 0) == 0
-        ):
-            # No activity = dim
-            label_style = Colours.TEXT_DIM
-        else:
-            # Has activity = normal
-            label_style = Colours.TEXT_DEFAULT
-        line.append(f" {label:<13}", style=label_style)
+    if metrics_style == Colours.TEXT_DIM:
+        line.append(f"  {req} {resp} {notif} {ping}", style=metrics_style)
+        return
 
-        # Always show timeline (dim black dots if no data)
-        channel_bucket_seconds = (
-            getattr(channel, "activity_bucket_seconds", None) or default_bucket_seconds
-        )
-        bucket_count = (
-            len(channel.activity_buckets)
-            if channel and channel.activity_buckets
-            else getattr(channel, "activity_bucket_count", None)
-        )
-        if not bucket_count or bucket_count <= 0:
-            bucket_count = default_bucket_count
-        total_window_seconds = channel_bucket_seconds * bucket_count
-        timeline_label = _format_timeline_label(total_window_seconds)
+    ping_style = Colours.TEXT_DEFAULT if channel is not None and channel.ping_count else Colours.TEXT_DIM
+    line.append("  ", style="dim")
+    line.append(req, style=metrics_style)
+    line.append(" ", style="dim")
+    line.append(resp, style=metrics_style)
+    line.append(" ", style="dim")
+    line.append(notif, style=metrics_style)
+    line.append(" ", style="dim")
+    line.append(ping, style=ping_style)
 
-        line.append(f"{timeline_label} ", style="dim")
-        bucket_states = channel.activity_buckets if channel and channel.activity_buckets else None
-        if bucket_states:
-            # Show actual activity
-            for bucket_state in bucket_states:
-                color = timeline_color_map.get(bucket_state, "dim")
-                if bucket_state in {"idle", "none"}:
-                    symbol = SYMBOL_IDLE
-                elif is_stdio:
-                    symbol = SYMBOL_STDIO_ACTIVITY
-                elif bucket_state == "request":
-                    symbol = SYMBOL_REQUEST
-                elif bucket_state == "notification":
-                    symbol = SYMBOL_NOTIFICATION
-                elif bucket_state == "error":
-                    symbol = SYMBOL_ERROR
-                elif bucket_state == "ping":
-                    symbol = SYMBOL_PING
-                elif bucket_state == "disabled":
-                    symbol = SYMBOL_DISABLED
-                else:
-                    symbol = SYMBOL_RESPONSE
-                line.append(symbol, style=f"bold {color}")
-        else:
-            # Show dim dots for no activity
-            for _ in range(bucket_count):
-                line.append(SYMBOL_IDLE, style="black dim")
-        line.append(" now", style="dim")
 
-        # Metrics - different layouts for stdio vs HTTP
-        if is_stdio:
-            # Simplified activity column for stdio
-            if channel and channel.message_count > 0:
-                activity = str(channel.message_count).rjust(8)
-                activity_style = Colours.TEXT_DEFAULT
-            else:
-                activity = "-".rjust(8)
-                activity_style = Colours.TEXT_DIM
-            line.append(f"  {activity}", style=activity_style)
-        else:
-            # Original HTTP columns
-            if channel:
-                # Show "-" for shut/disabled channels (405, off, disabled states)
-                channel_state = (channel.state or "open").lower()
-                is_shut = (
-                    channel.last_status_code == 405
-                    or channel_state in {"off", "disabled"}
-                    or (channel_state == "error" and channel.last_status_code == 405)
-                )
+def _render_channel_health_row(
+    status: ServerStatus,
+    indent: str,
+    *,
+    layout: _ChannelSummaryLayout,
+) -> None:
+    line = Text(indent)
+    line.append("│ ", style="dim")
+    _, state_style = _get_health_state(status)
+    line.append(SYMBOL_PING, style=state_style)
+    line.append(f" {'HEALTH':<13}", style=state_style)
 
-                if is_shut:
-                    req = "-".rjust(5)
-                    resp = "-".rjust(5)
-                    notif = "-".rjust(5)
-                    ping = "-".rjust(5)
-                    metrics_style = Colours.TEXT_DIM
-                else:
-                    req = str(channel.request_count).rjust(5)
-                    resp = str(channel.response_count).rjust(5)
-                    notif = str(channel.notification_count).rjust(5)
-                    ping = str(channel.ping_count).rjust(5) if channel.ping_count else "-".rjust(5)
-                    metrics_style = Colours.TEXT_DEFAULT
-            else:
-                req = "-".rjust(5)
-                resp = "-".rjust(5)
-                notif = "-".rjust(5)
-                ping = "-".rjust(5)
-                metrics_style = Colours.TEXT_DIM
-            if metrics_style == Colours.TEXT_DIM:
-                line.append(f"  {req} {resp} {notif} {ping}", style=metrics_style)
-            else:
-                ping_style = (
-                    Colours.TEXT_DEFAULT if channel and channel.ping_count else Colours.TEXT_DIM
-                )
-                line.append("  ", style="dim")
-                line.append(req, style=metrics_style)
-                line.append(" ", style="dim")
-                line.append(resp, style=metrics_style)
-                line.append(" ", style="dim")
-                line.append(notif, style=metrics_style)
-                line.append(" ", style="dim")
-                line.append(ping, style=ping_style)
+    bucket_seconds = status.ping_activity_bucket_seconds or layout.default_bucket_seconds
+    bucket_count = status.ping_activity_bucket_count or layout.default_bucket_count
+    line.append(f"{_format_timeline_label(bucket_seconds * bucket_count)} ", style="dim")
 
-        console.console.print(line)
+    color_map = _timeline_color_map(is_stdio=layout.is_stdio)
+    for bucket_state in _normalise_timeline_states(status.ping_activity_buckets, bucket_count):
+        color = color_map.get(bucket_state, "dim")
+        symbol = _timeline_symbol_for_state(bucket_state, is_stdio=layout.is_stdio)
+        line.append(symbol, style=f"bold {color}")
 
-        if health_insert_label == label and not health_inserted:
-            render_health_row()
-            health_inserted = True
+    line.append(" now", style="dim")
+    ping_attempts = _get_ping_attempts(status)
+    if layout.is_stdio:
+        activity = str(ping_attempts).rjust(8) if ping_attempts > 0 else "-".rjust(8)
+        activity_style = Colours.TEXT_DEFAULT if ping_attempts > 0 else Colours.TEXT_DIM
+        line.append(f"  {activity}", style=activity_style)
+    else:
+        line.append("  ", style="dim")
+        line.append("-".rjust(5), style=Colours.TEXT_DIM)
+        line.append(" ", style="dim")
+        line.append("-".rjust(5), style=Colours.TEXT_DIM)
+        line.append(" ", style="dim")
+        line.append("-".rjust(5), style=Colours.TEXT_DIM)
+        line.append(" ", style="dim")
+        ping = str(ping_attempts).rjust(5) if ping_attempts > 0 else "-".rjust(5)
+        ping_style = Colours.TEXT_DEFAULT if ping_attempts > 0 else Colours.TEXT_DIM
+        line.append(ping, style=ping_style)
 
-        # Debug: print the raw line length
-        # import sys
-        # print(f"Line length: {len(line.plain)}", file=sys.stderr)
+    console.console.print(line)
 
-    # Show errors at bottom if any
-    if errors:
-        # Empty row before errors
-        empty_line = Text(indent)
-        empty_line.append("│", style="dim")
-        console.console.print(empty_line)
 
-        for channel_type, error_msg in errors:
-            error_line = Text(indent)
-            error_line.append("│ ", style=Colours.TEXT_DIM)
-            error_line.append("▲ ", style=Colours.TEXT_WARNING)
-            error_line.append(f"{channel_type}: ", style=Colours.TEXT_DEFAULT)
-            # Truncate long error messages
-            if len(error_msg) > 60:
-                error_msg = error_msg[:57] + "..."
-            error_line.append(error_msg, style=Colours.TEXT_ERROR)
-            console.console.print(error_line)
+def _render_single_channel_row(
+    entry: _ChannelSummaryEntry,
+    indent: str,
+    *,
+    layout: _ChannelSummaryLayout,
+) -> tuple[str, str] | None:
+    line = Text(indent)
+    line.append("│ ", style="dim")
 
-    # Legend if any timelines shown
-    has_timelines = any(channel and channel.activity_buckets for _, _, channel in entries)
+    arrow_style = _channel_arrow_style(entry.channel)
+    line.append(_display_channel_arrow(entry.arrow, entry.channel), style=arrow_style)
+    line.append(
+        f" {entry.label:<13}",
+        style=_channel_label_style(entry.label, entry.channel, arrow_style),
+    )
 
+    _append_channel_timeline(line, entry.channel, layout=layout)
+    _append_channel_metrics(line, entry.channel, is_stdio=layout.is_stdio)
+    console.console.print(line)
+    return _channel_error_entry(entry.label, entry.channel)
+
+
+def _render_channel_errors(errors: list[tuple[str, str]], indent: str) -> None:
+    if not errors:
+        return
+
+    empty_line = Text(indent)
+    empty_line.append("│", style="dim")
+    console.console.print(empty_line)
+
+    for channel_type, error_message in errors:
+        error_line = Text(indent)
+        error_line.append("│ ", style=Colours.TEXT_DIM)
+        error_line.append("▲ ", style=Colours.TEXT_WARNING)
+        error_line.append(f"{channel_type}: ", style=Colours.TEXT_DEFAULT)
+        error_line.append(_truncate_detail(error_message, max_len=60), style=Colours.TEXT_ERROR)
+        console.console.print(error_line)
+
+
+def _render_channel_footer(
+    entries: list[_ChannelSummaryEntry],
+    indent: str,
+    *,
+    is_stdio: bool,
+) -> None:
+    has_timelines = any(entry.channel is not None and entry.channel.activity_buckets for entry in entries)
     if has_timelines:
-        # Empty row before footer with legend
         empty_before = Text(indent)
         empty_before.append("│", style="dim")
         console.console.print(empty_before)
 
-    # Footer with legend
     footer = Text(indent)
     footer.append("└", style="dim")
-
     if has_timelines:
         footer.append(" legend: ", style="dim")
-
         if is_stdio:
-            # Simplified legend for stdio: just activity vs idle
             legend_map = [
                 ("activity", f"bold {Colours.TOKEN_ENABLED}"),
                 ("idle", Colours.IDLE),
             ]
         else:
-            # Full legend for HTTP channels
             legend_map = [
                 ("error", f"bold {Colours.ERROR}"),
                 ("response", f"bold {Colours.RESPONSE}"),
@@ -962,220 +992,284 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
                 ("idle", Colours.IDLE),
             ]
 
-        for i, (name, color) in enumerate(legend_map):
-            if i > 0:
+        for index, (name, color) in enumerate(legend_map):
+            if index > 0:
                 footer.append(" ", style="dim")
-            if name == "idle":
-                symbol = SYMBOL_IDLE
-            elif name == "request":
-                symbol = SYMBOL_REQUEST
-            elif name == "notification":
-                symbol = SYMBOL_NOTIFICATION
-            elif name == "error":
-                symbol = SYMBOL_ERROR
-            elif name == "ping":
-                symbol = SYMBOL_PING
-            elif is_stdio and name == "activity":
-                symbol = SYMBOL_STDIO_ACTIVITY
-            else:
-                symbol = SYMBOL_RESPONSE
-            footer.append(symbol, style=f"{color}")
+            symbol = SYMBOL_STDIO_ACTIVITY if is_stdio and name == "activity" else _timeline_symbol_for_state(name, is_stdio=is_stdio)
+            footer.append(symbol, style=color)
             footer.append(f" {name}", style="dim")
 
     console.console.print(footer)
 
-    # Add blank line for spacing before capabilities
+
+def _render_channel_summary(status: ServerStatus, indent: str, total_width: int) -> None:
+    del total_width
+
+    entries = _build_channel_entries(status)
+    if not any(entry.channel is not None for entry in entries):
+        return
+
+    layout = _build_channel_summary_layout(status, entries)
+    _render_channel_summary_header(indent, layout)
+
+    errors: list[tuple[str, str]] = []
+    health_inserted = False
+    for entry in entries:
+        error = _render_single_channel_row(entry, indent, layout=layout)
+        if error is not None:
+            errors.append(error)
+
+        if layout.health_insert_label == entry.label and not health_inserted:
+            _render_channel_health_row(status, indent, layout=layout)
+            health_inserted = True
+
+    _render_channel_errors(errors, indent)
+    _render_channel_footer(entries, indent, is_stdio=layout.is_stdio)
     console.console.print()
 
 
-async def render_mcp_status(agent, indent: str = "") -> None:
-    server_status_map = {}
-    if hasattr(agent, "get_server_status") and callable(getattr(agent, "get_server_status")):
-        try:
-            server_status_map = await agent.get_server_status()
-        except Exception:
-            server_status_map = {}
+async def _load_server_status_map(agent: object) -> dict[str, ServerStatus]:
+    get_server_status = getattr(agent, "get_server_status", None)
+    if not callable(get_server_status):
+        return {}
 
+    try:
+        status_map = await get_server_status()
+    except Exception:
+        return {}
+
+    return status_map if isinstance(status_map, dict) else {}
+
+
+def _template_expects_server_instructions(agent: object) -> bool:
+    config = getattr(agent, "config", None)
+    if config is None:
+        return False
+    return "{{serverInstructions}}" in str(getattr(config, "instruction", ""))
+
+
+def _console_width() -> int:
+    try:
+        return console.console.size.width
+    except Exception:
+        return 80
+
+
+def _render_mcp_status_header(label: Text, total_width: int, right: Text | None = None) -> None:
+    line = Text()
+    line.append_text(label)
+    line.append(" ")
+
+    separator_width = total_width - line.cell_len
+    if right is not None and right.cell_len > 0:
+        separator_width -= right.cell_len
+        separator_width = max(1, separator_width)
+        line.append("─" * separator_width, style="dim")
+        line.append_text(right)
+    else:
+        line.append("─" * max(1, separator_width), style="dim")
+
+    console.console.print()
+    console.console.print(line)
+    console.console.print()
+
+
+def _render_server_header(server: str, index: int, *, indent: str, total_width: int) -> None:
+    header_label = Text(indent)
+    header_label.append("▎", style=Colours.TEXT_CYAN)
+    header_label.append(SYMBOL_RESPONSE, style=f"dim {Colours.TEXT_CYAN}")
+    header_label.append(f" [{index:2}] ", style=Colours.TEXT_CYAN)
+    header_label.append(server, style=f"{Colours.TEXT_INFO} bold")
+    _render_mcp_status_header(header_label, total_width)
+
+
+def _build_client_display(status: ServerStatus) -> str:
+    client_parts: list[str] = []
+    if status.client_info_name:
+        client_parts.append(status.client_info_name)
+    if status.client_info_version:
+        client_parts.append(status.client_info_version)
+    return _truncate_detail(" ".join(client_parts), max_len=24)
+
+
+def _render_server_metadata(status: ServerStatus, *, indent: str) -> None:
+    meta_line = Text(indent + "  ")
+    meta_fields = [
+        _build_aligned_field(
+            "name",
+            _truncate_detail(status.implementation_name or status.server_name or "unknown", max_len=30),
+        )
+    ]
+
+    version_display = status.implementation_version or ""
+    if version_display:
+        meta_fields.append(_build_aligned_field("version", _truncate_detail(version_display, max_len=12)))
+
+    for index, field in enumerate(meta_fields):
+        if index:
+            meta_line.append("  ", style="dim")
+        meta_line.append_text(field)
+
+    client_display = _build_client_display(status)
+    if client_display:
+        meta_line.append(" | ", style="dim")
+        meta_line.append_text(_build_aligned_field("client", client_display))
+
+    console.console.print(meta_line)
+
+    session_line = Text(indent + "  ")
+    session_line.append_text(_build_aligned_field("session", _format_session_id(status.session_id)))
+    console.console.print(session_line)
+
+    experimental_session_line = Text(indent + "  ")
+    experimental_session_line.append_text(
+        _build_aligned_field("sessions", _format_experimental_session_status(status))
+    )
+    console.console.print(experimental_session_line)
+
+    health_text = _build_health_text(status)
+    if health_text is not None:
+        health_line = Text(indent + "  ")
+        health_line.append_text(_build_aligned_field("health", health_text))
+        console.console.print(health_line)
+
+    console.console.print()
+
+
+def _build_server_state_segments(
+    status: ServerStatus,
+    *,
+    template_expected: bool,
+) -> list[Text]:
+    state_segments: list[Text] = []
+
+    duration = _format_compact_duration(status.staleness_seconds)
+    if duration:
+        last_text = Text("last activity: ", style=Colours.TEXT_DIM)
+        last_text.append(duration, style=Colours.TEXT_DEFAULT)
+        last_text.append(" ago", style=Colours.TEXT_DIM)
+        state_segments.append(last_text)
+
+    if status.error_message and status.is_connected is False:
+        state_segments.append(Text(status.error_message, style=Colours.TEXT_ERROR))
+
+    instructions_available = bool(status.instructions_available)
+    if instructions_available and status.instructions_enabled is False:
+        state_segments.append(Text("instructions disabled", style=Colours.TEXT_ERROR))
+    elif instructions_available and not template_expected:
+        state_segments.append(Text("instr. not in sysprompt", style=Colours.TEXT_WARNING))
+
+    if status.spoofing_enabled:
+        state_segments.append(Text("client spoof", style=Colours.TEXT_WARNING))
+
+    return state_segments
+
+
+def _render_server_state(status: ServerStatus, *, indent: str, template_expected: bool) -> None:
+    state_segments = _build_server_state_segments(status, template_expected=template_expected)
+    if not state_segments:
+        return
+
+    status_line = Text(indent + "  ")
+    for index, segment in enumerate(state_segments):
+        if index:
+            status_line.append("  |  ", style="dim")
+        status_line.append_text(segment)
+    console.console.print(status_line)
+
+
+def _render_server_calls(status: ServerStatus, *, indent: str) -> None:
+    calls = _summarise_call_counts(status.call_counts)
+    if calls:
+        calls_line = Text(indent + "  ")
+        calls_line.append("mcp calls: ", style=Colours.TEXT_DIM)
+        calls_line.append(calls, style=Colours.TEXT_DEFAULT)
+        if status.reconnect_count > 0:
+            calls_line.append("  |  ", style="dim")
+            calls_line.append("reconnects: ", style=Colours.TEXT_DIM)
+            calls_line.append(str(status.reconnect_count), style=Colours.TEXT_WARNING)
+        console.console.print(calls_line)
+        return
+
+    if status.reconnect_count > 0:
+        reconnect_line = Text(indent + "  ")
+        reconnect_line.append("reconnects: ", style=Colours.TEXT_DIM)
+        reconnect_line.append(str(status.reconnect_count), style=Colours.TEXT_WARNING)
+        console.console.print(reconnect_line)
+
+
+def _render_capability_banner(
+    tokens: list[tuple[str, str]],
+    *,
+    indent: str,
+    total_width: int,
+) -> None:
+    prefix = Text(indent)
+    prefix.append("─| ", style="dim")
+    suffix = Text(" |", style="dim")
+
+    caps_content = _build_capability_text(tokens) if tokens else Text("none", style="dim")
+    caps_display = caps_content.copy()
+    available = max(0, total_width - prefix.cell_len - suffix.cell_len)
+    if caps_display.cell_len > available:
+        caps_display.truncate(available)
+
+    banner_line = Text()
+    banner_line.append_text(prefix)
+    banner_line.append_text(caps_display)
+    banner_line.append_text(suffix)
+    remaining = total_width - banner_line.cell_len
+    if remaining > 0:
+        banner_line.append("─" * remaining, style="dim")
+
+    console.console.print(banner_line)
+
+
+def _render_server_status_block(
+    server: str,
+    status: ServerStatus,
+    *,
+    index: int,
+    total_count: int,
+    indent: str,
+    total_width: int,
+    template_expected: bool,
+) -> None:
+    primary_caps, secondary_caps = _format_capability_shorthand(status, template_expected)
+    _render_server_header(server, index, indent=indent, total_width=total_width)
+    _render_server_metadata(status, indent=indent)
+    _render_server_state(status, indent=indent, template_expected=template_expected)
+    _render_server_calls(status, indent=indent)
+    _render_channel_summary(status, indent, total_width)
+    _render_capability_banner(
+        primary_caps + secondary_caps,
+        indent=indent,
+        total_width=total_width,
+    )
+
+    if index != total_count:
+        console.console.print()
+
+
+async def render_mcp_status(agent, indent: str = "") -> None:
+    server_status_map = await _load_server_status_map(agent)
     if not server_status_map:
         console.console.print(f"{indent}[dim]•[/dim] [dim]No MCP status available[/dim]")
         return
 
-    template_expected = False
-    if hasattr(agent, "config"):
-        template_expected = "{{serverInstructions}}" in str(
-            getattr(agent.config, "instruction", "")
-        )
-
-    try:
-        total_width = console.console.size.width
-    except Exception:
-        total_width = 80
-
-    def render_header(label: Text, right: Text | None = None) -> None:
-        line = Text()
-        line.append_text(label)
-        line.append(" ")
-
-        separator_width = total_width - line.cell_len
-        if right and right.cell_len > 0:
-            separator_width -= right.cell_len
-            separator_width = max(1, separator_width)
-            line.append("─" * separator_width, style="dim")
-            line.append_text(right)
-        else:
-            line.append("─" * max(1, separator_width), style="dim")
-
-        console.console.print()
-        console.console.print(line)
-        console.console.print()
-
+    template_expected = _template_expects_server_instructions(agent)
+    total_width = _console_width()
     server_items = list(sorted(server_status_map.items()))
 
     for index, (server, status) in enumerate(server_items, start=1):
-        primary_caps, secondary_caps = _format_capability_shorthand(status, template_expected)
-
-        impl_name = status.implementation_name or status.server_name or "unknown"
-        impl_display = impl_name[:30]
-        if len(impl_name) > 30:
-            impl_display = impl_display[:27] + "..."
-
-        version_display = status.implementation_version or ""
-        if len(version_display) > 12:
-            version_display = version_display[:9] + "..."
-
-        header_label = Text(indent)
-        header_label.append("▎", style=Colours.TEXT_CYAN)
-        header_label.append(SYMBOL_RESPONSE, style=f"dim {Colours.TEXT_CYAN}")
-        header_label.append(f" [{index:2}] ", style=Colours.TEXT_CYAN)
-        header_label.append(server, style=f"{Colours.TEXT_INFO} bold")
-        render_header(header_label)
-
-        # First line: name and version
-        meta_line = Text(indent + "  ")
-        meta_fields: list[Text] = []
-        meta_fields.append(_build_aligned_field("name", impl_display))
-        if version_display:
-            meta_fields.append(_build_aligned_field("version", version_display))
-
-        for idx, field in enumerate(meta_fields):
-            if idx:
-                meta_line.append("  ", style="dim")
-            meta_line.append_text(field)
-
-        client_parts = []
-        if status.client_info_name:
-            client_parts.append(status.client_info_name)
-        if status.client_info_version:
-            client_parts.append(status.client_info_version)
-        client_display = " ".join(client_parts)
-        if len(client_display) > 24:
-            client_display = client_display[:21] + "..."
-
-        if client_display:
-            meta_line.append(" | ", style="dim")
-            meta_line.append_text(_build_aligned_field("client", client_display))
-
-        console.console.print(meta_line)
-
-        # Second line: session (on its own line)
-        session_line = Text(indent + "  ")
-        session_text = _format_session_id(status.session_id)
-        session_line.append_text(_build_aligned_field("session", session_text))
-        console.console.print(session_line)
-
-        experimental_session_line = Text(indent + "  ")
-        experimental_session_text = _format_experimental_session_status(status)
-        experimental_session_line.append_text(
-            _build_aligned_field("sessions", experimental_session_text)
-        )
-        console.console.print(experimental_session_line)
-
-        health_text = _build_health_text(status)
-        if health_text is not None:
-            health_line = Text(indent + "  ")
-            health_line.append_text(_build_aligned_field("health", health_text))
-            console.console.print(health_line)
-        console.console.print()
-
-        # Build status segments
-        state_segments: list[Text] = []
-
-        duration = _format_compact_duration(status.staleness_seconds)
-        if duration:
-            last_text = Text("last activity: ", style=Colours.TEXT_DIM)
-            last_text.append(duration, style=Colours.TEXT_DEFAULT)
-            last_text.append(" ago", style=Colours.TEXT_DIM)
-            state_segments.append(last_text)
-
-        if status.error_message and status.is_connected is False:
-            state_segments.append(Text(status.error_message, style=Colours.TEXT_ERROR))
-
-        instr_available = bool(status.instructions_available)
-        if instr_available and status.instructions_enabled is False:
-            state_segments.append(Text("instructions disabled", style=Colours.TEXT_ERROR))
-        elif instr_available and not template_expected:
-            state_segments.append(Text("instr. not in sysprompt", style=Colours.TEXT_WARNING))
-
-        if status.spoofing_enabled:
-            state_segments.append(Text("client spoof", style=Colours.TEXT_WARNING))
-
-        # Main status line (without transport and connected)
-        if state_segments:
-            status_line = Text(indent + "  ")
-            for idx, segment in enumerate(state_segments):
-                if idx:
-                    status_line.append("  |  ", style="dim")
-                status_line.append_text(segment)
-            console.console.print(status_line)
-
-        # MCP protocol calls made (only shows calls that have actually been invoked)
-        calls = _summarise_call_counts(status.call_counts)
-        if calls:
-            calls_line = Text(indent + "  ")
-            calls_line.append("mcp calls: ", style=Colours.TEXT_DIM)
-            calls_line.append(calls, style=Colours.TEXT_DEFAULT)
-            # Show reconnect count inline if > 0
-            if status.reconnect_count > 0:
-                calls_line.append("  |  ", style="dim")
-                calls_line.append("reconnects: ", style=Colours.TEXT_DIM)
-                calls_line.append(str(status.reconnect_count), style=Colours.TEXT_WARNING)
-            console.console.print(calls_line)
-        elif status.reconnect_count > 0:
-            # Show reconnect count on its own line if no calls
-            reconnect_line = Text(indent + "  ")
-            reconnect_line.append("reconnects: ", style=Colours.TEXT_DIM)
-            reconnect_line.append(str(status.reconnect_count), style=Colours.TEXT_WARNING)
-            console.console.print(reconnect_line)
-        _render_channel_summary(status, indent, total_width)
-
-        combined_tokens = primary_caps + secondary_caps
-        prefix = Text(indent)
-        prefix.append("─| ", style="dim")
-        suffix = Text(" |", style="dim")
-
-        caps_content = (
-            _build_capability_text(combined_tokens)
-            if combined_tokens
-            else Text("none", style="dim")
+        _render_server_status_block(
+            server,
+            status,
+            index=index,
+            total_count=len(server_items),
+            indent=indent,
+            total_width=total_width,
+            template_expected=template_expected,
         )
 
-        caps_display = caps_content.copy()
-        available = max(0, total_width - prefix.cell_len - suffix.cell_len)
-        if caps_display.cell_len > available:
-            caps_display.truncate(available)
-
-        banner_line = Text()
-        banner_line.append_text(prefix)
-        banner_line.append_text(caps_display)
-        banner_line.append_text(suffix)
-        remaining = total_width - banner_line.cell_len
-        if remaining > 0:
-            banner_line.append("─" * remaining, style="dim")
-
-        console.console.print(banner_line)
-
-        if index != len(server_items):
-            console.console.print()
-
-    # Keep a trailing spacer after the MCP server block for readability.
     console.console.print()
