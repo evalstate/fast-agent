@@ -431,6 +431,31 @@ async def test_prepare_prompt_turn_reports_cancelled_agent_before_refresh_switch
 
 
 @pytest.mark.asyncio
+async def test_prompt_loop_switch_agent_command_updates_active_agent_for_next_turn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_input(monkeypatch, ["@new", "hello", "STOP"])
+
+    sent_messages: list[tuple[str, str]] = []
+
+    async def fake_send(message: object, agent_name: str) -> str:
+        sent_messages.append((agent_name, str(message)))
+        return ""
+
+    prompt_ui = InteractivePrompt()
+    agent_app = _FakeAgentApp(["old", "new"])
+
+    await prompt_ui.prompt_loop(
+        send_func=fake_send,
+        default_agent="old",
+        available_agents=["old", "new"],
+        prompt_provider=cast("AgentApp", agent_app),
+    )
+
+    assert sent_messages == [("new", "hello")]
+
+
+@pytest.mark.asyncio
 async def test_history_webclear_removes_web_channels(monkeypatch, capsys: Any) -> None:
     _patch_input(monkeypatch, ["/history webclear", "STOP"])
 

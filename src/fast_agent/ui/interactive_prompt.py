@@ -1042,11 +1042,11 @@ class InteractivePrompt:
             )
             if command_phase.should_return:
                 return result
-            if command_phase.should_continue:
-                continue
 
             agent_state = command_phase.agent_state
             buffer_prefill = command_phase.buffer_prefill
+            if command_phase.should_continue:
+                continue
 
             result, hash_buffer_prefill, handled_pending = await self._handle_pending_execution(
                 pending=command_phase.pending,
