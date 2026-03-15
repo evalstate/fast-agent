@@ -66,7 +66,7 @@ class ModelInfo:
         """Build ModelInfo from an LLM instance.
 
         Delegates to ``llm.model_info`` so that provider-level overrides
-        (e.g., Anthropic 1M context window) are reflected automatically.
+        for explicit extended-context requests are reflected automatically.
         """
         return llm.model_info
 

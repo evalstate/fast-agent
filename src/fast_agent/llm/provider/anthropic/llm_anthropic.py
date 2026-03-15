@@ -95,7 +95,7 @@ STRUCTURED_OUTPUT_TOOL_NAME = "return_structured_output"
 STRUCTURED_OUTPUT_BETA = "structured-outputs-2025-11-13"
 INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14"
 
-# TODO: Remove beta header once Anthropic promotes 1M context to GA.
+# Explicit 1M context is still opt-in for pre-4.6 Anthropic models.
 LONG_CONTEXT_BETA = "context-1m-2025-08-07"
 
 # Beta for fine-grained tool streaming - enables incremental tool input streaming
@@ -420,12 +420,21 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                     payload,
                 )
 
-        # Long context (1M) setup
+        # Explicit long-context (1M) opt-in setup for pre-4.6 models.
         self._long_context = False
         if long_context_requested:
             model_name = self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
+            base_context_window = ModelDatabase.get_context_window(model_name)
             long_context_window = ModelDatabase.get_long_context_window(model_name)
-            if long_context_window is not None:
+            if (
+                base_context_window is not None
+                and base_context_window >= ModelDatabase.ANTHROPIC_LONG_CONTEXT_WINDOW
+            ):
+                self.logger.debug(
+                    f"Long context query ignored for model '{model_name}' — "
+                    f"{base_context_window:,} context is already enabled by default"
+                )
+            elif long_context_window is not None:
                 self._long_context = True
                 self._context_window_override = long_context_window
                 self._usage_accumulator.set_context_window_override(long_context_window)
