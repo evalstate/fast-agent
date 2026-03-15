@@ -706,7 +706,11 @@ def spawn_agent(
 
 @mcp.tool()
 def list_spawned_agents() -> str:
-    """List all dynamically spawned persistent agents."""
+    """List all dynamically spawned persistent agents with their team names.
+
+    Returns each agent's name, team_name, and card preview.
+    Use team_name to identify teams for removal via remove_spawned_agent.
+    """
     # Resolve agent_cards dir (same logic as spawn_agent / remove_spawned_agent)
     agent_cards_dir = get_runtime_paths(str(_PROJECT_DIR))["agent_cards"]
     legacy_cards = _PROJECT_DIR / ".fast-agent" / "agent_cards"
@@ -737,10 +741,13 @@ def list_spawned_agents() -> str:
                 "team_name": reg_record.team_name if reg_record else "",
             }
         )
+    # Collect unique team names for summary
+    team_names = {a["team_name"] for a in enriched if a.get("team_name")}
     return json.dumps(
         {
             "status": "success",
             "count": len(enriched),
+            "teams": sorted(team_names) if team_names else [],
             "agents": enriched,
         }
     )
@@ -748,14 +755,19 @@ def list_spawned_agents() -> str:
 
 @mcp.tool()
 def remove_spawned_agent(name: str) -> str:
-    """Remove a persistent agent or an entire team by name.
+    """Remove a persistent agent or an entire team by exact name.
 
-    First tries to remove an individual agent by name.
+    IMPORTANT: Call list_spawned_agents first to get the exact agent
+    or team name. Use the exact "name" or "team_name" value from
+    list_spawned_agents — do NOT guess or modify the name.
+
+    First tries to remove an individual agent by exact name.
     If not found, checks if the name matches a team_name
     and removes all agents in that team.
 
     Args:
-        name: Name of the agent or team to remove.
+        name: Exact name of the agent or team_name to remove.
+              Must match exactly as returned by list_spawned_agents.
     """
     # Resolve agent_cards dir (same logic as spawn_agent)
     agent_cards_dir = get_runtime_paths(str(_PROJECT_DIR))["agent_cards"]
