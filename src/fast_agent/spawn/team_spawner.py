@@ -375,6 +375,7 @@ async def spawn_team(
                 skills_dir=sdir,
                 display_manager=display_manager,
                 wait_for_completion=False,
+                team_name=team_name,
             )
             session.sprint_status = "running"
             session.save(sessions_dir=paths["workspaces"] / "team_sessions")
@@ -393,6 +394,7 @@ async def spawn_team(
         project_dir=pdir,
         skills_dir=sdir,
         display_manager=display_manager,
+        team_name=team_name,
     )
 
     session.sprint_status = "running"
@@ -409,6 +411,7 @@ async def _spawn_all_agents(
     registry: SpawnRegistry,
     project_dir: str | Path,
     skills_dir: str | Path,
+    team_name: str,
     display_manager: Any | None = None,
     wait_for_completion: bool = True,
 ) -> None:
