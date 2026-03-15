@@ -39,11 +39,22 @@ class _MentionAgentApp:
     def _agent(self, _name: str) -> _MentionAgent:
         return self._agent_obj
 
-    def agent_names(self) -> list[str]:
+    def visible_agent_names(self, *, force_include: str | None = None) -> list[str]:
+        del force_include
         return ["agent1"]
 
-    def agent_types(self) -> dict[str, AgentType]:
+    def visible_agent_types(self, *, force_include: str | None = None) -> dict[str, AgentType]:
+        del force_include
         return {"agent1": AgentType.BASIC}
+
+    def registered_agent_names(self) -> list[str]:
+        return ["agent1"]
+
+    def registered_agents(self) -> dict[str, _MentionAgent]:
+        return {"agent1": self._agent_obj}
+
+    def resolve_target_agent_name(self, agent_name: str | None = None) -> str | None:
+        return agent_name or "agent1"
 
 
 @pytest.mark.asyncio

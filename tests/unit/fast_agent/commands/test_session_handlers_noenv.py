@@ -47,8 +47,18 @@ class _StubAgentProvider:
     def _agent(self, name: str):  # noqa: ARG002
         return object()
 
-    def agent_names(self):
+    def resolve_target_agent_name(self, agent_name: str | None = None):
+        return agent_name or "agent"
+
+    def visible_agent_names(self, *, force_include: str | None = None):
+        del force_include
         return ["agent"]
+
+    def registered_agent_names(self):
+        return ["agent"]
+
+    def registered_agents(self):
+        return {"agent": object()}
 
     async def list_prompts(self, namespace: str | None, agent_name: str | None = None):  # noqa: ARG002
         return {}

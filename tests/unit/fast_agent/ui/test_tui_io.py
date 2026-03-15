@@ -39,8 +39,18 @@ class _FakeProvider:
     def _agent(self, agent_name: str) -> object:  # noqa: ARG002
         return _FakeAgent(self._display)
 
-    def agent_names(self) -> list[str]:
+    def visible_agent_names(self, *, force_include: str | None = None) -> list[str]:
+        del force_include
         return ["alpha"]
+
+    def registered_agent_names(self) -> list[str]:
+        return ["alpha"]
+
+    def registered_agents(self) -> dict[str, object]:
+        return {"alpha": _FakeAgent(self._display)}
+
+    def resolve_target_agent_name(self, agent_name: str | None = None) -> str | None:
+        return agent_name or "alpha"
 
     async def list_prompts(self, namespace: str | None, agent_name: str | None = None) -> object:  # noqa: ARG002
         return {}

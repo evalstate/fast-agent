@@ -3,6 +3,7 @@ import inspect
 import json
 import os
 from copy import deepcopy
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence, Type, Union, cast
@@ -85,6 +86,7 @@ from fast_agent.llm.reasoning_effort import (
 )
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.structured_output_mode import StructuredOutputMode
+from fast_agent.llm.tool_tracking import ToolCallTracker
 from fast_agent.llm.usage_tracking import TurnUsage
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
@@ -113,6 +115,29 @@ SystemParam = Union[str, list[TextBlockParam]]
 logger = get_logger(__name__)
 
 _OTEL_STREAM_WRAPPER_WARNED = False
+
+
+@dataclass(slots=True)
+class _AnthropicToolInputBuffer:
+    chunks: list[str] = field(default_factory=list)
+
+    def append(self, chunk: str) -> None:
+        self.chunks.append(chunk)
+
+    def joined(self) -> str:
+        return "".join(self.chunks)
+
+
+def _server_tool_preview_chunk(tool_input: object) -> str:
+    if not tool_input:
+        return "…"
+    try:
+        preview_chunk = json.dumps(tool_input)
+    except Exception:
+        return "…"
+    if len(preview_chunk) > 120:
+        return f"{preview_chunk[:117]}..."
+    return preview_chunk
 
 
 def _is_beta_text_block_validation_error(error: Exception) -> bool:
@@ -821,8 +846,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         """Process the streaming response and display real-time token usage."""
         # Track estimated output tokens by counting text chunks
         estimated_tokens = 0
-        tool_streams: dict[int, dict[str, Any]] = {}
-        server_tool_streams: dict[int, dict[str, Any]] = {}
+        tool_tracker = ToolCallTracker()
+        tool_input_buffers: dict[str, _AnthropicToolInputBuffer] = {}
         thinking_segments: list[str] = []
         streamed_text_segments: list[str] = []
         thinking_indices: set[int] = set()
@@ -840,16 +865,17 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                         thinking_indices.add(event.index)
                         continue
                     if isinstance(content_block, ToolUseBlock):
-                        tool_streams[event.index] = {
-                            "name": content_block.name,
-                            "id": content_block.id,
-                            "buffer": [],
-                        }
+                        state = tool_tracker.register(
+                            tool_use_id=content_block.id,
+                            name=content_block.name,
+                            index=event.index,
+                        )
+                        tool_input_buffers.setdefault(state.tool_use_id, _AnthropicToolInputBuffer())
                         self._notify_tool_stream_listeners(
                             "start",
                             {
-                                "tool_name": content_block.name,
-                                "tool_use_id": content_block.id,
+                                "tool_name": state.name,
+                                "tool_use_id": state.tool_use_id,
                                 "index": event.index,
                             },
                         )
@@ -859,33 +885,27 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                                 "progress_action": ProgressAction.CALLING_TOOL,
                                 "agent_name": self.name,
                                 "model": model,
-                                "tool_name": content_block.name,
-                                "tool_use_id": content_block.id,
+                                "tool_name": state.name,
+                                "tool_use_id": state.tool_use_id,
                                 "tool_event": "start",
                             },
                         )
                         continue
                     if isinstance(content_block, ServerToolUseBlock):
-                        server_tool_streams[event.index] = {
-                            "name": content_block.name,
-                            "id": content_block.id,
-                        }
-                        progress_label = web_tool_progress_label(content_block.name)
-                        preview_chunk = "…"
-                        if content_block.input:
-                            try:
-                                preview_chunk = json.dumps(content_block.input)
-                            except Exception:
-                                preview_chunk = "…"
-                            if len(preview_chunk) > 120:
-                                preview_chunk = f"{preview_chunk[:117]}..."
+                        state = tool_tracker.register(
+                            tool_use_id=content_block.id,
+                            name=content_block.name,
+                            index=event.index,
+                            kind="server_tool",
+                        )
+                        progress_label = web_tool_progress_label(state.name)
                         self._notify_tool_stream_listeners(
                             "start",
                             {
-                                "tool_name": content_block.name,
+                                "tool_name": state.name,
                                 "tool_display_name": progress_label,
-                                "chunk": preview_chunk,
-                                "tool_use_id": content_block.id,
+                                "chunk": _server_tool_preview_chunk(content_block.input),
+                                "tool_use_id": state.tool_use_id,
                                 "index": event.index,
                             },
                         )
@@ -895,8 +915,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                                 "progress_action": ProgressAction.CALLING_TOOL,
                                 "agent_name": self.name,
                                 "model": model,
-                                "tool_name": content_block.name,
-                                "tool_use_id": content_block.id,
+                                "tool_name": state.name,
+                                "tool_use_id": state.tool_use_id,
                                 "tool_event": "start",
                                 "details": progress_label,
                             },
@@ -915,16 +935,19 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                     if isinstance(delta, SignatureDelta):
                         continue
                     if isinstance(delta, InputJSONDelta):
-                        info = tool_streams.get(event.index)
-                        if info is not None:
+                        state = tool_tracker.resolve_open(index=event.index)
+                        if state is not None and state.kind == "tool":
                             chunk = delta.partial_json or ""
-                            info["buffer"].append(chunk)
+                            tool_input_buffers.setdefault(
+                                state.tool_use_id,
+                                _AnthropicToolInputBuffer(),
+                            ).append(chunk)
                             preview = chunk if len(chunk) <= 80 else chunk[:77] + "..."
                             self._notify_tool_stream_listeners(
                                 "delta",
                                 {
-                                    "tool_name": info.get("name"),
-                                    "tool_use_id": info.get("id"),
+                                    "tool_name": state.name,
+                                    "tool_use_id": state.tool_use_id,
                                     "index": event.index,
                                     "chunk": chunk,
                                 },
@@ -932,8 +955,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                             self.logger.debug(
                                 "Streaming tool input delta",
                                 data={
-                                    "tool_name": info.get("name"),
-                                    "tool_use_id": info.get("id"),
+                                    "tool_name": state.name,
+                                    "tool_use_id": state.tool_use_id,
                                     "chunk": preview,
                                 },
                             )
@@ -943,72 +966,71 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                     thinking_indices.discard(event.index)
                     continue
 
-                if isinstance(event, RawContentBlockStopEvent) and event.index in tool_streams:
-                    info = tool_streams.pop(event.index)
-                    preview_raw = "".join(info.get("buffer", []))
-                    if preview_raw:
-                        preview = (
-                            preview_raw if len(preview_raw) <= 120 else preview_raw[:117] + "..."
-                        )
-                        self.logger.debug(
-                            "Completed tool input stream",
-                            data={
-                                "tool_name": info.get("name"),
-                                "tool_use_id": info.get("id"),
-                                "input_preview": preview,
+                if isinstance(event, RawContentBlockStopEvent):
+                    state = tool_tracker.resolve_open(index=event.index)
+                    if state is not None and state.kind == "tool":
+                        tool_tracker.close(index=event.index)
+                        preview_raw = tool_input_buffers.get(state.tool_use_id, _AnthropicToolInputBuffer()).joined()
+                        if preview_raw:
+                            preview = (
+                                preview_raw
+                                if len(preview_raw) <= 120
+                                else preview_raw[:117] + "..."
+                            )
+                            self.logger.debug(
+                                "Completed tool input stream",
+                                data={
+                                    "tool_name": state.name,
+                                    "tool_use_id": state.tool_use_id,
+                                    "input_preview": preview,
+                                },
+                            )
+                        self._notify_tool_stream_listeners(
+                            "stop",
+                            {
+                                "tool_name": state.name,
+                                "tool_use_id": state.tool_use_id,
+                                "index": event.index,
                             },
                         )
-                    self._notify_tool_stream_listeners(
-                        "stop",
-                        {
-                            "tool_name": info.get("name"),
-                            "tool_use_id": info.get("id"),
-                            "index": event.index,
-                        },
-                    )
-                    self.logger.info(
-                        "Model finished streaming tool input",
-                        data={
-                            "progress_action": ProgressAction.CALLING_TOOL,
-                            "agent_name": self.name,
-                            "model": model,
-                            "tool_name": info.get("name"),
-                            "tool_use_id": info.get("id"),
-                            "tool_event": "stop",
-                        },
-                    )
-                    continue
+                        self.logger.info(
+                            "Model finished streaming tool input",
+                            data={
+                                "progress_action": ProgressAction.CALLING_TOOL,
+                                "agent_name": self.name,
+                                "model": model,
+                                "tool_name": state.name,
+                                "tool_use_id": state.tool_use_id,
+                                "tool_event": "stop",
+                            },
+                        )
+                        continue
 
-                if (
-                    isinstance(event, RawContentBlockStopEvent)
-                    and event.index in server_tool_streams
-                ):
-                    info = server_tool_streams.pop(event.index)
-                    tool_name = str(info.get("name") or "tool")
-                    tool_id = str(info.get("id") or "")
-                    progress_label = web_tool_progress_label(tool_name)
-                    self._notify_tool_stream_listeners(
-                        "stop",
-                        {
-                            "tool_name": tool_name,
-                            "tool_display_name": progress_label,
-                            "tool_use_id": tool_id,
-                            "index": event.index,
-                        },
-                    )
-                    self.logger.info(
-                        "Anthropic server tool completed",
-                        data={
-                            "progress_action": ProgressAction.CALLING_TOOL,
-                            "agent_name": self.name,
-                            "model": model,
-                            "tool_name": tool_name,
-                            "tool_use_id": tool_id,
-                            "tool_event": "stop",
-                            "details": progress_label,
-                        },
-                    )
-                    continue
+                    if state is not None and state.kind == "server_tool":
+                        tool_tracker.close(index=event.index)
+                        progress_label = web_tool_progress_label(state.name)
+                        self._notify_tool_stream_listeners(
+                            "stop",
+                            {
+                                "tool_name": state.name,
+                                "tool_display_name": progress_label,
+                                "tool_use_id": state.tool_use_id,
+                                "index": event.index,
+                            },
+                        )
+                        self.logger.info(
+                            "Anthropic server tool completed",
+                            data={
+                                "progress_action": ProgressAction.CALLING_TOOL,
+                                "agent_name": self.name,
+                                "model": model,
+                                "tool_name": state.name,
+                                "tool_use_id": state.tool_use_id,
+                                "tool_event": "stop",
+                                "details": progress_label,
+                            },
+                        )
+                        continue
 
                 # Count tokens in real-time from content_block_delta events
                 if isinstance(event, RawContentBlockDeltaEvent):
@@ -1045,6 +1067,24 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                         "details": token_str.strip(),
                     }
                     logger.info("Streaming progress", data=data)
+
+            incomplete_tools = tool_tracker.incomplete()
+            if incomplete_tools:
+                tool_labels = [
+                    f"{tool.name}:{tool.tool_use_id}" for tool in incomplete_tools
+                ]
+                logger.error(
+                    "Anthropic stream ended with incomplete tool state",
+                    data={
+                        "model": model,
+                        "incomplete_tools": tool_labels,
+                        "tool_count": len(tool_labels),
+                    },
+                )
+                raise RuntimeError(
+                    "Streaming completed but tool call(s) never finished: "
+                    + ", ".join(tool_labels)
+                )
 
             # Get the final message with complete usage data
             try:
@@ -1176,57 +1216,18 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
         return None
 
-    async def _anthropic_completion(
+    def _build_anthropic_base_args(
         self,
-        message_param,
-        request_params: RequestParams | None = None,
-        structured_model: Type[ModelT] | None = None,
-        tools: list[Tool] | None = None,
-        pre_messages: list[MessageParam] | None = None,
-        history: list[PromptMessageExtended] | None = None,
-        current_extended: PromptMessageExtended | None = None,
-    ) -> PromptMessageExtended:
-        """
-        Process a query using an LLM and available tools.
-        Override this method to use a different LLM.
-        """
-
-        api_key = self._api_key()
-        base_url = self._base_url()
-        if base_url and base_url.endswith("/v1"):
-            base_url = base_url.rstrip("/v1")
-        default_headers = self._default_headers()
-
-        try:
-            anthropic = AsyncAnthropic(
-                api_key=api_key, base_url=base_url, default_headers=default_headers
-            )
-            params = self.get_request_params(request_params)
-            messages = self._build_request_messages(
-                params, message_param, pre_messages, history=history
-            )
-        except AuthenticationError as e:
-            raise ProviderKeyError(
-                "Invalid Anthropic API key",
-                "The configured Anthropic API key was rejected.\nPlease check that your API key is valid and not expired.",
-            ) from e
-
-        # Get cache mode configuration
-        cache_mode = self._get_cache_mode()
-        logger.debug(f"Anthropic cache_mode: {cache_mode}")
-
-        response_content_blocks: list[ContentBlock] = []
-        tool_calls: dict[str, CallToolRequest] | None = None
-        model = self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
-
-        structured_mode = self._resolve_structured_output_mode(model, structured_model)
-        available_tools = await self._prepare_tools(
-            structured_model, tools, structured_mode=structured_mode
-        )
-        web_tools, web_tool_betas = self._prepare_web_tools(model)
-        request_tools = [*available_tools, *web_tools]
-
-        # Create base arguments dictionary
+        *,
+        model: str,
+        messages: list[MessageParam],
+        params: RequestParams,
+        history: list[PromptMessageExtended] | None,
+        current_extended: PromptMessageExtended | None,
+        request_tools: list[ToolParam],
+        structured_mode: StructuredOutputMode | None,
+        structured_model: Type[ModelT] | None,
+    ) -> tuple[dict[str, Any], bool]:
         base_args: dict[str, Any] = {
             "model": model,
             "messages": messages,
@@ -1262,7 +1263,17 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             structured_mode=structured_mode,
         )
         base_args.update(thinking_args)
+        return base_args, thinking_enabled
 
+    def _resolve_anthropic_beta_flags(
+        self,
+        *,
+        model: str,
+        structured_mode: StructuredOutputMode | None,
+        thinking_enabled: bool,
+        request_tools: list[ToolParam],
+        web_tool_betas: Sequence[str],
+    ) -> list[str]:
         beta_flags: list[str] = []
         adaptive_thinking = self._supports_adaptive_thinking(model)
         if structured_mode:
@@ -1271,25 +1282,23 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             beta_flags.append(INTERLEAVED_THINKING_BETA)
         if self._long_context:
             beta_flags.append(LONG_CONTEXT_BETA)
-        # Enable fine-grained tool streaming when tools are present
         if request_tools:
             beta_flags.append(FINE_GRAINED_TOOL_STREAMING_BETA)
         beta_flags.extend(web_tool_betas)
-        beta_flags = dedupe_preserve_order(beta_flags)
-        if beta_flags:
-            base_args["betas"] = beta_flags
+        return dedupe_preserve_order(beta_flags)
 
-        self._log_chat_progress(self.chat_turn(), model=model)
-        # Use the base class method to prepare all arguments with Anthropic-specific exclusions
-        # Do this BEFORE applying cache control so metadata doesn't override cached fields
-        arguments = self.prepare_provider_arguments(
-            base_args, params, self.ANTHROPIC_EXCLUDE_FIELDS
-        )
-
-        # Apply cache control to system prompt AFTER merging arguments
+    def _apply_anthropic_cache_plan(
+        self,
+        *,
+        arguments: dict[str, Any],
+        messages: list[MessageParam],
+        params: RequestParams,
+        cache_mode: str,
+        history: list[PromptMessageExtended] | None,
+        current_extended: PromptMessageExtended | None,
+    ) -> None:
         system_cache_applied = self._apply_system_cache(arguments, cache_mode)
 
-        # Apply cache_control markers using planner
         planner = AnthropicCachePlanner(
             self.CONVERSATION_CACHE_WALK_DISTANCE, self.MAX_CONVERSATION_CACHE_BLOCKS
         )
@@ -1308,66 +1317,45 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             if 0 <= idx < len(messages):
                 self._apply_cache_control_to_message(messages[idx], ttl=cache_ttl)
 
-        logger.debug(f"{arguments}")
-
-        # Generate stream capture filename once (before streaming starts)
-        capture_filename = _stream_capture_filename(self.chat_turn())
-        _save_stream_request(capture_filename, arguments)
-
-        # Use streaming API with helper
+    async def _execute_anthropic_stream(
+        self,
+        *,
+        anthropic: AsyncAnthropic,
+        arguments: dict[str, Any],
+        model: str,
+        capture_filename: Path | None,
+    ) -> tuple[Message, list[str], list[str]]:
         otel_span: Span | None = None
         otel_span_error = False
         response: Message | None = None
-        streamed_text_segments: list[str] = []
+
         try:
-            # OpenTelemetry instrumentation wraps the stream() call and returns a coroutine
-            # that must be awaited before using as context manager. When the wrapper is
-            # known-broken for beta streams, we bypass it to avoid await errors.
             stream_method = _maybe_unwrap_otel_beta_stream(anthropic.beta.messages.stream)
-            otel_wrapper_bypassed = stream_method is not anthropic.beta.messages.stream
-            if otel_wrapper_bypassed:
+            if stream_method is not anthropic.beta.messages.stream:
                 otel_span = _start_fallback_stream_span(model)
 
             stream_call = stream_method(**arguments)
-            # Check if it's a coroutine (OpenTelemetry is installed)
-            if asyncio.iscoroutine(stream_call):
-                stream_manager = await stream_call
-            else:
-                stream_manager = stream_call
-            # Type annotation: stream_manager is BetaAsyncMessageStream ats runtime
+            stream_manager = await stream_call if asyncio.iscoroutine(stream_call) else stream_call
             stream_manager = cast("BetaAsyncMessageStream", stream_manager)
+
             if otel_span is not None:
                 with trace.use_span(otel_span, end_on_exit=False):
                     async with stream_manager as stream:
-                        # Process the stream
-                        (
-                            response,
-                            thinking_segments,
-                            streamed_text_segments,
-                        ) = await self._process_stream(stream, model, capture_filename)
+                        response, thinking_segments, streamed_text_segments = await self._process_stream(
+                            stream, model, capture_filename
+                        )
             else:
                 async with stream_manager as stream:
-                    # Process the stream
-                    (
-                        response,
-                        thinking_segments,
-                        streamed_text_segments,
-                    ) = await self._process_stream(stream, model, capture_filename)
-        except asyncio.CancelledError as e:
-            reason = str(e) if e.args else "cancelled"
-            logger.info(f"Anthropic completion cancelled: {reason}")
-            # Return a response indicating cancellation
-            return Prompt.assistant(
-                TextContent(type="text", text=""),
-                stop_reason=LlmStopReason.CANCELLED,
-            )
+                    response, thinking_segments, streamed_text_segments = await self._process_stream(
+                        stream, model, capture_filename
+                    )
         except APIError as error:
             if otel_span is not None and otel_span.is_recording():
                 otel_span.record_exception(error)
                 otel_span.set_status(Status(StatusCode.ERROR))
                 otel_span_error = True
             logger.error("Streaming APIError during Anthropic completion", exc_info=error)
-            raise error
+            raise
         except Exception as error:
             if otel_span is not None and otel_span.is_recording():
                 otel_span.record_exception(error)
@@ -1378,35 +1366,23 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             if otel_span is not None:
                 _finalize_fallback_stream_span(otel_span, response, otel_span_error)
 
-        # Track usage if response is valid and has usage data
-        if (
-            hasattr(response, "usage")
-            and response.usage
-            and not isinstance(response, BaseException)
-        ):
-            try:
-                turn_usage = TurnUsage.from_anthropic(
-                    response.usage, model or DEFAULT_ANTHROPIC_MODEL
-                )
-                self._finalize_turn_usage(turn_usage)
-            except Exception as e:
-                logger.warning(f"Failed to track usage: {e}")
+        if response is None:
+            raise RuntimeError("Anthropic stream completed without a final message.")
+        return response, thinking_segments, streamed_text_segments
 
-        if isinstance(response, AuthenticationError):
-            raise ProviderKeyError(
-                "Invalid Anthropic API key",
-                "The configured Anthropic API key was rejected.\nPlease check that your API key is valid and not expired.",
-            ) from response
-        elif isinstance(response, BaseException):
-            # This path shouldn't be reached anymore since we handle APIError above,
-            # but keeping for backward compatibility
-            logger.error(f"Unexpected error type: {type(response).__name__}", exc_info=response)
-            return build_stream_failure_response(self.provider, response, model)
-
-        logger.debug(
-            f"{model} response:",
-            data=response,
-        )
+    async def _finalize_anthropic_response(
+        self,
+        *,
+        response: Message,
+        model: str,
+        messages: list[MessageParam],
+        thinking_segments: list[str],
+        streamed_text_segments: list[str],
+        structured_mode: StructuredOutputMode | None,
+        structured_model: Type[ModelT] | None,
+    ) -> PromptMessageExtended:
+        response_content_blocks: list[ContentBlock] = []
+        tool_calls: dict[str, CallToolRequest] | None = None
 
         response_as_message = self.convert_message_to_message_param(response)
         messages.append(response_as_message)
@@ -1439,14 +1415,10 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                     for block in response_content_blocks
                     if isinstance(block, TextContent) and block.text
                 )
-                # In some Anthropic server-tool turns, streamed text can be richer than
-                # the final response content blocks. Prefer the streamed transcript
-                # when they differ so post-stream re-render matches what users saw.
                 if not provider_text.strip() or provider_text.strip() != streamed_text.strip():
                     response_content_blocks = [TextContent(type="text", text=streamed_text)]
 
         stop_reason: LlmStopReason = LlmStopReason.END_TURN
-
         match response.stop_reason:
             case "stop_sequence":
                 stop_reason = LlmStopReason.STOP_SEQUENCE
@@ -1458,7 +1430,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                 stop_reason = LlmStopReason.PAUSE
             case "tool_use":
                 tool_uses: list[ToolUseBlock] = [
-                    c for c in response.content if isinstance(c, ToolUseBlock)
+                    content for content in response.content if isinstance(content, ToolUseBlock)
                 ]
                 if (
                     structured_mode == "tool_use"
@@ -1472,16 +1444,6 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                 elif tool_uses:
                     stop_reason = LlmStopReason.TOOL_USE
                     tool_calls = self._build_tool_calls_dict(tool_uses)
-                else:
-                    # Anthropic server tools (web_search/web_fetch) run provider-side and
-                    # must not be surfaced as MCP tool calls.
-                    stop_reason = LlmStopReason.END_TURN
-
-        # Update diagnostic snapshot (never read again)
-        # This provides a snapshot of what was sent to the provider for debugging
-        self.history.set(messages)
-
-        self._log_chat_finished(model=model)
 
         channels: dict[str, list[Any]] | None = None
         if thinking_segments:
@@ -1588,6 +1550,160 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             channels=channels,
             stop_reason=stop_reason,
         )
+
+    async def _anthropic_completion(
+        self,
+        message_param,
+        request_params: RequestParams | None = None,
+        structured_model: Type[ModelT] | None = None,
+        tools: list[Tool] | None = None,
+        pre_messages: list[MessageParam] | None = None,
+        history: list[PromptMessageExtended] | None = None,
+        current_extended: PromptMessageExtended | None = None,
+    ) -> PromptMessageExtended:
+        """
+        Process a query using an LLM and available tools.
+        Override this method to use a different LLM.
+        """
+
+        api_key = self._api_key()
+        base_url = self._base_url()
+        if base_url and base_url.endswith("/v1"):
+            base_url = base_url.rstrip("/v1")
+        default_headers = self._default_headers()
+
+        try:
+            anthropic = AsyncAnthropic(
+                api_key=api_key, base_url=base_url, default_headers=default_headers
+            )
+            params = self.get_request_params(request_params)
+            messages = self._build_request_messages(
+                params, message_param, pre_messages, history=history
+            )
+        except AuthenticationError as e:
+            raise ProviderKeyError(
+                "Invalid Anthropic API key",
+                "The configured Anthropic API key was rejected.\nPlease check that your API key is valid and not expired.",
+            ) from e
+
+        # Get cache mode configuration
+        cache_mode = self._get_cache_mode()
+        logger.debug(f"Anthropic cache_mode: {cache_mode}")
+
+        model = self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
+
+        structured_mode = self._resolve_structured_output_mode(model, structured_model)
+        available_tools = await self._prepare_tools(
+            structured_model, tools, structured_mode=structured_mode
+        )
+        web_tools, web_tool_betas = self._prepare_web_tools(model)
+        request_tools = [*available_tools, *web_tools]
+
+        base_args, thinking_enabled = self._build_anthropic_base_args(
+            model=model,
+            messages=messages,
+            params=params,
+            history=history,
+            current_extended=current_extended,
+            request_tools=request_tools,
+            structured_mode=structured_mode,
+            structured_model=structured_model,
+        )
+
+        beta_flags = self._resolve_anthropic_beta_flags(
+            model=model,
+            structured_mode=structured_mode,
+            thinking_enabled=thinking_enabled,
+            request_tools=request_tools,
+            web_tool_betas=web_tool_betas,
+        )
+        if beta_flags:
+            base_args["betas"] = beta_flags
+
+        self._log_chat_progress(self.chat_turn(), model=model)
+        # Use the base class method to prepare all arguments with Anthropic-specific exclusions
+        # Do this BEFORE applying cache control so metadata doesn't override cached fields
+        arguments = self.prepare_provider_arguments(
+            base_args, params, self.ANTHROPIC_EXCLUDE_FIELDS
+        )
+
+        self._apply_anthropic_cache_plan(
+            arguments=arguments,
+            messages=messages,
+            params=params,
+            cache_mode=cache_mode,
+            history=history,
+            current_extended=current_extended,
+        )
+
+        logger.debug(f"{arguments}")
+
+        # Generate stream capture filename once (before streaming starts)
+        capture_filename = _stream_capture_filename(self.chat_turn())
+        _save_stream_request(capture_filename, arguments)
+
+        try:
+            response, thinking_segments, streamed_text_segments = await self._execute_anthropic_stream(
+                anthropic=anthropic,
+                arguments=arguments,
+                model=model,
+                capture_filename=capture_filename,
+            )
+        except asyncio.CancelledError as e:
+            reason = str(e) if e.args else "cancelled"
+            logger.info(f"Anthropic completion cancelled: {reason}")
+            # Return a response indicating cancellation
+            return Prompt.assistant(
+                TextContent(type="text", text=""),
+                stop_reason=LlmStopReason.CANCELLED,
+            )
+
+        # Track usage if response is valid and has usage data
+        if (
+            hasattr(response, "usage")
+            and response.usage
+            and not isinstance(response, BaseException)
+        ):
+            try:
+                turn_usage = TurnUsage.from_anthropic(
+                    response.usage, model or DEFAULT_ANTHROPIC_MODEL
+                )
+                self._finalize_turn_usage(turn_usage)
+            except Exception as e:
+                logger.warning(f"Failed to track usage: {e}")
+
+        if isinstance(response, AuthenticationError):
+            raise ProviderKeyError(
+                "Invalid Anthropic API key",
+                "The configured Anthropic API key was rejected.\nPlease check that your API key is valid and not expired.",
+            ) from response
+        elif isinstance(response, BaseException):
+            # This path shouldn't be reached anymore since we handle APIError above,
+            # but keeping for backward compatibility
+            logger.error(f"Unexpected error type: {type(response).__name__}", exc_info=response)
+            return build_stream_failure_response(self.provider, response, model)
+
+        logger.debug(
+            f"{model} response:",
+            data=response,
+        )
+
+        result = await self._finalize_anthropic_response(
+            response=response,
+            model=model,
+            messages=messages,
+            thinking_segments=thinking_segments,
+            streamed_text_segments=streamed_text_segments,
+            structured_mode=structured_mode,
+            structured_model=structured_model,
+        )
+
+        # Update diagnostic snapshot (never read again)
+        # This provides a snapshot of what was sent to the provider for debugging
+        self.history.set(messages)
+
+        self._log_chat_finished(model=model)
+        return result
 
     async def _apply_prompt_provider_specific(
         self,

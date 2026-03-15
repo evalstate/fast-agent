@@ -65,10 +65,15 @@ class ModelReferenceConfigService:
         *,
         start_path: Path | None = None,
         env_dir: str | Path | None = None,
+        project_write_path: Path | None = None,
     ) -> None:
         self._start_path = (start_path or Path.cwd()).resolve()
         self._env_dir = env_dir if env_dir is not None else os.getenv("ENVIRONMENT_DIR")
-        self.paths = _discover_paths(start_path=self._start_path, env_dir=self._env_dir)
+        self.paths = _discover_paths(
+            start_path=self._start_path,
+            env_dir=self._env_dir,
+            project_write_path=project_write_path,
+        )
 
     def load_effective_model_settings(self) -> dict[str, Any]:
         """Return layered model settings merged with any secrets overlay."""
@@ -213,9 +218,21 @@ def resolve_model_reference_start_path(
     return Path.cwd().resolve()
 
 
-def _discover_paths(*, start_path: Path, env_dir: str | Path | None) -> ModelReferenceConfigPaths:
+def _discover_paths(
+    *,
+    start_path: Path,
+    env_dir: str | Path | None,
+    project_write_path: Path | None = None,
+) -> ModelReferenceConfigPaths:
+    resolved_project_write_path = (
+        project_write_path.expanduser().resolve() if project_write_path is not None else None
+    )
     project_read_path = find_project_config_file(start_path)
-    project_write_path = project_read_path or (start_path / "fastagent.config.yaml")
+    if resolved_project_write_path is not None and resolved_project_write_path.exists():
+        project_read_path = resolved_project_write_path
+    resolved_project_path = resolved_project_write_path or project_read_path or (
+        start_path / "fastagent.config.yaml"
+    )
     env_path = resolve_environment_config_file(start_path, env_dir=env_dir)
 
     search_root = resolve_config_search_root(start_path, env_dir=env_dir)
@@ -223,7 +240,7 @@ def _discover_paths(*, start_path: Path, env_dir: str | Path | None) -> ModelRef
 
     return ModelReferenceConfigPaths(
         project_read_path=project_read_path,
-        project_write_path=project_write_path,
+        project_write_path=resolved_project_path,
         env_path=env_path,
         secrets_path=secrets_path,
     )

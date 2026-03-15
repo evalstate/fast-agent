@@ -1,0 +1,42 @@
+{
+  "channels": {
+    "fast-agent-timing": [
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"start_time\": 13786.927369496, \"end_time\": 13791.862893434, \"duration_ms\": 4935.52, \"ttft_ms\": 624.55, \"time_to_response_ms\": 3069.05}",
+        "type": "text"
+      }
+    ],
+    "fast-agent-usage": [
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"turn\": {\"provider\": \"openresponses\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 83, \"output_tokens\": 105, \"total_tokens\": 188, \"timestamp\": 1773533276.4418478, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 80, \"total_cache_tokens\": 80, \"has_cache_activity\": true}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 54, \"tool_calls\": 0, \"current_context_tokens\": 188, \"effective_input_tokens\": 3, \"display_input_tokens\": 83}, \"raw_usage\": {\"cache_tokens_details\": null, \"cached_content_token_count\": null, \"candidates_token_count\": null, \"candidates_tokens_details\": null, \"prompt_token_count\": null, \"prompt_tokens_details\": null, \"thoughts_token_count\": null, \"tool_use_prompt_token_count\": null, \"tool_use_prompt_tokens_details\": null, \"total_token_count\": null, \"traffic_type\": null}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 1, \"cumulative_input_tokens\": 83, \"cumulative_output_tokens\": 105, \"cumulative_billing_tokens\": 188, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 54, \"cumulative_tool_calls\": 0, \"current_context_tokens\": 188, \"context_window_size\": 131072, \"context_usage_percentage\": 0.1434326171875, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 80, \"cache_hit_rate_percent\": 49.079754601226995, \"cumulative_effective_input_tokens\": 3}}",
+        "type": "text"
+      }
+    ],
+    "reasoning": [
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "The user asks: \"In one concise sentence, explain why tides change over the course of a day.\" So we need a single concise sentence giving the reason: gravitational pull of Moon (and Sun) and Earth's rotation causing cyclic changes. Provide answer in one sentence.",
+        "type": "text"
+      }
+    ]
+  },
+  "content": [
+    {
+      "annotations": null,
+      "meta": null,
+      "text": "Tides rise and fall each day because the Moon\u2019s (and to a lesser extent the Sun\u2019s) gravity pulls the ocean toward it while Earth\u2019s rotation brings different locations under and away from these bulges.",
+      "type": "text"
+    }
+  ],
+  "is_template": false,
+  "phase": null,
+  "role": "assistant",
+  "stop_reason": "endTurn",
+  "tool_calls": null,
+  "tool_results": null
+}

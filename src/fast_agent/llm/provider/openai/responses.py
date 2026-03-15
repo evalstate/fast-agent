@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+from contextlib import asynccontextmanager
 from typing import Any, Literal
 
 from mcp import Tool
@@ -919,7 +920,7 @@ class ResponsesLLM(
                 self.logger.debug("Responses request", data=arguments)
                 capture_filename = _stream_capture_filename(self.chat_turn())
                 _save_stream_request(capture_filename, arguments)
-                async with client.responses.stream(**arguments) as stream:
+                async with self._response_sse_stream(client=client, arguments=arguments) as stream:
                     timeout = request_params.streaming_timeout
                     timed_stream = with_stream_idle_timeout(
                         stream,
@@ -951,6 +952,16 @@ class ResponsesLLM(
         except APIError as error:
             self.logger.error("Streaming APIError during Responses completion", exc_info=error)
             raise
+
+    @asynccontextmanager
+    async def _response_sse_stream(
+        self,
+        *,
+        client: AsyncOpenAI,
+        arguments: dict[str, Any],
+    ):
+        async with client.responses.stream(**arguments) as stream:
+            yield stream
 
     async def _responses_completion_ws(
         self,

@@ -1,0 +1,42 @@
+{
+  "arguments": {
+    "betas": [
+      "fine-grained-tool-streaming-2025-05-14",
+      "code-execution-web-tools-2026-02-09"
+    ],
+    "max_tokens": 64000,
+    "messages": [
+      {
+        "content": [
+          {
+            "text": "Search the web for the capital of France and answer in one sentence with at least one cited source.",
+            "type": "text"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model": "claude-sonnet-4-6",
+    "stop_sequences": null,
+    "system": [
+      {
+        "cache_control": {
+          "ttl": "5m",
+          "type": "ephemeral"
+        },
+        "text": "You are a helpful AI Agent.\n\n{{serverInstructions}}\n{{agentSkills}}\n{{file_silent:AGENTS.md}}\n{{env}}\n\nThe current date is {{currentDate}}.",
+        "type": "text"
+      }
+    ],
+    "thinking": {
+      "type": "adaptive"
+    },
+    "tools": [
+      {
+        "name": "web_search",
+        "type": "web_search_20260209"
+      }
+    ]
+  },
+  "captured_at": "2026-03-14T23:05:41.512112"
+}

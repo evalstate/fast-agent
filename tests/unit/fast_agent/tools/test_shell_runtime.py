@@ -29,6 +29,27 @@ class DummyStream:
             return self._lines.pop(0)
         return b""
 
+    async def read(self, n: int = -1) -> bytes:
+        if not self._lines:
+            return b""
+        if n < 0:
+            data = b"".join(self._lines)
+            self._lines.clear()
+            return data
+
+        chunks: list[bytes] = []
+        remaining = n
+        while self._lines and remaining > 0:
+            current = self._lines[0]
+            if len(current) <= remaining:
+                chunks.append(self._lines.pop(0))
+                remaining -= len(current)
+                continue
+            chunks.append(current[:remaining])
+            self._lines[0] = current[remaining:]
+            remaining = 0
+        return b"".join(chunks)
+
 
 class DummyProcess:
     def __init__(self) -> None:
@@ -183,6 +204,29 @@ async def test_execute_reports_informative_truncation_summary() -> None:
     assert "[Output truncated: retained" in text
     assert "Increase shell_execution.output_byte_limit to retain more." in text
     assert "omitted" in text
+
+
+@pytest.mark.asyncio
+async def test_execute_handles_overlong_output_lines_without_timeout() -> None:
+    logger = logging.getLogger("shell-runtime-test")
+    runtime = ShellRuntime(
+        activation_reason="test",
+        logger=logger,
+        timeout_seconds=5,
+        output_byte_limit=256,
+        config=Settings(shell_execution=ShellSettings(show_bash=False)),
+    )
+
+    command = f'"{sys.executable}" -c "print(\'x\' * 70000)"'
+    result = await runtime.execute({"command": command})
+
+    assert result.isError is False
+    assert result.content is not None
+    assert isinstance(result.content[0], TextContent)
+    text = result.content[0].text
+    assert "timeout after" not in text
+    assert "process exit code was 0" in text
+    assert "[Output truncated: retained" in text
 
 
 @pytest.mark.asyncio

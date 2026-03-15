@@ -1,0 +1,55 @@
+{
+  "channels": {
+    "fast-agent-provider-diagnostics": [
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"transport\": \"websocket\", \"websocket_request_type\": \"response.create\", \"websocket_request_mode\": \"create\", \"websocket_turn_outcome\": \"fresh\", \"websocket_turn_metrics\": {\"total\": 1, \"fresh\": 1, \"reused\": 0, \"reconnected\": 0}}",
+        "type": "text"
+      }
+    ],
+    "fast-agent-timing": [
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"start_time\": 10183.976564178, \"end_time\": 10186.92445321, \"duration_ms\": 2947.89, \"ttft_ms\": 2814.13, \"time_to_response_ms\": 2814.13}",
+        "type": "text"
+      }
+    ],
+    "fast-agent-usage": [
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"turn\": {\"provider\": \"responses\", \"model\": \"gpt-5-mini\", \"input_tokens\": 102, \"output_tokens\": 108, \"total_tokens\": 210, \"timestamp\": 1773529523.034018, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 0, \"total_cache_tokens\": 0, \"has_cache_activity\": false}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 64, \"tool_calls\": 1, \"current_context_tokens\": 210, \"effective_input_tokens\": 102, \"display_input_tokens\": 102}, \"raw_usage\": {\"cache_tokens_details\": null, \"cached_content_token_count\": null, \"candidates_token_count\": null, \"candidates_tokens_details\": null, \"prompt_token_count\": null, \"prompt_tokens_details\": null, \"thoughts_token_count\": null, \"tool_use_prompt_token_count\": null, \"tool_use_prompt_tokens_details\": null, \"total_token_count\": null, \"traffic_type\": null}, \"summary\": {\"model\": \"gpt-5-mini\", \"turn_count\": 1, \"cumulative_input_tokens\": 102, \"cumulative_output_tokens\": 108, \"cumulative_billing_tokens\": 210, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 64, \"cumulative_tool_calls\": 1, \"current_context_tokens\": 210, \"context_window_size\": 400000, \"context_usage_percentage\": 0.0525, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 0, \"cache_hit_rate_percent\": 0.0, \"cumulative_effective_input_tokens\": 102}}",
+        "type": "text"
+      }
+    ],
+    "openai-reasoning-encrypted": [
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"type\": \"reasoning\", \"encrypted_content\": \"gAAAAABptemzXGN-gLcCqnmeCBxTzs9m8mNizYxp6NaO37X14WgFBHbjJmNYV4faN97JC4NkAnF2T_MgFf8EYu4t1sRc9K-mnkAn3KiHSl0ouH0IvU0CyWZ0t3TmLMkV4AtSFktV2wSvoWJHR8HMWm3GnIy6T3r5gEGKueG0JmZHbJ-pPc8Xll3XGKqRamnUXZtoWm1kEPhV5Bh477DTsLCDKMgwzR3fuxFH6AWMKjOLwcKsuP7oDBeg4isXD_X68Gtkri55TFcMmWMBQTj1PU_GIX2Ldo5n3ez-wQbbb5K1MAGj2_UtvnavjIvBxxXICXvP2Z60ySiDCWTedSAhq2cy2dIQyr45zU0IYaHWUrS2ZXsRKki3IBN-zPgOJiFX2LvONuSm0GrnrAihe9OtiHVVQsgy9n6n6xgKD1lKiUCh7mQmdo_r2FUl6pTh52_7ZTCCj93JMPhrYy-wVRrhvK6n3NOBwqSYFkNkuTHr3jUsuxpSvEae7hHZ2mVMf6HG0QodhbERZStJlJi6D3J1MJGkBUavXZwbmvTh0i78yfniZhF7po1nY3B2c727LAryQo3uwmXPDX1fuMaXiKklw52vpxIyYcqvrvzHG2WPcfemZ-RTVBKqk7kKd8f16unIxM_RBH7jvRf1fFTD2UPQFhl629vHcx8ieUJWixLdhBoEk1HmsjE_Ln8CkuvigV979LLQAes6xyWbZc1LSBXhdHAYs9DuHmxBQ9-eaSepYHVo1rFDdzhHTVLhdG-1trLNnmnz2I849uYX1-nJXBMWSZFqpOsXuadSplD03t8SZhAG3XfeNN7ddU6VjRoDIsngowSbLFTpwo_Z4k0VnUBDfnXlyAxFMoTZjM5c3PWBMT4kjCSUZzOtNJJPwJYe29KattoXtBhGsfFC1rnDsMXqVPrqwbbFcm3rmKtKL1tRgSfEVoXDGxpdhvL6X_TLWzQeT-vNVroORw-1aalup_VeS4PkAX3uNL4Haof6VA7S155lYyvFbQW-ErfFZBfWqXUad3mUUyXSweK1qFl24NGHvOiWgrjj6VPRLfITrWCt0-r7HCu2nAoKUAVv-qZtZ3OvuSdOPsPgOvFItc9FLox-F34V9ZWsH1iwSNoz9fz3IYUGBL_Hx1GEncPJNh2e8C3dznl9YaA5DJEaMRWjs3aHcJMzWnUC1J5HKtzTQlxPX_mPkYbGP4HIad-0_YTChvkxube4U1qFZyeH2J4FffnlOkUCD4Xb5AJ3KlMd10qeeM8NvHdZj-d4GlDNKHICBH5eZkxxfzvp39mheB3fHGSIi46NQEg80HIQ4qkXixDOBmJucSH0_2XrchY39AXOiFkLHoR_yM4Cmt5p_SCUgJws-cioJsC2ivej2UqKg0gXj3daIfOl9dMueHILZeEnhWaeLwBR0BZik31Nw42cREexMfbnV7Qzj1UDBQ==\", \"id\": \"rs_1\"}",
+        "type": "text"
+      }
+    ]
+  },
+  "content": [],
+  "is_template": false,
+  "phase": null,
+  "role": "assistant",
+  "stop_reason": "toolUse",
+  "tool_calls": {
+    "call_Nul83YCSmImsHASfhdZXjuZR": {
+      "method": "tools/call",
+      "params": {
+        "arguments": {
+          "city": "Paris"
+        },
+        "meta": null,
+        "name": "weather",
+        "task": null
+      }
+    }
+  },
+  "tool_results": null
+}

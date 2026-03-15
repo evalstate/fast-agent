@@ -35,7 +35,7 @@ def test_format_internal_resources_for_prompt_includes_uri_and_why() -> None:
     prompt_block = format_internal_resources_for_prompt(list_internal_resources())
 
     assert "call `get_resource` with `internal://fast-agent/smart-agent-cards`" in prompt_block
-    assert "Use `list_resources` to discover available resources first." in prompt_block
+    assert "always available to `get_resource`" in prompt_block
     assert "<available_resources>" in prompt_block
     assert "internal://fast-agent/smart-agent-cards" in prompt_block
     assert "Use when creating, validating, or loading AgentCards" in prompt_block

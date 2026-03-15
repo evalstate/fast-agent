@@ -242,7 +242,7 @@ class UsageAccumulator(BaseModel):
     last_cache_activity_time: float | None = None
 
     # Provider-set override for the effective context window size.
-    # When set, takes priority over the ModelDatabase lookup (e.g., Anthropic 1M beta).
+    # When set, takes priority over the ModelDatabase lookup.
     _context_window_override: int | None = PrivateAttr(default=None)
 
     def set_context_window_override(self, override: int | None) -> None:
@@ -353,7 +353,7 @@ class UsageAccumulator(BaseModel):
     def context_window_size(self) -> int | None:
         """Get context window size for current model.
 
-        Returns the provider-set override when present (e.g., Anthropic 1M beta),
+        Returns the provider-set override when present,
         otherwise falls back to the ModelDatabase value.
         """
         if self._context_window_override is not None:

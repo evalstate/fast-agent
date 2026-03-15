@@ -37,6 +37,9 @@ from fast_agent.ui.shell_output_truncation import (
 )
 from fast_agent.utils.async_utils import gather_with_cancel
 
+_STREAM_READ_CHUNK_SIZE = 4096
+_MAX_PENDING_STREAM_BYTES = 65536
+
 
 @dataclass(frozen=True, slots=True)
 class _ShellProcessPlan:
@@ -423,6 +426,30 @@ class ShellRuntime:
                 )
                 display_state.display_ellipsis_printed = True
 
+    def _record_stream_output(
+        self,
+        text: str,
+        *,
+        style: str | None,
+        output_state: _ShellOutputState,
+        display_state: _ShellDisplayState,
+        is_stderr: bool,
+    ) -> None:
+        output_state.had_stream_output = True
+        output_state.output_line_count += 1
+        output_text = text if not is_stderr else f"[stderr] {text}"
+        self._append_output_text(output_text, output_state)
+        self._maybe_print_truncation_notice(
+            output_state=output_state,
+            display_state=display_state,
+        )
+        self._render_live_shell_output(
+            text,
+            style,
+            display_state=display_state,
+        )
+        output_state.last_output_time = time.time()
+
     async def _stream_process_output(
         self,
         stream: asyncio.StreamReader | None,
@@ -435,25 +462,48 @@ class ShellRuntime:
         if stream is None:
             return
 
+        pending = bytearray()
+
         while True:
-            line = await stream.readline()
-            if not line:
+            chunk = await stream.read(_STREAM_READ_CHUNK_SIZE)
+            if not chunk:
+                if pending:
+                    self._record_stream_output(
+                        pending.decode(errors="replace"),
+                        style=style,
+                        output_state=output_state,
+                        display_state=display_state,
+                        is_stderr=is_stderr,
+                    )
                 break
-            output_state.had_stream_output = True
-            output_state.output_line_count += 1
-            text = line.decode(errors="replace")
-            output_text = text if not is_stderr else f"[stderr] {text}"
-            self._append_output_text(output_text, output_state)
-            self._maybe_print_truncation_notice(
-                output_state=output_state,
-                display_state=display_state,
-            )
-            self._render_live_shell_output(
-                text,
-                style,
-                display_state=display_state,
-            )
-            output_state.last_output_time = time.time()
+            pending.extend(chunk)
+
+            while pending:
+                newline_index = pending.find(b"\n")
+                if newline_index >= 0:
+                    line = bytes(pending[: newline_index + 1])
+                    del pending[: newline_index + 1]
+                    self._record_stream_output(
+                        line.decode(errors="replace"),
+                        style=style,
+                        output_state=output_state,
+                        display_state=display_state,
+                        is_stderr=is_stderr,
+                    )
+                    continue
+
+                if len(pending) < _MAX_PENDING_STREAM_BYTES:
+                    break
+
+                line = bytes(pending[:_MAX_PENDING_STREAM_BYTES])
+                del pending[:_MAX_PENDING_STREAM_BYTES]
+                self._record_stream_output(
+                    line.decode(errors="replace"),
+                    style=style,
+                    output_state=output_state,
+                    display_state=display_state,
+                    is_stderr=is_stderr,
+                )
 
     async def _emit_watchdog_progress(self, elapsed: float) -> None:
         ctx = _tool_progress_context.get()

@@ -48,8 +48,18 @@ class _CliModelAgentProvider(AgentProvider):
     def _agent(self, name: str) -> object:
         raise KeyError(name)
 
-    def agent_names(self) -> list[str]:
+    def resolve_target_agent_name(self, agent_name: str | None = None) -> str | None:
+        return agent_name
+
+    def visible_agent_names(self, *, force_include: str | None = None) -> list[str]:
+        del force_include
         return []
+
+    def registered_agent_names(self) -> list[str]:
+        return []
+
+    def registered_agents(self) -> dict[str, object]:
+        return {}
 
     async def list_prompts(
         self,

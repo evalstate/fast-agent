@@ -119,7 +119,7 @@ async def _apply_model_switch_session_reset(
             channel="info",
         )
 
-    cleared = clear_agent_histories(prompt_provider._agents)
+    cleared = clear_agent_histories(prompt_provider.registered_agents())
     if cleared:
         outcome.add_message(
             f"Cleared agent history: {', '.join(sorted(cleared))}",
@@ -562,7 +562,7 @@ async def _dispatch_session_payload(
         case CreateSessionCommand(session_name=session_name):
             context = build_command_context(prompt_provider, agent)
             outcome = await sessions_handlers.handle_create_session(context, session_name=session_name)
-            cleared = clear_agent_histories(prompt_provider._agents)
+            cleared = clear_agent_histories(prompt_provider.registered_agents())
             if cleared:
                 outcome.add_message(f"Cleared agent history: {', '.join(sorted(cleared))}", channel="info")
             await emit_command_outcome(context, outcome)
@@ -612,8 +612,10 @@ def _refresh_available_agents(
     prompt_provider: "AgentApp",
     merge_pinned_agents: Callable[[list[str]], list[str]],
 ) -> tuple[list[str], set[str]]:
-    next_available_agents = merge_pinned_agents(list(prompt_provider.agent_names()))
-    owner.agent_types = prompt_provider.agent_types()
+    base_agent_names = list(prompt_provider.visible_agent_names())
+    next_available_agents = merge_pinned_agents(base_agent_names)
+    force_include = next_available_agents[0] if next_available_agents else None
+    owner.agent_types = prompt_provider.visible_agent_types(force_include=force_include)
     next_available_agents_set = set(next_available_agents)
     enhanced_prompt.available_agents = set(next_available_agents)
     return next_available_agents, next_available_agents_set

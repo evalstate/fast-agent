@@ -58,6 +58,15 @@ class _DummyAgentApp:
             return self._agents[self._default_agent]
         return self._agents[agent_name]
 
+    def get_agent(self, agent_name: str):
+        return self._agents.get(agent_name)
+
+    def resolve_target_agent_name(self, agent_name: str | None = None) -> str | None:
+        return self._default_agent if agent_name is None else agent_name
+
+    def registered_agents(self):
+        return self._agents
+
     async def interactive(self, agent_name: str | None = None) -> None:
         del agent_name
 
@@ -339,6 +348,50 @@ async def test_resume_session_interactive_handles_usage_notices_from_result(
     await _resume_session_if_requested(app, request)
 
     assert any("Usage restored" in notice for notice in plain_notices)
+
+
+@pytest.mark.asyncio
+async def test_resume_session_prefers_explicit_target_agent_for_fallback_history(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = _make_request(
+        result_file=None,
+        target_agent_name="beta",
+        message=None,
+        prompt_file=None,
+    )
+    request.resume = "latest"
+
+    app = _DummyAgentApp(["alpha", "beta"], default_agent="alpha")
+    captured_kwargs: dict[str, object] = {}
+    session = SimpleNamespace(
+        info=SimpleNamespace(
+            name="session-3",
+            last_activity=datetime(2026, 2, 26, 12, 0, 0),
+        )
+    )
+
+    def _resume_session_agents(*args, **kwargs):
+        del args
+        captured_kwargs.update(kwargs)
+        return ResumeSessionAgentsResult(
+            session=cast("Any", session),
+            loaded={"beta": Path("history_beta.json")},
+            missing_agents=[],
+        )
+
+    manager = SimpleNamespace(resume_session_agents=_resume_session_agents)
+
+    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda: manager)
+    monkeypatch.setattr("fast_agent.ui.enhanced_prompt.queue_startup_notice", lambda *_args: None)
+    monkeypatch.setattr(
+        "fast_agent.ui.enhanced_prompt.queue_startup_markdown_notice",
+        lambda *args, **kwargs: None,
+    )
+
+    await _resume_session_if_requested(app, request)
+
+    assert captured_kwargs["fallback_agent_name"] == "beta"
 
 
 @pytest.mark.asyncio

@@ -92,7 +92,7 @@ def format_internal_resources_for_prompt(resources: Sequence[InternalResource]) 
 
     lines: list[str] = [
         "For detailed fast-agent/AgentCard guidance, call `get_resource` with `internal://fast-agent/smart-agent-cards`.",
-        "Use `list_resources` to discover available resources first.",
+        "The bundled internal resources listed below are always available to `get_resource`.",
         "<available_resources>",
     ]
     for resource in resources:

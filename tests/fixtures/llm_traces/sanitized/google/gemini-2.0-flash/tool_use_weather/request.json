@@ -1,0 +1,143 @@
+{
+  "config": {
+    "audio_timestamp": null,
+    "automatic_function_calling": null,
+    "cached_content": null,
+    "candidate_count": null,
+    "enable_enhanced_civic_answers": null,
+    "frequency_penalty": null,
+    "http_options": null,
+    "image_config": null,
+    "labels": null,
+    "logprobs": null,
+    "max_output_tokens": 8192,
+    "media_resolution": null,
+    "model_selection_config": null,
+    "presence_penalty": null,
+    "response_json_schema": null,
+    "response_logprobs": null,
+    "response_mime_type": null,
+    "response_modalities": null,
+    "response_schema": null,
+    "routing_config": null,
+    "safety_settings": null,
+    "seed": null,
+    "should_return_http_response": null,
+    "speech_config": null,
+    "stop_sequences": null,
+    "system_instruction": "You are a helpful AI Agent.\n\n{{serverInstructions}}\n{{agentSkills}}\n{{file_silent:AGENTS.md}}\n{{env}}\n\nThe current date is {{currentDate}}.",
+    "temperature": null,
+    "thinking_config": null,
+    "tool_config": {
+      "function_calling_config": {
+        "allowed_function_names": null,
+        "mode": "AUTO",
+        "stream_function_call_arguments": null
+      },
+      "retrieval_config": null
+    },
+    "tools": [
+      {
+        "code_execution": null,
+        "computer_use": null,
+        "enterprise_web_search": null,
+        "file_search": null,
+        "function_declarations": [
+          {
+            "behavior": null,
+            "description": "Check the weather in a city",
+            "name": "weather",
+            "parameters": {
+              "additional_properties": null,
+              "any_of": null,
+              "default": null,
+              "defs": null,
+              "description": null,
+              "enum": null,
+              "example": null,
+              "format": null,
+              "items": null,
+              "max_items": null,
+              "max_length": null,
+              "max_properties": null,
+              "maximum": null,
+              "min_items": null,
+              "min_length": null,
+              "min_properties": null,
+              "minimum": null,
+              "nullable": null,
+              "pattern": null,
+              "properties": {
+                "city": {
+                  "additional_properties": null,
+                  "any_of": null,
+                  "default": null,
+                  "defs": null,
+                  "description": "City to check",
+                  "enum": null,
+                  "example": null,
+                  "format": null,
+                  "items": null,
+                  "max_items": null,
+                  "max_length": null,
+                  "max_properties": null,
+                  "maximum": null,
+                  "min_items": null,
+                  "min_length": null,
+                  "min_properties": null,
+                  "minimum": null,
+                  "nullable": null,
+                  "pattern": null,
+                  "properties": null,
+                  "property_ordering": null,
+                  "ref": null,
+                  "required": null,
+                  "title": null,
+                  "type": "STRING"
+                }
+              },
+              "property_ordering": null,
+              "ref": null,
+              "required": [
+                "city"
+              ],
+              "title": null,
+              "type": "OBJECT"
+            },
+            "parameters_json_schema": null,
+            "response": null,
+            "response_json_schema": null
+          }
+        ],
+        "google_maps": null,
+        "google_search": null,
+        "google_search_retrieval": null,
+        "retrieval": null,
+        "url_context": null
+      }
+    ],
+    "top_k": null,
+    "top_p": null
+  },
+  "contents": [
+    {
+      "parts": [
+        {
+          "code_execution_result": null,
+          "executable_code": null,
+          "file_data": null,
+          "function_call": null,
+          "function_response": null,
+          "inline_data": null,
+          "media_resolution": null,
+          "text": "Call the weather tool for Paris. Do not answer in natural language first.",
+          "thought": null,
+          "thought_signature": null,
+          "video_metadata": null
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "gemini-2.0-flash"
+}

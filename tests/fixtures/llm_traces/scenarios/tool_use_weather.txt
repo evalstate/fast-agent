@@ -1,0 +1,1 @@
+Call the weather tool for Paris. Do not answer in natural language first.

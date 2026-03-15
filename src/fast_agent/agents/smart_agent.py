@@ -9,9 +9,8 @@ import sys
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, cast
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
-import yaml
 from mcp.types import BlobResourceContents, ReadResourceResult, TextResourceContents
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
@@ -52,6 +51,7 @@ from fast_agent.commands.results import CommandMessage, CommandOutcome
 from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.agent_card_loader import load_agent_cards
 from fast_agent.core.agent_card_validation import AgentCardScanResult, scan_agent_card_path
+from fast_agent.core.default_agent import resolve_default_agent_name
 from fast_agent.core.direct_factory import (
     create_basic_agents_in_dependency_order,
     get_model_factory,
@@ -173,8 +173,18 @@ class _SmartToolCommandAgentProvider:
     def _agent(self, name: str) -> object:
         return self._agents[name]
 
-    def agent_names(self) -> Iterable[str]:
+    def resolve_target_agent_name(self, agent_name: str | None = None) -> str | None:
+        return agent_name
+
+    def visible_agent_names(self, *, force_include: str | None = None) -> Iterable[str]:
+        del force_include
         return list(self._agents.keys())
+
+    def registered_agent_names(self) -> Iterable[str]:
+        return list(self._agents.keys())
+
+    def registered_agents(self) -> dict[str, object]:
+        return dict(self._agents)
 
     async def list_prompts(
         self,
@@ -200,17 +210,14 @@ def _resolve_default_agent_name(
     *,
     tool_only_agents: set[str],
 ) -> str:
-    for name, agent in agents.items():
-        if name in tool_only_agents:
-            continue
-        if bool(getattr(agent.config, "default", False)):
-            return name
-
-    for name in agents:
-        if name not in tool_only_agents:
-            return name
-
-    return next(iter(agents.keys()))
+    default_agent_name = resolve_default_agent_name(
+        agents,
+        is_default=lambda _name, agent: bool(getattr(agent.config, "default", False)),
+        is_tool_only=lambda name, _agent: name in tool_only_agents,
+    )
+    if default_agent_name is None:
+        raise AgentConfigError("Smart tool requires at least one agent")
+    return default_agent_name
 
 
 def _collect_outcome_messages(outcome: "CommandOutcome") -> tuple[list[str], list[str]]:
@@ -223,15 +230,6 @@ def _collect_outcome_messages(outcome: "CommandOutcome") -> tuple[list[str], lis
         elif message.channel == "warning":
             warnings.append(text)
     return errors, warnings
-
-
-def _format_command_outcome(outcome: "CommandOutcome") -> str:
-    lines: list[str] = []
-    for message in outcome.messages:
-        text = str(message.text).strip()
-        if text:
-            lines.append(text)
-    return "\n".join(lines) if lines else "Done."
 
 
 def _resolve_command_agent_map(agent: Any) -> dict[str, object]:
@@ -902,21 +900,6 @@ async def _apply_runtime_mcp_connections(
     return _SmartConnectSummary(connected=connected_names, warnings=warnings)
 
 
-async def _run_mcp_connect_call(agent: Any, target: str) -> str:
-    context = getattr(agent, "context", None)
-    manager = _SmartToolMcpManager(
-        {agent.name: agent},
-        configured_server_names=_context_server_names(context),
-    )
-    outcome = await mcp_runtime_handlers.handle_mcp_connect(
-        None,
-        manager=manager,
-        agent_name=agent.name,
-        target_text=target,
-    )
-    return _format_command_outcome(outcome)
-
-
 def _resolve_agent_card_path(path_value: str, context: Context | None) -> Path:
     candidate = Path(path_value).expanduser()
     if candidate.is_absolute():
@@ -1160,42 +1143,6 @@ def _is_internal_resource_uri(uri: str) -> bool:
     return uri.strip().startswith("internal://")
 
 
-async def _run_current_agent_list_resources_call(
-    agent: Any,
-    *,
-    server_name: str | None = None,
-) -> str:
-    resources: Mapping[str, list[str]] = {}
-    templates: Mapping[str, Sequence[Any]] = {}
-    mcp_server_names: list[str] = []
-    if _include_mcp_resources(server_name):
-        resources = await agent.list_resources(namespace=server_name)
-
-        aggregator = getattr(agent, "aggregator", None)
-        list_templates = getattr(aggregator, "list_resource_templates", None)
-        if callable(list_templates):
-            templates = await list_templates(server_name)
-
-        list_attached = getattr(agent, "list_attached_mcp_servers", None)
-        if callable(list_attached):
-            try:
-                attached = list_attached()
-            except Exception:
-                attached = []
-            mcp_server_names = sorted(set(attached) | set(resources.keys()) | set(templates.keys()))
-
-    internal_resources: Sequence[InternalResource] = ()
-    if _include_internal_resources(server_name):
-        internal_resources = list_internal_resources()
-
-    return _format_smart_resource_listing(
-        resources,
-        templates,
-        mcp_server_names=mcp_server_names,
-        internal_resources=internal_resources,
-    )
-
-
 async def _run_internal_resource_read_call(uri: str) -> str:
     resource = get_internal_resource(uri)
     content = read_internal_resource(resource.uri)
@@ -1268,67 +1215,6 @@ async def _run_validate_call(
 
     results = scan_agent_card_path(resolved_path, server_names=server_names)
     return _format_validation_results(results)
-
-
-def _render_basic_agent_card(
-    *,
-    name: str,
-    instruction: str,
-    model: str | None = None,
-) -> str:
-    payload: dict[str, Any] = {
-        "name": name,
-        "skills": [],
-    }
-    if model and model.strip():
-        payload["model"] = model.strip()
-
-    frontmatter = yaml.safe_dump(
-        payload,
-        sort_keys=False,
-        allow_unicode=False,
-    ).rstrip()
-    instruction_text = instruction.strip() or "You are a helpful assistant."
-    return f"---\n{frontmatter}\n---\n\n{instruction_text}\n"
-
-
-async def _run_create_agent_card_call(
-    context: "Context | None",
-    agent_card_path: str,
-    *,
-    name: str | None = None,
-    instruction: str | None = None,
-    model: str | None = None,
-    overwrite: bool = False,
-) -> str:
-    target = Path(agent_card_path).expanduser()
-    if not target.is_absolute():
-        target = (Path.cwd() / target).resolve()
-    else:
-        target = target.resolve()
-
-    if target.exists() and not overwrite:
-        raise AgentConfigError(
-            "AgentCard path already exists",
-            (
-                f"{target} already exists. Pass overwrite=true to replace it "
-                "or choose a different path."
-            ),
-        )
-
-    card_name = (name or target.stem).strip() or "agent"
-    card_instruction = (instruction or "You are a helpful assistant.").strip()
-    content = _render_basic_agent_card(
-        name=card_name,
-        instruction=card_instruction,
-        model=model,
-    )
-
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(content, encoding="utf-8")
-
-    validation_summary = await _run_validate_call(context, str(target))
-    return f"Created AgentCard: {target}\n\n{validation_summary}"
 
 
 async def _run_smart_list_resources_call(
@@ -1404,33 +1290,6 @@ async def _run_current_agent_get_resource_call(
     if server_name:
         header += f" (server={server_name})"
     return f"{header}\n\n{body}" if body else header
-
-
-async def _run_current_agent_with_resource_call(
-    agent: Any,
-    message: str,
-    resource_uri: str,
-    *,
-    server_name: str | None = None,
-) -> str:
-    if _is_internal_resource_uri(resource_uri):
-        resource = get_internal_resource(resource_uri)
-        content = read_internal_resource(resource.uri)
-        attachment_header = (
-            f"[Attached internal resource: {resource.uri}"
-            f" ({resource.title})]"
-        )
-        if content:
-            prompt = f"{message}\n\n{attachment_header}\n{content}"
-        else:
-            prompt = f"{message}\n\n{attachment_header}"
-        return await agent.send(prompt)
-
-    return await agent.with_resource(
-        prompt_content=message,
-        resource_uri=resource_uri,
-        namespace=server_name,
-    )
 
 
 async def _run_smart_get_resource_call(
@@ -1595,40 +1454,19 @@ def _enable_smart_tooling(agent: Any) -> None:
     smart_tool_names = {
         "smart",
         "slash_command",
-        "create_agent_card",
-        "validate",
-        "mcp_connect",
-        "list_resources",
         "get_resource",
-        "attach_resource",
     }
-    existing_smart_tools = set(getattr(agent, "_smart_tool_names", []) or [])
-    existing_smart_tools.update(smart_tool_names)
-    setattr(agent, "_smart_tool_names", existing_smart_tools)
+    setattr(agent, "_smart_tool_names", set(smart_tool_names))
 
     smart_tool = FastMCPTool.from_function(
         agent.smart,
         name="smart",
         description=(
-            "Load AgentCards from a path and send a message to the resolved default card agent "
-            "(default:true, otherwise first non-tool_only). Optional `mcp_connect` entries "
-            "accept `/mcp connect` style target strings for runtime MCP attachment."
-        ),
-    )
-    validate_tool = FastMCPTool.from_function(
-        agent.validate,
-        name="validate",
-        description=(
-            "Validate AgentCard files using the same checks as `fast-agent check`. "
-            "Use this after creating or editing cards."
-        ),
-    )
-    create_agent_card_tool = FastMCPTool.from_function(
-        agent.create_agent_card,
-        name="create_agent_card",
-        description=(
-            "Create a minimal AgentCard markdown file and validate it immediately. "
-            "Use `overwrite=true` to replace an existing file."
+            "Operate on AgentCards. Use action=`run` (default) to load cards from a path and "
+            "send a message to the resolved default card agent (default:true, otherwise first "
+            "non-tool_only). Use action=`validate` to check AgentCard files without running "
+            "them. Optional `mcp_connect` entries accept `/mcp connect` style target strings "
+            "for runtime MCP attachment during run calls."
         ),
     )
     slash_command_tool = FastMCPTool.from_function(
@@ -1636,109 +1474,55 @@ def _enable_smart_tooling(agent: Any) -> None:
         name="slash_command",
         description=_slash_command_tool_description(),
     )
-    mcp_connect_tool = FastMCPTool.from_function(
-        agent.mcp_connect,
-        name="mcp_connect",
-        description=(
-            "Connect an MCP server to this smart agent at runtime. "
-            "Accepts `/mcp connect` style target strings, including flags "
-            "like --name/--auth/--timeout/--oauth/--reconnect. "
-            "`--auth` supports `$VAR`, `${VAR}`, and `${VAR:default}` env references. "
-            "Pass token value only; fast-agent sends `Authorization: Bearer <token>` automatically "
-            "(optional `Bearer ` input is normalized)."
-        ),
-    )
-    resource_list_tool = FastMCPTool.from_function(
-        agent.resource_list,
-        name="list_resources",
-        description=(
-            "List the combined resource space for this smart agent: internal resources "
-            "plus attached MCP resources/templates. `internal` is always available. "
-            "Use the returned `server_names` list to choose valid `server_name` values."
-        ),
-    )
     resource_read_tool = FastMCPTool.from_function(
-        agent.resource_read,
+        agent.read_resource,
         name="get_resource",
         description=(
             "Read a resource by URI. `internal://` URIs are read directly from bundled "
-            "resources; other URIs are fetched from attached MCP resources. "
-            "Call `list_resources` first to discover valid server names and URIs."
-        ),
-    )
-    attach_resource_tool = FastMCPTool.from_function(
-        agent.attach_resource,
-        name="attach_resource",
-        description=(
-            "Send a message with one resource attached from the combined resource space. "
-            "Works with MCP resources and `internal://` resources."
+            "resources shown in the prompt; other URIs are fetched from attached MCP resources "
+            "when available."
         ),
     )
     agent.add_tool(smart_tool)
     agent.add_tool(slash_command_tool)
-    agent.add_tool(create_agent_card_tool)
-    agent.add_tool(validate_tool)
-    agent.add_tool(mcp_connect_tool)
-    agent.add_tool(resource_list_tool)
     agent.add_tool(resource_read_tool)
-    agent.add_tool(attach_resource_tool)
 
 
 async def _dispatch_smart_tool(
     agent: Any,
     agent_card_path: str,
-    message: str,
+    message: str | None = None,
     mcp_connect: list[str] | None = None,
+    action: Literal["run", "validate"] = "run",
 ) -> str:
-    disable_streaming = bool(getattr(agent, "_parallel_smart_tool_calls", False))
     context = getattr(agent, "context", None)
+    if action == "validate":
+        return await _run_validate_call(context, agent_card_path)
+    if action != "run":
+        raise AgentConfigError(
+            "Invalid smart action",
+            "Supported smart actions: run, validate.",
+        )
+
+    message_text = (message or "").strip()
+    if not message_text:
+        raise AgentConfigError(
+            "Missing smart message",
+            "Provide `message` when action=`run`.",
+        )
+
+    disable_streaming = bool(getattr(agent, "_parallel_smart_tool_calls", False))
     return await _run_smart_call(
         context,
         agent_card_path,
-        message,
+        message_text,
         mcp_connect=mcp_connect,
         disable_streaming=disable_streaming,
     )
 
 
-async def _dispatch_validate_tool(agent: Any, agent_card_path: str) -> str:
-    context = getattr(agent, "context", None)
-    return await _run_validate_call(context, agent_card_path)
-
-
-async def _dispatch_create_agent_card_tool(
-    agent: Any,
-    agent_card_path: str,
-    *,
-    name: str | None = None,
-    instruction: str | None = None,
-    model: str | None = None,
-    overwrite: bool = False,
-) -> str:
-    context = getattr(agent, "context", None)
-    return await _run_create_agent_card_call(
-        context,
-        agent_card_path,
-        name=name,
-        instruction=instruction,
-        model=model,
-        overwrite=overwrite,
-    )
-
-
-async def _dispatch_mcp_connect_tool(agent: Any, target: str) -> str:
-    return await _run_mcp_connect_call(agent, target)
-
-
 async def _dispatch_slash_command_tool(agent: Any, command: str) -> str:
     return await _run_slash_command_call(agent, command)
-
-
-async def _dispatch_resource_list_tool(
-    agent: Any,
-    server_name: str | None = None,
-) -> str:
-    return await _run_current_agent_list_resources_call(agent, server_name=server_name)
 
 
 async def _dispatch_resource_read_tool(
@@ -1751,20 +1535,6 @@ async def _dispatch_resource_read_tool(
     return await _run_current_agent_get_resource_call(
         agent,
         uri,
-        server_name=server_name,
-    )
-
-
-async def _dispatch_attach_resource_tool(
-    agent: Any,
-    message: str,
-    resource_uri: str,
-    server_name: str | None = None,
-) -> str:
-    return await _run_current_agent_with_resource_call(
-        agent,
-        message,
-        resource_uri,
         server_name=server_name,
     )
 
@@ -1865,68 +1635,26 @@ class SmartAgent(McpAgent):
     async def smart(
         self,
         agent_card_path: str,
-        message: str,
+        message: str | None = None,
         mcp_connect: list[str] | None = None,
+        action: Literal["run", "validate"] = "run",
     ) -> str:
-        """Load AgentCards and send a message to the default agent."""
+        """Run or validate AgentCards."""
         return await _dispatch_smart_tool(
             self,
             agent_card_path,
             message,
             mcp_connect=mcp_connect,
+            action=action,
         )
 
     async def slash_command(self, command: str) -> str:
         """Execute a slash command using `/...` syntax."""
         return await _dispatch_slash_command_tool(self, command)
 
-    async def validate(self, agent_card_path: str) -> str:
-        """Validate AgentCard files for the provided path."""
-        return await _dispatch_validate_tool(self, agent_card_path)
-
-    async def create_agent_card(
-        self,
-        agent_card_path: str,
-        name: str | None = None,
-        instruction: str | None = None,
-        model: str | None = None,
-        overwrite: bool = False,
-    ) -> str:
-        """Create a minimal AgentCard file and validate it."""
-        return await _dispatch_create_agent_card_tool(
-            self,
-            agent_card_path,
-            name=name,
-            instruction=instruction,
-            model=model,
-            overwrite=overwrite,
-        )
-
-    async def mcp_connect(self, target: str) -> str:
-        """Connect an MCP server to this agent at runtime."""
-        return await _dispatch_mcp_connect_tool(self, target)
-
-    async def resource_list(self, server_name: str | None = None) -> str:
-        """List internal and attached MCP resources for this smart agent."""
-        return await _dispatch_resource_list_tool(self, server_name=server_name)
-
-    async def resource_read(self, uri: str, server_name: str | None = None) -> str:
-        """Read an internal resource or attached MCP resource by URI."""
+    async def read_resource(self, uri: str, server_name: str | None = None) -> str:
+        """Read a bundled internal resource or attached MCP resource by URI."""
         return await _dispatch_resource_read_tool(self, uri, server_name=server_name)
-
-    async def attach_resource(
-        self,
-        message: str,
-        resource_uri: str,
-        server_name: str | None = None,
-    ) -> str:
-        """Send a prompt with one attached resource."""
-        return await _dispatch_attach_resource_tool(
-            self,
-            message,
-            resource_uri,
-            server_name=server_name,
-        )
 
     async def smart_list_resources(
         self,
@@ -2028,60 +1756,23 @@ class SmartAgentsAsToolsAgent(AgentsAsToolsAgent):
     async def smart(
         self,
         agent_card_path: str,
-        message: str,
+        message: str | None = None,
         mcp_connect: list[str] | None = None,
+        action: Literal["run", "validate"] = "run",
     ) -> str:
         return await _dispatch_smart_tool(
             self,
             agent_card_path,
             message,
             mcp_connect=mcp_connect,
+            action=action,
         )
 
     async def slash_command(self, command: str) -> str:
         return await _dispatch_slash_command_tool(self, command)
 
-    async def validate(self, agent_card_path: str) -> str:
-        return await _dispatch_validate_tool(self, agent_card_path)
-
-    async def create_agent_card(
-        self,
-        agent_card_path: str,
-        name: str | None = None,
-        instruction: str | None = None,
-        model: str | None = None,
-        overwrite: bool = False,
-    ) -> str:
-        return await _dispatch_create_agent_card_tool(
-            self,
-            agent_card_path,
-            name=name,
-            instruction=instruction,
-            model=model,
-            overwrite=overwrite,
-        )
-
-    async def mcp_connect(self, target: str) -> str:
-        return await _dispatch_mcp_connect_tool(self, target)
-
-    async def resource_list(self, server_name: str | None = None) -> str:
-        return await _dispatch_resource_list_tool(self, server_name=server_name)
-
-    async def resource_read(self, uri: str, server_name: str | None = None) -> str:
+    async def read_resource(self, uri: str, server_name: str | None = None) -> str:
         return await _dispatch_resource_read_tool(self, uri, server_name=server_name)
-
-    async def attach_resource(
-        self,
-        message: str,
-        resource_uri: str,
-        server_name: str | None = None,
-    ) -> str:
-        return await _dispatch_attach_resource_tool(
-            self,
-            message,
-            resource_uri,
-            server_name=server_name,
-        )
 
     async def smart_list_resources(
         self,

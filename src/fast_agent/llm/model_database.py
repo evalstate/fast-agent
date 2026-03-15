@@ -193,6 +193,14 @@ class ModelDatabase:
         default=ReasoningEffortSetting(kind="effort", value=AUTO_REASONING),
     )
 
+    GOOGLE_THINKING_EFFORT_SPEC = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["minimal", "low", "medium", "high"],
+        allow_toggle_disable=True,
+        allow_auto=True,
+        default=ReasoningEffortSetting(kind="effort", value=AUTO_REASONING),
+    )
+
     ANTHROPIC_WEB_SEARCH_LEGACY = "web_search_20250305"
     ANTHROPIC_WEB_FETCH_LEGACY = "web_fetch_20250910"
     ANTHROPIC_WEB_SEARCH_46 = "web_search_20260209"
@@ -493,6 +501,8 @@ class ModelDatabase:
         context_window=1_048_576,
         max_output_tokens=65_536,
         tokenizes=GOOGLE_MULTIMODAL,
+        reasoning="google_thinking",
+        reasoning_effort_spec=GOOGLE_THINKING_EFFORT_SPEC,
         default_provider=Provider.GOOGLE,
     )
 

@@ -2,11 +2,13 @@
 import asyncio
 import logging
 import time
+from contextlib import asynccontextmanager
 from typing import Any, cast
 
 import pytest
 
 from fast_agent.config import MCPServerSettings
+from fast_agent.core.exceptions import ServerInitializationError
 from fast_agent.mcp.mcp_connection_manager import (
     MCPConnectionManager,
     ServerConnection,
@@ -224,6 +226,14 @@ class _DummyRegistry:
         return MCPServerSettings(name="demo", url="http://example.com/mcp")
 
 
+class _DummyStdioRegistry:
+    def __init__(self, config: MCPServerSettings) -> None:
+        self._config = config
+
+    def get_server_config(self, _server_name: str):
+        return self._config
+
+
 @pytest.mark.asyncio
 async def test_get_server_cancellation_cleans_up_pending_connection() -> None:
     manager = MCPConnectionManager(server_registry=cast("Any", _DummyRegistry()))
@@ -252,6 +262,95 @@ async def test_get_server_cancellation_cleans_up_pending_connection() -> None:
     assert "demo" not in manager.running_servers
     assert server_conn._shutdown_event.is_set()
     assert server_conn._oauth_abort_event.is_set()
+
+
+@pytest.mark.asyncio
+async def test_get_server_formats_stdio_missing_executable_without_traceback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    @asynccontextmanager
+    async def _failing_stdio_client(*_args, **_kwargs):
+        raise FileNotFoundError(2, "No such file or directory")
+        yield
+
+    monkeypatch.setattr(
+        "fast_agent.mcp.mcp_connection_manager.tracking_stdio_client",
+        _failing_stdio_client,
+    )
+
+    manager = MCPConnectionManager(
+        server_registry=cast(
+            "Any",
+            _DummyStdioRegistry(
+                MCPServerSettings(
+                    name="demo",
+                    transport="stdio",
+                    command="missing-mcp-server",
+                    args=["serve"],
+                )
+            ),
+        )
+    )
+
+    async with manager:
+        with pytest.raises(ServerInitializationError) as exc_info:
+            await manager.get_server(
+                "demo",
+                client_session_factory=lambda *_args, **_kwargs: object(),
+                startup_timeout_seconds=1.0,
+            )
+
+    assert exc_info.value.message == "MCP Server: 'demo': Failed to start stdio server."
+    details = exc_info.value.details
+    assert "Failed to start stdio MCP server command: missing-mcp-server serve." in details
+    assert "Executable not found on PATH: missing-mcp-server" in details
+    assert "Traceback" not in details
+
+
+@pytest.mark.asyncio
+async def test_get_server_formats_stdio_missing_cwd_without_traceback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    @asynccontextmanager
+    async def _failing_stdio_client(*_args, **_kwargs):
+        raise FileNotFoundError(2, "No such file or directory")
+        yield
+
+    missing_cwd = str(tmp_path / "missing-dir")
+
+    monkeypatch.setattr(
+        "fast_agent.mcp.mcp_connection_manager.tracking_stdio_client",
+        _failing_stdio_client,
+    )
+
+    manager = MCPConnectionManager(
+        server_registry=cast(
+            "Any",
+            _DummyStdioRegistry(
+                MCPServerSettings(
+                    name="demo",
+                    transport="stdio",
+                    command="python",
+                    args=["-m", "demo_server"],
+                    cwd=missing_cwd,
+                )
+            ),
+        )
+    )
+
+    async with manager:
+        with pytest.raises(ServerInitializationError) as exc_info:
+            await manager.get_server(
+                "demo",
+                client_session_factory=lambda *_args, **_kwargs: object(),
+                startup_timeout_seconds=1.0,
+            )
+
+    assert exc_info.value.message == "MCP Server: 'demo': Failed to start stdio server."
+    details = exc_info.value.details
+    assert "Working directory not found" in details
+    assert missing_cwd in details
+    assert "Traceback" not in details
 
 
 def test_is_oauth_timeout_message_requires_real_timeout_markers() -> None:

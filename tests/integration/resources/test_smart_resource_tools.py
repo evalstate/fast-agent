@@ -5,16 +5,13 @@ import pytest
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_smart_internal_resource_tools(fast_agent) -> None:
+async def test_smart_internal_resource_read_tool(fast_agent) -> None:
     fast = fast_agent
 
     @fast.smart(name="smart_ops", model="passthrough", skills=[])
     async def smart_ops():
         async with fast.run() as app:
-            listing = await app.smart_ops.resource_list()
-            assert "internal://fast-agent/smart-agent-cards" in listing
-
-            resource = await app.smart_ops.resource_read("internal://fast-agent/smart-agent-cards")
+            resource = await app.smart_ops.read_resource("internal://fast-agent/smart-agent-cards")
             assert "Agent Card (type: `agent`)" in resource
 
     await smart_ops()

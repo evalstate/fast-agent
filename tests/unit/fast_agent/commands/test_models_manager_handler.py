@@ -20,12 +20,27 @@ class _StubAgentProvider:
     def _agent(self, name: str):
         return self._agents[name]
 
-    def agent_names(self):
-        return [
+    def visible_agent_names(self, *, force_include: str | None = None):
+        names = [
             name
             for name, agent in self._agents.items()
             if not bool(getattr(getattr(agent, "config", None), "tool_only", False))
         ]
+        if force_include and force_include in self._agents and force_include not in names:
+            return [force_include, *names]
+        return names
+
+    def registered_agent_names(self):
+        return list(self._agents.keys())
+
+    def registered_agents(self):
+        return self._agents
+
+    def resolve_target_agent_name(self, agent_name: str | None = None):
+        if agent_name is not None:
+            return agent_name
+        visible = self.visible_agent_names()
+        return visible[0] if visible else next(iter(self._agents), None)
 
     async def list_prompts(self, namespace: str | None, agent_name: str | None = None) -> dict[str, str]:
         del namespace, agent_name

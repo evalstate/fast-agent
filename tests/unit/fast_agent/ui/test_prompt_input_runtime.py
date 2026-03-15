@@ -51,3 +51,9 @@ def test_clear_prompt_echo_line_skips_multiline_and_non_tty() -> None:
     assert tty_stream.flush_calls == 0
     assert non_tty_stream.writes == []
     assert non_tty_stream.flush_calls == 0
+
+
+def test_format_prompt_prefix_omits_default_agent_name() -> None:
+    assert input_runtime._format_prompt_prefix("dev", default_agent_name="dev") == "❯"
+    assert input_runtime._format_prompt_prefix("default") == "default ❯"
+    assert input_runtime._format_prompt_prefix("dev") == "dev ❯"

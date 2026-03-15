@@ -21,8 +21,18 @@ class _SimpleAgentProvider:
     def _agent(self, name: str):
         return self._agents[name]
 
-    def agent_names(self):
+    def resolve_target_agent_name(self, agent_name: str | None = None) -> str | None:
+        return agent_name
+
+    def visible_agent_names(self, *, force_include: str | None = None):
+        del force_include
         return list(self._agents.keys())
+
+    def registered_agent_names(self):
+        return list(self._agents.keys())
+
+    def registered_agents(self):
+        return self._agents
 
     async def list_prompts(self, namespace: str | None, agent_name: str | None = None) -> object:
         return {}

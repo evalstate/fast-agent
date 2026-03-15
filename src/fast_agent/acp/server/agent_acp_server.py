@@ -1816,10 +1816,11 @@ class AgentACPServer(ACPAgent):
         )
 
         manager = get_session_manager(cwd=Path(request_cwd).expanduser().resolve())
+        fallback_agent_name = self._resolve_session_fallback_agent_name(session_state.instance)
         result = manager.resume_session_agents(
             session_state.instance.agents,
             session_id,
-            default_agent_name=self.primary_agent_name,
+            fallback_agent_name=fallback_agent_name,
         )
         if not result:
             logger.error(
@@ -1868,7 +1869,7 @@ class AgentACPServer(ACPAgent):
         if len(loaded) == 1:
             current_agent = next(iter(loaded.keys()))
         if not current_agent or current_agent not in session_state.instance.agents:
-            current_agent = self.primary_agent_name or next(
+            current_agent = fallback_agent_name or next(
                 iter(session_state.instance.agents.keys()),
                 None,
             )
@@ -2068,6 +2069,20 @@ class AgentACPServer(ACPAgent):
                 return agent_name
 
         return next(iter(instance.agents.keys()))
+
+    def _resolve_session_fallback_agent_name(self, instance: AgentInstance) -> str | None:
+        if self.primary_agent_name is not None:
+            try:
+                return instance.app.resolve_target_agent_name(self.primary_agent_name)
+            except ValueError:
+                logger.warning(
+                    "ACP session load primary agent missing after refresh; using default agent",
+                    name="acp_load_session_primary_agent_missing",
+                    missing_agent=self.primary_agent_name,
+                    available_agents=sorted(instance.agents.keys()),
+                )
+
+        return instance.app.resolve_target_agent_name()
 
     async def prompt(
         self,

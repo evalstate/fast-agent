@@ -125,16 +125,7 @@ def _is_help_flag(value: str | None) -> bool:
 
 
 def _all_agent_names(ctx: "CommandContext") -> list[str]:
-    provider = ctx.agent_provider
-    provider_agents = getattr(provider, "_agents", None)
-    if isinstance(provider_agents, dict):
-        return sorted(str(name) for name in provider_agents.keys())
-
-    try:
-        names = provider.agent_names()
-    except Exception:
-        return []
-    return sorted(str(name) for name in names)
+    return sorted(str(name) for name in ctx.agent_provider.registered_agent_names())
 
 
 def _safe_stripped(value: object) -> str | None:

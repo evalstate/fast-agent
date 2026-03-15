@@ -28,11 +28,22 @@ class _FakeAgentApp:
         self._refreshed = True
         return True
 
-    def agent_names(self) -> list[str]:
+    def visible_agent_names(self, *, force_include: str | None = None) -> list[str]:
+        del force_include
         return list(self._agents.keys())
 
-    def agent_types(self) -> dict[str, AgentType]:
+    def visible_agent_types(self, *, force_include: str | None = None) -> dict[str, AgentType]:
+        del force_include
         return {name: agent.agent_type for name, agent in self._agents.items()}
+
+    def registered_agent_names(self) -> list[str]:
+        return list(self._agents.keys())
+
+    def registered_agents(self) -> dict[str, _FakeAgent]:
+        return self._agents
+
+    def resolve_target_agent_name(self, agent_name: str | None = None) -> str | None:
+        return agent_name if agent_name is not None else next(iter(self._agents), None)
 
     def can_load_agent_cards(self) -> bool:
         return False
@@ -56,11 +67,22 @@ class _FakeAgentAppRemove:
         self._refreshed = True
         return True
 
-    def agent_names(self) -> list[str]:
+    def visible_agent_names(self, *, force_include: str | None = None) -> list[str]:
+        del force_include
         return list(self._agents.keys())
 
-    def agent_types(self) -> dict[str, AgentType]:
+    def visible_agent_types(self, *, force_include: str | None = None) -> dict[str, AgentType]:
+        del force_include
         return {name: agent.agent_type for name, agent in self._agents.items()}
+
+    def registered_agent_names(self) -> list[str]:
+        return list(self._agents.keys())
+
+    def registered_agents(self) -> dict[str, _FakeAgent]:
+        return self._agents
+
+    def resolve_target_agent_name(self, agent_name: str | None = None) -> str | None:
+        return agent_name if agent_name is not None else next(iter(self._agents), None)
 
     def can_load_agent_cards(self) -> bool:
         return False
@@ -84,11 +106,29 @@ class _FakeToolOnlyAgentApp:
         self._refreshed = True
         return True
 
-    def agent_names(self) -> list[str]:
-        return [name for name in self._agents.keys() if name not in self._tool_only]
+    def visible_agent_names(self, *, force_include: str | None = None) -> list[str]:
+        names = [name for name in self._agents.keys() if name not in self._tool_only]
+        if force_include and force_include in self._agents and force_include not in names:
+            return [force_include, *names]
+        return names
 
-    def agent_types(self) -> dict[str, AgentType]:
-        return {name: agent.agent_type for name, agent in self._agents.items()}
+    def visible_agent_types(self, *, force_include: str | None = None) -> dict[str, AgentType]:
+        visible_names = set(self.visible_agent_names(force_include=force_include))
+        return {
+            name: agent.agent_type for name, agent in self._agents.items() if name in visible_names
+        }
+
+    def registered_agent_names(self) -> list[str]:
+        return list(self._agents.keys())
+
+    def registered_agents(self) -> dict[str, _FakeAgent]:
+        return self._agents
+
+    def resolve_target_agent_name(self, agent_name: str | None = None) -> str | None:
+        if agent_name is not None:
+            return agent_name
+        visible = self.visible_agent_names()
+        return visible[0] if visible else next(iter(self._agents), None)
 
     def can_load_agent_cards(self) -> bool:
         return False
@@ -183,4 +223,3 @@ async def test_prompt_loop_preserves_pinned_tool_only_agent(monkeypatch, capsys:
 
     capsys.readouterr()
     assert enhanced_prompt.available_agents == {"tool-only", "vertex-rag"}
-

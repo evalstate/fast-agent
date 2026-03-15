@@ -16,6 +16,8 @@ def test_model_database_context_windows():
     """Test that ModelDatabase returns expected context windows"""
     # Test known models
     assert ModelDatabase.get_context_window("claude-sonnet-4-0") == 200000
+    assert ModelDatabase.get_context_window("claude-sonnet-4-6") == 1_000_000
+    assert ModelDatabase.get_context_window("claude-opus-4-6") == 1_000_000
     assert ModelDatabase.get_context_window("gpt-4o") == 128000
     assert ModelDatabase.get_context_window("gemini-2.0-flash") == 1048576
     assert ModelDatabase.get_context_window("Qwen/Qwen3.5-397B-A17B") == 262144
@@ -26,8 +28,9 @@ def test_model_database_context_windows():
 
 def test_model_database_long_context_windows():
     """Explicit long-context capability should be tracked in ModelDatabase."""
-    assert ModelDatabase.get_long_context_window("claude-opus-4-6") == 1_000_000
+    assert ModelDatabase.get_long_context_window("claude-opus-4-6") is None
     assert ModelDatabase.get_long_context_window("claude-sonnet-4-0") == 1_000_000
+    assert ModelDatabase.get_long_context_window("claude-sonnet-4-5") == 1_000_000
     assert ModelDatabase.get_long_context_window("claude-haiku-4-5") is None
     assert ModelDatabase.get_long_context_window("unknown-model") is None
 
@@ -35,11 +38,12 @@ def test_model_database_long_context_windows():
 def test_model_database_long_context_model_listing():
     """Long-context model listing should come from ModelDatabase metadata."""
     models = ModelDatabase.list_long_context_models()
-    assert "claude-opus-4-6" in models
     assert "claude-sonnet-4-5" in models
     assert "claude-sonnet-4-5-20250929" in models
     assert "claude-sonnet-4-0" in models
     assert "claude-sonnet-4-20250514" in models
+    assert "claude-opus-4-6" not in models
+    assert "claude-sonnet-4-6" not in models
     assert "claude-haiku-4-5" not in models
 
 

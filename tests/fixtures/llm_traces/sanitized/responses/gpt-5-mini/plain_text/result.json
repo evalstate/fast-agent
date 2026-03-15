@@ -1,0 +1,58 @@
+{
+  "channels": {
+    "fast-agent-provider-diagnostics": [
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"transport\": \"websocket\", \"websocket_request_type\": \"response.create\", \"websocket_request_mode\": \"create\", \"websocket_turn_outcome\": \"fresh\", \"websocket_turn_metrics\": {\"total\": 1, \"fresh\": 1, \"reused\": 0, \"reconnected\": 0}}",
+        "type": "text"
+      }
+    ],
+    "fast-agent-timing": [
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"start_time\": 10180.571359502, \"end_time\": 10183.956885006, \"duration_ms\": 3385.53, \"ttft_ms\": 2157.81, \"time_to_response_ms\": 3292.72}",
+        "type": "text"
+      }
+    ],
+    "fast-agent-usage": [
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"turn\": {\"provider\": \"responses\", \"model\": \"gpt-5-mini\", \"input_tokens\": 62, \"output_tokens\": 141, \"total_tokens\": 203, \"timestamp\": 1773529520.065917, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 0, \"total_cache_tokens\": 0, \"has_cache_activity\": false}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 64, \"tool_calls\": 0, \"current_context_tokens\": 203, \"effective_input_tokens\": 62, \"display_input_tokens\": 62}, \"raw_usage\": {\"cache_tokens_details\": null, \"cached_content_token_count\": null, \"candidates_token_count\": null, \"candidates_tokens_details\": null, \"prompt_token_count\": null, \"prompt_tokens_details\": null, \"thoughts_token_count\": null, \"tool_use_prompt_token_count\": null, \"tool_use_prompt_tokens_details\": null, \"total_token_count\": null, \"traffic_type\": null}, \"summary\": {\"model\": \"gpt-5-mini\", \"turn_count\": 1, \"cumulative_input_tokens\": 62, \"cumulative_output_tokens\": 141, \"cumulative_billing_tokens\": 203, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 64, \"cumulative_tool_calls\": 0, \"current_context_tokens\": 203, \"context_window_size\": 400000, \"context_usage_percentage\": 0.05075, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 0, \"cache_hit_rate_percent\": 0.0, \"cumulative_effective_input_tokens\": 62}}",
+        "type": "text"
+      }
+    ],
+    "openai-reasoning-encrypted": [
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"type\": \"reasoning\", \"encrypted_content\": \"gAAAAABptemw8r00kXYEPcGyds6KC_ZN4N_p3ORHCYXQts8IcdjeFrb2NYwDGzfu3OyhMSd4-J7yGeVUfuhBM-wOZ4tqVsLNZ7Zap14cF_J6AIUsA6Ruh8NTgRreTlXXRyysqzJaH0jzGWS5WFM38G4VNShLxyK1jJOJAJP0JVg0dORngkL6P6Oxi7gr4x3gS4koNUm-GFvoDyzXzvrJyL9ZkwlFhi4SHqJOEgUHf2ZDk9nBp3av50-qEvRt42Kl7yU7GrNosj2rAmz7Pyekf6we0s_R-lRzt7_HJNoukaiknqj5ueo_NhBRJ53aDc0Bzwzjy_k2XXzj-eukXBS5Y2PbismpUFBMHOKDFrGcKDztlYXy-PgZpAe4wxutaxTEAMJOYbBCWeTb_qCzEHiIaIg4Z77QHkzlE6ywyAccsu8cZlBkJs3d_Yb_aP13OU63iJ8E5FZAa6Kh4qlTELd9F3oE9BrMm6PSZMfRojzONvyGok4cNUID-KTW5BpL5WROH1tDDoEmkQAlEoVhwzOkBRXSjuVG5qvA644wG4edHyDBZKVfWhg6S_ckD_fqsv3V663TfA6qczYadRjLkGui6Ry2hOp9qBgR3_8yZCn4GYuvdbDE9557IxtLBISmJYfXzdUsJx3r2sNqr5r7gp1Oivx-1yAP12wxn6qslOvhE0wmcHNu0KNIWAnUTyGPctOqPw8oT8NSDUydEONRR0vmE7XmvMXtwCkjLMbDGWYTnjcNUD3mWywzG7fMij0nGuvusmGawpVnX2B45XWpB0OdE51A1EYp4ZmF1FuBS2FSOxhLX21C1oFKjUmU2ZQiikXdeq4zIji2MsZcsnbHW2jFBRjM_ZMEMKJRO1kF8Yj1jXrXRB46BUwkQc_OGydPdUV9peW88k7qIrYN9eUpspSaz0HciMuTHxDPeb9w1cbob3HLopN5TMfoGLBXxBRmz1bL2AjuEgPo1NZqGSWdKiQ5yw27o7st6Y8EbJon40nSEJvCsL40YXRU8H8gLW5kI4gmxPjj2ekdAWezthHhzy1l8cARmbjqg_Yscv-X1JaRzLlu-PNzfbYBP-F0yTPDTK_rA7kTA_JvyLz-SK1p5WyRyABjBmLhbcnAq8Ar2jQYc7OICYwpPEJmg6uIr83x5d113uHt7mfhEn3vsY6tR_Lvab35FmDXwuj5VQg_XuCFiVY-OqiVeu9p4uOdO1i2QzEQ5LGv62-YjgIHC6OS1MkL5wuvo3wxmH4usaV2y7onzs7-KP1sxWQt7sRunTLYY83jhpNyDvTbzBMNnBlsfTEROVcnf35bbuO9kP_ZsFMJDk1RdkKHUcVn5r5Bk6O9tofDmegJQ8NTbbNNVQE-RTczGB5_wFhH8vQqSVoRPbnG0o5Ucielkr4WabvYiJUDv-QYmGZEXoprIZQQ\", \"id\": \"rs_1\"}",
+        "type": "text"
+      }
+    ],
+    "reasoning": [
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "**Explaining tidal changes**\n\nI need to provide a concise sentence about why tides change throughout the day. I\u2019ll mention the gravitational pull of the Moon and Sun along with Earth's rotation. My draft could be: \"Tides change due to the gravitational pull of the Moon and Sun, combined with Earth's rotation, creating seawater bulges that move relative to a location, resulting in high and low tides roughly twice daily.\" That seems clear and concise!",
+        "type": "text"
+      }
+    ]
+  },
+  "content": [
+    {
+      "annotations": null,
+      "meta": null,
+      "text": "Tides change over the day because the Moon\u2019s (and to a lesser extent the Sun\u2019s) gravity pulls the ocean into bulges while the Earth\u2019s rotation moves a given location through those bulges, producing periodic high and low tides.",
+      "type": "text"
+    }
+  ],
+  "is_template": false,
+  "phase": null,
+  "role": "assistant",
+  "stop_reason": "endTurn",
+  "tool_calls": null,
+  "tool_results": null
+}

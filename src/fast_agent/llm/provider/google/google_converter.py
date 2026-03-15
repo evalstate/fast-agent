@@ -1,5 +1,5 @@
 import base64
-from typing import Any
+from typing import Any, cast
 
 # Import necessary types from google.genai
 from google.genai import types
@@ -33,6 +33,11 @@ class GoogleConverter:
     """
     Converts between fast-agent and google.genai data structures.
     """
+
+    @staticmethod
+    def _is_thought_part(part: types.Part) -> bool:
+        """Return True when Gemini marks a part as internal reasoning."""
+        return bool(getattr(part, "thought", False))
 
     def _clean_schema_for_google(self, schema: dict[str, Any]) -> dict[str, Any]:
         """
@@ -270,6 +275,8 @@ class GoogleConverter:
             return []  # Google API response 'content' object is None. Cannot extract parts.
 
         for part in content.parts:
+            if self._is_thought_part(part):
+                continue
             if part.text:
                 fast_agent_parts.append(TextContent(type="text", text=part.text))
             elif part.function_call:
@@ -398,10 +405,23 @@ class GoogleConverter:
         return google_tool_response_contents
 
     def convert_request_params_to_google_config(
-        self, request_params: RequestParams
+        self,
+        request_params: RequestParams,
+        *,
+        thinking_budget: int | None = None,
+        thinking_level: str | None = None,
     ) -> types.GenerateContentConfig:
         """
         Converts fast-agent RequestParams to google.genai types.GenerateContentConfig.
+
+        Args:
+            request_params: The request params to convert.
+            thinking_budget: Optional thinking budget in tokens.
+                0 disables thinking, -1 enables automatic budget, positive
+                values set an explicit token budget.
+            thinking_level: Optional SDK ThinkingLevel name
+                (MINIMAL/LOW/MEDIUM/HIGH). When set, takes precedence over
+                thinking_budget for named effort levels.
         """
 
         def _param_value(*names: str) -> Any:
@@ -433,6 +453,24 @@ class GoogleConverter:
             config_args["frequency_penalty"] = frequency_penalty
         if request_params.systemPrompt is not None:
             config_args["system_instruction"] = request_params.systemPrompt
+        if thinking_level is not None or thinking_budget is not None:
+            sdk_thinking_level = cast("Any", thinking_level)
+            if thinking_level is not None and thinking_budget is not None:
+                config_args["thinking_config"] = types.ThinkingConfig(
+                    include_thoughts=True,
+                    thinking_level=sdk_thinking_level,
+                    thinking_budget=thinking_budget,
+                )
+            elif thinking_level is not None:
+                config_args["thinking_config"] = types.ThinkingConfig(
+                    include_thoughts=True,
+                    thinking_level=sdk_thinking_level,
+                )
+            elif thinking_budget is not None:
+                config_args["thinking_config"] = types.ThinkingConfig(
+                    include_thoughts=True,
+                    thinking_budget=thinking_budget,
+                )
         return types.GenerateContentConfig(**config_args)
 
     def convert_from_google_content_list(
@@ -456,6 +494,8 @@ class GoogleConverter:
 
         fast_agent_parts: list[ContentBlock] = []
         for part in content.parts:
+            if self._is_thought_part(part):
+                continue
             if part.text:
                 fast_agent_parts.append(TextContent(type="text", text=part.text))
             elif part.function_response:

@@ -1012,8 +1012,8 @@ def test_get_completions_for_mcp_connect_shows_target_hint_first(monkeypatch) ->
     completions = list(completer.get_completions(doc, None))
 
     assert completions
-    assert completions[0].display_text == "[url|npx|uvx]"
-    assert completions[0].display_meta_text == "enter url or npx/uvx cmd"
+    assert completions[0].display_text == "[url|npx|uvx|stdio]"
+    assert completions[0].display_meta_text == "enter url, npx/uvx, or stdio cmd"
 
 
 def test_get_completions_for_connect_alias_shows_target_hint_and_servers(monkeypatch) -> None:
@@ -1032,8 +1032,8 @@ def test_get_completions_for_connect_alias_shows_target_hint_and_servers(monkeyp
     completions = list(completer.get_completions(doc, None))
 
     assert completions
-    assert completions[0].display_text == "[url|npx|uvx]"
-    assert completions[0].display_meta_text == "enter url or npx/uvx cmd"
+    assert completions[0].display_text == "[url|npx|uvx|stdio]"
+    assert completions[0].display_meta_text == "enter url, npx/uvx, or stdio cmd"
     assert any(completion.text == "docs" for completion in completions)
 
 

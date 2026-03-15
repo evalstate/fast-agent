@@ -1,0 +1,47 @@
+{
+  "channels": {
+    "fast-agent-timing": [
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"start_time\": 13791.872324865, \"end_time\": 13794.090980794, \"duration_ms\": 2218.66, \"ttft_ms\": 312.54, \"time_to_response_ms\": 1808.62}",
+        "type": "text"
+      }
+    ],
+    "fast-agent-usage": [
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"turn\": {\"provider\": \"openresponses\", \"model\": \"openai/gpt-oss-120b\", \"input_tokens\": 177, \"output_tokens\": 47, \"total_tokens\": 224, \"timestamp\": 1773533280.0775387, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 48, \"total_cache_tokens\": 48, \"has_cache_activity\": true}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 31, \"tool_calls\": 1, \"current_context_tokens\": 224, \"effective_input_tokens\": 129, \"display_input_tokens\": 177}, \"raw_usage\": {\"cache_tokens_details\": null, \"cached_content_token_count\": null, \"candidates_token_count\": null, \"candidates_tokens_details\": null, \"prompt_token_count\": null, \"prompt_tokens_details\": null, \"thoughts_token_count\": null, \"tool_use_prompt_token_count\": null, \"tool_use_prompt_tokens_details\": null, \"total_token_count\": null, \"traffic_type\": null}, \"summary\": {\"model\": \"openai/gpt-oss-120b\", \"turn_count\": 1, \"cumulative_input_tokens\": 177, \"cumulative_output_tokens\": 47, \"cumulative_billing_tokens\": 224, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 31, \"cumulative_tool_calls\": 1, \"current_context_tokens\": 224, \"context_window_size\": 131072, \"context_usage_percentage\": 0.1708984375, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 48, \"cache_hit_rate_percent\": 21.333333333333336, \"cumulative_effective_input_tokens\": 129}}",
+        "type": "text"
+      }
+    ],
+    "reasoning": [
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "We need to call the tool. No natural language answer. Use functions.weather with city \"Paris\".",
+        "type": "text"
+      }
+    ]
+  },
+  "content": [],
+  "is_template": false,
+  "phase": null,
+  "role": "assistant",
+  "stop_reason": "toolUse",
+  "tool_calls": {
+    "call_bdf553dd0fa8012c": {
+      "method": "tools/call",
+      "params": {
+        "arguments": {
+          "city": "Paris"
+        },
+        "meta": null,
+        "name": "weather",
+        "task": null
+      }
+    }
+  },
+  "tool_results": null
+}

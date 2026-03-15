@@ -1,0 +1,69 @@
+{
+  "channels": {
+    "anthropic-assistant-raw-content": [
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"signature\": \"EpYCCkYICxgCKkCX0/rdb/HDIF7M9SeAR6PkiBojY9GuVjq5gcKF1R+i+bvdZebJlQXXbzHNXnQHm5ODP4zmpsXUTiV4pn1Bu6bTEgyH0SOjIwehwwWsEooaDMseWsOekf0m04UbuiIwopm42TLFdYFiP2YHGh/RTBRJ6Q6pYwmeet7rHV1Hxk5CMfnqrxNV2e8APTI4SozuKn5NpdYbGxsa/VUIXVxwT9hKlo6H8+4n7Ees2i2Y2LWDSI2aq6DIopgjbO5Hor7BZPsK/opCdjuuAD/iBoSNKWHaeUwtVE/PUA5Uo5+zUMBAnbAQK06wR4wg3JufYOJa7AjiFlAoc9BjX6NfBPGfRe596aJBWu37iUGUYj7PRmMYAQ==\", \"thinking\": \"The user wants me to call the weather tool for Paris directly without any natural language introduction first.\", \"type\": \"thinking\"}",
+        "type": "text"
+      },
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"id\": \"toolu_1\", \"input\": {\"city\": \"Paris\"}, \"name\": \"weather\", \"type\": \"tool_use\", \"caller\": {\"type\": \"direct\"}}",
+        "type": "text"
+      }
+    ],
+    "anthropic-thinking-raw": [
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"signature\": \"EpYCCkYICxgCKkCX0/rdb/HDIF7M9SeAR6PkiBojY9GuVjq5gcKF1R+i+bvdZebJlQXXbzHNXnQHm5ODP4zmpsXUTiV4pn1Bu6bTEgyH0SOjIwehwwWsEooaDMseWsOekf0m04UbuiIwopm42TLFdYFiP2YHGh/RTBRJ6Q6pYwmeet7rHV1Hxk5CMfnqrxNV2e8APTI4SozuKn5NpdYbGxsa/VUIXVxwT9hKlo6H8+4n7Ees2i2Y2LWDSI2aq6DIopgjbO5Hor7BZPsK/opCdjuuAD/iBoSNKWHaeUwtVE/PUA5Uo5+zUMBAnbAQK06wR4wg3JufYOJa7AjiFlAoc9BjX6NfBPGfRe596aJBWu37iUGUYj7PRmMYAQ==\", \"thinking\": \"The user wants me to call the weather tool for Paris directly without any natural language introduction first.\", \"type\": \"thinking\"}",
+        "type": "text"
+      }
+    ],
+    "fast-agent-timing": [
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"start_time\": 10203.521034129, \"end_time\": 10205.389010303, \"duration_ms\": 1867.98, \"ttft_ms\": 1140.73, \"time_to_response_ms\": 1809.8}",
+        "type": "text"
+      }
+    ],
+    "fast-agent-usage": [
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"turn\": {\"provider\": \"anthropic\", \"model\": \"claude-sonnet-4-6\", \"input_tokens\": 626, \"output_tokens\": 85, \"total_tokens\": 711, \"timestamp\": 1773529541.4984925, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 0, \"total_cache_tokens\": 0, \"has_cache_activity\": false}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 711, \"effective_input_tokens\": 626, \"display_input_tokens\": 626}, \"raw_usage\": {\"cache_creation\": {\"ephemeral_1h_input_tokens\": 0, \"ephemeral_5m_input_tokens\": 0}, \"cache_creation_input_tokens\": 0, \"cache_read_input_tokens\": 0, \"inference_geo\": \"global\", \"input_tokens\": 626, \"iterations\": null, \"output_tokens\": 85, \"server_tool_use\": null, \"service_tier\": \"standard\", \"speed\": null}, \"summary\": {\"model\": \"claude-sonnet-4-6\", \"turn_count\": 1, \"cumulative_input_tokens\": 626, \"cumulative_output_tokens\": 85, \"cumulative_billing_tokens\": 711, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 1, \"current_context_tokens\": 711, \"context_window_size\": 1000000, \"context_usage_percentage\": 0.07110000000000001, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 0, \"cache_hit_rate_percent\": 0.0, \"cumulative_effective_input_tokens\": 626}}",
+        "type": "text"
+      }
+    ],
+    "reasoning": [
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "The user wants me to call the weather tool for Paris directly without any natural language introduction first.",
+        "type": "text"
+      }
+    ]
+  },
+  "content": [],
+  "is_template": false,
+  "phase": null,
+  "role": "assistant",
+  "stop_reason": "toolUse",
+  "tool_calls": {
+    "toolu_017d2j2LmQTTCNCJ3hQLn9bZ": {
+      "method": "tools/call",
+      "params": {
+        "arguments": {
+          "city": "Paris"
+        },
+        "meta": null,
+        "name": "weather",
+        "task": null
+      }
+    }
+  },
+  "tool_results": null
+}

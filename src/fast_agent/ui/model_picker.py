@@ -18,6 +18,7 @@ from prompt_toolkit.widgets import Frame
 if TYPE_CHECKING:
     from pathlib import Path
 
+from fast_agent.llm.provider_types import Provider
 from fast_agent.ui.model_picker_common import (
     GENERIC_CUSTOM_MODEL_SENTINEL,
     REFER_TO_DOCS_PROVIDERS,
@@ -580,5 +581,10 @@ def _find_initial_model_index(
     for index, option in enumerate(options):
         if model_identity(option.spec) == target_identity:
             return index
+
+    if target_identity[0] == Provider.GENERIC:
+        for index, option in enumerate(options):
+            if option.spec == GENERIC_CUSTOM_MODEL_SENTINEL:
+                return index
 
     return None

@@ -73,6 +73,7 @@ from fast_agent.ui.prompt.input_runtime import (
     build_prompt_style,
     cleanup_prompt_session,
     create_prompt_session,
+    is_default_agent_name,
     run_prompt_once,
     start_toolbar_switch_task,
 )
@@ -441,7 +442,7 @@ def _initialize_prompt_input_state(
         available_agents = set(available_agent_names)
     if agent_provider is not None:
         try:
-            available_agents = set(agent_provider.agent_names())
+            available_agents = set(agent_provider.visible_agent_names(force_include=agent_name))
         except Exception:
             pass
 
@@ -625,6 +626,7 @@ def _build_prompt_text_resolver(
     *,
     session_factory: "Callable[[], PromptSession]",
     agent_name: str,
+    default_agent_name: str | None,
     show_default: bool,
     default: str,
     shell_enabled: bool,
@@ -641,12 +643,27 @@ def _build_prompt_text_resolver(
         else:
             arrow_segment = "<ansibrightyellow>❯</ansibrightyellow>" if shell_enabled else "❯"
 
-        prompt_text = f"<ansibrightblue>{agent_name}</ansibrightblue> {arrow_segment} "
+        if is_default_agent_name(agent_name, default_agent_name=default_agent_name):
+            prompt_text = f"{arrow_segment} "
+        else:
+            prompt_text = f"<ansibrightblue>{agent_name}</ansibrightblue> {arrow_segment} "
         if show_default and default and default != "STOP":
             prompt_text = f"{prompt_text} [<ansigreen>{default}</ansigreen>] "
         return HTML(prompt_text)
 
     return _resolve_prompt_text
+
+
+def _resolve_default_agent_name(agent_provider: "AgentApp | None") -> str | None:
+    if agent_provider is None:
+        return None
+    try:
+        return agent_provider.get_default_agent_name()
+    except Exception:
+        try:
+            return getattr(agent_provider._agent(None), "name", None)
+        except Exception:
+            return None
 
 
 def _show_stop_hint_message(
@@ -760,10 +777,8 @@ async def _show_streaming_status(
 
 
 def _show_streaming_mode_notice(agent_provider: "AgentApp", logger_settings: object) -> None:
-    has_parallel = any(
-        agent.agent_type == AgentType.PARALLEL
-        for agent in agent_provider._agents.values()
-    )
+    agent_types = agent_provider.registered_agent_types().values()
+    has_parallel = any(agent_type == AgentType.PARALLEL for agent_type in agent_types)
     if has_parallel:
         rich_print("[dim]Markdown Streaming disabled (Parallel Agents configured)[/dim]")
         return
@@ -941,9 +956,11 @@ async def get_enhanced_input(
         agent_provider=agent_provider,
     )
     buffer_default = pre_populate_buffer if pre_populate_buffer else default
+    default_agent_name = _resolve_default_agent_name(agent_provider)
     resolve_prompt_text = _build_prompt_text_resolver(
         session_factory=session_factory,
         agent_name=agent_name,
+        default_agent_name=default_agent_name,
         show_default=show_default,
         default=default,
         shell_enabled=shell_context.enabled,
@@ -953,6 +970,7 @@ async def get_enhanced_input(
         return await run_prompt_once(
             session=session,
             agent_name=agent_name,
+            default_agent_name=default_agent_name,
             default_buffer=buffer_default,
             resolve_prompt_text=resolve_prompt_text,
             parse_special_input=parse_special_input,

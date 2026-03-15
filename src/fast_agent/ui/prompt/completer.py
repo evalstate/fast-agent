@@ -786,8 +786,8 @@ class AgentCompleter(Completer):
         return Completion(
             partial,
             start_position=-len(partial),
-            display="[url|npx|uvx]",
-            display_meta="enter url or npx/uvx cmd",
+            display="[url|npx|uvx|stdio]",
+            display_meta="enter url, npx/uvx, or stdio cmd",
         )
 
     @staticmethod

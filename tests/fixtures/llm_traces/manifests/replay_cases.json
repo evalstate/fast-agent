@@ -1,0 +1,69 @@
+{
+  "cases": [
+    {
+      "assertion_profile": "plain_text",
+      "family": "responses",
+      "fixture_dir": "responses/gpt-5-mini/plain_text",
+      "id": "responses-gpt5mini-plain-text",
+      "model_label": "gpt-5-mini",
+      "scenario": "plain_text"
+    },
+    {
+      "assertion_profile": "tool_use",
+      "family": "responses",
+      "fixture_dir": "responses/gpt-5-mini/tool_use_weather",
+      "id": "responses-gpt5mini-tool-use-weather",
+      "model_label": "gpt-5-mini",
+      "scenario": "tool_use_weather"
+    },
+    {
+      "assertion_profile": "web_search",
+      "family": "responses",
+      "fixture_dir": "responses/gpt-5-mini/web_search_capital",
+      "id": "responses-gpt5mini-web-search-capital",
+      "model_label": "gpt-5-mini",
+      "scenario": "web_search_capital"
+    },
+    {
+      "assertion_profile": "plain_text",
+      "family": "openresponses",
+      "fixture_dir": "openresponses/openai-gpt-oss-120b/plain_text",
+      "id": "openresponses-gptoss120b-plain-text",
+      "model_label": "openai-gpt-oss-120b",
+      "scenario": "plain_text"
+    },
+    {
+      "assertion_profile": "tool_use",
+      "family": "openresponses",
+      "fixture_dir": "openresponses/openai-gpt-oss-120b/tool_use_weather",
+      "id": "openresponses-gptoss120b-tool-use-weather",
+      "model_label": "openai-gpt-oss-120b",
+      "scenario": "tool_use_weather"
+    },
+    {
+      "assertion_profile": "tool_use",
+      "family": "anthropic",
+      "fixture_dir": "anthropic/sonnet/tool_use_weather",
+      "id": "anthropic-sonnet-tool-use-weather",
+      "model_label": "sonnet",
+      "scenario": "tool_use_weather"
+    },
+    {
+      "assertion_profile": "web_search",
+      "family": "anthropic",
+      "fixture_dir": "anthropic/sonnet/web_search_capital",
+      "id": "anthropic-sonnet-web-search-capital",
+      "model_label": "sonnet",
+      "scenario": "web_search_capital"
+    },
+    {
+      "assertion_profile": "tool_use",
+      "family": "google",
+      "fixture_dir": "google/gemini-2.0-flash/tool_use_weather",
+      "id": "google-gemini20flash-tool-use-weather",
+      "model_label": "gemini-2.0-flash",
+      "scenario": "tool_use_weather"
+    }
+  ],
+  "version": 1
+}

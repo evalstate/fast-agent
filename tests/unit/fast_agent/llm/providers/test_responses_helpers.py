@@ -23,7 +23,10 @@ from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.provider.openai.codex_responses import CodexResponsesLLM
-from fast_agent.llm.provider.openai.openresponses import OpenResponsesLLM
+from fast_agent.llm.provider.openai.openresponses import (
+    OpenResponsesLLM,
+    _OpenResponsesRawStream,
+)
 from fast_agent.llm.provider.openai.responses import (
     RESPONSE_INCLUDE_WEB_SEARCH_SOURCES,
     ResponsesLLM,
@@ -77,6 +80,101 @@ class _StreamingHarness(ResponsesStreamingMixin):
     @property
     def events(self) -> list[tuple[str, dict]]:
         return self._events
+
+
+class _FakeAcloseResponse:
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+class _FakeRawResponsesSequence:
+    def __init__(self, events: list[Any]) -> None:
+        self._events = list(events)
+        self.response = _FakeAcloseResponse()
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self) -> Any:
+        if not self._events:
+            raise StopAsyncIteration
+        return self._events.pop(0)
+
+
+class _FakeOpenResponsesApi:
+    def __init__(self, raw_stream: _FakeRawResponsesSequence) -> None:
+        self.raw_stream = raw_stream
+        self.create_calls: list[dict[str, Any]] = []
+        self.stream_calls: list[dict[str, Any]] = []
+
+    async def create(self, **kwargs: Any) -> _FakeRawResponsesSequence:
+        self.create_calls.append(kwargs)
+        return self.raw_stream
+
+    def stream(self, **kwargs: Any) -> Any:
+        self.stream_calls.append(kwargs)
+        raise AssertionError("OpenResponses should not use the SDK accumulator stream path")
+
+
+class _FakeOpenResponsesClient:
+    def __init__(self, responses_api: _FakeOpenResponsesApi) -> None:
+        self.responses = responses_api
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        del exc_type, exc, tb
+
+
+class _OpenResponsesCompletionHarness(OpenResponsesLLM):
+    def __init__(self, client: _FakeOpenResponsesClient) -> None:
+        settings = Settings(openresponses=OpenResponsesSettings(api_key="test-key"))
+        super().__init__(
+            context=Context(config=settings),
+            model="openai/gpt-oss-120b",
+            name="openresponses-raw-stream-test",
+        )
+        self._client = client
+        self.seen_stream: Any | None = None
+
+    def _responses_client(self) -> Any:
+        return self._client
+
+    async def _normalize_input_files(
+        self,
+        client: Any,
+        input_items: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        del client
+        return input_items
+
+    def _build_response_args(
+        self,
+        input_items: list[dict[str, Any]],
+        request_params: RequestParams,
+        tools: list[Any] | None,
+    ) -> dict[str, Any]:
+        del request_params, tools
+        return {
+            "input": input_items,
+            "model": "openai/gpt-oss-120b",
+        }
+
+    async def _process_stream(
+        self,
+        stream: Any,
+        model: str,
+        capture_filename: Any,
+    ) -> tuple[Any, list[str]]:
+        del model, capture_filename
+        self.seen_stream = stream
+        async for _event in stream:
+            pass
+        return await stream.get_final_response(), []
 
 
 class _OutputHarness(ResponsesOutputMixin):
@@ -401,6 +499,53 @@ def test_openresponses_provider_keeps_sse_transport_default() -> None:
     llm = _build_responses_family_llm(Provider.OPENRESPONSES, model_name="gpt-5-mini")
 
     assert llm.configured_transport == "sse"
+
+
+@pytest.mark.asyncio
+async def test_openresponses_raw_stream_tracks_final_response() -> None:
+    final_response = SimpleNamespace(id="resp_final")
+    raw_stream = _FakeRawResponsesSequence(
+        [
+            SimpleNamespace(type="response.created"),
+            SimpleNamespace(type="response.completed", response=final_response),
+        ]
+    )
+    wrapped_stream = _OpenResponsesRawStream(raw_stream)
+
+    seen_event_types: list[str] = []
+    async for event in wrapped_stream:
+        seen_event_types.append(event.type)
+
+    assert seen_event_types == ["response.created", "response.completed"]
+    assert await wrapped_stream.get_final_response() is final_response
+
+
+@pytest.mark.asyncio
+async def test_openresponses_sse_completion_uses_raw_create_stream() -> None:
+    final_response = SimpleNamespace(id="resp_final")
+    raw_stream = _FakeRawResponsesSequence(
+        [
+            SimpleNamespace(type="response.created"),
+            SimpleNamespace(type="response.completed", response=final_response),
+        ]
+    )
+    responses_api = _FakeOpenResponsesApi(raw_stream)
+    llm = _OpenResponsesCompletionHarness(_FakeOpenResponsesClient(responses_api))
+
+    response, streamed_summary, normalized_input = await llm._responses_completion_sse(
+        input_items=[{"type": "message", "role": "user", "content": []}],
+        request_params=RequestParams(),
+        tools=None,
+        model_name="openai/gpt-oss-120b",
+    )
+
+    assert response is final_response
+    assert streamed_summary == []
+    assert normalized_input == [{"type": "message", "role": "user", "content": []}]
+    assert llm.seen_stream is not None
+    assert responses_api.stream_calls == []
+    assert len(responses_api.create_calls) == 1
+    assert responses_api.create_calls[0]["stream"] is True
 
 
 def test_explicit_responses_transport_override_is_preserved() -> None:

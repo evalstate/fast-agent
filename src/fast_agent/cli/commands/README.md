@@ -27,6 +27,12 @@ fast-agent go [OPTIONS]
 - `--prompt-file`, `-p TEXT`: Path to a prompt file to use (either text or JSON)
 - `--quiet`: Disable progress display and logging
 
+The `--model` value can include query overrides such as
+`gpt-5?reasoning=low`, `claude-sonnet-4-6?web_search=on`, or
+`claude-sonnet-4-5?context=1m`. For Anthropic, `?context=1m` is only needed for
+earlier Sonnet 4 / Sonnet 4.5 models; Sonnet 4.6 and Opus 4.6 already have long
+context enabled by default.
+
 ### Examples
 
 ```bash

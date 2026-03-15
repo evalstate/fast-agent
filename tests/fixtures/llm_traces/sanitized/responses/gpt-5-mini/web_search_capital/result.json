@@ -1,0 +1,236 @@
+{
+  "channels": {
+    "anthropic-citations": [
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"type\": \"web_search_result_location\", \"url\": \"https://en.wikipedia.org/wiki/Paris\"}",
+        "type": "text"
+      },
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"type\": \"web_search_result_location\", \"url\": \"https://www.britannica.com/facts/Paris\"}",
+        "type": "text"
+      },
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"type\": \"web_search_result_location\", \"url\": \"https://www.britannica.com/place/Paris\"}",
+        "type": "text"
+      },
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"type\": \"web_search_result_location\", \"url\": \"https://www.britannica.com/place/France\"}",
+        "type": "text"
+      },
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"type\": \"web_search_result_location\", \"url\": \"https://www.lemonde.fr/en/economy/article/2025/01/11/paris-s-last-tourist-office-will-close_6736941_19.html\"}",
+        "type": "text"
+      },
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"type\": \"web_search_result_location\", \"url\": \"https://en.wikipedia.org/wiki/Palace_of_Versailles\"}",
+        "type": "text"
+      },
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"type\": \"web_search_result_location\", \"url\": \"https://en.wikipedia.org/wiki/Toulouse\"}",
+        "type": "text"
+      },
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"type\": \"web_search_result_location\", \"url\": \"https://www.bundesregierung.de/breg-en/service/archive/paris-1993712\"}",
+        "type": "text"
+      },
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"type\": \"web_search_result_location\", \"url\": \"https://en.wikipedia.org/wiki/Eiffel_Tower\"}",
+        "type": "text"
+      },
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"type\": \"web_search_result_location\", \"url\": \"https://en.wikipedia.org/wiki/Strasbourg\"}",
+        "type": "text"
+      },
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"type\": \"web_search_result_location\", \"url\": \"https://www.lemonde.fr/en/economy/article/2025/11/25/paris-shops-are-squeezed-by-overtourism-and-real-estate-speculation_6747797_19.html\"}",
+        "type": "text"
+      },
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"type\": \"web_search_result_location\", \"url\": \"https://en.wikipedia.org/wiki/Besan%C3%A7on\"}",
+        "type": "text"
+      },
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"type\": \"web_search_result_location\", \"url\": \"https://www.lemonde.fr/en/politics/article/2025/09/05/paris-the-capital-of-concentrated-wealth_6745055_5.html\"}",
+        "type": "text"
+      },
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"type\": \"web_search_result_location\", \"url\": \"https://apnews.com/article/be7c4771f84264b096da3e2a773d7461\"}",
+        "type": "text"
+      },
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"type\": \"web_search_result_location\", \"url\": \"https://www.coe.int/en/web/interculturalcities/paris\"}",
+        "type": "text"
+      },
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"type\": \"web_search_result_location\", \"url\": \"https://www.lemonde.fr/en/france/article/2025/11/15/ten-years-after-terror-hit-paris-has-re-claimed-itself-as-the-center-of-the-world_6747476_7.html\"}",
+        "type": "text"
+      },
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"type\": \"web_search_result_location\", \"url\": \"https://www.lemonde.fr/en/opinion/article/2026/03/12/municipal-elections-pose-the-greatest-risks-for-culture-except-in-paris-which-enjoys-an-extraordinary-privilege_6751382_23.html\"}",
+        "type": "text"
+      },
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"type\": \"web_search_result_location\", \"url\": \"https://www.parisfrance.com/about\"}",
+        "type": "text"
+      },
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"type\": \"web_search_result_location\", \"url\": \"https://maps-france.com/maps-france-cities/capital-of-france-map\"}",
+        "type": "text"
+      },
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"type\": \"web_search_result_location\", \"url\": \"https://paris.embassy.qa/en/french-republic/general-information\"}",
+        "type": "text"
+      },
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"type\": \"web_search_result_location\", \"url\": \"https://www.brainzilla.com/brain-teasers/riddles/Zoymb2O5/besides-paris-what-is-the-capital-of-france/\"}",
+        "type": "text"
+      },
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"type\": \"web_search_result_location\", \"url\": \"https://www.atlas.org/solution/19847ec2-e13a-4456-99db-8206844489be/what-is-the-capital-of-france\"}",
+        "type": "text"
+      },
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"type\": \"web_search_result_location\", \"url\": \"https://www.countrypark.paris/en/tourism/paris/\"}",
+        "type": "text"
+      },
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"type\": \"web_search_result_location\", \"url\": \"https://geographyworlds.com/blog/paris-capital-city\"}",
+        "type": "text"
+      },
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"type\": \"web_search_result_location\", \"url\": \"https://typeng.com/generator-worksheets/results/9076b9fc-d47a-4ea5-83a7-d8f0cb3019fd.pdf\"}",
+        "type": "text"
+      },
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"type\": \"web_search_result_location\", \"url\": \"https://www.hayleystravels.com/wp-content/uploads/2019/02/Unforgettable-Europe.pdf\"}",
+        "type": "text"
+      },
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"type\": \"web_search_result_location\", \"title\": \"Paris Facts | Britannica\", \"url\": \"https://www.britannica.com/facts/Paris?utm_source=openai\", \"start_index\": 32, \"end_index\": 108}",
+        "type": "text"
+      }
+    ],
+    "anthropic-server-tools": [
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"type\": \"server_tool_use\", \"name\": \"web_search\", \"id\": \"ws_1\", \"status\": \"completed\", \"action\": \"search\", \"queries\": [\"capital of France\", \"What is the capital of France?\"]}",
+        "type": "text"
+      }
+    ],
+    "fast-agent-provider-diagnostics": [
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"transport\": \"websocket\", \"websocket_request_type\": \"response.create\", \"websocket_request_mode\": \"create\", \"websocket_turn_outcome\": \"fresh\", \"websocket_turn_metrics\": {\"total\": 1, \"fresh\": 1, \"reused\": 0, \"reconnected\": 0}}",
+        "type": "text"
+      }
+    ],
+    "fast-agent-timing": [
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"start_time\": 10186.930956881, \"end_time\": 10201.14775608, \"duration_ms\": 14216.8, \"ttft_ms\": 2035.02, \"time_to_response_ms\": 2822.34}",
+        "type": "text"
+      }
+    ],
+    "fast-agent-usage": [
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"turn\": {\"provider\": \"responses\", \"model\": \"gpt-5-mini\", \"input_tokens\": 8524, \"output_tokens\": 172, \"total_tokens\": 8696, \"timestamp\": 1773529537.2568555, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 3712, \"total_cache_tokens\": 3712, \"has_cache_activity\": true}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 64, \"tool_calls\": 0, \"current_context_tokens\": 8696, \"effective_input_tokens\": 4812, \"display_input_tokens\": 8524}, \"raw_usage\": {\"cache_tokens_details\": null, \"cached_content_token_count\": null, \"candidates_token_count\": null, \"candidates_tokens_details\": null, \"prompt_token_count\": null, \"prompt_tokens_details\": null, \"thoughts_token_count\": null, \"tool_use_prompt_token_count\": null, \"tool_use_prompt_tokens_details\": null, \"total_token_count\": null, \"traffic_type\": null}, \"summary\": {\"model\": \"gpt-5-mini\", \"turn_count\": 1, \"cumulative_input_tokens\": 8524, \"cumulative_output_tokens\": 172, \"cumulative_billing_tokens\": 8696, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 64, \"cumulative_tool_calls\": 0, \"current_context_tokens\": 8696, \"context_window_size\": 400000, \"context_usage_percentage\": 2.174, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 3712, \"cache_hit_rate_percent\": 30.336711343576333, \"cumulative_effective_input_tokens\": 4812}}",
+        "type": "text"
+      }
+    ],
+    "openai-reasoning-encrypted": [
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"type\": \"reasoning\", \"encrypted_content\": \"gAAAAABptenBjfOGbeuF1TRn1C9qoSkHxFYwwI95OOwGFF9ojeu42n4jJGqJU_BjElqbYMS_whSN8EWiIw8HaMvgHTJ7w8RJe4B_aBxNL1rqYcfxmpK_8F8_LM2v2rzR70L4PiAGCYReC1NBdpFSDaA2vpXSnMdP1lJK8CBIngibiWJjS8vlSlHi4bAjoRLBXX63pDtUb8Yx9MxRSO1tG00__rMuW3yeML3CqsgLDllLp1hH1AuRJzcBeqkzCvS8weIT2iZT5EokXWMkr-suap2_cz5tjXLejWCnxWgp26fnvtd5TTgBgs_jbGX7wFbscln25yw7BWeDwuF0CGfW7SJ4TwNI7hJhJ8D1En9PJCkZkLzFaMchCOO-6jXG8jUZs5NBd61klUQoL9ABcGpOYU6huJpcc26MOOcYaP6zsMpz62XQa6DquXrjjFxeei_x6N8cBAQ2F8SsO58YcA087RwfDwLOq9QebS-WKcPQEOLkw5g9Y25IAH8A4avsW6K0O0b45Z202oVc0cuz9kJ1s3moEYw8rQeqz6fOkYHQikoM9LaL6sqs-U6KcuwvbEQv3z-AjgG06k5qJFfr4D59qNzUbUniJLvMhcTWXvLj_tquwqTSFXpUHdQVfLQXQBrDMGktBFe_9dhK3xsQ8FbIS8syXkBLVn7d_WvCuAkZQ2yPxxzxikCm5NmFtubBnkAQ0Qg_epPvFM5uLFZN2YZXoHvDXapTxsSVr4csJ1aYZ6Osp8avMyvf6ncG5y4cM3Jokxm_NQFI5WYboV3ANbSe5YMY58KHYIh1PtmT6jqo4WbTiAq_XkKQQixU3BjpQwEqrx_tqcv2NuKpAvF5Ilkvmexce5CyqgY3qFUSdst4h_AO4IY7_zr8rvipI5rz2lA_9xDYWads6rOal01EFnEe3DxleaZAOUqswvDWSlZB1LKBEt2SYlPTwnR_3f1R49XoDdtiqEEoLDZC9M3GfoMUGyzEPuSVex24VfmiGLr_OIL9W9g8iuuwefU6YYBVhoE3Hj3sUbNLTDVe1VHll9w8NJMU9onE562enf3HO9e5G5UvtN4ob9rOU2NqjoO3N_jkLTB2FzuI8EHBfSx0GpqhCbb69g7jc-pYsuOhsCzzWFQoYRKp_LyBuIg=\", \"id\": \"rs_1\"}",
+        "type": "text"
+      },
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"type\": \"reasoning\", \"encrypted_content\": \"gAAAAABptenBfHq2eE4uArecPx7A6EnFqvq-gS96a0HUPNkzPCxYgpxSQaFtXSH-M1Pwt-0qO7S5CJcIoSb8z94xjk-9h4SvWNqEVpo0TJfEsCA6DDjmeawiLe9uqHG-V8jZY5AKiIKMm7FY_8OP5cz9raeOJgVTwmk-TW2Np6WwNikTiO9AcJJ6badmIBYKrc61D4S8VBroWj5YnBNto38GC2pNj8uwW45MjIuhVSW_ao1UNrTScRVCHvZqGWmI5khU0f1hEhW0tcavEICdfsJ05WfrH9bWivQdA2E50Hz_tasq8e19CPxAVPMjlmSUv68kZpbQHRbGCic_qXrjJptEDuAubcUaQPIZ1GIJf-P_t7vMBES3JNmW-ZqPMwwwx_JQxgbfn4hGqtw78n8ZzY813Vwt0KO8U4X9uoGLwexfbKcSagj4rj3oG8OcT-ok84ikzZQwRpYWf3a5h_--4W9rgxKLR-t7f0juVWWye0kccTvbjZk30JzZy1hsr62Vj24pNJMDtiSRaivnLJzbCu3DEgzn_RdHmZzJtw-Lbdjw1RNaERpOFEjQXlvvI5ZlbKwxKtb8wKdsI2c7NX1n-hfMp_RtpSR2wLihD4KgdgpVq56TARA3-3OyAtXJXaLqeFiy6juJUv1N-VBy051bkpGzF99dcuzfos4P9CS9l-JgQPqXkZUtopSww835Qp6VHcIpqruQjfbN1xfU5hYgzDFU9U-V4O-oLSEtL9a0TOsnq0Jz9bZWmdwisKix79e9FQ41-8mn87PULaIZp_I4br57go4z5pU0jR24fNWGetGEUAi6SsuhgilB8FBYDS20GHabHotzcBjICzdTPiqEwIqUSHIgx9ZPfuWlVJmS1NarWKJVuyaoXywTGDmntdjiQnYB9UjyoDXt05sXEIPIyttyNmASqzHrFtWJ8RDTXMR0AR8SxrfHBwCepLGtYhPsw6ipurFHiwKkVE_1b_-rOsS47kTqtGRvJk8fysptrgTu9c-dml95Ar-OF3kMdQuB9FlZMtdKWxOSiYMMXqifKDAEKY5SLEYT2fqBwJtQDi47LFoOohE7ENhhouVQ9_NKCTdJoyski_Rg_1Nkk5DaZjRvVM8oVsebdqoz_K4xv4vQku21pRBJAYiuMQsb1bzAGw0afK9UDqReEraQRObSNxbCykkuk5zFtm6Yn_3PaocpYQIOA-jBqK8j9Uw3JAqsuYa1ORNNX4QRR0paTMM32gkWKSH6L0-49f729_krtOPsq6DBSB-UlA7So1rqTJGkqsg7An1rfBgbZcNqliO3dDhSZYnQFJbaQKjMiOHRToAZIMLdFcKDgoy-g_y0p38syaPekY5-chTOAJEbgby1YXJ6c3w4GfUuArfNI1-Kdzq3umCXZctxq1vNG9r-tejYk0hdQ9m4EUd0z_KlBM90AXualNN2vTsSRKvucunbht4ARPD3eKlcrI_VKjYnj6tlb0ipSMVc6opq\", \"id\": \"rs_2\"}",
+        "type": "text"
+      }
+    ],
+    "reasoning": [
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "**Performing search for France's capital**\n\nI need to use web.run to search for the capital of France. Since a citation is required, I\u2019ll make sure to include at least one. I should keep my response concise, focusing on providing the answer in one sentence. Okay, let's get this search done and find the information I need efficiently!",
+        "type": "text"
+      }
+    ]
+  },
+  "content": [
+    {
+      "annotations": null,
+      "meta": null,
+      "text": "The capital of France is Paris. ([britannica.com](https://www.britannica.com/facts/Paris?utm_source=openai))",
+      "type": "text"
+    }
+  ],
+  "is_template": false,
+  "phase": null,
+  "role": "assistant",
+  "stop_reason": "endTurn",
+  "tool_calls": null,
+  "tool_results": null
+}

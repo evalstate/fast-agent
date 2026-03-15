@@ -54,8 +54,18 @@ class StubAgentProvider:
     def _agent(self, name: str) -> StubAgent:
         return self._agent_instance
 
-    def agent_names(self):
+    def visible_agent_names(self, *, force_include: str | None = None):
+        del force_include
         return ["test-agent"]
+
+    def registered_agent_names(self):
+        return ["test-agent"]
+
+    def registered_agents(self):
+        return {"test-agent": self._agent_instance}
+
+    def resolve_target_agent_name(self, agent_name: str | None = None):
+        return agent_name or "test-agent"
 
     async def list_prompts(self, namespace, agent_name=None):
         return self._prompts

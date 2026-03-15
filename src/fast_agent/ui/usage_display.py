@@ -192,9 +192,8 @@ def collect_agents_from_provider(
     """
     agents_to_show = {}
 
-    if hasattr(prompt_provider, "_agents"):
-        # Multi-agent app - show all agents
-        agents_to_show = prompt_provider._agents
+    if hasattr(prompt_provider, "registered_agents"):
+        agents_to_show = dict(prompt_provider.registered_agents())
     elif hasattr(prompt_provider, "agent"):
         # Single agent
         agent = prompt_provider.agent

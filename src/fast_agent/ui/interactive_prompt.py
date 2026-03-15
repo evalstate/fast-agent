@@ -202,10 +202,7 @@ class InteractivePrompt:
     ) -> list[dict[str, Any]]:
         from fast_agent.ui.interactive.command_context import build_command_context
 
-        target_agent = agent_name
-        if not target_agent:
-            agent_names = list(prompt_provider.agent_names())
-            target_agent = agent_names[0] if agent_names else ""
+        target_agent = prompt_provider.resolve_target_agent_name(agent_name) or ""
         context = build_command_context(prompt_provider, target_agent)
         return await prompt_handlers._get_all_prompts(context, agent_name)
 
@@ -219,10 +216,10 @@ class InteractivePrompt:
         if not pinned_agent or pinned_agent in agent_names:
             return agent_names
         try:
-            agent_types = prompt_provider.agent_types()
+            known_agents = set(prompt_provider.registered_agent_names())
         except Exception:
             return agent_names
-        if pinned_agent in agent_types:
+        if pinned_agent in known_agents:
             return [pinned_agent, *agent_names]
         return agent_names
 
@@ -232,7 +229,8 @@ class InteractivePrompt:
         prompt_provider: "AgentApp",
         available_agents: list[str],
     ) -> None:
-        self.agent_types = prompt_provider.agent_types()
+        force_include = available_agents[0] if available_agents else None
+        self.agent_types = prompt_provider.visible_agent_types(force_include=force_include)
         enhanced_prompt.available_agents = set(available_agents)
 
     def _build_initial_agent_state(
@@ -274,9 +272,10 @@ class InteractivePrompt:
         prompt_provider: "AgentApp",
         pinned_agent: str | None,
     ) -> tuple[list[str], set[str]]:
+        base_agent_names = list(prompt_provider.visible_agent_names())
         available_agents = self._merge_pinned_agents(
             prompt_provider=prompt_provider,
-            agent_names=list(prompt_provider.agent_names()),
+            agent_names=base_agent_names,
             pinned_agent=pinned_agent,
         )
         return available_agents, set(available_agents)
@@ -508,7 +507,7 @@ class InteractivePrompt:
         if shell_cwd_policy != "ask":
             return
 
-        runtime_agents = getattr(prompt_provider, "_agents", None)
+        runtime_agents = prompt_provider.registered_agents()
         if not isinstance(runtime_agents, dict):
             return
 

@@ -1,0 +1,59 @@
+{
+  "scenarios": {
+    "plain_text": {
+      "kind": "plain_text",
+      "prompt_file": "scenarios/plain_text.txt"
+    },
+    "tool_use_weather": {
+      "kind": "tool_use",
+      "prompt_file": "scenarios/tool_use_weather.txt",
+      "toolset": "weather"
+    },
+    "web_search_capital": {
+      "kind": "web_search",
+      "prompt_file": "scenarios/web_search_capital.txt",
+      "enable_web_search": true
+    }
+  },
+  "targets": {
+    "responses.gpt-5-mini.low": [
+      "plain_text",
+      "tool_use_weather",
+      "web_search_capital"
+    ],
+    "responses.gpt-5.4": [
+      "plain_text",
+      "tool_use_weather",
+      "web_search_capital"
+    ],
+    "responses.gpt-5.3-codex": [
+      "plain_text",
+      "tool_use_weather",
+      "web_search_capital"
+    ],
+    "openresponses.openai/gpt-oss-120b": [
+      "plain_text",
+      "tool_use_weather"
+    ],
+    "codexspark": [
+      "plain_text"
+    ],
+    "sonnet": [
+      "plain_text",
+      "tool_use_weather",
+      "web_search_capital"
+    ],
+    "google.gemini-2.0-flash": [
+      "plain_text",
+      "tool_use_weather"
+    ],
+    "kimi25": [
+      "plain_text",
+      "tool_use_weather"
+    ],
+    "qwen35": [
+      "plain_text",
+      "tool_use_weather"
+    ]
+  }
+}

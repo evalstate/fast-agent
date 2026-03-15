@@ -133,6 +133,17 @@ The Agent can then be run with `uv run sizer.py`.
 
 Specify a model with the `--model` switch - for example `uv run sizer.py --model sonnet`.
 
+Model strings also accept query overrides. For example:
+
+- `uv run sizer.py --model "gpt-5?reasoning=low"`
+- `uv run sizer.py --model "claude-sonnet-4-6?web_search=on"`
+- `uv run sizer.py --model "claude-sonnet-4-5?context=1m"`
+
+For Anthropic models, `?context=1m` is only needed for earlier Sonnet 4 / Sonnet 4.5
+models that still require the explicit 1M context opt-in. Claude Sonnet 4.6 and
+Claude Opus 4.6 already use their long context window by default, so `?context=1m`
+is accepted for backward compatibility but is unnecessary there.
+
 ### Combining Agents and using MCP Servers
 
 _To generate examples use `fast-agent quickstart workflow`. This example can be run with `uv run workflow/chaining.py`. fast-agent looks for configuration files in the current directory before checking parent directories recursively._

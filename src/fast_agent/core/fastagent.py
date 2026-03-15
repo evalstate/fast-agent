@@ -35,6 +35,7 @@ from fast_agent import config
 from fast_agent.core import Core
 from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.agent_tools import add_tools_for_agents
+from fast_agent.core.default_agent import resolve_default_agent_name
 from fast_agent.core.direct_decorators import DecoratorMixin
 from fast_agent.core.direct_factory import (
     create_agents_in_dependency_order,
@@ -643,23 +644,13 @@ class FastAgent(DecoratorMixin):
         Returns:
             The name of the default agent, or None if no agents are registered.
         """
-        if not self.agents:
-            return None
-
-        # First pass: find agent with explicit default=True (excluding tool_only)
-        for name, agent_data in self.agents.items():
-            config = agent_data.get("config")
-            if config and getattr(config, "default", False):
-                if not agent_data.get("tool_only", False):
-                    return name
-
-        # Second pass: find first non-tool_only agent
-        for name, agent_data in self.agents.items():
-            if not agent_data.get("tool_only", False):
-                return name
-
-        # Fall back to first agent
-        return next(iter(self.agents.keys()), None)
+        return resolve_default_agent_name(
+            self.agents,
+            is_default=lambda _name, agent_data: bool(
+                getattr(agent_data.get("config"), "default", False)
+            ),
+            is_tool_only=lambda _name, agent_data: bool(agent_data.get("tool_only", False)),
+        )
 
     def dump_agent_card_text(self, name: str, *, as_yaml: bool = False) -> str:
         """Render an AgentCard as text."""

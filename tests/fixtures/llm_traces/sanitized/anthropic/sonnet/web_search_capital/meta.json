@@ -1,0 +1,35 @@
+{
+  "completed_at": "<TIMESTAMP>",
+  "family": "anthropic",
+  "fast_agent_llm_trace": "1",
+  "fixture_files": [
+    "listener_stream.jsonl",
+    "listener_tools.jsonl",
+    "meta.json",
+    "request.json",
+    "result.json",
+    "stream.jsonl"
+  ],
+  "fixture_format_version": 1,
+  "has_tool_calls": false,
+  "llm_class": "AnthropicLLM",
+  "max_tokens_override": null,
+  "model_label": "sonnet",
+  "prompt_file": "tests/fixtures/llm_traces/scenarios/web_search_capital.txt",
+  "provider": "anthropic",
+  "requested_model": "sonnet",
+  "resolved_model": "claude-sonnet-4-6",
+  "scenario": "web_search_capital",
+  "scenario_max_tokens": null,
+  "source_run": "tests/fixtures/llm_traces/raw/sonnet/web_search_capital/<TIMESTAMP>",
+  "started_at": "<TIMESTAMP>",
+  "status": "ok",
+  "stop_reason": "endTurn",
+  "stream_event_count": 21,
+  "tool_event_count": 15,
+  "trace_files": [
+    "stream.jsonl",
+    "request.json"
+  ],
+  "validation_issues": []
+}

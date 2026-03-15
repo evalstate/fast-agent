@@ -39,7 +39,7 @@ from fast_agent.llm.provider.anthropic.beta_types import (
     ToolUseBlock,
     Usage,
 )
-from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
+from fast_agent.llm.provider.anthropic.llm_anthropic import LONG_CONTEXT_BETA, AnthropicLLM
 from fast_agent.llm.provider.anthropic.web_tools import serialize_anthropic_block_payload
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
@@ -129,6 +129,7 @@ def _create_llm(
     model: str,
     web_search: AnthropicWebSearchSettings | None = None,
     web_fetch: AnthropicWebFetchSettings | None = None,
+    long_context: bool = False,
 ) -> AnthropicLLM:
     settings = Settings()
     settings.anthropic = AnthropicSettings(
@@ -137,7 +138,7 @@ def _create_llm(
         web_fetch=web_fetch or AnthropicWebFetchSettings(),
     )
     context = Context(config=settings)
-    return AnthropicLLM(context=context, model=model, name="test-agent")
+    return AnthropicLLM(context=context, model=model, name="test-agent", long_context=long_context)
 
 
 def _user_message_param() -> dict[str, object]:
@@ -264,6 +265,68 @@ async def test_request_uses_legacy_web_tool_versions_for_non_46_models() -> None
     assert search_tools[0]["type"] == "web_search_20250305"
     assert fetch_tools[0]["type"] == "web_fetch_20250910"
     assert "code-execution-web-tools-2026-02-09" not in request_kwargs.get("betas", [])
+
+
+@pytest.mark.asyncio
+async def test_46_models_do_not_send_long_context_beta_header() -> None:
+    llm = _create_llm(model="claude-opus-4-6", long_context=True)
+
+    final_message = Message(
+        id="msg_2b",
+        type="message",
+        role="assistant",
+        content=[TextBlock(type="text", text="done")],
+        model="claude-opus-4-6",
+        stop_reason="end_turn",
+        usage=Usage(input_tokens=10, output_tokens=20),
+    )
+
+    with patch("fast_agent.llm.provider.anthropic.llm_anthropic.AsyncAnthropic") as mock_cls:
+        client = MagicMock()
+        client.beta.messages.stream.return_value = _DummyStreamManager()
+        mock_cls.return_value = client
+
+        with patch.object(llm, "_process_stream", new_callable=AsyncMock) as mock_process:
+            mock_process.return_value = (final_message, [], [])
+            await llm._anthropic_completion(
+                _user_message_param(),
+                history=[],
+                current_extended=_user_message_extended(),
+            )
+
+    request_kwargs = client.beta.messages.stream.call_args.kwargs
+    assert LONG_CONTEXT_BETA not in request_kwargs.get("betas", [])
+
+
+@pytest.mark.asyncio
+async def test_legacy_long_context_models_still_send_beta_header() -> None:
+    llm = _create_llm(model="claude-sonnet-4-5", long_context=True)
+
+    final_message = Message(
+        id="msg_2c",
+        type="message",
+        role="assistant",
+        content=[TextBlock(type="text", text="done")],
+        model="claude-sonnet-4-5",
+        stop_reason="end_turn",
+        usage=Usage(input_tokens=10, output_tokens=20),
+    )
+
+    with patch("fast_agent.llm.provider.anthropic.llm_anthropic.AsyncAnthropic") as mock_cls:
+        client = MagicMock()
+        client.beta.messages.stream.return_value = _DummyStreamManager()
+        mock_cls.return_value = client
+
+        with patch.object(llm, "_process_stream", new_callable=AsyncMock) as mock_process:
+            mock_process.return_value = (final_message, [], [])
+            await llm._anthropic_completion(
+                _user_message_param(),
+                history=[],
+                current_extended=_user_message_extended(),
+            )
+
+    request_kwargs = client.beta.messages.stream.call_args.kwargs
+    assert LONG_CONTEXT_BETA in request_kwargs.get("betas", [])
 
 
 @pytest.mark.asyncio

@@ -23,6 +23,16 @@ if TYPE_CHECKING:
 _ERASE_PREVIOUS_LINE_SEQ = "\x1b[1A\x1b[2K\r"
 
 
+def is_default_agent_name(agent_name: str, *, default_agent_name: str | None = None) -> bool:
+    return default_agent_name is not None and agent_name == default_agent_name
+
+
+def _format_prompt_prefix(agent_name: str, *, default_agent_name: str | None = None) -> str:
+    if is_default_agent_name(agent_name, default_agent_name=default_agent_name):
+        return "❯"
+    return f"{agent_name} ❯"
+
+
 def _clear_prompt_echo_line(result: str, *, stream: TextIO | None = None) -> None:
     """Erase the just-submitted prompt echo for regular chat input.
 
@@ -63,7 +73,9 @@ def build_prompt_style() -> Style:
     )
 
 
-def create_prompt_session(*, history, completer, lexer, multiline_filter, toolbar, style) -> PromptSession:
+def create_prompt_session(
+    *, history, completer, lexer, multiline_filter, toolbar, style
+) -> PromptSession:
     """Create a configured PromptSession for enhanced input."""
     return PromptSession(
         history=history,
@@ -83,6 +95,7 @@ async def run_prompt_once(
     *,
     session: PromptSession,
     agent_name: str,
+    default_agent_name: str | None,
     default_buffer: str,
     resolve_prompt_text: "Callable[[], object]",
     parse_special_input: "Callable[[str], str | CommandPayload]",
@@ -134,10 +147,11 @@ async def run_prompt_once(
                     f"input={text_preview!r}"
                 )
 
+        prompt_prefix = _format_prompt_prefix(agent_name, default_agent_name=default_agent_name)
         if stripped.startswith("/"):
-            rich_print(f"[dim]{agent_name} ❯ {stripped.splitlines()[0]}[/dim]")
+            rich_print(f"[dim]{prompt_prefix} {stripped.splitlines()[0]}[/dim]")
         elif stripped.startswith("!"):
-            rich_print(f"[dim]{agent_name} ❯ {stripped.splitlines()[0]}[/dim]")
+            rich_print(f"[dim]{prompt_prefix} {stripped.splitlines()[0]}[/dim]")
 
         return parse_special_input(result)
     except KeyboardInterrupt:

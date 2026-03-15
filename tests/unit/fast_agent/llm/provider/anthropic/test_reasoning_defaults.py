@@ -167,6 +167,14 @@ def test_long_context_supported_models_source_from_model_database():
     assert llm._list_supported_long_context_models() == ModelDatabase.list_long_context_models()
 
 
+def test_46_models_ignore_explicit_long_context_flag():
+    """Claude 4.6 models already expose 1M context without an opt-in flag."""
+    llm = _make_llm("claude-opus-4-6", long_context=True)
+    assert llm._long_context is False
+    assert llm.model_info is not None
+    assert llm.model_info.context_window == 1_000_000
+
+
 def test_unsupported_model_keeps_long_context_disabled():
     """Models without long_context_window metadata should not enable long context."""
     llm = _make_llm("claude-haiku-4-5", long_context=True)

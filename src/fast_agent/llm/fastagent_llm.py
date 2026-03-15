@@ -196,8 +196,8 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             else None
         )
 
-        # Context window override — set by providers that support extended context
-        # (e.g., Anthropic 1M beta). Defaults to None (use ModelDatabase value).
+        # Context window override — set by providers that support explicit
+        # extended-context opt-ins. Defaults to None (use ModelDatabase value).
         self._context_window_override: int | None = None
 
         # Warn if long_context was requested but this provider didn't handle it
@@ -893,6 +893,22 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         }
         self.logger.info("Streaming progress", data=data)
 
+        return new_total
+
+    def _emit_stream_text_delta(
+        self,
+        *,
+        text: str,
+        model: str,
+        estimated_tokens: int,
+    ) -> int:
+        """Emit a plain assistant text delta to listeners and progress tracking."""
+        if not text:
+            return estimated_tokens
+
+        self._notify_stream_listeners(StreamChunk(text=text, is_reasoning=False))
+        new_total = self._update_streaming_progress(text, model, estimated_tokens)
+        self._notify_tool_stream_listeners("text", {"chunk": text})
         return new_total
 
     def add_stream_listener(self, listener: Callable[[StreamChunk], None]) -> Callable[[], None]:

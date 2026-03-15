@@ -4,6 +4,7 @@ from fast_agent.llm.model_selection import CatalogModelEntry
 from fast_agent.llm.provider_types import Provider
 from fast_agent.ui.model_picker import _find_initial_model_index, _SplitListPicker
 from fast_agent.ui.model_picker_common import (
+    GENERIC_CUSTOM_MODEL_SENTINEL,
     ModelOption,
     ModelPickerSnapshot,
     ProviderOption,
@@ -119,3 +120,14 @@ def test_find_initial_model_index_matches_model_identity() -> None:
     ]
 
     assert _find_initial_model_index(options, "chatgpt") == 0
+
+
+def test_find_initial_model_index_maps_generic_model_to_custom_entry() -> None:
+    options = [
+        ModelOption(
+            spec=GENERIC_CUSTOM_MODEL_SENTINEL,
+            label="Enter local model string (e.g. llama3.2)",
+        )
+    ]
+
+    assert _find_initial_model_index(options, "generic.llama3.2") == 0

@@ -1,0 +1,35 @@
+{
+  "completed_at": "<TIMESTAMP>",
+  "family": "responses",
+  "fast_agent_llm_trace": "1",
+  "fixture_files": [
+    "listener_stream.jsonl",
+    "listener_tools.jsonl",
+    "meta.json",
+    "request.json",
+    "result.json",
+    "stream.jsonl"
+  ],
+  "fixture_format_version": 1,
+  "has_tool_calls": false,
+  "llm_class": "ResponsesLLM",
+  "max_tokens_override": null,
+  "model_label": "gpt-5-mini",
+  "prompt_file": "tests/fixtures/llm_traces/scenarios/web_search_capital.txt",
+  "provider": "responses",
+  "requested_model": "responses.gpt-5-mini.low",
+  "resolved_model": "gpt-5-mini",
+  "scenario": "web_search_capital",
+  "scenario_max_tokens": null,
+  "source_run": "tests/fixtures/llm_traces/raw/responses.gpt-5-mini.low/web_search_capital/<TIMESTAMP>",
+  "started_at": "<TIMESTAMP>",
+  "status": "ok",
+  "stop_reason": "endTurn",
+  "stream_event_count": 71,
+  "tool_event_count": 8,
+  "trace_files": [
+    "stream.jsonl",
+    "request.json"
+  ],
+  "validation_issues": []
+}

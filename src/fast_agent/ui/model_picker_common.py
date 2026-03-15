@@ -319,6 +319,7 @@ def model_capabilities(model_spec: str) -> ModelCapabilities:
     )
     long_context_window = ModelDatabase.get_long_context_window(parsed.model_name)
     cache_ttl_default = ModelDatabase.get_cache_ttl(parsed.model_name)
+    supports_long_context = long_context_window is not None
 
     return ModelCapabilities(
         provider=parsed.provider,
@@ -328,8 +329,8 @@ def model_capabilities(model_spec: str) -> ModelCapabilities:
         default_reasoning=default_reasoning,
         web_search_supported=_supports_web_search(parsed.provider, parsed.model_name),
         current_web_search=parsed.web_search,
-        supports_long_context=long_context_window is not None,
-        current_long_context=parsed.long_context,
+        supports_long_context=supports_long_context,
+        current_long_context=parsed.long_context and supports_long_context,
         long_context_window=long_context_window,
         cache_ttl_default=cache_ttl_default,
     )

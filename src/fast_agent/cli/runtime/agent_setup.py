@@ -6,8 +6,9 @@ import asyncio
 import re
 import sys
 import time
+from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import typer
 from prompt_toolkit import PromptSession
@@ -16,9 +17,13 @@ from fast_agent.cli.commands.server_helpers import add_servers_to_config
 from fast_agent.cli.constants import RESUME_LATEST_SENTINEL
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.keyring_utils import emit_keyring_access_notice
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.llm.provider_types import Provider
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
-from fast_agent.ui.model_picker_common import normalize_generic_model_spec
+from fast_agent.ui.model_picker_common import (
+    has_explicit_provider_prefix,
+    normalize_generic_model_spec,
+)
 
 from .request_builders import resolve_default_instruction, resolve_smart_agent_enabled
 from .shell_cwd_policy import (
@@ -34,6 +39,8 @@ if TYPE_CHECKING:
     from fast_agent.types import PromptMessageExtended
 
     from .run_request import AgentRunRequest
+
+logger = get_logger(__name__)
 
 
 def _find_last_assistant_text(history: list[Any]) -> str | None:
@@ -83,8 +90,119 @@ def _resolve_model_without_hardcoded_default(
     )
 
 
+def _load_request_settings(request: "AgentRunRequest"):
+    from fast_agent import config as config_module
+    from fast_agent.config import get_settings
+
+    if request.config_path is None:
+        config_module._settings = None
+
+    return get_settings(request.config_path)
+
+
+def _resolve_model_picker_initial_selection(
+    *,
+    settings: Any,
+) -> tuple[str | None, str | None]:
+    from fast_agent.core.exceptions import ModelConfigError
+    from fast_agent.core.model_resolution import resolve_model_reference
+    from fast_agent.ui.model_picker_common import model_identity
+
+    references = getattr(settings, "model_references", None)
+    if not isinstance(references, Mapping):
+        return None, None
+
+    try:
+        initial_model_spec = resolve_model_reference("$system.last_used", references)
+    except ModelConfigError:
+        return None, None
+
+    provider_name: str | None = None
+    identity = model_identity(initial_model_spec)
+    if identity is not None:
+        provider_name = identity[0].config_name
+
+    return provider_name, initial_model_spec
+
+
+def _persist_model_picker_last_used_selection(
+    request: AgentRunRequest,
+    *,
+    settings: Any,
+    model_spec: str,
+) -> bool:
+    from fast_agent.llm.model_reference_config import (
+        ModelReferenceConfigService,
+        resolve_model_reference_start_path,
+    )
+    from fast_agent.paths import resolve_environment_dir
+
+    normalized_model = model_spec.strip()
+    if request.noenv or not normalized_model:
+        return False
+
+    start_path = resolve_model_reference_start_path(settings=settings, fallback_path=Path.cwd())
+    explicit_config_path = None
+    if request.config_path is not None:
+        loaded_config_file = getattr(settings, "_config_file", None)
+        if isinstance(loaded_config_file, str) and loaded_config_file.strip():
+            explicit_config_path = Path(loaded_config_file).expanduser().resolve()
+        else:
+            explicit_config_path = Path(request.config_path).expanduser().resolve()
+
+    env_dir = resolve_environment_dir(
+        settings=settings,
+        cwd=Path.cwd(),
+        override=request.environment_dir or getattr(settings, "environment_dir", None),
+    )
+    write_target = "project" if explicit_config_path is not None else "env"
+
+    try:
+        ModelReferenceConfigService(
+            start_path=start_path,
+            env_dir=env_dir,
+            project_write_path=explicit_config_path,
+        ).set_reference(
+            "$system.last_used",
+            normalized_model,
+            target=write_target,
+        )
+    except Exception as exc:
+        logger.warning(
+            "Failed to persist model picker last-used selection",
+            env_dir=str(env_dir) if env_dir is not None else None,
+            config_path=str(explicit_config_path) if explicit_config_path is not None else None,
+            target=write_target,
+            model_spec=normalized_model,
+            error=str(exc),
+        )
+        return False
+
+    references = getattr(settings, "model_references", None)
+    if isinstance(references, dict):
+        system_references = references.get("system")
+        if isinstance(system_references, dict):
+            system_references["last_used"] = normalized_model
+        else:
+            references["system"] = {"last_used": normalized_model}
+    else:
+        settings.model_references = {"system": {"last_used": normalized_model}}
+
+    return True
+
+
 def _normalize_generic_model_spec(raw_model: str) -> str | None:
     return normalize_generic_model_spec(raw_model)
+
+
+def _generic_model_prompt_default(initial_model_spec: str | None) -> str:
+    candidate = (initial_model_spec or "").strip()
+    if candidate.startswith("generic."):
+        candidate = candidate.removeprefix("generic.")
+        return candidate or "llama3.2"
+    if has_explicit_provider_prefix(candidate):
+        return "llama3.2"
+    return candidate or "llama3.2"
 
 
 async def _prompt_for_generic_model_spec(*, default_model: str = "llama3.2") -> str:
@@ -130,17 +248,23 @@ def _activate_model_picker_provider(action: str) -> bool:
     return True
 
 
-async def _select_model_from_picker(request: AgentRunRequest) -> str:
+async def _select_model_from_picker(
+    request: AgentRunRequest,
+    *,
+    config_payload: dict[str, Any] | None = None,
+    initial_provider: str | None = None,
+    initial_model_spec: str | None = None,
+) -> str:
     """Prompt user for model selection and return a resolved model string."""
     from fast_agent.ui.model_picker import run_model_picker_async
 
     config_path = Path(request.config_path) if request.config_path else None
-    initial_provider: str | None = None
-
     while True:
         picker_result = await run_model_picker_async(
             config_path=config_path,
+            config_payload=config_payload,
             initial_provider=initial_provider,
+            initial_model_spec=initial_model_spec,
         )
         if picker_result is None:
             typer.echo("Model selection cancelled.", err=True)
@@ -156,7 +280,9 @@ async def _select_model_from_picker(request: AgentRunRequest) -> str:
             picker_result.provider == Provider.GENERIC.config_name
             and picker_result.resolved_model is None
         ):
-            return await _prompt_for_generic_model_spec()
+            return await _prompt_for_generic_model_spec(
+                default_model=_generic_model_prompt_default(initial_model_spec),
+            )
 
         if picker_result.refer_to_docs or not picker_result.resolved_model:
             typer.echo(
@@ -293,10 +419,15 @@ async def _resume_session_if_requested(agent_app, request: AgentRunRequest) -> N
     manager = get_session_manager()
     session_id = None if request.resume in ("", RESUME_LATEST_SENTINEL) else request.resume
     default_agent = agent_app._agent(None)
+    agents_map = agent_app.registered_agents()
+    fallback_agent_name = (
+        agent_app.resolve_target_agent_name(request.target_agent_name)
+        or getattr(default_agent, "name", None)
+    )
     result = manager.resume_session_agents(
-        agent_app._agents,
+        agents_map,
         session_id,
-        default_agent_name=getattr(default_agent, "name", None),
+        fallback_agent_name=fallback_agent_name,
     )
     interactive_notice = request.message is None and request.prompt_file is None
     if not result:
@@ -367,7 +498,7 @@ async def _resume_session_if_requested(agent_app, request: AgentRunRequest) -> N
     default_name = getattr(default_agent, "name", None)
     if loaded and default_name not in loaded:
         first_loaded_name = sorted(loaded.keys())[0]
-        preview_agent = agent_app._agents.get(first_loaded_name, default_agent)
+        preview_agent = agent_app.get_agent(first_loaded_name) or default_agent
 
     preview_history = getattr(preview_agent, "message_history", [])
     assistant_text = _find_last_assistant_text(list(preview_history))
@@ -645,9 +776,7 @@ async def run_agent_request(request: AgentRunRequest) -> None:
     picker_model_source_override: str | None = None
 
     if request.model is None:
-        from fast_agent.config import get_settings
-
-        settings = get_settings(request.config_path)
+        settings = _load_request_settings(request)
         _, explicit_source = _resolve_model_without_hardcoded_default(
             model=request.model,
             config_default_model=getattr(settings, "default_model", None),
@@ -660,7 +789,20 @@ async def run_agent_request(request: AgentRunRequest) -> None:
             stdout_is_tty=sys.stdout.isatty(),
         ):
             _emit_model_picker_keyring_notice(request)
-            request.model = await _select_model_from_picker(request)
+            initial_provider, initial_model_spec = _resolve_model_picker_initial_selection(
+                settings=settings,
+            )
+            request.model = await _select_model_from_picker(
+                request,
+                config_payload=settings.model_dump(),
+                initial_provider=initial_provider,
+                initial_model_spec=initial_model_spec,
+            )
+            _persist_model_picker_last_used_selection(
+                request,
+                settings=settings,
+                model_spec=request.model,
+            )
             picker_model_source_override = "model picker"
 
     serve_permissions_enabled = request.permissions_enabled and not (

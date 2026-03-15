@@ -95,8 +95,18 @@ class _App:
     def _agent(self, _name: str):
         return _Agent()
 
-    def agent_names(self):
+    def visible_agent_names(self, *, force_include: str | None = None):
+        del force_include
         return ["main"]
+
+    def registered_agent_names(self):
+        return ["main"]
+
+    def registered_agents(self):
+        return {"main": _Agent()}
+
+    def resolve_target_agent_name(self, agent_name: str | None = None):
+        return agent_name or "main"
 
     async def list_prompts(self, namespace: str | None, agent_name: str | None = None):
         del namespace, agent_name

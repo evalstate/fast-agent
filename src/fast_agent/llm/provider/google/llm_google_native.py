@@ -1,12 +1,12 @@
 import json
 import secrets
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import cast
 
-# Import necessary types and client from google.genai
 from google import genai
 from google.genai import (
-    errors,  # For error handling
+    errors,
     types,
 )
 from mcp import Tool as McpTool
@@ -21,10 +21,14 @@ from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.prompt import Prompt
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.model_database import ModelDatabase
-
-# Import the new converter class
 from fast_agent.llm.provider.google.google_converter import GoogleConverter
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.reasoning_effort import (
+    format_reasoning_setting,
+    parse_reasoning_setting,
+)
+from fast_agent.llm.stream_types import StreamChunk
+from fast_agent.llm.tool_tracking import ToolCallTracker
 from fast_agent.llm.usage_tracking import TurnUsage
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
@@ -45,6 +49,26 @@ GOOGLE_EXCLUDE_FIELDS = {
 }.union(FastAgentLLM.BASE_EXCLUDE_FIELDS)
 
 
+@dataclass(slots=True)
+class _GoogleTextTimelineEntry:
+    text: str
+
+
+@dataclass(slots=True)
+class _GoogleToolTimelineEntry:
+    tool_use_id: str
+
+
+@dataclass(slots=True)
+class _GoogleToolBuffer:
+    tool_use_id: str
+    name: str
+    buffer: str = ""
+
+
+GoogleTimelineEntry = _GoogleTextTimelineEntry | _GoogleToolTimelineEntry
+
+
 class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
     """
     Google LLM provider using the native google.genai library.
@@ -55,6 +79,87 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         super().__init__(provider=Provider.GOOGLE, **kwargs)
         # Initialize the converter
         self._converter = GoogleConverter()
+        self._init_reasoning(kwargs)
+
+    def _init_reasoning(self, kwargs: dict) -> None:
+        """Wire up reasoning/thinking from kwargs or config."""
+        raw_setting = kwargs.get("reasoning_effort", None)
+        model_name = self.default_request_params.model or DEFAULT_GOOGLE_MODEL
+
+        if raw_setting is None:
+            google_cfg = getattr(getattr(self.context, "config", None), "google", None)
+            if google_cfg:
+                raw_setting = (
+                    google_cfg.get("reasoning")
+                    if isinstance(google_cfg, Mapping)
+                    else getattr(google_cfg, "reasoning", None)
+                )
+
+        reasoning_mode = ModelDatabase.get_reasoning(model_name)
+        spec = ModelDatabase.get_reasoning_effort_spec(model_name)
+
+        if raw_setting is not None and reasoning_mode != "google_thinking":
+            self.logger.warning(
+                "Reasoning setting ignored for model without Google thinking support."
+            )
+            raw_setting = None
+
+        if raw_setting is None and reasoning_mode == "google_thinking" and spec and spec.default:
+            raw_setting = spec.default
+
+        setting = parse_reasoning_setting(raw_setting)
+        if setting is not None:
+            try:
+                self.set_reasoning_effort(setting)
+            except ValueError as exc:
+                self.logger.warning(f"Invalid reasoning setting: {exc}")
+                if spec and spec.default:
+                    self.set_reasoning_effort(spec.default)
+                else:
+                    self.set_reasoning_effort(None)
+        else:
+            self.set_reasoning_effort(None)
+
+        if reasoning_mode == "google_thinking":
+            self.logger.info(
+                f"Google reasoning resolved: {format_reasoning_setting(self.reasoning_effort)}"
+            )
+
+    def _resolve_thinking_config(self) -> tuple[int | None, str | None]:
+        """Resolve thinking config from reasoning_effort setting.
+
+        Returns:
+            (thinking_budget, thinking_level) tuple where:
+            - thinking_budget: None if not configured, 0 to disable, -1 for auto,
+              or a positive token count for explicit budgets.
+            - thinking_level: SDK ThinkingLevel name (MINIMAL/LOW/MEDIUM/HIGH)
+              when an effort level is selected, None otherwise.
+        """
+        setting = self.reasoning_effort
+        if setting is None:
+            return (None, None)
+        if setting.kind == "toggle":
+            return (-1 if setting.value else 0, None)
+        if setting.kind == "budget" and isinstance(setting.value, int):
+            return (max(0, setting.value), None)
+        if setting.kind == "effort":
+            effort = str(setting.value).lower()
+            if effort in ("none",):
+                return (0, None)
+            if effort in ("auto",):
+                return (-1, None)
+            # Map to SDK ThinkingLevel names
+            level_map: dict[str, str] = {
+                "minimal": "MINIMAL",
+                "low": "LOW",
+                "medium": "MEDIUM",
+                "high": "HIGH",
+            }
+            level = level_map.get(effort)
+            if level:
+                return (None, level)
+            return (-1, None)
+        return (None, None)
 
     def _vertex_cfg(self) -> tuple[bool, str | None, str | None]:
         """(enabled, project_id, location) for Vertex config; supports dict/mapping or object."""
@@ -179,6 +284,123 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
 
         return await self._consume_google_stream(response_stream, model=model)
 
+    @staticmethod
+    def _append_google_text_timeline(
+        timeline: list[GoogleTimelineEntry],
+        text: str,
+    ) -> None:
+        if not text:
+            return
+        if timeline and isinstance(timeline[-1], _GoogleTextTimelineEntry):
+            timeline[-1].text += text
+            return
+        timeline.append(_GoogleTextTimelineEntry(text=text))
+
+    @staticmethod
+    def _serialize_google_tool_args(args: object) -> str:
+        try:
+            return json.dumps(args, separators=(",", ":"))
+        except Exception:
+            return str(args)
+
+    def _start_google_tool_stream(
+        self,
+        *,
+        tracker: ToolCallTracker,
+        tool_buffers: dict[str, _GoogleToolBuffer],
+        timeline: list[GoogleTimelineEntry],
+        tool_index: int,
+        tool_name: str,
+    ) -> _GoogleToolBuffer:
+        tool_use_id = f"tool_{self.chat_turn()}_{tool_index}"
+        state = tracker.register(
+            tool_use_id=tool_use_id,
+            name=tool_name,
+            index=tool_index,
+        )
+        buffer = _GoogleToolBuffer(tool_use_id=state.tool_use_id, name=state.name)
+        tool_buffers[state.tool_use_id] = buffer
+        self._notify_tool_stream_listeners(
+            "start",
+            {
+                "tool_name": state.name,
+                "tool_use_id": state.tool_use_id,
+                "index": tool_index,
+            },
+        )
+        state.start_notified = True
+        timeline.append(_GoogleToolTimelineEntry(tool_use_id=state.tool_use_id))
+        return buffer
+
+    def _close_google_tool_stream(
+        self,
+        *,
+        tracker: ToolCallTracker,
+        tool_index: int,
+    ) -> None:
+        state = tracker.close(index=tool_index)
+        if state is None:
+            return
+        self._notify_tool_stream_listeners(
+            "stop",
+            {
+                "tool_name": state.name,
+                "tool_use_id": state.tool_use_id,
+                "index": tool_index,
+            },
+        )
+
+    def _build_google_final_response(
+        self,
+        *,
+        last_chunk: types.GenerateContentResponse | None,
+        usage_metadata: types.GenerateContentResponseUsageMetadata | None,
+        timeline: list[GoogleTimelineEntry],
+        tool_buffers: dict[str, _GoogleToolBuffer],
+    ) -> types.GenerateContentResponse | None:
+        if not timeline and last_chunk is None:
+            return None
+
+        final_parts: list[types.Part] = []
+        for entry in timeline:
+            if isinstance(entry, _GoogleTextTimelineEntry):
+                final_parts.append(types.Part.from_text(text=entry.text))
+                continue
+
+            tool_buffer = tool_buffers.get(entry.tool_use_id)
+            if tool_buffer is None:
+                continue
+            try:
+                args_obj = json.loads(tool_buffer.buffer) if tool_buffer.buffer else {}
+            except json.JSONDecodeError:
+                args_obj = {"__raw": tool_buffer.buffer}
+            final_parts.append(
+                types.Part.from_function_call(
+                    name=str(tool_buffer.name or "tool"),
+                    args=args_obj,
+                )
+            )
+
+        final_content = types.Content(role="model", parts=final_parts)
+
+        if last_chunk is not None:
+            final_response = last_chunk.model_copy(deep=True)
+            candidates = final_response.candidates or []
+            if candidates:
+                final_candidate = candidates[0]
+                final_candidate.content = final_content
+            else:
+                final_response.candidates = [types.Candidate(content=final_content)]
+        else:
+            final_response = types.GenerateContentResponse(
+                candidates=[types.Candidate(content=final_content)]
+            )
+
+        if usage_metadata:
+            final_response.usage_metadata = usage_metadata
+
+        return final_response
+
     async def _consume_google_stream(
         self,
         response_stream,
@@ -187,11 +409,12 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
     ) -> types.GenerateContentResponse | None:
         """Consume the async streaming iterator and aggregate the final response."""
         estimated_tokens = 0
-        timeline: list[tuple[str, int | None, str]] = []
-        tool_streams: dict[int, dict[str, str]] = {}
+        timeline: list[GoogleTimelineEntry] = []
+        tracker = ToolCallTracker()
+        tool_buffers: dict[str, _GoogleToolBuffer] = {}
         active_tool_index: int | None = None
         tool_counter = 0
-        usage_metadata = None
+        usage_metadata: types.GenerateContentResponseUsageMetadata | None = None
         last_chunk: types.GenerateContentResponse | None = None
 
         try:
@@ -213,22 +436,17 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                     if getattr(part, "text", None):
                         text = part.text or ""
                         if text:
-                            if timeline and timeline[-1][0] == "text":
-                                prev_type, prev_index, prev_text = timeline[-1]
-                                timeline[-1] = (prev_type, prev_index, prev_text + text)
+                            if getattr(part, "thought", False):
+                                self._notify_stream_listeners(
+                                    StreamChunk(text=text, is_reasoning=True)
+                                )
                             else:
-                                timeline.append(("text", None, text))
-                            estimated_tokens = self._update_streaming_progress(
-                                text,
-                                model,
-                                estimated_tokens,
-                            )
-                            self._notify_tool_stream_listeners(
-                                "text",
-                                {
-                                    "chunk": text,
-                                },
-                            )
+                                self._append_google_text_timeline(timeline, text)
+                                estimated_tokens = self._emit_stream_text_delta(
+                                    text=text,
+                                    model=model,
+                                    estimated_tokens=estimated_tokens,
+                                )
 
                     if getattr(part, "function_call", None):
                         function_call = part.function_call
@@ -238,44 +456,39 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                         if active_tool_index is None:
                             active_tool_index = tool_counter
                             tool_counter += 1
-                            tool_use_id = f"tool_{self.chat_turn()}_{active_tool_index}"
-                            tool_streams[active_tool_index] = {
-                                "name": name,
-                                "tool_use_id": tool_use_id,
-                                "buffer": "",
-                            }
-                            self._notify_tool_stream_listeners(
-                                "start",
-                                {
-                                    "tool_name": name,
-                                    "tool_use_id": tool_use_id,
-                                    "index": active_tool_index,
-                                },
+                            self._start_google_tool_stream(
+                                tracker=tracker,
+                                tool_buffers=tool_buffers,
+                                timeline=timeline,
+                                tool_index=active_tool_index,
+                                tool_name=name,
                             )
-                            timeline.append(("tool_call", active_tool_index, ""))
-
-                        stream_info = tool_streams.get(active_tool_index)
-                        if not stream_info:
+                        state = tracker.resolve_open(index=active_tool_index)
+                        if state is None:
                             continue
+                        tool_buffer = tool_buffers.get(state.tool_use_id)
+                        if tool_buffer is None:
+                            tool_buffer = _GoogleToolBuffer(
+                                tool_use_id=state.tool_use_id,
+                                name=state.name,
+                            )
+                            tool_buffers[state.tool_use_id] = tool_buffer
 
-                        try:
-                            serialized_args = json.dumps(args, separators=(",", ":"))
-                        except Exception:
-                            serialized_args = str(args)
-
-                        previous = stream_info.get("buffer", "")
-                        if isinstance(previous, str) and serialized_args.startswith(previous):
-                            delta = serialized_args[len(previous) :]
-                        else:
-                            delta = serialized_args
-                        stream_info["buffer"] = serialized_args
+                        serialized_args = self._serialize_google_tool_args(args)
+                        previous = tool_buffer.buffer
+                        delta = (
+                            serialized_args[len(previous) :]
+                            if serialized_args.startswith(previous)
+                            else serialized_args
+                        )
+                        tool_buffer.buffer = serialized_args
 
                         if delta:
                             self._notify_tool_stream_listeners(
                                 "delta",
                                 {
-                                    "tool_name": stream_info["name"],
-                                    "tool_use_id": stream_info["tool_use_id"],
+                                    "tool_name": tool_buffer.name,
+                                    "tool_use_id": tool_buffer.tool_use_id,
                                     "index": active_tool_index,
                                     "chunk": delta,
                                 },
@@ -285,16 +498,10 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                 if finish_reason:
                     finish_value = str(finish_reason).split(".")[-1].upper()
                     if finish_value in {"FUNCTION_CALL", "STOP"} and active_tool_index is not None:
-                        stream_info = tool_streams.get(active_tool_index)
-                        if stream_info:
-                            self._notify_tool_stream_listeners(
-                                "stop",
-                                {
-                                    "tool_name": stream_info["name"],
-                                    "tool_use_id": stream_info["tool_use_id"],
-                                    "index": active_tool_index,
-                                },
-                            )
+                        self._close_google_tool_stream(
+                            tracker=tracker,
+                            tool_index=active_tool_index,
+                        )
                         active_tool_index = None
         finally:
             stream_close = getattr(response_stream, "aclose", None)
@@ -305,58 +512,24 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                     pass
 
         if active_tool_index is not None:
-            stream_info = tool_streams.get(active_tool_index)
-            if stream_info:
-                self._notify_tool_stream_listeners(
-                    "stop",
-                    {
-                        "tool_name": stream_info["name"],
-                        "tool_use_id": stream_info["tool_use_id"],
-                        "index": active_tool_index,
-                    },
-                )
-
-        if not timeline and last_chunk is None:
-            return None
-
-        final_parts: list[types.Part] = []
-        for entry_type, index, payload in timeline:
-            if entry_type == "text":
-                final_parts.append(types.Part.from_text(text=payload))
-            elif entry_type == "tool_call" and index is not None:
-                stream_info = tool_streams.get(index)
-                if not stream_info:
-                    continue
-                buffer = stream_info.get("buffer", "")
-                try:
-                    args_obj = json.loads(buffer) if buffer else {}
-                except json.JSONDecodeError:
-                    args_obj = {"__raw": buffer}
-                final_parts.append(
-                    types.Part.from_function_call(
-                        name=str(stream_info.get("name") or "tool"),
-                        args=args_obj,
-                    )
-                )
-
-        final_content = types.Content(role="model", parts=final_parts)
-
-        if last_chunk is not None:
-            final_response = last_chunk.model_copy(deep=True)
-            if getattr(final_response, "candidates", None):
-                final_candidate = final_response.candidates[0]
-                final_candidate.content = final_content
-            else:
-                final_response.candidates = [types.Candidate(content=final_content)]
-        else:
-            final_response = types.GenerateContentResponse(
-                candidates=[types.Candidate(content=final_content)]
+            self._close_google_tool_stream(
+                tracker=tracker,
+                tool_index=active_tool_index,
             )
 
-        if usage_metadata:
-            final_response.usage_metadata = usage_metadata
+        incomplete_tools = tracker.incomplete()
+        if incomplete_tools:
+            raise RuntimeError(
+                "Streaming completed but tool call(s) never finished: "
+                + ", ".join(f"{tool.name}:{tool.tool_use_id}" for tool in incomplete_tools)
+            )
 
-        return final_response
+        return self._build_google_final_response(
+            last_chunk=last_chunk,
+            usage_metadata=usage_metadata,
+            timeline=timeline,
+            tool_buffers=tool_buffers,
+        )
 
     async def _google_completion(
         self,
@@ -384,8 +557,11 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         )
 
         # 2. Prepare generate_content arguments
+        thinking_budget, thinking_level = self._resolve_thinking_config()
         generate_content_config = self._converter.convert_request_params_to_google_config(
-            request_params
+            request_params,
+            thinking_budget=thinking_budget,
+            thinking_level=thinking_level,
         )
 
         # Apply structured output config OR tool calling (mutually exclusive)
@@ -408,36 +584,37 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         client = self._initialize_google_client()
         model_name = self._resolve_model_name(request_params.model or DEFAULT_GOOGLE_MODEL)
         try:
-            # Use the async client
-            api_response = None
-            streaming_supported = response_schema is None and response_mime_type is None
-            if streaming_supported:
-                api_response = await self._stream_generate_content(
-                    model=model_name,
-                    contents=conversation_history,
-                    config=generate_content_config,
-                    client=client,
-                )
-            if api_response is None:
-                api_response = await client.aio.models.generate_content(
-                    model=model_name,
-                    contents=cast("types.ContentListUnion", conversation_history),
-                    config=generate_content_config,
-                )
-            self.logger.debug("Google generate_content response:", data=api_response)
+            async with client.aio:
+                # Use the async client
+                api_response = None
+                streaming_supported = response_schema is None and response_mime_type is None
+                if streaming_supported:
+                    api_response = await self._stream_generate_content(
+                        model=model_name,
+                        contents=conversation_history,
+                        config=generate_content_config,
+                        client=client,
+                    )
+                if api_response is None:
+                    api_response = await client.aio.models.generate_content(
+                        model=model_name,
+                        contents=cast("types.ContentListUnion", conversation_history),
+                        config=generate_content_config,
+                    )
+                self.logger.debug("Google generate_content response:", data=api_response)
 
-            # Track usage if response is valid and has usage data
-            if (
-                hasattr(api_response, "usage_metadata")
-                and api_response.usage_metadata
-                and not isinstance(api_response, BaseException)
-            ):
-                try:
-                    turn_usage = TurnUsage.from_google(api_response.usage_metadata, model_name)
-                    self._finalize_turn_usage(turn_usage)
+                # Track usage if response is valid and has usage data
+                if (
+                    hasattr(api_response, "usage_metadata")
+                    and api_response.usage_metadata
+                    and not isinstance(api_response, BaseException)
+                ):
+                    try:
+                        turn_usage = TurnUsage.from_google(api_response.usage_metadata, model_name)
+                        self._finalize_turn_usage(turn_usage)
 
-                except Exception as e:
-                    self.logger.warning(f"Failed to track usage: {e}")
+                    except Exception as e:
+                        self.logger.warning(f"Failed to track usage: {e}")
 
         except errors.APIError as e:
             # Handle specific Google API errors
@@ -445,17 +622,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             raise ProviderKeyError(f"Google API Error: {e.code}", e.message or "") from e
         except Exception as e:
             self.logger.error(f"Error during Google generate_content call: {e}")
-            # Decide how to handle other exceptions - potentially re-raise or return an error message
             raise e
-        finally:
-            try:
-                await client.aio.aclose()
-            except Exception:
-                pass
-            try:
-                client.close()
-            except Exception:
-                pass
 
         # 4. Process the API response
         if not api_response.candidates:
@@ -629,9 +796,17 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             "BLOCKLIST",
             "SPII",
             "IMAGE_SAFETY",
+            "IMAGE_PROHIBITED_CONTENT",
+            "IMAGE_RECITATION",
         }:
             return LlmStopReason.SAFETY
-        if key in {"MALFORMED_FUNCTION_CALL", "UNEXPECTED_TOOL_CALL", "TOO_MANY_TOOL_CALLS"}:
+        if key in {
+            "MALFORMED_FUNCTION_CALL",
+            "UNEXPECTED_TOOL_CALL",
+            "TOO_MANY_TOOL_CALLS",
+            "NO_IMAGE",
+            "IMAGE_OTHER",
+        }:
             return LlmStopReason.ERROR
         # Some SDKs include OTHER, LANGUAGE, GROUNDING, UNSPECIFIED, etc.
         return LlmStopReason.ERROR

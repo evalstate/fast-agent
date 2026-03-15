@@ -1,0 +1,29 @@
+{
+  "include": [
+    "reasoning.encrypted_content"
+  ],
+  "input": [
+    {
+      "content": [
+        {
+          "text": "In one concise sentence, explain why tides change over the course of a day.",
+          "type": "input_text"
+        }
+      ],
+      "role": "user",
+      "type": "message"
+    }
+  ],
+  "instructions": "You are a helpful AI Agent.\n\n{{serverInstructions}}\n{{agentSkills}}\n{{file_silent:AGENTS.md}}\n{{env}}\n\nThe current date is {{currentDate}}.",
+  "max_output_tokens": 128000,
+  "model": "gpt-5-mini",
+  "parallel_tool_calls": true,
+  "reasoning": {
+    "effort": "low",
+    "summary": "auto"
+  },
+  "store": false,
+  "text": {
+    "verbosity": "medium"
+  }
+}

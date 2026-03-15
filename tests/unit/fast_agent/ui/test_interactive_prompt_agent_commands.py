@@ -44,11 +44,22 @@ class _FakeAgentApp:
     async def refresh_if_needed(self) -> bool:
         return False
 
-    def agent_names(self) -> list[str]:
+    def visible_agent_names(self, *, force_include: str | None = None) -> list[str]:
+        del force_include
         return list(self._agents.keys())
 
-    def agent_types(self) -> dict[str, AgentType]:
+    def visible_agent_types(self, *, force_include: str | None = None) -> dict[str, AgentType]:
+        del force_include
         return {name: agent.agent_type for name, agent in self._agents.items()}
+
+    def registered_agent_names(self) -> list[str]:
+        return list(self._agents.keys())
+
+    def registered_agents(self) -> dict[str, _FakeAgent]:
+        return self._agents
+
+    def resolve_target_agent_name(self, agent_name: str | None = None) -> str | None:
+        return agent_name if agent_name is not None else next(iter(self._agents), None)
 
     def can_attach_agent_tools(self) -> bool:
         return True

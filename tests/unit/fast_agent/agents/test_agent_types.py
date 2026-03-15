@@ -13,7 +13,6 @@ from fast_agent.agents.smart_agent import (
     SmartAgent,
     _apply_runtime_mcp_connections,
     _resolve_default_agent_name,
-    _run_mcp_connect_call,
 )
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.types import RequestParams
@@ -143,13 +142,6 @@ class _FakeMcpAgent:
         return list(self.attached)
 
 
-class _FakeSmartToolAgent(_FakeMcpAgent):
-    def __init__(self) -> None:
-        super().__init__(default=True)
-        self.name = "smart"
-        self.context = None
-
-
 def test_resolve_default_agent_name_prefers_non_tool_default() -> None:
     tool_default = _FakeMcpAgent(default=True)
     non_tool_default = _FakeMcpAgent(default=True)
@@ -190,12 +182,3 @@ async def test_apply_runtime_mcp_connections_raises_on_connect_error() -> None:
             target_agent_name="main",
             mcp_connect=["npx demo-server --name demo"],
         )
-
-
-@pytest.mark.asyncio
-async def test_run_mcp_connect_call_returns_connect_summary() -> None:
-    agent = _FakeSmartToolAgent()
-    result = await _run_mcp_connect_call(agent, "npx demo-server --name demo")
-
-    assert "Connected MCP server 'demo'" in result
-    assert agent.attached == ["demo"]

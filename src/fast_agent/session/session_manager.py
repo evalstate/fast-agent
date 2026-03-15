@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Mapping
 
+from fast_agent.core.default_agent import resolve_default_agent_name
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.paths import resolve_environment_paths
 
@@ -717,7 +718,7 @@ class SessionManager:
         self,
         agents: Mapping[str, AgentProtocol],
         name: str | None = None,
-        default_agent_name: str | None = None,
+        fallback_agent_name: str | None = None,
     ) -> ResumeSessionAgentsResult | None:
         """Resume a session and load histories for all known agents."""
         session_name = self._resolve_session_name(name)
@@ -762,11 +763,12 @@ class SessionManager:
                         data={"session": session.info.name, "agent": agent_name, "file": filename},
                     )
         else:
-            fallback_agent = None
-            if default_agent_name and default_agent_name in agents:
-                fallback_agent = agents[default_agent_name]
-            elif agents:
-                fallback_agent = next(iter(agents.values()))
+            fallback_name = resolve_default_agent_name(
+                agents,
+                is_default=lambda name, _agent: fallback_agent_name is not None
+                and name == fallback_agent_name,
+            )
+            fallback_agent = agents.get(fallback_name) if fallback_name else None
             if fallback_agent:
                 history_path = session.latest_history_path(getattr(fallback_agent, "name", None))
                 if history_path and history_path.exists():

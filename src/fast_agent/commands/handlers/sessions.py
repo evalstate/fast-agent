@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from shutil import get_terminal_size
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from rich.text import Text
 
@@ -16,6 +16,7 @@ from fast_agent.ui.shell_notice import format_shell_notice
 
 if TYPE_CHECKING:
     from fast_agent.commands.context import CommandContext
+    from fast_agent.interfaces import AgentProtocol
     from fast_agent.session import SessionEntrySummary
     from fast_agent.types import PromptMessageExtended
 
@@ -300,7 +301,7 @@ async def handle_resume_session(
     agent_obj = ctx.agent_provider._agent(agent_name)
 
     manager = get_session_manager()
-    agents_map = getattr(ctx.agent_provider, "_agents", None)
+    agents_map = cast("Mapping[str, AgentProtocol]", ctx.agent_provider.registered_agents())
     if not isinstance(agents_map, Mapping):
         outcome.add_message(
             "Session resume is unavailable in this context.",
@@ -309,10 +310,12 @@ async def handle_resume_session(
         )
         return outcome
 
+    fallback_agent_name = ctx.agent_provider.resolve_target_agent_name(agent_name)
+
     result = manager.resume_session_agents(
         agents_map,
         session_id,
-        default_agent_name=getattr(agent_obj, "name", None),
+        fallback_agent_name=fallback_agent_name,
     )
 
     if not result:

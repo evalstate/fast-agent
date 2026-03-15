@@ -35,7 +35,7 @@ class AgentCardManager(Protocol):
 
     async def reload_agents(self) -> bool: ...
 
-    def agent_names(self) -> Iterable[str]: ...
+    def registered_agent_names(self) -> Iterable[str]: ...
 
 
 async def handle_card_load(
@@ -190,7 +190,7 @@ async def handle_agent_command(
         if target == current_agent:
             outcome.add_message("Can't attach agent to itself.", channel="warning")
             return outcome
-        if target not in set(manager.agent_names()):
+        if target not in set(manager.registered_agent_names()):
             outcome.add_message(f"Agent '{target}' not found", channel="error")
             return outcome
         if not manager.can_attach_agent_tools():

@@ -3,12 +3,14 @@ Manages the lifecycle of multiple MCP server connections.
 """
 
 import asyncio
+import shlex
 import threading
 import time
 import traceback
 from collections import deque
 from contextlib import AbstractAsyncContextManager, suppress
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Union, cast
 
 import httpx
@@ -429,6 +431,42 @@ async def _run_ping_loop(server_conn: ServerConnection) -> None:
                 break
 
 
+def _format_stdio_startup_error(server_conn: ServerConnection, exc: OSError) -> str:
+    config = server_conn.server_config
+    command_parts = [config.command] if config.command else []
+    command_parts.extend(config.args or [])
+    command_display = shlex.join(command_parts) if command_parts else "<unspecified>"
+
+    lines = [f"Failed to start stdio MCP server command: {command_display}."]
+
+    cwd = config.cwd
+    if isinstance(exc, FileNotFoundError):
+        if cwd and not Path(cwd).exists():
+            lines.append(f"Working directory not found: {cwd}")
+        elif config.command:
+            if "/" in config.command or "\\" in config.command:
+                lines.append(f"Command path not found: {config.command}")
+            else:
+                lines.append(f"Executable not found on PATH: {config.command}")
+        else:
+            lines.append("Executable not found.")
+    elif isinstance(exc, PermissionError):
+        lines.append("Permission denied while starting the stdio server process.")
+    else:  # pragma: no cover - kept defensive for future callers
+        lines.append(f"{type(exc).__name__}: {exc}")
+
+    if cwd:
+        lines.append(f"cwd: {cwd}")
+
+    return "\n".join(lines)
+
+
+def _is_stdio_startup_error(server_conn: ServerConnection, error_text: str) -> bool:
+    return server_conn.server_config.transport == "stdio" and error_text.startswith(
+        "Failed to start stdio MCP server command:"
+    )
+
+
 async def _server_lifecycle_task(server_conn: ServerConnection) -> None:
     """
     Manage the lifecycle of a single server connection.
@@ -575,6 +613,11 @@ async def _server_lifecycle_task(server_conn: ServerConnection) -> None:
             if not error_messages:
                 error_messages = [f"{type(exc).__name__}: {exc}"]
             server_conn._error_message = error_messages
+        elif server_conn.server_config.transport == "stdio" and isinstance(
+            exc,
+            (FileNotFoundError, PermissionError),
+        ):
+            server_conn._error_message = _format_stdio_startup_error(server_conn, exc)
         else:
             # For regular exceptions, keep the traceback but format it more cleanly
             server_conn._error_message = traceback.format_exception(exc)
@@ -1096,6 +1139,12 @@ class MCPConnectionManager(ContextDependent):
                     _format_oauth_registration_404_details(formatted_error, server_conn.server_config.url),
                 )
 
+            if _is_stdio_startup_error(server_conn, formatted_error):
+                raise ServerInitializationError(
+                    f"MCP Server: '{server_name}': Failed to start stdio server.",
+                    formatted_error,
+                )
+
             raise ServerInitializationError(
                 f"MCP Server: '{server_name}': Failed to initialize - see details. Check fastagent.config.yaml?",
                 formatted_error,
@@ -1188,6 +1237,12 @@ class MCPConnectionManager(ContextDependent):
                 raise ServerInitializationError(
                     f"MCP Server: '{server_name}': OAuth client registration failed during reconnect.",
                     _format_oauth_registration_404_details(formatted_error, server_conn.server_config.url),
+                )
+
+            if _is_stdio_startup_error(server_conn, formatted_error):
+                raise ServerInitializationError(
+                    f"MCP Server: '{server_name}': Failed to start stdio server during reconnect.",
+                    formatted_error,
                 )
 
             raise ServerInitializationError(

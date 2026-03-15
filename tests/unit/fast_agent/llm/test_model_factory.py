@@ -647,9 +647,9 @@ def test_huggingface_display_info_user_override():
 
 def test_model_query_context_1m():
     """Test parsing context=1m for a supported Anthropic model."""
-    config = ModelFactory.parse_model_string("claude-opus-4-6?context=1m")
+    config = ModelFactory.parse_model_string("claude-sonnet-4-5?context=1m")
     assert config.provider == Provider.ANTHROPIC
-    assert config.model_name == "claude-opus-4-6"
+    assert config.model_name == "claude-sonnet-4-5"
     assert config.long_context is True
 
 
@@ -699,7 +699,7 @@ def test_model_query_context_non_anthropic_parses():
 
 def test_anthropic_long_context_creates_llm_with_override():
     """Test that creating an Anthropic LLM with long_context sets the override."""
-    factory = ModelFactory.create_factory("claude-opus-4-6?context=1m")
+    factory = ModelFactory.create_factory("claude-sonnet-4-5?context=1m")
     agent = LlmAgent(AgentConfig(name="test"))
     llm = factory(agent)
     assert isinstance(llm, AnthropicLLM)
@@ -714,7 +714,7 @@ def test_anthropic_long_context_creates_llm_with_override():
 
 def test_anthropic_long_context_default_is_200k():
     """Without context=1m, context window should be 200K."""
-    factory = ModelFactory.create_factory("claude-opus-4-6")
+    factory = ModelFactory.create_factory("claude-sonnet-4-5")
     agent = LlmAgent(AgentConfig(name="test"))
     llm = factory(agent)
     assert isinstance(llm, AnthropicLLM)
@@ -722,6 +722,19 @@ def test_anthropic_long_context_default_is_200k():
     info = llm.model_info
     assert info is not None
     assert info.context_window == 200_000
+
+
+def test_anthropic_46_context_query_is_a_noop():
+    """Claude 4.6 models already default to 1M context."""
+    factory = ModelFactory.create_factory("claude-opus-4-6?context=1m")
+    agent = LlmAgent(AgentConfig(name="test"))
+    llm = factory(agent)
+    assert isinstance(llm, AnthropicLLM)
+    assert llm._long_context is False
+    assert llm._context_window_override is None
+    info = llm.model_info
+    assert info is not None
+    assert info.context_window == 1_000_000
 
 
 def test_factory_passes_temperature_query_to_request_params():

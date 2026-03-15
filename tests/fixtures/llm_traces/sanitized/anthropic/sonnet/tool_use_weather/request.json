@@ -1,0 +1,53 @@
+{
+  "arguments": {
+    "betas": [
+      "fine-grained-tool-streaming-2025-05-14"
+    ],
+    "max_tokens": 64000,
+    "messages": [
+      {
+        "content": [
+          {
+            "text": "Call the weather tool for Paris. Do not answer in natural language first.",
+            "type": "text"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "model": "claude-sonnet-4-6",
+    "stop_sequences": null,
+    "system": [
+      {
+        "cache_control": {
+          "ttl": "5m",
+          "type": "ephemeral"
+        },
+        "text": "You are a helpful AI Agent.\n\n{{serverInstructions}}\n{{agentSkills}}\n{{file_silent:AGENTS.md}}\n{{env}}\n\nThe current date is {{currentDate}}.",
+        "type": "text"
+      }
+    ],
+    "thinking": {
+      "type": "adaptive"
+    },
+    "tools": [
+      {
+        "description": "Check the weather in a city",
+        "input_schema": {
+          "properties": {
+            "city": {
+              "description": "City to check",
+              "type": "string"
+            }
+          },
+          "required": [
+            "city"
+          ],
+          "type": "object"
+        },
+        "name": "weather"
+      }
+    ]
+  },
+  "captured_at": "2026-03-14T23:05:39.635144"
+}

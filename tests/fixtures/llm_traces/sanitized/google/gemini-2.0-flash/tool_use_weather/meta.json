@@ -1,0 +1,34 @@
+{
+  "completed_at": "<TIMESTAMP>",
+  "family": "google",
+  "fast_agent_llm_trace": "1",
+  "fixture_files": [
+    "listener_tools.jsonl",
+    "meta.json",
+    "request.json",
+    "result.json",
+    "stream.jsonl"
+  ],
+  "fixture_format_version": 1,
+  "has_tool_calls": true,
+  "llm_class": "GoogleNativeLLM",
+  "max_tokens_override": null,
+  "model_label": "gemini-2.0-flash",
+  "prompt_file": "tests/fixtures/llm_traces/scenarios/tool_use_weather.txt",
+  "provider": "google",
+  "requested_model": "google.gemini-2.0-flash",
+  "resolved_model": "gemini-2.0-flash",
+  "scenario": "tool_use_weather",
+  "scenario_max_tokens": null,
+  "source_run": "tests/fixtures/llm_traces/raw/google.gemini-2.0-flash/tool_use_weather/<TIMESTAMP>",
+  "started_at": "<TIMESTAMP>",
+  "status": "ok",
+  "stop_reason": "toolUse",
+  "stream_event_count": 0,
+  "tool_event_count": 3,
+  "trace_files": [
+    "stream.jsonl",
+    "request.json"
+  ],
+  "validation_issues": []
+}

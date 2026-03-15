@@ -27,3 +27,12 @@ def test_openresponses_models_report_web_search_support() -> None:
 
     assert capabilities.provider == Provider.OPENRESPONSES
     assert capabilities.web_search_supported is True
+
+
+def test_46_models_do_not_report_optional_long_context() -> None:
+    capabilities = model_capabilities("claude-opus-4-6?context=1m")
+
+    assert capabilities.provider == Provider.ANTHROPIC
+    assert capabilities.supports_long_context is False
+    assert capabilities.current_long_context is False
+    assert capabilities.long_context_window is None

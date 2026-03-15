@@ -1,0 +1,39 @@
+{
+  "channels": {
+    "fast-agent-timing": [
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"start_time\": 10221.234787207, \"end_time\": 10221.705773785, \"duration_ms\": 470.99, \"ttft_ms\": 468.97, \"time_to_response_ms\": 468.97}",
+        "type": "text"
+      }
+    ],
+    "fast-agent-usage": [
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"turn\": {\"provider\": \"google\", \"model\": \"gemini-2.0-flash\", \"input_tokens\": 70, \"output_tokens\": 3, \"total_tokens\": 73, \"timestamp\": 1773529559.0373387, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 0, \"total_cache_tokens\": 0, \"has_cache_activity\": false}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 73, \"effective_input_tokens\": 70, \"display_input_tokens\": 70}, \"raw_usage\": {\"cache_tokens_details\": null, \"cached_content_token_count\": null, \"candidates_token_count\": 3, \"candidates_tokens_details\": [{\"modality\": \"TEXT\", \"token_count\": 3}], \"prompt_token_count\": 70, \"prompt_tokens_details\": [{\"modality\": \"TEXT\", \"token_count\": 70}], \"thoughts_token_count\": null, \"tool_use_prompt_token_count\": null, \"tool_use_prompt_tokens_details\": null, \"total_token_count\": 73, \"traffic_type\": null}, \"summary\": {\"model\": \"gemini-2.0-flash\", \"turn_count\": 1, \"cumulative_input_tokens\": 70, \"cumulative_output_tokens\": 3, \"cumulative_billing_tokens\": 73, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 1, \"current_context_tokens\": 73, \"context_window_size\": 1048576, \"context_usage_percentage\": 0.006961822509765625, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 0, \"cache_hit_rate_percent\": 0.0, \"cumulative_effective_input_tokens\": 70}}",
+        "type": "text"
+      }
+    ]
+  },
+  "content": [],
+  "is_template": false,
+  "phase": null,
+  "role": "assistant",
+  "stop_reason": "toolUse",
+  "tool_calls": {
+    "568e8": {
+      "method": "tools/call",
+      "params": {
+        "arguments": {
+          "city": "Paris"
+        },
+        "meta": null,
+        "name": "weather",
+        "task": null
+      }
+    }
+  },
+  "tool_results": null
+}

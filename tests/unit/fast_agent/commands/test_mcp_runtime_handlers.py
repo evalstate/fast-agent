@@ -55,8 +55,18 @@ class _Provider:
         del name
         return object()
 
-    def agent_names(self):
+    def resolve_target_agent_name(self, agent_name: str | None = None):
+        return agent_name or "main"
+
+    def visible_agent_names(self, *, force_include: str | None = None):
+        del force_include
         return ["main"]
+
+    def registered_agent_names(self):
+        return ["main"]
+
+    def registered_agents(self):
+        return {"main": object()}
 
     async def list_prompts(self, namespace: str | None, agent_name: str | None = None):
         del namespace, agent_name

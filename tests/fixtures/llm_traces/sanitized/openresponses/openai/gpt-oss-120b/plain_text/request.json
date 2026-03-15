@@ -1,0 +1,22 @@
+{
+  "include": [
+    "reasoning.encrypted_content"
+  ],
+  "input": [
+    {
+      "content": [
+        {
+          "text": "In one concise sentence, explain why tides change over the course of a day.",
+          "type": "input_text"
+        }
+      ],
+      "role": "user",
+      "type": "message"
+    }
+  ],
+  "instructions": "You are a helpful AI Agent.\n\n{{serverInstructions}}\n{{agentSkills}}\n{{file_silent:AGENTS.md}}\n{{env}}\n\nThe current date is {{currentDate}}.",
+  "max_output_tokens": 32766,
+  "model": "openai/gpt-oss-120b",
+  "parallel_tool_calls": true,
+  "store": false
+}
