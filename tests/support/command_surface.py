@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.commands.context import StaticAgentProvider
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.mcp.experimental_session_client import SessionJarEntry
 from fast_agent.ui.command_payloads import is_command_payload
@@ -124,42 +125,39 @@ class CommandSurfaceAgent:
         self.message_history = list(history or [])
 
 
-@dataclass
-class CommandSurfaceProvider:
-    _agents: dict[str, CommandSurfaceAgent]
-    _attached_mcp_servers: list[str] = field(default_factory=list)
-    _detached_mcp_servers: list[str] = field(default_factory=lambda: ["docs"])
-    _noenv_mode: bool = False
+class CommandSurfaceProvider(StaticAgentProvider):
+    def __init__(
+        self,
+        agents: dict[str, CommandSurfaceAgent],
+        *,
+        attached_mcp_servers: list[str] | None = None,
+        detached_mcp_servers: list[str] | None = None,
+        noenv_mode: bool = False,
+    ) -> None:
+        super().__init__(agents)
+        self._attached_mcp_servers = list(attached_mcp_servers or [])
+        self._detached_mcp_servers = list(detached_mcp_servers or ["docs"])
+        self._noenv_mode = noenv_mode
 
     def _agent(self, name: str) -> CommandSurfaceAgent:
-        return self._agents[name]
-
-    def resolve_target_agent_name(self, agent_name: str | None = None) -> str | None:
-        if agent_name is None:
-            return next(iter(self._agents), None)
-        return agent_name if agent_name in self._agents else None
+        return cast("CommandSurfaceAgent", super()._agent(name))
 
     def agent_names(self) -> list[str]:
-        return list(self._agents.keys())
-
-    def visible_agent_names(self, *, force_include: str | None = None) -> list[str]:
-        names = self.agent_names()
-        if force_include and force_include in self._agents and force_include not in names:
-            return [force_include, *names]
-        return names
+        return list(self.registered_agent_names())
 
     def agent_types(self) -> dict[str, AgentType]:
-        return {name: agent.agent_type for name, agent in self._agents.items()}
+        return {
+            name: cast("CommandSurfaceAgent", agent).agent_type
+            for name, agent in self.registered_agents().items()
+        }
 
     def visible_agent_types(self, *, force_include: str | None = None) -> dict[str, AgentType]:
         visible = set(self.visible_agent_names(force_include=force_include))
-        return {name: agent.agent_type for name, agent in self._agents.items() if name in visible}
-
-    def registered_agent_names(self) -> list[str]:
-        return list(self._agents.keys())
-
-    def registered_agents(self) -> dict[str, object]:
-        return dict(self._agents)
+        return {
+            name: cast("CommandSurfaceAgent", agent).agent_type
+            for name, agent in self.registered_agents().items()
+            if name in visible
+        }
 
     async def list_prompts(
         self,
