@@ -6,7 +6,7 @@ import asyncio
 import base64
 import shlex
 import sys
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
@@ -35,6 +35,7 @@ from fast_agent.commands.command_discovery import (
 from fast_agent.commands.context import (
     CommandContext,
     NonInteractiveCommandIOBase,
+    StaticAgentProvider,
 )
 from fast_agent.commands.handlers import cards_manager as cards_handlers
 from fast_agent.commands.handlers import display as display_handlers
@@ -164,37 +165,6 @@ class _SmartToolMcpManager:
         return sorted(self._configured_server_names - attached)
 
 
-class _SmartToolCommandAgentProvider:
-    """Minimal agent-provider adapter for command handlers."""
-
-    def __init__(self, agents: Mapping[str, object]) -> None:
-        self._agents = agents
-
-    def _agent(self, name: str) -> object:
-        return self._agents[name]
-
-    def resolve_target_agent_name(self, agent_name: str | None = None) -> str | None:
-        return agent_name
-
-    def visible_agent_names(self, *, force_include: str | None = None) -> Iterable[str]:
-        del force_include
-        return list(self._agents.keys())
-
-    def registered_agent_names(self) -> Iterable[str]:
-        return list(self._agents.keys())
-
-    def registered_agents(self) -> dict[str, object]:
-        return dict(self._agents)
-
-    async def list_prompts(
-        self,
-        namespace: str | None,
-        agent_name: str | None = None,
-    ) -> object:
-        del namespace, agent_name
-        return {}
-
-
 @dataclass(slots=True)
 class _SmartToolCommandIO(NonInteractiveCommandIOBase):
     """Non-interactive command IO that buffers emitted messages."""
@@ -252,7 +222,7 @@ def _build_command_context(agent: Any) -> tuple[CommandContext, _SmartToolComman
         raise AgentConfigError("Command execution requires named agent", "Agent has no name")
 
     io = _SmartToolCommandIO(messages=[])
-    provider = _SmartToolCommandAgentProvider(_resolve_command_agent_map(agent))
+    provider = StaticAgentProvider(_resolve_command_agent_map(agent))
     return (
         CommandContext(
             agent_provider=provider,

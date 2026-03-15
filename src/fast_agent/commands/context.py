@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Awaitable, Iterable, Protocol, Sequence
+from typing import TYPE_CHECKING, Awaitable, Iterable, Mapping, Protocol, Sequence
 
 from fast_agent.config import Settings, get_settings
 
@@ -104,6 +104,37 @@ class AgentProvider(Protocol):
         namespace: str | None,
         agent_name: str | None = None,
     ) -> Awaitable[object]: ...
+
+
+class StaticAgentProvider:
+    """Minimal mapping-backed agent provider for shared command contexts."""
+
+    def __init__(self, agents: Mapping[str, object] | None = None) -> None:
+        self._agents = dict(agents or {})
+
+    def _agent(self, name: str) -> object:
+        return self._agents[name]
+
+    def resolve_target_agent_name(self, agent_name: str | None = None) -> str | None:
+        return agent_name
+
+    def visible_agent_names(self, *, force_include: str | None = None) -> Iterable[str]:
+        del force_include
+        return list(self._agents.keys())
+
+    def registered_agent_names(self) -> Iterable[str]:
+        return list(self._agents.keys())
+
+    def registered_agents(self) -> dict[str, object]:
+        return dict(self._agents)
+
+    async def list_prompts(
+        self,
+        namespace: str | None,
+        agent_name: str | None = None,
+    ) -> object:
+        del namespace, agent_name
+        return {}
 
 
 async def noninteractive_prompt_selection(

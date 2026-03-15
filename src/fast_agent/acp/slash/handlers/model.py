@@ -6,37 +6,12 @@ import shlex
 from typing import TYPE_CHECKING, cast
 
 from fast_agent.acp.command_io import ACPCommandIO
-from fast_agent.commands.context import CommandContext
+from fast_agent.commands.context import CommandContext, StaticAgentProvider
 from fast_agent.commands.handlers import model as model_handlers
 from fast_agent.commands.handlers import models_manager as models_manager_handlers
 from fast_agent.commands.handlers import sessions as sessions_handlers
 from fast_agent.commands.handlers.shared import clear_agent_histories
 from fast_agent.commands.renderers.command_markdown import render_command_outcome_markdown
-
-
-class _SimpleAgentProvider:
-    def __init__(self, agents: dict[str, object]) -> None:
-        self._agents = agents
-
-    def _agent(self, name: str):
-        return self._agents[name]
-
-    def resolve_target_agent_name(self, agent_name: str | None = None) -> str | None:
-        return agent_name
-
-    def visible_agent_names(self, *, force_include: str | None = None):
-        del force_include
-        return list(self._agents.keys())
-
-    def registered_agent_names(self):
-        return list(self._agents.keys())
-
-    def registered_agents(self):
-        return self._agents
-
-    async def list_prompts(self, namespace: str | None, agent_name: str | None = None) -> object:
-        return {}
-
 
 if TYPE_CHECKING:
     from fast_agent.acp.slash_commands import SlashCommandHandler
@@ -89,7 +64,9 @@ async def _handle_model_like(
 
     io = ACPCommandIO()
     ctx = CommandContext(
-        agent_provider=_SimpleAgentProvider(cast("dict[str, object]", dict(handler.instance.agents))),
+        agent_provider=StaticAgentProvider(
+            cast("dict[str, object]", dict(handler.instance.agents))
+        ),
         current_agent_name=handler.current_agent_name,
         io=io,
         noenv=handler._noenv,
