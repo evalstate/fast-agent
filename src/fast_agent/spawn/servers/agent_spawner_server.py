@@ -12,9 +12,9 @@ Tools:
 9.  list_spawned_agents — list agent card files
 10. remove_spawned_agent — remove agent card file
 11. list_available_servers — list MCP servers from config
-12. send_message_to_agent — send message between agents
-13. read_agent_inbox — read an agent's inbox
-14. wait_for_agent — block until agent completes
+12. send_message_to_spawned_agent — send message to a runtime-spawned agent
+13. read_spawned_agent_inbox — read a spawned agent's inbox
+14. wait_for_spawned_agent — block until a spawned agent completes
 15. restart_spawn — re-run a persistent/resumable spawn
 16. resume_spawn — continue a resumable spawn with follow-up
 17. spawn_team_tool — spawn a full team from a template
@@ -524,19 +524,22 @@ async def resume_spawn(run_id: str, follow_up_task: str) -> str:
 
 
 @mcp.tool()
-def send_message_to_agent(
+def send_message_to_spawned_agent(
     to: str,
     message: str,
     message_type: str = "task",
     priority: str = "normal",
 ) -> str:
-    """Send a message to another agent's inbox by name.
+    """Send a message to a RUNTIME-SPAWNED agent's inbox.
+
+    IMPORTANT: Only use for agents created via spawn tools at runtime.
+    Do NOT use for built-in agents — use agent__<AgentName> tools instead.
 
     If the target agent is idle, it will be automatically woken up
     to process the message.
 
     Args:
-        to: Target agent name (e.g. "Minh - Dev").
+        to: Spawned agent name (e.g. "Minh - Dev").
         message: Message content.
         message_type: "task" | "question" | "response" | "notification"
         priority: "low" | "normal" | "high" | "urgent"
@@ -584,23 +587,26 @@ def send_message_to_agent(
 
 
 @mcp.tool()
-def read_agent_inbox(agent_name: str) -> str:
-    """Read all messages in an agent's inbox.
+def read_spawned_agent_inbox(agent_name: str) -> str:
+    """Read all messages in a runtime-spawned agent's inbox.
+
+    Only for agents created via spawn tools, not built-in agents.
 
     Args:
-        agent_name: Agent name whose inbox to read.
+        agent_name: Spawned agent name whose inbox to read.
     """
     return _bus.read_inbox_formatted(agent_name)
 
 
 @mcp.tool()
-def wait_for_agent(agent_name: str, timeout_seconds: int = 300) -> str:
-    """Wait (block) until a named agent completes.
+def wait_for_spawned_agent(agent_name: str, timeout_seconds: int = 300) -> str:
+    """Wait (block) until a runtime-spawned agent completes.
 
-    Polls the spawn registry by agent_name — unique lookup, no ambiguity.
+    Only for agents created via spawn tools, not built-in agents.
+    Polls the spawn registry by agent_name.
 
     Args:
-        agent_name: Name of the agent to wait for (e.g. "Minh - Dev").
+        agent_name: Name of the spawned agent to wait for (e.g. "Minh - Dev").
         timeout_seconds: Max wait time (default 300s).
     """
     import time as _time

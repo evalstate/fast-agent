@@ -144,8 +144,8 @@ class TeamSession:
             run_id = info.get("run_id", "?")
             role = info.get("role", "")
             lines.append(f"- **{agent_name}** (role: {role}, run_id: {run_id})")
-        lines.append("\nUse `send_message_to_agent(to=\"Agent Name\", ...)` to message any teammate.")
-        lines.append("Use `wait_for_agent(agent_name=\"Agent Name\")` to wait for a teammate to finish.")
+        lines.append("\nUse `send_message_to_spawned_agent(to=\"Agent Name\", ...)` to message any teammate.")
+        lines.append("Use `wait_for_spawned_agent(agent_name=\"Agent Name\")` to wait for a teammate to finish.")
         lines.append("Use `resume_spawn(run_id=\"...\", follow_up_task=\"...\")` to ask a completed agent to revise their work — this preserves their context.")
         return "\n".join(lines)
 
