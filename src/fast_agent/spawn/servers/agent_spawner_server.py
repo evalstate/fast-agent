@@ -265,6 +265,7 @@ async def spawn_and_run_background(
         model=model,
         timeout_seconds=timeout_seconds,
         role=role,
+        agent_name=role,
         lifecycle=lifecycle,
         registry=_registry,
         display_manager=_display,
@@ -416,6 +417,8 @@ async def restart_spawn(run_id: str) -> str:
         model=cfg.get("model", ""),
         timeout_seconds=cfg.get("timeout_seconds", 600),
         role=cfg.get("role", record.role),
+        agent_name=cfg.get("agent_name", record.agent_name),
+        team_name=cfg.get("team_name", record.team_name),
         lifecycle=record.lifecycle,
         registry=_registry,
         display_manager=_display,
@@ -489,6 +492,7 @@ async def resume_spawn(run_id: str, follow_up_task: str) -> str:
         timeout_seconds=cfg.get("timeout_seconds", 600),
         role=cfg.get("role", record.role),
         agent_name=cfg.get("agent_name", record.agent_name),
+        team_name=cfg.get("team_name", record.team_name),
         workspace_dir=cfg.get("workspace_dir") or None,
         lifecycle="resumable",
         registry=_registry,
@@ -723,11 +727,14 @@ def list_spawned_agents() -> str:
     enriched = []
     for card in cards:
         content = get_agent_card_content(card["name"], agent_cards_dir=str(agent_cards_dir))
+        # Lookup team_name from registry
+        reg_record = _registry.find_by_name(card["name"])
         enriched.append(
             {
                 "name": card["name"],
                 "file": card["file"],
                 "preview": content[:200] if content else "",
+                "team_name": reg_record.team_name if reg_record else "",
             }
         )
     return json.dumps(

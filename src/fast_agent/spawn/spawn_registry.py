@@ -235,60 +235,22 @@ class SpawnRegistry:
             return True
         return False
 
-    def _resolve_team_name(self, team_name: str) -> str | None:
-        """Resolve a fuzzy team name to the actual team_name in registry.
-
-        Tries: exact → case-insensitive → substring match.
-        Returns the resolved team_name or None.
-        """
-        self._load()
-        all_team_names: set[str] = set()
-        for d in self._data.values():
-            tn = d.get("team_name", "")
-            if tn:
-                all_team_names.add(tn)
-
-        if not all_team_names:
-            return None
-
-        # Exact match
-        if team_name in all_team_names:
-            return team_name
-
-        # Case-insensitive match
-        lower = team_name.lower()
-        for tn in all_team_names:
-            if tn.lower() == lower:
-                return tn
-
-        # Substring / partial match (e.g. "agile" matches "agile-team")
-        for tn in all_team_names:
-            if lower in tn.lower() or tn.lower() in lower:
-                return tn
-
-        return None
-
     def find_by_team(self, team_name: str) -> list[SpawnRecord]:
-        """Find all agents belonging to a team (with fuzzy name matching)."""
-        resolved = self._resolve_team_name(team_name)
-        if not resolved:
-            return []
+        """Find all agents belonging to a team (exact match)."""
+        self._load()
         return [
             SpawnRecord.from_dict(d)
             for d in self._data.values()
-            if d.get("team_name") == resolved
+            if d.get("team_name") == team_name
         ]
 
     def remove_team(self, team_name: str) -> int:
-        """Remove all registry entries for a team (with fuzzy name matching).
+        """Remove all registry entries for a team (exact match).
         Returns count removed."""
-        resolved = self._resolve_team_name(team_name)
-        if not resolved:
-            return 0
         self._load()
         to_remove = [
             rid for rid, d in self._data.items()
-            if d.get("team_name") == resolved
+            if d.get("team_name") == team_name
         ]
         for rid in to_remove:
             del self._data[rid]

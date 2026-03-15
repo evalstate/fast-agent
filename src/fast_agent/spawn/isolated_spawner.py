@@ -296,6 +296,7 @@ async def run_isolated_agent(
     workspace_dir: str | None = None,
     role: str = "",
     agent_name: str = "",
+    team_name: str = "",
     lifecycle: str = "oneshot",
     registry: Any | None = None,
     display_manager: Any | None = None,
@@ -374,7 +375,9 @@ async def run_isolated_agent(
             }
         record = SpawnRecord(
             run_id=run_id,
+            agent_name=agent_name or role or "agent",
             role=role or "agent",
+            team_name=team_name,
             task=task[:200],
             lifecycle=lifecycle,
             status="running",
@@ -667,6 +670,7 @@ async def run_isolated_agent_background(
                 "timeout_seconds": timeout_seconds,
                 "role": role or "agent",
                 "agent_name": agent_name or role or "agent",
+                "team_name": team_name,
                 "workspace_dir": workspace_dir or "",
                 "env_vars": env_vars or {},
             }
