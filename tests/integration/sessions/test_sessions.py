@@ -116,9 +116,9 @@ async def test_resume_latest_session(tmp_path, monkeypatch):
             agent_obj.clear(clear_prompts=True)
 
             result = manager.resume_session_agents(
-                agent._agents,
+                agent.registered_agents(),
                 None,
-                default_agent_name=agent_obj.name,
+                fallback_agent_name=agent_obj.name,
             )
             assert result is not None
             loaded = result.loaded

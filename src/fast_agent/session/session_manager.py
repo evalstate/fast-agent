@@ -719,13 +719,8 @@ class SessionManager:
         agents: Mapping[str, AgentProtocol],
         name: str | None = None,
         fallback_agent_name: str | None = None,
-        *,
-        default_agent_name: str | None = None,
     ) -> ResumeSessionAgentsResult | None:
         """Resume a session and load histories for all known agents."""
-        if fallback_agent_name is None:
-            fallback_agent_name = default_agent_name
-
         session_name = self._resolve_session_name(name)
         session = self.load_latest_session() if session_name is None else self.load_session(session_name)
         if not session:
