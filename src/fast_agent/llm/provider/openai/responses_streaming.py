@@ -309,30 +309,34 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                     notified_tool_indices.add(index)
                 continue
 
-        incomplete_entries = tool_state.incomplete()
-        if incomplete_entries:
-            incomplete_tools = [
-                f"{info.tool_name}:{info.tool_use_id}"
-                for info in incomplete_entries
-            ]
-            self.logger.error(
-                "Tool call streaming incomplete - started but never finished",
-                data={
-                    "incomplete_tools": incomplete_tools,
-                    "tool_count": len(incomplete_entries),
-                },
-            )
-            raise RuntimeError(
-                "Streaming completed but tool call(s) never finished: "
-                f"{', '.join(incomplete_tools)}"
-            )
-
         if final_response is None:
             try:
                 final_response = await stream.get_final_response()
             except Exception as exc:
                 self.logger.warning("Failed to fetch final Responses payload", exc_info=exc)
                 raise
+
+        incomplete_entries = tool_state.incomplete()
+        if incomplete_entries:
+            incomplete_tools = [
+                f"{info.tool_name}:{info.tool_use_id}"
+                for info in incomplete_entries
+            ]
+            response_status = getattr(final_response, "status", None)
+            log_method = self.logger.warning if response_status == "incomplete" else self.logger.error
+            log_method(
+                "Tool call streaming incomplete - started but never finished",
+                data={
+                    "incomplete_tools": incomplete_tools,
+                    "tool_count": len(incomplete_entries),
+                    "response_status": response_status,
+                },
+            )
+            if response_status != "incomplete":
+                raise RuntimeError(
+                    "Streaming completed but tool call(s) never finished: "
+                    f"{', '.join(incomplete_tools)}"
+                )
 
         finalize_stream_response(
             final_response=final_response,

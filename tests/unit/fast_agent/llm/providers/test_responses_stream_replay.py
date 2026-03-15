@@ -194,20 +194,16 @@ async def test_openresponses_status_before_added_emits_single_start() -> None:
         event for event in harness.tool_events if event["event_type"] == "start"
     ]
     assert len(start_events) == 1
-    assert start_events[0]["payload"]["tool_use_id"] == "fc_123"
+    assert start_events[0]["payload"]["tool_use_id"] == "call_123"
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_openresponses_status_without_index_before_added_rekeys_placeholder() -> None:
+async def test_openresponses_status_after_added_uses_registered_tool_state() -> None:
     harness = _OpenResponsesHarness()
     final_response = SimpleNamespace(output=[], usage=None)
     stream = _FakeResponsesStream(
         events=[
-            SimpleNamespace(
-                type="response.function_call.in_progress",
-                item_id="fc_123",
-            ),
             SimpleNamespace(
                 type="response.output_item.added",
                 output_index=0,
@@ -218,6 +214,11 @@ async def test_openresponses_status_without_index_before_added_rekeys_placeholde
                     call_id="call_123",
                     name="weather",
                 ),
+            ),
+            SimpleNamespace(
+                type="response.function_call.in_progress",
+                output_index=0,
+                item_id="fc_123",
             ),
             SimpleNamespace(
                 type="response.output_item.done",
@@ -240,18 +241,24 @@ async def test_openresponses_status_without_index_before_added_rekeys_placeholde
     start_events = [
         event for event in harness.tool_events if event["event_type"] == "start"
     ]
+    status_events = [
+        event for event in harness.tool_events if event["event_type"] == "status"
+    ]
     stop_events = [
         event for event in harness.tool_events if event["event_type"] == "stop"
     ]
     assert len(start_events) == 1
-    assert start_events[0]["payload"]["tool_use_id"] == "fc_123"
+    assert start_events[0]["payload"]["tool_use_id"] == "call_123"
+    assert len(status_events) == 1
+    assert status_events[0]["payload"]["tool_use_id"] == "call_123"
+    assert status_events[0]["payload"]["item_id"] == "fc_123"
     assert len(stop_events) == 1
     assert stop_events[0]["payload"]["tool_use_id"] == "call_123"
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_openresponses_done_closes_status_registered_tool_by_item_alias() -> None:
+async def test_openresponses_out_of_order_tool_events_are_ignored() -> None:
     harness = _OpenResponsesHarness()
     final_response = SimpleNamespace(output=[], usage=None)
     stream = _FakeResponsesStream(
@@ -281,5 +288,57 @@ async def test_openresponses_done_closes_status_registered_tool_by_item_alias() 
     stop_events = [
         event for event in harness.tool_events if event["event_type"] == "stop"
     ]
-    assert len(stop_events) == 1
-    assert stop_events[0]["payload"]["tool_use_id"] == "call_123"
+    assert stop_events == []
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("harness_factory", "response_event_type"),
+    [
+        pytest.param(_ResponsesHarness, "response.incomplete", id="responses"),
+        pytest.param(_OpenResponsesHarness, "response.incomplete", id="openresponses"),
+    ],
+)
+async def test_incomplete_responses_return_final_payload(
+    harness_factory: Any,
+    response_event_type: str,
+) -> None:
+    harness = harness_factory()
+    final_response = SimpleNamespace(
+        status="incomplete",
+        incomplete_details=SimpleNamespace(reason="max_output_tokens"),
+        output=[],
+        usage=None,
+    )
+    stream = _FakeResponsesStream(
+        events=[
+            SimpleNamespace(
+                type="response.output_item.added",
+                output_index=0,
+                item_id="fc_123",
+                item=SimpleNamespace(
+                    type="function_call",
+                    id="fc_123",
+                    call_id="call_123",
+                    name="weather",
+                ),
+            ),
+            SimpleNamespace(
+                type="response.function_call_arguments.delta",
+                output_index=0,
+                item_id="fc_123",
+                delta="{\"city\":\"Paris\"",
+            ),
+            SimpleNamespace(type=response_event_type, response=final_response),
+        ],
+        final_response=final_response,
+    )
+
+    returned_response, _reasoning_segments = await harness._process_stream(
+        stream,
+        model="gpt-test",
+        capture_filename=None,
+    )
+
+    assert returned_response is final_response

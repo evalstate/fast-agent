@@ -117,15 +117,6 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
     def _tool_use_id_from_item(self, item: Any) -> str | None:
         return getattr(item, "call_id", None) or getattr(item, "id", None)
 
-    def _tool_name_from_event_type(self, event_type: str | None) -> str | None:
-        if not event_type:
-            return None
-        if not event_type.startswith("response."):
-            return None
-        suffix = event_type[len("response.") :]
-        tool_slug = suffix.split(".", 1)[0]
-        return tool_slug or None
-
     def _tool_payload(
         self,
         info: OpenAIToolStreamEntry,
@@ -289,13 +280,7 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
                     )
                     if delta:
                         if tool_info is None:
-                            fallback_index = index if index is not None else -1
-                            tool_info = tool_state.register(
-                                tool_use_id=item_id or f"tool-{fallback_index}",
-                                name=self._tool_name_from_event_type(event_type) or "tool",
-                                index=fallback_index,
-                                item_id=item_id,
-                            )
+                            continue
                         payload = self._tool_payload(tool_info)
                         payload["chunk"] = delta
                         self._notify_tool_stream_listeners("delta", payload)
@@ -314,6 +299,8 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
                         tool_use_id=tool_use_id,
                         item_id=item_id,
                     ):
+                        continue
+                    if tool_info is None:
                         continue
                     if index is None:
                         index = tool_info.index if tool_info and tool_info.index is not None else -1
@@ -356,14 +343,7 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
                         if tool_info is None:
                             if tool_state.is_completed(index=index, item_id=item_id):
                                 continue
-                            fallback_index = index if index is not None else -1
-                            tool_info = tool_state.register(
-                                tool_use_id=item_id or f"tool-{fallback_index}",
-                                name=self._tool_name_from_event_type(event_type) or "tool",
-                                index=fallback_index,
-                                item_id=item_id,
-                                item_type=match.group("tool"),
-                            )
+                            continue
                         payload = self._tool_payload(tool_info, status=status)
                         self._notify_tool_stream_listeners("status", payload)
                         if status in _TOOL_START_STATUSES and not tool_info.start_notified:
@@ -392,23 +372,6 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
                             )
                         continue
 
-        incomplete_entries = tool_state.incomplete()
-        if incomplete_entries:
-            incomplete_tools = [
-                f"{entry.tool_name}:{entry.tool_use_id}" for entry in incomplete_entries
-            ]
-            self.logger.error(
-                "Tool call streaming incomplete - started but never finished",
-                data={
-                    "incomplete_tools": incomplete_tools,
-                    "tool_count": len(incomplete_entries),
-                },
-            )
-            raise RuntimeError(
-                "Streaming completed but tool call(s) never finished: "
-                f"{', '.join(incomplete_tools)}"
-            )
-
         if final_response is None:
             try:
                 final_response = await stream.get_final_response()
@@ -418,6 +381,27 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
                     data={"error": str(exc)},
                 )
                 raise
+
+        incomplete_entries = tool_state.incomplete()
+        if incomplete_entries:
+            incomplete_tools = [
+                f"{entry.tool_name}:{entry.tool_use_id}" for entry in incomplete_entries
+            ]
+            response_status = getattr(final_response, "status", None)
+            log_method = self.logger.warning if response_status == "incomplete" else self.logger.error
+            log_method(
+                "Tool call streaming incomplete - started but never finished",
+                data={
+                    "incomplete_tools": incomplete_tools,
+                    "tool_count": len(incomplete_entries),
+                    "response_status": response_status,
+                },
+            )
+            if response_status != "incomplete":
+                raise RuntimeError(
+                    "Streaming completed but tool call(s) never finished: "
+                    f"{', '.join(incomplete_tools)}"
+                )
 
         finalize_stream_response(
             final_response=final_response,
