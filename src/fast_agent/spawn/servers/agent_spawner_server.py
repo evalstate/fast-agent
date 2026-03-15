@@ -819,12 +819,15 @@ def remove_spawned_agent(name: str) -> str:
             }
         )
 
-    return json.dumps(
-        {
-            "status": "error",
-            "message": f"Agent or team '{name}' not found.",
-        }
-    )
+    # Collect known teams for hint
+    all_teams = {d.get("team_name", "") for d in _registry._data.values() if d.get("team_name")}
+    result: dict[str, Any] = {
+        "status": "error",
+        "message": f"Agent or team '{name}' not found.",
+    }
+    if all_teams:
+        result["available_teams"] = sorted(all_teams)
+    return json.dumps(result)
 
 
 @mcp.tool()
@@ -848,6 +851,7 @@ def list_available_servers_tool() -> str:
 async def spawn_team_tool(
     template: str,
     project_brief: str,
+    team_name: str,
     mode: str = "blocking",
 ) -> str:
     """Spawn a full team of agents from a template.
@@ -858,6 +862,10 @@ async def spawn_team_tool(
     Args:
         template: Team template name (e.g. "agile-team").
         project_brief: Description for the team.
+        team_name: Unique name for this team instance.
+                   Name should reflect the task purpose
+                   (e.g. "notes-cli-dev", "payment-redesign").
+                   This name is used for display and removal.
         mode: "blocking" (wait for all to complete) or
               "background" (return agent IDs immediately).
     """
@@ -869,6 +877,7 @@ async def spawn_team_tool(
             display_manager=_display,
             project_dir=str(_PROJECT_DIR),
             mode=mode,
+            team_name=team_name,
         )
 
         agents_info = {
@@ -885,6 +894,7 @@ async def spawn_team_tool(
         result: dict[str, Any] = {
             "status": status,
             "session_id": session.session_id,
+            "team_name": team_name,
             "template": session.template.get("name", template),
             "workspace": str(session.workspace),
             "agents": agents_info,

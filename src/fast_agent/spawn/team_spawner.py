@@ -261,6 +261,7 @@ async def spawn_team(
     project_brief: str,
     registry: SpawnRegistry,
     project_dir: str | Path,
+    team_name: str,
     template_dir: str | Path | None = None,
     skills_dir: str | Path | None = None,
     workspace_root: Path | None = None,
@@ -284,6 +285,7 @@ async def spawn_team(
         project_brief: Project description for agents.
         registry: SpawnRegistry for tracking agents.
         project_dir: Root directory of host application.
+        team_name: Unique name for this team instance.
         template_dir: Directory with team template YAMLs.
         skills_dir: Directory with skill subdirectories.
         workspace_root: Override workspace root directory.
@@ -305,7 +307,7 @@ async def spawn_team(
     session_id = str(uuid.uuid4())[:8]
 
     # Clean up previous session artifacts to prevent data leakage
-    template_prefix = template.get("name", template_name).lower().replace(" ", "_")[:50]
+    template_prefix = team_name.lower().replace(" ", "_")[:50]
     workspaces_base = workspace_root or paths["workspaces"]
     if Path(workspaces_base).exists():
         import shutil
@@ -462,7 +464,7 @@ async def _spawn_all_agents(
             timeout_seconds=role_config.get("timeout_seconds", 600),
             role=role_name,
             agent_name=agent_name,
-            team_name=session.template.get("name", ""),
+            team_name=team_name,
             lifecycle="resumable",
             registry=registry,
             display_manager=display_manager,
