@@ -307,8 +307,8 @@ def test_usage_accumulator_context_window_override():
     acc = UsageAccumulator()
     acc.model = "claude-opus-4-6"
 
-    # Without override, should return ModelDatabase value (200K)
-    assert acc.context_window_size == 200_000
+    # Without override, should return ModelDatabase value (1M)
+    assert acc.context_window_size == 1_000_000
 
     # With override, should return the override
     acc.set_context_window_override(1_000_000)
@@ -316,4 +316,4 @@ def test_usage_accumulator_context_window_override():
 
     # Clear override
     acc.set_context_window_override(None)
-    assert acc.context_window_size == 200_000
+    assert acc.context_window_size == 1_000_000
