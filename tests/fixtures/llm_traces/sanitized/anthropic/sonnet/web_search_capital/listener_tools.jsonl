@@ -1,0 +1,15 @@
+{"event_type": "start", "payload": {"chunk": "\u2026", "index": 1, "tool_display_name": "Running code_execution", "tool_name": "code_execution", "tool_use_id": "srvtoolu_1"}}
+{"event_type": "stop", "payload": {"index": 1, "tool_display_name": "Running code_execution", "tool_name": "code_execution", "tool_use_id": "srvtoolu_1"}}
+{"event_type": "start", "payload": {"chunk": "{\"query\": \"capital of France\"}", "index": 2, "tool_display_name": "Searching the web", "tool_name": "web_search", "tool_use_id": "srvtoolu_2"}}
+{"event_type": "stop", "payload": {"index": 2, "tool_display_name": "Searching the web", "tool_name": "web_search", "tool_use_id": "srvtoolu_2"}}
+{"event_type": "start", "payload": {"chunk": "\u2026", "index": 5, "tool_display_name": "Running code_execution", "tool_name": "code_execution", "tool_use_id": "srvtoolu_3"}}
+{"event_type": "stop", "payload": {"index": 5, "tool_display_name": "Running code_execution", "tool_name": "code_execution", "tool_use_id": "srvtoolu_3"}}
+{"event_type": "start", "payload": {"chunk": "{\"query\": \"capital of France\"}", "index": 6, "tool_display_name": "Searching the web", "tool_name": "web_search", "tool_use_id": "srvtoolu_4"}}
+{"event_type": "stop", "payload": {"index": 6, "tool_display_name": "Searching the web", "tool_name": "web_search", "tool_use_id": "srvtoolu_4"}}
+{"event_type": "text", "payload": {"chunk": "**", "index": 11}}
+{"event_type": "text", "payload": {"chunk": "Paris** is the capital and", "index": 11}}
+{"event_type": "text", "payload": {"chunk": " largest city of France,", "index": 11}}
+{"event_type": "text", "payload": {"chunk": " with an estimated city population of 2", "index": 11}}
+{"event_type": "text", "payload": {"chunk": ".04 million and", "index": 11}}
+{"event_type": "text", "payload": {"chunk": " a metropolitan population of 13.2", "index": 11}}
+{"event_type": "text", "payload": {"chunk": " million.", "index": 11}}

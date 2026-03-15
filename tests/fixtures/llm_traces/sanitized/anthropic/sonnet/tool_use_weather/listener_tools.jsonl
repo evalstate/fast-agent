@@ -1,0 +1,5 @@
+{"event_type": "start", "payload": {"index": 1, "tool_name": "weather", "tool_use_id": "toolu_1"}}
+{"event_type": "delta", "payload": {"chunk": "", "index": 1, "tool_name": "weather", "tool_use_id": "toolu_1"}}
+{"event_type": "delta", "payload": {"chunk": "{\"city\": \"Paris", "index": 1, "tool_name": "weather", "tool_use_id": "toolu_1"}}
+{"event_type": "delta", "payload": {"chunk": "\"}", "index": 1, "tool_name": "weather", "tool_use_id": "toolu_1"}}
+{"event_type": "stop", "payload": {"index": 1, "tool_name": "weather", "tool_use_id": "toolu_1"}}

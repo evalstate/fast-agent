@@ -179,6 +179,7 @@ project_contents.md
 
 # example logs
 *.jsonl
+!tests/fixtures/llm_traces/sanitized/**/*.jsonl
 fastagent.secrets.yaml
 CLAUDE.md
 example-outputs/

@@ -1,0 +1,12 @@
+{"event_type": "start", "payload": {"index": 1, "item_id": "fc_1", "tool_name": "weather", "tool_type": "function_call", "tool_use_id": "call_1"}}
+{"event_type": "delta", "payload": {"chunk": "{\n", "index": 1, "item_id": "fc_1", "tool_name": "weather", "tool_type": "function_call", "tool_use_id": "call_1"}}
+{"event_type": "delta", "payload": {"chunk": " ", "index": 1, "item_id": "fc_1", "tool_name": "weather", "tool_type": "function_call", "tool_use_id": "call_1"}}
+{"event_type": "delta", "payload": {"chunk": " \"", "index": 1, "item_id": "fc_1", "tool_name": "weather", "tool_type": "function_call", "tool_use_id": "call_1"}}
+{"event_type": "delta", "payload": {"chunk": "city", "index": 1, "item_id": "fc_1", "tool_name": "weather", "tool_type": "function_call", "tool_use_id": "call_1"}}
+{"event_type": "delta", "payload": {"chunk": "\":", "index": 1, "item_id": "fc_1", "tool_name": "weather", "tool_type": "function_call", "tool_use_id": "call_1"}}
+{"event_type": "delta", "payload": {"chunk": " \"", "index": 1, "item_id": "fc_1", "tool_name": "weather", "tool_type": "function_call", "tool_use_id": "call_1"}}
+{"event_type": "delta", "payload": {"chunk": "Paris", "index": 1, "item_id": "fc_1", "tool_name": "weather", "tool_type": "function_call", "tool_use_id": "call_1"}}
+{"event_type": "delta", "payload": {"chunk": "\"\n", "index": 1, "item_id": "fc_1", "tool_name": "weather", "tool_type": "function_call", "tool_use_id": "call_1"}}
+{"event_type": "delta", "payload": {"chunk": "}", "index": 1, "item_id": "fc_1", "tool_name": "weather", "tool_type": "function_call", "tool_use_id": "call_1"}}
+{"event_type": "status", "payload": {"index": 1, "item_id": "fc_1", "status": "done", "tool_name": "weather", "tool_type": "function_call", "tool_use_id": "call_1"}}
+{"event_type": "stop", "payload": {"index": 1, "tool_name": "weather", "tool_use_id": "call_1"}}

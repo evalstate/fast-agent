@@ -1,0 +1,3 @@
+{"event_type": "start", "payload": {"index": 0, "tool_name": "weather", "tool_use_id": "tool_1_0"}}
+{"event_type": "delta", "payload": {"chunk": "{\"city\":\"Paris\"}", "index": 0, "tool_name": "weather", "tool_use_id": "tool_1_0"}}
+{"event_type": "stop", "payload": {"index": 0, "tool_name": "weather", "tool_use_id": "tool_1_0"}}

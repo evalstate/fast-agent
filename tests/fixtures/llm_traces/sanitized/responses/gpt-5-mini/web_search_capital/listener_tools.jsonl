@@ -1,0 +1,8 @@
+{"event_type": "start", "payload": {"chunk": "starting search...", "index": 1, "tool_display_name": "Searching the web", "tool_name": "web_search", "tool_use_id": "ws_1"}}
+{"event_type": "status", "payload": {"chunk": "starting search...", "index": 1, "status": "in_progress", "tool_display_name": "Searching the web", "tool_name": "web_search", "tool_use_id": "ws_1"}}
+{"event_type": "status", "payload": {"chunk": "searching...", "index": 1, "status": "searching", "tool_display_name": "Searching the web", "tool_name": "web_search", "tool_use_id": "ws_1"}}
+{"event_type": "status", "payload": {"chunk": "search complete", "index": 1, "status": "completed", "tool_display_name": "Searching the web", "tool_name": "web_search", "tool_use_id": "ws_1"}}
+{"event_type": "stop", "payload": {"chunk": "search complete", "index": 1, "status": "completed", "tool_display_name": "Searching the web", "tool_name": "web_search", "tool_use_id": "ws_1"}}
+{"event_type": "text", "payload": {"chunk": "The capital of France is Paris."}}
+{"event_type": "text", "payload": {"chunk": " "}}
+{"event_type": "text", "payload": {"chunk": "([britannica.com](https://www.britannica.com/facts/Paris?utm_source=openai))"}}
