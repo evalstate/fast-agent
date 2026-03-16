@@ -1,0 +1,66 @@
+{"response": {"background": null, "completed_at": null, "conversation": null, "created_at": null, "error": null, "id": "resp_1", "incomplete_details": null, "instructions": null, "max_output_tokens": null, "max_tool_calls": null, "metadata": null, "model": null, "object": "response", "output": null, "parallel_tool_calls": null, "previous_response_id": null, "prompt": null, "prompt_cache_key": null, "prompt_cache_retention": null, "reasoning": null, "safety_identifier": null, "service_tier": null, "status": "in_progress", "temperature": null, "text": null, "tool_choice": null, "tools": null, "top_logprobs": null, "top_p": null, "truncation": null, "usage": null, "user": null}, "sequence_number": null, "type": "response.created"}
+{"response": {"background": null, "completed_at": null, "conversation": null, "created_at": null, "error": null, "id": "resp_1", "incomplete_details": null, "instructions": null, "max_output_tokens": null, "max_tool_calls": null, "metadata": null, "model": null, "object": "response", "output": null, "parallel_tool_calls": null, "previous_response_id": null, "prompt": null, "prompt_cache_key": null, "prompt_cache_retention": null, "reasoning": null, "safety_identifier": null, "service_tier": null, "status": "in_progress", "temperature": null, "text": null, "tool_choice": null, "tools": null, "top_logprobs": null, "top_p": null, "truncation": null, "usage": null, "user": null}, "sequence_number": null, "type": "response.in_progress"}
+{"item": {"content": [], "encrypted_content": "", "id": "rs_1", "status": "in_progress", "summary": [], "type": "reasoning"}, "output_index": null, "sequence_number": null, "type": "response.output_item.added"}
+{"content_index": null, "delta": "The", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " user", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " is", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " asking", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " me", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " to", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " call", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " the", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " weather", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " tool", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " for", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " Paris", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": ".", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " They", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " specifically", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " requested", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " that", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " I", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " should", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " not", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " answer", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " in", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " natural", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " language", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " first", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": ",", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " so", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " I", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " should", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " just", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " make", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " the", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " function", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " call", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " directly", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": ".", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": "\n\n", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": "I", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " need", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " to", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " use", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " the", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " weather", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " function", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " with", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " the", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " city", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " parameter", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " set", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " to", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": " \"", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": "Paris", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": "\".", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"content_index": null, "delta": "\n", "item_id": "rs_1", "output_index": null, "sequence_number": null, "type": "response.reasoning_text.delta"}
+{"item": {"arguments": "", "call_id": "fc_1", "id": null, "name": "weather", "namespace": null, "status": "in_progress", "type": "function_call"}, "output_index": null, "sequence_number": null, "type": "response.output_item.added"}
+{"delta": "{", "item_id": "fc_1", "output_index": null, "sequence_number": null, "type": "response.function_call_arguments.delta"}
+{"delta": "\"city\":\"", "item_id": "fc_1", "output_index": null, "sequence_number": null, "type": "response.function_call_arguments.delta"}
+{"delta": "Paris", "item_id": "fc_1", "output_index": null, "sequence_number": null, "type": "response.function_call_arguments.delta"}
+{"delta": "\"", "item_id": "fc_1", "output_index": null, "sequence_number": null, "type": "response.function_call_arguments.delta"}
+{"delta": "}", "item_id": "fc_1", "output_index": null, "sequence_number": null, "type": "response.function_call_arguments.delta"}
+{"item": {"content": [{"text": "The user is asking me to call the weather tool for Paris. They specifically requested that I should not answer in natural language first, so I should just make the function call directly.\n\nI need to use the weather function with the city parameter set to \"Paris\".\n", "type": "reasoning_text"}], "encrypted_content": "", "id": "rs_1", "status": null, "summary": [], "type": "reasoning"}, "output_index": null, "sequence_number": null, "type": "response.output_item.done"}
+{"item": {"arguments": "{\"city\":\"Paris\"}", "call_id": "fc_1", "id": null, "name": "weather", "namespace": null, "status": "completed", "type": "function_call"}, "output_index": null, "sequence_number": null, "type": "response.output_item.done"}
+{"response": {"background": false, "completed_at": null, "conversation": null, "created_at": 0, "error": null, "id": "resp_1", "incomplete_details": null, "instructions": null, "max_output_tokens": null, "max_tool_calls": null, "metadata": null, "model": "unsloth/Qwen3.5-9B-GGUF", "object": "response", "output": [{"content": [{"text": "The user is asking me to call the weather tool for Paris. They specifically requested that I should not answer in natural language first, so I should just make the function call directly.\n\nI need to use the weather function with the city parameter set to \"Paris\".\n", "type": "reasoning_text"}], "encrypted_content": "", "id": "rs_1", "status": null, "summary": [], "type": "reasoning"}, {"arguments": "{\"city\":\"Paris\"}", "call_id": "fc_1", "id": null, "name": "weather", "namespace": null, "status": "completed", "type": "function_call"}], "parallel_tool_calls": true, "previous_response_id": null, "prompt": null, "prompt_cache_key": null, "prompt_cache_retention": null, "reasoning": null, "safety_identifier": null, "service_tier": "auto", "status": "completed", "temperature": 1.0, "text": null, "tool_choice": "auto", "tools": [{"description": "Check the weather in a city", "name": "weather", "parameters": {"properties": {"city": {"description": "City to check", "type": "string"}}, "required": ["city"], "type": "object"}, "type": "function"}], "top_logprobs": null, "top_p": 1.0, "truncation": "disabled", "usage": {"input_tokens": 332, "input_tokens_details": {"cached_tokens": 0, "cached_tokens_per_turn": [0], "input_tokens_per_turn": [332]}, "output_tokens": 82, "output_tokens_details": {"output_tokens_per_turn": [82], "reasoning_tokens": 0, "tool_output_tokens": 0, "tool_output_tokens_per_turn": [0]}, "total_tokens": 414}, "user": null}, "sequence_number": null, "type": "response.completed"}

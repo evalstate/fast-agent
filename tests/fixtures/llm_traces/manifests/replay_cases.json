@@ -42,6 +42,14 @@
     },
     {
       "assertion_profile": "tool_use",
+      "family": "openresponses",
+      "fixture_dir": "openresponses/llamacpp-qwen3-5-9b-gguf/tool_use_weather",
+      "id": "openresponses-llamacpp-qwen359bgguf-tool-use-weather",
+      "model_label": "llamacpp-qwen3-5-9b-gguf",
+      "scenario": "tool_use_weather"
+    },
+    {
+      "assertion_profile": "tool_use",
       "family": "anthropic",
       "fixture_dir": "anthropic/sonnet/tool_use_weather",
       "id": "anthropic-sonnet-tool-use-weather",

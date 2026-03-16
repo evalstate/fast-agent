@@ -35,6 +35,9 @@
       "plain_text",
       "tool_use_weather"
     ],
+    "llamacpp-qwen3-5-9b-gguf": [
+      "tool_use_weather"
+    ],
     "codexspark": [
       "plain_text"
     ],

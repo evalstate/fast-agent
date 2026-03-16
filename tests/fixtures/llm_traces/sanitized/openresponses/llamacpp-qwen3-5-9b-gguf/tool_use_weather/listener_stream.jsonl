@@ -1,0 +1,54 @@
+{"is_reasoning": true, "text": "The"}
+{"is_reasoning": true, "text": " user"}
+{"is_reasoning": true, "text": " is"}
+{"is_reasoning": true, "text": " asking"}
+{"is_reasoning": true, "text": " me"}
+{"is_reasoning": true, "text": " to"}
+{"is_reasoning": true, "text": " call"}
+{"is_reasoning": true, "text": " the"}
+{"is_reasoning": true, "text": " weather"}
+{"is_reasoning": true, "text": " tool"}
+{"is_reasoning": true, "text": " for"}
+{"is_reasoning": true, "text": " Paris"}
+{"is_reasoning": true, "text": "."}
+{"is_reasoning": true, "text": " They"}
+{"is_reasoning": true, "text": " specifically"}
+{"is_reasoning": true, "text": " requested"}
+{"is_reasoning": true, "text": " that"}
+{"is_reasoning": true, "text": " I"}
+{"is_reasoning": true, "text": " should"}
+{"is_reasoning": true, "text": " not"}
+{"is_reasoning": true, "text": " answer"}
+{"is_reasoning": true, "text": " in"}
+{"is_reasoning": true, "text": " natural"}
+{"is_reasoning": true, "text": " language"}
+{"is_reasoning": true, "text": " first"}
+{"is_reasoning": true, "text": ","}
+{"is_reasoning": true, "text": " so"}
+{"is_reasoning": true, "text": " I"}
+{"is_reasoning": true, "text": " should"}
+{"is_reasoning": true, "text": " just"}
+{"is_reasoning": true, "text": " make"}
+{"is_reasoning": true, "text": " the"}
+{"is_reasoning": true, "text": " function"}
+{"is_reasoning": true, "text": " call"}
+{"is_reasoning": true, "text": " directly"}
+{"is_reasoning": true, "text": "."}
+{"is_reasoning": true, "text": "\n\n"}
+{"is_reasoning": true, "text": "I"}
+{"is_reasoning": true, "text": " need"}
+{"is_reasoning": true, "text": " to"}
+{"is_reasoning": true, "text": " use"}
+{"is_reasoning": true, "text": " the"}
+{"is_reasoning": true, "text": " weather"}
+{"is_reasoning": true, "text": " function"}
+{"is_reasoning": true, "text": " with"}
+{"is_reasoning": true, "text": " the"}
+{"is_reasoning": true, "text": " city"}
+{"is_reasoning": true, "text": " parameter"}
+{"is_reasoning": true, "text": " set"}
+{"is_reasoning": true, "text": " to"}
+{"is_reasoning": true, "text": " \""}
+{"is_reasoning": true, "text": "Paris"}
+{"is_reasoning": true, "text": "\"."}
+{"is_reasoning": true, "text": "\n"}

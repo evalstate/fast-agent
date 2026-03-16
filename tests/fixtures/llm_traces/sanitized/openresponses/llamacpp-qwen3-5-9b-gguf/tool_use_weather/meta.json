@@ -1,0 +1,35 @@
+{
+  "completed_at": "<TIMESTAMP>",
+  "family": "openresponses",
+  "fast_agent_llm_trace": "1",
+  "fixture_files": [
+    "listener_stream.jsonl",
+    "listener_tools.jsonl",
+    "meta.json",
+    "request.json",
+    "result.json",
+    "stream.jsonl"
+  ],
+  "fixture_format_version": 1,
+  "has_tool_calls": true,
+  "llm_class": "OpenResponsesLLM",
+  "max_tokens_override": null,
+  "model_label": "llamacpp-qwen3-5-9b-gguf",
+  "prompt_file": "tests/fixtures/llm_traces/scenarios/tool_use_weather.txt",
+  "provider": "openresponses",
+  "requested_model": "llamacpp-qwen3-5-9b-gguf",
+  "resolved_model": "unsloth/Qwen3.5-9B-GGUF",
+  "scenario": "tool_use_weather",
+  "scenario_max_tokens": null,
+  "source_run": "tests/fixtures/llm_traces/raw/llamacpp-run-fixed-5a4inB/llamacpp-qwen3-5-9b-gguf/tool_use_weather/<TIMESTAMP>",
+  "started_at": "<TIMESTAMP>",
+  "status": "ok",
+  "stop_reason": "toolUse",
+  "stream_event_count": 54,
+  "tool_event_count": 7,
+  "trace_files": [
+    "stream.jsonl",
+    "request.json"
+  ],
+  "validation_issues": []
+}

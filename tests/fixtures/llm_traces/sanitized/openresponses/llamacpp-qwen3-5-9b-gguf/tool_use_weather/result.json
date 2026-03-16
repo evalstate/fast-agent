@@ -1,0 +1,47 @@
+{
+  "channels": {
+    "fast-agent-timing": [
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"start_time\": 254273.685859724, \"end_time\": 254275.674913823, \"duration_ms\": 1989.05, \"ttft_ms\": 723.97, \"time_to_response_ms\": 1630.26}",
+        "type": "text"
+      }
+    ],
+    "fast-agent-usage": [
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "{\"turn\": {\"provider\": \"openresponses\", \"model\": \"unsloth/Qwen3.5-9B-GGUF\", \"input_tokens\": 332, \"output_tokens\": 82, \"total_tokens\": 414, \"timestamp\": 1773657168.274476, \"cache_usage\": {\"cache_read_tokens\": 0, \"cache_write_tokens\": 0, \"cache_hit_tokens\": 0, \"total_cache_tokens\": 0, \"has_cache_activity\": false}, \"tool_use_tokens\": 0, \"reasoning_tokens\": 0, \"tool_calls\": 1, \"current_context_tokens\": 414, \"effective_input_tokens\": 332, \"display_input_tokens\": 332}, \"raw_usage\": {\"cache_tokens_details\": null, \"cached_content_token_count\": null, \"candidates_token_count\": null, \"candidates_tokens_details\": null, \"prompt_token_count\": null, \"prompt_tokens_details\": null, \"thoughts_token_count\": null, \"tool_use_prompt_token_count\": null, \"tool_use_prompt_tokens_details\": null, \"total_token_count\": null, \"traffic_type\": null}, \"summary\": {\"model\": \"unsloth/Qwen3.5-9B-GGUF\", \"turn_count\": 1, \"cumulative_input_tokens\": 332, \"cumulative_output_tokens\": 82, \"cumulative_billing_tokens\": 414, \"cumulative_tool_use_tokens\": 0, \"cumulative_reasoning_tokens\": 0, \"cumulative_tool_calls\": 1, \"current_context_tokens\": 414, \"context_window_size\": 262144, \"context_usage_percentage\": 0.157928466796875, \"cumulative_cache_read_tokens\": 0, \"cumulative_cache_write_tokens\": 0, \"cumulative_cache_hit_tokens\": 0, \"cache_hit_rate_percent\": 0.0, \"cumulative_effective_input_tokens\": 332}}",
+        "type": "text"
+      }
+    ],
+    "reasoning": [
+      {
+        "annotations": null,
+        "meta": null,
+        "text": "The user is asking me to call the weather tool for Paris. They specifically requested that I should not answer in natural language first, so I should just make the function call directly.\n\nI need to use the weather function with the city parameter set to \"Paris\".",
+        "type": "text"
+      }
+    ]
+  },
+  "content": [],
+  "is_template": false,
+  "phase": null,
+  "role": "assistant",
+  "stop_reason": "toolUse",
+  "tool_calls": {
+    "fc_CEz3uFFrslnQJzcBfHZ123FA4VGtPygQ": {
+      "method": "tools/call",
+      "params": {
+        "arguments": {
+          "city": "Paris"
+        },
+        "meta": null,
+        "name": "weather",
+        "task": null
+      }
+    }
+  },
+  "tool_results": null
+}
