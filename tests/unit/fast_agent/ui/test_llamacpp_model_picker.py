@@ -117,7 +117,7 @@ def test_llamacpp_picker_includes_start_now_smart_action() -> None:
 
     rendered_actions = "".join(fragment for _, fragment in picker._render_actions())
 
-    assert "Start now (smart)" in rendered_actions
+    assert "Start now (Smart)" in rendered_actions
 
 
 def test_llamacpp_picker_hides_model_cursor_when_actions_are_focused() -> None:
