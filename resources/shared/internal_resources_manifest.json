@@ -7,5 +7,14 @@
     "mime_type": "text/markdown",
     "source": "smart_agent_cards.md",
     "tags": ["smart", "agent-cards", "reference"]
+  },
+  {
+    "uri": "internal://fast-agent/model-overlays",
+    "title": "Model Overlay Reference",
+    "description": "Model overlay manifest format, auth options, defaults, metadata, and llama.cpp import behavior.",
+    "why": "Use when creating, validating, or editing local model overlays and overlay-related model config.",
+    "mime_type": "text/markdown",
+    "source": "model_overlays.md",
+    "tags": ["smart", "models", "overlays", "reference"]
   }
 ]

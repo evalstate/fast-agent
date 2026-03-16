@@ -17,6 +17,7 @@ def test_internal_resource_manifest_loads_catalog() -> None:
     assert resources
     uris = {resource.uri for resource in resources}
     assert "internal://fast-agent/smart-agent-cards" in uris
+    assert "internal://fast-agent/model-overlays" in uris
 
 
 def test_internal_resource_read_returns_expected_content() -> None:
@@ -24,6 +25,14 @@ def test_internal_resource_read_returns_expected_content() -> None:
 
     assert "<AgentCards>" in body
     assert "Agent Card (type: `agent`)" in body
+
+
+def test_internal_model_overlay_resource_read_returns_expected_content() -> None:
+    body = read_internal_resource("internal://fast-agent/model-overlays")
+
+    assert "<ModelOverlays>" in body
+    assert "Default runtime base URL:" in body
+    assert "http://localhost:8080/v1" in body
 
 
 def test_get_internal_resource_unknown_uri_raises() -> None:
@@ -35,7 +44,9 @@ def test_format_internal_resources_for_prompt_includes_uri_and_why() -> None:
     prompt_block = format_internal_resources_for_prompt(list_internal_resources())
 
     assert "call `get_resource` with `internal://fast-agent/smart-agent-cards`" in prompt_block
+    assert "internal://fast-agent/model-overlays" in prompt_block
     assert "always available to `get_resource`" in prompt_block
     assert "<available_resources>" in prompt_block
     assert "internal://fast-agent/smart-agent-cards" in prompt_block
     assert "Use when creating, validating, or loading AgentCards" in prompt_block
+    assert "Use when creating, validating, or editing local model overlays" in prompt_block

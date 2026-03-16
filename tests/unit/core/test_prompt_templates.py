@@ -52,6 +52,7 @@ def test_enrich_with_environment_context_populates_env_block():
     assert "Host platform:" in env_text
     assert "agentInternalResources" in context
     assert "internal://fast-agent/smart-agent-cards" in context["agentInternalResources"]
+    assert "internal://fast-agent/model-overlays" in context["agentInternalResources"]
 
 
 def test_file_template_substitutes_contents_relative_to_workspace(tmp_path):

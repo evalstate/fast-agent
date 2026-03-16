@@ -13,6 +13,10 @@ async def test_smart_internal_resource_read_tool(fast_agent) -> None:
         async with fast.run() as app:
             resource = await app.smart_ops.read_resource("internal://fast-agent/smart-agent-cards")
             assert "Agent Card (type: `agent`)" in resource
+            overlay_resource = await app.smart_ops.read_resource(
+                "internal://fast-agent/model-overlays"
+            )
+            assert "<ModelOverlays>" in overlay_resource
 
     await smart_ops()
 
