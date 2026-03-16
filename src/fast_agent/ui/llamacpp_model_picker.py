@@ -55,22 +55,22 @@ class _LlamaCppModelPicker:
     _LAUNCH_ACTION_OPTIONS: tuple[_PickerActionOption, ...] = (
         _PickerActionOption(
             key="start_now",
-            label="Start now",
+            label="Start now ",
             summary="Write the overlay and immediately launch fast-agent go.",
         ),
         _PickerActionOption(
             key="start_now_with_shell",
-            label="Start now (with shell)",
+            label="Start now (with shell) ",
             summary="Write the overlay and immediately launch fast-agent go -x.",
         ),
         _PickerActionOption(
             key="start_now_smart",
-            label="Start now (smart)",
+            label="Start now (Smart) ",
             summary="Write the overlay and immediately launch fast-agent go --smart -x.",
         ),
         _PickerActionOption(
             key="generate_overlay",
-            label="Write overlay only",
+            label="Write overlay only ",
             summary="Write a reusable overlay and return to the shell.",
         ),
     )
