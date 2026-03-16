@@ -48,9 +48,9 @@ def get_test_models():
             # "gemini3flash",
             # "gpt-4.1-mini",
             # #            "sonnet",
-            # "haiku",
+            "haiku",
             # "o4-mini?reasoning=low",
-            # "gpt-5-mini?reasoning=low",
+            "gpt-5-mini?reasoning=low",
             # "gemini25",
             # "gpt-oss",
             # "minimax",
@@ -62,7 +62,7 @@ def get_test_models():
             # "deepseek31",
             # # "responses.gpt-5-mini",
             # "generic.qwen3:8b",
-            "qwen35",
+            #            "qwen35",
             "qwen35instruct",
         ]
 

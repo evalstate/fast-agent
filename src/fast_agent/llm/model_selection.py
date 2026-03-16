@@ -8,6 +8,7 @@ from typing import Any, Iterable
 from pydantic import BaseModel
 
 from fast_agent.llm.model_database import ModelDatabase
+from fast_agent.llm.model_overlays import ModelOverlayRegistry, load_model_overlay_registry
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
 from fast_agent.llm.provider_model_catalog import ProviderModelCatalogRegistry
 from fast_agent.llm.provider_types import Provider
@@ -33,6 +34,9 @@ class CatalogModelEntry:
     model: str
     current: bool = True
     fast: bool = False
+    local: bool = False
+    display_label: str | None = None
+    description: str | None = None
 
 
 class ModelSelectionCatalog:
@@ -188,8 +192,48 @@ class ModelSelectionCatalog:
         return deduped
 
     @classmethod
-    def _entries_by_provider(cls) -> dict[Provider, tuple[CatalogModelEntry, ...]]:
-        return cls.CATALOG_ENTRIES_BY_PROVIDER
+    def _entries_by_provider(
+        cls,
+        overlay_registry: ModelOverlayRegistry | None = None,
+    ) -> dict[Provider, tuple[CatalogModelEntry, ...]]:
+        provider_map = {
+            provider: list(entries)
+            for provider, entries in cls.CATALOG_ENTRIES_BY_PROVIDER.items()
+        }
+        overlay_registry = overlay_registry or load_model_overlay_registry()
+        overlay_entries_by_provider: dict[Provider, list[CatalogModelEntry]] = {}
+        overlay_aliases_by_provider: dict[Provider, set[str]] = {}
+
+        for overlay in overlay_registry.overlays:
+            overlay_aliases_by_provider.setdefault(overlay.provider, set()).add(overlay.name)
+            overlay_entries_by_provider.setdefault(overlay.provider, []).append(
+                CatalogModelEntry(
+                    alias=overlay.name,
+                    model=overlay.compiled_model_spec,
+                    current=overlay.current,
+                    fast=overlay.fast,
+                    local=True,
+                    display_label=overlay.display_label,
+                    description=overlay.description,
+                )
+            )
+
+        merged: dict[Provider, tuple[CatalogModelEntry, ...]] = {}
+        ordered_providers = list(provider_map.keys())
+        for provider in overlay_entries_by_provider:
+            if provider not in provider_map:
+                ordered_providers.append(provider)
+
+        for provider in ordered_providers:
+            overlay_entries = overlay_entries_by_provider.get(provider, [])
+            overlay_aliases = overlay_aliases_by_provider.get(provider, set())
+            static_entries = [
+                entry
+                for entry in provider_map.get(provider, [])
+                if entry.alias not in overlay_aliases
+            ]
+            merged[provider] = tuple([*overlay_entries, *static_entries])
+        return merged
 
     @classmethod
     def list_entries(
@@ -197,9 +241,10 @@ class ModelSelectionCatalog:
         provider: Provider | None = None,
         *,
         current: bool | None = None,
+        overlay_registry: ModelOverlayRegistry | None = None,
     ) -> list[CatalogModelEntry]:
         """Return catalog entries, optionally filtered by provider and current flag."""
-        provider_map = cls._entries_by_provider()
+        provider_map = cls._entries_by_provider(overlay_registry=overlay_registry)
         if provider is not None:
             entries = list(provider_map.get(provider, ()))
             if current is None:
@@ -385,5 +430,12 @@ class ModelSelectionCatalog:
 
     @staticmethod
     def _list_static_models_for_provider(provider: Provider) -> list[str]:
+        overlay_models = [
+            overlay.compiled_model_spec
+            for overlay in load_model_overlay_registry().entries_for_provider(provider)
+        ]
         models = ModelDatabase.list_models()
-        return [model for model in models if ModelDatabase.get_default_provider(model) == provider]
+        static_models = [
+            model for model in models if ModelDatabase.get_default_provider(model) == provider
+        ]
+        return ModelSelectionCatalog._dedupe_preserve_order([*overlay_models, *static_models])

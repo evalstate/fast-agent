@@ -106,23 +106,56 @@ def _resolve_model_picker_initial_selection(
 ) -> tuple[str | None, str | None]:
     from fast_agent.core.exceptions import ModelConfigError
     from fast_agent.core.model_resolution import resolve_model_reference
+    from fast_agent.llm.model_overlays import load_model_overlay_registry
+    from fast_agent.llm.model_reference_config import resolve_model_reference_start_path
     from fast_agent.ui.model_picker_common import model_identity
 
     references = getattr(settings, "model_references", None)
     if not isinstance(references, Mapping):
         return None, None
 
-    try:
-        initial_model_spec = resolve_model_reference("$system.last_used", references)
-    except ModelConfigError:
+    system_references = references.get("system")
+    if not isinstance(system_references, Mapping):
         return None, None
+
+    raw_last_used = system_references.get("last_used")
+    if not isinstance(raw_last_used, str):
+        return None, None
+
+    initial_model_spec = raw_last_used.strip()
+    if not initial_model_spec:
+        return None, None
+
+    overlay_registry = load_model_overlay_registry(
+        start_path=resolve_model_reference_start_path(
+            settings=settings,
+            fallback_path=Path.cwd(),
+        ),
+        env_dir=getattr(settings, "environment_dir", None),
+    )
+    if overlay_registry.resolve_model_string(initial_model_spec) is not None:
+        return "overlays", initial_model_spec
 
     provider_name: str | None = None
     identity = model_identity(initial_model_spec)
     if identity is not None:
         provider_name = identity[0].config_name
+        return provider_name, initial_model_spec
 
-    return provider_name, initial_model_spec
+    try:
+        resolved_model_spec = resolve_model_reference(initial_model_spec, references)
+    except ModelConfigError:
+        return None, initial_model_spec
+
+    if overlay_registry.resolve_model_string(resolved_model_spec) is not None:
+        return "overlays", resolved_model_spec
+
+    resolved_identity = model_identity(resolved_model_spec)
+    if resolved_identity is not None:
+        provider_name = resolved_identity[0].config_name
+        return provider_name, resolved_model_spec
+
+    return None, initial_model_spec
 
 
 def _persist_model_picker_last_used_selection(
@@ -292,7 +325,9 @@ async def _select_model_from_picker(
             )
             continue
 
-        return picker_result.resolved_model
+        selected_model = picker_result.resolved_model or picker_result.selected_model
+        assert selected_model is not None
+        return selected_model
 
 
 def _emit_startup_notice(request: AgentRunRequest, message: str) -> None:

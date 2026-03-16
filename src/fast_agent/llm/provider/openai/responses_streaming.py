@@ -12,7 +12,7 @@ from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.provider.openai._stream_capture import (
     save_stream_chunk as _save_stream_chunk,
 )
-from fast_agent.llm.provider.openai.streaming_utils import finalize_stream_response
+from fast_agent.llm.provider.openai.streaming_utils import fetch_and_finalize_stream_response
 from fast_agent.llm.provider.openai.tool_notifications import OpenAIToolNotificationMixin
 from fast_agent.llm.provider.openai.tool_stream_state import OpenAIToolStreamState
 from fast_agent.llm.stream_types import StreamChunk
@@ -309,37 +309,12 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                     notified_tool_indices.add(index)
                 continue
 
-        if final_response is None:
-            try:
-                final_response = await stream.get_final_response()
-            except Exception as exc:
-                self.logger.warning("Failed to fetch final Responses payload", exc_info=exc)
-                raise
-
-        incomplete_entries = tool_state.incomplete()
-        if incomplete_entries:
-            incomplete_tools = [
-                f"{info.tool_name}:{info.tool_use_id}"
-                for info in incomplete_entries
-            ]
-            response_status = getattr(final_response, "status", None)
-            log_method = self.logger.warning if response_status == "incomplete" else self.logger.error
-            log_method(
-                "Tool call streaming incomplete - started but never finished",
-                data={
-                    "incomplete_tools": incomplete_tools,
-                    "tool_count": len(incomplete_entries),
-                    "response_status": response_status,
-                },
-            )
-            if response_status != "incomplete":
-                raise RuntimeError(
-                    "Streaming completed but tool call(s) never finished: "
-                    f"{', '.join(incomplete_tools)}"
-                )
-
-        finalize_stream_response(
+        final_response = await fetch_and_finalize_stream_response(
+            stream=stream,
             final_response=final_response,
+            fetch_failure_message="Failed to fetch final Responses payload",
+            use_exc_info_on_fetch_failure=True,
+            incomplete_entries=tool_state.incomplete(),
             model=model,
             agent_name=self.name,
             chat_turn=self.chat_turn,
@@ -347,7 +322,6 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
             notified_tool_indices=notified_tool_indices,
             emit_tool_fallback=self._emit_tool_notification_fallback,
         )
-
         return final_response, reasoning_segments
 
     def _emit_tool_notification_fallback(

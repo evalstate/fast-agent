@@ -338,10 +338,10 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         from fast_agent.llm.model_factory import ModelFactory
 
         model_with_aliases = resolve_model_reference(model, get_context_model_references(self._context))
-        model_config = ModelFactory.parse_model_string(model_with_aliases)
-        resolved_model = model_config.model_name
+        resolved_model = ModelFactory.resolve_model_spec(model_with_aliases)
+        wire_model = resolved_model.wire_model_name
         if self._default_request_params:
-            self._default_request_params.model = resolved_model
+            self._default_request_params.model = wire_model
 
         if self._llm_attach_kwargs is None:
             raise RuntimeError(
@@ -352,13 +352,13 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         request_params = attach_kwargs.pop("request_params", None)
         if request_params is not None:
             request_params = deepcopy(request_params)
-            request_params.model = resolved_model
+            request_params.model = wire_model
 
         llm_factory = ModelFactory.create_factory(model_with_aliases)
 
         await self.attach_llm(
             llm_factory,
-            model=resolved_model,
+            model=wire_model,
             request_params=request_params,
             **attach_kwargs,
         )
@@ -429,7 +429,11 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         # Store attachment details for future cloning
         self._llm_factory_ref = llm_factory
         attach_kwargs: dict[str, Any] = dict(additional_kwargs)
-        attach_kwargs["request_params"] = deepcopy(effective_params)
+        # Keep only caller-provided overrides so reattachment can recompute
+        # model-specific defaults (e.g. overlay maxTokens) for the new model.
+        attach_kwargs["request_params"] = (
+            deepcopy(request_params) if request_params is not None else None
+        )
         self._llm_attach_kwargs = attach_kwargs
         self._on_llm_attached(self._llm)
 

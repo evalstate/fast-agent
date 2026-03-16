@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     [
         "gpt-4.1-mini",
         "gpt-4o-mini",  # OpenAI model
-        "o3-mini.low",  # reasoner
+        "o3-mini?reasoning=low",  # reasoner
         "haiku35",  # Anthropic model
         "deepseek",
         "generic.qwen2.5:latest",
@@ -33,7 +33,7 @@ if TYPE_CHECKING:
         "azure.gpt-4.1",
         "grok-3-fast",
         "groq.moonshotai/kimi-k2-instruct",
-        "gpt-5-mini.minimal",
+        "gpt-5-mini?reasoning=minimal",
         # "groq.deepseek-r1-distill-llama-70b", # handle reasoning outputs (they are long)
     ],
 )
@@ -102,9 +102,9 @@ async def test_open_ai_history(fast_agent, model_name):
         "openrouter.google/gemini-2.0-flash-001",
         "gemini2",
         "gemini25",  # Works -> DONE.
-        "o3-mini.low",
+        "o3-mini?reasoning=low",
         "groq.moonshotai/kimi-k2-instruct",
-        "gpt-5-mini.minimal",
+        "gpt-5-mini?reasoning=minimal",
     ],
 )
 async def test_multiple_text_blocks_prompting(fast_agent, model_name):
@@ -187,14 +187,14 @@ class WeatherForecast(BaseModel):
     "model_name",
     [
         "gpt-4o",  # OpenAI model
-        "o3-mini.low",  # reasoning
+        "o3-mini?reasoning=low",  # reasoning
         "gpt-4.1-nano",
         "gpt-4.1-mini",
         "gemini2",
         "gemini25",  # Works -> DONE.
         "azure.gpt-4.1",
         "grok-3",
-        "gpt-5-mini.minimal",
+        "gpt-5-mini?reasoning=minimal",
         #  "grok-4", slow,
     ],
 )
@@ -314,15 +314,15 @@ async def test_generic_model_textual_prompting(fast_agent, model_name):
         "gemini25",
         "generic.qwen2.5:latest",
         "generic.llama3.2:latest",
-        "o3-mini.low",
-        "o4-mini.low",
+        "o3-mini?reasoning=low",
+        "o4-mini?reasoning=low",
         "azure.gpt-4.1",
         "grok-3",
         "groq.moonshotai/kimi-k2-instruct",
         "groq.deepseek-r1-distill-llama-70b",
         "groq.qwen/qwen3-32b",
         "gpt-oss",
-        "gpt-5-mini.minimal",
+        "gpt-5-mini?reasoning=minimal",
     ],
 )
 async def test_basic_tool_calling(fast_agent, model_name):
@@ -374,7 +374,7 @@ async def test_basic_tool_calling(fast_agent, model_name):
         "azure.gpt-4.1",
         "grok-3",
         "groq.moonshotai/kimi-k2-instruct",
-        "gpt-5-nano.minimal",
+        "gpt-5-nano?reasoning=minimal",
     ],
 )
 async def test_tool_calls_no_args(fast_agent, model_name):

@@ -1,4 +1,3 @@
-from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.openai.llm_openai_compatible import OpenAICompatibleLLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.types import RequestParams
@@ -29,10 +28,10 @@ class GroqLLM(OpenAICompatibleLLM):
         )
         if not llm_model:
             return False
-        json_mode: str | None = ModelDatabase.get_json_mode(llm_model)
+        json_mode = self._get_model_json_mode(llm_model)
         return json_mode == "object"
 
-    def _base_url(self) -> str:
+    def _provider_base_url(self) -> str:
         base_url = None
         if self.context.config and self.context.config.groq:
             base_url = self.context.config.groq.base_url

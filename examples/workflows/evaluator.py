@@ -18,7 +18,7 @@ fast = FastAgent("Evaluator-Optimizer")
     candidate details, and company information. Tailor the response to the company and job requirements.
     """,
     servers=["fetch"],
-    model="gpt-5-nano.low",
+    model="gpt-5-nano?reasoning=low",
     use_history=True,
 )
 # Define evaluator agent
@@ -40,7 +40,7 @@ fast = FastAgent("Evaluator-Optimizer")
     Summarize your evaluation as a structured response with:
     - Overall quality rating.
     - Specific feedback and areas for improvement.""",
-    model="o3-mini.medium",
+    model="o3-mini?reasoning=medium",
 )
 # Define the evaluator-optimizer workflow
 @fast.evaluator_optimizer(

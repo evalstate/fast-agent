@@ -23,7 +23,7 @@ def get_responses_models() -> list[str]:
         return [model.strip() for model in test_models.split(",") if model.strip()]
     if test_model := os.environ.get("TEST_RESPONSES_MODEL"):
         return [test_model.strip()]
-    return ["responses.gpt-5-mini.low"]
+    return ["responses.gpt-5-mini?reasoning=low"]
 
 
 RESPONSES_MODELS = get_responses_models()

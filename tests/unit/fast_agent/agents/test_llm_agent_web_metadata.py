@@ -260,7 +260,7 @@ async def test_show_assistant_message_places_websocket_indicator_before_context_
     agent.display = capture_display
     llm = ResponsesLLM(provider=Provider.RESPONSES, model="gpt-5.3-codex")
     llm._record_ws_turn_outcome("reused")
-    llm.usage_accumulator.set_context_window_override(1000)
+    llm.usage_accumulator.set_context_window_size(1000)
     llm.usage_accumulator.add_turn(
         TurnUsage.from_fast_agent(
             FastAgentUsage(input_chars=90, output_chars=10, model_type="test"),

@@ -20,7 +20,7 @@ class XAILLM(OpenAILLM):
 
         return base_params
 
-    def _base_url(self) -> str | None:
+    def _provider_base_url(self) -> str | None:
         base_url: str | None = os.getenv("XAI_BASE_URL", XAI_BASE_URL)
         if self.context.config and self.context.config.xai:
             base_url = self.context.config.xai.base_url

@@ -1,7 +1,7 @@
 ---
 type: agent
 name: evaluator
-model: o3-mini.medium
+model: o3-mini?reasoning=medium
 ---
 Evaluate the following response based on the criteria below:
     1. Clarity: Is the language clear, concise, and grammatically correct?

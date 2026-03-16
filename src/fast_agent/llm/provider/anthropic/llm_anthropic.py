@@ -380,8 +380,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
         from fast_agent.llm.model_database import ModelDatabase
 
-        reasoning_mode = ModelDatabase.get_reasoning(model_name)
-        spec = ModelDatabase.get_reasoning_effort_spec(model_name)
+        reasoning_mode = self._get_model_reasoning(model_name)
+        spec = self._get_model_reasoning_effort_spec(model_name)
 
         if raw_setting is not None and reasoning_mode != "anthropic_thinking":
             self.logger.warning(
@@ -414,7 +414,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         else:
             self.set_reasoning_effort(None)
 
-        if ModelDatabase.get_reasoning(model_name) == "anthropic_thinking":
+        if self._get_model_reasoning(model_name) == "anthropic_thinking":
             resolved_setting = self.reasoning_effort
             thinking_enabled = self._is_thinking_enabled(model_name)
             payload = {
@@ -449,8 +449,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         self._long_context = False
         if long_context_requested:
             model_name = self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
-            base_context_window = ModelDatabase.get_context_window(model_name)
-            long_context_window = ModelDatabase.get_long_context_window(model_name)
+            base_context_window = self._get_model_context_window(model_name)
+            long_context_window = self._get_model_long_context_window(model_name)
             if (
                 base_context_window is not None
                 and base_context_window >= ModelDatabase.ANTHROPIC_LONG_CONTEXT_WINDOW
@@ -462,7 +462,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             elif long_context_window is not None:
                 self._long_context = True
                 self._context_window_override = long_context_window
-                self._usage_accumulator.set_context_window_override(long_context_window)
+                self._usage_accumulator.set_context_window_size(long_context_window)
                 self.logger.info(
                     f"Long context ({long_context_window:,}) enabled for model '{model_name}'"
                 )
@@ -484,11 +484,11 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
         return ModelDatabase.list_long_context_models()
 
-    def _base_url(self) -> str | None:
+    def _provider_base_url(self) -> str | None:
         assert self.context.config
         return self.context.config.anthropic.base_url if self.context.config.anthropic else None
 
-    def _default_headers(self) -> dict[str, str] | None:
+    def _provider_default_headers(self) -> dict[str, str] | None:
         """Get custom default headers from configuration."""
         assert self.context.config
         return (
@@ -511,18 +511,16 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     def _supports_adaptive_thinking(self, model: str) -> bool:
         """Return True when model uses adaptive thinking instead of manual budgets."""
-        from fast_agent.llm.model_database import ModelDatabase
 
-        if ModelDatabase.get_reasoning(model) != "anthropic_thinking":
+        if self._get_model_reasoning(model) != "anthropic_thinking":
             return False
-        spec = ModelDatabase.get_reasoning_effort_spec(model)
+        spec = self._get_model_reasoning_effort_spec(model)
         return bool(spec and spec.kind == "effort")
 
     def _is_thinking_enabled(self, model: str) -> bool:
         """Check if extended thinking should be enabled for this request."""
-        from fast_agent.llm.model_database import ModelDatabase
 
-        if ModelDatabase.get_reasoning(model) != "anthropic_thinking":
+        if self._get_model_reasoning(model) != "anthropic_thinking":
             return False
         setting = self.reasoning_effort
         if setting is None:
@@ -611,9 +609,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         config = self.context.config.anthropic if self.context and self.context.config else None
         if config and config.structured_output_mode != "auto":
             return config.structured_output_mode
-        from fast_agent.llm.model_database import ModelDatabase
 
-        json_mode = ModelDatabase.get_json_mode(model)
+        json_mode = self._get_model_json_mode(model)
         if json_mode == "schema":
             return "json"
         return "tool_use"
@@ -661,7 +658,12 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             web_search_override=self._web_search_override,
             web_fetch_override=self._web_fetch_override,
         )
-        return build_web_tool_params(model, resolved_tools=resolved)
+        return build_web_tool_params(
+            resolved_tools=resolved,
+            search_version=self._get_model_anthropic_web_search_version(model),
+            fetch_version=self._get_model_anthropic_web_fetch_version(model),
+            required_betas=self._get_model_anthropic_required_betas(model),
+        )
 
     @property
     def web_tools_enabled(self) -> tuple[bool, bool]:
@@ -676,12 +678,10 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     @property
     def web_search_supported(self) -> bool:
-        from fast_agent.llm.model_database import ModelDatabase
-
         model_name = self.model_name
         if not model_name:
             return False
-        return ModelDatabase.get_anthropic_web_search_version(model_name) is not None
+        return self._get_model_anthropic_web_search_version(model_name) is not None
 
     def set_web_search_enabled(self, value: bool | None) -> None:
         if value is None:
@@ -693,12 +693,10 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     @property
     def web_fetch_supported(self) -> bool:
-        from fast_agent.llm.model_database import ModelDatabase
-
         model_name = self.model_name
         if not model_name:
             return False
-        return ModelDatabase.get_anthropic_web_fetch_version(model_name) is not None
+        return self._get_model_anthropic_web_fetch_version(model_name) is not None
 
     @property
     def web_fetch_enabled(self) -> bool:

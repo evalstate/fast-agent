@@ -13,6 +13,7 @@ from fast_agent.commands.protocols import (
     WarningAwareAgent,
 )
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
+from fast_agent.llm.model_display_name import resolve_llm_display_name
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types.conversation_summary import ConversationSummary
@@ -38,6 +39,7 @@ class AgentModelSummary:
     provider: str
     provider_display: str
     model_name: str
+    wire_model_name: str | None
     context_window: int | None
     capabilities: list[str]
     hf_provider: str | None = None
@@ -134,12 +136,16 @@ def _collect_client_info(
 
 def _build_agent_model_summary(agent: "AgentProtocol") -> AgentModelSummary:
     model_name = "unknown"
+    wire_model_name: str | None = None
     provider = "unknown"
     provider_display = "unknown"
     context_window = None
     capabilities: list[str] = []
 
+    resolved_model = agent.llm.resolved_model if agent.llm else None
     model_info = ModelInfo.from_llm(agent.llm) if agent.llm else None
+    if model_info is None and resolved_model is not None:
+        model_info = ModelInfo.from_resolved_model(resolved_model)
     if model_info:
         model_name = model_info.name
         provider = str(model_info.provider.value)
@@ -151,6 +157,10 @@ def _build_agent_model_summary(agent: "AgentProtocol") -> AgentModelSummary:
             capabilities.append("Document")
         if model_info.supports_vision:
             capabilities.append("Vision")
+    if resolved_model:
+        model_name = resolve_llm_display_name(agent.llm) or resolved_model.wire_model_name
+        if model_name != resolved_model.wire_model_name:
+            wire_model_name = resolved_model.wire_model_name
 
     hf_provider = None
     if agent.llm and isinstance(agent.llm, HfDisplayInfoProvider):
@@ -163,6 +173,7 @@ def _build_agent_model_summary(agent: "AgentProtocol") -> AgentModelSummary:
         provider=provider,
         provider_display=provider_display,
         model_name=model_name,
+        wire_model_name=wire_model_name,
         context_window=context_window,
         capabilities=capabilities,
         hf_provider=hf_provider,
@@ -201,6 +212,8 @@ def _context_usage_line(summary: ConversationSummary, agent: "AgentProtocol") ->
     token_count, char_count = _estimate_tokens(summary, agent)
 
     model_info = ModelInfo.from_llm(agent.llm) if agent.llm else None
+    if model_info is None and agent.llm is not None:
+        model_info = ModelInfo.from_resolved_model(agent.llm.resolved_model)
     if model_info and model_info.context_window:
         percentage = (
             (token_count / model_info.context_window) * 100

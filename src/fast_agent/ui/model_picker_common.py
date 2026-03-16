@@ -5,8 +5,10 @@ from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from fast_agent.config import get_settings
+from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
+from fast_agent.llm.model_overlays import load_model_overlay_registry
 from fast_agent.llm.model_selection import CatalogModelEntry, ModelSelectionCatalog
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
@@ -22,6 +24,7 @@ DEFAULT_VALUE = "__default__"
 
 PICKER_PROVIDER_ORDER: tuple[Provider, ...] = (
     Provider.RESPONSES,
+    Provider.OPENRESPONSES,
     Provider.CODEX_RESPONSES,
     Provider.ANTHROPIC,
     Provider.HUGGINGFACE,
@@ -50,9 +53,26 @@ CODEX_LOGIN_SENTINEL = "codexresponses.__login__"
 
 @dataclass(frozen=True)
 class ProviderOption:
-    provider: Provider
+    provider: Provider | None
     active: bool
     curated_entries: tuple[CatalogModelEntry, ...]
+    key: str | None = None
+    display_name: str | None = None
+    overlay_group: bool = False
+
+    @property
+    def option_key(self) -> str:
+        if self.key is not None:
+            return self.key
+        assert self.provider is not None
+        return self.provider.config_name
+
+    @property
+    def option_display_name(self) -> str:
+        if self.display_name is not None:
+            return self.display_name
+        assert self.provider is not None
+        return self.provider.display_name
 
 
 @dataclass(frozen=True)
@@ -140,8 +160,51 @@ def build_snapshot(
             active_providers.add(provider)
 
     providers: list[ProviderOption] = []
+    overlay_registry = _load_overlay_registry_for_snapshot(
+        config_path=config_path,
+        config_payload=config_payload,
+    )
+    overlay_entries = tuple(
+        CatalogModelEntry(
+            alias=overlay.name,
+            model=overlay.compiled_model_spec,
+            current=overlay.current,
+            fast=overlay.fast,
+            local=True,
+            display_label=overlay.display_label,
+            description=overlay.description,
+        )
+        for overlay in overlay_registry.overlays
+    )
+    if overlay_entries:
+        overlay_group_active = True
+    else:
+        overlay_group_active = False
+    providers.append(
+        ProviderOption(
+            provider=None,
+            active=overlay_group_active,
+            curated_entries=overlay_entries,
+            key="overlays",
+            display_name="Overlays",
+            overlay_group=True,
+        )
+    )
+
     for provider in PICKER_PROVIDER_ORDER:
-        entries = ModelSelectionCatalog.CATALOG_ENTRIES_BY_PROVIDER.get(provider, ())
+        entries = tuple(
+            entry
+            for entry in ModelSelectionCatalog.list_entries(
+                provider,
+                overlay_registry=overlay_registry,
+            )
+            if not entry.local
+        )
+        has_special_picker_flow = (
+            provider in REFER_TO_DOCS_PROVIDERS or provider == Provider.GENERIC
+        )
+        if not entries and not has_special_picker_flow:
+            continue
         providers.append(
             ProviderOption(
                 provider=provider,
@@ -153,9 +216,65 @@ def build_snapshot(
     return ModelPickerSnapshot(providers=tuple(providers), config_payload=config_payload)
 
 
+def _load_overlay_registry_for_snapshot(
+    *,
+    config_path: str | Path | None,
+    config_payload: dict[str, Any],
+):
+    from pathlib import Path as _Path
+
+    env_dir = config_payload.get("environment_dir")
+    normalized_env_dir = env_dir if isinstance(env_dir, (str, _Path)) else None
+
+    candidate_starts: list[_Path] = []
+    if config_path is not None:
+        config_file = _Path(config_path).expanduser().resolve()
+        candidate_starts.append(config_file.parent)
+
+        relative_env_dir: _Path | None = None
+        if normalized_env_dir is None:
+            relative_env_dir = _Path(DEFAULT_ENVIRONMENT_DIR)
+        else:
+            env_path = _Path(normalized_env_dir).expanduser()
+            if not env_path.is_absolute():
+                relative_env_dir = env_path
+
+        if relative_env_dir is not None and relative_env_dir.parts:
+            env_parts = relative_env_dir.parts
+            parent_parts = config_file.parent.parts
+            if len(env_parts) <= len(parent_parts) and parent_parts[-len(env_parts) :] == env_parts:
+                project_root = config_file.parent
+                for _ in env_parts:
+                    project_root = project_root.parent
+                if project_root != config_file.parent:
+                    candidate_starts.append(project_root)
+
+    if config_path is None:
+        candidate_starts.append(_Path.cwd().resolve())
+
+    seen: set[_Path] = set()
+    ordered_starts: list[_Path] = []
+    for candidate in candidate_starts:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        ordered_starts.append(candidate)
+
+    fallback_registry = None
+    for start_path in ordered_starts:
+        registry = load_model_overlay_registry(start_path=start_path, env_dir=normalized_env_dir)
+        if fallback_registry is None:
+            fallback_registry = registry
+        if registry.overlays:
+            return registry
+
+    assert fallback_registry is not None
+    return fallback_registry
+
+
 def find_provider(snapshot: ModelPickerSnapshot, provider_name: str) -> ProviderOption:
     for option in snapshot.providers:
-        if option.provider.config_name == provider_name:
+        if option.option_key == provider_name:
             return option
     raise ValueError(f"Unknown provider: {provider_name}")
 
@@ -163,14 +282,18 @@ def find_provider(snapshot: ModelPickerSnapshot, provider_name: str) -> Provider
 def build_provider_label(option: ProviderOption) -> str:
     status = "active" if option.active else "inactive"
     curated_count = len(option.curated_entries)
-    curated_text = f"{curated_count} curated model"
-    if curated_count != 1:
-        curated_text += "s"
-    return f"{option.provider.display_name:<16} [{status}] · {curated_text}"
+    if option.overlay_group:
+        entry_text = "overlay" if curated_count == 1 else "overlays"
+        count_text = f"{curated_count} {entry_text}"
+    else:
+        count_text = f"{curated_count} curated model"
+        if curated_count != 1:
+            count_text += "s"
+    return f"{option.option_display_name:<16} [{status}] · {count_text}"
 
 
 def active_provider_names(snapshot: ModelPickerSnapshot) -> list[str]:
-    return [option.provider.display_name for option in snapshot.providers if option.active]
+    return [option.option_display_name for option in snapshot.providers if option.active]
 
 
 def has_explicit_provider_prefix(model_spec: str) -> bool:
@@ -243,7 +366,7 @@ def model_options_for_provider(
         return [
             ModelOption(
                 spec=f"{provider.config_name}.refer-to-docs",
-                label="Refer to docs (provider-specific setup not yet modeled)",
+                label="Refer to docs (provider-specific setup)",
             )
         ]
 
@@ -261,13 +384,18 @@ def model_options_for_provider(
     curated_options: list[ModelOption] = []
     for entry in provider_option.curated_entries:
         tags: list[str] = []
+        if entry.local:
+            tags.append("local")
         if entry.fast:
             tags.append("fast")
         if not entry.current:
             tags.append("legacy")
 
         suffix = f" ({', '.join(tags)})" if tags else ""
-        label = f"{entry.alias:<19} → {entry.model}{suffix}"
+        entry_label = entry.display_label or entry.alias
+        label = f"{entry_label:<19} → {entry.model}{suffix}"
+        if entry.description:
+            label = f"{label} — {entry.description}"
         curated_options.append(
             ModelOption(
                 spec=entry.model,
@@ -300,25 +428,16 @@ def model_options_for_provider(
     return options
 
 
-def _supports_web_search(provider: Provider, model_name: str) -> bool:
-    if provider in {Provider.RESPONSES, Provider.CODEX_RESPONSES, Provider.OPENRESPONSES}:
-        return True
-
-    if provider == Provider.ANTHROPIC:
-        return ModelDatabase.get_anthropic_web_search_version(model_name) is not None
-
-    return False
-
-
 def model_capabilities(model_spec: str) -> ModelCapabilities:
-    parsed = ModelFactory.parse_model_string(model_spec)
-    reasoning_spec = ModelDatabase.get_reasoning_effort_spec(parsed.model_name)
+    resolved = ModelFactory.resolve_model_spec(model_spec)
+    parsed = resolved.model_config
+    reasoning_spec = resolved.reasoning_effort_spec
     reasoning_values = tuple(available_reasoning_values(reasoning_spec))
     default_reasoning = format_reasoning_setting(
         reasoning_spec.default if reasoning_spec is not None else None
     )
-    long_context_window = ModelDatabase.get_long_context_window(parsed.model_name)
-    cache_ttl_default = ModelDatabase.get_cache_ttl(parsed.model_name)
+    long_context_window = resolved.long_context_window
+    cache_ttl_default = resolved.cache_ttl
     supports_long_context = long_context_window is not None
 
     return ModelCapabilities(
@@ -327,7 +446,13 @@ def model_capabilities(model_spec: str) -> ModelCapabilities:
         reasoning_values=reasoning_values,
         current_reasoning=format_reasoning_setting(parsed.reasoning_effort),
         default_reasoning=default_reasoning,
-        web_search_supported=_supports_web_search(parsed.provider, parsed.model_name),
+        web_search_supported=(
+            parsed.provider in {Provider.RESPONSES, Provider.CODEX_RESPONSES}
+            or (
+                parsed.provider == Provider.ANTHROPIC
+                and resolved.anthropic_web_search_version is not None
+            )
+        ),
         current_web_search=parsed.web_search,
         supports_long_context=supports_long_context,
         current_long_context=parsed.long_context and supports_long_context,

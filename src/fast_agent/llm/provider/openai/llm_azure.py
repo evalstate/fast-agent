@@ -100,11 +100,11 @@ class AzureOpenAILLM(OpenAILLM):
             if not self.resource_name and self.base_url:
                 self.resource_name = _extract_resource_name(self.base_url)
 
-    def _api_key(self):
+    def _provider_api_key(self):
         """Override to return 'AzureCredential' when using DefaultAzureCredential"""
         if self.use_default_cred:
             return "AzureCredential"
-        return super()._api_key()
+        return super()._provider_api_key()
 
     def _resolve_config_default_model(self) -> str | None:
         """Resolve Azure deployment default, honoring explicit default_model first."""

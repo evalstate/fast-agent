@@ -44,7 +44,7 @@ class CommandIO(Protocol):
         initial_provider: str | None = None,
         default_model: str | None = None,
     ) -> str | None:
-        """Prompt for a model selection and return a resolved model spec."""
+        """Prompt for a model selection and return the selected model token/spec."""
 
     async def prompt_argument(
         self,

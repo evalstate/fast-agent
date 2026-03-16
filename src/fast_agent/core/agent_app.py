@@ -17,7 +17,6 @@ from fast_agent.core.default_agent import resolve_default_agent_name
 from fast_agent.core.exceptions import AgentConfigError, ServerConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import AgentProtocol
-from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.usage_tracking import last_turn_usage
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.ui.display_suppression import display_usage_enabled
@@ -785,9 +784,9 @@ class AgentApp:
         # Build cache expiry time if cache is active
         cache_expiry_text = ""
         if cache_indicators and agent.usage_accumulator.last_cache_activity_time:
-            model = agent.usage_accumulator.model
-            # Get cache TTL: prefer config setting, fall back to model database
-            cache_ttl = ModelDatabase.get_cache_ttl(model) if model else None
+            llm = getattr(agent, "llm", None)
+            resolved_model = getattr(llm, "resolved_model", None)
+            cache_ttl = getattr(resolved_model, "cache_ttl", None)
             if cache_ttl:
                 # Override with config setting for Anthropic models
                 context = getattr(agent, "context", None)

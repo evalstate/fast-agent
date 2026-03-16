@@ -18,7 +18,9 @@ from fast_agent.constants import (
     FAST_AGENT_REMOVED_METADATA_CHANNEL,
 )
 from fast_agent.interfaces import FastAgentLLMProtocol
+from fast_agent.llm.model_factory import ModelConfig
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.resolved_model import ResolvedModelSpec
 from fast_agent.types import PromptMessageExtended, text_content
 
 
@@ -28,6 +30,14 @@ class RecordingStubLLM(FastAgentLLMProtocol):
     def __init__(self, model_name: str = "passthrough") -> None:
         self._model_name = model_name
         self._provider = Provider.FAST_AGENT
+        self._resolved_model = ResolvedModelSpec(
+            raw_input=model_name,
+            selected_model_name=model_name,
+            source="direct",
+            model_config=ModelConfig(provider=Provider.FAST_AGENT, model_name=model_name),
+            provider=Provider.FAST_AGENT,
+            wire_model_name=model_name,
+        )
         self.generated_messages: list[PromptMessageExtended] | None = None
         self._message_history: list[PromptMessageExtended] = []
 
@@ -40,6 +50,10 @@ class RecordingStubLLM(FastAgentLLMProtocol):
     @property
     def provider(self) -> Provider:
         return self._provider
+
+    @property
+    def resolved_model(self) -> ResolvedModelSpec:
+        return self._resolved_model
 
     async def generate(self, messages, request_params=None, tools=None):
         self.generated_messages = messages
@@ -241,4 +255,3 @@ async def test_history_persists_alert_channel_but_strips_removed_metadata():
     assert FAST_AGENT_ALERT_CHANNEL in channels
     assert _parse_alert_flags(channels[FAST_AGENT_ALERT_CHANNEL]) == {"V"}
     assert FAST_AGENT_REMOVED_METADATA_CHANNEL not in channels
-

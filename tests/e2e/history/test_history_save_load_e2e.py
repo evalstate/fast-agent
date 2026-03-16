@@ -18,7 +18,7 @@ from fast_agent.types.llm_stop_reason import LlmStopReason
 
 TEST_CONFIG_PATH = Path(__file__).resolve().parent.parent / "llm" / "fastagent.config.yaml"
 DEFAULT_CREATE_MODELS = [
-    "gpt-5-mini.minimal",
+    "gpt-5-mini?reasoning=minimal",
     "haiku",
     "gemini25",
     "minimax",
@@ -26,7 +26,7 @@ DEFAULT_CREATE_MODELS = [
     "qwen3",
     "glm",
 ]
-DEFAULT_CHECK_MODELS = ["haiku", "kimigroq", "gpt-5-mini.minimal", "kimi", "qwen3", "glm"]
+DEFAULT_CHECK_MODELS = ["haiku", "kimigroq", "gpt-5-mini?reasoning=minimal", "kimi", "qwen3", "glm"]
 MAGIC_STRING = "MAGIC-ACCESS-PHRASE-9F1C"
 MAGIC_TOOL = Tool(
     name="fetch_magic_string",

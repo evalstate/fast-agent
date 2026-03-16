@@ -154,3 +154,35 @@ async def test_prompt_model_selection_preserves_explicit_provider_prefix_for_gen
     selected = await io.prompt_model_selection(initial_provider="generic")
 
     assert selected == "openai/gpt-4.1"
+
+
+@pytest.mark.asyncio
+async def test_prompt_model_selection_preserves_overlay_token_when_resolved_model_is_present(
+    monkeypatch,
+) -> None:
+    display = _FakeDisplay()
+    provider = cast("AgentProvider", _FakeProvider(display))
+    io = TuiCommandIO(prompt_provider=provider, agent_name="alpha")
+
+    picker_result = ModelPickerResult(
+        provider="overlays",
+        provider_available=True,
+        selected_model="haikutiny",
+        resolved_model="haikutiny",
+        source="curated",
+        refer_to_docs=False,
+        activation_action=None,
+    )
+
+    async def fake_run_model_picker_async(**kwargs):
+        del kwargs
+        return picker_result
+
+    monkeypatch.setattr(
+        "fast_agent.ui.model_picker.run_model_picker_async",
+        fake_run_model_picker_async,
+    )
+
+    selected = await io.prompt_model_selection(initial_provider="overlays")
+
+    assert selected == "haikutiny"

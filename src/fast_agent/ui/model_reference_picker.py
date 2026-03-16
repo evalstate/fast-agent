@@ -4,15 +4,11 @@ import shutil
 from dataclasses import dataclass
 from typing import Literal
 
-from prompt_toolkit.application import Application
 from prompt_toolkit.data_structures import Point
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout import HSplit, Layout, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
-from prompt_toolkit.layout.dimension import Dimension
-from prompt_toolkit.layout.margins import ScrollbarMargin
-from prompt_toolkit.styles import Style
-from prompt_toolkit.widgets import Frame
+
+from fast_agent.ui.single_list_picker_layout import build_single_list_picker_app
 
 StyleFragments = list[tuple[str, str]]
 
@@ -40,7 +36,6 @@ class ModelReferencePickerResult:
 @dataclass
 class _ReferencePickerState:
     index: int = 0
-    scroll_top: int = 0
 
 
 class _ReferencePicker:
@@ -51,48 +46,27 @@ class _ReferencePicker:
         self.state = _ReferencePickerState()
         self.selection_control = FormattedTextControl(
             self._render_rows,
+            focusable=True,
             show_cursor=False,
             get_cursor_position=self._cursor_position,
         )
         self.details_control = FormattedTextControl(self._render_details)
-        self.selection_window = Window(
-            self.selection_control,
-            wrap_lines=False,
-            height=Dimension.exact(self.LIST_VISIBLE_ROWS),
-            dont_extend_height=True,
-            ignore_content_width=True,
-            always_hide_cursor=True,
-            right_margins=[ScrollbarMargin(display_arrows=False)],
-        )
-        details_window = Window(
-            self.details_control,
-            height=Dimension.exact(5),
-            dont_extend_height=True,
-        )
-        body = HSplit(
-            [
-                Frame(self.selection_window, title="References to configure"),
-                details_window,
-            ]
-        )
-        self.app = Application(
-            layout=Layout(body),
+        self.app, self.selection_window = build_single_list_picker_app(
+            title="References to configure",
+            selection_control=self.selection_control,
+            details_control=self.details_control,
             key_bindings=self._create_key_bindings(),
-            style=Style.from_dict(
-                {
-                    "selected": "reverse",
-                    "required": "ansiyellow",
-                    "repair": "ansiyellow",
-                    "recommended": "ansigreen",
-                    "configured": "ansiwhite",
-                    "muted": "ansibrightblack",
-                }
-            ),
-            full_screen=False,
-            mouse_support=False,
-            erase_when_done=True,
+            visible_rows=self.LIST_VISIBLE_ROWS,
+            details_rows=5,
+            style_map={
+                "selected": "reverse",
+                "required": "ansiyellow",
+                "repair": "ansiyellow",
+                "recommended": "ansigreen",
+                "configured": "ansiwhite",
+                "muted": "ansibrightblack",
+            },
         )
-        self._sync_scroll()
 
     @property
     def current_item(self) -> ModelReferencePickerItem | None:
@@ -115,20 +89,6 @@ class _ReferencePicker:
     def _move(self, delta: int) -> None:
         row_count = len(self.items) + 2
         self.state.index = (self.state.index + delta) % row_count
-        self._sync_scroll()
-
-    def _sync_scroll(self) -> None:
-        visible = self.LIST_VISIBLE_ROWS
-        row_count = len(self.items) + 2
-        max_top = max(0, row_count - visible)
-        top = min(self.state.scroll_top, max_top)
-        index = self.state.index
-        if index < top:
-            top = index
-        elif index >= top + visible:
-            top = index - visible + 1
-        self.state.scroll_top = max(0, min(top, max_top))
-        self.selection_window.vertical_scroll = self.state.scroll_top
 
     def _create_key_bindings(self) -> KeyBindings:
         kb = KeyBindings()
@@ -264,7 +224,12 @@ class _ReferencePicker:
         ]
 
     async def run_async(self) -> ModelReferencePickerResult | None:
-        return await self.app.run_async()
+        result = await self.app.run_async()
+        if result is None:
+            return None
+        if isinstance(result, ModelReferencePickerResult):
+            return result
+        return None
 
 
 async def run_model_reference_picker_async(

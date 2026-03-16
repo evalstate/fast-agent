@@ -1,7 +1,7 @@
 ---
 type: agent
 name: generator
-model: gpt-5-nano.low
+model: gpt-5-nano?reasoning=low
 servers:
 - fetch
 ---

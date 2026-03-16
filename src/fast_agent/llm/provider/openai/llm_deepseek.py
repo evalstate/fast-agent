@@ -24,7 +24,7 @@ class DeepSeekLLM(OpenAICompatibleLLM):
         """Initialize Deepseek-specific default parameters"""
         return self._initialize_default_params_with_model_fallback(kwargs, DEFAULT_DEEPSEEK_MODEL)
 
-    def _base_url(self) -> str:
+    def _provider_base_url(self) -> str:
         base_url = None
         if self.context.config and self.context.config.deepseek:
             base_url = self.context.config.deepseek.base_url

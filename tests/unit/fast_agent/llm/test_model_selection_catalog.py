@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import os
+from typing import TYPE_CHECKING
 
 from fast_agent.llm.model_database import ModelDatabase
+from fast_agent.llm.model_overlays import load_model_overlay_registry
 from fast_agent.llm.model_selection import ModelSelectionCatalog
 from fast_agent.llm.provider_types import Provider
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def test_list_curated_models_for_provider() -> None:
@@ -77,6 +82,42 @@ def test_configured_providers_reads_environment_keys() -> None:
     assert Provider.RESPONSES in providers
 
 
+def test_configured_providers_does_not_treat_overlay_only_provider_as_ready(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    env_dir = tmp_path / ".fast-agent"
+    overlays_dir = env_dir / "model-overlays"
+    overlays_dir.mkdir(parents=True)
+    (overlays_dir / "haikutiny.yaml").write_text(
+        "\n".join(
+            [
+                "name: haikutiny",
+                "provider: anthropic",
+                "model: claude-haiku-4-5",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
+    os.environ["ENVIRONMENT_DIR"] = str(env_dir)
+    try:
+        providers = ModelSelectionCatalog.configured_providers({})
+    finally:
+        empty_env_dir = tmp_path / ".empty-fast-agent-overlay-ready"
+        empty_env_dir.mkdir(parents=True, exist_ok=True)
+        load_model_overlay_registry(start_path=tmp_path, env_dir=empty_env_dir)
+        if previous_env_dir is None:
+            os.environ.pop("ENVIRONMENT_DIR", None)
+        else:
+            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+
+    assert Provider.ANTHROPIC not in providers
+
+
 def test_suggestions_for_providers_returns_curated_and_fast_models() -> None:
     suggestions = ModelSelectionCatalog.suggestions_for_providers([Provider.GOOGLE])
 
@@ -103,6 +144,36 @@ def test_list_all_models_for_provider() -> None:
     openai_models = ModelSelectionCatalog.list_all_models(Provider.OPENAI)
     assert "gpt-4.1" in openai_models
     assert "claude-sonnet-4-6" not in openai_models
+
+
+def test_cross_provider_overlay_alias_does_not_hide_curated_model(tmp_path: Path) -> None:
+    env_dir = tmp_path / ".fast-agent"
+    overlays_dir = env_dir / "model-overlays"
+    overlays_dir.mkdir(parents=True)
+    (overlays_dir / "sonnet.yaml").write_text(
+        "\n".join(
+            [
+                "name: sonnet",
+                "provider: openresponses",
+                "model: overlay-tests/Qwen-Sonnet",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
+    os.environ["ENVIRONMENT_DIR"] = str(env_dir)
+    try:
+        aliases = ModelSelectionCatalog.list_curated_aliases(Provider.ANTHROPIC)
+        assert "sonnet" in aliases
+    finally:
+        empty_env_dir = tmp_path / ".empty-fast-agent"
+        empty_env_dir.mkdir(parents=True, exist_ok=True)
+        load_model_overlay_registry(start_path=tmp_path, env_dir=empty_env_dir)
+        if previous_env_dir is None:
+            os.environ.pop("ENVIRONMENT_DIR", None)
+        else:
+            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
 
 
 def test_codexresponses_curated_entries_use_explicit_transports() -> None:

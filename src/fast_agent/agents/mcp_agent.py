@@ -52,7 +52,10 @@ from fast_agent.core.exceptions import PromptExitError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import FastAgentLLMProtocol
 from fast_agent.llm.model_database import ModelDatabase
-from fast_agent.llm.terminal_output_limits import calculate_terminal_output_limit_for_model
+from fast_agent.llm.terminal_output_limits import (
+    calculate_terminal_output_limit_for_model,
+    calculate_terminal_output_limit_for_resolved_model,
+)
 from fast_agent.mcp.common import (
     get_resource_name,
     get_server_name,
@@ -681,9 +684,12 @@ class McpAgent(ABC, ToolAgent):
         if self._shell_output_limit_overridden():
             return
 
-        self._shell_runtime.set_output_byte_limit(
-            calculate_terminal_output_limit_for_model(llm.model_name)
-        )
+        resolved_model = getattr(llm, "resolved_model", None)
+        if resolved_model is not None:
+            output_byte_limit = calculate_terminal_output_limit_for_resolved_model(resolved_model)
+        else:
+            output_byte_limit = calculate_terminal_output_limit_for_model(llm.model_name)
+        self._shell_runtime.set_output_byte_limit(output_byte_limit)
 
     def _activate_shell_runtime(
         self,

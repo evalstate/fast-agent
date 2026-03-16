@@ -1,5 +1,5 @@
 # Model string takes format:
-#   <provider>.<model_string>.<reasoning_effort?> (e.g. anthropic.claude-3-5-sonnet-20241022 or openai.o3-mini.low)
+#   <provider>.<model_string>?reasoning=<value> (e.g. anthropic.claude-3-5-sonnet-20241022 or openai.o3-mini?reasoning=low)
 #
 # Can be overriden with a command line switch --model=<model>, or within the Agent decorator.
 # Check here for current details: https://fast-agent.ai/models/

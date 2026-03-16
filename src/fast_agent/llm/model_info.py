@@ -17,6 +17,7 @@ from fast_agent.llm.provider_types import Provider
 if TYPE_CHECKING:
     # Import behind TYPE_CHECKING to avoid import cycles at runtime
     from fast_agent.interfaces import FastAgentLLMProtocol
+    from fast_agent.llm.resolved_model import ResolvedModelSpec
 
 
 @dataclass(frozen=True)
@@ -69,6 +70,16 @@ class ModelInfo:
         for explicit extended-context requests are reflected automatically.
         """
         return llm.model_info
+
+    @classmethod
+    def from_resolved_model(
+        cls,
+        resolved_model: "ResolvedModelSpec",
+        *,
+        context_window_override: int | None = None,
+    ) -> "ModelInfo" | None:
+        """Build ModelInfo from a resolved model specification."""
+        return resolved_model.build_model_info(context_window_override=context_window_override)
 
     @classmethod
     def from_name(cls, name: str, provider: Provider | None = None) -> "ModelInfo" | None:

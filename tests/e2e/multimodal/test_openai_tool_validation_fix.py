@@ -22,7 +22,7 @@ import pytest
     [
         "gpt-4o-mini",  # OpenAI model that should work with our fix
         "gpt-4.1-mini",  # Another OpenAI model
-        "o4-mini.low",
+        "o4-mini?reasoning=low",
         "openrouter.openai/gpt-4.1-mini",
     ],
 )
@@ -99,7 +99,7 @@ async def test_parallel_tool_calls_with_mixed_content_ordering(fast_agent, model
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-@pytest.mark.parametrize("model_name", ["gpt-4o-mini", "o3-mini.low"])
+@pytest.mark.parametrize("model_name", ["gpt-4o-mini", "o3-mini?reasoning=low"])
 async def test_openai_validation_error_prevention(fast_agent, model_name):
     """
     Test that our fix prevents the specific OpenAI validation error by simulating

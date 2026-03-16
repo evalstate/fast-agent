@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
     MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
@@ -9,12 +11,11 @@ from fast_agent.constants import (
 )
 from fast_agent.llm.model_database import ModelDatabase
 
+if TYPE_CHECKING:
+    from fast_agent.llm.resolved_model import ResolvedModelSpec
 
-def calculate_terminal_output_limit_for_model(model_name: str | None) -> int:
-    if not model_name:
-        return DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
 
-    max_tokens = ModelDatabase.get_max_output_tokens(model_name)
+def calculate_terminal_output_limit_for_max_tokens(max_tokens: int | None) -> int:
     if not max_tokens:
         return DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
 
@@ -26,3 +27,20 @@ def calculate_terminal_output_limit_for_model(model_name: str | None) -> int:
 
     terminal_byte_budget = min(terminal_byte_budget, MAX_TERMINAL_OUTPUT_BYTE_LIMIT)
     return max(DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT, terminal_byte_budget)
+
+
+def calculate_terminal_output_limit_for_model(model_name: str | None) -> int:
+    if not model_name:
+        return DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+
+    max_tokens = ModelDatabase.get_max_output_tokens(model_name)
+    return calculate_terminal_output_limit_for_max_tokens(max_tokens)
+
+
+def calculate_terminal_output_limit_for_resolved_model(
+    resolved_model: "ResolvedModelSpec | None",
+) -> int:
+    if resolved_model is None:
+        return DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+
+    return calculate_terminal_output_limit_for_max_tokens(resolved_model.max_output_tokens)

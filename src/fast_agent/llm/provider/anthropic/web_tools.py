@@ -8,7 +8,6 @@ from fast_agent.config import (
     AnthropicWebFetchSettings,
     AnthropicWebSearchSettings,
 )
-from fast_agent.llm.model_database import ModelDatabase
 
 if TYPE_CHECKING:
     from fast_agent.llm.provider.anthropic.beta_types import ToolParam
@@ -69,14 +68,15 @@ def _validate_positive(value: int | None, field_name: str, tool_name: str) -> No
 
 
 def build_web_tool_params(
-    model: str,
     *,
     resolved_tools: ResolvedAnthropicWebTools,
+    search_version: str | None,
+    fetch_version: str | None,
+    required_betas: tuple[str, ...] | None,
 ) -> tuple[list["ToolParam"], tuple[str, ...]]:
     tools: list["ToolParam"] = []
 
     if resolved_tools.search_enabled:
-        search_version = ModelDatabase.get_anthropic_web_search_version(model)
         if search_version:
             settings = resolved_tools.search_settings
             _validate_domain_xor(
@@ -102,7 +102,6 @@ def build_web_tool_params(
             tools.append(cast("ToolParam", payload))
 
     if resolved_tools.fetch_enabled:
-        fetch_version = ModelDatabase.get_anthropic_web_fetch_version(model)
         if fetch_version:
             settings = resolved_tools.fetch_settings
             _validate_domain_xor(
@@ -128,8 +127,7 @@ def build_web_tool_params(
                 payload["citations"] = {"enabled": True}
             tools.append(cast("ToolParam", payload))
 
-    required_betas = ModelDatabase.get_anthropic_required_betas(model) if tools else None
-    return tools, tuple(required_betas or ())
+    return tools, tuple(required_betas or ()) if tools else ()
 
 
 def dedupe_preserve_order(values: Sequence[str]) -> list[str]:

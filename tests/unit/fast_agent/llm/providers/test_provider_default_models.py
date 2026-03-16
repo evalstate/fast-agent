@@ -1,3 +1,5 @@
+import os
+
 from fast_agent.config import (
     AzureSettings,
     HuggingFaceSettings,
@@ -60,6 +62,34 @@ def test_openresponses_provider_default_model_used_when_model_missing() -> None:
     llm = OpenResponsesLLM(context=Context(config=settings), model="")
 
     assert llm.default_request_params.model == "gpt-oss-120b"
+
+
+def test_openresponses_provider_default_base_url_used_when_config_missing() -> None:
+    llm = OpenResponsesLLM(context=Context(config=Settings()), model="gpt-oss-120b")
+
+    assert llm._base_url() == "http://localhost:8080/v1"
+
+
+def test_openresponses_provider_env_base_url_overrides_default() -> None:
+    original = os.getenv("OPENRESPONSES_BASE_URL")
+    try:
+        os.environ["OPENRESPONSES_BASE_URL"] = "http://localhost:9090/v1"
+        llm = OpenResponsesLLM(context=Context(config=Settings()), model="gpt-oss-120b")
+
+        assert llm._base_url() == "http://localhost:9090/v1"
+    finally:
+        if original is None:
+            if "OPENRESPONSES_BASE_URL" in os.environ:
+                del os.environ["OPENRESPONSES_BASE_URL"]
+        else:
+            os.environ["OPENRESPONSES_BASE_URL"] = original
+
+
+def test_openresponses_provider_does_not_inherit_openai_base_url() -> None:
+    settings = Settings(openai=OpenAISettings(base_url="https://gateway.example/v1"))
+    llm = OpenResponsesLLM(context=Context(config=settings), model="gpt-oss-120b")
+
+    assert llm._base_url() == "http://localhost:8080/v1"
 
 
 def test_openrouter_provider_default_model_used_when_model_missing() -> None:

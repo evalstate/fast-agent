@@ -44,14 +44,6 @@ class FastAgentUsage(BaseModel):
 ProviderUsage = Union[AnthropicUsage, OpenAIUsage, GoogleUsage, FastAgentUsage]
 
 
-class ModelContextWindows:
-    """Context window sizes and cache configurations for various models"""
-
-    @classmethod
-    def get_context_window(cls, model: str) -> int | None:
-        return ModelDatabase.get_context_window(model)
-
-
 class CacheUsage(BaseModel):
     """Cache-specific usage metrics"""
 
@@ -241,13 +233,12 @@ class UsageAccumulator(BaseModel):
     model: str | None = None
     last_cache_activity_time: float | None = None
 
-    # Provider-set override for the effective context window size.
-    # When set, takes priority over the ModelDatabase lookup.
-    _context_window_override: int | None = PrivateAttr(default=None)
+    # Provider/resolution-set effective context window size for the active model.
+    _context_window_size: int | None = PrivateAttr(default=None)
 
-    def set_context_window_override(self, override: int | None) -> None:
-        """Set an explicit context window size, overriding the ModelDatabase value."""
-        self._context_window_override = override
+    def set_context_window_size(self, value: int | None) -> None:
+        """Set the effective context window size for this accumulator."""
+        self._context_window_size = value
 
     def add_turn(self, turn: TurnUsage) -> None:
         """Add a new turn to the accumulator"""
@@ -353,13 +344,13 @@ class UsageAccumulator(BaseModel):
     def context_window_size(self) -> int | None:
         """Get context window size for current model.
 
-        Returns the provider-set override when present,
-        otherwise falls back to the ModelDatabase value.
+        Returns the explicitly set effective size when present,
+        otherwise falls back to the model database.
         """
-        if self._context_window_override is not None:
-            return self._context_window_override
+        if self._context_window_size is not None:
+            return self._context_window_size
         if self.model:
-            return ModelContextWindows.get_context_window(self.model)
+            return ModelDatabase.get_context_window(self.model)
         return None
 
     @computed_field

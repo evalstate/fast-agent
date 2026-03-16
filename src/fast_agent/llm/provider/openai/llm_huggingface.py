@@ -47,7 +47,7 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
 
         return base_params
 
-    def _base_url(self) -> str:
+    def _provider_base_url(self) -> str:
         base_url = None
         if self.context.config and self.context.config.hf:
             base_url = self.context.config.hf.base_url

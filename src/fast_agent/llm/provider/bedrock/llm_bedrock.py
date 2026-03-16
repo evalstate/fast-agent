@@ -2432,6 +2432,6 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
 
         return message_param
 
-    def _api_key(self) -> str:
+    def _provider_api_key(self) -> str:
         """Bedrock doesn't use API keys, returns empty string."""
         return ""

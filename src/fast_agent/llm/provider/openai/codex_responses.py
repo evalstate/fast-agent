@@ -48,7 +48,7 @@ class CodexResponsesLLM(ResponsesLLM):
         display_model = self._display_model(model) or model
         return super()._update_streaming_progress(content, display_model, estimated_tokens)
 
-    def _base_url(self) -> str | None:
+    def _provider_base_url(self) -> str | None:
         settings = self._get_provider_config()
         if settings and getattr(settings, "base_url", None):
             return settings.base_url

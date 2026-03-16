@@ -1,7 +1,6 @@
 from typing import Type
 
 from fast_agent.interfaces import ModelT
-from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.mcp.helpers.content_helpers import split_thinking_content
 from fast_agent.types import PromptMessageExtended, RequestParams
@@ -92,7 +91,7 @@ IMPORTANT RULES:
 
     def _structured_reasoning_mode(self) -> str | None:
         model_name = self.default_request_params.model if self.default_request_params else None
-        return ModelDatabase.get_reasoning(model_name) if model_name else None
+        return self._get_model_reasoning(model_name)
 
     def _schema_to_json_object(
         self, schema: dict, defs: dict | None = None, visited: set | None = None

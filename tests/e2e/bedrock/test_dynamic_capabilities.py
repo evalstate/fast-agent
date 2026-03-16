@@ -282,7 +282,7 @@ async def test_bedrock_reasoning_fallback(fast_agent, model_name):
     @fast.agent(
         "reasoning_test",
         instruction="You are a helpful assistant. When solving math problems, always end your response with 'Final answer: [NUMBER]' where NUMBER is the exact integer result.",
-        model=f"bedrock.{model_name}.medium",  # Try medium reasoning effort
+        model=f"bedrock.{model_name}?reasoning=medium",  # Try medium reasoning effort
     )
     async def reasoning_test():
         async with fast.run() as agent:

@@ -269,7 +269,7 @@ class TuiCommandIO(CommandIO):
                 )
                 continue
 
-            return picker_result.resolved_model
+            return picker_result.resolved_model or picker_result.selected_model
 
     async def prompt_argument(
         self,

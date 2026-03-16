@@ -28,6 +28,7 @@ from fast_agent.constants import (
 )
 from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.llm.model_display_name import resolve_llm_display_name
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
@@ -345,7 +346,9 @@ class LlmAgent(LlmDecorator):
         message: PromptMessageExtended,
         model: str | None,
     ) -> str | None:
-        display_model = model if model is not None else (self.llm.model_name if self.llm else None)
+        display_model = model
+        if display_model is None:
+            display_model = resolve_llm_display_name(self.llm)
         if display_model is None:
             return None
 
@@ -613,7 +616,7 @@ class LlmAgent(LlmDecorator):
         if self._should_stream():
             llm = self._require_llm()
             display_name = self.name
-            display_model = llm.model_name
+            display_model = resolve_llm_display_name(llm)
             _, streaming_mode = self.display.resolve_streaming_preferences()
             render_markdown = True if streaming_mode == "markdown" else False
 

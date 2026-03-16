@@ -1,8 +1,10 @@
 from fast_agent.llm.model_database import ModelDatabase
 
 
-def test_model_database_normalizes_effort_suffix() -> None:
-    assert ModelDatabase.get_max_output_tokens("gpt-5-mini.low") == ModelDatabase.get_max_output_tokens(
+def test_model_database_normalizes_reasoning_query() -> None:
+    assert ModelDatabase.get_max_output_tokens(
+        "gpt-5-mini?reasoning=low"
+    ) == ModelDatabase.get_max_output_tokens(
         "gpt-5-mini"
     )
 

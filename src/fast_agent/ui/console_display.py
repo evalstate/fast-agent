@@ -13,6 +13,7 @@ from rich.text import Text
 from fast_agent.config import LoggerSettings, Settings
 from fast_agent.constants import OPENAI_ASSISTANT_MESSAGE_ITEMS, REASONING
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.llm.model_display_name import resolve_llm_display_name, resolve_model_display_name
 from fast_agent.types.assistant_message_phase import coerce_assistant_message_phase
 from fast_agent.ui import console
 from fast_agent.ui.display_suppression import (
@@ -30,7 +31,6 @@ from fast_agent.ui.mermaid_utils import (
 )
 from fast_agent.ui.message_primitives import MESSAGE_CONFIGS, MessageType
 from fast_agent.ui.message_styles import A3MessageStyle
-from fast_agent.ui.model_display import format_model_display
 from fast_agent.ui.shell_output_truncation import format_shell_output_line_count
 from fast_agent.ui.streaming import (
     NullStreamingHandle as _NullStreamingHandle,
@@ -837,7 +837,7 @@ class ConsoleDisplay:
             display_text = message_text
 
         # Build right info
-        display_model = format_model_display(model)
+        display_model = resolve_model_display_name(model)
         right_info = f"[dim]{display_model}[/dim]" if display_model else ""
 
         # Display main message using unified method
@@ -917,7 +917,7 @@ class ConsoleDisplay:
             show_hook_indicator=show_hook_indicator,
         )
 
-        display_model = format_model_display(model)
+        display_model = resolve_model_display_name(model)
         right_info = f"[dim]{display_model}[/dim]" if display_model else ""
 
         # Determine renderer based on streaming mode
@@ -1252,7 +1252,7 @@ class ConsoleDisplay:
             # Get model name
             model = "unknown"
             if agent.llm:
-                model = format_model_display(agent.llm.model_name) or "unknown"
+                model = resolve_llm_display_name(agent.llm) or "unknown"
 
             # Get usage information
             tokens = 0

@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from fast_agent.agents.tool_runner import ToolRunnerHooks
     from fast_agent.context import Context
     from fast_agent.llm.model_info import ModelInfo
+    from fast_agent.llm.resolved_model import ResolvedModelSpec
 
 __all__ = [
     "FastAgentLLMProtocol",
@@ -135,6 +136,9 @@ class FastAgentLLMProtocol(Protocol):
 
     @property
     def model_info(self) -> "ModelInfo | None": ...
+
+    @property
+    def resolved_model(self) -> "ResolvedModelSpec": ...
 
     def clear(self, *, clear_prompts: bool = False) -> None: ...
 

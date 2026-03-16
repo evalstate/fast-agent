@@ -1,4 +1,8 @@
-from fast_agent.cli.commands.check_config import API_KEY_HINT_TEXT, check_api_keys
+from fast_agent.cli.commands.check_config import (
+    API_KEY_HINT_TEXT,
+    _format_provider_row,
+    check_api_keys,
+)
 
 
 def make_secrets_summary(azure_cfg):
@@ -67,3 +71,9 @@ def test_check_api_keys_hint_text():
     results = check_api_keys(summary, {})
     # Should not show API_KEY_HINT_TEXT as a valid key
     assert results["azure"]["config"] == ""
+
+
+def test_format_provider_row_openresponses_shows_default_without_key():
+    row = _format_provider_row("openresponses", {"env": "", "config": ""})
+
+    assert row[3] == "[green]none (default)[/green]"

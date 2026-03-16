@@ -25,7 +25,7 @@ class GoogleOaiLLM(OpenAILLM):
             use_history=True,
         )
 
-    def _base_url(self) -> str:
+    def _provider_base_url(self) -> str:
         base_url = None
         if self.context.config and self.context.config.google:
             base_url = self.context.config.google.base_url

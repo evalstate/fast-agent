@@ -17,8 +17,10 @@ if "a2a" not in sys.modules:
     sys.modules["a2a"] = a2a_module
     sys.modules["a2a.types"] = types_module
 
+from fast_agent.llm.model_factory import ModelConfig
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.resolved_model import ResolvedModelSpec
 
 if TYPE_CHECKING:
     from fast_agent.interfaces import FastAgentLLMProtocol
@@ -28,6 +30,14 @@ class DummyLLM:
     def __init__(self, model: str, provider: Provider = Provider.GOOGLE) -> None:
         self.model_name = model
         self.provider = provider
+        self.resolved_model = ResolvedModelSpec(
+            raw_input=model,
+            selected_model_name=model,
+            source="direct",
+            model_config=ModelConfig(provider=provider, model_name=model),
+            provider=provider,
+            wire_model_name=model,
+        )
         self.default_request_params = type("Params", (), {"model": model})()
 
     @property
@@ -66,6 +76,23 @@ def test_model_info_from_agent_llm_capabilities() -> None:
     assert info is not None
     assert info.name == "gemini-2.5-pro"
     assert info.tdv_flags == (True, True, True)
+
+
+def test_model_info_from_resolved_model_uses_resolved_metadata() -> None:
+    resolved_model = ResolvedModelSpec(
+        raw_input="haikutiny",
+        selected_model_name="haikutiny",
+        source="overlay",
+        model_config=ModelConfig(provider=Provider.ANTHROPIC, model_name="claude-haiku-4-5"),
+        provider=Provider.ANTHROPIC,
+        wire_model_name="claude-haiku-4-5",
+    )
+
+    info = ModelInfo.from_resolved_model(resolved_model)
+
+    assert info is not None
+    assert info.name == "claude-haiku-4-5"
+    assert info.provider == Provider.ANTHROPIC
 
 
 def test_unknown_model_defaults_to_text_only() -> None:

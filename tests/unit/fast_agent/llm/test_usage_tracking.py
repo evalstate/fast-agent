@@ -12,7 +12,6 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import (
     CacheUsage,
     FastAgentUsage,
-    ModelContextWindows,
     TurnUsage,
     UsageAccumulator,
     create_turn_usage_from_messages,
@@ -212,18 +211,6 @@ def test_context_window_calculations():
     assert unknown_accumulator.context_usage_percentage is None
 
 
-def test_model_context_windows():
-    """Test model context window retrieval"""
-    # Test known models
-    assert ModelContextWindows.get_context_window("claude-sonnet-4-0") == 200000
-    assert ModelContextWindows.get_context_window("gpt-4o") == 128000
-    assert ModelContextWindows.get_context_window("gemini-2.0-flash") == 1048576
-    assert ModelContextWindows.get_context_window("passthrough") == 1000000
-
-    # Test unknown model
-    assert ModelContextWindows.get_context_window("unknown-model") is None
-
-
 def test_cache_hit_rate_calculation():
     """Test cache hit rate percentage calculation"""
     accumulator = UsageAccumulator()
@@ -302,18 +289,18 @@ def test_provider_cache_differences():
     assert anthropic_turn.output_tokens == openai_turn.output_tokens == 500
 
 
-def test_usage_accumulator_context_window_override():
-    """UsageAccumulator.context_window_size respects set_context_window_override."""
+def test_usage_accumulator_context_window_size_override():
+    """UsageAccumulator.context_window_size respects explicit active-model size."""
     acc = UsageAccumulator()
     acc.model = "claude-opus-4-6"
 
-    # Without override, should return ModelDatabase value (1M)
+    # Without explicit size, should return ModelDatabase value (1M)
     assert acc.context_window_size == 1_000_000
 
-    # With override, should return the override
-    acc.set_context_window_override(1_000_000)
+    # With explicit active-model size, should return that size
+    acc.set_context_window_size(1_000_000)
     assert acc.context_window_size == 1_000_000
 
-    # Clear override
-    acc.set_context_window_override(None)
+    # Clear explicit size
+    acc.set_context_window_size(None)
     assert acc.context_window_size == 1_000_000

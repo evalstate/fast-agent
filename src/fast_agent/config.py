@@ -1356,10 +1356,10 @@ class Settings(BaseSettings):
 
     default_model: str | None = None
     """
-    Default model for agents. Format is provider.model_name.<reasoning_effort> or provider.model?reasoning=<value>,
-    for example openai.o3-mini.low or openai.o3-mini?reasoning=high.
+    Default model for agents. Format is provider.model?reasoning=<value>,
+    for example openai.o3-mini?reasoning=high.
     Built-in model presets are provided for common models e.g. sonnet, haiku, gpt-4.1, o3-mini etc.
-    If not set, falls back to FAST_AGENT_MODEL env var, then to "gpt-5-mini.low".
+    If not set, falls back to FAST_AGENT_MODEL env var, then to "gpt-5-mini?reasoning=low".
     """
 
     model_references: dict[str, dict[str, str]] = Field(default_factory=dict)

@@ -52,13 +52,13 @@ def test_full_model_strings():
         ("openai.gpt-4.1", Provider.OPENAI, "gpt-4.1", None),
         ("openai/gpt-4.1", Provider.OPENAI, "gpt-4.1", None),
         (
-            "openai.o1.high",
+            "openai.o1?reasoning=high",
             Provider.OPENAI,
             "o1",
             ReasoningEffortSetting(kind="effort", value="high"),
         ),
         (
-            "openai/o1.high",
+            "openai/o1?reasoning=high",
             Provider.OPENAI,
             "o1",
             ReasoningEffortSetting(kind="effort", value="high"),
@@ -72,23 +72,19 @@ def test_full_model_strings():
         assert config.reasoning_effort == exp_effort
 
 
+def test_deprecated_reasoning_suffix_is_rejected() -> None:
+    with pytest.raises(ModelConfigError, match=r"Use '\?reasoning=<value>' instead"):
+        ModelFactory.parse_model_string("openai.o1.high")
+
+    with pytest.raises(ModelConfigError, match=r"Use '\?reasoning=<value>' instead"):
+        ModelFactory.parse_model_string("openai/o1.high")
+
+
 def test_model_query_reasoning_effort():
     config = ModelFactory.parse_model_string("openai.o1?reasoning=low")
     assert config.provider == Provider.OPENAI
     assert config.model_name == "o1"
     assert config.reasoning_effort == ReasoningEffortSetting(kind="effort", value="low")
-
-
-def test_default_providers_backcompat_alias_updates_runtime_provider_registry():
-    model_name = "wizard-setup-backcompat"
-    try:
-        ModelFactory.DEFAULT_PROVIDERS[model_name] = Provider.FAST_AGENT
-        assert ModelDatabase.get_default_provider(model_name) == Provider.FAST_AGENT
-        parsed = ModelFactory.parse_model_string(model_name)
-        assert parsed.provider == Provider.FAST_AGENT
-        assert parsed.model_name == model_name
-    finally:
-        ModelFactory.DEFAULT_PROVIDERS.pop(model_name, None)
 
 
 def test_model_query_reasoning_budget():
@@ -826,14 +822,3 @@ def test_hf_kimi25_alias_does_not_emit_chat_template_kwargs_for_thinking_mode() 
         assert "chat_template_kwargs" not in extra_body
     else:
         assert extra_body is None
-
-
-def test_runtime_model_provider_registration():
-    model_name = "runtime-fast-model"
-    ModelFactory.register_runtime_model_provider(model_name, Provider.FAST_AGENT)
-    try:
-        config = ModelFactory.parse_model_string(model_name)
-        assert config.provider == Provider.FAST_AGENT
-        assert config.model_name == model_name
-    finally:
-        ModelFactory.unregister_runtime_model_provider(model_name)

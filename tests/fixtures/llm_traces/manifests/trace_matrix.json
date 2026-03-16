@@ -16,7 +16,7 @@
     }
   },
   "targets": {
-    "responses.gpt-5-mini.low": [
+    "responses.gpt-5-mini?reasoning=low": [
       "plain_text",
       "tool_use_weather",
       "web_search_capital"

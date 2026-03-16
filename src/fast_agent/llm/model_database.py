@@ -1097,14 +1097,6 @@ class ModelDatabase:
         return params.default_provider if params else None
 
     @classmethod
-    def register_runtime_default_provider(cls, model: str, provider: Provider) -> None:
-        """Register or override a runtime default provider for a model name."""
-        model_key = cls._normalize_provider_lookup_name(model)
-        if not model_key:
-            return
-        cls._RUNTIME_MODEL_DEFAULT_PROVIDERS[model_key] = provider
-
-    @classmethod
     def register_runtime_model_params(cls, model: str, params: ModelParameters) -> None:
         """Register runtime model parameters for dynamic providers."""
         model_key = cls.normalize_model_name(model)
@@ -1152,14 +1144,6 @@ class ModelDatabase:
             for model_key, params in cls._RUNTIME_MODEL_PARAMS.items()
             if params.default_provider == provider
         )
-
-    @classmethod
-    def unregister_runtime_default_provider(cls, model: str) -> None:
-        """Remove a runtime default provider override for a model name."""
-        model_key = cls._normalize_provider_lookup_name(model)
-        if not model_key:
-            return
-        cls._RUNTIME_MODEL_DEFAULT_PROVIDERS.pop(model_key, None)
 
     @classmethod
     def is_fast_model(cls, model: str) -> bool:

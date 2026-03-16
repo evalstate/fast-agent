@@ -19,7 +19,6 @@ from fast_agent.core.exceptions import ModelConfigError, ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
 from fast_agent.llm.fastagent_llm import FastAgentLLM
-from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.error_utils import build_stream_failure_response
 from fast_agent.llm.provider.openai._stream_capture import (
     save_stream_request as _save_stream_request,
@@ -178,7 +177,7 @@ class ResponsesLLM(
         )
 
         chosen_model = self.default_request_params.model if self.default_request_params else None
-        self._reasoning_mode = ModelDatabase.get_reasoning(chosen_model) if chosen_model else None
+        self._reasoning_mode = self._get_model_reasoning(chosen_model)
         self._reasoning = self._reasoning_mode == "openai"
         if self._reasoning_mode:
             self.logger.info(
@@ -257,7 +256,7 @@ class ResponsesLLM(
         if self.provider == Provider.CODEX_RESPONSES:
             return ("fast",)
         if model_name:
-            configured_tiers = ModelDatabase.get_response_service_tiers(model_name)
+            configured_tiers = self._get_model_response_service_tiers(model_name)
             if configured_tiers is not None:
                 return configured_tiers
         return ("fast", "flex")
@@ -370,12 +369,12 @@ class ResponsesLLM(
                 )
             return
 
-        response_transports = ModelDatabase.get_response_transports(model_to_check)
+        response_transports = self._get_model_response_transports(model_to_check)
         if not response_transports or "websocket" not in response_transports:
             raise ModelConfigError(
                 f"Transport '{transport}' is not supported for model '{model_to_check}'."
             )
-        websocket_providers = ModelDatabase.get_response_websocket_providers(model_to_check)
+        websocket_providers = self._get_model_response_websocket_providers(model_to_check)
         if websocket_providers is not None and self.provider not in websocket_providers:
             raise ModelConfigError(
                 f"Transport '{transport}' is not supported for model '{model_to_check}' "
@@ -593,11 +592,11 @@ class ResponsesLLM(
             )
         self.default_request_params.service_tier = parsed_value
 
-    def _base_url(self) -> str | None:
+    def _provider_base_url(self) -> str | None:
         settings = self._openai_settings()
         return settings.base_url if settings else None
 
-    def _default_headers(self) -> dict[str, str] | None:
+    def _provider_default_headers(self) -> dict[str, str] | None:
         settings = self._openai_settings()
         return settings.default_headers if settings else None
 

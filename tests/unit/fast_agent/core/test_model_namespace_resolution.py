@@ -30,7 +30,10 @@ def _build_context() -> Context:
 
 
 def test_resolve_model_reference_passthrough() -> None:
-    assert resolve_model_reference("gpt-5-mini.low", {"system": {"fast": "haiku"}}) == "gpt-5-mini.low"
+    assert resolve_model_reference(
+        "gpt-5-mini?reasoning=low",
+        {"system": {"fast": "haiku"}},
+    ) == "gpt-5-mini?reasoning=low"
 
 
 def test_resolve_model_reference_happy_path() -> None:
@@ -91,7 +94,7 @@ def test_resolve_model_spec_precedence_with_aliases() -> None:
     model, source = resolve_model_spec(
         context,
         model="$system.fast",
-        cli_model="gpt-5-mini.low",
+        cli_model="gpt-5-mini?reasoning=low",
         hardcoded_default="playback",
     )
     assert model == "claude-haiku-4-5"
@@ -103,11 +106,11 @@ def test_resolve_model_spec_cli_overrides_explicit_system_default_alias() -> Non
     model, source = resolve_model_spec(
         context,
         model="$system.default",
-        cli_model="gpt-5-mini.low",
+        cli_model="gpt-5-mini?reasoning=low",
         hardcoded_default="playback",
     )
 
-    assert model == "gpt-5-mini.low"
+    assert model == "gpt-5-mini?reasoning=low"
     assert source == "CLI --model"
 
 

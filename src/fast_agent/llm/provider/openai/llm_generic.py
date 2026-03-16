@@ -29,7 +29,7 @@ class GenericLLM(OpenAILLM):
             use_history=True,
         )
 
-    def _base_url(self) -> str | None:
+    def _provider_base_url(self) -> str | None:
         base_url: str | None = os.getenv("GENERIC_BASE_URL", DEFAULT_OLLAMA_BASE_URL)
         if self.context.config and self.context.config.generic:
             base_url = self.context.config.generic.base_url

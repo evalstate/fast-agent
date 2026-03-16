@@ -63,7 +63,7 @@ class OpenRouterLLM(OpenAILLM):
             # Non-fatal: unknown models fall back to conservative defaults.
             return
 
-    def _base_url(self) -> str:
+    def _provider_base_url(self) -> str:
         """Retrieve the OpenRouter base URL from config or use the default."""
         base_url = os.getenv("OPENROUTER_BASE_URL", DEFAULT_OPENROUTER_BASE_URL)  # Default
         config = self.context.config

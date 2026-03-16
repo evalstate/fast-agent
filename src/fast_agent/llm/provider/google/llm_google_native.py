@@ -95,8 +95,8 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                     else getattr(google_cfg, "reasoning", None)
                 )
 
-        reasoning_mode = ModelDatabase.get_reasoning(model_name)
-        spec = ModelDatabase.get_reasoning_effort_spec(model_name)
+        reasoning_mode = self._get_model_reasoning(model_name)
+        spec = self._get_model_reasoning_effort_spec(model_name)
 
         if raw_setting is not None and reasoning_mode != "google_thinking":
             self.logger.warning(
@@ -242,7 +242,15 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         )
         # Gemini models have different max output token limits; for example,
         # gemini-2.0-flash only supports up to 8192 output tokens.
-        max_tokens = ModelDatabase.get_max_output_tokens(chosen_model) or 65536
+        resolved_model = self._resolved_model_spec
+        if (
+            resolved_model is not None
+            and chosen_model == resolved_model.wire_model_name
+            and resolved_model.max_output_tokens is not None
+        ):
+            max_tokens = resolved_model.max_output_tokens
+        else:
+            max_tokens = ModelDatabase.get_max_output_tokens(chosen_model) or 65536
 
         return RequestParams(
             model=chosen_model,

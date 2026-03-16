@@ -38,7 +38,7 @@ Run from the repo root:
 
 ```bash
 uv run python tests/scripts/harvest_llm_traces.py --list
-uv run python tests/scripts/harvest_llm_traces.py --model responses.gpt-5-mini.low
+uv run python tests/scripts/harvest_llm_traces.py --model 'responses.gpt-5-mini?reasoning=low'
 ```
 
 The harvester:
@@ -54,7 +54,7 @@ The harvester:
 
 ```bash
 uv run python tests/scripts/normalize_llm_traces.py \
-  tests/fixtures/llm_traces/raw/responses.gpt-5-mini.low/tool_use_weather/20260314T230520Z
+  tests/fixtures/llm_traces/raw/responses.gpt-5-mini?reasoning=low/tool_use_weather/20260314T230520Z
 ```
 
 By default, the normalizer promotes into a stable destination under

@@ -19,8 +19,11 @@ from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
 from fast_agent.core.agent_card_validation import AgentCardScanResult, scan_agent_card_directory
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.keyring_utils import KeyringStatus, get_keyring_status
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.llm.model_factory import ModelFactory
+from fast_agent.llm.model_overlays import load_model_overlay_registry
 from fast_agent.llm.model_selection import ModelSelectionCatalog
+from fast_agent.llm.provider.openai.openresponses import DEFAULT_OPENRESPONSES_BASE_URL
 from fast_agent.llm.provider_key_manager import API_KEY_HINT_TEXT, ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
 from fast_agent.paths import EnvironmentPaths, default_skill_paths, resolve_environment_paths
@@ -32,6 +35,7 @@ app = typer.Typer(
     help="Check and diagnose FastAgent configuration",
     no_args_is_help=False,  # Allow showing our custom help instead
 )
+logger = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -1107,6 +1111,7 @@ class _CheckSummaryContext:
     skill_errors: list[dict[str, str]]
     env_paths: EnvironmentPaths
     server_names: set[str] | None
+    overlay_preset_collision_messages: tuple[str, ...]
 
 
 def _relative_summary_path(search_root: Path, path: Path) -> str:
@@ -1171,6 +1176,10 @@ def _build_check_summary_context(env_dir: Path | None) -> _CheckSummaryContext:
     skills_manifests, skill_errors = skills_registry.load_manifests_with_errors()
     env_paths = resolve_environment_paths(cwd=cwd, override=environment_override)
     server_names = _build_server_names_from_config(config_summary)
+    overlay_preset_collision_messages = _collect_overlay_preset_collision_messages(
+        start_path=cwd,
+        env_dir=environment_override,
+    )
 
     return _CheckSummaryContext(
         cwd=cwd,
@@ -1190,7 +1199,47 @@ def _build_check_summary_context(env_dir: Path | None) -> _CheckSummaryContext:
         skill_errors=skill_errors,
         env_paths=env_paths,
         server_names=server_names,
+        overlay_preset_collision_messages=overlay_preset_collision_messages,
     )
+
+
+def _built_in_preset_sources() -> dict[str, str]:
+    sources = {
+        preset_name: "built-in model preset"
+        for preset_name in ModelFactory.MODEL_PRESETS
+    }
+    for provider_entries in ModelSelectionCatalog.CATALOG_ENTRIES_BY_PROVIDER.values():
+        for entry in provider_entries:
+            sources.setdefault(entry.alias, "curated model alias")
+    return sources
+
+
+def _collect_overlay_preset_collision_messages(
+    *,
+    start_path: Path,
+    env_dir: str | Path | None,
+) -> tuple[str, ...]:
+    preset_sources = _built_in_preset_sources()
+    overlay_registry = load_model_overlay_registry(start_path=start_path, env_dir=env_dir)
+
+    messages: list[str] = []
+    for overlay in overlay_registry.overlays:
+        source = preset_sources.get(overlay.name)
+        if source is None:
+            continue
+        message = (
+            f'Local model overlay "{overlay.name}" overrides existing '
+            f'{source} "{overlay.name}".'
+        )
+        messages.append(message)
+        logger.info(
+            "Local model overlay overrides existing preset",
+            overlay_name=overlay.name,
+            source=source,
+            overlay_path=str(overlay.manifest_path),
+        )
+
+    return tuple(messages)
 
 
 def _render_environment_summary(context: _CheckSummaryContext) -> None:
@@ -1336,6 +1385,15 @@ def _render_application_settings(config_summary: dict[str, Any]) -> None:
     console.print(logger_table)
 
 
+def _render_model_overlay_notices(context: _CheckSummaryContext) -> None:
+    if not context.overlay_preset_collision_messages:
+        return
+
+    _print_section_header("Model Overlays", color="blue")
+    for message in context.overlay_preset_collision_messages:
+        console.print(f"[cyan]Info:[/cyan] {message}")
+
+
 def _format_provider_row(provider: str, status: dict[str, str]) -> tuple[str, str, str, str]:
     if status["env"] and status["config"]:
         env_status = "[yellow]✓[/yellow]"
@@ -1354,6 +1412,8 @@ def _format_provider_row(provider: str, status: dict[str, str]) -> tuple[str, st
         active = f"[bold green]{status['env']}[/bold green]"
     elif provider == "generic":
         active = "[green]ollama (default)[/green]"
+    elif provider == "openresponses":
+        active = "[green]none (default)[/green]"
     else:
         active = "[dim]Not configured[/dim]"
 
@@ -1684,6 +1744,21 @@ def _should_warn_for_provider(
 ) -> bool:
     if provider in {Provider.FAST_AGENT, Provider.GENERIC}:
         return False
+    if provider == Provider.OPENRESPONSES:
+        cfg = config_summary.get("config") if config_summary.get("status") == "parsed" else {}
+        openresponses_cfg = cfg.get("openresponses", {}) if isinstance(cfg, dict) else {}
+        configured_base_url = None
+        if isinstance(openresponses_cfg, dict):
+            raw_base_url = openresponses_cfg.get("base_url")
+            if isinstance(raw_base_url, str) and raw_base_url.strip():
+                configured_base_url = raw_base_url.strip()
+        if configured_base_url is None:
+            env_base_url = os.getenv("OPENRESPONSES_BASE_URL")
+            if env_base_url and env_base_url.strip():
+                configured_base_url = env_base_url.strip()
+        if configured_base_url is None:
+            return False
+        return configured_base_url.rstrip("/") != DEFAULT_OPENRESPONSES_BASE_URL.rstrip("/")
     if provider == Provider.GOOGLE:
         cfg = config_summary.get("config") if config_summary.get("status") == "parsed" else {}
         google_cfg = cfg.get("google", {}) if isinstance(cfg, dict) else {}
@@ -1940,6 +2015,7 @@ def show_check_summary(env_dir: Path | None = None) -> None:
     context = _build_check_summary_context(env_dir)
     _render_environment_summary(context)
     _render_application_settings(context.config_summary)
+    _render_model_overlay_notices(context)
     _render_api_keys_panel(context.api_keys)
     _render_codex_oauth_panel(context.keyring_status)
     _render_mcp_servers_panel(context)

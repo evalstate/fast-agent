@@ -46,7 +46,7 @@ class TensorZeroOpenAILLM(OpenAILLM):
             use_history=True,
         )
 
-    def _base_url(self) -> str:
+    def _provider_base_url(self) -> str:
         """
         Constructs the TensorZero OpenAI-compatible endpoint URL.
         """

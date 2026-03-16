@@ -67,6 +67,8 @@ def render_status_markdown(summary: "StatusSummary", *, heading: str) -> str:
                     f"  - Provider: {agent.provider_display or agent.provider}"
                 )
                 lines.append(f"  - Model: {agent.model_name}")
+                if agent.wire_model_name:
+                    lines.append(f"  - Wire Model: {agent.wire_model_name}")
                 if agent.context_window:
                     lines.append(
                         f"  - Context Window: {agent.context_window} tokens"
@@ -82,6 +84,8 @@ def render_status_markdown(summary: "StatusSummary", *, heading: str) -> str:
             lines.append(f"### Fan-In Agent: {fan_in.agent_name}")
             lines.append(f"  - Provider: {fan_in.provider_display or fan_in.provider}")
             lines.append(f"  - Model: {fan_in.model_name}")
+            if fan_in.wire_model_name:
+                lines.append(f"  - Wire Model: {fan_in.wire_model_name}")
             if fan_in.context_window:
                 lines.append(
                     f"  - Context Window: {fan_in.context_window} tokens"
@@ -95,6 +99,7 @@ def render_status_markdown(summary: "StatusSummary", *, heading: str) -> str:
         model = summary.model_summary
         provider_line = "unknown"
         model_name = "unknown"
+        wire_model_name = None
         context_window = "unknown"
         capabilities = "Capabilities: unknown"
         hf_provider = None
@@ -106,6 +111,7 @@ def render_status_markdown(summary: "StatusSummary", *, heading: str) -> str:
             hf_provider = model.hf_provider
             provider_line = _format_provider_line(provider_display, provider, hf_provider)
             model_name = model.model_name
+            wire_model_name = model.wire_model_name
             if model.context_window:
                 context_window = f"{model.context_window} tokens"
             cap_list = model.capabilities
@@ -116,6 +122,11 @@ def render_status_markdown(summary: "StatusSummary", *, heading: str) -> str:
                 "## Active Model",
                 f"- Provider: {provider_line}",
                 f"- Model: {model_name}",
+                *(
+                    [f"- Wire Model: {wire_model_name}"]
+                    if wire_model_name
+                    else []
+                ),
                 f"- Context Window: {context_window}",
                 f"- {capabilities}",
                 "",

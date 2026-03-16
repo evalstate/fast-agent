@@ -11,7 +11,7 @@ from fast_agent import FastAgent
 @pytest.mark.parametrize(
     "model_name",
     [
-        "gpt-5.low",
+        "gpt-5?reasoning=low",
     ],
 )
 async def test_iterative_orchestration(fast_agent, model_name):
@@ -22,25 +22,25 @@ async def test_iterative_orchestration(fast_agent, model_name):
     @fast.agent(
         "first_two",
         instruction="You can provide the first 2 digits of the secret code.",
-        model="gpt-5-mini.low",
+        model="gpt-5-mini?reasoning=low",
         servers=["puzzle_1"],
     )
     @fast.agent(
         "last_two",
         instruction="You can provide the last 2 digits of the secret code.",
-        model="gpt-5-mini.low",
+        model="gpt-5-mini?reasoning=low",
         servers=["puzzle_2"],
     )
     @fast.agent(
         "validator",
         instruction="You can validate the 4 digit secret code.",
-        model="gpt-5-mini.low",
+        model="gpt-5-mini?reasoning=low",
         servers=["puzzle_validator"],
     )
     @fast.iterative_planner(
         "orchestrator",
         agents=["first_two", "last_two", "validator"],
-        model="gpt-5.low",
+        model="gpt-5?reasoning=low",
     )
     async def agent_function():
         async with fast.run() as agent:
@@ -59,25 +59,25 @@ async def main():
     @fast.agent(
         "first_two",
         instruction="You can provide the first 2 digits of the secret code.",
-        model="gpt-5-mini.low",
+        model="gpt-5-mini?reasoning=low",
         servers=["puzzle_1"],
     )
     @fast.agent(
         "last_two",
         instruction="You can provide the last 2 digits of the secret code.",
-        model="gpt-5-mini.low",
+        model="gpt-5-mini?reasoning=low",
         servers=["puzzle_2"],
     )
     @fast.agent(
         "validator",
         instruction="You can validate the 4 digit secret code.",
-        model="gpt-5-mini.low",
+        model="gpt-5-mini?reasoning=low",
         servers=["puzzle_validator"],
     )
     @fast.iterative_planner(
         "orchestrator",
         agents=["first_two", "last_two", "validator"],
-        model="gpt-5-mini.low",
+        model="gpt-5-mini?reasoning=low",
         default=True,
         # model="sonnet",
     )

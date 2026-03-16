@@ -13,11 +13,13 @@ from fast_agent.cli.runtime.agent_setup import (
     _persist_model_picker_last_used_selection,
     _resolve_model_picker_initial_selection,
     _resolve_model_without_hardcoded_default,
+    _select_model_from_picker,
     _should_prompt_for_model_picker,
     run_agent_request,
 )
 from fast_agent.cli.runtime.run_request import AgentRunRequest
 from fast_agent.config import Settings
+from fast_agent.ui.model_picker import ModelPickerResult
 
 
 def _make_request(
@@ -143,6 +145,34 @@ def test_resolve_model_without_hardcoded_default_uses_environment_variable() -> 
     assert source == "environment variable FAST_AGENT_MODEL"
 
 
+@pytest.mark.asyncio
+async def test_select_model_from_picker_preserves_overlay_token_when_resolved_model_is_present(
+    monkeypatch,
+) -> None:
+    request = _make_request()
+
+    async def fake_run_model_picker_async(**kwargs):
+        del kwargs
+        return ModelPickerResult(
+            provider="overlays",
+            provider_available=True,
+            selected_model="haikutiny",
+            resolved_model="haikutiny",
+            source="curated",
+            refer_to_docs=False,
+            activation_action=None,
+        )
+
+    monkeypatch.setattr(
+        "fast_agent.ui.model_picker.run_model_picker_async",
+        fake_run_model_picker_async,
+    )
+
+    selected = await _select_model_from_picker(request, config_payload={})
+
+    assert selected == "haikutiny"
+
+
 def test_normalize_generic_model_spec_adds_generic_prefix_when_missing() -> None:
     assert _normalize_generic_model_spec("llama3.2") == "generic.llama3.2"
 
@@ -177,6 +207,85 @@ def test_resolve_model_picker_initial_selection_uses_last_used_alias() -> None:
 
     assert provider == "anthropic"
     assert model_spec == "claude-haiku-4-5"
+
+
+def test_resolve_model_picker_initial_selection_preserves_overlay_alias(tmp_path: Path) -> None:
+    env_dir = tmp_path / ".fast-agent"
+    overlays_dir = env_dir / "model-overlays"
+    overlays_dir.mkdir(parents=True)
+    (overlays_dir / "haikutiny.yaml").write_text(
+        (
+            "name: haikutiny\n"
+            "provider: anthropic\n"
+            "model: claude-haiku-4-5\n"
+            "metadata:\n"
+            "  context_window: 8192\n"
+            "  max_output_tokens: 1024\n"
+        ),
+        encoding="utf-8",
+    )
+
+    previous_cwd = Path.cwd()
+    previous_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
+    try:
+        os.chdir(tmp_path)
+        provider, model_spec = _resolve_model_picker_initial_selection(
+            settings=Settings(
+                environment_dir=str(env_dir),
+                model_references={
+                    "system": {
+                        "last_used": "haikutiny",
+                    }
+                },
+            )
+        )
+    finally:
+        os.chdir(previous_cwd)
+        if previous_env_dir is not None:
+            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+
+    assert provider == "overlays"
+    assert model_spec == "haikutiny"
+
+
+def test_resolve_model_picker_initial_selection_uses_config_relative_overlay_dir(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    project_dir = workspace / "project"
+    env_dir = project_dir / ".fast-agent"
+    config_path = project_dir / "fastagent.config.yaml"
+    overlays_dir = env_dir / "model-overlays"
+    overlays_dir.mkdir(parents=True)
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("environment_dir: .fast-agent\n", encoding="utf-8")
+    (overlays_dir / "haikutiny.yaml").write_text(
+        (
+            "name: haikutiny\n"
+            "provider: anthropic\n"
+            "model: claude-haiku-4-5\n"
+        ),
+        encoding="utf-8",
+    )
+
+    previous_cwd = Path.cwd()
+    previous_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
+    try:
+        os.chdir(tmp_path)
+        settings = Settings(
+            environment_dir=".fast-agent",
+            model_references={"system": {"last_used": "haikutiny"}},
+        )
+        settings._config_file = str(config_path.resolve())
+
+        provider, model_spec = _resolve_model_picker_initial_selection(settings=settings)
+    finally:
+        os.chdir(previous_cwd)
+        if previous_env_dir is not None:
+            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+
+    assert provider == "overlays"
+    assert model_spec == "haikutiny"
 
 
 def test_load_request_settings_refreshes_stale_cached_settings(tmp_path: Path) -> None:

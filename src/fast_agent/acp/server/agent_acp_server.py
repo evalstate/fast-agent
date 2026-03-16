@@ -102,7 +102,10 @@ from fast_agent.interfaces import (
     ToolRunnerHookCapable,
 )
 from fast_agent.llm.stream_types import StreamChunk
-from fast_agent.llm.terminal_output_limits import calculate_terminal_output_limit_for_model
+from fast_agent.llm.terminal_output_limits import (
+    calculate_terminal_output_limit_for_model,
+    calculate_terminal_output_limit_for_resolved_model,
+)
 from fast_agent.llm.usage_tracking import last_turn_usage
 from fast_agent.mcp.helpers.content_helpers import is_text_content
 from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
@@ -398,6 +401,9 @@ class AgentACPServer(ACPAgent):
         """
         # Some workflow agents (e.g., chain/parallel) don't attach an LLM directly.
         llm = getattr(agent, "_llm", None)
+        resolved_model = getattr(llm, "resolved_model", None)
+        if resolved_model is not None:
+            return calculate_terminal_output_limit_for_resolved_model(resolved_model)
         model_name = getattr(llm, "model_name", None)
         return self._calculate_terminal_output_limit_for_model(model_name)
 

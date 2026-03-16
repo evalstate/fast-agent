@@ -5,6 +5,7 @@ import os
 import time
 import traceback
 from abc import abstractmethod
+from collections.abc import Mapping
 from contextvars import ContextVar
 from typing import (
     TYPE_CHECKING,
@@ -42,7 +43,7 @@ from fast_agent.interfaces import (
     ModelT,
 )
 from fast_agent.llm.memory import Memory, SimpleMemory
-from fast_agent.llm.model_database import ModelDatabase
+from fast_agent.llm.model_database import ModelDatabase, ModelParameters
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import (
     ReasoningEffortSetting,
@@ -80,6 +81,7 @@ MessageT = TypeVar("MessageT")
 # Forward reference for type annotations
 if TYPE_CHECKING:
     from fast_agent.context import Context
+    from fast_agent.llm.resolved_model import ResolvedModelSpec
 
 
 # Context variable for storing MCP metadata
@@ -144,6 +146,20 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         """
         # Extract request_params before super() call
         self._init_request_params = request_params
+        raw_resolved_model_spec = kwargs.pop("resolved_model_spec", None)
+        self._resolved_model_spec = raw_resolved_model_spec
+        self._init_base_url = kwargs.pop("base_url", None)
+        raw_default_headers = kwargs.pop("default_headers", None)
+        normalized_default_headers: dict[str, str] | None = None
+        if raw_default_headers is not None:
+            if not isinstance(raw_default_headers, Mapping):
+                raise TypeError("default_headers must be a mapping[str, str] when provided")
+            normalized_default_headers = {}
+            for key, value in raw_default_headers.items():
+                if not isinstance(key, str) or not isinstance(value, str):
+                    raise TypeError("default_headers must contain only string keys and values")
+                normalized_default_headers[key] = value
+        self._init_default_headers = normalized_default_headers
         # Pop long_context before passing kwargs to ContextDependent;
         # subclasses (e.g. AnthropicLLM) may pop it first for their own handling.
         long_context_requested = kwargs.pop("long_context", False)
@@ -179,21 +195,40 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
         # Cache effective model name for type-safe access
         self._model_name: str | None = self.default_request_params.model
+        if self._resolved_model_spec is None:
+            from fast_agent.llm.model_factory import ModelConfig
+            from fast_agent.llm.resolved_model import ResolvedModelSpec, resolve_base_model_params
+
+            fallback_model_name = self._model_name or ""
+            fallback_model_config = ModelConfig(
+                provider=provider,
+                model_name=fallback_model_name,
+            )
+            self._resolved_model_spec = ResolvedModelSpec(
+                raw_input=fallback_model_name,
+                selected_model_name=fallback_model_name,
+                source="direct",
+                model_config=fallback_model_config,
+                provider=provider,
+                wire_model_name=fallback_model_name,
+                model_params=resolve_base_model_params(
+                    provider=provider,
+                    model_name=fallback_model_name,
+                )
+                if fallback_model_name
+                else None,
+            )
 
         # Reasoning effort configuration (provider-neutral)
         self._reasoning_effort: ReasoningEffortSetting | None = None
         self._reasoning_effort_spec: ReasoningEffortSpec | None = (
-            ModelDatabase.get_reasoning_effort_spec(self._model_name or "")
-            if self._model_name
-            else None
+            self._resolved_model_spec.reasoning_effort_spec
         )
 
         # Text verbosity configuration (provider-neutral)
         self._text_verbosity: TextVerbosityLevel | None = None
         self._text_verbosity_spec: TextVerbositySpec | None = (
-            ModelDatabase.get_text_verbosity_spec(self._model_name or "")
-            if self._model_name
-            else None
+            self._resolved_model_spec.text_verbosity_spec
         )
 
         # Context window override — set by providers that support explicit
@@ -211,10 +246,102 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
         # Initialize usage tracking
         self._usage_accumulator = UsageAccumulator()
+        effective_context_window = self._context_window_override
+        if effective_context_window is None and self._resolved_model_matches(self._model_name):
+            effective_context_window = self._resolved_model_spec.context_window
+        if effective_context_window is not None:
+            self._usage_accumulator.set_context_window_size(effective_context_window)
         self._stream_listeners: set[Callable[[StreamChunk], None]] = set()
         self._tool_stream_listeners: set[Callable[[str, dict[str, Any] | None], None]] = set()
         self.retry_count = self._resolve_retry_count()
         self.retry_backoff_seconds: float = 10.0
+
+    def _resolved_model_matches(self, model_name: str | None) -> bool:
+        if not model_name:
+            return False
+
+        resolved_key = ModelDatabase.normalize_model_name(self._resolved_model_spec.wire_model_name)
+        model_key = ModelDatabase.normalize_model_name(model_name)
+        return bool(resolved_key and model_key and resolved_key == model_key)
+
+    def _get_model_params(self, model_name: str | None) -> ModelParameters | None:
+        if not model_name:
+            return None
+
+        resolved_params = self._resolved_model_spec.model_params
+        if resolved_params is not None and self._resolved_model_matches(model_name):
+            return resolved_params
+
+        return ModelDatabase.get_model_params(model_name)
+
+    def _get_model_reasoning(self, model_name: str | None) -> str | None:
+        params = self._get_model_params(model_name)
+        return params.reasoning if params is not None else None
+
+    def _get_model_reasoning_effort_spec(
+        self, model_name: str | None
+    ) -> ReasoningEffortSpec | None:
+        params = self._get_model_params(model_name)
+        return params.reasoning_effort_spec if params is not None else None
+
+    def _get_model_text_verbosity_spec(self, model_name: str | None) -> TextVerbositySpec | None:
+        params = self._get_model_params(model_name)
+        return params.text_verbosity_spec if params is not None else None
+
+    def _get_model_json_mode(self, model_name: str | None) -> str | None:
+        params = self._get_model_params(model_name)
+        return params.json_mode if params is not None else None
+
+    def _get_model_context_window(self, model_name: str | None) -> int | None:
+        params = self._get_model_params(model_name)
+        return params.context_window if params is not None else None
+
+    def _get_model_long_context_window(self, model_name: str | None) -> int | None:
+        params = self._get_model_params(model_name)
+        return params.long_context_window if params is not None else None
+
+    def _get_model_stream_mode(self, model_name: str | None) -> Literal["openai", "manual"]:
+        params = self._get_model_params(model_name)
+        return params.stream_mode if params is not None else "openai"
+
+    def _get_model_cache_ttl(self, model_name: str | None) -> Literal["5m", "1h"] | None:
+        params = self._get_model_params(model_name)
+        return params.cache_ttl if params is not None else None
+
+    def _get_model_response_transports(
+        self,
+        model_name: str | None,
+    ) -> tuple[Literal["sse", "websocket"], ...] | None:
+        params = self._get_model_params(model_name)
+        return params.response_transports if params is not None else None
+
+    def _get_model_response_websocket_providers(
+        self,
+        model_name: str | None,
+    ) -> tuple[Provider, ...] | None:
+        params = self._get_model_params(model_name)
+        return params.response_websocket_providers if params is not None else None
+
+    def _get_model_response_service_tiers(
+        self,
+        model_name: str | None,
+    ) -> tuple[Literal["fast", "flex"], ...] | None:
+        params = self._get_model_params(model_name)
+        return params.response_service_tiers if params is not None else None
+
+    def _get_model_anthropic_web_search_version(self, model_name: str | None) -> str | None:
+        params = self._get_model_params(model_name)
+        return params.anthropic_web_search_version if params is not None else None
+
+    def _get_model_anthropic_web_fetch_version(self, model_name: str | None) -> str | None:
+        params = self._get_model_params(model_name)
+        return params.anthropic_web_fetch_version if params is not None else None
+
+    def _get_model_anthropic_required_betas(
+        self, model_name: str | None
+    ) -> tuple[str, ...] | None:
+        params = self._get_model_params(model_name)
+        return params.anthropic_required_betas if params is not None else None
 
     def set_reasoning_effort(self, setting: ReasoningEffortSetting | None) -> None:
         if setting is None:
@@ -372,7 +499,11 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
     def _initialize_base_default_params(self, kwargs: dict[str, Any]) -> RequestParams:
         """Provider-agnostic default request params."""
-        return initialize_base_default_params(instruction=self.instruction, kwargs=kwargs)
+        return initialize_base_default_params(
+            instruction=self.instruction,
+            kwargs=kwargs,
+            resolved_model_spec=self._resolved_model_spec,
+        )
 
     async def _execute_with_retry(
         self,
@@ -1120,13 +1251,34 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         self.history.clear(clear_prompts=clear_prompts)
 
     def _api_key(self):
-        if self._init_api_key:
+        if self._init_api_key is not None:
             return self._init_api_key
 
+        return self._provider_api_key()
+
+    def _provider_api_key(self):
         from fast_agent.llm.provider_key_manager import ProviderKeyManager
 
         assert self.provider
         return ProviderKeyManager.get_api_key(self.provider.config_name, self.context.config)
+
+    def _base_url(self) -> str | None:
+        if self._init_base_url is not None:
+            return self._init_base_url
+
+        return self._provider_base_url()
+
+    def _provider_base_url(self) -> str | None:
+        return None
+
+    def _default_headers(self) -> dict[str, str] | None:
+        if self._init_default_headers is not None:
+            return dict(self._init_default_headers)
+
+        return self._provider_default_headers()
+
+    def _provider_default_headers(self) -> dict[str, str] | None:
+        return None
 
     @property
     def usage_accumulator(self):
@@ -1159,7 +1311,11 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     @property
     def model_name(self) -> str | None:
         """Return the effective model name, if set."""
-        return self._model_name
+        return self._resolved_model_spec.wire_model_name or self._model_name
+
+    @property
+    def resolved_model(self) -> "ResolvedModelSpec":
+        return self._resolved_model_spec
 
     @property
     def model_info(self):
@@ -1169,13 +1325,6 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         text/document/vision flags, context window, etc.
         Applies context_window_override when set (e.g., Anthropic 1M beta).
         """
-        from dataclasses import replace
-
-        from fast_agent.llm.model_info import ModelInfo
-
-        if not self._model_name:
-            return None
-        info = ModelInfo.from_name(self._model_name, self._provider)
-        if info and self._context_window_override is not None:
-            info = replace(info, context_window=self._context_window_override)
-        return info
+        return self._resolved_model_spec.build_model_info(
+            context_window_override=self._context_window_override
+        )

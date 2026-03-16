@@ -10,6 +10,8 @@ from fast_agent.llm.request_params import RequestParams
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
+    from fast_agent.llm.resolved_model import ResolvedModelSpec
+
 
 def deep_merge(dict1: dict[Any, Any], dict2: dict[Any, Any]) -> dict[Any, Any]:
     """Recursively merge ``dict2`` into ``dict1`` in place."""
@@ -91,10 +93,20 @@ def initialize_base_default_params(
     *,
     instruction: str | None,
     kwargs: Mapping[str, Any],
+    resolved_model_spec: "ResolvedModelSpec | None" = None,
 ) -> RequestParams:
     """Build provider-agnostic default request params."""
     model = kwargs.get("model")
-    max_tokens = ModelDatabase.get_default_max_tokens(model) if model else 16384
+    max_tokens: int
+    if (
+        isinstance(model, str)
+        and resolved_model_spec is not None
+        and model == resolved_model_spec.wire_model_name
+        and resolved_model_spec.max_output_tokens is not None
+    ):
+        max_tokens = resolved_model_spec.max_output_tokens
+    else:
+        max_tokens = ModelDatabase.get_default_max_tokens(model) if model else 16384
 
     return RequestParams(
         model=model,

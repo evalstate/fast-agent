@@ -10,11 +10,11 @@ from typing import TYPE_CHECKING, cast
 from prompt_toolkit.formatted_text import HTML
 
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
+from fast_agent.llm.model_display_name import resolve_model_display_name
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.llm.provider_types import Provider
 from fast_agent.ui import notification_tracker
 from fast_agent.ui.model_chip_display import render_model_chip
-from fast_agent.ui.model_display import format_model_display
 from fast_agent.ui.prompt.alert_flags import _resolve_alert_flags_from_history
 from fast_agent.ui.prompt.toolbar import (
     _can_fit_shell_path_and_version,
@@ -241,8 +241,10 @@ def _resolve_model_name(agent: object, llm: object | None) -> str | None:
 
 
 def _resolve_model_display(agent: object, model_name: str | None) -> str | None:
-    if model_name:
-        return _truncate_model_display(format_model_display(model_name) or model_name)
+    llm = _resolve_agent_llm(agent)
+    resolved_display = resolve_model_display_name(model_name, llm=llm)
+    if resolved_display:
+        return _truncate_model_display(resolved_display)
     if isinstance(agent, ParallelAgent):
         return _resolve_parallel_model_display(agent)
     return "unknown"
@@ -253,8 +255,9 @@ def _resolve_parallel_model_display(agent: ParallelAgent) -> str:
     for fan_out_agent in agent.fan_out_agents:
         child_llm = _resolve_agent_llm(fan_out_agent)
         child_model_name = _resolve_model_name(fan_out_agent, child_llm)
-        if child_model_name:
-            parallel_models.append(format_model_display(child_model_name) or child_model_name)
+        child_display = resolve_model_display_name(child_model_name, llm=child_llm)
+        if child_display:
+            parallel_models.append(child_display)
 
     if not parallel_models:
         return "parallel"
@@ -345,6 +348,7 @@ def _resolve_model_info(
         info = ModelInfo.from_llm(llm)
         if info:
             return info
+        return ModelInfo.from_resolved_model(llm.resolved_model)
     if model_name:
         return ModelInfo.from_name(model_name)
     return None

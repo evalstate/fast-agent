@@ -17,7 +17,7 @@ def test_check_uses_env_dir_for_config(tmp_path: Path) -> None:
     work_dir = tmp_path / "work"
     work_dir.mkdir()
     (work_dir / "fastagent.config.yaml").write_text(
-        "default_model: gpt-5-mini.low\n", encoding="utf-8"
+        "default_model: gpt-5-mini?reasoning=low\n", encoding="utf-8"
     )
     (work_dir / "fastagent.secrets.yaml").write_text(
         "openai:\n  api_key: sk-cwd-test\n", encoding="utf-8"

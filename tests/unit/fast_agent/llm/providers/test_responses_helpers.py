@@ -1,5 +1,6 @@
 import base64
 import json
+import os
 from types import SimpleNamespace
 from typing import Any, Literal
 
@@ -548,6 +549,55 @@ async def test_openresponses_sse_completion_uses_raw_create_stream() -> None:
     assert responses_api.create_calls[0]["stream"] is True
 
 
+def test_openresponses_client_allows_missing_api_key() -> None:
+    original = os.getenv("OPENRESPONSES_API_KEY")
+    try:
+        if "OPENRESPONSES_API_KEY" in os.environ:
+            del os.environ["OPENRESPONSES_API_KEY"]
+
+        llm = OpenResponsesLLM(context=Context(config=Settings()), model="openai/gpt-oss-120b")
+
+        assert llm._api_key() == ""
+        assert isinstance(llm._responses_client(), AsyncOpenAI)
+    finally:
+        if original is None:
+            if "OPENRESPONSES_API_KEY" in os.environ:
+                del os.environ["OPENRESPONSES_API_KEY"]
+        else:
+            os.environ["OPENRESPONSES_API_KEY"] = original
+
+
+def test_openresponses_client_preserves_explicit_empty_api_key() -> None:
+    llm = OpenResponsesLLM(
+        context=Context(config=Settings()),
+        model="openai/gpt-oss-120b",
+        api_key="",
+    )
+
+    assert llm._api_key() == ""
+    assert isinstance(llm._responses_client(), AsyncOpenAI)
+
+
+def test_openresponses_sampling_overrides_route_non_responses_fields_to_extra_body() -> None:
+    llm = OpenResponsesLLM(
+        context=Context(config=Settings()),
+        model="openai/gpt-oss-120b",
+    )
+
+    args = llm._build_response_args(
+        [{"type": "message", "role": "user", "content": [{"type": "input_text", "text": "hi"}]}],
+        RequestParams(top_k=40, min_p=0.05),
+        None,
+    )
+
+    assert "top_k" not in args
+    assert "min_p" not in args
+    extra_body = args.get("extra_body")
+    assert isinstance(extra_body, dict)
+    assert extra_body["top_k"] == 40
+    assert extra_body["min_p"] == 0.05
+
+
 def test_explicit_responses_transport_override_is_preserved() -> None:
     settings = Settings(responses=OpenAISettings(api_key="test-key", transport="sse"))
     context = Context(config=settings)
@@ -1006,7 +1056,6 @@ def test_codexresponses_settings_reject_flex_service_tier() -> None:
     ("provider", "expected_tiers"),
     [
         (Provider.RESPONSES, ("fast", "flex")),
-        (Provider.OPENRESPONSES, ("fast", "flex")),
         (Provider.CODEX_RESPONSES, ("fast",)),
     ],
 )
@@ -1018,6 +1067,17 @@ def test_responses_family_llms_report_service_tier_support(
 
     assert llm.service_tier_supported is True
     assert llm.available_service_tiers == expected_tiers
+    assert llm.service_tier is None
+
+
+def test_openresponses_llm_hides_interactive_provider_controls() -> None:
+    llm = _build_responses_family_llm(
+        Provider.OPENRESPONSES,
+        model_name="unsloth/Qwen3.5-9B-GGUF",
+    )
+
+    assert llm.service_tier_supported is False
+    assert llm.web_search_supported is False
     assert llm.service_tier is None
 
 
@@ -1178,6 +1238,69 @@ def test_web_search_override_disables_configured_web_search_tool() -> None:
 def test_responses_web_search_enabled_property_tracks_config() -> None:
     llm = _build_responses_llm_with_web_search(OpenAIWebSearchSettings(enabled=True))
     assert llm.web_search_enabled is True
+
+
+def test_openresponses_web_search_does_not_inherit_openai_settings() -> None:
+    settings = Settings(
+        openai=OpenAISettings(
+            api_key="test-key",
+            web_search=OpenAIWebSearchSettings(enabled=True),
+        )
+    )
+    llm = OpenResponsesLLM(
+        context=Context(config=settings),
+        model="unsloth/Qwen3.5-9B-GGUF",
+        name="openresponses-web-search-test",
+    )
+
+    assert llm.web_search_enabled is False
+
+    args = llm._build_response_args(
+        input_items=[
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "latest news"}],
+            }
+        ],
+        request_params=RequestParams(model="unsloth/Qwen3.5-9B-GGUF"),
+        tools=None,
+    )
+
+    assert "tools" not in args
+
+
+def test_openresponses_web_search_uses_own_provider_settings() -> None:
+    settings = Settings(
+        openresponses=OpenResponsesSettings(
+            api_key="test-key",
+            web_search=OpenAIWebSearchSettings(enabled=True),
+        )
+    )
+    llm = OpenResponsesLLM(
+        context=Context(config=settings),
+        model="unsloth/Qwen3.5-9B-GGUF",
+        name="openresponses-web-search-test",
+    )
+
+    assert llm.web_search_enabled is True
+
+    args = llm._build_response_args(
+        input_items=[
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "latest news"}],
+            }
+        ],
+        request_params=RequestParams(model="unsloth/Qwen3.5-9B-GGUF"),
+        tools=None,
+    )
+
+    tools_payload = args.get("tools")
+    assert isinstance(tools_payload, list)
+    assert len(tools_payload) == 1
+    assert tools_payload[0]["type"] == "web_search"
 
 
 def test_codex_web_search_defaults_disabled() -> None:

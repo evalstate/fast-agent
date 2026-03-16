@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterable, AsyncIterator
+from collections.abc import AsyncIterable, AsyncIterator, Sequence
 from typing import TYPE_CHECKING, Any, Callable, Protocol, Self, TypeVar
 
 if TYPE_CHECKING:
@@ -19,6 +19,11 @@ class ToolFallbackEmitter(Protocol):
         *,
         model: str,
     ) -> None: ...
+
+
+class IncompleteToolEntry(Protocol):
+    tool_name: str
+    tool_use_id: str
 
 
 class _IdleTimeoutAsyncStream(AsyncIterator[_StreamEventT]):
@@ -101,3 +106,73 @@ def finalize_stream_response(
 
     output_items = list(getattr(final_response, "output", []) or [])
     emit_tool_fallback(output_items, notified_tool_indices, model=model)
+
+
+def validate_incomplete_tool_entries(
+    *,
+    incomplete_entries: Sequence[IncompleteToolEntry],
+    final_response: Any,
+    logger: Logger,
+) -> None:
+    if not incomplete_entries:
+        return
+
+    incomplete_tools = [
+        f"{entry.tool_name}:{entry.tool_use_id}" for entry in incomplete_entries
+    ]
+    response_status = getattr(final_response, "status", None)
+    log_method = logger.warning if response_status == "incomplete" else logger.error
+    log_method(
+        "Tool call streaming incomplete - started but never finished",
+        data={
+            "incomplete_tools": incomplete_tools,
+            "tool_count": len(incomplete_entries),
+            "response_status": response_status,
+        },
+    )
+    if response_status != "incomplete":
+        raise RuntimeError(
+            "Streaming completed but tool call(s) never finished: "
+            f"{', '.join(incomplete_tools)}"
+        )
+
+
+async def fetch_and_finalize_stream_response(
+    *,
+    stream: Any,
+    final_response: Any | None,
+    fetch_failure_message: str,
+    use_exc_info_on_fetch_failure: bool,
+    incomplete_entries: Sequence[IncompleteToolEntry],
+    model: str,
+    agent_name: str | None,
+    chat_turn: Callable[[], int],
+    logger: Logger,
+    notified_tool_indices: set[int],
+    emit_tool_fallback: ToolFallbackEmitter,
+) -> Any:
+    if final_response is None:
+        try:
+            final_response = await stream.get_final_response()
+        except Exception as exc:
+            if use_exc_info_on_fetch_failure:
+                logger.warning(fetch_failure_message, exc_info=exc)
+            else:
+                logger.warning(fetch_failure_message, data={"error": str(exc)})
+            raise
+
+    validate_incomplete_tool_entries(
+        incomplete_entries=incomplete_entries,
+        final_response=final_response,
+        logger=logger,
+    )
+    finalize_stream_response(
+        final_response=final_response,
+        model=model,
+        agent_name=agent_name,
+        chat_turn=chat_turn,
+        logger=logger,
+        notified_tool_indices=notified_tool_indices,
+        emit_tool_fallback=emit_tool_fallback,
+    )
+    return final_response

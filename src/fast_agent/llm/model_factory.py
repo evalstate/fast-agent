@@ -13,8 +13,10 @@ from fast_agent.llm.internal.playback import PlaybackLLM
 from fast_agent.llm.internal.silent import SilentLLM
 from fast_agent.llm.internal.slow import SlowLLM
 from fast_agent.llm.model_database import ModelDatabase
+from fast_agent.llm.model_overlays import load_model_overlay_registry
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, parse_reasoning_setting
+from fast_agent.llm.resolved_model import ResolvedModelSpec, resolve_base_model_params
 from fast_agent.llm.structured_output_mode import (
     StructuredOutputMode,
     parse_structured_output_mode,
@@ -386,18 +388,19 @@ def _expand_model_preset(
     )
 
 
-def _split_reasoning_suffix(
-    model_spec: str,
-) -> tuple[str, ReasoningEffortSetting | None]:
+def _reject_deprecated_reasoning_suffix(model_spec: str) -> None:
     parts = model_spec.split(".")
     if len(parts) <= 1:
-        return model_spec, None
+        return
 
     suffix_setting = parse_reasoning_setting(parts[-1].lower())
     if suffix_setting is None or suffix_setting.kind != "effort":
-        return model_spec, None
+        return
 
-    return ".".join(parts[:-1]), suffix_setting
+    raise ModelConfigError(
+        f"Reasoning suffix syntax is no longer supported for '{model_spec}'. "
+        "Use '?reasoning=<value>' instead."
+    )
 
 
 def _resolve_provider_and_model_name(
@@ -600,14 +603,6 @@ class ModelFactory:
     # Mapping of providers to their LLM classes
     PROVIDER_CLASSES: dict[Provider, LLMClass] = {}
 
-    # Backward-compatibility alias for older external packages (e.g. published ACP
-    # wrappers) that still mutate ModelFactory.DEFAULT_PROVIDERS directly.
-    #
-    # This intentionally points at the runtime provider registry so legacy writes like:
-    #   ModelFactory.DEFAULT_PROVIDERS["wizard-setup"] = Provider.FAST_AGENT
-    # still affect provider resolution for unprefixed model names.
-    DEFAULT_PROVIDERS: dict[str, Provider] = ModelDatabase._RUNTIME_MODEL_DEFAULT_PROVIDERS
-
     # Mapping of special model names to their specific LLM classes
     # This overrides the provider-based class selection
     MODEL_SPECIFIC_CLASSES: dict[str, LLMClass] = {
@@ -615,34 +610,6 @@ class ModelFactory:
         "silent": SilentLLM,
         "slow": SlowLLM,
     }
-
-    @classmethod
-    def register_runtime_model_provider(cls, model_name: str, provider: Provider) -> None:
-        """Register or override a runtime default provider for an unprefixed model name."""
-        ModelDatabase.register_runtime_default_provider(model_name, provider)
-
-    @classmethod
-    def unregister_runtime_model_provider(cls, model_name: str) -> None:
-        """Remove a runtime default provider override."""
-        ModelDatabase.unregister_runtime_default_provider(model_name)
-
-    @classmethod
-    def register_runtime_model(
-        cls,
-        model_name: str,
-        provider: Provider,
-        llm_class: LLMClass | None = None,
-    ) -> None:
-        """Register a runtime model provider and optional model-specific class."""
-        cls.register_runtime_model_provider(model_name, provider)
-        if llm_class is not None:
-            cls.MODEL_SPECIFIC_CLASSES[model_name] = llm_class
-
-    @classmethod
-    def unregister_runtime_model(cls, model_name: str) -> None:
-        """Remove runtime model provider and model-specific class overrides."""
-        cls.unregister_runtime_model_provider(model_name)
-        cls.MODEL_SPECIFIC_CLASSES.pop(model_name, None)
 
     @classmethod
     def get_runtime_presets(cls) -> dict[str, str]:
@@ -657,6 +624,7 @@ class ModelFactory:
                 continue
             presets.setdefault(preset_token, entry.model)
 
+        presets.update(load_model_overlay_registry().runtime_presets())
         return presets
 
     @classmethod
@@ -686,19 +654,14 @@ class ModelFactory:
             expanded_model_spec = f"{expanded_model_spec}:{user_suffix}"
 
         merged_overrides = explicit_overrides.with_defaults(expanded_preset.query_defaults)
-        provider_model_spec, suffix_reasoning = _split_reasoning_suffix(expanded_model_spec)
-
-        if suffix_reasoning is not None and merged_overrides.reasoning_effort is not None:
-            raise ModelConfigError(
-                f"Multiple reasoning settings provided for '{expanded_model_spec}'."
-            )
+        _reject_deprecated_reasoning_suffix(expanded_model_spec)
 
         provider, model_name = _resolve_provider_and_model_name(
-            provider_model_spec,
+            expanded_model_spec,
             bedrock_pattern_matches=cls._bedrock_pattern_matches,
         )
 
-        reasoning_effort = merged_overrides.reasoning_effort or suffix_reasoning
+        reasoning_effort = merged_overrides.reasoning_effort
         if merged_overrides.instant is not None:
             if reasoning_effort is not None:
                 raise ModelConfigError(
@@ -741,6 +704,56 @@ class ModelFactory:
         return cls.parse_model_spec(model_string, presets=presets).to_model_config()
 
     @classmethod
+    def resolve_model_spec(
+        cls,
+        model_string: str,
+        presets: Mapping[str, str] | None = None,
+    ) -> ResolvedModelSpec:
+        """Hydrate a model selection into a single resolved specification."""
+        selected_model_name = model_string.strip()
+        overlay_registry = load_model_overlay_registry()
+        selected_overlay = overlay_registry.resolve_model_string(model_string)
+
+        if selected_overlay is not None:
+            source: Literal["overlay", "preset", "direct"] = "overlay"
+            parsed = cls.parse_model_spec(
+                model_string,
+                presets={selected_overlay.name: selected_overlay.compiled_model_spec},
+            )
+        else:
+            if presets is None:
+                presets = cls.get_runtime_presets()
+
+            parsed = cls.parse_model_spec(model_string, presets=presets)
+            selected_token = selected_model_name.partition("?")[0].strip()
+            if selected_token in presets:
+                source = "preset"
+            else:
+                source = "direct"
+
+        model_config = parsed.to_model_config()
+
+        model_params = None
+        if selected_overlay is not None:
+            model_params = selected_overlay.build_model_parameters()
+        if model_params is None:
+            model_params = resolve_base_model_params(
+                provider=parsed.provider,
+                model_name=parsed.model_name,
+            )
+
+        return ResolvedModelSpec(
+            raw_input=model_string,
+            selected_model_name=selected_model_name,
+            source=source,
+            model_config=model_config,
+            provider=model_config.provider,
+            wire_model_name=model_config.model_name,
+            overlay=selected_overlay,
+            model_params=model_params,
+        )
+
+    @classmethod
     def create_factory(
         cls, model_string: str, presets: Mapping[str, str] | None = None
     ) -> LLMFactoryProtocol:
@@ -754,7 +767,8 @@ class ModelFactory:
         Returns:
             A callable that takes an agent parameter and returns an LLM instance
         """
-        config = cls.parse_model_string(model_string, presets=presets)
+        resolved_model = cls.resolve_model_spec(model_string, presets=presets)
+        config = resolved_model.model_config
 
         # Ensure provider is valid before trying to access PROVIDER_CLASSES with it
         # Lazily ensure provider class map is populated and supports this provider
@@ -771,69 +785,21 @@ class ModelFactory:
         def factory(
             agent: AgentProtocol, request_params: RequestParams | None = None, **kwargs
         ) -> FastAgentLLMProtocol:
-            effective_request_params = request_params
-
-            sampling_overrides: dict[str, float | int] = {}
-            if config.temperature is not None:
-                sampling_overrides["temperature"] = config.temperature
-            if config.top_p is not None:
-                sampling_overrides["top_p"] = config.top_p
-            if config.top_k is not None:
-                sampling_overrides["top_k"] = config.top_k
-            if config.min_p is not None:
-                sampling_overrides["min_p"] = config.min_p
-            if config.presence_penalty is not None:
-                sampling_overrides["presence_penalty"] = config.presence_penalty
-            if config.repetition_penalty is not None:
-                sampling_overrides["repetition_penalty"] = config.repetition_penalty
-
-            if sampling_overrides:
-                if effective_request_params is None:
-                    effective_request_params = RequestParams().model_copy(update=sampling_overrides)
-                else:
-                    effective_request_params = effective_request_params.model_copy(
-                        update=sampling_overrides
-                    )
-
-            if config.service_tier is not None:
-                has_explicit_service_tier = (
-                    effective_request_params is not None
-                    and "service_tier" in effective_request_params.model_fields_set
-                )
-                if not has_explicit_service_tier:
-                    if effective_request_params is None:
-                        effective_request_params = RequestParams(service_tier=config.service_tier)
-                    else:
-                        effective_request_params = effective_request_params.model_copy(
-                            update={"service_tier": config.service_tier}
-                        )
-
-            if config.reasoning_effort:
-                kwargs["reasoning_effort"] = config.reasoning_effort
-            if config.text_verbosity:
-                kwargs["text_verbosity"] = config.text_verbosity
-            if config.structured_output_mode:
-                kwargs["structured_output_mode"] = config.structured_output_mode
-            if config.long_context:
-                kwargs["long_context"] = True
-            if config.transport:
-                kwargs["transport"] = config.transport
-            if config.web_search is not None and config.provider in {
-                Provider.ANTHROPIC,
-                Provider.RESPONSES,
-                Provider.OPENRESPONSES,
-                Provider.CODEX_RESPONSES,
-            }:
-                kwargs["web_search"] = config.web_search
-            if config.web_fetch is not None and config.provider == Provider.ANTHROPIC:
-                kwargs["web_fetch"] = config.web_fetch
+            effective_request_params = resolved_model.apply_request_defaults(request_params)
             llm_args = {
-                "model": config.model_name,
+                "model": resolved_model.wire_model_name,
+                "resolved_model_spec": resolved_model,
                 "request_params": effective_request_params,
                 "name": getattr(agent, "name", "fast-agent"),
                 "instructions": getattr(agent, "instruction", None),
+                **resolved_model.build_llm_kwargs(),
                 **kwargs,
             }
+            if resolved_model.llm_init_kwargs:
+                llm_args = {
+                    **llm_args,
+                    **resolved_model.llm_init_kwargs,
+                }
             llm: FastAgentLLMProtocol = llm_class(**llm_args)
             return llm
 

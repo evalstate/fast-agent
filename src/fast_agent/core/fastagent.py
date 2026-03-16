@@ -2560,7 +2560,7 @@ class FastAgent(DecoratorMixin):
             handle_error(
                 e,
                 "Model Configuration Error",
-                "Common models: gpt-5.1, kimi, sonnet, haiku. Set reasoning effort on supported models with gpt-5-mini.high",
+                "Common models: gpt-5.1, kimi, sonnet, haiku. Set reasoning effort on supported models with gpt-5-mini?reasoning=high",
             )
         elif isinstance(e, CircularDependencyError):
             handle_error(

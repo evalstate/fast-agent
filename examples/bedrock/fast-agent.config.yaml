@@ -1,11 +1,11 @@
 # Example minimal fast-agent.config.yaml for Bedrock
 
 # List of supported models: https://docs.aws.amazon.com/bedrock/latest/userguide/models-supported.html
-# Model string format: bedrock.<model_id>.<reasoning_effort>
+# Model string format: bedrock.<model_id>?reasoning=<value>
 # Examples:
 #   bedrock.amazon.nova-lite-v1:0           # No reasoning
-#   bedrock.claude-sonnet-4-0.high          # High reasoning effort
-#   bedrock.anthropic.claude-3-7-sonnet-20250219-v1:0.medium  # Medium reasoning
+#   bedrock.claude-sonnet-4-0?reasoning=high          # High reasoning effort
+#   bedrock.anthropic.claude-3-7-sonnet-20250219-v1:0?reasoning=medium  # Medium reasoning
 default_model: bedrock.amazon.nova-lite-v1:0
 
 # Bedrock uses the AWS credentials provider chain to authenticate.

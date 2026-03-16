@@ -29,7 +29,6 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
 from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.fastagent_llm import FastAgentLLM, RequestParams
-from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.error_utils import build_stream_failure_response
 from fast_agent.llm.provider.openai._stream_capture import (
     save_stream_chunk as _save_stream_chunk,
@@ -116,7 +115,7 @@ class OpenAILLM(
 
         # Determine reasoning mode for the selected model
         chosen_model = self.default_request_params.model if self.default_request_params else None
-        self._reasoning_mode = ModelDatabase.get_reasoning(chosen_model) if chosen_model else None
+        self._reasoning_mode = self._get_model_reasoning(chosen_model)
         self._reasoning = self._reasoning_mode == "openai"
         if self._reasoning_mode:
             self.logger.info(
@@ -141,12 +140,12 @@ class OpenAILLM(
         """Initialize OpenAI-specific default parameters"""
         return self._initialize_default_params_with_model_fallback(kwargs, DEFAULT_OPENAI_MODEL)
 
-    def _base_url(self) -> str | None:
+    def _provider_base_url(self) -> str | None:
         if self.context.config and self.context.config.openai:
             return self.context.config.openai.base_url
         return None
 
-    def _default_headers(self) -> dict[str, str] | None:
+    def _provider_default_headers(self) -> dict[str, str] | None:
         """
         Get custom headers from configuration.
         Subclasses can override this to provide provider-specific headers.
@@ -511,10 +510,10 @@ class OpenAILLM(
         estimated_tokens = 0
         reasoning_active = False
         reasoning_segments: list[str] = []
-        reasoning_mode = ModelDatabase.get_reasoning(model)
+        reasoning_mode = self._get_model_reasoning(model)
 
         # For providers/models that emit non-OpenAI deltas, fall back to manual accumulation
-        stream_mode = ModelDatabase.get_stream_mode(model)
+        stream_mode = self._get_model_stream_mode(model)
         provider_requires_manual = self.provider in [
             Provider.GENERIC,
             Provider.OPENROUTER,
@@ -662,7 +661,7 @@ class OpenAILLM(
         estimated_tokens = 0
         reasoning_active = False
         reasoning_segments: list[str] = []
-        reasoning_mode = ModelDatabase.get_reasoning(model)
+        reasoning_mode = self._get_model_reasoning(model)
 
         # Manual accumulation of response data
         accumulated_content = ""
@@ -1181,7 +1180,7 @@ class OpenAILLM(
         """
         converted: list[ChatCompletionMessageParam] = []
         model = self.default_request_params.model
-        reasoning_mode = ModelDatabase.get_reasoning(model) if model else None
+        reasoning_mode = self._get_model_reasoning(model)
 
         for msg in messages:
             # convert_to_openai returns a list of messages
