@@ -18,6 +18,7 @@ from fast_agent.cli.constants import RESUME_LATEST_SENTINEL
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.keyring_utils import emit_keyring_access_notice
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.llm.model_reference_config import resolve_model_reference_start_path
 from fast_agent.llm.provider_types import Provider
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 from fast_agent.ui.model_picker_common import (
@@ -292,10 +293,16 @@ async def _select_model_from_picker(
     from fast_agent.ui.model_picker import run_model_picker_async
 
     config_path = Path(request.config_path) if request.config_path else None
+    picker_start_path = (
+        config_path.parent
+        if config_path is not None
+        else resolve_model_reference_start_path(settings=_load_request_settings(request))
+    )
     while True:
         picker_result = await run_model_picker_async(
             config_path=config_path,
             config_payload=config_payload,
+            start_path=picker_start_path,
             initial_provider=initial_provider,
             initial_model_spec=initial_model_spec,
         )

@@ -129,6 +129,43 @@ def test_show_models_overview_uses_default_env_config_aliases(tmp_path: Path, ca
     assert "$system.envfast" in output
 
 
+def test_show_provider_model_catalog_scopes_overlays_to_requested_env(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    env_dir = tmp_path / "project-env"
+    ambient_env_dir = tmp_path / "ambient-env"
+    (env_dir / "model-overlays").mkdir(parents=True)
+    (ambient_env_dir / "model-overlays").mkdir(parents=True)
+    (env_dir / "model-overlays" / "projectoverlay.yaml").write_text(
+        "name: projectoverlay\nprovider: responses\nmodel: overlay-tests/project\n",
+        encoding="utf-8",
+    )
+    (ambient_env_dir / "model-overlays" / "ambientoverlay.yaml").write_text(
+        "name: ambientoverlay\nprovider: responses\nmodel: overlay-tests/ambient\n",
+        encoding="utf-8",
+    )
+
+    cwd = Path.cwd()
+    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
+    try:
+        os.environ["ENVIRONMENT_DIR"] = str(ambient_env_dir)
+        os.chdir(tmp_path)
+        show_provider_model_catalog("responses", env_dir=env_dir)
+    finally:
+        os.chdir(cwd)
+        if previous_env_dir is None:
+            os.environ.pop("ENVIRONMENT_DIR", None)
+        else:
+            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+
+    output = capsys.readouterr().out
+    assert "projectoverlay" in output
+    assert "responses.overlay-tests/project" in output
+    assert "ambientoverlay" not in output
+    assert "responses.overlay-tests/ambient" not in output
+
+
 def test_show_provider_model_catalog_rejects_unknown_provider() -> None:
     with pytest.raises(ValueError, match="Unknown provider"):
         show_provider_model_catalog("not-a-provider")

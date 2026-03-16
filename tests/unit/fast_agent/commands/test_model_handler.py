@@ -46,6 +46,8 @@ def _build_overlay(
 class _StubIO:
     def __init__(self, *, model_selection_response: str | None = None) -> None:
         self._model_selection_response = model_selection_response
+        self.last_initial_provider: str | None = None
+        self.last_default_model: str | None = None
 
     async def emit(self, message):
         return None
@@ -64,7 +66,8 @@ class _StubIO:
         initial_provider=None,
         default_model=None,
     ):
-        del initial_provider, default_model
+        self.last_initial_provider = initial_provider
+        self.last_default_model = default_model
         return self._model_selection_response
 
     async def prompt_argument(self, arg_name: str, *, description=None, required=True):
@@ -702,6 +705,32 @@ async def test_model_switch_uses_selector_when_value_missing() -> None:
     assert agent.config.model == "gpt-5-mini"
     assert llm.model_name == "gpt-5-mini"
     assert outcome.reset_session is True
+
+
+@pytest.mark.asyncio
+async def test_model_switch_reopens_overlay_selection_on_overlay_provider() -> None:
+    llm = _StubLLM(
+        "claude-haiku-4-5",
+        provider=Provider.ANTHROPIC,
+        selected_model_name="haikutiny",
+        overlay_name="haikutiny",
+    )
+    agent = _StubAgent(llm)
+    provider = _StubAgentProvider(agent)
+    io = _StubIO(model_selection_response="haikutiny")
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=io,
+        settings=Settings(),
+    )
+
+    outcome = await handle_model_switch(ctx, agent_name="test", value=None)
+
+    assert io.last_initial_provider == "overlays"
+    assert io.last_default_model == "haikutiny"
+    assert outcome.reset_session is False
+    assert any("already active" in str(message.text) for message in outcome.messages)
 
 
 @pytest.mark.asyncio

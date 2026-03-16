@@ -145,6 +145,48 @@ def test_build_snapshot_loads_overlays_relative_to_config_path(tmp_path: Path) -
             os.environ["ENVIRONMENT_DIR"] = previous_env_dir
 
 
+def test_build_snapshot_loads_overlays_relative_to_explicit_start_path(tmp_path: Path) -> None:
+    from pathlib import Path
+
+    project_root = tmp_path / "project"
+    project_root.mkdir(parents=True)
+    overlays_dir = project_root / ".fast-agent" / "model-overlays"
+    overlays_dir.mkdir(parents=True)
+    (overlays_dir / "haikutiny.yaml").write_text(
+        "\n".join(
+            [
+                "name: haikutiny",
+                "provider: anthropic",
+                "model: claude-haiku-4-5",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    outside_cwd = tmp_path / "elsewhere"
+    outside_cwd.mkdir(parents=True)
+
+    cwd = Path.cwd()
+    previous_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
+    try:
+        os.chdir(outside_cwd)
+        snapshot = build_snapshot(
+            config_payload={"environment_dir": ".fast-agent"},
+            start_path=project_root,
+        )
+        assert snapshot.providers[0].option_key == "overlays"
+        assert any(entry.alias == "haikutiny" for entry in snapshot.providers[0].curated_entries)
+    finally:
+        os.chdir(cwd)
+        reset_env_dir = tmp_path / ".empty-fast-agent-start-path"
+        reset_env_dir.mkdir(parents=True, exist_ok=True)
+        load_model_overlay_registry(start_path=tmp_path, env_dir=reset_env_dir)
+        if previous_env_dir is None:
+            os.environ.pop("ENVIRONMENT_DIR", None)
+        else:
+            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+
+
 def test_build_snapshot_with_explicit_config_stays_scoped_to_config_project(tmp_path: Path) -> None:
     from pathlib import Path
 

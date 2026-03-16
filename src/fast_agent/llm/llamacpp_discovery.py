@@ -269,10 +269,10 @@ async def interrogate_llamacpp_model(
         props_url=resolved_url,
         runtime_context_window=_positive_int_or_none(generation.n_ctx),
         max_output_tokens=max_output_tokens,
-        temperature=params.temperature,
+        temperature=_normalize_llamacpp_float(params.temperature),
         top_k=_positive_int_or_none(params.top_k),
-        top_p=params.top_p,
-        min_p=params.min_p,
+        top_p=_normalize_llamacpp_float(params.top_p),
+        min_p=_normalize_llamacpp_float(params.min_p),
         tokenizes=_derive_tokenizes(props.modalities),
         model_alias=_normalize_text(props.model_alias),
     )
@@ -301,10 +301,10 @@ def build_llamacpp_overlay_manifest(
             secret_ref=secret_ref,
         ),
         defaults=ModelOverlayDefaults(
-            temperature=discovered_model.temperature,
+            temperature=_normalize_llamacpp_float(discovered_model.temperature),
             top_k=discovered_model.top_k,
-            top_p=discovered_model.top_p,
-            min_p=discovered_model.min_p,
+            top_p=_normalize_llamacpp_float(discovered_model.top_p),
+            min_p=_normalize_llamacpp_float(discovered_model.min_p),
             max_tokens=discovered_model.max_output_tokens,
         ),
         metadata=ModelOverlayMetadata(
@@ -314,7 +314,6 @@ def build_llamacpp_overlay_manifest(
             ),
             max_output_tokens=discovered_model.max_output_tokens,
             tokenizes=list(discovered_model.tokenizes),
-            default_temperature=discovered_model.temperature,
         ),
         picker=ModelOverlayPicker(
             label=_picker_label(discovered_model),
@@ -373,6 +372,15 @@ def _discovery_headers(api_key: str | None) -> dict[str, str]:
     if api_key is None:
         return {}
     return {"Authorization": f"Bearer {api_key}"}
+
+
+def _normalize_llamacpp_float(value: float | None) -> float | None:
+    if value is None:
+        return None
+    normalized = round(value, 6)
+    if normalized == 0:
+        return 0.0
+    return normalized
 
 
 async def _get_json_from_candidates(

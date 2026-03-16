@@ -97,4 +97,39 @@ def test_llamacpp_picker_details_include_start_now_and_generate_overlay_hints() 
 
     assert "selected action: Start now" in rendered
     assert "training context: 262144" in rendered
+    assert "Import writes a reusable overlay for this model." in rendered
     assert "Enter on models = choose action" in rendered
+
+
+def test_llamacpp_picker_hides_model_cursor_when_actions_are_focused() -> None:
+    picker = _LlamaCppModelPicker(
+        (
+            LlamaCppModelListing(
+                model_id="unsloth/Qwen3.5-9B-GGUF",
+                owned_by="llamacpp",
+                training_context_window=262144,
+            ),
+        )
+    )
+    picker.state.focus = "actions"
+
+    rendered_models = "".join(fragment for _, fragment in picker._render_models())
+    rendered_actions = "".join(fragment for _, fragment in picker._render_actions())
+
+    assert "❯" not in rendered_models
+    assert "❯ Start now" in rendered_actions
+
+
+def test_llamacpp_picker_formats_model_rows_as_name_plus_context() -> None:
+    model = LlamaCppModelListing(
+        model_id="meta-llama/Llama-3.2-3B-Instruct",
+        owned_by="llamacpp",
+        training_context_window=131072,
+    )
+
+    row = _LlamaCppModelPicker._model_row_label(model, width=60)
+
+    assert len(row) <= 60
+    assert "meta-llama/Llama-3.2-3B-Instruct" in row
+    assert "ctx 131072" in row
+    assert "llamacpp" not in row

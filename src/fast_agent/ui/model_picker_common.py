@@ -149,6 +149,7 @@ def build_snapshot(
     config_path: str | Path | None = None,
     *,
     config_payload: dict[str, Any] | None = None,
+    start_path: Path | None = None,
 ) -> ModelPickerSnapshot:
     if config_payload is None:
         settings = get_settings(str(config_path) if config_path else None)
@@ -163,6 +164,7 @@ def build_snapshot(
     overlay_registry = _load_overlay_registry_for_snapshot(
         config_path=config_path,
         config_payload=config_payload,
+        start_path=start_path,
     )
     overlay_entries = tuple(
         CatalogModelEntry(
@@ -220,6 +222,7 @@ def _load_overlay_registry_for_snapshot(
     *,
     config_path: str | Path | None,
     config_payload: dict[str, Any],
+    start_path: Path | None,
 ):
     from pathlib import Path as _Path
 
@@ -249,7 +252,10 @@ def _load_overlay_registry_for_snapshot(
                 if project_root != config_file.parent:
                     candidate_starts.append(project_root)
 
-    if config_path is None:
+    if config_path is None and start_path is not None:
+        candidate_starts.append(_Path(start_path).expanduser().resolve())
+
+    if config_path is None and start_path is None:
         candidate_starts.append(_Path.cwd().resolve())
 
     seen: set[_Path] = set()

@@ -10,6 +10,7 @@ from rich.text import Text
 from fast_agent.commands.context import CommandIO
 from fast_agent.commands.results import CommandMessage
 from fast_agent.config import Settings, get_settings
+from fast_agent.llm.model_reference_config import resolve_model_reference_start_path
 from fast_agent.ui.enhanced_prompt import get_argument_input, get_selection_input
 from fast_agent.ui.history_actions import display_history_turn
 from fast_agent.ui.message_primitives import MessageType
@@ -172,6 +173,11 @@ class TuiCommandIO(CommandIO):
                     self.config_payload
                     if self.config_payload is not None
                     else self.settings.model_dump() if self.settings is not None else None
+                ),
+                start_path=(
+                    resolve_model_reference_start_path(settings=self.settings)
+                    if self.settings is not None
+                    else None
                 ),
                 initial_provider=provider_name,
                 initial_model_spec=default_model,

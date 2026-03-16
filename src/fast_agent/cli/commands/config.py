@@ -153,11 +153,22 @@ def _build_shell_form(current: ShellSettings) -> FormSchema:
     return FormSchema(**fields)
 
 
-def _build_model_description(config_data: dict[str, Any]) -> str:
-    configured_providers = ModelSelectionCatalog.configured_providers(config_data)
+def _build_model_description(
+    config_data: dict[str, Any],
+    *,
+    config_path: Path,
+) -> str:
+    env_dir = config_data.get("environment_dir")
+    configured_providers = ModelSelectionCatalog.configured_providers(
+        config_data,
+        start_path=config_path.parent,
+        env_dir=env_dir if isinstance(env_dir, (str, Path)) else None,
+    )
     suggestions = ModelSelectionCatalog.suggestions_for_providers(
         configured_providers,
         config=config_data,
+        start_path=config_path.parent,
+        env_dir=env_dir if isinstance(env_dir, (str, Path)) else None,
     )
 
     if not suggestions:
@@ -179,12 +190,17 @@ def _build_model_description(config_data: dict[str, Any]) -> str:
     )
 
 
-def _build_model_form(current_model: str | None, config_data: dict[str, Any]) -> FormSchema:
+def _build_model_form(
+    current_model: str | None,
+    config_data: dict[str, Any],
+    *,
+    config_path: Path,
+) -> FormSchema:
     """Build form schema for model settings."""
     return FormSchema(
         default_model=string(
             title="Default Model",
-            description=_build_model_description(config_data),
+            description=_build_model_description(config_data, config_path=config_path),
             default=current_model or "",
             max_length=100,
         ),
@@ -277,7 +293,7 @@ def config_model(config: ConfigOption = None) -> None:
     current_model = config_data.get("default_model")
 
     # Build and show form
-    schema = _build_model_form(current_model, config_data)
+    schema = _build_model_form(current_model, config_data, config_path=config_path)
     result = form_sync(
         schema,
         message="Configure the default model for agents",

@@ -511,3 +511,37 @@ metadata:
             os.environ.pop("ENVIRONMENT_DIR", None)
         else:
             os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+
+
+def test_overlay_legacy_metadata_default_temperature_is_still_used(tmp_path: Path) -> None:
+    env_dir = tmp_path / ".fast-agent"
+    _write_overlay(
+        env_dir,
+        "legacy-temp.yaml",
+        """
+name: legacy-temp
+provider: openresponses
+model: unsloth/Qwen3.5-9B-GGUF
+connection:
+  base_url: http://localhost:8080/v1
+  auth: none
+metadata:
+  context_window: 75264
+  max_output_tokens: 2048
+  default_temperature: 0.7
+""".strip(),
+    )
+
+    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
+    os.environ["ENVIRONMENT_DIR"] = str(env_dir)
+
+    try:
+        resolved = ModelFactory.resolve_model_spec("legacy-temp")
+        assert resolved.model_params is not None
+        assert resolved.model_params.default_temperature == 0.7
+    finally:
+        _cleanup_overlay_runtime_state(tmp_path)
+        if previous_env_dir is None:
+            os.environ.pop("ENVIRONMENT_DIR", None)
+        else:
+            os.environ["ENVIRONMENT_DIR"] = previous_env_dir

@@ -12,7 +12,6 @@ from prompt_toolkit.layout import HSplit, Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.layout.margins import ScrollbarMargin
-from prompt_toolkit.styles import Style
 from prompt_toolkit.widgets import Frame
 
 if TYPE_CHECKING:
@@ -32,6 +31,7 @@ from fast_agent.ui.model_picker_common import (
     model_options_for_provider,
     provider_activation_action,
 )
+from fast_agent.ui.picker_theme import build_picker_style
 
 StyleFragments = list[tuple[str, str]]
 
@@ -62,10 +62,15 @@ class _SplitListPicker:
         *,
         config_path: Path | None,
         config_payload: dict[str, object] | None = None,
+        start_path: Path | None = None,
         initial_provider: str | None = None,
         initial_model_spec: str | None = None,
     ) -> None:
-        self.snapshot = build_snapshot(config_path, config_payload=config_payload)
+        self.snapshot = build_snapshot(
+            config_path,
+            config_payload=config_payload,
+            start_path=start_path,
+        )
         if not self.snapshot.providers:
             raise ValueError("No providers found in model catalog.")
         self._initial_provider_name = initial_provider
@@ -134,16 +139,7 @@ class _SplitListPicker:
         self.app = Application(
             layout=Layout(body, focused_element=self.provider_window),
             key_bindings=self._create_key_bindings(),
-            style=Style.from_dict(
-                {
-                    "selected": "reverse",
-                    "active": "ansigreen",
-                    "attention": "ansiyellow",
-                    "inactive": "ansibrightblack",
-                    "muted": "ansibrightblack",
-                    "focus": "ansicyan",
-                }
-            ),
+            style=build_picker_style(),
             full_screen=False,
             mouse_support=False,
         )
@@ -378,6 +374,33 @@ class _SplitListPicker:
             )
         return options
 
+    def _model_panel_width(self) -> int:
+        cols = self._terminal_cols()
+        return max(42, cols - self._provider_width() - 8)
+
+    @staticmethod
+    def _truncate_picker_text(value: str, width: int) -> str:
+        if width <= 0:
+            return ""
+        if len(value) <= width:
+            return value
+        if width == 1:
+            return "…"
+        return f"{value[: width - 1]}…"
+
+    @classmethod
+    def _tabulate_model_label(cls, label: str, *, panel_width: int) -> str:
+        if " → " not in label:
+            return cls._truncate_picker_text(label, max(panel_width - 4, 8))
+
+        left, right = label.split(" → ", 1)
+        name_width = max(14, min(22, panel_width // 3))
+        detail_width = max(18, panel_width - name_width - 2)
+        return (
+            f"{cls._truncate_picker_text(left.strip(), name_width).ljust(name_width)}"
+            f"  {cls._truncate_picker_text(right.strip(), detail_width)}"
+        )
+
     def _render_provider_panel(self) -> StyleFragments:
         fragments: StyleFragments = []
         for index, option in enumerate(self.snapshot.providers):
@@ -426,7 +449,13 @@ class _SplitListPicker:
                 ),
             )
             marker = "✓" if provider_available else "!" if model.activation_action else "✗"
-            fragments.append((line_style, f"{cursor}{marker} {model.label}\n"))
+            fragments.append(
+                (
+                    line_style,
+                    f"{cursor}{marker} "
+                    f"{self._tabulate_model_label(model.label, panel_width=self._model_panel_width())}\n",
+                )
+            )
 
         return fragments
 
@@ -601,10 +630,15 @@ class _SplitListPicker:
 def run_model_picker(
     *,
     config_path: Path | None = None,
+    start_path: Path | None = None,
     initial_provider: str | None = None,
 ) -> ModelPickerResult | None:
     """Run the interactive model picker and return the selected model configuration."""
-    picker = _SplitListPicker(config_path=config_path, initial_provider=initial_provider)
+    picker = _SplitListPicker(
+        config_path=config_path,
+        start_path=start_path,
+        initial_provider=initial_provider,
+    )
     return picker.run()
 
 
@@ -612,6 +646,7 @@ async def run_model_picker_async(
     *,
     config_path: Path | None = None,
     config_payload: dict[str, object] | None = None,
+    start_path: Path | None = None,
     initial_provider: str | None = None,
     initial_model_spec: str | None = None,
 ) -> ModelPickerResult | None:
@@ -619,6 +654,7 @@ async def run_model_picker_async(
     picker = _SplitListPicker(
         config_path=config_path,
         config_payload=config_payload,
+        start_path=start_path,
         initial_provider=initial_provider,
         initial_model_spec=initial_model_spec,
     )

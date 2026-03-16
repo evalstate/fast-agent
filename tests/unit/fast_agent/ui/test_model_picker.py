@@ -231,6 +231,17 @@ def test_find_initial_model_index_maps_generic_model_to_custom_entry() -> None:
     assert _find_initial_model_index(options, "generic.llama3.2") == 0
 
 
+def test_tabulate_model_label_uses_compact_columns() -> None:
+    formatted = _SplitListPicker._tabulate_model_label(
+        "qwen-local             → openresponses.unsloth/Qwen3.5-9B-GGUF (local, fast) — Imported from llama.cpp",
+        panel_width=58,
+    )
+
+    assert "qwen-local" in formatted
+    assert "openresponses.unsloth" in formatted
+    assert len(formatted) <= 58
+
+
 def test_picker_returns_overlay_token_as_resolved_model() -> None:
     class _FakeApp:
         def __init__(self) -> None:

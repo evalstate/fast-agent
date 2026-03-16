@@ -5,17 +5,19 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 from prompt_toolkit.application import Application
+from prompt_toolkit.application.current import get_app_or_none
 from prompt_toolkit.data_structures import Point
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout import HSplit, Layout, VSplit, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
 from prompt_toolkit.layout.margins import ScrollbarMargin
-from prompt_toolkit.styles import Style
 from prompt_toolkit.widgets import Frame
 
 if TYPE_CHECKING:
     from fast_agent.llm.llamacpp_discovery import LlamaCppModelListing
+
+from fast_agent.ui.picker_theme import build_picker_style
 
 StyleFragments = list[tuple[str, str]]
 type LlamaCppPickerAction = Literal["start_now", "start_now_with_shell", "generate_overlay"]
@@ -43,7 +45,8 @@ class _LlamaCppPickerState:
 
 class _LlamaCppModelPicker:
     LIST_VISIBLE_ROWS = 10
-    _ACTION_OPTIONS: tuple[_PickerActionOption, ...] = (
+    ACTION_PANEL_WIDTH = 28
+    _LAUNCH_ACTION_OPTIONS: tuple[_PickerActionOption, ...] = (
         _PickerActionOption(
             key="start_now",
             label="Start now",
@@ -56,12 +59,15 @@ class _LlamaCppModelPicker:
         ),
         _PickerActionOption(
             key="generate_overlay",
-            label="Generate overlay",
+            label="Write overlay only",
             summary="Write a reusable overlay and return to the shell.",
         ),
     )
 
-    def __init__(self, models: tuple[LlamaCppModelListing, ...]) -> None:
+    def __init__(
+        self,
+        models: tuple[LlamaCppModelListing, ...],
+    ) -> None:
         if not models:
             raise ValueError("The llama.cpp model picker requires at least one model.")
 
@@ -100,7 +106,7 @@ class _LlamaCppModelPicker:
         )
         details_window = Window(
             self.details_control,
-            height=Dimension.exact(6),
+            height=Dimension.exact(7),
             dont_extend_height=True,
         )
         columns = VSplit(
@@ -109,7 +115,7 @@ class _LlamaCppModelPicker:
                 Frame(
                     self.action_window,
                     title="Actions",
-                    width=Dimension.exact(28),
+                    width=Dimension.exact(self.ACTION_PANEL_WIDTH),
                 ),
             ],
             padding=1,
@@ -124,13 +130,7 @@ class _LlamaCppModelPicker:
         self.app = Application(
             layout=Layout(body, focused_element=self.model_window),
             key_bindings=self._create_key_bindings(),
-            style=Style.from_dict(
-                {
-                    "selected": "reverse",
-                    "focus": "ansicyan",
-                    "muted": "ansibrightblack",
-                }
-            ),
+            style=build_picker_style(),
             full_screen=False,
             mouse_support=False,
             erase_when_done=True,
@@ -142,9 +142,19 @@ class _LlamaCppModelPicker:
 
     @property
     def current_action(self) -> _PickerActionOption:
-        return self._ACTION_OPTIONS[self.state.action_index]
+        return self.action_options[self.state.action_index]
+
+    @property
+    def action_options(self) -> tuple[_PickerActionOption, ...]:
+        return self._LAUNCH_ACTION_OPTIONS
 
     def _terminal_cols(self) -> int:
+        app = get_app_or_none()
+        if app is not None:
+            try:
+                return max(1, app.output.get_size().columns)
+            except Exception:
+                pass
         return max(1, shutil.get_terminal_size((100, 20)).columns)
 
     def _model_cursor_position(self) -> Point | None:
@@ -157,7 +167,19 @@ class _LlamaCppModelPicker:
         self.state.model_index = (self.state.model_index + delta) % len(self.models)
 
     def _move_actions(self, delta: int) -> None:
-        self.state.action_index = (self.state.action_index + delta) % len(self._ACTION_OPTIONS)
+        self.state.action_index = (self.state.action_index + delta) % len(self.action_options)
+
+    def _row_style(
+        self,
+        *,
+        selected: bool,
+        availability: Literal["active", "attention", "inactive"],
+    ) -> str:
+        parts: list[str] = []
+        if selected:
+            parts.append("class:selected")
+        parts.append(f"class:{availability}")
+        return " ".join(parts)
 
     def _focus_models(self) -> None:
         self.state.focus = "models"
@@ -169,6 +191,35 @@ class _LlamaCppModelPicker:
 
     def _models_focused(self) -> bool:
         return self.state.focus == "models"
+
+    @staticmethod
+    def _truncate_picker_text(value: str, width: int) -> str:
+        if width <= 0:
+            return ""
+        if len(value) <= width:
+            return value
+        if width == 1:
+            return "…"
+        return f"{value[: width - 1]}…"
+
+    def _model_panel_width(self) -> int:
+        return max(34, self._terminal_cols() - self.ACTION_PANEL_WIDTH - 8)
+
+    @staticmethod
+    def _training_context_label(training_context_window: int | None) -> str:
+        if training_context_window is None:
+            return "ctx ?"
+        return f"ctx {training_context_window}"
+
+    @classmethod
+    def _model_row_label(
+        cls,
+        model: LlamaCppModelListing,
+        *,
+        width: int,
+    ) -> str:
+        label = f"{model.model_id} ({cls._training_context_label(model.training_context_window)})"
+        return cls._truncate_picker_text(label, width)
 
     def _create_key_bindings(self) -> KeyBindings:
         kb = KeyBindings()
@@ -230,48 +281,32 @@ class _LlamaCppModelPicker:
         return kb
 
     def _render_models(self) -> StyleFragments:
-        width = self._terminal_cols()
-        owner_width = 16
-        context_width = 16
-        model_width = max(20, width - owner_width - context_width - 36)
+        panel_width = self._model_panel_width()
         fragments: StyleFragments = []
         for index, model in enumerate(self.models):
             selected = index == self.state.model_index
-            style_parts: list[str] = []
-            if selected:
-                style_parts.append("class:selected")
-            if selected and self._models_focused():
-                style_parts.append("class:focus")
-            style = " ".join(style_parts)
-            owner = model.owned_by or "-"
-            training_context = (
-                str(model.training_context_window)
-                if model.training_context_window is not None
-                else "-"
+            style = self._row_style(
+                selected=selected,
+                availability="active",
             )
-            model_text = model.model_id
-            if len(model_text) > model_width:
-                model_text = f"{model_text[: model_width - 1]}…"
-            cursor = "❯ " if selected else "  "
+            cursor = "❯ " if selected and self._models_focused() else "  "
             fragments.append(
                 (
                     style,
-                    f"{cursor}{model_text.ljust(model_width)}  {owner.ljust(owner_width)}  {training_context.rjust(context_width)}\n",
+                    f"{cursor}{self._model_row_label(model, width=panel_width)}\n",
                 )
             )
         return fragments
 
     def _render_actions(self) -> StyleFragments:
         fragments: StyleFragments = []
-        for index, action in enumerate(self._ACTION_OPTIONS):
+        for index, action in enumerate(self.action_options):
             selected = index == self.state.action_index
-            style_parts: list[str] = []
-            if selected:
-                style_parts.append("class:selected")
-            if selected and not self._models_focused():
-                style_parts.append("class:focus")
-            style = " ".join(style_parts)
-            cursor = "❯ " if selected else "  "
+            style = self._row_style(
+                selected=selected,
+                availability="active",
+            )
+            cursor = "❯ " if selected and not self._models_focused() else "  "
             fragments.append((style, f"{cursor}{action.label}\n"))
         return fragments
 
@@ -279,10 +314,9 @@ class _LlamaCppModelPicker:
         model = self.current_model
         action = self.current_action
         owner = model.owned_by or "<unknown>"
-        training_context = (
-            str(model.training_context_window)
-            if model.training_context_window is not None
-            else "<unknown>"
+        training_context = self._training_context_label(model.training_context_window).replace(
+            "ctx ",
+            "",
         )
         focus_hint = "models" if self._models_focused() else "actions"
         return [
@@ -290,6 +324,7 @@ class _LlamaCppModelPicker:
             ("class:muted", f"owner: {owner}\n"),
             ("class:muted", f"training context: {training_context}\n"),
             ("class:muted", f"selected action: {action.label} — {action.summary}\n"),
+            ("class:muted", "Import writes a reusable overlay for this model.\n"),
             (
                 "class:muted",
                 f"Focus: {focus_hint}. Left/right or Tab switches panes.\n",

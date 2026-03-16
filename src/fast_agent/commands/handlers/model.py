@@ -180,6 +180,8 @@ def _resolve_toggle_to_default(
 
 
 def _resolve_model_switch_initial_provider(llm: "FastAgentLLMProtocol") -> str | None:
+    if llm.resolved_model.overlay is not None:
+        return "overlays"
     config_name = llm.provider.config_name
     return config_name.strip() if config_name.strip() else None
 

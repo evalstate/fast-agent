@@ -5,11 +5,14 @@ from typing import TYPE_CHECKING, cast
 import pytest
 
 from fast_agent.commands.results import CommandMessage
+from fast_agent.config import Settings
 from fast_agent.ui.adapters.tui_io import TuiCommandIO
 from fast_agent.ui.message_primitives import MessageType
 from fast_agent.ui.model_picker import ModelPickerResult
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from rich.text import Text
 
     from fast_agent.commands.context import AgentProvider
@@ -186,3 +189,35 @@ async def test_prompt_model_selection_preserves_overlay_token_when_resolved_mode
     selected = await io.prompt_model_selection(initial_provider="overlays")
 
     assert selected == "haikutiny"
+
+
+@pytest.mark.asyncio
+async def test_prompt_model_selection_passes_resolved_start_path(monkeypatch, tmp_path: Path) -> None:
+    display = _FakeDisplay()
+    provider = cast("AgentProvider", _FakeProvider(display))
+    project_root = tmp_path / "project"
+    settings = Settings(environment_dir=str(project_root / ".fast-agent"))
+    io = TuiCommandIO(prompt_provider=provider, agent_name="alpha", settings=settings)
+    captured_kwargs: dict[str, object] = {}
+
+    async def fake_run_model_picker_async(**kwargs):
+        captured_kwargs.update(kwargs)
+        return ModelPickerResult(
+            provider="overlays",
+            provider_available=True,
+            selected_model="haikutiny",
+            resolved_model="haikutiny",
+            source="curated",
+            refer_to_docs=False,
+            activation_action=None,
+        )
+
+    monkeypatch.setattr(
+        "fast_agent.ui.model_picker.run_model_picker_async",
+        fake_run_model_picker_async,
+    )
+
+    selected = await io.prompt_model_selection(initial_provider="overlays")
+
+    assert selected == "haikutiny"
+    assert captured_kwargs["start_path"] == project_root

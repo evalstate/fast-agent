@@ -147,7 +147,6 @@ Common fields:
 - `context_window`
 - `max_output_tokens`
 - `tokenizes`
-- `default_temperature`
 - `fast`
 
 Use this for models that are not part of the built-in catalog or when local runtime limits differ from known defaults.
@@ -188,17 +187,36 @@ model_references:
 
 ## llama.cpp import
 
-`fast-agent model llamacpp` can generate overlays from a llama.cpp-compatible server.
+`fast-agent model llamacpp` provides an interactive import flow, plus `list`, `preview`,
+and `import` subcommands for llama.cpp-compatible servers.
 
 Default runtime base URL:
 
 - `http://localhost:8080/v1`
+
+Shared options:
+
+- `--env` to target a specific fast-agent environment directory
+- `--url` or `--base-url` to point at the llama.cpp server
+- `--auth`, `--api-key-env`, and `--secret-ref` to control persisted overlay auth and discovery auth
+- `--name` to choose the overlay token explicitly
+
+These shared options can be used on the interactive command or placed before a subcommand.
 
 Endpoint behavior:
 
 - root URLs are normalized to `/v1`
 - model discovery uses `/v1/models`
 - runtime metadata is read from `/props`
+
+Subcommands:
+
+- `fast-agent model llamacpp` opens the interactive picker and writes the selected overlay
+- `fast-agent model llamacpp list` prints discovered models; add `--json` for machine-readable output
+- `fast-agent model llamacpp preview <model-id>` prints the generated overlay YAML without writing files
+- `fast-agent model llamacpp import <model-id>` writes the overlay; add `--json` for machine-readable output
+- `fast-agent model llamacpp import <model-id> --start-now` writes the overlay and immediately launches `fast-agent go --model <overlay>`
+- `fast-agent model llamacpp import <model-id> --start-now --with-shell` launches `fast-agent go -x --model <overlay>`
 
 The generated overlay:
 

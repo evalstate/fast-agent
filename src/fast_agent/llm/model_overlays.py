@@ -147,6 +147,8 @@ class ModelOverlayMetadata(BaseModel):
     context_window: int | None = None
     max_output_tokens: int | None = None
     tokenizes: list[str] | None = None
+    # Legacy fallback retained for older overlay files. New overlays should use
+    # defaults.temperature instead.
     default_temperature: float | None = None
     fast: bool | None = None
 
@@ -310,9 +312,9 @@ class LoadedModelOverlay:
         if context_window is None or max_output_tokens is None:
             return None
 
-        default_temperature = self.manifest.metadata.default_temperature
+        default_temperature = self.manifest.defaults.temperature
         if default_temperature is None:
-            default_temperature = self.manifest.defaults.temperature
+            default_temperature = self.manifest.metadata.default_temperature
 
         if existing is not None:
             update_payload: dict[str, object] = {

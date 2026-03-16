@@ -95,11 +95,11 @@ def _start_llamacpp_server() -> _LlamaCppServer:
                         "default_generation_settings": {
                             "n_ctx": 32768,
                             "params": {
-                                "temperature": 0.7,
-                                "top_k": 30,
-                                "top_p": 0.9,
-                                "min_p": 0.02,
-                                "n_predict": 1024,
+                            "temperature": 0.7,
+                            "top_k": 30,
+                            "top_p": 0.9,
+                            "min_p": 0.02,
+                            "n_predict": 1024,
                             },
                         },
                         "model_alias": "Llama local",
@@ -110,10 +110,10 @@ def _start_llamacpp_server() -> _LlamaCppServer:
                         "default_generation_settings": {
                             "n_ctx": 75264,
                             "params": {
-                                "temperature": 0.8,
+                                "temperature": 0.800000011920929,
                                 "top_k": 40,
-                                "top_p": 0.95,
-                                "min_p": 0.05,
+                                "top_p": 0.949999988079071,
+                                "min_p": 0.05000000074505806,
                                 "max_tokens": -1,
                                 "n_predict": -1,
                             },
@@ -160,11 +160,11 @@ def test_model_llamacpp_command_imports_overlay_from_models_endpoint(tmp_path: P
             model_command.app,
             [
                 "llamacpp",
+                "import",
                 "--url",
                 server.base_url,
                 "--env",
                 str(env_dir),
-                "--model",
                 "unsloth/Qwen3.5-9B-GGUF",
                 "--name",
                 "qwen-local",
@@ -212,6 +212,7 @@ def test_model_llamacpp_command_imports_overlay_from_models_endpoint(tmp_path: P
         "image/png",
         "image/webp",
     ]
+    assert "default_temperature" not in payload["metadata"]
     assert payload["picker"]["description"] == "Imported from llama.cpp"
     assert "Overlay token: qwen-local" in result.stdout
 
@@ -219,6 +220,44 @@ def test_model_llamacpp_command_imports_overlay_from_models_endpoint(tmp_path: P
     loaded = registry.resolve_model_string("qwen-local")
     assert loaded is not None
     assert loaded.manifest.connection.base_url == f"{server.base_url}/v1"
+
+
+def test_model_llamacpp_group_options_apply_before_subcommand(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    env_dir = workspace / ".model-env"
+    workspace.mkdir(parents=True)
+    runner = CliRunner()
+    server = _start_llamacpp_server()
+
+    previous_cwd = Path.cwd()
+    try:
+        os.chdir(workspace)
+        result = runner.invoke(
+            model_command.app,
+            [
+                "llamacpp",
+                "--url",
+                server.base_url,
+                "--env",
+                str(env_dir),
+                "import",
+                "unsloth/Qwen3.5-9B-GGUF",
+                "--name",
+                "group-first",
+            ],
+        )
+    finally:
+        os.chdir(previous_cwd)
+        server.close()
+
+    assert result.exit_code == 0, result.stdout
+    assert server.state.request_paths[:3] == ["/v1/models", "/props", "/slots"]
+
+    overlay_path = env_dir / "model-overlays" / "group-first.yaml"
+    assert overlay_path.exists()
+
+    payload = yaml.safe_load(overlay_path.read_text(encoding="utf-8"))
+    assert payload["connection"]["base_url"] == f"{server.base_url}/v1"
 
 
 def test_model_llamacpp_command_generate_overlay_dry_run_prints_yaml(tmp_path: Path) -> None:
@@ -235,16 +274,14 @@ def test_model_llamacpp_command_generate_overlay_dry_run_prints_yaml(tmp_path: P
             model_command.app,
             [
                 "llamacpp",
+                "preview",
                 "--url",
                 f"{server.base_url}/v1",
                 "--env",
                 str(env_dir),
-                "--model",
                 "meta-llama/Llama-3.2-3B-Instruct",
                 "--name",
                 "llama-local",
-                "--dry-run",
-                "--generate-overlay",
             ],
         )
     finally:
@@ -257,6 +294,7 @@ def test_model_llamacpp_command_generate_overlay_dry_run_prints_yaml(tmp_path: P
     assert "name: llama-local" in result.stdout
     assert "provider: openresponses" in result.stdout
     assert "model: meta-llama/Llama-3.2-3B-Instruct" in result.stdout
+    assert "default_temperature:" not in result.stdout
 
 
 def test_model_llamacpp_command_json_lists_discovered_models(tmp_path: Path) -> None:
@@ -272,6 +310,7 @@ def test_model_llamacpp_command_json_lists_discovered_models(tmp_path: Path) -> 
             model_command.app,
             [
                 "llamacpp",
+                "list",
                 "--url",
                 server.base_url,
                 "--json",
@@ -297,6 +336,110 @@ def test_model_llamacpp_command_json_lists_discovered_models(tmp_path: Path) -> 
             "training_context_window": 131072,
         },
     ]
+
+
+def test_model_llamacpp_import_json_start_now_still_launches(
+    tmp_path: Path, monkeypatch
+) -> None:
+    workspace = tmp_path / "workspace"
+    env_dir = workspace / ".model-env"
+    workspace.mkdir(parents=True)
+    runner = CliRunner()
+    server = _start_llamacpp_server()
+    launched: dict[str, object] = {}
+
+    def _fake_launch(
+        *,
+        overlay_name: str,
+        env_dir: Path | None,
+        with_shell: bool = False,
+        announce: bool = True,
+        execvpe_fn=...,
+    ) -> None:
+        launched["overlay_name"] = overlay_name
+        launched["env_dir"] = env_dir
+        launched["with_shell"] = with_shell
+        launched["announce"] = announce
+
+    monkeypatch.setattr(model_command, "_launch_llamacpp_overlay_now", _fake_launch)
+
+    previous_cwd = Path.cwd()
+    try:
+        os.chdir(workspace)
+        result = runner.invoke(
+            model_command.app,
+            [
+                "llamacpp",
+                "import",
+                "--url",
+                server.base_url,
+                "--env",
+                str(env_dir),
+                "--json",
+                "--start-now",
+                "unsloth/Qwen3.5-9B-GGUF",
+                "--name",
+                "json-start-now",
+            ],
+        )
+    finally:
+        os.chdir(previous_cwd)
+        server.close()
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload["overlay_name"] == "json-start-now"
+    assert launched == {
+        "overlay_name": "json-start-now",
+        "env_dir": env_dir,
+        "with_shell": False,
+        "announce": False,
+    }
+
+
+def test_model_llamacpp_help_clarifies_picker_and_overlay_flags() -> None:
+    runner = CliRunner()
+
+    result = runner.invoke(
+        model_command.app,
+        [
+            "llamacpp",
+            "--help",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert "Discover llama.cpp models, preview overlays" in result.stdout
+    assert "list" in result.stdout
+    assert "preview" in result.stdout
+    assert "import" in result.stdout
+
+
+def test_model_llamacpp_list_command_has_human_readable_output(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True)
+    runner = CliRunner()
+    server = _start_llamacpp_server()
+
+    previous_cwd = Path.cwd()
+    try:
+        os.chdir(workspace)
+        result = runner.invoke(
+            model_command.app,
+            [
+                "llamacpp",
+                "list",
+                "--url",
+                server.base_url,
+            ],
+        )
+    finally:
+        os.chdir(previous_cwd)
+        server.close()
+
+    assert result.exit_code == 0, result.stdout
+    assert "Discovered 2 llama.cpp model(s):" in result.stdout
+    assert "unsloth/Qwen3.5-9B-GGUF (ctx 262144)" in result.stdout
 
 
 def test_build_llamacpp_start_now_argv_includes_env_override(tmp_path: Path) -> None:

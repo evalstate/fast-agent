@@ -1,6 +1,13 @@
-from fast_agent.cli.commands.config import _build_shell_form, _normalize_shell_updates
+from pathlib import Path
+
+from fast_agent.cli.commands.config import (
+    _build_model_form,
+    _build_shell_form,
+    _normalize_shell_updates,
+)
 from fast_agent.config import ShellSettings
 from fast_agent.human_input.form_fields import IntegerField, StringField
+from fast_agent.llm.provider_types import Provider
 
 
 def test_build_shell_form_uses_minus_one_sentinel_for_show_all_lines() -> None:
@@ -109,3 +116,44 @@ def test_normalize_shell_updates_accepts_apply_patch_mode() -> None:
 def test_shell_settings_write_text_file_mode_accepts_apply_patch_string() -> None:
     settings = ShellSettings.model_validate({"write_text_file_mode": "apply_patch"})
     assert settings.write_text_file_mode == "apply_patch"
+
+
+def test_build_model_form_scopes_overlay_suggestions_to_config_path(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    project_dir = tmp_path / "project"
+    env_dir = project_dir / ".fast-agent"
+    ambient_env_dir = tmp_path / "ambient-env"
+    config_path = project_dir / "fastagent.config.yaml"
+    (env_dir / "model-overlays").mkdir(parents=True)
+    (ambient_env_dir / "model-overlays").mkdir(parents=True)
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text("environment_dir: .fast-agent\n", encoding="utf-8")
+    (env_dir / "model-overlays" / "projectoverlay.yaml").write_text(
+        "name: projectoverlay\nprovider: openresponses\nmodel: overlay-tests/project\n",
+        encoding="utf-8",
+    )
+    (ambient_env_dir / "model-overlays" / "ambientoverlay.yaml").write_text(
+        "name: ambientoverlay\nprovider: openresponses\nmodel: overlay-tests/ambient\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ENVIRONMENT_DIR", str(ambient_env_dir))
+    monkeypatch.setattr(
+        "fast_agent.cli.commands.config.ModelSelectionCatalog.configured_providers",
+        lambda *args, **kwargs: [Provider.OPENRESPONSES],
+    )
+
+    schema = _build_model_form(
+        None,
+        {
+            "environment_dir": ".fast-agent",
+            "openresponses": {"api_key": "test-key"},
+        },
+        config_path=config_path,
+    )
+
+    field = schema.fields["default_model"]
+    assert field.description is not None
+    assert "openresponses.overlay-tests/project" in field.description
+    assert "openresponses.overlay-tests/ambient" not in field.description

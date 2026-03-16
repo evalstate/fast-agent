@@ -12,6 +12,21 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+def _write_overlay(env_dir: "Path", name: str, *, provider: str, model: str) -> None:
+    overlays_dir = env_dir / "model-overlays"
+    overlays_dir.mkdir(parents=True, exist_ok=True)
+    (overlays_dir / f"{name}.yaml").write_text(
+        "\n".join(
+            [
+                f"name: {name}",
+                f"provider: {provider}",
+                f"model: {model}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_list_curated_models_for_provider() -> None:
     models = ModelSelectionCatalog.list_curated_models(Provider.ANTHROPIC)
     assert "claude-haiku-4-5" in models
@@ -239,3 +254,41 @@ def test_openrouter_suggestions_use_discovered_models_when_no_curated(monkeypatc
     assert suggestion.provider == Provider.OPENROUTER
     assert suggestion.current_models == ("openrouter.openai/gpt-4.1-mini",)
     assert suggestion.all_models == ("openrouter.openai/gpt-4.1-mini",)
+
+
+def test_overlay_catalog_uses_explicit_environment_context(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    env_dir = tmp_path / "project-env"
+    ambient_env_dir = tmp_path / "ambient-env"
+    _write_overlay(
+        env_dir,
+        "projectoverlay",
+        provider="openresponses",
+        model="overlay-tests/project",
+    )
+    _write_overlay(
+        ambient_env_dir,
+        "ambientoverlay",
+        provider="openresponses",
+        model="overlay-tests/ambient",
+    )
+
+    monkeypatch.setenv("ENVIRONMENT_DIR", str(ambient_env_dir))
+
+    models = ModelSelectionCatalog.list_all_models(
+        Provider.OPENRESPONSES,
+        start_path=tmp_path,
+        env_dir=env_dir,
+    )
+    suggestions = ModelSelectionCatalog.suggestions_for_providers(
+        [Provider.OPENRESPONSES],
+        start_path=tmp_path,
+        env_dir=env_dir,
+    )
+
+    assert "openresponses.overlay-tests/project" in models
+    assert "openresponses.overlay-tests/ambient" not in models
+    assert suggestions[0].current_aliases[0] == "projectoverlay"
+    assert "ambientoverlay" not in suggestions[0].current_aliases

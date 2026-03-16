@@ -173,6 +173,37 @@ async def test_select_model_from_picker_preserves_overlay_token_when_resolved_mo
     assert selected == "haikutiny"
 
 
+@pytest.mark.asyncio
+async def test_select_model_from_picker_passes_config_start_path(monkeypatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "project" / "fastagent.config.yaml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text("default_model: haikutiny\n", encoding="utf-8")
+    request = _make_request(config_path=str(config_path))
+    captured_kwargs: dict[str, object] = {}
+
+    async def fake_run_model_picker_async(**kwargs):
+        captured_kwargs.update(kwargs)
+        return ModelPickerResult(
+            provider="overlays",
+            provider_available=True,
+            selected_model="haikutiny",
+            resolved_model="haikutiny",
+            source="curated",
+            refer_to_docs=False,
+            activation_action=None,
+        )
+
+    monkeypatch.setattr(
+        "fast_agent.ui.model_picker.run_model_picker_async",
+        fake_run_model_picker_async,
+    )
+
+    selected = await _select_model_from_picker(request, config_payload={})
+
+    assert selected == "haikutiny"
+    assert captured_kwargs["start_path"] == config_path.parent
+
+
 def test_normalize_generic_model_spec_adds_generic_prefix_when_missing() -> None:
     assert _normalize_generic_model_spec("llama3.2") == "generic.llama3.2"
 

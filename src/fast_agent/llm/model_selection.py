@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import TYPE_CHECKING, Any, Iterable
 
 from pydantic import BaseModel
 
@@ -12,6 +12,9 @@ from fast_agent.llm.model_overlays import ModelOverlayRegistry, load_model_overl
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
 from fast_agent.llm.provider_model_catalog import ProviderModelCatalogRegistry
 from fast_agent.llm.provider_types import Provider
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -191,16 +194,34 @@ class ModelSelectionCatalog:
             deduped.append(item)
         return deduped
 
+    @staticmethod
+    def _resolve_overlay_registry(
+        overlay_registry: ModelOverlayRegistry | None = None,
+        *,
+        start_path: Path | None = None,
+        env_dir: str | Path | None = None,
+    ) -> ModelOverlayRegistry:
+        if overlay_registry is not None:
+            return overlay_registry
+        return load_model_overlay_registry(start_path=start_path, env_dir=env_dir)
+
     @classmethod
     def _entries_by_provider(
         cls,
         overlay_registry: ModelOverlayRegistry | None = None,
+        *,
+        start_path: Path | None = None,
+        env_dir: str | Path | None = None,
     ) -> dict[Provider, tuple[CatalogModelEntry, ...]]:
         provider_map = {
             provider: list(entries)
             for provider, entries in cls.CATALOG_ENTRIES_BY_PROVIDER.items()
         }
-        overlay_registry = overlay_registry or load_model_overlay_registry()
+        overlay_registry = cls._resolve_overlay_registry(
+            overlay_registry,
+            start_path=start_path,
+            env_dir=env_dir,
+        )
         overlay_entries_by_provider: dict[Provider, list[CatalogModelEntry]] = {}
         overlay_aliases_by_provider: dict[Provider, set[str]] = {}
 
@@ -242,9 +263,15 @@ class ModelSelectionCatalog:
         *,
         current: bool | None = None,
         overlay_registry: ModelOverlayRegistry | None = None,
+        start_path: Path | None = None,
+        env_dir: str | Path | None = None,
     ) -> list[CatalogModelEntry]:
         """Return catalog entries, optionally filtered by provider and current flag."""
-        provider_map = cls._entries_by_provider(overlay_registry=overlay_registry)
+        provider_map = cls._entries_by_provider(
+            overlay_registry=overlay_registry,
+            start_path=start_path,
+            env_dir=env_dir,
+        )
         if provider is not None:
             entries = list(provider_map.get(provider, ()))
             if current is None:
@@ -259,70 +286,203 @@ class ModelSelectionCatalog:
         return [entry for entry in entries if entry.current is current]
 
     @classmethod
-    def list_current_entries(cls, provider: Provider | None = None) -> list[CatalogModelEntry]:
+    def list_current_entries(
+        cls,
+        provider: Provider | None = None,
+        *,
+        overlay_registry: ModelOverlayRegistry | None = None,
+        start_path: Path | None = None,
+        env_dir: str | Path | None = None,
+    ) -> list[CatalogModelEntry]:
         """Return current entries for one provider, or all providers."""
-        return cls.list_entries(provider=provider, current=True)
+        return cls.list_entries(
+            provider=provider,
+            current=True,
+            overlay_registry=overlay_registry,
+            start_path=start_path,
+            env_dir=env_dir,
+        )
 
     @classmethod
-    def list_non_current_entries(cls, provider: Provider | None = None) -> list[CatalogModelEntry]:
+    def list_non_current_entries(
+        cls,
+        provider: Provider | None = None,
+        *,
+        overlay_registry: ModelOverlayRegistry | None = None,
+        start_path: Path | None = None,
+        env_dir: str | Path | None = None,
+    ) -> list[CatalogModelEntry]:
         """Return listed but non-current entries for one provider, or all providers."""
-        return cls.list_entries(provider=provider, current=False)
+        return cls.list_entries(
+            provider=provider,
+            current=False,
+            overlay_registry=overlay_registry,
+            start_path=start_path,
+            env_dir=env_dir,
+        )
 
     @classmethod
-    def list_current_models(cls, provider: Provider | None = None) -> list[str]:
+    def list_current_models(
+        cls,
+        provider: Provider | None = None,
+        *,
+        overlay_registry: ModelOverlayRegistry | None = None,
+        start_path: Path | None = None,
+        env_dir: str | Path | None = None,
+    ) -> list[str]:
         """Return current models for one provider, or all providers."""
-        entries = cls.list_current_entries(provider)
+        entries = cls.list_current_entries(
+            provider,
+            overlay_registry=overlay_registry,
+            start_path=start_path,
+            env_dir=env_dir,
+        )
         return cls._dedupe_preserve_order(entry.model for entry in entries)
 
     @classmethod
-    def list_current_aliases(cls, provider: Provider | None = None) -> list[str]:
+    def list_current_aliases(
+        cls,
+        provider: Provider | None = None,
+        *,
+        overlay_registry: ModelOverlayRegistry | None = None,
+        start_path: Path | None = None,
+        env_dir: str | Path | None = None,
+    ) -> list[str]:
         """Return current aliases for one provider, or all providers."""
-        entries = cls.list_current_entries(provider)
+        entries = cls.list_current_entries(
+            provider,
+            overlay_registry=overlay_registry,
+            start_path=start_path,
+            env_dir=env_dir,
+        )
         return cls._dedupe_preserve_order(entry.alias for entry in entries)
 
     @classmethod
-    def list_non_current_aliases(cls, provider: Provider | None = None) -> list[str]:
+    def list_non_current_aliases(
+        cls,
+        provider: Provider | None = None,
+        *,
+        overlay_registry: ModelOverlayRegistry | None = None,
+        start_path: Path | None = None,
+        env_dir: str | Path | None = None,
+    ) -> list[str]:
         """Return listed aliases that are intentionally not current."""
-        entries = cls.list_non_current_entries(provider)
+        entries = cls.list_non_current_entries(
+            provider,
+            overlay_registry=overlay_registry,
+            start_path=start_path,
+            env_dir=env_dir,
+        )
         return cls._dedupe_preserve_order(entry.alias for entry in entries)
 
     @classmethod
-    def list_fast_models(cls, provider: Provider | None = None) -> list[str]:
+    def list_fast_models(
+        cls,
+        provider: Provider | None = None,
+        *,
+        overlay_registry: ModelOverlayRegistry | None = None,
+        start_path: Path | None = None,
+        env_dir: str | Path | None = None,
+    ) -> list[str]:
         """Return explicit fast models from current catalog entries."""
-        entries = cls.list_current_entries(provider)
+        entries = cls.list_current_entries(
+            provider,
+            overlay_registry=overlay_registry,
+            start_path=start_path,
+            env_dir=env_dir,
+        )
         return cls._dedupe_preserve_order(entry.model for entry in entries if entry.fast)
 
     # Backward-compatible aliases
     @classmethod
-    def list_curated_entries(cls, provider: Provider | None = None) -> list[CatalogModelEntry]:
+    def list_curated_entries(
+        cls,
+        provider: Provider | None = None,
+        *,
+        overlay_registry: ModelOverlayRegistry | None = None,
+        start_path: Path | None = None,
+        env_dir: str | Path | None = None,
+    ) -> list[CatalogModelEntry]:
         """Backward-compatible alias for current entries."""
-        return cls.list_current_entries(provider)
+        return cls.list_current_entries(
+            provider,
+            overlay_registry=overlay_registry,
+            start_path=start_path,
+            env_dir=env_dir,
+        )
 
     @classmethod
-    def list_curated_models(cls, provider: Provider | None = None) -> list[str]:
+    def list_curated_models(
+        cls,
+        provider: Provider | None = None,
+        *,
+        overlay_registry: ModelOverlayRegistry | None = None,
+        start_path: Path | None = None,
+        env_dir: str | Path | None = None,
+    ) -> list[str]:
         """Backward-compatible alias for current models."""
-        return cls.list_current_models(provider)
+        return cls.list_current_models(
+            provider,
+            overlay_registry=overlay_registry,
+            start_path=start_path,
+            env_dir=env_dir,
+        )
 
     @classmethod
-    def list_curated_aliases(cls, provider: Provider | None = None) -> list[str]:
+    def list_curated_aliases(
+        cls,
+        provider: Provider | None = None,
+        *,
+        overlay_registry: ModelOverlayRegistry | None = None,
+        start_path: Path | None = None,
+        env_dir: str | Path | None = None,
+    ) -> list[str]:
         """Backward-compatible alias for current aliases."""
-        return cls.list_current_aliases(provider)
+        return cls.list_current_aliases(
+            provider,
+            overlay_registry=overlay_registry,
+            start_path=start_path,
+            env_dir=env_dir,
+        )
 
     @classmethod
-    def list_legacy_aliases(cls, provider: Provider | None = None) -> list[str]:
+    def list_legacy_aliases(
+        cls,
+        provider: Provider | None = None,
+        *,
+        overlay_registry: ModelOverlayRegistry | None = None,
+        start_path: Path | None = None,
+        env_dir: str | Path | None = None,
+    ) -> list[str]:
         """Backward-compatible alias for non-current aliases."""
-        return cls.list_non_current_aliases(provider)
+        return cls.list_non_current_aliases(
+            provider,
+            overlay_registry=overlay_registry,
+            start_path=start_path,
+            env_dir=env_dir,
+        )
 
     @classmethod
     def list_all_models(
-        cls, provider: Provider | None = None, config: Any | None = None
+        cls,
+        provider: Provider | None = None,
+        config: Any | None = None,
+        *,
+        overlay_registry: ModelOverlayRegistry | None = None,
+        start_path: Path | None = None,
+        env_dir: str | Path | None = None,
     ) -> list[str]:
         """Return all known models, optionally constrained to one provider."""
         config_payload = cls._as_mapping(config)
         if provider is None:
             return ModelDatabase.list_models()
 
-        static_models = cls._list_static_models_for_provider(provider)
+        static_models = cls._list_static_models_for_provider(
+            provider,
+            overlay_registry=overlay_registry,
+            start_path=start_path,
+            env_dir=env_dir,
+        )
         discovered = ProviderModelCatalogRegistry.discover(provider, config_payload)
         if not discovered.all_models:
             return static_models
@@ -340,24 +500,45 @@ class ModelSelectionCatalog:
         providers: Iterable[Provider],
         *,
         config: Any | None = None,
+        overlay_registry: ModelOverlayRegistry | None = None,
+        start_path: Path | None = None,
+        env_dir: str | Path | None = None,
     ) -> list[ProviderModelSuggestions]:
         """Build provider-specific current, non-current, and fast model suggestions."""
         config_payload = cls._as_mapping(config)
+        resolved_overlay_registry = cls._resolve_overlay_registry(
+            overlay_registry,
+            start_path=start_path,
+            env_dir=env_dir,
+        )
         suggestions: list[ProviderModelSuggestions] = []
         for provider in providers:
             discovered = ProviderModelCatalogRegistry.discover(provider, config_payload)
 
             current_models = tuple(
                 cls._dedupe_preserve_order(
-                    [*cls.list_current_models(provider), *discovered.current_models]
+                    [
+                        *cls.list_current_models(provider, overlay_registry=resolved_overlay_registry),
+                        *discovered.current_models,
+                    ]
                 )
             )
-            current_aliases = tuple(cls.list_current_aliases(provider))
-            non_current_aliases = tuple(cls.list_non_current_aliases(provider))
-            fast = tuple(cls.list_fast_models(provider))
+            current_aliases = tuple(
+                cls.list_current_aliases(provider, overlay_registry=resolved_overlay_registry)
+            )
+            non_current_aliases = tuple(
+                cls.list_non_current_aliases(provider, overlay_registry=resolved_overlay_registry)
+            )
+            fast = tuple(cls.list_fast_models(provider, overlay_registry=resolved_overlay_registry))
             all_models = tuple(
                 cls._dedupe_preserve_order(
-                    [*cls._list_static_models_for_provider(provider), *discovered.all_models]
+                    [
+                        *cls._list_static_models_for_provider(
+                            provider,
+                            overlay_registry=resolved_overlay_registry,
+                        ),
+                        *discovered.all_models,
+                    ]
                 )
             )
 
@@ -383,12 +564,23 @@ class ModelSelectionCatalog:
         return suggestions
 
     @classmethod
-    def configured_providers(cls, config: Any | None = None) -> list[Provider]:
+    def configured_providers(
+        cls,
+        config: Any | None = None,
+        *,
+        overlay_registry: ModelOverlayRegistry | None = None,
+        start_path: Path | None = None,
+        env_dir: str | Path | None = None,
+    ) -> list[Provider]:
         """Detect providers with configured credentials via config and environment."""
         config_payload = cls._as_mapping(config)
 
         providers: list[Provider] = []
-        for provider in cls._entries_by_provider():
+        for provider in cls._entries_by_provider(
+            overlay_registry=overlay_registry,
+            start_path=start_path,
+            env_dir=env_dir,
+        ):
             provider_name = provider.config_name
 
             # Google Vertex can run without an API key.
@@ -429,10 +621,20 @@ class ModelSelectionCatalog:
         return bool(vertex_cfg.get("enabled"))
 
     @staticmethod
-    def _list_static_models_for_provider(provider: Provider) -> list[str]:
+    def _list_static_models_for_provider(
+        provider: Provider,
+        *,
+        overlay_registry: ModelOverlayRegistry | None = None,
+        start_path: Path | None = None,
+        env_dir: str | Path | None = None,
+    ) -> list[str]:
         overlay_models = [
             overlay.compiled_model_spec
-            for overlay in load_model_overlay_registry().entries_for_provider(provider)
+            for overlay in ModelSelectionCatalog._resolve_overlay_registry(
+                overlay_registry,
+                start_path=start_path,
+                env_dir=env_dir,
+            ).entries_for_provider(provider)
         ]
         models = ModelDatabase.list_models()
         static_models = [
