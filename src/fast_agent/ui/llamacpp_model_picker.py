@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import shutil
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Awaitable, Callable, Literal
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.application.current import get_app_or_none
@@ -20,7 +21,12 @@ if TYPE_CHECKING:
 from fast_agent.ui.picker_theme import build_picker_style
 
 StyleFragments = list[tuple[str, str]]
-type LlamaCppPickerAction = Literal["start_now", "start_now_with_shell", "generate_overlay"]
+type LlamaCppPickerAction = Literal[
+    "start_now",
+    "start_now_with_shell",
+    "start_now_smart",
+    "generate_overlay",
+]
 
 
 @dataclass(frozen=True)
@@ -58,6 +64,11 @@ class _LlamaCppModelPicker:
             summary="Write the overlay and immediately launch fast-agent go -x.",
         ),
         _PickerActionOption(
+            key="start_now_smart",
+            label="Start now (smart)",
+            summary="Write the overlay and immediately launch fast-agent go --smart -x.",
+        ),
+        _PickerActionOption(
             key="generate_overlay",
             label="Write overlay only",
             summary="Write a reusable overlay and return to the shell.",
@@ -67,11 +78,18 @@ class _LlamaCppModelPicker:
     def __init__(
         self,
         models: tuple[LlamaCppModelListing, ...],
+        runtime_context_loader: Callable[[str], Awaitable[int | None]] | None = None,
     ) -> None:
         if not models:
             raise ValueError("The llama.cpp model picker requires at least one model.")
 
         self.models = models
+        self._runtime_context_loader = runtime_context_loader
+        self._runtime_context_by_model: dict[str, int | None] = {}
+        self._runtime_context_loaded: set[str] = set()
+        self._runtime_context_loading: set[str] = set()
+        self._runtime_context_errors: set[str] = set()
+        self._runtime_context_tasks: set[asyncio.Task[None]] = set()
         self.state = _LlamaCppPickerState()
         self.model_control = FormattedTextControl(
             self._render_models,
@@ -165,6 +183,7 @@ class _LlamaCppModelPicker:
 
     def _move_models(self, delta: int) -> None:
         self.state.model_index = (self.state.model_index + delta) % len(self.models)
+        self._ensure_runtime_context_loading()
 
     def _move_actions(self, delta: int) -> None:
         self.state.action_index = (self.state.action_index + delta) % len(self.action_options)
@@ -184,6 +203,7 @@ class _LlamaCppModelPicker:
     def _focus_models(self) -> None:
         self.state.focus = "models"
         self.app.layout.focus(self.model_window)
+        self._ensure_runtime_context_loading()
 
     def _focus_actions(self) -> None:
         self.state.focus = "actions"
@@ -208,8 +228,50 @@ class _LlamaCppModelPicker:
     @staticmethod
     def _training_context_label(training_context_window: int | None) -> str:
         if training_context_window is None:
-            return "ctx ?"
-        return f"ctx {training_context_window}"
+            return "train ?"
+        return f"train {training_context_window}"
+
+    def _runtime_context_label(self, model_id: str) -> str:
+        if model_id in self._runtime_context_errors:
+            return "unavailable"
+        if model_id in self._runtime_context_loading:
+            return "loading..."
+        if model_id not in self._runtime_context_loaded:
+            return "not loaded"
+        runtime_context = self._runtime_context_by_model.get(model_id)
+        return "?" if runtime_context is None else str(runtime_context)
+
+    def _ensure_runtime_context_loading(self) -> None:
+        model_id = self.current_model.model_id
+        if self._runtime_context_loader is None:
+            return
+        if model_id in self._runtime_context_loaded or model_id in self._runtime_context_loading:
+            return
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return
+
+        self._runtime_context_loading.add(model_id)
+        task = asyncio.create_task(self._load_runtime_context(model_id))
+        self._runtime_context_tasks.add(task)
+        task.add_done_callback(self._runtime_context_tasks.discard)
+
+    async def _load_runtime_context(self, model_id: str) -> None:
+        try:
+            assert self._runtime_context_loader is not None
+            runtime_context = await self._runtime_context_loader(model_id)
+            self._runtime_context_by_model[model_id] = runtime_context
+            self._runtime_context_loaded.add(model_id)
+            self._runtime_context_errors.discard(model_id)
+        except Exception:
+            self._runtime_context_errors.add(model_id)
+        finally:
+            self._runtime_context_loading.discard(model_id)
+            try:
+                self.app.invalidate()
+            except Exception:
+                pass
 
     @classmethod
     def _model_row_label(
@@ -315,14 +377,16 @@ class _LlamaCppModelPicker:
         action = self.current_action
         owner = model.owned_by or "<unknown>"
         training_context = self._training_context_label(model.training_context_window).replace(
-            "ctx ",
+            "train ",
             "",
         )
+        runtime_context = self._runtime_context_label(model.model_id)
         focus_hint = "models" if self._models_focused() else "actions"
         return [
             ("", f"{model.model_id}\n"),
             ("class:muted", f"owner: {owner}\n"),
             ("class:muted", f"training context: {training_context}\n"),
+            ("class:muted", f"runtime context: {runtime_context}\n"),
             ("class:muted", f"selected action: {action.label} — {action.summary}\n"),
             ("class:muted", "Import writes a reusable overlay for this model.\n"),
             (
@@ -336,7 +400,15 @@ class _LlamaCppModelPicker:
         ]
 
     async def run_async(self) -> LlamaCppModelPickerResult | None:
-        result = await self.app.run_async()
+        self._ensure_runtime_context_loading()
+        try:
+            result = await self.app.run_async()
+        finally:
+            for task in tuple(self._runtime_context_tasks):
+                task.cancel()
+            if self._runtime_context_tasks:
+                await asyncio.gather(*self._runtime_context_tasks, return_exceptions=True)
+            self._runtime_context_tasks.clear()
         if result is None:
             return None
         if isinstance(result, LlamaCppModelPickerResult):
@@ -346,8 +418,9 @@ class _LlamaCppModelPicker:
 
 async def run_llamacpp_model_picker_async(
     models: tuple[LlamaCppModelListing, ...],
+    runtime_context_loader: Callable[[str], Awaitable[int | None]] | None = None,
 ) -> LlamaCppModelPickerResult | None:
     """Run the interactive llama.cpp model picker."""
 
-    picker = _LlamaCppModelPicker(models)
+    picker = _LlamaCppModelPicker(models, runtime_context_loader=runtime_context_loader)
     return await picker.run_async()

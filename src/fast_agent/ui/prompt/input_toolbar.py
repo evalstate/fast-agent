@@ -58,6 +58,7 @@ class ToolbarAgentState:
     turn_count: int = 0
     context_pct: float | None = None
     is_codex_responses_model: bool = False
+    is_overlay_model: bool = False
     model_gauges: str = ""
     service_tier_indicator: str | None = None
     web_search_indicator: str | None = None
@@ -67,6 +68,7 @@ class ToolbarAgentState:
 @dataclass(slots=True)
 class ModelVisualState:
     is_codex_responses_model: bool = False
+    is_overlay_model: bool = False
     model_gauges: str = ""
     service_tier_indicator: str | None = None
     web_search_indicator: str | None = None
@@ -168,6 +170,7 @@ def _resolve_toolbar_agent_state(
         turn_count=turn_count,
         context_pct=context_pct,
         is_codex_responses_model=model_visuals.is_codex_responses_model,
+        is_overlay_model=model_visuals.is_overlay_model,
         model_gauges=model_visuals.model_gauges,
         service_tier_indicator=model_visuals.service_tier_indicator,
         web_search_indicator=model_visuals.web_search_indicator,
@@ -280,6 +283,10 @@ def _resolve_model_visuals(
 
     visuals.is_codex_responses_model = getattr(llm, "provider", None) == Provider.CODEX_RESPONSES
     try:
+        visuals.is_overlay_model = getattr(getattr(llm, "resolved_model", None), "overlay", None) is not None
+    except Exception:
+        visuals.is_overlay_model = False
+    try:
         visuals.model_gauges = _render_model_gauges(
             llm.reasoning_effort,
             llm.reasoning_effort_spec,
@@ -365,11 +372,12 @@ def _style_tdv_flag(letter: str, supported: bool, alert_flags: set[str]) -> str:
 def _build_middle_segment(agent_state: ToolbarAgentState, shortcut_text: str) -> str:
     middle_segments: list[str] = []
     if agent_state.model_display:
-        model_label = (
-            f"∞{agent_state.model_display}"
-            if agent_state.is_codex_responses_model
-            else agent_state.model_display
-        )
+        model_prefix = ""
+        if agent_state.is_codex_responses_model:
+            model_prefix = "∞"
+        elif agent_state.is_overlay_model:
+            model_prefix = "▼"
+        model_label = f"{model_prefix}{agent_state.model_display}"
         gauge_segment = f" {agent_state.model_gauges}" if agent_state.model_gauges else ""
         model_chip = render_model_chip(
             model_label=model_label,

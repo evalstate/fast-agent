@@ -29,3 +29,9 @@ def test_render_model_chip_preserves_prefixed_model_label() -> None:
     chip = render_model_chip(model_label="∞gpt-5.3-codex")
 
     assert chip == f"<style bg='{MODEL_CHIP_COLOR}'>∞gpt-5.3-codex</style>"
+
+
+def test_render_model_chip_preserves_overlay_prefixed_model_label() -> None:
+    chip = render_model_chip(model_label="▼haikutiny")
+
+    assert chip == f"<style bg='{MODEL_CHIP_COLOR}'>▼haikutiny</style>"

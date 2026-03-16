@@ -41,6 +41,7 @@ from fast_agent.llm.llamacpp_discovery import (
     uniquify_overlay_name,
 )
 from fast_agent.llm.model_overlays import (
+    LoadedModelOverlay,
     load_model_overlay_registry,
     load_model_overlay_secret_entries,
     serialize_model_overlay_manifest,
@@ -52,6 +53,7 @@ from fast_agent.llm.model_reference_diagnostics import (
     ModelReferenceSetupItem,
     collect_model_reference_setup_diagnostics,
 )
+from fast_agent.llm.provider_types import Provider
 from fast_agent.ui.adapters.tui_io import TuiCommandIO
 from fast_agent.ui.llamacpp_model_picker import run_llamacpp_model_picker_async
 from fast_agent.ui.model_reference_picker import (
@@ -697,7 +699,7 @@ def _print_validation_error(exc: ValidationError) -> None:
 class _LlamaCppImportResult:
     catalog: LlamaCppDiscoveryCatalog
     discovered_model: LlamaCppDiscoveredModel
-    action: Literal["start_now", "start_now_with_shell", "generate_overlay"]
+    action: Literal["start_now", "start_now_with_shell", "start_now_smart", "generate_overlay"]
     overlay_name: str
     manifest_payload: dict[str, object]
     overlay_yaml: str
@@ -707,7 +709,7 @@ class _LlamaCppImportResult:
 @dataclass(frozen=True, slots=True)
 class _LlamaCppSelection:
     model_id: str
-    action: Literal["start_now", "start_now_with_shell", "generate_overlay"]
+    action: Literal["start_now", "start_now_with_shell", "start_now_smart", "generate_overlay"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -718,6 +720,14 @@ class _LlamaCppCommandContext:
 
 
 @dataclass(frozen=True, slots=True)
+class _LlamaCppPersistedAuth:
+    auth: LlamaCppAuthMode
+    api_key_env: str | None
+    secret_ref: str | None
+    default_headers: dict[str, str]
+
+
+@dataclass(frozen=True, slots=True)
 class _LlamaCppGroupOptions:
     env: str | None
     url: str
@@ -725,6 +735,7 @@ class _LlamaCppGroupOptions:
     api_key_env: str | None
     secret_ref: str | None
     name: str | None
+    include_sampling_defaults: bool
 
 
 def _store_llamacpp_group_options(
@@ -736,6 +747,7 @@ def _store_llamacpp_group_options(
     api_key_env: str | None,
     secret_ref: str | None,
     name: str | None,
+    include_sampling_defaults: bool,
 ) -> None:
     payload = _LlamaCppGroupOptions(
         env=env,
@@ -744,6 +756,7 @@ def _store_llamacpp_group_options(
         api_key_env=api_key_env,
         secret_ref=secret_ref,
         name=name,
+        include_sampling_defaults=include_sampling_defaults,
     )
     if isinstance(ctx.obj, dict):
         ctx.obj["llamacpp_group_options"] = payload
@@ -766,12 +779,55 @@ def _inherit_llamacpp_group_option(
     payload = ctx.obj.get("llamacpp_group_options")
     if not isinstance(payload, _LlamaCppGroupOptions):
         return value
-    return cast("str | None", getattr(payload, option_name))
+    inherited = getattr(payload, option_name)
+    return inherited if isinstance(inherited, str) or inherited is None else value
 
 
 def _inherit_llamacpp_group_url(ctx: typer.Context, *, url: str) -> str:
     inherited = _inherit_llamacpp_group_option(ctx, option_name="url", value=url)
     return inherited if inherited is not None else url
+
+
+def _inherit_llamacpp_group_bool_option(
+    ctx: typer.Context,
+    *,
+    option_name: str,
+    value: bool,
+) -> bool:
+    parameter_source = ctx.get_parameter_source(option_name)
+    if parameter_source is None or parameter_source.name != "DEFAULT":
+        return value
+
+    if not isinstance(ctx.obj, dict):
+        return value
+    payload = ctx.obj.get("llamacpp_group_options")
+    if not isinstance(payload, _LlamaCppGroupOptions):
+        return value
+    inherited = getattr(payload, option_name)
+    return inherited if isinstance(inherited, bool) else value
+
+
+def _llamacpp_include_sampling_defaults_option() -> bool:
+    return cast(
+        "bool",
+        typer.Option(
+            False,
+            "--include-sampling-defaults",
+            help="Persist current llama.cpp sampling defaults into the generated overlay.",
+        ),
+    )
+
+
+def _llamacpp_option_was_explicit(ctx: typer.Context, *, option_name: str) -> bool:
+    current_source = ctx.get_parameter_source(option_name)
+    if current_source is not None and current_source.name != "DEFAULT":
+        return True
+
+    parent_ctx = ctx.parent
+    if parent_ctx is None:
+        return False
+    parent_source = parent_ctx.get_parameter_source(option_name)
+    return parent_source is not None and parent_source.name != "DEFAULT"
 
 
 def _normalize_llamacpp_auth(
@@ -866,9 +922,16 @@ def _resolve_llamacpp_interrogation_api_key(
 async def _select_llamacpp_model(
     *,
     catalog: LlamaCppDiscoveryCatalog,
+    interrogation_api_key: str | None,
     selected_model: str | None,
     interactive: bool,
-    requested_action: Literal["start_now", "start_now_with_shell", "generate_overlay"] | None,
+    requested_action: Literal[
+        "start_now",
+        "start_now_with_shell",
+        "start_now_smart",
+        "generate_overlay",
+    ]
+    | None,
 ) -> _LlamaCppSelection | None:
     if selected_model is not None and selected_model.strip():
         requested = selected_model.strip()
@@ -884,7 +947,23 @@ async def _select_llamacpp_model(
     if not interactive:
         return None
 
-    picker_result = await run_llamacpp_model_picker_async(catalog.models)
+    runtime_context_cache: dict[str, int | None] = {}
+
+    async def _load_runtime_context(model_id: str) -> int | None:
+        if model_id in runtime_context_cache:
+            return runtime_context_cache[model_id]
+        discovered_model = await interrogate_llamacpp_model(
+            catalog=catalog,
+            model_id=model_id,
+            api_key=interrogation_api_key,
+        )
+        runtime_context_cache[model_id] = discovered_model.runtime_context_window
+        return discovered_model.runtime_context_window
+
+    picker_result = await run_llamacpp_model_picker_async(
+        catalog.models,
+        runtime_context_loader=_load_runtime_context,
+    )
     if picker_result is None:
         return None
     return _LlamaCppSelection(
@@ -897,18 +976,64 @@ def _build_llamacpp_overlay_name(
     *,
     requested_name: str | None,
     model_id: str,
+    base_url: str,
     start_path: Path,
     env_dir: str | Path | None,
-) -> str:
+) -> tuple[str, bool, LoadedModelOverlay | None]:
     registry = load_model_overlay_registry(start_path=start_path, env_dir=env_dir)
     existing_names = set(registry.by_name())
 
     if requested_name is not None and requested_name.strip():
         candidate = requested_name.strip()
-    else:
-        candidate = default_overlay_name_for_model(model_id)
+        return uniquify_overlay_name(candidate, existing_names=existing_names), False, None
 
-    return uniquify_overlay_name(candidate, existing_names=existing_names)
+    generated_candidate = default_overlay_name_for_model(model_id)
+
+    for overlay in registry.overlays:
+        manifest = overlay.manifest
+        if overlay.name != generated_candidate and not overlay.name.startswith(f"{generated_candidate}-"):
+            continue
+        if manifest.provider != Provider.OPENRESPONSES:
+            continue
+        if manifest.model != model_id:
+            continue
+        if manifest.connection.base_url != base_url:
+            continue
+        if overlay.description != "Imported from llama.cpp":
+            continue
+        return overlay.name, True, overlay
+
+    return uniquify_overlay_name(generated_candidate, existing_names=existing_names), False, None
+
+
+def _resolve_llamacpp_persisted_auth(
+    *,
+    auth: LlamaCppAuthMode,
+    api_key_env: str | None,
+    secret_ref: str | None,
+    reused_overlay: LoadedModelOverlay | None,
+    preserve_existing_auth: bool,
+) -> _LlamaCppPersistedAuth:
+    normalized_api_key_env = api_key_env.strip() if api_key_env else None
+    normalized_secret_ref = secret_ref.strip() if secret_ref else None
+
+    if not preserve_existing_auth or reused_overlay is None:
+        return _LlamaCppPersistedAuth(
+            auth=auth,
+            api_key_env=normalized_api_key_env,
+            secret_ref=normalized_secret_ref,
+            default_headers={},
+        )
+
+    connection = reused_overlay.manifest.connection
+    existing_auth = connection.auth_mode()
+    resolved_auth: LlamaCppAuthMode = existing_auth if existing_auth is not None else auth
+    return _LlamaCppPersistedAuth(
+        auth=resolved_auth,
+        api_key_env=connection.api_key_env,
+        secret_ref=connection.secret_ref,
+        default_headers=dict(connection.default_headers),
+    )
 
 
 def _llamacpp_catalog_json_payload(catalog: LlamaCppDiscoveryCatalog) -> dict[str, object]:
@@ -966,7 +1091,15 @@ async def _run_llamacpp_import(
     requested_name: str | None,
     dry_run: bool,
     interactive: bool,
-    requested_action: Literal["start_now", "start_now_with_shell", "generate_overlay"] | None = None,
+    include_sampling_defaults: bool = False,
+    preserve_existing_auth: bool = False,
+    requested_action: Literal[
+        "start_now",
+        "start_now_with_shell",
+        "start_now_smart",
+        "generate_overlay",
+    ]
+    | None = None,
 ) -> _LlamaCppImportResult | None:
     interrogation_api_key = _resolve_llamacpp_interrogation_api_key(
         start_path=start_path,
@@ -980,6 +1113,7 @@ async def _run_llamacpp_import(
     )
     selection = await _select_llamacpp_model(
         catalog=catalog,
+        interrogation_api_key=interrogation_api_key,
         selected_model=selected_model,
         interactive=interactive,
         requested_action=requested_action,
@@ -997,21 +1131,31 @@ async def _run_llamacpp_import(
         model_id=model_id,
         api_key=interrogation_api_key,
     )
-    overlay_name = _build_llamacpp_overlay_name(
+    overlay_name, replace_existing, reused_overlay = _build_llamacpp_overlay_name(
         requested_name=requested_name,
         model_id=model_id,
+        base_url=catalog.endpoints.request_base_url,
         start_path=start_path,
         env_dir=env_dir,
+    )
+    persisted_auth = _resolve_llamacpp_persisted_auth(
+        auth=auth,
+        api_key_env=api_key_env,
+        secret_ref=secret_ref,
+        reused_overlay=reused_overlay,
+        preserve_existing_auth=preserve_existing_auth,
     )
     manifest = build_llamacpp_overlay_manifest(
         overlay_name=overlay_name,
         discovered_model=discovered_model,
         base_url=catalog.endpoints.request_base_url,
-        auth=auth,
-        api_key_env=api_key_env.strip() if api_key_env else None,
-        secret_ref=secret_ref.strip() if secret_ref else None,
+        auth=persisted_auth.auth,
+        api_key_env=persisted_auth.api_key_env,
+        secret_ref=persisted_auth.secret_ref,
         current=True,
+        include_sampling_defaults=include_sampling_defaults,
     )
+    manifest.connection.default_headers = dict(persisted_auth.default_headers)
     overlay_yaml = serialize_model_overlay_manifest(manifest)
     output_path = None
     if not dry_run:
@@ -1019,6 +1163,7 @@ async def _run_llamacpp_import(
             manifest,
             start_path=start_path,
             env_dir=env_dir,
+            replace=replace_existing,
         )
 
     return _LlamaCppImportResult(
@@ -1035,6 +1180,7 @@ async def _run_llamacpp_import(
 def _emit_llamacpp_import_summary(
     result: _LlamaCppImportResult,
     *,
+    include_sampling_defaults: bool,
     print_overlay_yaml: bool,
 ) -> None:
     typer.echo(
@@ -1049,6 +1195,19 @@ def _emit_llamacpp_import_summary(
     typer.echo(
         f'Use it now: fast-agent go --model {result.overlay_name} --message "hello"'
     )
+    if include_sampling_defaults and any(
+        value is not None
+        for value in (
+            result.discovered_model.temperature,
+            result.discovered_model.top_k,
+            result.discovered_model.top_p,
+            result.discovered_model.min_p,
+        )
+    ):
+        typer.echo(
+            "Note: the overlay copied the server's current sampling defaults. "
+            "Review and edit the defaults block if you want different behavior."
+        )
     if print_overlay_yaml:
         typer.echo()
         typer.echo(result.overlay_yaml.rstrip())
@@ -1058,6 +1217,7 @@ def _finalize_llamacpp_import(
     *,
     result: _LlamaCppImportResult | None,
     resolved_env_dir: Path | None,
+    include_sampling_defaults: bool = False,
     json_output: bool = False,
     print_overlay_yaml: bool = False,
 ) -> None:
@@ -1070,6 +1230,7 @@ def _finalize_llamacpp_import(
     else:
         _emit_llamacpp_import_summary(
             result,
+            include_sampling_defaults=include_sampling_defaults,
             print_overlay_yaml=print_overlay_yaml,
         )
     if result.action == "start_now":
@@ -1085,6 +1246,14 @@ def _finalize_llamacpp_import(
             with_shell=True,
             announce=not json_output,
         )
+    if result.action == "start_now_smart":
+        _launch_llamacpp_overlay_now(
+            overlay_name=result.overlay_name,
+            env_dir=resolved_env_dir,
+            with_shell=True,
+            smart=True,
+            announce=not json_output,
+        )
 
 
 def _run_llamacpp_noninteractive_command(
@@ -1098,7 +1267,14 @@ def _run_llamacpp_noninteractive_command(
     model_id: str,
     name: str | None,
     dry_run: bool,
-    requested_action: Literal["start_now", "start_now_with_shell", "generate_overlay"],
+    requested_action: Literal[
+        "start_now",
+        "start_now_with_shell",
+        "start_now_smart",
+        "generate_overlay",
+    ],
+    include_sampling_defaults: bool = False,
+    preserve_existing_auth: bool = False,
     json_output: bool = False,
     print_overlay_yaml: bool = False,
 ) -> None:
@@ -1126,6 +1302,8 @@ def _run_llamacpp_noninteractive_command(
                 requested_name=name,
                 dry_run=dry_run,
                 interactive=False,
+                include_sampling_defaults=include_sampling_defaults,
+                preserve_existing_auth=preserve_existing_auth,
                 requested_action=requested_action,
             )
         )
@@ -1139,6 +1317,7 @@ def _run_llamacpp_noninteractive_command(
     _finalize_llamacpp_import(
         result=result,
         resolved_env_dir=command_context.resolved_env_dir,
+        include_sampling_defaults=include_sampling_defaults,
         json_output=json_output,
         print_overlay_yaml=print_overlay_yaml,
     )
@@ -1149,8 +1328,11 @@ def _build_llamacpp_start_now_argv(
     overlay_name: str,
     env_dir: Path | None,
     with_shell: bool,
+    smart: bool,
 ) -> list[str]:
     argv = [sys.executable, "-m", "fast_agent.cli", "go", "--model", overlay_name]
+    if smart:
+        argv.append("--smart")
     if with_shell:
         argv.append("-x")
     if env_dir is not None:
@@ -1163,6 +1345,7 @@ def _launch_llamacpp_overlay_now(
     overlay_name: str,
     env_dir: Path | None,
     with_shell: bool = False,
+    smart: bool = False,
     announce: bool = True,
     execvpe_fn: Callable[[str, list[str], dict[str, str]], object] = os.execvpe,
 ) -> None:
@@ -1170,6 +1353,7 @@ def _launch_llamacpp_overlay_now(
         overlay_name=overlay_name,
         env_dir=env_dir,
         with_shell=with_shell,
+        smart=smart,
     )
     if announce:
         typer.echo(f"Launching: {' '.join(shlex.quote(part) for part in argv)}")
@@ -1269,6 +1453,7 @@ def model_llamacpp(
     api_key_env: str | None = _llamacpp_api_key_env_option(),
     secret_ref: str | None = _llamacpp_secret_ref_option(),
     name: str | None = _llamacpp_name_option(),
+    include_sampling_defaults: bool = _llamacpp_include_sampling_defaults_option(),
 ) -> None:
     """Interactively choose a llama.cpp model and import it as a local overlay."""
 
@@ -1280,6 +1465,7 @@ def model_llamacpp(
         api_key_env=api_key_env,
         secret_ref=secret_ref,
         name=name,
+        include_sampling_defaults=include_sampling_defaults,
     )
     if ctx.invoked_subcommand is not None:
         return
@@ -1312,6 +1498,7 @@ def model_llamacpp(
                 requested_name=name,
                 dry_run=False,
                 interactive=True,
+                include_sampling_defaults=include_sampling_defaults,
             )
         )
     except ValidationError as exc:
@@ -1324,6 +1511,7 @@ def model_llamacpp(
     _finalize_llamacpp_import(
         result=result,
         resolved_env_dir=command_context.resolved_env_dir,
+        include_sampling_defaults=include_sampling_defaults,
     )
 
 
@@ -1389,6 +1577,7 @@ def model_llamacpp_preview(
     api_key_env: str | None = _llamacpp_api_key_env_option(),
     secret_ref: str | None = _llamacpp_secret_ref_option(),
     name: str | None = _llamacpp_name_option(),
+    include_sampling_defaults: bool = _llamacpp_include_sampling_defaults_option(),
 ) -> None:
     """Preview the generated overlay YAML for a discovered llama.cpp model."""
 
@@ -1402,6 +1591,11 @@ def model_llamacpp_preview(
         ctx, option_name="secret_ref", value=secret_ref
     )
     name = _inherit_llamacpp_group_option(ctx, option_name="name", value=name)
+    include_sampling_defaults = _inherit_llamacpp_group_bool_option(
+        ctx,
+        option_name="include_sampling_defaults",
+        value=include_sampling_defaults,
+    )
     _run_llamacpp_noninteractive_command(
         ctx=ctx,
         env=env,
@@ -1413,6 +1607,7 @@ def model_llamacpp_preview(
         name=name,
         dry_run=True,
         requested_action="generate_overlay",
+        include_sampling_defaults=include_sampling_defaults,
         print_overlay_yaml=True,
     )
 
@@ -1430,6 +1625,7 @@ def model_llamacpp_import(
     api_key_env: str | None = _llamacpp_api_key_env_option(),
     secret_ref: str | None = _llamacpp_secret_ref_option(),
     name: str | None = _llamacpp_name_option(),
+    include_sampling_defaults: bool = _llamacpp_include_sampling_defaults_option(),
     json_output: bool = typer.Option(
         False,
         "--json",
@@ -1445,6 +1641,11 @@ def model_llamacpp_import(
         "--with-shell",
         help="Use fast-agent go -x when launching with --start-now.",
     ),
+    smart: bool = typer.Option(
+        False,
+        "--smart",
+        help="Use fast-agent go --smart -x when launching with --start-now.",
+    ),
 ) -> None:
     """Import a discovered llama.cpp model as a local overlay."""
 
@@ -1458,11 +1659,29 @@ def model_llamacpp_import(
         ctx, option_name="secret_ref", value=secret_ref
     )
     name = _inherit_llamacpp_group_option(ctx, option_name="name", value=name)
+    include_sampling_defaults = _inherit_llamacpp_group_bool_option(
+        ctx,
+        option_name="include_sampling_defaults",
+        value=include_sampling_defaults,
+    )
     if with_shell and not start_now:
         raise typer.BadParameter("--with-shell requires --start-now.")
+    if smart and not start_now:
+        raise typer.BadParameter("--smart requires --start-now.")
 
-    requested_action: Literal["start_now", "start_now_with_shell", "generate_overlay"]
-    if with_shell:
+    preserve_existing_auth = not any(
+        _llamacpp_option_was_explicit(ctx, option_name=option_name)
+        for option_name in ("auth", "api_key_env", "secret_ref")
+    )
+    requested_action: Literal[
+        "start_now",
+        "start_now_with_shell",
+        "start_now_smart",
+        "generate_overlay",
+    ]
+    if smart:
+        requested_action = "start_now_smart"
+    elif with_shell:
         requested_action = "start_now_with_shell"
     elif start_now:
         requested_action = "start_now"
@@ -1480,5 +1699,7 @@ def model_llamacpp_import(
         name=name,
         dry_run=False,
         requested_action=requested_action,
+        include_sampling_defaults=include_sampling_defaults,
+        preserve_existing_auth=preserve_existing_auth,
         json_output=json_output,
     )

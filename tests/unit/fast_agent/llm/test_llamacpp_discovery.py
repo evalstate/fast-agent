@@ -20,7 +20,7 @@ def test_normalize_llamacpp_url_accepts_root_and_v1_urls() -> None:
     assert v1.models_urls()[0] == "http://localhost:8080/v1/models"
 
 
-def test_build_llamacpp_overlay_manifest_maps_runtime_defaults_and_modalities() -> None:
+def test_build_llamacpp_overlay_manifest_omits_sampling_defaults_by_default() -> None:
     manifest = build_llamacpp_overlay_manifest(
         overlay_name="qwen-local",
         discovered_model=LlamaCppDiscoveredModel(
@@ -49,11 +49,11 @@ def test_build_llamacpp_overlay_manifest_maps_runtime_defaults_and_modalities() 
     payload = manifest.model_dump(mode="json", exclude_none=True)
     assert payload["provider"] == "openresponses"
     assert payload["connection"]["base_url"] == "http://localhost:8080/v1"
-    assert payload["defaults"]["temperature"] == 0.8
-    assert payload["defaults"]["top_k"] == 40
-    assert payload["defaults"]["top_p"] == 0.95
-    assert payload["defaults"]["min_p"] == 0.05
     assert payload["defaults"]["max_tokens"] == 2048
+    assert "temperature" not in payload["defaults"]
+    assert "top_k" not in payload["defaults"]
+    assert "top_p" not in payload["defaults"]
+    assert "min_p" not in payload["defaults"]
     assert payload["metadata"]["context_window"] == 75264
     assert payload["metadata"]["max_output_tokens"] == 2048
     assert payload["metadata"]["tokenizes"] == [
@@ -64,3 +64,37 @@ def test_build_llamacpp_overlay_manifest_maps_runtime_defaults_and_modalities() 
     ]
     assert payload["picker"]["label"] == "Qwen local"
     assert payload["picker"]["description"] == "Imported from llama.cpp"
+
+
+def test_build_llamacpp_overlay_manifest_can_include_sampling_defaults() -> None:
+    manifest = build_llamacpp_overlay_manifest(
+        overlay_name="qwen-local",
+        discovered_model=LlamaCppDiscoveredModel(
+            listing=LlamaCppModelListing(
+                model_id="unsloth/Qwen3.5-9B-GGUF",
+                owned_by="llamacpp",
+                training_context_window=262144,
+            ),
+            props_url="http://localhost:8080/props?model=unsloth%2FQwen3.5-9B-GGUF",
+            runtime_context_window=75264,
+            max_output_tokens=2048,
+            temperature=0.800000011920929,
+            top_k=40,
+            top_p=0.949999988079071,
+            min_p=0.05000000074505806,
+            tokenizes=("text/plain", "image/jpeg", "image/png", "image/webp"),
+            model_alias="Qwen local",
+        ),
+        base_url="http://localhost:8080/v1",
+        auth="none",
+        api_key_env=None,
+        secret_ref=None,
+        current=True,
+        include_sampling_defaults=True,
+    )
+
+    payload = manifest.model_dump(mode="json", exclude_none=True)
+    assert payload["defaults"]["temperature"] == 0.8
+    assert payload["defaults"]["top_k"] == 40
+    assert payload["defaults"]["top_p"] == 0.95
+    assert payload["defaults"]["min_p"] == 0.05

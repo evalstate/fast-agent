@@ -199,11 +199,11 @@ def test_model_llamacpp_command_imports_overlay_from_models_endpoint(tmp_path: P
     assert payload["connection"]["base_url"] == f"{server.base_url}/v1"
     assert payload["connection"]["auth"] == "env"
     assert payload["connection"]["api_key_env"] == "LLAMA_CPP_TOKEN"
-    assert payload["defaults"]["temperature"] == 0.8
-    assert payload["defaults"]["top_k"] == 40
-    assert payload["defaults"]["top_p"] == 0.95
-    assert payload["defaults"]["min_p"] == 0.05
     assert payload["defaults"]["max_tokens"] == 2048
+    assert "temperature" not in payload["defaults"]
+    assert "top_k" not in payload["defaults"]
+    assert "top_p" not in payload["defaults"]
+    assert "min_p" not in payload["defaults"]
     assert payload["metadata"]["context_window"] == 75264
     assert payload["metadata"]["max_output_tokens"] == 2048
     assert payload["metadata"]["tokenizes"] == [
@@ -215,6 +215,7 @@ def test_model_llamacpp_command_imports_overlay_from_models_endpoint(tmp_path: P
     assert "default_temperature" not in payload["metadata"]
     assert payload["picker"]["description"] == "Imported from llama.cpp"
     assert "Overlay token: qwen-local" in result.stdout
+    assert "copied the server's current sampling defaults" not in result.stdout
 
     registry = load_model_overlay_registry(start_path=workspace, env_dir=env_dir)
     loaded = registry.resolve_model_string("qwen-local")
@@ -295,6 +296,47 @@ def test_model_llamacpp_command_generate_overlay_dry_run_prints_yaml(tmp_path: P
     assert "provider: openresponses" in result.stdout
     assert "model: meta-llama/Llama-3.2-3B-Instruct" in result.stdout
     assert "default_temperature:" not in result.stdout
+    assert "temperature:" not in result.stdout
+
+
+def test_model_llamacpp_import_can_include_sampling_defaults(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    env_dir = workspace / ".model-env"
+    workspace.mkdir(parents=True)
+    runner = CliRunner()
+    server = _start_llamacpp_server()
+
+    previous_cwd = Path.cwd()
+    try:
+        os.chdir(workspace)
+        result = runner.invoke(
+            model_command.app,
+            [
+                "llamacpp",
+                "import",
+                "--url",
+                server.base_url,
+                "--env",
+                str(env_dir),
+                "--include-sampling-defaults",
+                "unsloth/Qwen3.5-9B-GGUF",
+                "--name",
+                "qwen-sampling",
+            ],
+        )
+    finally:
+        os.chdir(previous_cwd)
+        server.close()
+
+    assert result.exit_code == 0, result.stdout
+    payload = yaml.safe_load(
+        (env_dir / "model-overlays" / "qwen-sampling.yaml").read_text(encoding="utf-8")
+    )
+    assert payload["defaults"]["temperature"] == 0.8
+    assert payload["defaults"]["top_k"] == 40
+    assert payload["defaults"]["top_p"] == 0.95
+    assert payload["defaults"]["min_p"] == 0.05
+    assert "copied the server's current sampling defaults" in result.stdout
 
 
 def test_model_llamacpp_command_json_lists_discovered_models(tmp_path: Path) -> None:
@@ -353,12 +395,14 @@ def test_model_llamacpp_import_json_start_now_still_launches(
         overlay_name: str,
         env_dir: Path | None,
         with_shell: bool = False,
+        smart: bool = False,
         announce: bool = True,
         execvpe_fn=...,
     ) -> None:
         launched["overlay_name"] = overlay_name
         launched["env_dir"] = env_dir
         launched["with_shell"] = with_shell
+        launched["smart"] = smart
         launched["announce"] = announce
 
     monkeypatch.setattr(model_command, "_launch_llamacpp_overlay_now", _fake_launch)
@@ -393,6 +437,7 @@ def test_model_llamacpp_import_json_start_now_still_launches(
         "overlay_name": "json-start-now",
         "env_dir": env_dir,
         "with_shell": False,
+        "smart": False,
         "announce": False,
     }
 
@@ -449,6 +494,7 @@ def test_build_llamacpp_start_now_argv_includes_env_override(tmp_path: Path) -> 
         overlay_name="llamacpp-qwen",
         env_dir=env_dir,
         with_shell=False,
+        smart=False,
     )
 
     assert argv == [
@@ -498,6 +544,7 @@ def test_build_llamacpp_start_now_argv_with_shell_forces_x(tmp_path: Path) -> No
         overlay_name="llamacpp-qwen",
         env_dir=env_dir,
         with_shell=True,
+        smart=False,
     )
 
     assert argv == [
@@ -541,3 +588,239 @@ def test_launch_llamacpp_overlay_now_with_shell_execs_go_x(tmp_path: Path) -> No
         "--env",
         str(env_dir),
     ]
+
+
+def test_build_llamacpp_start_now_argv_smart_uses_smart_and_shell(tmp_path: Path) -> None:
+    env_dir = tmp_path / ".custom-env"
+
+    argv = model_command._build_llamacpp_start_now_argv(
+        overlay_name="llamacpp-qwen",
+        env_dir=env_dir,
+        with_shell=True,
+        smart=True,
+    )
+
+    assert argv == [
+        sys.executable,
+        "-m",
+        "fast_agent.cli",
+        "go",
+        "--model",
+        "llamacpp-qwen",
+        "--smart",
+        "-x",
+        "--env",
+        str(env_dir),
+    ]
+
+
+def test_model_llamacpp_import_start_now_smart_launches_smart_shell(
+    tmp_path: Path, monkeypatch
+) -> None:
+    workspace = tmp_path / "workspace"
+    env_dir = workspace / ".model-env"
+    workspace.mkdir(parents=True)
+    runner = CliRunner()
+    server = _start_llamacpp_server()
+    launched: dict[str, object] = {}
+
+    def _fake_launch(
+        *,
+        overlay_name: str,
+        env_dir: Path | None,
+        with_shell: bool = False,
+        smart: bool = False,
+        announce: bool = True,
+        execvpe_fn=...,
+    ) -> None:
+        launched["overlay_name"] = overlay_name
+        launched["env_dir"] = env_dir
+        launched["with_shell"] = with_shell
+        launched["smart"] = smart
+        launched["announce"] = announce
+
+    monkeypatch.setattr(model_command, "_launch_llamacpp_overlay_now", _fake_launch)
+
+    previous_cwd = Path.cwd()
+    try:
+        os.chdir(workspace)
+        result = runner.invoke(
+            model_command.app,
+            [
+                "llamacpp",
+                "import",
+                "--url",
+                server.base_url,
+                "--env",
+                str(env_dir),
+                "--start-now",
+                "--smart",
+                "unsloth/Qwen3.5-9B-GGUF",
+                "--name",
+                "smart-start-now",
+            ],
+        )
+    finally:
+        os.chdir(previous_cwd)
+        server.close()
+
+    assert result.exit_code == 0, result.stdout
+    assert launched == {
+        "overlay_name": "smart-start-now",
+        "env_dir": env_dir,
+        "with_shell": True,
+        "smart": True,
+        "announce": True,
+    }
+
+
+def test_model_llamacpp_reuses_existing_generated_overlay_for_unnamed_repeat_import(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    env_dir = workspace / ".model-env"
+    workspace.mkdir(parents=True)
+    runner = CliRunner()
+    server = _start_llamacpp_server()
+
+    previous_cwd = Path.cwd()
+    try:
+        os.chdir(workspace)
+        first = runner.invoke(
+            model_command.app,
+            [
+                "llamacpp",
+                "import",
+                "--url",
+                server.base_url,
+                "--env",
+                str(env_dir),
+                "unsloth/Qwen3.5-9B-GGUF",
+            ],
+        )
+        second = runner.invoke(
+            model_command.app,
+            [
+                "llamacpp",
+                "import",
+                "--url",
+                server.base_url,
+                "--env",
+                str(env_dir),
+                "unsloth/Qwen3.5-9B-GGUF",
+            ],
+        )
+    finally:
+        os.chdir(previous_cwd)
+        server.close()
+
+    assert first.exit_code == 0, first.stdout
+    assert second.exit_code == 0, second.stdout
+    overlays_dir = env_dir / "model-overlays"
+    overlay_files = sorted(path.name for path in overlays_dir.glob("*.yaml"))
+    assert overlay_files == ["llamacpp-qwen3-5-9b-gguf.yaml"]
+    assert "Overlay token: llamacpp-qwen3-5-9b-gguf" in second.stdout
+
+
+def test_model_llamacpp_unnamed_import_does_not_reuse_named_overlay(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    env_dir = workspace / ".model-env"
+    workspace.mkdir(parents=True)
+    runner = CliRunner()
+    server = _start_llamacpp_server()
+
+    previous_cwd = Path.cwd()
+    try:
+        os.chdir(workspace)
+        named = runner.invoke(
+            model_command.app,
+            [
+                "llamacpp",
+                "import",
+                "--url",
+                server.base_url,
+                "--env",
+                str(env_dir),
+                "unsloth/Qwen3.5-9B-GGUF",
+                "--name",
+                "qwen-dev",
+            ],
+        )
+        unnamed = runner.invoke(
+            model_command.app,
+            [
+                "llamacpp",
+                "import",
+                "--url",
+                server.base_url,
+                "--env",
+                str(env_dir),
+                "unsloth/Qwen3.5-9B-GGUF",
+            ],
+        )
+    finally:
+        os.chdir(previous_cwd)
+        server.close()
+
+    assert named.exit_code == 0, named.stdout
+    assert unnamed.exit_code == 0, unnamed.stdout
+    overlays_dir = env_dir / "model-overlays"
+    overlay_files = sorted(path.name for path in overlays_dir.glob("*.yaml"))
+    assert overlay_files == ["llamacpp-qwen3-5-9b-gguf.yaml", "qwen-dev.yaml"]
+    assert "Overlay token: llamacpp-qwen3-5-9b-gguf" in unnamed.stdout
+
+
+def test_model_llamacpp_reused_generated_overlay_preserves_existing_auth(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    env_dir = workspace / ".model-env"
+    workspace.mkdir(parents=True)
+    runner = CliRunner()
+    server = _start_llamacpp_server()
+
+    previous_cwd = Path.cwd()
+    previous_token = os.environ.get("LLAMA_CPP_TOKEN")
+    os.environ["LLAMA_CPP_TOKEN"] = "test-token"
+    try:
+        os.chdir(workspace)
+        first = runner.invoke(
+            model_command.app,
+            [
+                "llamacpp",
+                "import",
+                "--url",
+                server.base_url,
+                "--env",
+                str(env_dir),
+                "unsloth/Qwen3.5-9B-GGUF",
+                "--auth",
+                "env",
+                "--api-key-env",
+                "LLAMA_CPP_TOKEN",
+            ],
+        )
+        second = runner.invoke(
+            model_command.app,
+            [
+                "llamacpp",
+                "import",
+                "--url",
+                server.base_url,
+                "--env",
+                str(env_dir),
+                "unsloth/Qwen3.5-9B-GGUF",
+            ],
+        )
+    finally:
+        os.chdir(previous_cwd)
+        if previous_token is None:
+            os.environ.pop("LLAMA_CPP_TOKEN", None)
+        else:
+            os.environ["LLAMA_CPP_TOKEN"] = previous_token
+        server.close()
+
+    assert first.exit_code == 0, first.stdout
+    assert second.exit_code == 0, second.stdout
+    overlay_path = env_dir / "model-overlays" / "llamacpp-qwen3-5-9b-gguf.yaml"
+    payload = yaml.safe_load(overlay_path.read_text(encoding="utf-8"))
+    assert payload["connection"]["auth"] == "env"
+    assert payload["connection"]["api_key_env"] == "LLAMA_CPP_TOKEN"

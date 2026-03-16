@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any, cast
+
+import pytest
 
 from fast_agent.llm.llamacpp_discovery import LlamaCppModelListing
 from fast_agent.ui.llamacpp_model_picker import _LlamaCppModelPicker
@@ -97,8 +100,25 @@ def test_llamacpp_picker_details_include_start_now_and_generate_overlay_hints() 
 
     assert "selected action: Start now" in rendered
     assert "training context: 262144" in rendered
+    assert "runtime context: not loaded" in rendered
     assert "Import writes a reusable overlay for this model." in rendered
     assert "Enter on models = choose action" in rendered
+
+
+def test_llamacpp_picker_includes_start_now_smart_action() -> None:
+    picker = _LlamaCppModelPicker(
+        (
+            LlamaCppModelListing(
+                model_id="unsloth/Qwen3.5-9B-GGUF",
+                owned_by="llamacpp",
+                training_context_window=262144,
+            ),
+        )
+    )
+
+    rendered_actions = "".join(fragment for _, fragment in picker._render_actions())
+
+    assert "Start now (smart)" in rendered_actions
 
 
 def test_llamacpp_picker_hides_model_cursor_when_actions_are_focused() -> None:
@@ -131,5 +151,30 @@ def test_llamacpp_picker_formats_model_rows_as_name_plus_context() -> None:
 
     assert len(row) <= 60
     assert "meta-llama/Llama-3.2-3B-Instruct" in row
-    assert "ctx 131072" in row
+    assert "train 131072" in row
     assert "llamacpp" not in row
+
+
+@pytest.mark.asyncio
+async def test_llamacpp_picker_lazy_loads_runtime_context() -> None:
+    async def _load_runtime_context(model_id: str) -> int | None:
+        assert model_id == "unsloth/Qwen3.5-9B-GGUF"
+        return 75264
+
+    picker = _LlamaCppModelPicker(
+        (
+            LlamaCppModelListing(
+                model_id="unsloth/Qwen3.5-9B-GGUF",
+                owned_by="llamacpp",
+                training_context_window=262144,
+            ),
+        ),
+        runtime_context_loader=_load_runtime_context,
+    )
+
+    picker._ensure_runtime_context_loading()
+    await asyncio.sleep(0)
+
+    rendered = "".join(fragment for _, fragment in picker._render_details())
+
+    assert "runtime context: 75264" in rendered

@@ -215,16 +215,26 @@ Subcommands:
 - `fast-agent model llamacpp list` prints discovered models; add `--json` for machine-readable output
 - `fast-agent model llamacpp preview <model-id>` prints the generated overlay YAML without writing files
 - `fast-agent model llamacpp import <model-id>` writes the overlay; add `--json` for machine-readable output
+- `--include-sampling-defaults` persists the server's current sampling defaults into the overlay or preview output
 - `fast-agent model llamacpp import <model-id> --start-now` writes the overlay and immediately launches `fast-agent go --model <overlay>`
 - `fast-agent model llamacpp import <model-id> --start-now --with-shell` launches `fast-agent go -x --model <overlay>`
+- `fast-agent model llamacpp import <model-id> --start-now --smart` launches `fast-agent go --smart -x --model <overlay>`
 
 The generated overlay:
 
 - uses `openresponses` as the provider
 - stores the normalized `/v1` `base_url`
 - records the selected auth mode
-- copies discovered defaults such as `temperature`, `top_k`, `top_p`, `min_p`, and `max_tokens`
+- records discovered runtime limits such as `max_tokens`
 - records discovered metadata such as `context_window`, `max_output_tokens`, and `tokenizes`
+
+By default, the import flow does not persist the server's current sampling defaults. Use
+`--include-sampling-defaults` if you want to freeze the current llama.cpp sampling policy into the
+generated `defaults` block.
+
+Repeated unnamed imports of the same llama.cpp model on the same normalized base URL reuse the
+existing generated `llamacpp-*` overlay instead of creating another suffixed file. Explicitly named
+overlays are left alone.
 
 ---
 

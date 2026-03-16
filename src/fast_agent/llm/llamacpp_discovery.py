@@ -287,6 +287,7 @@ def build_llamacpp_overlay_manifest(
     api_key_env: str | None,
     secret_ref: str | None,
     current: bool,
+    include_sampling_defaults: bool = False,
 ) -> ModelOverlayManifest:
     """Build a runnable model overlay manifest from llama.cpp discovery data."""
 
@@ -301,10 +302,22 @@ def build_llamacpp_overlay_manifest(
             secret_ref=secret_ref,
         ),
         defaults=ModelOverlayDefaults(
-            temperature=_normalize_llamacpp_float(discovered_model.temperature),
-            top_k=discovered_model.top_k,
-            top_p=_normalize_llamacpp_float(discovered_model.top_p),
-            min_p=_normalize_llamacpp_float(discovered_model.min_p),
+            temperature=(
+                _normalize_llamacpp_float(discovered_model.temperature)
+                if include_sampling_defaults
+                else None
+            ),
+            top_k=discovered_model.top_k if include_sampling_defaults else None,
+            top_p=(
+                _normalize_llamacpp_float(discovered_model.top_p)
+                if include_sampling_defaults
+                else None
+            ),
+            min_p=(
+                _normalize_llamacpp_float(discovered_model.min_p)
+                if include_sampling_defaults
+                else None
+            ),
             max_tokens=discovered_model.max_output_tokens,
         ),
         metadata=ModelOverlayMetadata(
