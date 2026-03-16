@@ -341,7 +341,7 @@ def _resolve_huggingface_login_label(provider_name: str) -> str | None:
         return None
 
     try:
-        from huggingface_hub import get_token
+        from huggingface_hub import get_token  # ty: ignore[unresolved-import]
 
         hub_token = get_token()
     except Exception:
