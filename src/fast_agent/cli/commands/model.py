@@ -9,7 +9,7 @@ import shlex
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Callable, Literal
 
 import typer
 from pydantic import ValidationError
@@ -616,10 +616,17 @@ def _print_validation_error(exc: ValidationError) -> None:
 class _LlamaCppImportResult:
     catalog: LlamaCppDiscoveryCatalog
     discovered_model: LlamaCppDiscoveredModel
+    action: Literal["start_now", "start_now_with_shell", "generate_overlay"]
     overlay_name: str
     manifest_payload: dict[str, object]
     overlay_yaml: str
     output_path: Path | None
+
+
+@dataclass(frozen=True, slots=True)
+class _LlamaCppSelection:
+    model_id: str
+    action: Literal["start_now", "start_now_with_shell", "generate_overlay"]
 
 
 def _normalize_llamacpp_auth(
@@ -691,11 +698,14 @@ async def _select_llamacpp_model(
     catalog: LlamaCppDiscoveryCatalog,
     selected_model: str | None,
     interactive: bool,
-) -> str | None:
+) -> _LlamaCppSelection | None:
     if selected_model is not None and selected_model.strip():
         requested = selected_model.strip()
         if any(model.model_id == requested for model in catalog.models):
-            return requested
+            return _LlamaCppSelection(
+                model_id=requested,
+                action="generate_overlay",
+            )
         raise typer.BadParameter(
             f"Model {requested!r} was not found in the discovered llama.cpp catalog."
         )
@@ -706,7 +716,10 @@ async def _select_llamacpp_model(
     picker_result = await run_llamacpp_model_picker_async(catalog.models)
     if picker_result is None:
         return None
-    return picker_result.model_id
+    return _LlamaCppSelection(
+        model_id=picker_result.model_id,
+        action=picker_result.action,
+    )
 
 
 def _build_llamacpp_overlay_name(
@@ -779,13 +792,18 @@ async def _run_llamacpp_import(
         url=url,
         api_key=interrogation_api_key,
     )
-    model_id = await _select_llamacpp_model(
+    selection = await _select_llamacpp_model(
         catalog=catalog,
         selected_model=selected_model,
         interactive=interactive,
     )
-    if model_id is None:
+    if selection is None:
         return None
+    if selection.action == "start_now" and dry_run:
+        raise typer.BadParameter(
+            "Start now is not available together with --dry-run."
+        )
+    model_id = selection.model_id
 
     discovered_model = await interrogate_llamacpp_model(
         catalog=catalog,
@@ -819,6 +837,7 @@ async def _run_llamacpp_import(
     return _LlamaCppImportResult(
         catalog=catalog,
         discovered_model=discovered_model,
+        action=selection.action,
         overlay_name=overlay_name,
         manifest_payload=manifest.model_dump(mode="json", exclude_none=True),
         overlay_yaml=overlay_yaml,
@@ -847,6 +866,37 @@ def _emit_llamacpp_import_summary(
     if generate_overlay:
         typer.echo()
         typer.echo(result.overlay_yaml.rstrip())
+
+
+def _build_llamacpp_start_now_argv(
+    *,
+    overlay_name: str,
+    env_dir: Path | None,
+    with_shell: bool,
+) -> list[str]:
+    argv = [sys.executable, "-m", "fast_agent.cli", "go", "--model", overlay_name]
+    if with_shell:
+        argv.append("-x")
+    if env_dir is not None:
+        argv.extend(["--env", str(env_dir)])
+    return argv
+
+
+def _launch_llamacpp_overlay_now(
+    *,
+    overlay_name: str,
+    env_dir: Path | None,
+    with_shell: bool = False,
+    execvpe_fn: Callable[[str, list[str], dict[str, str]], object] = os.execvpe,
+) -> None:
+    argv = _build_llamacpp_start_now_argv(
+        overlay_name=overlay_name,
+        env_dir=env_dir,
+        with_shell=with_shell,
+    )
+    typer.echo(f"Launching: {' '.join(shlex.quote(part) for part in argv)}")
+    sys.stdout.flush()
+    execvpe_fn(sys.executable, argv, os.environ.copy())
 
 
 @app.callback(invoke_without_command=True)
@@ -1061,3 +1111,14 @@ def model_llamacpp(
         dry_run=dry_run,
         generate_overlay=generate_overlay,
     )
+    if result.action == "start_now":
+        _launch_llamacpp_overlay_now(
+            overlay_name=result.overlay_name,
+            env_dir=resolved_env_dir,
+        )
+    if result.action == "start_now_with_shell":
+        _launch_llamacpp_overlay_now(
+            overlay_name=result.overlay_name,
+            env_dir=resolved_env_dir,
+            with_shell=True,
+        )

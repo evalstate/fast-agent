@@ -1,14 +1,9 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from fast_agent.llm.resolved_model import ResolvedModelSpec
-
-
-class ResolvedModelDisplaySource(Protocol):
-    @property
-    def resolved_model(self) -> "ResolvedModelSpec": ...
 
 
 def format_model_display_name(model: str | None, *, max_len: int | None = None) -> str | None:
@@ -51,19 +46,22 @@ def resolve_resolved_model_display_name(
 
 
 def resolve_llm_display_name(
-    llm: "ResolvedModelDisplaySource | None",
+    llm: object | None,
     *,
     max_len: int | None = None,
 ) -> str | None:
     if llm is None:
         return None
-    return resolve_resolved_model_display_name(llm.resolved_model, max_len=max_len)
+    return resolve_resolved_model_display_name(
+        getattr(llm, "resolved_model", None),
+        max_len=max_len,
+    )
 
 
 def resolve_model_display_name(
     model: str | None = None,
     *,
-    llm: "ResolvedModelDisplaySource | None" = None,
+    llm: object | None = None,
     max_len: int | None = None,
 ) -> str | None:
     resolved_display = resolve_llm_display_name(llm, max_len=max_len)

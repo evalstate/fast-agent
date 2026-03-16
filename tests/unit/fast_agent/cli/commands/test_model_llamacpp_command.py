@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import threading
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -295,4 +296,105 @@ def test_model_llamacpp_command_json_lists_discovered_models(tmp_path: Path) -> 
             "owned_by": "llamacpp",
             "training_context_window": 131072,
         },
+    ]
+
+
+def test_build_llamacpp_start_now_argv_includes_env_override(tmp_path: Path) -> None:
+    env_dir = tmp_path / ".custom-env"
+
+    argv = model_command._build_llamacpp_start_now_argv(
+        overlay_name="llamacpp-qwen",
+        env_dir=env_dir,
+        with_shell=False,
+    )
+
+    assert argv == [
+        sys.executable,
+        "-m",
+        "fast_agent.cli",
+        "go",
+        "--model",
+        "llamacpp-qwen",
+        "--env",
+        str(env_dir),
+    ]
+
+
+def test_launch_llamacpp_overlay_now_execs_go_with_current_python(tmp_path: Path) -> None:
+    env_dir = tmp_path / ".custom-env"
+    captured: dict[str, object] = {}
+
+    def _fake_execvpe(executable: str, argv: list[str], env: dict[str, str]) -> None:
+        captured["executable"] = executable
+        captured["argv"] = list(argv)
+        captured["env_dir"] = env.get("ENVIRONMENT_DIR")
+
+    model_command._launch_llamacpp_overlay_now(
+        overlay_name="llamacpp-qwen",
+        env_dir=env_dir,
+        execvpe_fn=_fake_execvpe,
+    )
+
+    assert captured["executable"] == sys.executable
+    assert captured["argv"] == [
+        sys.executable,
+        "-m",
+        "fast_agent.cli",
+        "go",
+        "--model",
+        "llamacpp-qwen",
+        "--env",
+        str(env_dir),
+    ]
+
+
+def test_build_llamacpp_start_now_argv_with_shell_forces_x(tmp_path: Path) -> None:
+    env_dir = tmp_path / ".custom-env"
+
+    argv = model_command._build_llamacpp_start_now_argv(
+        overlay_name="llamacpp-qwen",
+        env_dir=env_dir,
+        with_shell=True,
+    )
+
+    assert argv == [
+        sys.executable,
+        "-m",
+        "fast_agent.cli",
+        "go",
+        "--model",
+        "llamacpp-qwen",
+        "-x",
+        "--env",
+        str(env_dir),
+    ]
+
+
+def test_launch_llamacpp_overlay_now_with_shell_execs_go_x(tmp_path: Path) -> None:
+    env_dir = tmp_path / ".custom-env"
+    captured: dict[str, object] = {}
+
+    def _fake_execvpe(executable: str, argv: list[str], env: dict[str, str]) -> None:
+        captured["executable"] = executable
+        captured["argv"] = list(argv)
+        captured["env_dir"] = env.get("ENVIRONMENT_DIR")
+
+    model_command._launch_llamacpp_overlay_now(
+        overlay_name="llamacpp-qwen",
+        env_dir=env_dir,
+        with_shell=True,
+        execvpe_fn=_fake_execvpe,
+    )
+
+    assert captured["executable"] == sys.executable
+    assert captured["argv"] == [
+        sys.executable,
+        "-m",
+        "fast_agent.cli",
+        "go",
+        "--model",
+        "llamacpp-qwen",
+        "-x",
+        "--env",
+        str(env_dir),
     ]

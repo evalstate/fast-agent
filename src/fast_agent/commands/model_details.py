@@ -138,18 +138,45 @@ def _format_sampling_value(value: object) -> str:
     return str(value)
 
 
+def _resolved_model_or_none(llm: object) -> "ResolvedModelSpec | None":
+    resolved_model = getattr(llm, "resolved_model", None)
+    return resolved_model if resolved_model is not None else None
+
+
+def _provider_value(llm: object) -> str:
+    provider = getattr(llm, "provider", None)
+    if provider is None:
+        return "<unknown>"
+    value = getattr(provider, "value", None)
+    if isinstance(value, str) and value:
+        return value
+    if isinstance(provider, str) and provider:
+        return provider
+    return str(provider)
+
+
 def _iter_model_identity_lines(
     llm: "FastAgentLLMProtocol",
 ) -> list[tuple[str, str, bool]]:
-    resolved_model = llm.resolved_model
+    resolved_model = _resolved_model_or_none(llm)
+    selected_model = (
+        resolved_model.selected_model_name
+        if resolved_model is not None
+        else getattr(llm, "model_name", None)
+    )
+    wire_model = (
+        resolved_model.wire_model_name
+        if resolved_model is not None
+        else getattr(llm, "model_name", None)
+    )
     lines = [
-        ("Provider", str(llm.provider.value), True),
-        ("Selected model", resolved_model.selected_model_name, True),
-        ("Display model", resolve_llm_display_name(llm) or resolved_model.wire_model_name, False),
-        ("Wire model", resolved_model.wire_model_name, False),
+        ("Provider", _provider_value(llm), True),
+        ("Selected model", selected_model, True),
+        ("Display model", resolve_llm_display_name(llm) or wire_model, False),
+        ("Wire model", wire_model, False),
     ]
 
-    context_window = resolved_model.context_window
+    context_window = resolved_model.context_window if resolved_model is not None else None
     if isinstance(context_window, int) and context_window > 0:
         lines.append(("Context window", str(context_window), False))
 
@@ -175,7 +202,11 @@ def _emit_transport_details(
     llm: "FastAgentLLMProtocol",
     wire_model_name: str,
 ) -> None:
-    response_transports = llm.resolved_model.response_transports
+    resolved_model = _resolved_model_or_none(llm)
+    if resolved_model is None:
+        return
+
+    response_transports = resolved_model.response_transports
     if not response_transports:
         return
 
@@ -265,7 +296,11 @@ def _emit_shell_budget_details(
     agent: object,
     llm: "FastAgentLLMProtocol",
 ) -> None:
-    max_output_tokens = llm.resolved_model.max_output_tokens
+    resolved_model = _resolved_model_or_none(llm)
+    if resolved_model is None:
+        return
+
+    max_output_tokens = resolved_model.max_output_tokens
     if isinstance(max_output_tokens, int):
         _emit_model_line(outcome, "Model max output tokens", str(max_output_tokens))
 
@@ -273,7 +308,7 @@ def _emit_shell_budget_details(
         ctx=ctx,
         agent=agent,
         max_output_tokens=max_output_tokens,
-        wire_model_name=llm.resolved_model.wire_model_name,
+        wire_model_name=resolved_model.wire_model_name,
     )
     if shell_budget is not None:
         _emit_model_line(outcome, "Shell output budget", shell_budget)
@@ -291,7 +326,12 @@ def add_model_details(
     for label, value, emphasize in _iter_model_identity_lines(llm):
         _emit_model_line(outcome, label, value, emphasize_value=emphasize)
 
-    wire_model_name = llm.resolved_model.wire_model_name
+    resolved_model = _resolved_model_or_none(llm)
+    wire_model_name = (
+        resolved_model.wire_model_name
+        if resolved_model is not None
+        else getattr(llm, "model_name", "") or ""
+    )
     if wire_model_name:
         _emit_transport_details(outcome, llm=llm, wire_model_name=wire_model_name)
 
