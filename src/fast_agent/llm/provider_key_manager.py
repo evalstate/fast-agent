@@ -130,7 +130,7 @@ class ProviderKeyManager:
         # even when HF_TOKEN isn't explicitly set in the environment or config.
         if not api_key and provider_name in {"hf", "huggingface"}:
             try:
-                from huggingface_hub import get_token  # type: ignore
+                from huggingface_hub import get_token
 
                 api_key = get_token()
             except Exception:

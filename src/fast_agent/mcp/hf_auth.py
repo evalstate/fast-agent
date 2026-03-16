@@ -11,7 +11,7 @@ TokenProvider = Callable[[], str | None]
 def _default_hub_token_provider() -> str | None:
     """Default token provider that uses huggingface_hub.get_token()."""
     try:
-        from huggingface_hub import get_token  # type: ignore
+        from huggingface_hub import get_token
 
         return get_token()
     except Exception:
