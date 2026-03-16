@@ -280,8 +280,7 @@ class _LlamaCppModelPicker:
         *,
         width: int,
     ) -> str:
-        label = f"{model.model_id} ({cls._training_context_label(model.training_context_window)})"
-        return cls._truncate_picker_text(label, width)
+        return cls._truncate_picker_text(model.model_id, width)
 
     def _create_key_bindings(self) -> KeyBindings:
         kb = KeyBindings()
@@ -375,7 +374,6 @@ class _LlamaCppModelPicker:
     def _render_details(self) -> StyleFragments:
         model = self.current_model
         action = self.current_action
-        owner = model.owned_by or "<unknown>"
         training_context = self._training_context_label(model.training_context_window).replace(
             "train ",
             "",
@@ -384,9 +382,10 @@ class _LlamaCppModelPicker:
         focus_hint = "models" if self._models_focused() else "actions"
         return [
             ("", f"{model.model_id}\n"),
-            ("class:muted", f"owner: {owner}\n"),
-            ("class:muted", f"training context: {training_context}\n"),
-            ("class:muted", f"runtime context: {runtime_context}\n"),
+            (
+                "class:focus",
+                f"context: training: {training_context} / runtime: {runtime_context}\n",
+            ),
             ("class:muted", f"selected action: {action.label} — {action.summary}\n"),
             ("class:muted", "Import writes a reusable overlay for this model.\n"),
             (

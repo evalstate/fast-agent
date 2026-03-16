@@ -99,8 +99,7 @@ def test_llamacpp_picker_details_include_start_now_and_generate_overlay_hints() 
     rendered = "".join(fragment for _, fragment in picker._render_details())
 
     assert "selected action: Start now" in rendered
-    assert "training context: 262144" in rendered
-    assert "runtime context: not loaded" in rendered
+    assert "context: training: 262144 / runtime: not loaded" in rendered
     assert "Import writes a reusable overlay for this model." in rendered
     assert "Enter on models = choose action" in rendered
 
@@ -140,7 +139,7 @@ def test_llamacpp_picker_hides_model_cursor_when_actions_are_focused() -> None:
     assert "❯ Start now" in rendered_actions
 
 
-def test_llamacpp_picker_formats_model_rows_as_name_plus_context() -> None:
+def test_llamacpp_picker_formats_model_rows_as_name_only() -> None:
     model = LlamaCppModelListing(
         model_id="meta-llama/Llama-3.2-3B-Instruct",
         owned_by="llamacpp",
@@ -151,7 +150,6 @@ def test_llamacpp_picker_formats_model_rows_as_name_plus_context() -> None:
 
     assert len(row) <= 60
     assert "meta-llama/Llama-3.2-3B-Instruct" in row
-    assert "train 131072" in row
     assert "llamacpp" not in row
 
 
@@ -177,4 +175,4 @@ async def test_llamacpp_picker_lazy_loads_runtime_context() -> None:
 
     rendered = "".join(fragment for _, fragment in picker._render_details())
 
-    assert "runtime context: 75264" in rendered
+    assert "context: training: 262144 / runtime: 75264" in rendered
