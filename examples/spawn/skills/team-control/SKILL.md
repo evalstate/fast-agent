@@ -32,13 +32,13 @@ get_team_status(session_id="0039abf1")
 
 ### Send Message to Any Agent
 ```
-send_message_to_agent(to="Minh - Dev", message="Add feature X")
+delegate_task_to_spawned_agent(to="Minh - Dev", message="Add feature X")
 ```
 > If the agent is idle, they will be **automatically woken up** to process your message.
 
 ### Wait for an Agent
 ```
-wait_for_agent(agent_name="Linh - PM", timeout_seconds=120)
+wait_for_spawned_agent(agent_name="Linh - PM", timeout_seconds=120)
 ```
 
 ### Get Team Results
@@ -52,8 +52,8 @@ get_team_result(session_id="0039abf1")
 1. **Spawn** the team with `spawn_team_tool(mode="blocking")`
 2. Team works autonomously — PM coordinates BA, Dev, QE
 3. When blocking returns, **check results** with `get_team_result`
-4. If you need changes: `send_message_to_agent` to the relevant agent → they wake up and process it
-5. Use `wait_for_agent` or `get_team_status` to track progress
+4. If you need changes: `delegate_task_to_spawned_agent` to the relevant agent → they wake up and process it
+5. Use `wait_for_spawned_agent` or `get_team_status` to track progress
 
 ## Tips
 

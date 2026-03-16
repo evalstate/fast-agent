@@ -12,7 +12,7 @@ Tools:
 9.  list_spawned_agents — list agent card files
 10. remove_spawned_agent — remove agent card file
 11. list_available_servers — list MCP servers from config
-12. send_message_to_spawned_agent — send message to a runtime-spawned agent
+12. delegate_task_to_spawned_agent — send message to a runtime-spawned agent
 13. read_spawned_agent_inbox — read a spawned agent's inbox
 14. wait_for_spawned_agent — block until a spawned agent completes
 15. restart_spawn — re-run a persistent/resumable spawn
@@ -82,7 +82,7 @@ _PROJECT_DIR = Path(os.environ.get("SPAWN_PROJECT_DIR", os.getcwd()))
 _SKILLS_DIR = Path(
     os.environ.get(
         "SPAWN_SKILLS_DIR",
-        str(_PROJECT_DIR / "skills"),
+        str(_PROJECT_DIR / ".fast-agent" / "skills"),
     )
 )
 _SERVERS_LIST = ", ".join(get_available_servers(project_dir=str(_PROJECT_DIR)))
@@ -524,7 +524,7 @@ async def resume_spawn(run_id: str, follow_up_task: str) -> str:
 
 
 @mcp.tool()
-def send_message_to_spawned_agent(
+def delegate_task_to_spawned_agent(
     to: str,
     message: str,
     message_type: str = "task",

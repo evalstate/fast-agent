@@ -49,7 +49,7 @@ VERDICT: FAIL — <brief reason with key issues>
 ## Communication
 
 After writing your review:
-- Use `send_message_to_agent(to_role="<author_role>", message="...")` to notify the author
+- Use `delegate_task_to_spawned_agent(to_role="<author_role>", message="...")` to notify the author
 - Include a summary of key issues if FAIL
 - Be constructive — suggest fixes, don't just point out problems
 
@@ -58,4 +58,4 @@ After writing your review:
 When you receive a FAIL verdict:
 1. Read the review feedback carefully
 2. Fix the identified issues in your workspace files
-3. Message the reviewer: `send_message_to_agent(to_role="<reviewer_role>", message="Fixes applied, ready for re-review")`
+3. Message the reviewer: `delegate_task_to_spawned_agent(to_role="<reviewer_role>", message="Fixes applied, ready for re-review")`
