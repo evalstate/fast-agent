@@ -290,7 +290,10 @@ async def spawn_and_run_background(
 
 @mcp.tool()
 def check_spawn_status(run_id: str) -> str:
-    """Check the status of a background-spawned agent.
+    """Check the status and result of a background-spawned agent.
+
+    Returns status, progress info, and result if completed.
+    For oneshot spawns, auto-cleans after reading result.
 
     Args:
         run_id: The run_id from spawn_and_run_background.
@@ -299,48 +302,23 @@ def check_spawn_status(run_id: str) -> str:
     if not record:
         return json.dumps({"error": f"No spawn found with run_id '{run_id}'"})
 
-    return json.dumps(
-        {
-            "run_id": record.run_id,
-            "role": record.role,
-            "status": record.status,
-            "lifecycle": record.lifecycle,
-            "task": record.task,
-            "duration_seconds": record.duration_seconds,
-            "error": record.error or None,
-        }
-    )
+    info: dict[str, Any] = {
+        "run_id": record.run_id,
+        "role": record.role,
+        "status": record.status,
+        "lifecycle": record.lifecycle,
+        "task": record.task,
+        "duration_seconds": record.duration_seconds,
+        "error": record.error or None,
+    }
 
+    # Include result if terminal
+    if record.is_terminal and record.result:
+        info["result"] = record.result
+        if record.lifecycle == "oneshot":
+            _registry.remove(run_id)
 
-@mcp.tool()
-def get_spawn_result(run_id: str) -> str:
-    """Get the result of a completed background spawn.
-
-    Args:
-        run_id: The run_id of the spawn.
-    """
-    record = _registry.get(run_id)
-    if not record:
-        return json.dumps({"error": f"No spawn found with run_id '{run_id}'"})
-    if not record.is_terminal:
-        return json.dumps(
-            {
-                "status": record.status,
-                "message": "Spawn still running. Use check_spawn_status.",
-            }
-        )
-    result = json.dumps(
-        {
-            "run_id": record.run_id,
-            "status": record.status,
-            "result": record.result,
-            "error": record.error or None,
-            "duration_seconds": record.duration_seconds,
-        }
-    )
-    if record.lifecycle == "oneshot":
-        _registry.remove(run_id)
-    return result
+    return json.dumps(info)
 
 
 @mcp.tool()
@@ -351,29 +329,24 @@ def list_active_spawns() -> str:
 
 
 @mcp.tool()
-async def cancel_spawn_tool(run_id: str) -> str:
-    """Cancel a running background spawn.
+async def cancel_spawn_tool(run_id: str, cleanup: bool = False) -> str:
+    """Cancel a running background spawn and optionally remove its record.
 
     Args:
         run_id: The run_id to cancel.
+        cleanup: If True, also remove the spawn record from registry.
     """
     cancelled = await cancel_spawn(run_id, registry=_registry)
     if cancelled:
-        return json.dumps({"status": "cancelled", "run_id": run_id})
+        if cleanup:
+            _registry.remove(run_id)
+        return json.dumps({"status": "cancelled", "run_id": run_id, "cleaned_up": cleanup})
+    # If not running, try cleanup only
+    if cleanup:
+        removed = _registry.remove(run_id)
+        if removed:
+            return json.dumps({"status": "removed", "run_id": run_id})
     return json.dumps({"error": (f"Could not cancel '{run_id}' — not running or not found.")})
-
-
-@mcp.tool()
-def cleanup_spawn(run_id: str) -> str:
-    """Remove a spawn record from the registry.
-
-    Args:
-        run_id: The run_id to remove.
-    """
-    removed = _registry.remove(run_id)
-    if removed:
-        return json.dumps({"status": "removed", "run_id": run_id})
-    return json.dumps({"error": f"Spawn '{run_id}' not found."})
 
 
 # ───────────────────────────────────────────────────────────
@@ -518,127 +491,7 @@ async def resume_spawn(run_id: str, follow_up_task: str) -> str:
     )
 
 
-# ───────────────────────────────────────────────────────────
-# Inter-Agent Communication
-# ───────────────────────────────────────────────────────────
 
-
-@mcp.tool()
-def delegate_task_to_spawned_agent(
-    to: str,
-    message: str,
-    message_type: str = "task",
-    priority: str = "normal",
-) -> str:
-    """Send a message to a RUNTIME-SPAWNED agent's inbox.
-
-    IMPORTANT: Only use for agents created via spawn tools at runtime.
-    Do NOT use for built-in agents — use agent__<AgentName> tools instead.
-
-    If the target agent is idle, it will be automatically woken up
-    to process the message.
-
-    Args:
-        to: Spawned agent name (e.g. "Minh - Dev").
-        message: Message content.
-        message_type: "task" | "question" | "response" | "notification"
-        priority: "low" | "normal" | "high" | "urgent"
-    """
-    my_name = os.environ.get("TEAM_MY_NAME", os.environ.get("TEAM_MY_ROLE", "orchestrator"))
-    msg = _bus.send(
-        from_name=my_name,
-        to_name=to,
-        content=message,
-        message_type=message_type,
-        priority=priority,
-    )
-
-    # Auto-wake idle agent
-    record = _registry.find_by_name(to)
-    if (
-        record
-        and record.status == "idle"
-        and not _registry.has_running_resume(to)
-    ):
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.ensure_future(
-                    _check_and_resume_on_inbox(
-                        run_id=record.run_id,
-                        agent_name=to,
-                        registry=_registry,
-                        display_manager=_display,
-                        env_vars=record.original_config.get("env_vars") if record.original_config else None,
-                    )
-                )
-        except RuntimeError:
-            pass  # No event loop — skip auto-wake
-
-    return json.dumps(
-        {
-            "status": "sent",
-            "message_id": msg.message_id,
-            "from": my_name,
-            "to": to,
-        }
-    )
-
-
-@mcp.tool()
-def read_spawned_agent_inbox(agent_name: str) -> str:
-    """Read all messages in a runtime-spawned agent's inbox.
-
-    Only for agents created via spawn tools, not built-in agents.
-
-    Args:
-        agent_name: Spawned agent name whose inbox to read.
-    """
-    return _bus.read_inbox_formatted(agent_name)
-
-
-@mcp.tool()
-def wait_for_spawned_agent(agent_name: str, timeout_seconds: int = 300) -> str:
-    """Wait (block) until a runtime-spawned agent completes.
-
-    Only for agents created via spawn tools, not built-in agents.
-    Polls the spawn registry by agent_name.
-
-    Args:
-        agent_name: Name of the spawned agent to wait for (e.g. "Minh - Dev").
-        timeout_seconds: Max wait time (default 300s).
-    """
-    import time as _time
-
-    poll_interval = 2.0
-    start = _time.time()
-
-    while _time.time() - start < timeout_seconds:
-        record = _registry.find_by_name(agent_name)
-        if (
-            record
-            and record.status in ("completed", "error", "timeout", "cancelled")
-            and not _registry.has_running_resume(agent_name)
-        ):
-            return json.dumps(
-                {
-                    "status": record.status,
-                    "agent_name": record.agent_name,
-                    "role": record.role,
-                    "run_id": record.run_id,
-                    "result_summary": record.result[:500] if record.result else "",
-                    "error": record.error or "",
-                }
-            )
-        _time.sleep(poll_interval)
-
-    return json.dumps(
-        {
-            "status": "timeout",
-            "message": f"Agent '{agent_name}' did not complete within {timeout_seconds}s",
-        }
-    )
 
 
 # ───────────────────────────────────────────────────────────
@@ -710,53 +563,7 @@ def spawn_agent(
         )
 
 
-@mcp.tool()
-def list_spawned_agents() -> str:
-    """List all dynamically spawned persistent agents with their team names.
 
-    Returns each agent's name, team_name, and card preview.
-    Use team_name to identify teams for removal via remove_spawned_agent.
-    """
-    # Resolve agent_cards dir (same logic as spawn_agent / remove_spawned_agent)
-    agent_cards_dir = get_runtime_paths(str(_PROJECT_DIR))["agent_cards"]
-    legacy_cards = _PROJECT_DIR / ".fast-agent" / "agent_cards"
-    if legacy_cards.exists():
-        agent_cards_dir = legacy_cards
-
-    cards = list_agent_cards(agent_cards_dir=str(agent_cards_dir))
-    if not cards:
-        return json.dumps(
-            {
-                "status": "success",
-                "count": 0,
-                "agents": [],
-                "message": "No spawned agents found.",
-            }
-        )
-
-    enriched = []
-    for card in cards:
-        content = get_agent_card_content(card["name"], agent_cards_dir=str(agent_cards_dir))
-        # Lookup team_name from registry
-        reg_record = _registry.find_by_name(card["name"])
-        enriched.append(
-            {
-                "name": card["name"],
-                "file": card["file"],
-                "preview": content[:200] if content else "",
-                "team_name": reg_record.team_name if reg_record else "",
-            }
-        )
-    # Collect unique team names for summary
-    team_names = {a["team_name"] for a in enriched if a.get("team_name")}
-    return json.dumps(
-        {
-            "status": "success",
-            "count": len(enriched),
-            "teams": sorted(team_names) if team_names else [],
-            "agents": enriched,
-        }
-    )
 
 
 @mcp.tool()
@@ -858,12 +665,13 @@ async def spawn_team_tool(
     template: str,
     project_brief: str,
     team_name: str,
-    mode: str = "blocking",
+    mode: str = "background",
 ) -> str:
-    """Spawn a full team of agents from a template.
+    """Spawn a team from a template. Only the orchestrator (PM) starts first.
 
-    Each agent receives the team roster (who's on the team) and
-    coordinates via skills + MCP tools. No hardcoded flow control.
+    The orchestrator agent spawns immediately with the full team roster
+    as context. Other team members are NOT spawned yet — the orchestrator
+    uses spawn_team_members() to bring in specific roles on demand.
 
     Args:
         template: Team template name (e.g. "agile-team").
@@ -872,8 +680,8 @@ async def spawn_team_tool(
                    Name should reflect the task purpose
                    (e.g. "notes-cli-dev", "payment-redesign").
                    This name is used for display and removal.
-        mode: "blocking" (wait for all to complete) or
-              "background" (return agent IDs immediately).
+        mode: "blocking" (wait for orchestrator to complete) or
+              "background" (return immediately). Default: background.
     """
     try:
         session = await _spawn_team(
@@ -895,39 +703,83 @@ async def spawn_team_tool(
             for role, info in session.agents.items()
         }
 
-        status = "spawning_background" if mode == "background" else "completed"
+        # Collect available (not yet spawned) roles
+        available_roles = [
+            role for role, info in session.agents.items()
+            if info.get("status") == "available"
+        ]
 
         result: dict[str, Any] = {
-            "status": status,
+            "status": "orchestrator_spawned",
             "session_id": session.session_id,
             "team_name": team_name,
             "template": session.template.get("name", template),
             "workspace": str(session.workspace),
             "agents": agents_info,
+            "available_roles": available_roles,
         }
 
-        if mode == "background":
-            result["message"] = (
-                "Team spawning in background. Use "
-                "check_spawn_status(run_id) for individual "
-                "agents, or get_team_status(session_id="
-                f"'{session.session_id}') for team overview."
-            )
-        else:
-            ws_summary = get_workspace_summary(session.workspace)
-            result["workspace_contents"] = ws_summary.get("directories", {})
-            result["message"] = (
-                "Team completed. Use resume_spawn(run_id, "
-                "follow_up_task) to continue any agent, or "
-                "get_team_result(session_id="
-                f"'{session.session_id}') for results."
-            )
+        result["message"] = (
+            "Orchestrator spawned. Other roles are available but not yet "
+            "running. The orchestrator will use spawn_team_members() "
+            "to bring in specific roles as needed. "
+            f"session_id='{session.session_id}'"
+        )
 
         return json.dumps(result)
     except ValueError as e:
         return json.dumps({"error": str(e)})
     except Exception as e:
         return json.dumps({"error": f"Team spawn failed: {e}"})
+
+
+@mcp.tool()
+async def spawn_team_members(
+    roles: str,
+    team_session_id: str = "",
+) -> str:
+    """Spawn specific team members from an active team session.
+
+    Only the orchestrator (PM) should call this. Each role is spawned
+    with its predefined skills, servers, and instruction from the template.
+
+    Args:
+        roles: Comma-separated role keys to spawn (e.g. "ba,dev,qe").
+        team_session_id: The session_id from spawn_team_tool.
+                         Auto-detected from TEAM_SESSION_ID env if empty.
+    """
+    from fast_agent.spawn.team_spawner import spawn_team_members_for_session
+
+    team_session_id = team_session_id or os.environ.get("TEAM_SESSION_ID", "")
+    if not team_session_id:
+        return json.dumps({"error": "team_session_id required. Not in a team session?"})
+
+    try:
+        role_list = [r.strip() for r in roles.split(",") if r.strip()]
+        if not role_list:
+            return json.dumps({"error": "No roles specified."})
+
+        results = await spawn_team_members_for_session(
+            session_id=team_session_id,
+            roles=role_list,
+            registry=_registry,
+            display_manager=_display,
+            project_dir=str(_PROJECT_DIR),
+        )
+
+        return json.dumps({
+            "status": "spawned",
+            "session_id": team_session_id,
+            "spawned": results,
+            "message": (
+                f"Spawned {len(results)} team members. "
+                "Use check_spawn_status(run_id) to monitor progress."
+            ),
+        })
+    except ValueError as e:
+        return json.dumps({"error": str(e)})
+    except Exception as e:
+        return json.dumps({"error": f"Failed to spawn team members: {e}"})
 
 
 @mcp.tool()

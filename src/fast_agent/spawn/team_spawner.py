@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -137,16 +138,44 @@ class TeamSession:
         path.write_text(json.dumps(self.get_roster(), indent=2))
         return path
 
-    def roster_context(self) -> str:
-        """Build roster context string for agent injection."""
+    def roster_context(self, for_role: str = "") -> str:
+        """Build roster context string for agent injection.
+
+        If for_role is the orchestrator, include spawn_team_members instructions.
+        """
+        orchestrator_role = self.template.get("orchestrator", "")
+        is_orchestrator = for_role == orchestrator_role
+
         lines = ["## Your Team"]
+        active_agents = []
+        available_roles = []
+
         for agent_name, info in self.agents.items():
             run_id = info.get("run_id", "?")
             role = info.get("role", "")
-            lines.append(f"- **{agent_name}** (role: {role}, run_id: {run_id})")
-        lines.append("\nUse `delegate_task_to_spawned_agent(to=\"Agent Name\", ...)` to message any teammate.")
-        lines.append("Use `wait_for_spawned_agent(agent_name=\"Agent Name\")` to wait for a teammate to finish.")
-        lines.append("Use `resume_spawn(run_id=\"...\", follow_up_task=\"...\")` to ask a completed agent to revise their work — this preserves their context.")
+            status = info.get("status", "unknown")
+
+            if status == "available":
+                available_roles.append((agent_name, role))
+                lines.append(f"- **{agent_name}** (role: {role}) — ⏸️ Available (not yet spawned)")
+            else:
+                active_agents.append((agent_name, role))
+                lines.append(f"- **{agent_name}** (role: {role}, run_id: {run_id}) — ▶️ {status}")
+
+        lines.append("")
+        lines.append("## Communication Tools")
+        lines.append("Use `post_message(to=\"Agent Name\", message=\"...\")` to send async messages to any teammate.")
+        lines.append("Use `read_messages()` to check your inbox for messages from teammates.")
+        lines.append("Use `check_teammate_status(agent_name=\"Agent Name\")` to check if a teammate is done.")
+        lines.append("Use `create_meeting(participants=\"pm,dev\", agenda=\"...\")` for real-time discussions.")
+
+        if is_orchestrator and available_roles:
+            lines.append("")
+            lines.append("## Team Management (Orchestrator Only)")
+            roles_str = ",".join(r for _, r in available_roles)
+            lines.append(f"Use `spawn_team_members(roles=\"{roles_str}\", team_session_id=\"{self.session_id}\")` to bring in team members.")
+            lines.append("Use `resume_spawn(run_id=\"...\", follow_up_task=\"...\")` to ask a completed agent to revise their work.")
+
         return "\n".join(lines)
 
     # ── Persistence ──────────────────────────────────────
@@ -194,6 +223,7 @@ def _build_team_env(
     roles: dict[str, Any],
     my_role: str,
     my_name: str = "",
+    session_id: str = "",
 ) -> dict[str, str]:
     """Build environment variables for team agent."""
     env = {
@@ -202,6 +232,19 @@ def _build_team_env(
     }
     if my_name:
         env["TEAM_MY_NAME"] = my_name
+    if session_id:
+        env["TEAM_SESSION_ID"] = session_id
+        # Session-scoped messages directory for isolation between sessions
+        runtime_dir = workspace
+        cur = workspace
+        while cur != cur.parent:
+            if cur.name == ".runtime":
+                runtime_dir = cur
+                break
+            cur = cur.parent
+        messages_dir = runtime_dir / "state" / "messages" / session_id
+        messages_dir.mkdir(parents=True, exist_ok=True)
+        env["TEAM_MESSAGES_DIR"] = str(messages_dir)
 
     # Provide team config with agent_name -> role mapping for communication
     team_config: dict[str, Any] = {}
@@ -267,18 +310,12 @@ async def spawn_team(
     workspace_root: Path | None = None,
     display_manager: Any | None = None,
     parent_session_id: str = "",
-    mode: str = "blocking",
+    mode: str = "background",
 ) -> TeamSession:
-    """Spawn a team of agents from a template.
+    """Spawn a team — only the orchestrator starts immediately.
 
-    Each agent is spawned with:
-    - Their assigned skills
-    - Team roster context (who's on the team)
-    - Shared workspace path
-    - MCP servers for communication
-
-    Agents self-coordinate using skills + MCP tools.
-    No hardcoded flow control.
+    Other roles are registered as 'available' and can be spawned
+    on-demand by the orchestrator using spawn_team_members_for_session().
 
     Args:
         template_name: Name of the team template.
@@ -290,23 +327,25 @@ async def spawn_team(
         skills_dir: Directory with skill subdirectories.
         workspace_root: Override workspace root directory.
         display_manager: TUI display manager instance.
-        parent_session_id: Optional fast-agent session ID
-            for traceability.
-        mode: "blocking" (wait for all agents) or
-              "background" (return IDs immediately).
+        parent_session_id: Optional fast-agent session ID.
+        mode: "blocking" (wait for orchestrator) or
+              "background" (return immediately).
 
     Returns:
-        A TeamSession with agent roster.
+        A TeamSession with orchestrator running, others available.
     """
     pdir = Path(project_dir).resolve()
     tdir = Path(template_dir) if template_dir else pdir / "team_templates"
-    sdir = Path(skills_dir) if skills_dir else pdir / "skills"
+    # Use SPAWN_SKILLS_DIR env var (same convention as agent_spawner_server)
+    sdir = Path(skills_dir) if skills_dir else Path(
+        os.environ.get("SPAWN_SKILLS_DIR", str(pdir / ".fast-agent" / "skills"))
+    )
     paths = get_runtime_paths(project_dir)
 
     template = load_team_template(template_name, tdir)
     session_id = str(uuid.uuid4())[:8]
 
-    # Clean up previous session artifacts to prevent data leakage
+    # Clean up previous session artifacts
     template_prefix = team_name.lower().replace(" ", "_")[:50]
     workspaces_base = workspace_root or paths["workspaces"]
     if Path(workspaces_base).exists():
@@ -315,7 +354,6 @@ async def spawn_team(
             if old_ws.is_dir() and old_ws.name.startswith(template_prefix):
                 logger.info("Cleaning old workspace: %s", old_ws)
                 shutil.rmtree(old_ws, ignore_errors=True)
-    # Clean old child configs
     child_configs = paths["tmp"] / "child_configs"
     if child_configs.exists():
         import shutil
@@ -337,56 +375,41 @@ async def spawn_team(
     _team_sessions[session_id] = session
 
     roles = template.get("roles", {})
+    orchestrator_role = template.get("orchestrator", "")
 
-    # Pre-generate run_ids and register all agents by name
+    # If no orchestrator specified, use the first role
+    if not orchestrator_role and roles:
+        orchestrator_role = next(iter(roles))
+
+    # Pre-register all agents: orchestrator as 'pending', others as 'available'
     for role_name, role_config in roles.items():
         agent_name = role_config.get("agent_name", f"Agent - {role_name.upper()}")
         run_id = f"team_{session_id}_{role_name}_{uuid.uuid4().hex[:6]}"
+        status = "pending" if role_name == orchestrator_role else "available"
         session.agents[agent_name] = {
             "run_id": run_id,
             "role": role_name,
             "agent_name": agent_name,
             "instruction": role_config.get("instruction", ""),
-            "status": "pending",
+            "status": status,
         }
 
-    # Write roster to workspace
     session.write_roster()
 
-    # Build team roster context (shared by all agents)
-    roster_ctx = session.roster_context()
+    # Spawn only the orchestrator
+    if orchestrator_role not in roles:
+        raise ValueError(
+            f"Orchestrator role '{orchestrator_role}' not found in template. "
+            f"Available: {list(roles.keys())}"
+        )
 
-    if mode == "background":
-        # Return immediately, spawn in background
-        session.sprint_status = "spawning"
-        session.save(sessions_dir=paths["workspaces"] / "team_sessions")
+    orchestrator_config = roles[orchestrator_role]
+    roster_ctx = session.roster_context(for_role=orchestrator_role)
 
-        import asyncio
-
-        async def _spawn_all_bg() -> None:
-            await _spawn_all_agents(
-                session=session,
-                roles=roles,
-                workspace=workspace,
-                roster_ctx=roster_ctx,
-                project_brief=project_brief,
-                registry=registry,
-                project_dir=pdir,
-                skills_dir=sdir,
-                display_manager=display_manager,
-                wait_for_completion=False,
-                team_name=team_name,
-            )
-            session.sprint_status = "running"
-            session.save(sessions_dir=paths["workspaces"] / "team_sessions")
-
-        asyncio.create_task(_spawn_all_bg())
-        return session
-
-    # Blocking mode: spawn all and wait
-    await _spawn_all_agents(
+    run_id = await _spawn_single_agent(
         session=session,
-        roles=roles,
+        role_name=orchestrator_role,
+        role_config=orchestrator_config,
         workspace=workspace,
         roster_ctx=roster_ctx,
         project_brief=project_brief,
@@ -397,14 +420,24 @@ async def spawn_team(
         team_name=team_name,
     )
 
-    session.sprint_status = "running"
+    logger.info(
+        "Team %s: orchestrator '%s' spawned → run_id=%s. "
+        "Other roles available: %s",
+        session_id,
+        orchestrator_role,
+        run_id,
+        [r for r in roles if r != orchestrator_role],
+    )
+
+    session.sprint_status = "orchestrator_running"
     session.save(sessions_dir=paths["workspaces"] / "team_sessions")
     return session
 
 
-async def _spawn_all_agents(
+async def _spawn_single_agent(
     session: TeamSession,
-    roles: dict[str, Any],
+    role_name: str,
+    role_config: dict[str, Any],
     workspace: Path,
     roster_ctx: str,
     project_brief: str,
@@ -413,134 +446,149 @@ async def _spawn_all_agents(
     skills_dir: str | Path,
     team_name: str,
     display_manager: Any | None = None,
-    wait_for_completion: bool = True,
-) -> None:
-    """Spawn all team agents concurrently.
+) -> str:
+    """Spawn a single team agent. Returns run_id."""
+    agent_name = role_config.get("agent_name", f"Agent - {role_name.upper()}")
+    task = role_config.get("task", project_brief)
+    instruction = role_config.get("instruction", f"You are {agent_name}.")
+    instruction = instruction.replace("{agent_name}", agent_name)
+    servers = list(role_config.get("servers", ["filesystem"]))
+    model = role_config.get("model", "")
 
-    All agents launch in parallel so they can communicate immediately.
-    If wait_for_completion=True, polls until all agents finish.
+    # Ensure meeting_room is available for communication
+    if "meeting_room" not in servers:
+        servers.append("meeting_room")
+
+    context_parts = [
+        f"## Project Brief\n{project_brief}",
+        f"\n## Shared Workspace\nPath: {workspace}",
+        "Use the filesystem MCP server to read/write files.",
+        f"\n{roster_ctx}",
+    ]
+    context = "\n\n".join(context_parts)
+
+    roles = session.template.get("roles", {})
+    team_env = _build_team_env(
+        workspace, roles, role_name, my_name=agent_name,
+        session_id=session.session_id,
+    )
+
+    logger.info(
+        "Team %s: launching %s [%s] (background)",
+        session.session_id,
+        agent_name,
+        role_name,
+    )
+
+    session.agents[agent_name]["status"] = "running"
+
+    run_id = await run_isolated_agent_background(
+        task=task,
+        project_dir=str(project_dir),
+        instruction=instruction,
+        context=context,
+        servers=servers,
+        model=model,
+        timeout_seconds=role_config.get("timeout_seconds", 600),
+        role=role_name,
+        agent_name=agent_name,
+        team_name=team_name,
+        lifecycle="resumable",
+        registry=registry,
+        display_manager=display_manager,
+        skills=_resolve_role_skills(role_config, skills_dir),
+        env_vars=team_env,
+        workspace_dir=str(workspace),
+    )
+
+    session.agents[agent_name]["run_id"] = run_id
+    session.write_roster()
+    return run_id
+
+
+async def spawn_team_members_for_session(
+    session_id: str,
+    roles: list[str],
+    registry: SpawnRegistry,
+    display_manager: Any | None = None,
+    project_dir: str | Path = "",
+) -> dict[str, dict[str, Any]]:
+    """Spawn specific team members from an active team session.
+
+    Called by the orchestrator (PM) to bring in roles on demand.
+
+    Args:
+        session_id: The team session ID.
+        roles: List of role keys to spawn (e.g. ["ba", "dev", "qe"]).
+        registry: SpawnRegistry for tracking.
+        display_manager: TUI display manager.
+        project_dir: Root project directory.
+
+    Returns:
+        Dict of role_name → {run_id, agent_name, status}.
+
+    Raises:
+        ValueError: If session not found or role invalid.
     """
-    import asyncio
+    session = get_team_session(session_id)
+    if not session:
+        raise ValueError(f"Team session '{session_id}' not found.")
 
-    for role_name, role_config in roles.items():
+    template_roles = session.template.get("roles", {})
+    pdir = Path(project_dir).resolve() if project_dir else Path.cwd()
+    sdir = pdir / "skills"
+    paths = get_runtime_paths(str(pdir))
+
+    results: dict[str, dict[str, Any]] = {}
+
+    for role_name in roles:
+        if role_name not in template_roles:
+            results[role_name] = {
+                "error": f"Role '{role_name}' not in template. Available: {list(template_roles.keys())}"
+            }
+            continue
+
+        # Check if already spawned
+        role_config = template_roles[role_name]
         agent_name = role_config.get("agent_name", f"Agent - {role_name.upper()}")
-        task = role_config.get("task", project_brief)
-        instruction = role_config.get("instruction", f"You are {agent_name}.")
-        # Substitute {agent_name} placeholder in instruction
-        instruction = instruction.replace("{agent_name}", agent_name)
-        servers = list(role_config.get("servers", ["filesystem"]))
-        model = role_config.get("model", "")
+        existing = session.agents.get(agent_name, {})
+        if existing.get("status") not in ("available", None):
+            results[role_name] = {
+                "agent_name": agent_name,
+                "status": existing.get("status"),
+                "message": f"Already spawned (status: {existing.get('status')})",
+            }
+            continue
 
-        # Ensure communication servers are available
-        for srv in ["team_communicate"]:
-            if srv not in servers:
-                servers.append(srv)
+        roster_ctx = session.roster_context(for_role=role_name)
+        # Get project_brief from session workspace
+        project_brief = ""
+        brief_file = session.workspace / "project_brief.txt"
+        if brief_file.exists():
+            project_brief = brief_file.read_text(encoding="utf-8")
 
-        # Build context with roster + workspace
-        context_parts = [
-            f"## Project Brief\n{project_brief}",
-            f"\n## Shared Workspace\nPath: {workspace}",
-            "Use the filesystem MCP server to read/write files.",
-            f"\n{roster_ctx}",
-        ]
-        context = "\n\n".join(context_parts)
-
-        team_env = _build_team_env(workspace, roles, role_name, my_name=agent_name)
-
-        logger.info(
-            "Team %s: launching %s [%s] (background)",
-            session.session_id,
-            agent_name,
-            role_name,
-        )
-
-        session.agents[agent_name]["status"] = "running"
-
-        # Launch in background — non-blocking
-        run_id = await run_isolated_agent_background(
-            task=task,
-            project_dir=str(project_dir),
-            instruction=instruction,
-            context=context,
-            servers=servers,
-            model=model,
-            timeout_seconds=role_config.get("timeout_seconds", 600),
-            role=role_name,
-            agent_name=agent_name,
-            team_name=team_name,
-            lifecycle="resumable",
+        run_id = await _spawn_single_agent(
+            session=session,
+            role_name=role_name,
+            role_config=role_config,
+            workspace=session.workspace,
+            roster_ctx=roster_ctx,
+            project_brief=project_brief,
             registry=registry,
+            project_dir=pdir,
+            skills_dir=sdir,
             display_manager=display_manager,
-            skills=_resolve_role_skills(role_config, skills_dir),
-            env_vars=team_env,
-            workspace_dir=str(workspace),
+            team_name=session.template.get("name", "team"),
         )
 
-        session.agents[agent_name]["run_id"] = run_id
-        logger.info(
-            "Team %s: %s launched → run_id=%s",
-            session.session_id,
-            agent_name,
-            run_id,
-        )
+        results[role_name] = {
+            "agent_name": agent_name,
+            "run_id": run_id,
+            "status": "running",
+        }
 
-    # Update roster file with actual run_ids
-    session.write_roster()
-
-    if not wait_for_completion:
-        return
-
-    # Poll until all agents complete or reach stable idle
-    logger.info("Team %s: waiting for all agents to complete...", session.session_id)
-    max_wait = 600  # 10 minutes
-    poll_interval = 3
-    elapsed = 0
-    idle_stable_cycles = 0  # consecutive cycles where all are idle
-
-    while elapsed < max_wait:
-        await asyncio.sleep(poll_interval)
-        elapsed += poll_interval
-
-        all_terminal = True
-        all_settled = True  # all agents are idle or terminal (no running)
-        for agent_name, agent_info in session.agents.items():
-            run_id = agent_info.get("run_id", "")
-            if not run_id:
-                continue
-            # Follow resume/restart chain to get the latest record
-            record = registry.get_latest(run_id)
-            if record:
-                session.agents[agent_name]["status"] = record.status
-                if record.result:
-                    session.agents[agent_name]["result"] = record.result[:5000]
-
-                if record.status not in ("completed", "error", "cancelled", "timeout"):
-                    all_terminal = False
-                if record.status in ("running", "pending"):
-                    all_settled = False
-            else:
-                all_terminal = False
-                all_settled = False
-
-        # Case 1: all agents in terminal state → done
-        if all_terminal:
-            break
-
-        # Case 2: all agents are idle (no one running) → team settled
-        # Wait 2 stable cycles to avoid race with auto-wake
-        if all_settled:
-            idle_stable_cycles += 1
-            if idle_stable_cycles >= 2:
-                logger.info(
-                    "Team %s: all agents idle/settled — marking complete",
-                    session.session_id,
-                )
-                break
-        else:
-            idle_stable_cycles = 0
-
-    # Final roster update
-    session.write_roster()
+    session.save(sessions_dir=paths["workspaces"] / "team_sessions")
+    return results
 
 
 

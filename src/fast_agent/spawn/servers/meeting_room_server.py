@@ -829,5 +829,367 @@ async def leave_meeting(meeting_id: str, role: str, reason: str = "") -> str:
     )
 
 
+# ───────────────────────────────────────────────────────────────────
+# Async Messaging Helpers
+# ───────────────────────────────────────────────────────────────────
+
+
+def _get_bus():  # type: ignore[no-untyped-def]
+    """Get MessageBus from TEAM_MESSAGES_DIR or TEAM_WORKSPACE env var."""
+    from fast_agent.spawn.message_bus import MessageBus
+
+    # Prefer session-scoped messages dir
+    messages_dir = os.environ.get("TEAM_MESSAGES_DIR", "")
+    if messages_dir:
+        Path(messages_dir).mkdir(parents=True, exist_ok=True)
+        return MessageBus(messages_dir=messages_dir)
+
+    workspace = os.environ.get("TEAM_WORKSPACE", "")
+    if not workspace:
+        return None
+    cur = Path(workspace)
+    while cur != cur.parent:
+        if cur.name == ".runtime":
+            state_dir = cur / "state" / "messages"
+            state_dir.mkdir(parents=True, exist_ok=True)
+            return MessageBus(messages_dir=str(state_dir))
+        cur = cur.parent
+    return None
+
+
+def _get_my_name() -> str:
+    """Get current agent's name from env."""
+    return os.environ.get("TEAM_MY_NAME", os.environ.get("TEAM_MY_ROLE", "agent"))
+
+
+def _get_team_config() -> dict:
+    """Load team roles config from env."""
+    try:
+        return json.loads(os.environ.get("TEAM_ROLES_CONFIG", "{}"))
+    except json.JSONDecodeError:
+        return {}
+
+
+def _resolve_agent_name(name: str) -> str | None:
+    """Resolve target agent name — supports both name and role key lookup."""
+    team_config = _get_team_config()
+    for _role_key, cfg in team_config.items():
+        if isinstance(cfg, dict) and cfg.get("agent_name") == name:
+            return name
+    if name in team_config:
+        cfg = team_config[name]
+        if isinstance(cfg, dict):
+            return cfg.get("agent_name", name)
+    return None
+
+
+def _parse_recipients(value: str) -> list[str]:
+    """Parse comma-separated recipients. 'all' returns all team members."""
+    if not value:
+        return []
+    if value.strip().lower() == "all":
+        team_config = _get_team_config()
+        my_name = _get_my_name()
+        return [
+            cfg.get("agent_name", role)
+            for role, cfg in team_config.items()
+            if isinstance(cfg, dict) and cfg.get("agent_name") != my_name
+        ]
+    return [n.strip() for n in value.split(",") if n.strip()]
+
+
+def _auto_wake_if_idle(agent_name: str) -> None:
+    """Auto-wake an idle agent by triggering inbox resume."""
+    try:
+        from fast_agent.spawn.spawn_registry import SpawnRegistry
+
+        workspace = os.environ.get("TEAM_WORKSPACE", "")
+        if not workspace:
+            return
+
+        cur = Path(workspace)
+        registry_path = None
+        while cur != cur.parent:
+            if cur.name == ".runtime":
+                registry_path = cur / "state" / "spawn_registry.json"
+                break
+            cur = cur.parent
+
+        if not registry_path or not registry_path.exists():
+            return
+
+        registry = SpawnRegistry(str(registry_path))
+        record = registry.find_by_name(agent_name)
+
+        if not record or record.status != "idle":
+            return
+
+        if registry.has_running_resume(agent_name):
+            return
+
+        import asyncio
+        from fast_agent.spawn.isolated_spawner import _check_and_resume_on_inbox
+
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.ensure_future(
+                    _check_and_resume_on_inbox(
+                        run_id=record.run_id,
+                        agent_name=agent_name,
+                        registry=registry,
+                        display_manager=None,
+                        env_vars=(
+                            record.original_config.get("env_vars")
+                            if record.original_config
+                            else None
+                        ),
+                    )
+                )
+                logger.info("📬 Auto-waking idle agent %s", agent_name)
+        except RuntimeError:
+            pass
+    except Exception as e:
+        logger.warning("Auto-wake failed for %s: %s", agent_name, e)
+
+
+# ───────────────────────────────────────────────────────────────────
+# Async MCP Tools
+# ───────────────────────────────────────────────────────────────────
+
+
+@mcp.tool()
+def post_message(
+    to: str,
+    message: str,
+    my_name: str = "",
+    cc: str = "",
+    message_type: str = "message",
+) -> str:
+    """Post an async message to one or more teammates. No meeting needed.
+
+    Unlike meetings (which require turn-taking), this is fire-and-forget.
+    The message is queued and the recipient reads it when available.
+    If the recipient is idle, they are auto-woken.
+
+    Use this for: quick questions, notifications, status updates,
+    blocker alerts, or any message that doesn't need a formal meeting.
+
+    Args:
+        to: Recipient name(s). Single: "Minh - Dev".
+            Multiple (comma-separated): "Minh - Dev, Tuan - QE".
+            Broadcast: "all".
+        message: Your message content.
+        my_name: YOUR agent name (for sender tracking).
+        cc: Optional CC recipients (comma-separated). They receive an
+            informational copy prefixed with [CC]. Use for keeping
+            stakeholders informed without direct action needed.
+        message_type: "message" | "notification" | "question" |
+                      "task_update" | "blocker"
+    """
+    bus = _get_bus()
+    if not bus:
+        return json.dumps({"error": "No workspace configured. Cannot send messages."})
+
+    my_name = my_name or _get_my_name()
+    recipients = _parse_recipients(to)
+    if not recipients:
+        return json.dumps({"error": "'to' must specify at least one recipient."})
+
+    # Guard: reject self-messaging
+    recipients = [r for r in recipients if r != my_name]
+    if not recipients:
+        teammates = [
+            cfg.get("agent_name", "")
+            for cfg in _get_team_config().values()
+            if cfg.get("agent_name") != my_name
+        ]
+        return json.dumps({
+            "error": "Cannot send message to yourself. Use post_message to contact teammates.",
+            "available_teammates": teammates,
+        })
+
+    sent: list[dict[str, str]] = []
+    # Primary recipients
+    for recipient in recipients:
+        msg = bus.send(
+            from_name=my_name,
+            to_name=recipient,
+            content=message,
+            message_type=message_type,
+        )
+        _auto_wake_if_idle(recipient)
+        sent.append({"to": recipient, "message_id": msg.message_id, "type": "to"})
+
+    # CC recipients — informational copy
+    cc_recipients = _parse_recipients(cc) if cc else []
+    cc_recipients = [r for r in cc_recipients if r != my_name and r not in recipients]
+    cc_sent: list[dict[str, str]] = []
+    if cc_recipients:
+        to_names = ", ".join(recipients)
+        cc_content = f"[CC — originally to: {to_names}]\n{message}"
+        for recipient in cc_recipients:
+            msg = bus.send(
+                from_name=my_name,
+                to_name=recipient,
+                content=cc_content,
+                message_type="notification",
+            )
+            _auto_wake_if_idle(recipient)
+            cc_sent.append({"to": recipient, "message_id": msg.message_id, "type": "cc"})
+
+    result: dict[str, Any] = {
+        "status": "sent",
+        "from": my_name,
+        "sent": sent,
+        "note": (
+            f"Message delivered to {', '.join(r['to'] for r in sent)}. "
+            f"They will read it when available."
+        ),
+    }
+    if cc_sent:
+        result["cc_sent"] = cc_sent
+        result["note"] += f" CC: {', '.join(r['to'] for r in cc_sent)}."
+    return json.dumps(result)
+
+
+@mcp.tool()
+def read_messages(
+    my_name: str = "",
+    from_agent: str = "",
+    wait: bool = False,
+    timeout_seconds: int = 120,
+) -> str:
+    """Read your unread async messages.
+
+    Use this to check for messages from teammates — status updates,
+    questions, notifications, or completion signals.
+
+    Args:
+        my_name: YOUR agent name (to identify your inbox).
+        from_agent: Optional — filter to only show messages from this agent.
+                    Leave empty to see all messages.
+        wait: If True, poll every 3s until a message arrives or timeout.
+              If False (default), check once and return immediately.
+        timeout_seconds: Max time to wait when wait=True. Default 120s.
+    """
+    import time as _time
+
+    bus = _get_bus()
+    if not bus:
+        return json.dumps({"error": "No workspace configured."})
+
+    my_name = my_name or _get_my_name()
+    poll_interval = 3.0
+    start = _time.time()
+
+    while True:
+        messages = bus.read_unread(my_name)
+
+        if from_agent:
+            resolved = _resolve_agent_name(from_agent) or from_agent
+            messages = [m for m in messages if m.from_name == resolved]
+
+        if messages:
+            result = []
+            for msg in messages:
+                result.append({
+                    "message_id": msg.message_id,
+                    "from": msg.from_name,
+                    "type": msg.message_type,
+                    "content": msg.content,
+                    "timestamp": msg.timestamp,
+                })
+                bus.mark_done(my_name, msg.message_id)
+
+            return json.dumps({
+                "status": "has_messages",
+                "count": len(result),
+                "messages": result,
+            })
+
+        if not wait or (_time.time() - start) >= timeout_seconds:
+            break
+
+        _time.sleep(poll_interval)
+
+    filter_note = f" from {from_agent}" if from_agent else ""
+    if wait:
+        return json.dumps({
+            "status": "timeout",
+            "message": f"No messages{filter_note} after {timeout_seconds}s.",
+        })
+
+    return json.dumps({
+        "status": "empty",
+        "message": f"No unread messages{filter_note}.",
+    })
+
+
+@mcp.tool()
+def check_teammate_status(agent_name: str) -> str:
+    """Check a teammate's current status. Read-only, no lifecycle control.
+
+    Use this to check if a dependency is met (e.g., "is SA done with
+    architecture?") before starting your own work.
+
+    Args:
+        agent_name: The teammate to check (e.g. "Khang - SA").
+
+    Returns:
+        JSON with status: "not_spawned" | "running" | "idle" |
+                          "completed" | "error"
+        Plus: result summary if completed.
+    """
+    try:
+        from fast_agent.spawn.spawn_registry import SpawnRegistry
+
+        workspace = os.environ.get("TEAM_WORKSPACE", "")
+        if not workspace:
+            return json.dumps({"error": "No workspace configured."})
+
+        cur = Path(workspace)
+        registry_path = None
+        while cur != cur.parent:
+            if cur.name == ".runtime":
+                registry_path = cur / "state" / "spawn_registry.json"
+                break
+            cur = cur.parent
+
+        if not registry_path or not registry_path.exists():
+            return json.dumps({
+                "agent_name": agent_name,
+                "status": "not_spawned",
+                "message": "No spawn registry found.",
+            })
+
+        registry = SpawnRegistry(str(registry_path))
+        record = registry.find_by_name(agent_name)
+
+        if not record:
+            return json.dumps({
+                "agent_name": agent_name,
+                "status": "not_spawned",
+            })
+
+        result_info: dict = {
+            "agent_name": agent_name,
+            "status": record.status,
+            "run_id": record.run_id,
+        }
+
+        if record.status == "completed" and record.result:
+            result_info["result_preview"] = record.result[:2000]
+
+        return json.dumps(result_info)
+
+    except Exception as e:
+        return json.dumps({
+            "agent_name": agent_name,
+            "status": "unknown",
+            "error": str(e),
+        })
+
+
 if __name__ == "__main__":
     mcp.run()

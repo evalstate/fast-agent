@@ -587,6 +587,23 @@ async def _check_and_resume_on_inbox(
             "⚠️ No history file for %s — using text-based context", agent_name,
         )
 
+    # Re-inject team context if this is a team agent
+    team_session_id = (env_vars or {}).get("TEAM_SESSION_ID", "")
+    if team_session_id:
+        try:
+            from fast_agent.spawn.team_spawner import get_team_session
+            session = get_team_session(team_session_id)
+            if session:
+                role = cfg.get("role", "")
+                roster_ctx = session.roster_context(for_role=role)
+                enriched_context = roster_ctx + "\n\n" + enriched_context
+                logger.info(
+                    "📋 Re-injected team context for %s (session %s)",
+                    agent_name, team_session_id,
+                )
+        except Exception as e:
+            logger.warning("Failed to re-inject team context: %s", e)
+
     project_dir = "."
     if env_vars and env_vars.get("SPAWN_PROJECT_DIR"):
         project_dir = env_vars["SPAWN_PROJECT_DIR"]

@@ -111,7 +111,7 @@ def get_server_commands(
 
 # ---------- MCP server env vars ----------
 
-_WORKSPACE_SERVERS = {"meeting_room", "team_communicate"}
+_WORKSPACE_SERVERS = {"meeting_room"}
 
 
 def get_server_env(
