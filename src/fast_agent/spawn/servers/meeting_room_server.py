@@ -100,14 +100,23 @@ async def create_meeting(
     agenda: str,
     participants: str,
     max_rounds: int = 3,
+    my_name: str = "",
     workspace_dir: str = "",
 ) -> str:
-    """Create a new meeting room. Call BEFORE spawning participants.
+    """Create a meeting room and auto-invite all participants.
+
+    🎙️ Meetings are for REAL-TIME discussion — faster than post_message.
+    All participants receive a 🔔 MEETING INVITE and are auto-woken if idle.
+
+    Use meetings for: kickoff, design review, code review, blocker resolution.
+    Use post_message for: task assignments, status updates, async notifications.
 
     Args:
         agenda: What this meeting is about.
-        participants: Comma-separated roles in speaking order.
+        participants: Comma-separated AGENT NAMES in speaking order.
+                      E.g. "Linh - PM, Hoa - BA, Khang - SA"
         max_rounds: Maximum conversation rounds (default 3).
+        my_name: YOUR agent name (auto-detected from env).
         workspace_dir: Workspace path (auto-detected from env).
 
     Returns:
@@ -118,6 +127,7 @@ async def create_meeting(
             "TEAM_WORKSPACE",
             str(Path.cwd() / ".runtime" / "cache" / "tmp" / "meeting-workspace"),
         )
+    my_name = my_name or _get_my_name()
     participant_list = [p.strip() for p in participants.split(",") if p.strip()]
     if len(participant_list) < 2:
         return json.dumps({"error": "Need at least 2 participants"})
@@ -131,6 +141,7 @@ async def create_meeting(
         "agenda": agenda,
         "participants": participant_list,
         "max_rounds": max_rounds,
+        "created_by": my_name,
         "created_at": datetime.now().isoformat(),
     }
     _write_json(meeting_dir / "config.json", config)
@@ -148,35 +159,66 @@ async def create_meeting(
 
     _audit(
         meeting_dir,
-        f"Meeting created: agenda='{agenda}', "
+        f"Meeting created by {my_name}: agenda='{agenda}', "
         f"participants={participant_list}, max_rounds={max_rounds}",
     )
 
-    logger.info("Meeting created: %s — %s", meeting_id, agenda)
+    # ── Auto-invite all participants ──────────────────────────────
+    bus = _get_bus()
+    invited: list[str] = []
+    if bus:
+        participant_names = ", ".join(participant_list)
+        for participant in participant_list:
+            if participant == my_name:
+                continue  # Don't invite self
+            invite_content = (
+                f"🔔 MEETING INVITE\n"
+                f"Agenda: {agenda}\n"
+                f"Meeting ID: {meeting_id}\n"
+                f"Participants: {participant_names}\n"
+                f"Created by: {my_name}\n\n"
+                f"→ To join: join_meeting(meeting_id=\"{meeting_id}\", "
+                f"agent_name=\"{participant}\")\n"
+                f"→ Then: wait_for_my_turn(meeting_id=\"{meeting_id}\", "
+                f"agent_name=\"{participant}\")"
+            )
+            bus.send(
+                from_name=my_name,
+                to_name=participant,
+                content=invite_content,
+                message_type="meeting_invite",
+            )
+            _auto_wake_if_idle(participant)
+            invited.append(participant)
+            logger.info("📨 Sent meeting invite to %s for %s", participant, meeting_id)
+
+    logger.info("Meeting created: %s — %s (invited %d)", meeting_id, agenda, len(invited))
     return json.dumps(
         {
             "meeting_id": meeting_id,
             "agenda": agenda,
             "participants": participant_list,
             "max_rounds": max_rounds,
-            "status": "waiting_for_participants",
+            "status": "invites_sent",
+            "invited": invited,
         }
     )
 
 
 @mcp.tool()
-async def join_meeting(meeting_id: str, role: str) -> str:
-    """Join an existing meeting. Call before ``wait_for_my_turn``.
+async def join_meeting(meeting_id: str, agent_name: str = "") -> str:
+    """Join an existing meeting. Call after receiving a 🔔 MEETING INVITE.
 
     When all expected participants have joined, the meeting starts.
 
     Args:
         meeting_id: The meeting to join.
-        role: Your role (e.g. "qe", "dev").
+        agent_name: YOUR agent name (e.g. "Hoa - BA"). Auto-detected if empty.
 
     Returns:
         JSON with meeting config and join status.
     """
+    agent_name = agent_name or _get_my_name()
     meeting_dir = _get_meeting_dir(meeting_id)
 
     if not meeting_dir.exists():
@@ -200,13 +242,13 @@ async def join_meeting(meeting_id: str, role: str) -> str:
             )
 
         joined: list[str] = state.get("joined", [])
-        if role not in joined:
-            joined.append(role)
+        if agent_name not in joined:
+            joined.append(agent_name)
             state["joined"] = joined
 
         participants: list[str] = config.get("participants", [])
-        if role not in participants:
-            participants.append(role)
+        if agent_name not in participants:
+            participants.append(agent_name)
             config["participants"] = participants
             _write_json(meeting_dir / "config.json", config)
 
@@ -216,7 +258,7 @@ async def join_meeting(meeting_id: str, role: str) -> str:
 
         _write_json(meeting_dir / "state.json", state)
 
-    _audit(meeting_dir, f"{role} joined the meeting")
+    _audit(meeting_dir, f"{agent_name} joined the meeting")
     if all_joined:
         _audit(
             meeting_dir,
@@ -231,13 +273,13 @@ async def join_meeting(meeting_id: str, role: str) -> str:
             "participants": config.get("participants", []),
             "max_rounds": config.get("max_rounds", 3),
             "all_joined": all_joined,
-            "your_role": role,
+            "your_name": agent_name,
         }
     )
 
 
 @mcp.tool()
-async def wait_for_my_turn(meeting_id: str, role: str, timeout_seconds: int = 180) -> str:
+async def wait_for_my_turn(meeting_id: str, agent_name: str = "", timeout_seconds: int = 180) -> str:
     """Wait (poll) until it's your turn to speak or the meeting ends.
 
     Call after ``join_meeting``. When this returns ``your_turn``, call
@@ -245,12 +287,13 @@ async def wait_for_my_turn(meeting_id: str, role: str, timeout_seconds: int = 18
 
     Args:
         meeting_id: The meeting to wait in.
-        role: Your role.
+        agent_name: YOUR agent name. Auto-detected if empty.
         timeout_seconds: Max seconds to wait (default 180).
 
     Returns:
         JSON with status: "your_turn", "meeting_ended", or "timeout".
     """
+    agent_name = agent_name or _get_my_name()
     meeting_dir = _get_meeting_dir(meeting_id)
     if not meeting_dir.exists():
         return json.dumps({"error": f"Meeting '{meeting_id}' not found"})
@@ -260,10 +303,10 @@ async def wait_for_my_turn(meeting_id: str, role: str, timeout_seconds: int = 18
         config = {}
     participants: list[str] = config.get("participants", [])
 
-    if role not in participants:
-        return json.dumps({"error": (f"Role '{role}' not in meeting participants: {participants}")})
+    if agent_name not in participants:
+        return json.dumps({"error": (f"'{agent_name}' not in meeting participants: {participants}")})
 
-    my_index = participants.index(role)
+    my_index = participants.index(agent_name)
     start_time = time.time()
     poll_interval = 2
 
@@ -347,7 +390,7 @@ async def get_transcript(meeting_id: str) -> str:
 
 
 @mcp.tool()
-async def speak(meeting_id: str, role: str, message: str) -> str:
+async def speak(meeting_id: str, message: str, agent_name: str = "") -> str:
     """Add your message to the meeting transcript.
 
     After speaking, the turn automatically advances to the next
@@ -358,12 +401,13 @@ async def speak(meeting_id: str, role: str, message: str) -> str:
 
     Args:
         meeting_id: The meeting to speak in.
-        role: Your role (must be the current speaker).
+        agent_name: YOUR agent name (must be the current speaker). Auto-detected if empty.
         message: What you want to say.
 
     Returns:
         JSON with confirmation and next turn info.
     """
+    agent_name = agent_name or _get_my_name()
     meeting_dir = _get_meeting_dir(meeting_id)
     if not meeting_dir.exists():
         return json.dumps({"error": f"Meeting '{meeting_id}' not found"})
@@ -384,11 +428,11 @@ async def speak(meeting_id: str, role: str, message: str) -> str:
 
         current_turn = state.get("current_turn", 0)
         current_speaker = participants[current_turn] if current_turn < len(participants) else None
-        if role != current_speaker:
+        if agent_name != current_speaker:
             return json.dumps(
                 {
                     "error": (f"Not your turn. Current speaker: {current_speaker}"),
-                    "your_role": role,
+                    "your_name": agent_name,
                 }
             )
 
@@ -399,7 +443,7 @@ async def speak(meeting_id: str, role: str, message: str) -> str:
         turn_entry = {
             "turn": len(transcript) + 1,
             "round": state.get("current_round", 1),
-            "agent": role,
+            "agent": agent_name,
             "timestamp": datetime.now().isoformat(timespec="seconds"),
             "message": message,
             "type": "speak",
@@ -439,7 +483,7 @@ async def speak(meeting_id: str, role: str, message: str) -> str:
                 )
                 action_items.append(
                     {
-                        "from": role,
+                        "from": agent_name,
                         "round": state.get("current_round", 1),
                         "reason": (
                             reason_match.group(1).strip()[:500] if reason_match else "Issues found"
@@ -463,7 +507,7 @@ async def speak(meeting_id: str, role: str, message: str) -> str:
                 )
                 _audit(
                     meeting_dir,
-                    f"{role} [round {turn_entry['round']}]: VERDICT FAIL — meeting continues",
+                    f"{agent_name} [round {turn_entry['round']}]: VERDICT FAIL — meeting continues",
                 )
 
                 return json.dumps(
@@ -484,7 +528,7 @@ async def speak(meeting_id: str, role: str, message: str) -> str:
             _write_json(meeting_dir / "state.json", state)
             _audit(
                 meeting_dir,
-                f"{role} [round {state.get('current_round', 1)}]: {message[:200]}",
+                f"{agent_name} [round {state.get('current_round', 1)}]: {message[:200]}",
             )
             _audit(
                 meeting_dir,
@@ -512,7 +556,7 @@ async def speak(meeting_id: str, role: str, message: str) -> str:
                 state["current_turn"] = next_turn
                 state["current_round"] = current_round
                 _write_json(meeting_dir / "state.json", state)
-                _audit(meeting_dir, f"{role}: {message[:200]}")
+                _audit(meeting_dir, f"{agent_name}: {message[:200]}")
                 _audit(
                     meeting_dir,
                     "Meeting ended: max_rounds_reached",
@@ -534,7 +578,7 @@ async def speak(meeting_id: str, role: str, message: str) -> str:
 
     _audit(
         meeting_dir,
-        f"{role} [round {turn_entry['round']}]: {message[:200]}",
+        f"{agent_name} [round {turn_entry['round']}]: {message[:200]}",
     )
     _audit(
         meeting_dir,
@@ -552,17 +596,18 @@ async def speak(meeting_id: str, role: str, message: str) -> str:
 
 
 @mcp.tool()
-async def skip_turn(meeting_id: str, role: str, reason: str = "") -> str:
+async def skip_turn(meeting_id: str, agent_name: str = "", reason: str = "") -> str:
     """Skip your turn. The turn advances to the next participant.
 
     Args:
         meeting_id: The meeting.
-        role: Your role.
+        agent_name: YOUR agent name. Auto-detected if empty.
         reason: Optional reason for skipping.
 
     Returns:
         JSON with confirmation.
     """
+    agent_name = agent_name or _get_my_name()
     meeting_dir = _get_meeting_dir(meeting_id)
     if not meeting_dir.exists():
         return json.dumps({"error": f"Meeting '{meeting_id}' not found"})
@@ -583,11 +628,11 @@ async def skip_turn(meeting_id: str, role: str, reason: str = "") -> str:
 
         current_turn = state.get("current_turn", 0)
         current_speaker = participants[current_turn] if current_turn < len(participants) else None
-        if role != current_speaker:
+        if agent_name != current_speaker:
             return json.dumps(
                 {
                     "error": (f"Not your turn. Current speaker: {current_speaker}"),
-                    "your_role": role,
+                    "your_name": agent_name,
                 }
             )
 
@@ -598,7 +643,7 @@ async def skip_turn(meeting_id: str, role: str, reason: str = "") -> str:
         turn_entry = {
             "turn": len(transcript) + 1,
             "round": state.get("current_round", 1),
-            "agent": role,
+            "agent": agent_name,
             "timestamp": datetime.now().isoformat(timespec="seconds"),
             "message": reason or "(skipped)",
             "type": "skip",
@@ -620,7 +665,7 @@ async def skip_turn(meeting_id: str, role: str, reason: str = "") -> str:
                 _write_json(meeting_dir / "state.json", state)
                 _audit(
                     meeting_dir,
-                    f"{role} skipped: {reason}",
+                    f"{agent_name} skipped: {reason}",
                 )
                 _audit(
                     meeting_dir,
@@ -643,7 +688,7 @@ async def skip_turn(meeting_id: str, role: str, reason: str = "") -> str:
 
     _audit(
         meeting_dir,
-        f"{role} skipped turn: {reason or 'no reason'}",
+        f"{agent_name} skipped turn: {reason or 'no reason'}",
     )
 
     return json.dumps(
@@ -705,12 +750,14 @@ async def get_meeting_status(meeting_id: str) -> str:
 
 
 @mcp.tool()
-async def add_participant(meeting_id: str, role: str) -> str:
+async def add_participant(meeting_id: str, agent_name: str) -> str:
     """Add a new participant to an ongoing meeting (for escalation).
+
+    Also sends them a meeting invite via post_message and wakes them if idle.
 
     Args:
         meeting_id: The meeting.
-        role: Role to add.
+        agent_name: Agent name to add (e.g. "Tuan - QE").
 
     Returns:
         JSON with updated participant list.
@@ -731,39 +778,62 @@ async def add_participant(meeting_id: str, role: str) -> str:
             return json.dumps({"error": ("Cannot add participant — meeting already ended")})
 
         participants: list[str] = config.get("participants", [])
-        if role in participants:
-            return json.dumps({"status": "already_participant", "role": role})
+        if agent_name in participants:
+            return json.dumps({"status": "already_participant", "agent_name": agent_name})
 
-        participants.append(role)
+        participants.append(agent_name)
         config["participants"] = participants
         _write_json(meeting_dir / "config.json", config)
 
+    # Auto-invite the new participant
+    bus = _get_bus()
+    if bus:
+        agenda = config.get("agenda", "")
+        invite_content = (
+            f"🔔 MEETING INVITE (mid-meeting)\n"
+            f"Agenda: {agenda}\n"
+            f"Meeting ID: {meeting_id}\n"
+            f"You were added to an ongoing meeting.\n\n"
+            f"→ join_meeting(meeting_id=\"{meeting_id}\", "
+            f"agent_name=\"{agent_name}\")\n"
+            f"→ wait_for_my_turn(meeting_id=\"{meeting_id}\", "
+            f"agent_name=\"{agent_name}\")"
+        )
+        bus.send(
+            from_name=_get_my_name(),
+            to_name=agent_name,
+            content=invite_content,
+            message_type="meeting_invite",
+        )
+        _auto_wake_if_idle(agent_name)
+
     _audit(
         meeting_dir,
-        f"Participant added mid-meeting: {role}",
+        f"Participant added mid-meeting: {agent_name}",
     )
 
     return json.dumps(
         {
             "status": "added",
-            "role": role,
+            "agent_name": agent_name,
             "participants": participants,
         }
     )
 
 
 @mcp.tool()
-async def leave_meeting(meeting_id: str, role: str, reason: str = "") -> str:
+async def leave_meeting(meeting_id: str, agent_name: str = "", reason: str = "") -> str:
     """Leave a meeting. Your turns will be skipped.
 
     Args:
         meeting_id: The meeting to leave.
-        role: Your role.
+        agent_name: YOUR agent name. Auto-detected if empty.
         reason: Why you're leaving.
 
     Returns:
         JSON confirming you've left.
     """
+    agent_name = agent_name or _get_my_name()
     meeting_dir = _get_meeting_dir(meeting_id)
     if not meeting_dir.exists():
         return json.dumps({"error": f"Meeting '{meeting_id}' not found"})
@@ -781,12 +851,12 @@ async def leave_meeting(meeting_id: str, role: str, reason: str = "") -> str:
         if state.get("ended"):
             return json.dumps({"error": "Meeting already ended"})
 
-        if role not in participants:
-            return json.dumps({"error": f"Role '{role}' not in meeting"})
+        if agent_name not in participants:
+            return json.dumps({"error": f"'{agent_name}' not in meeting"})
 
         current_turn = state.get("current_turn", 0)
-        my_index = participants.index(role)
-        participants.remove(role)
+        my_index = participants.index(agent_name)
+        participants.remove(agent_name)
         config["participants"] = participants
         _write_json(meeting_dir / "config.json", config)
 
@@ -806,7 +876,7 @@ async def leave_meeting(meeting_id: str, role: str, reason: str = "") -> str:
             {
                 "turn": len(transcript) + 1,
                 "round": state.get("current_round", 1),
-                "agent": role,
+                "agent": agent_name,
                 "timestamp": datetime.now().isoformat(timespec="seconds"),
                 "message": (f"Left the meeting: {reason}" if reason else "Left the meeting"),
                 "type": "leave",
@@ -817,13 +887,13 @@ async def leave_meeting(meeting_id: str, role: str, reason: str = "") -> str:
 
     _audit(
         meeting_dir,
-        f"{role} left the meeting: {reason or 'no reason given'}",
+        f"{agent_name} left the meeting: {reason or 'no reason given'}",
     )
 
     return json.dumps(
         {
             "status": "left",
-            "role": role,
+            "agent_name": agent_name,
             "remaining_participants": participants,
         }
     )
@@ -898,33 +968,76 @@ def _parse_recipients(value: str) -> list[str]:
     return [n.strip() for n in value.split(",") if n.strip()]
 
 
+def _get_project_registry() -> "SpawnRegistry | None":
+    """Get the PROJECT-level spawn registry (not workspace-level).
+
+    Child processes (like PM) have TEAM_WORKSPACE pointing to their workspace
+    inside .runtime/data/workspaces/. Walking up from there finds the
+    workspace's own .runtime — which has an EMPTY registry.
+
+    The correct registry is at SPAWN_PROJECT_DIR/.runtime/state/spawn_registry.json.
+    """
+    from fast_agent.spawn.spawn_registry import SpawnRegistry
+
+    # Priority 1: SPAWN_PROJECT_DIR (always correct for spawned agents)
+    project_dir = os.environ.get("SPAWN_PROJECT_DIR", "")
+    if project_dir:
+        path = Path(project_dir) / ".runtime" / "state" / "spawn_registry.json"
+        if path.exists():
+            return SpawnRegistry(str(path))
+        logger.debug(
+            "Project registry not found at %s (SPAWN_PROJECT_DIR=%s)",
+            path, project_dir,
+        )
+
+    # Fallback: workspace-level registry (for non-team agents)
+    workspace = os.environ.get("TEAM_WORKSPACE", "")
+    if workspace:
+        path = Path(workspace) / ".runtime" / "state" / "spawn_registry.json"
+        if path.exists():
+            return SpawnRegistry(str(path))
+        logger.debug(
+            "Workspace registry not found at %s (TEAM_WORKSPACE=%s)",
+            path, workspace,
+        )
+
+    logger.warning(
+        "No spawn registry found. SPAWN_PROJECT_DIR=%s, TEAM_WORKSPACE=%s",
+        os.environ.get("SPAWN_PROJECT_DIR", "(unset)"),
+        os.environ.get("TEAM_WORKSPACE", "(unset)"),
+    )
+    return None
+
+
 def _auto_wake_if_idle(agent_name: str) -> None:
     """Auto-wake an idle agent by triggering inbox resume."""
     try:
-        from fast_agent.spawn.spawn_registry import SpawnRegistry
-
-        workspace = os.environ.get("TEAM_WORKSPACE", "")
-        if not workspace:
+        registry = _get_project_registry()
+        if not registry:
+            logger.warning(
+                "Cannot auto-wake %s: no registry found", agent_name
+            )
             return
 
-        cur = Path(workspace)
-        registry_path = None
-        while cur != cur.parent:
-            if cur.name == ".runtime":
-                registry_path = cur / "state" / "spawn_registry.json"
-                break
-            cur = cur.parent
-
-        if not registry_path or not registry_path.exists():
-            return
-
-        registry = SpawnRegistry(str(registry_path))
         record = registry.find_by_name(agent_name)
 
-        if not record or record.status != "idle":
+        if not record:
+            logger.debug(
+                "Cannot auto-wake %s: not found in registry", agent_name
+            )
+            return
+
+        if record.status != "idle":
+            logger.debug(
+                "Skip auto-wake %s: status=%s (not idle)",
+                agent_name, record.status,
+            )
             return
 
         if registry.has_running_resume(agent_name):
+            logger.debug(
+                "Skip auto-wake %s: already has running resume", agent_name
+            )
             return
 
         import asyncio
@@ -946,11 +1059,17 @@ def _auto_wake_if_idle(agent_name: str) -> None:
                         ),
                     )
                 )
-                logger.info("📬 Auto-waking idle agent %s", agent_name)
-        except RuntimeError:
-            pass
+                logger.info("📬 Auto-waking idle agent %s (run_id=%s)", agent_name, record.run_id)
+            else:
+                logger.warning(
+                    "Cannot auto-wake %s: event loop not running", agent_name
+                )
+        except RuntimeError as e:
+            logger.warning(
+                "Cannot auto-wake %s: event loop error: %s", agent_name, e
+            )
     except Exception as e:
-        logger.warning("Auto-wake failed for %s: %s", agent_name, e)
+        logger.error("Auto-wake failed for %s: %s", agent_name, e, exc_info=True)
 
 
 # ───────────────────────────────────────────────────────────────────
@@ -1135,35 +1254,46 @@ def check_teammate_status(agent_name: str) -> str:
 
     Args:
         agent_name: The teammate to check (e.g. "Khang - SA").
+                    Use "all" to check all teammates at once.
 
     Returns:
         JSON with status: "not_spawned" | "running" | "idle" |
                           "completed" | "error"
         Plus: result summary if completed.
+        When agent_name="all", returns a dict of all teammate statuses.
     """
     try:
-        from fast_agent.spawn.spawn_registry import SpawnRegistry
-
-        workspace = os.environ.get("TEAM_WORKSPACE", "")
-        if not workspace:
-            return json.dumps({"error": "No workspace configured."})
-
-        cur = Path(workspace)
-        registry_path = None
-        while cur != cur.parent:
-            if cur.name == ".runtime":
-                registry_path = cur / "state" / "spawn_registry.json"
-                break
-            cur = cur.parent
-
-        if not registry_path or not registry_path.exists():
+        registry = _get_project_registry()
+        if not registry:
+            logger.warning(
+                "check_teammate_status(%s): no registry found", agent_name
+            )
             return json.dumps({
                 "agent_name": agent_name,
-                "status": "not_spawned",
-                "message": "No spawn registry found.",
+                "status": "unknown",
+                "error": "No spawn registry found. Check SPAWN_PROJECT_DIR env.",
             })
 
-        registry = SpawnRegistry(str(registry_path))
+        # Batch mode: check all teammates
+        if agent_name.strip().lower() == "all":
+            team_config = _get_team_config()
+            my_name = _get_my_name()
+            all_status: dict[str, dict] = {}
+            for _role, cfg in team_config.items():
+                name = cfg.get("agent_name", "")
+                if not name or name == my_name:
+                    continue
+                record = registry.find_by_name(name)
+                if not record:
+                    all_status[name] = {"status": "not_spawned"}
+                else:
+                    info: dict = {"status": record.status, "run_id": record.run_id}
+                    if record.status == "completed" and record.result:
+                        info["result_preview"] = record.result[:500]
+                    all_status[name] = info
+            return json.dumps({"teammates": all_status, "count": len(all_status)})
+
+        # Single agent mode
         record = registry.find_by_name(agent_name)
 
         if not record:
@@ -1184,6 +1314,9 @@ def check_teammate_status(agent_name: str) -> str:
         return json.dumps(result_info)
 
     except Exception as e:
+        logger.error(
+            "check_teammate_status(%s) failed: %s", agent_name, e, exc_info=True
+        )
         return json.dumps({
             "agent_name": agent_name,
             "status": "unknown",

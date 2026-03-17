@@ -111,7 +111,8 @@ def get_server_commands(
 
 # ---------- MCP server env vars ----------
 
-_WORKSPACE_SERVERS = {"meeting_room"}
+# Servers that need workspace/project env vars
+_TEAM_AWARE_SERVERS = {"meeting_room", "agent_spawner"}
 
 
 def get_server_env(
@@ -122,13 +123,37 @@ def get_server_env(
     """Get extra environment variables needed by a specific MCP server.
 
     Returns dict of env vars, or None if no extra env is needed.
+
+    Both ``meeting_room`` and ``agent_spawner`` need:
+    - SPAWN_PROJECT_DIR: to find project-level spawn_registry and team_sessions
+    - TEAM_WORKSPACE: to locate workspace-specific files
     """
-    if server_name in _WORKSPACE_SERVERS and workspace_dir:
-        env: dict[str, str] = {"TEAM_WORKSPACE": workspace_dir}
-        if agent_name:
-            env["TEAM_MY_NAME"] = agent_name
-        return env
-    return None
+    import os
+
+    if server_name not in _TEAM_AWARE_SERVERS:
+        return None
+
+    env: dict[str, str] = {}
+
+    # SPAWN_PROJECT_DIR — critical for finding team sessions and spawn registry
+    project_dir = os.environ.get("SPAWN_PROJECT_DIR", "")
+    if project_dir:
+        env["SPAWN_PROJECT_DIR"] = project_dir
+
+    # Workspace dir for file access
+    if workspace_dir:
+        env["TEAM_WORKSPACE"] = workspace_dir
+
+    # Agent identity
+    if agent_name:
+        env["TEAM_MY_NAME"] = agent_name
+
+    # Session ID propagation
+    session_id = os.environ.get("TEAM_SESSION_ID", "")
+    if session_id:
+        env["TEAM_SESSION_ID"] = session_id
+
+    return env if env else None
 
 
 def get_default_model(project_dir: str | Path) -> str:

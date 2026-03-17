@@ -111,7 +111,7 @@ class TeamSession:
     def to_dict(self) -> dict[str, Any]:
         return {
             "session_id": self.session_id,
-            "template": self.template.get("name", "unknown"),
+            "template": self.template,
             "workspace": str(self.workspace),
             "parent_session_id": self.parent_session_id,
             "agents": self.agents,
@@ -202,9 +202,13 @@ class TeamSession:
         if not path.exists():
             return None
         data = json.loads(path.read_text())
+        # Support both old format (template as string) and new (template as dict)
+        template_data = data.get("template", {})
+        if isinstance(template_data, str):
+            template_data = {"name": template_data}
         session = cls(
             session_id=data["session_id"],
-            template={"name": data.get("template", "unknown")},
+            template=template_data,
             workspace=Path(data["workspace"]),
             parent_session_id=data.get("parent_session_id", ""),
         )
@@ -599,8 +603,33 @@ async def spawn_team_members_for_session(
 
 
 def get_team_session(session_id: str) -> TeamSession | None:
-    """Get a team session by ID."""
-    return _team_sessions.get(session_id)
+    """Get a team session by ID.
+
+    First checks in-memory cache, then falls back to loading from disk.
+    This is critical for child processes (e.g. PM subprocess) that have
+    their own empty _team_sessions dict but need to access sessions
+    created by the parent process.
+    """
+    session = _team_sessions.get(session_id)
+    if session:
+        return session
+
+    # Fall back: try loading from disk
+    # Try common project dirs: SPAWN_PROJECT_DIR, cwd
+    import os
+    for project_dir in [
+        os.environ.get("SPAWN_PROJECT_DIR", ""),
+        os.getcwd(),
+    ]:
+        if not project_dir:
+            continue
+        sessions_dir = Path(project_dir) / ".runtime" / "data" / "workspaces" / "team_sessions"
+        loaded = TeamSession.load(session_id, sessions_dir)
+        if loaded:
+            _team_sessions[session_id] = loaded  # Cache for future calls
+            return loaded
+
+    return None
 
 
 def list_team_sessions() -> list[dict[str, Any]]:

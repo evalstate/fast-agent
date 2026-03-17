@@ -29,6 +29,7 @@ process, not from module-level globals.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -79,6 +80,11 @@ mcp = FastMCP("agent-spawner")
 # ───────────────────────────────────────────────────────────
 
 _PROJECT_DIR = Path(os.environ.get("SPAWN_PROJECT_DIR", os.getcwd()))
+# CRITICAL: Export back to os.environ so child processes inherit it.
+# Without this, _PROJECT_DIR is only a Python variable and children
+# (Level 1) and their MCP servers (Level 2) can't find team sessions
+# or spawn registry.
+os.environ["SPAWN_PROJECT_DIR"] = str(_PROJECT_DIR)
 _SKILLS_DIR = Path(
     os.environ.get(
         "SPAWN_SKILLS_DIR",
@@ -666,6 +672,7 @@ async def spawn_team_tool(
     project_brief: str,
     team_name: str,
     mode: str = "background",
+    timeout_seconds: int = 300,
 ) -> str:
     """Spawn a team from a template. Only the orchestrator (PM) starts first.
 
@@ -680,8 +687,12 @@ async def spawn_team_tool(
                    Name should reflect the task purpose
                    (e.g. "notes-cli-dev", "payment-redesign").
                    This name is used for display and removal.
-        mode: "blocking" (wait for orchestrator to complete) or
+        mode: "blocking" (wait for ALL agents to complete) or
               "background" (return immediately). Default: background.
+        timeout_seconds: Max seconds to wait in blocking mode (default 300).
+                         If timeout is reached, returns current progress so you
+                         can decide to call get_team_status/get_team_result later,
+                         or call spawn_team_tool again with more time.
     """
     try:
         session = await _spawn_team(
@@ -694,6 +705,73 @@ async def spawn_team_tool(
             team_name=team_name,
         )
 
+        if mode == "blocking":
+            # Wait for ALL agents (orchestrator + members) to reach terminal state
+            poll_interval = 5
+            elapsed = 0
+            terminal_statuses = {"completed", "error", "cancelled", "failed", "idle"}
+            while elapsed < timeout_seconds:
+                await asyncio.sleep(poll_interval)
+                elapsed += poll_interval
+
+                # Check all agents in session
+                all_terminal = True
+                for agent_name, info in session.agents.items():
+                    status = info.get("status", "unknown")
+                    # Also check registry for latest status
+                    run_id = info.get("run_id", "")
+                    if run_id:
+                        record = _registry.get_latest(run_id)
+                        if record and record.status in terminal_statuses:
+                            info["status"] = record.status
+                            if record.result:
+                                info["result"] = record.result
+                            continue
+                    if status not in terminal_statuses and status != "available":
+                        all_terminal = False
+
+                if all_terminal:
+                    break
+
+            # Build per-agent info
+            agents_info = {}
+            still_running = []
+            for agent_name, info in session.agents.items():
+                agent_status = info.get("status", "unknown")
+                agents_info[agent_name] = {
+                    "run_id": info.get("run_id", ""),
+                    "role": agent_name,
+                    "status": agent_status,
+                    "result": (info.get("result") or "")[:2000],
+                }
+                if agent_status not in terminal_statuses and agent_status != "available":
+                    still_running.append(agent_name)
+
+            timed_out = elapsed >= timeout_seconds and len(still_running) > 0
+            session.sprint_status = "timeout" if timed_out else "completed"
+
+            result: dict[str, Any] = {
+                "status": session.sprint_status,
+                "session_id": session.session_id,
+                "team_name": team_name,
+                "template": session.template.get("name", template),
+                "workspace": str(session.workspace),
+                "agents": agents_info,
+                "elapsed_seconds": elapsed,
+            }
+
+            if timed_out:
+                result["still_running"] = still_running
+                result["message"] = (
+                    f"Timeout after {elapsed}s. {len(still_running)} agents still running: "
+                    f"{', '.join(still_running)}. "
+                    f"Use get_team_status(session_id='{session.session_id}') to check later, "
+                    f"or get_team_result(session_id='{session.session_id}') for partial results."
+                )
+
+            return json.dumps(result)
+
+        # Background mode — return immediately
         agents_info = {
             role: {
                 "run_id": info.get("run_id", ""),

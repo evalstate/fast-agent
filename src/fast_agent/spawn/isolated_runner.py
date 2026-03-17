@@ -16,6 +16,7 @@ import asyncio
 import json
 import logging
 import os
+import shlex
 import shutil
 import sys
 import tempfile
@@ -23,7 +24,9 @@ import time
 from pathlib import Path
 from typing import Any
 
+
 from fast_agent.spawn.config_reader import (
+    _load_config,
     get_default_model,
     get_server_commands,
     get_server_env,
@@ -201,25 +204,52 @@ def create_child_config(
     )
 
     if servers:
+        # Read parent config to get non-command fields (url, env)
+        parent_config = _load_config(project_dir)
+        parent_servers = parent_config.get("mcp", {}).get("servers", {})
+        # server_commands has workspace-substituted command strings
         server_commands = get_server_commands(project_dir, workspace_dir)
-        config_lines.extend(["", "mcp:", "  targets:"])
+
+        config_lines.extend(["", "mcp:", "  servers:"])
         for srv in servers:
-            if srv in server_commands:
-                config_lines.append(f"    - name: {srv}")
-                config_lines.append(f'      target: "{server_commands[srv]}"')
-                # Add env vars for servers that need them
-                srv_env = get_server_env(srv, workspace_dir, agent_name=agent_name)
-                if srv_env:
-                    config_lines.append("      env:")
-                    for k, v in srv_env.items():
-                        config_lines.append(f'        {k}: "{v}"')
+            if srv not in server_commands:
+                continue
+
+            config_lines.append(f"    {srv}:")
+            parent_srv = parent_servers.get(srv, {}) if isinstance(parent_servers, dict) else {}
+
+            # Parse command/args from server_commands string (has correct paths)
+            cmd_str = server_commands[srv]
+            parts = shlex.split(cmd_str)
+            if parts:
+                config_lines.append(f'      command: "{parts[0]}"')
+                if len(parts) > 1:
+                    args_str = ", ".join(f'"{a}"' for a in parts[1:])
+                    config_lines.append(f"      args: [{args_str}]")
+
+            # URL from parent config (not in command string)
+            if isinstance(parent_srv, dict):
+                url = parent_srv.get("url", "")
+                if url:
+                    config_lines.append(f'      url: "{url}"')
+
+            # Merge env: parent config env + team-aware env
+            parent_env = (parent_srv.get("env", {}) or {}) if isinstance(parent_srv, dict) else {}
+            srv_env = get_server_env(srv, workspace_dir, agent_name=agent_name) or {}
+            merged_env = {**parent_env, **srv_env}
+            if merged_env:
+                config_lines.append("      env:")
+                for k, v in merged_env.items():
+                    config_lines.append(f'        {k}: "{v}"')
 
     config_content = "\n".join(config_lines) + "\n"
     config_path = os.path.join(temp_dir, "fastagent.config.yaml")
     with open(config_path, "w") as f:
         f.write(config_content)
 
-    # Copy secrets from parent workspace (or project root as fallback)
+    # Copy secrets as-is. Since child now uses mcp.servers format (same as
+    # parent), deep_merge correctly merges secrets' env into server entries
+    # without losing command/args.
     project_root = str(Path(project_dir).resolve())
     secrets_src = os.path.join(workspace_dir, "fastagent.secrets.yaml")
     if not os.path.exists(secrets_src):

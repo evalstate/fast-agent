@@ -48,6 +48,22 @@ def create_workspace(
             encoding="utf-8",
         )
 
+    # Initialize git repo so mcp-server-git can operate on this workspace
+    git_dir = workspace / ".git"
+    if not git_dir.exists():
+        import subprocess
+
+        try:
+            subprocess.run(
+                ["git", "init"],
+                cwd=str(workspace),
+                capture_output=True,
+                timeout=10,
+            )
+            logger.info("Git repo initialized in workspace: %s", workspace)
+        except Exception as exc:
+            logger.warning("Could not git init workspace %s: %s", workspace, exc)
+
     logger.info("Workspace created: %s", workspace)
     return workspace
 
