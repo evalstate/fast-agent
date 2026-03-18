@@ -112,7 +112,7 @@ def get_server_commands(
 # ---------- MCP server env vars ----------
 
 # Servers that need workspace/project env vars
-_TEAM_AWARE_SERVERS = {"meeting_room", "agent_spawner"}
+_TEAM_AWARE_SERVERS = {"meeting_room", "agent_spawner", "email"}
 
 
 def get_server_env(
@@ -124,9 +124,11 @@ def get_server_env(
 
     Returns dict of env vars, or None if no extra env is needed.
 
-    Both ``meeting_room`` and ``agent_spawner`` need:
+    ``meeting_room``, ``agent_spawner``, and ``email`` need:
     - SPAWN_PROJECT_DIR: to find project-level spawn_registry and team_sessions
     - TEAM_WORKSPACE: to locate workspace-specific files
+    - TEAM_MESSAGES_DIR: message bus directory for email delivery
+    - TEAM_ROLES_CONFIG: team member names/roles for addressing
     """
     import os
 
@@ -152,6 +154,15 @@ def get_server_env(
     session_id = os.environ.get("TEAM_SESSION_ID", "")
     if session_id:
         env["TEAM_SESSION_ID"] = session_id
+
+    # Messages dir — needed by email server for MessageBus
+    messages_dir = os.environ.get("TEAM_MESSAGES_DIR", "")
+    if messages_dir:
+        env["TEAM_MESSAGES_DIR"] = messages_dir
+
+    # NOTE: TEAM_ROLES_CONFIG is NOT propagated here because it's a large
+    # JSON blob that breaks YAML string concatenation in isolated_runner.
+    # MCP servers inherit it from process environment instead.
 
     return env if env else None
 

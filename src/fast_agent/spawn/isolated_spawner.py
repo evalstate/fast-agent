@@ -203,6 +203,20 @@ async def _run_subprocess(
 
     _background_processes[run_id] = process
 
+    # Store PID in registry for cross-process cleanup
+    try:
+        from fast_agent.spawn.spawn_registry import SpawnRegistry
+        project_dir_str = str(project_path)
+        pid_registry_path = Path(project_dir_str) / ".runtime" / "state" / "spawn_registry.json"
+        if pid_registry_path.exists():
+            pid_reg = SpawnRegistry(registry_file=str(pid_registry_path))
+            pid_reg._load()
+            if run_id in pid_reg._data:
+                pid_reg._data[run_id]["pid"] = process.pid
+                pid_reg._save()
+    except Exception:
+        pass  # Best-effort PID tracking
+
     stderr_lines: list[str] = []
 
     async def _read_stderr() -> None:
@@ -372,6 +386,7 @@ async def run_isolated_agent(
                 "model": model,
                 "timeout_seconds": timeout_seconds,
                 "role": role or "agent",
+                "project_dir": str(Path(project_dir).resolve()),
             }
         record = SpawnRecord(
             run_id=run_id,
@@ -587,6 +602,13 @@ async def _check_and_resume_on_inbox(
             "⚠️ No history file for %s — using text-based context", agent_name,
         )
 
+    # Determine correct project_dir from original_config (fixes Unknown MCP servers)
+    project_dir = cfg.get("project_dir", "")
+    if not project_dir and env_vars:
+        project_dir = env_vars.get("SPAWN_PROJECT_DIR", "")
+    if not project_dir:
+        project_dir = "."
+
     # Re-inject team context if this is a team agent
     team_session_id = (env_vars or {}).get("TEAM_SESSION_ID", "")
     if team_session_id:
@@ -603,10 +625,6 @@ async def _check_and_resume_on_inbox(
                 )
         except Exception as e:
             logger.warning("Failed to re-inject team context: %s", e)
-
-    project_dir = "."
-    if env_vars and env_vars.get("SPAWN_PROJECT_DIR"):
-        project_dir = env_vars["SPAWN_PROJECT_DIR"]
 
     new_run_id = await run_isolated_agent_background(
         task=follow_up,
@@ -690,6 +708,7 @@ async def run_isolated_agent_background(
                 "team_name": team_name,
                 "workspace_dir": workspace_dir or "",
                 "env_vars": env_vars or {},
+                "project_dir": str(Path(project_dir).resolve()),
             }
         record = SpawnRecord(
             run_id=run_id,
@@ -806,3 +825,45 @@ async def cancel_spawn(run_id: str, registry: Any | None = None) -> bool:
         registry.update_status(run_id, SpawnStatus.CANCELLED)
 
     return cancelled
+
+
+def cleanup_all_spawns() -> None:
+    """Terminate all tracked background processes.
+
+    Called during shutdown (atexit, SIGTERM) to prevent orphaned
+    agent subprocesses after the parent process exits.
+    """
+    import signal as _signal
+
+    killed = 0
+    for run_id, proc in list(_background_processes.items()):
+        if proc.returncode is None:  # Still running
+            try:
+                proc.terminate()
+                killed += 1
+                logger.info("Terminated spawned agent %s (pid=%s)", run_id, proc.pid)
+            except ProcessLookupError:
+                pass
+
+    # Cancel asyncio tasks
+    for run_id, task_obj in list(_background_tasks.items()):
+        if not task_obj.done():
+            task_obj.cancel()
+
+    if killed:
+        # Give processes a moment to exit gracefully
+        import time as _time
+        _time.sleep(1)
+
+        # Force-kill any survivors
+        for run_id, proc in list(_background_processes.items()):
+            if proc.returncode is None:
+                try:
+                    proc.kill()
+                    logger.warning("Force-killed spawned agent %s (pid=%s)", run_id, proc.pid)
+                except ProcessLookupError:
+                    pass
+
+    _background_processes.clear()
+    _background_tasks.clear()
+    logger.info("Spawn cleanup complete (%d processes terminated)", killed)

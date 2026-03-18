@@ -100,11 +100,13 @@ class TeamSession:
         template: dict[str, Any],
         workspace: Path,
         parent_session_id: str = "",
+        team_name: str = "",
     ) -> None:
         self.session_id = session_id
         self.template = template
         self.workspace = workspace
         self.parent_session_id = parent_session_id
+        self.team_name = team_name or template.get("name", "team")
         self.agents: dict[str, dict[str, Any]] = {}  # agent_name → {run_id, role, status, ...}
         self.sprint_status = "pending"
 
@@ -114,6 +116,7 @@ class TeamSession:
             "template": self.template,
             "workspace": str(self.workspace),
             "parent_session_id": self.parent_session_id,
+            "team_name": self.team_name,
             "agents": self.agents,
             "sprint_status": self.sprint_status,
         }
@@ -164,10 +167,10 @@ class TeamSession:
 
         lines.append("")
         lines.append("## Communication Tools")
-        lines.append("Use `post_message(to=\"Agent Name\", message=\"...\")` to send async messages to any teammate.")
-        lines.append("Use `read_messages()` to check your inbox for messages from teammates.")
+        lines.append("Use `send_email(to=\"Agent Name\", body=\"...\", subject=\"...\")` to send async emails to any teammate.")
+        lines.append("Use `read_email()` to check your inbox for emails from teammates.")
         lines.append("Use `check_teammate_status(agent_name=\"Agent Name\")` to check if a teammate is done.")
-        lines.append("Use `create_meeting(participants=\"pm,dev\", agenda=\"...\")` for real-time discussions.")
+        lines.append("Use `create_meeting(participants=\"Agent Name 1, Agent Name 2\", agenda=\"...\")` for real-time discussions (use agent names, not role keys).")
 
         if is_orchestrator and available_roles:
             lines.append("")
@@ -211,6 +214,7 @@ class TeamSession:
             template=template_data,
             workspace=Path(data["workspace"]),
             parent_session_id=data.get("parent_session_id", ""),
+            team_name=data.get("team_name", ""),
         )
         session.agents = data.get("agents", {})
         session.sprint_status = data.get("sprint_status", "unknown")
@@ -375,6 +379,7 @@ async def spawn_team(
         template=template,
         workspace=workspace,
         parent_session_id=parent_session_id,
+        team_name=team_name,
     )
     _team_sessions[session_id] = session
 
@@ -450,18 +455,31 @@ async def _spawn_single_agent(
     skills_dir: str | Path,
     team_name: str,
     display_manager: Any | None = None,
+    first_task: str = "",
 ) -> str:
     """Spawn a single team agent. Returns run_id."""
     agent_name = role_config.get("agent_name", f"Agent - {role_name.upper()}")
     task = role_config.get("task", project_brief)
+
+    # If first_task provided, prepend it as agents' #1 priority
+    if first_task:
+        task = (
+            f"⚠️ FIRST TASK — Execute IMMEDIATELY before anything else:\n"
+            f"{first_task}\n"
+            f"Do NOT explore the workspace or read_email before completing this task.\n\n"
+            f"--- MAIN TASK (after first task is done) ---\n"
+            + task
+        )
     instruction = role_config.get("instruction", f"You are {agent_name}.")
     instruction = instruction.replace("{agent_name}", agent_name)
     servers = list(role_config.get("servers", ["filesystem"]))
     model = role_config.get("model", "")
 
-    # Ensure meeting_room is available for communication
+    # Ensure meeting_room and email are available for communication
     if "meeting_room" not in servers:
         servers.append("meeting_room")
+    if "email" not in servers:
+        servers.append("email")
 
     context_parts = [
         f"## Project Brief\n{project_brief}",
@@ -516,6 +534,7 @@ async def spawn_team_members_for_session(
     registry: SpawnRegistry,
     display_manager: Any | None = None,
     project_dir: str | Path = "",
+    first_task: str = "",
 ) -> dict[str, dict[str, Any]]:
     """Spawn specific team members from an active team session.
 
@@ -582,7 +601,8 @@ async def spawn_team_members_for_session(
             project_dir=pdir,
             skills_dir=sdir,
             display_manager=display_manager,
-            team_name=session.template.get("name", "team"),
+            team_name=session.team_name,
+            first_task=first_task,
         )
 
         results[role_name] = {

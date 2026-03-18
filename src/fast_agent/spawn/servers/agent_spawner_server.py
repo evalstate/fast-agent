@@ -130,6 +130,28 @@ def _write_spawn_event_to_file(event: Any) -> None:
 _display.set_event_callback(_write_spawn_event_to_file)
 
 
+def _emit_removal_event(agent_names: list[str], run_ids: list[str]) -> None:
+    """Write a removal event so the backend bridge can clean DB records."""
+    try:
+        import time as _time
+
+        line = json.dumps({
+            "timestamp": _time.time(),
+            "role": "system",
+            "event_type": "removed",
+            "run_id": "",
+            "data": {
+                "agent_names": agent_names,
+                "run_ids": run_ids,
+            },
+        })
+        _SPAWN_EVENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(_SPAWN_EVENTS_FILE, "a") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass
+
+
 
 def _resolve_skills_for_spawn(
     skills_csv: str,
@@ -598,8 +620,10 @@ def remove_spawned_agent(name: str) -> str:
 
     # Try individual agent removal from registry
     registry_removed = False
+    removed_run_ids: list[str] = []
     record = _registry.find_by_name(name)
     if record:
+        removed_run_ids.append(record.run_id)
         registry_removed = _registry.remove(record.run_id)
 
     if card_removed or registry_removed:
@@ -608,6 +632,8 @@ def remove_spawned_agent(name: str) -> str:
             parts.append("card removed")
         if registry_removed:
             parts.append("registry cleaned")
+        # Emit removal event so backend bridge cleans DB
+        _emit_removal_event([name], removed_run_ids)
         return json.dumps(
             {
                 "status": "success",
@@ -618,6 +644,10 @@ def remove_spawned_agent(name: str) -> str:
     # Try team-level removal — name might match a team_name
     team_members = _registry.find_by_team(name)
     if team_members:
+        # Collect run_ids for DB cleanup
+        team_run_ids = [m.run_id for m in team_members if m.run_id]
+        team_agent_names = [m.agent_name for m in team_members]
+
         # Remove all agent cards for team members
         cards_removed = 0
         for member in team_members:
@@ -627,14 +657,18 @@ def remove_spawned_agent(name: str) -> str:
         # Remove all registry entries for the team
         registry_count = _registry.remove_team(name)
 
+        # Emit removal event so backend bridge cleans DB
+        _emit_removal_event(team_agent_names, team_run_ids)
+
         return json.dumps(
             {
                 "status": "success",
                 "message": (
-                    f"Team '{name}' removed: {registry_count} agents "
-                    f"({cards_removed} cards removed)."
+                    f"Team '{name}' fully cleaned up: "
+                    f"{registry_count} registry entries."
                 ),
-                "removed_agents": [m.agent_name for m in team_members],
+                "removed_agents": team_agent_names,
+                "cleaned": [f"{registry_count} registry entries"],
             }
         )
 
@@ -873,19 +907,48 @@ def get_team_status(session_id: str) -> str:
     if not session:
         return json.dumps({"error": f"Team session '{session_id}' not found."})
 
+    # Sync session agent statuses from registry (session may be stale)
+    _done_statuses = {"completed", "idle", "error", "timeout", "cancelled"}
+    for role, info in session.agents.items():
+        run_id = info.get("run_id", "")
+        if run_id:
+            record = _registry.get_latest(run_id)
+            if record:
+                info["status"] = record.status
+                if record.result:
+                    info["result"] = record.result
+
     agents = session.get_roster()
-    total = len(agents)
-    completed = sum(1 for a in session.agents.values() if a.get("status") == "completed")
-    errored = sum(1 for a in session.agents.values() if a.get("status") == "error")
+
+    # Separate spawned vs available (not yet spawned)
+    spawned = {k: v for k, v in session.agents.items()
+               if v.get("status") != "available"}
+    available = {k: v for k, v in session.agents.items()
+                 if v.get("status") == "available"}
+
+    total_spawned = len(spawned)
+    done = sum(1 for a in spawned.values()
+               if a.get("status") in _done_statuses)
+    errored = sum(1 for a in spawned.values()
+                  if a.get("status") == "error")
+
+    # Determine sprint status
+    if total_spawned == 0:
+        sprint_status = "not_started"
+    elif done == total_spawned:
+        sprint_status = "completed"
+    else:
+        sprint_status = "running"
 
     return json.dumps(
         {
             "session_id": session_id,
             "template": session.template.get("name", "unknown"),
             "workspace": str(session.workspace),
-            "sprint_status": session.sprint_status,
-            "progress": f"{completed}/{total} agents completed, {errored} errors",
+            "sprint_status": sprint_status,
+            "progress": f"{done}/{total_spawned} agents done, {errored} errors",
             "agents": agents,
+            "available_roles": [k for k in available],
         }
     )
 
