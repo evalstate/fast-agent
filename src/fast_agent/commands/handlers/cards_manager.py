@@ -22,6 +22,7 @@ from fast_agent.cards.manager import (
     get_marketplace_url,
     install_marketplace_card_pack,
     list_local_card_packs,
+    load_card_pack_readme,
     publish_local_card_pack,
     remove_local_card_pack,
     resolve_card_registries,
@@ -41,10 +42,11 @@ if TYPE_CHECKING:
     from fast_agent.commands.context import CommandContext
 def _cards_usage_lines() -> list[str]:
     return [
-        "Usage: /cards [list|add|remove|update|publish|registry|help] [args]",
+        "Usage: /cards [list|add|remove|readme|update|publish|registry|help] [args]",
         "",
         "Examples:",
         "- /cards add <number|name>",
+        "- /cards readme <number|name>",
         "- /cards update all --yes",
         "- /cards registry",
     ]
@@ -549,6 +551,15 @@ async def handle_add_card_pack(
         right_info="cards",
         agent_name=agent_name,
     )
+    readme = load_card_pack_readme(install_result.pack_dir)
+    if readme:
+        outcome.add_message(
+            readme,
+            title=f"{pack.name} README",
+            right_info="cards",
+            agent_name=agent_name,
+            render_markdown=True,
+        )
     return outcome
 
 
@@ -566,29 +577,35 @@ async def handle_remove_card_pack(
         outcome.add_message("No local card packs to remove.", channel="warning")
         return outcome
 
+    selected = None
     selection = argument
     if not selection:
-        content = _format_local_card_packs(environment_paths=env_paths, packs=packs)
-        if not interactive:
-            outcome.add_message(content, right_info="cards", agent_name=agent_name)
-            outcome.add_message(
-                "Remove with `/cards remove <number|name>`.",
-                channel="info",
-                right_info="cards",
-                agent_name=agent_name,
+        if len(packs) == 1:
+            selected = packs[0]
+        else:
+            content = _format_local_card_packs(environment_paths=env_paths, packs=packs)
+            if not interactive:
+                outcome.add_message(content, right_info="cards", agent_name=agent_name)
+                outcome.add_message(
+                    "Remove with `/cards remove <number|name>`.",
+                    channel="info",
+                    right_info="cards",
+                    agent_name=agent_name,
+                )
+                return outcome
+
+            await ctx.io.emit(CommandMessage(text=content, right_info="cards", agent_name=agent_name))
+            selection = await ctx.io.prompt_selection(
+                "Remove card pack by number or name (empty to cancel): ",
+                options=[entry.name for entry in packs],
+                allow_cancel=True,
             )
-            return outcome
+            if selection is None:
+                return outcome
 
-        await ctx.io.emit(CommandMessage(text=content, right_info="cards", agent_name=agent_name))
-        selection = await ctx.io.prompt_selection(
-            "Remove card pack by number or name (empty to cancel): ",
-            options=[entry.name for entry in packs],
-            allow_cancel=True,
-        )
-        if selection is None:
-            return outcome
-
-    selected = select_installed_card_pack_by_name_or_index(packs, selection)
+    if selected is None:
+        assert selection is not None
+        selected = select_installed_card_pack_by_name_or_index(packs, selection)
     if not selected:
         outcome.add_message(f"Card pack not found: {selection}", channel="error")
         return outcome
@@ -611,6 +628,67 @@ async def handle_remove_card_pack(
             style="yellow",
         )
     outcome.add_message(message, right_info="cards", agent_name=agent_name)
+    return outcome
+
+
+async def handle_card_pack_readme(
+    ctx: CommandContext,
+    *,
+    agent_name: str,
+    argument: str | None,
+    interactive: bool = True,
+) -> CommandOutcome:
+    outcome = CommandOutcome()
+    env_paths = resolve_environment_paths(ctx.resolve_settings())
+    packs = list_local_card_packs(environment_paths=env_paths)
+    if not packs:
+        outcome.add_message("No local card packs installed.", channel="warning")
+        return outcome
+
+    selection = argument
+    if not selection:
+        content = _format_local_card_packs(environment_paths=env_paths, packs=packs)
+        if not interactive:
+            outcome.add_message(content, right_info="cards", agent_name=agent_name)
+            outcome.add_message(
+                "Show with `/cards readme <number|name>`.",
+                channel="info",
+                right_info="cards",
+                agent_name=agent_name,
+            )
+            return outcome
+
+        await ctx.io.emit(CommandMessage(text=content, right_info="cards", agent_name=agent_name))
+        selection = await ctx.io.prompt_selection(
+            "Show README for card pack by number or name (empty to cancel): ",
+            options=[entry.name for entry in packs],
+            allow_cancel=True,
+        )
+        if selection is None:
+            return outcome
+
+    selected = select_installed_card_pack_by_name_or_index(packs, selection)
+    if not selected:
+        outcome.add_message(f"Card pack not found: {selection}", channel="error")
+        return outcome
+
+    readme = load_card_pack_readme(selected.pack_dir)
+    if not readme:
+        outcome.add_message(
+            f"Card pack '{selected.name}' does not include a README.md.",
+            channel="warning",
+            right_info="cards",
+            agent_name=agent_name,
+        )
+        return outcome
+
+    outcome.add_message(
+        readme,
+        title=f"{selected.name} README",
+        right_info="cards",
+        agent_name=agent_name,
+        render_markdown=True,
+    )
     return outcome
 
 
@@ -780,6 +858,8 @@ async def handle_cards_command(
         return await handle_set_cards_registry(ctx, argument=argument)
     if normalized in {"remove", "rm", "delete", "uninstall"}:
         return await handle_remove_card_pack(ctx, agent_name=agent_name, argument=argument)
+    if normalized in {"readme", "show", "cat"}:
+        return await handle_card_pack_readme(ctx, agent_name=agent_name, argument=argument)
     if normalized in {"update", "refresh", "upgrade"}:
         return await handle_update_card_pack(ctx, agent_name=agent_name, argument=argument)
     if normalized in {"publish"}:

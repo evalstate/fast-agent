@@ -121,7 +121,7 @@ class ModelSelectionCatalog:
             CatalogModelEntry(alias="glm5", model="hf.zai-org/GLM-5:novita"),
             CatalogModelEntry(
                 alias="minimax25",
-                model="hf.MiniMaxAI/MiniMax-M2.5:novita?temperature=1.0&top_p=0.95&top_k=40",
+                model="hf.MiniMaxAI/MiniMax-M2.5:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40",
             ),
             CatalogModelEntry(
                 alias="qwen35instruct",

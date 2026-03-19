@@ -553,7 +553,7 @@ class ModelFactory:
         "grok-4-fast-reasoning": "xai.grok-4-fast-reasoning",
         "kimigroq": "groq.moonshotai/kimi-k2-instruct-0905",
         "minimax": "hf.MiniMaxAI/MiniMax-M2.5:novita",
-        "minimax25": "hf.MiniMaxAI/MiniMax-M2.5:novita?temperature=1.0&top_p=0.95&top_k=40",
+        "minimax25": "hf.MiniMaxAI/MiniMax-M2.5:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40",
         "minimax2.5": "hf.MiniMaxAI/MiniMax-M2.5:novita?temperature=1.0&top_p=0.95&top_k=40",
         "minimax21": "hf.MiniMaxAI/MiniMax-M2.1:novita",
         "kimi": "hf.moonshotai/Kimi-K2-Instruct-0905:groq",

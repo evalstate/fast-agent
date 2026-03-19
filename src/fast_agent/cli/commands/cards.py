@@ -7,6 +7,7 @@ from pathlib import Path  # noqa: TC003
 from typing import Annotated
 
 import typer
+from rich.markdown import Markdown
 from rich.table import Table
 
 from fast_agent.cards import manager as card_manager
@@ -188,6 +189,16 @@ def _print_publish_result(result: card_manager.CardPackPublishResult) -> None:
     console.print(f"[{style}]Status: {status}[/{style}]")
 
 
+def _print_card_pack_readme(pack_name: str, pack_dir: Path) -> None:
+    readme = card_manager.load_card_pack_readme(pack_dir)
+    if not readme:
+        console.print(f"[yellow]Card pack '{pack_name}' does not include a README.md.[/yellow]")
+        raise typer.Exit(0)
+
+    print_section_header(console, f"{pack_name} README", color="cyan")
+    console.print(Markdown(readme))
+
+
 @app.callback(invoke_without_command=True)
 def cards_main(ctx: typer.Context, registry: RegistryOption = None) -> None:
     """Manage card packs."""
@@ -274,6 +285,9 @@ def cards_add(
         ],
         color="green",
     )
+    if card_manager.load_card_pack_readme(result.pack_dir):
+        console.print()
+        _print_card_pack_readme(pack.name, result.pack_dir)
 
 
 @app.command("remove")
@@ -326,6 +340,37 @@ def cards_remove(
             )
         )
     print_detail_section(console, "Card Pack Removed", rows, color="green")
+
+
+@app.command("readme")
+def cards_readme(
+    selector: Annotated[
+        str | None,
+        typer.Argument(help="Installed card pack name or index.", show_default=False),
+    ] = None,
+) -> None:
+    """Show an installed card pack README."""
+    env_paths = _environment_paths()
+    packs = card_manager.list_local_card_packs(environment_paths=env_paths)
+    if not packs:
+        console.print("[yellow]No local card packs installed.[/yellow]")
+        raise typer.Exit(0)
+
+    if not selector:
+        if len(packs) == 1:
+            selected = packs[0]
+            _print_card_pack_readme(selected.name, selected.pack_dir)
+            return
+        _print_local_packs()
+        print_hint(console, "Show with: fast-agent cards readme <number|name>")
+        raise typer.Exit(0)
+
+    selected = card_manager.select_installed_card_pack_by_name_or_index(packs, selector)
+    if selected is None:
+        typer.echo(f"Card pack not found: {selector}", err=True)
+        raise typer.Exit(1)
+
+    _print_card_pack_readme(selected.name, selected.pack_dir)
 
 
 @app.command("update")

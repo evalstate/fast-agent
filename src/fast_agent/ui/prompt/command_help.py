@@ -20,6 +20,7 @@ def render_help_lines(*, show_webclear_help: bool) -> list[str]:
         "  /cards         - List installed card packs",
         "  /cards add     - Install a card pack from the marketplace",
         "  /cards remove  - Remove an installed card pack",
+        "  /cards readme  - Show an installed card pack README",
         "  /cards update  - Check/apply updates for managed installed card packs",
         "  /cards publish - Commit/push local card pack changes back to source (supports --no-push/--temp-dir/--keep-temp)",
         "  /model reasoning <value> - Set reasoning effort (off/low/medium/high/max/xhigh or budgets like 0/1024/16000/32000)",

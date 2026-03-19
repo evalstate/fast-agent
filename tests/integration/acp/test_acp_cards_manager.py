@@ -67,6 +67,10 @@ async def test_cards_add_and_remove(tmp_path: Path) -> None:
         "---\nname: alpha\nmodel: passthrough\n---\n\nhello\n",
         encoding="utf-8",
     )
+    (pack_root / "README.md").write_text(
+        "# Alpha Pack\n\nThis README should not intercept removal.\n",
+        encoding="utf-8",
+    )
     (pack_root / "card-pack.yaml").write_text(
         "schema_version: 1\n"
         "name: alpha\n"
@@ -119,7 +123,7 @@ async def test_cards_add_and_remove(tmp_path: Path) -> None:
         list_response = await handler.execute_command("cards", "")
         assert "alpha" in list_response
 
-        remove_response = await handler.execute_command("cards", "remove alpha")
+        remove_response = await handler.execute_command("cards", "remove")
         assert "Removed card pack: alpha" in remove_response
         assert not (env_root / "agent-cards" / "alpha.md").exists()
     finally:

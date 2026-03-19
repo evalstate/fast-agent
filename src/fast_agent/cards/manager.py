@@ -401,6 +401,17 @@ def get_card_pack_source_sidecar_path(pack_dir: Path) -> Path:
     return pack_dir / CARD_PACK_SOURCE_FILENAME
 
 
+def load_card_pack_readme(pack_dir: Path) -> str | None:
+    for candidate in ("README.md", "README.markdown", "readme.md", "readme.markdown"):
+        path = pack_dir / candidate
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8").strip()
+        if text:
+            return text
+    return None
+
+
 def compute_card_pack_content_fingerprint(
     env_root: Path,
     installed_files: Sequence[str],

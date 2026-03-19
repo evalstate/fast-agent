@@ -409,6 +409,7 @@ def _cards_command_completions(
         "list": "List installed card packs",
         "add": "Install a card pack",
         "remove": "Remove an installed card pack",
+        "readme": "Show an installed card pack README",
         "update": "Check or apply card pack updates",
         "publish": "Publish local card pack changes",
         "registry": "Set card pack registry",
@@ -420,6 +421,9 @@ def _cards_command_completions(
     subcmd = parts[0].lower()
     argument = parts[1] if len(parts) > 1 else ""
     if subcmd in {"remove", "rm", "delete", "uninstall"}:
+        results.extend(list(completer._complete_local_card_pack_names(argument)))
+        return results
+    if subcmd in {"readme", "show", "cat"}:
         results.extend(list(completer._complete_local_card_pack_names(argument)))
         return results
     if subcmd in {"update", "refresh", "upgrade"}:

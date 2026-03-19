@@ -136,4 +136,4 @@ async def test_run_slash_command_cards_help_returns_usage(tmp_path: Path) -> Non
 
     result = await _run_slash_command_call(agent, "/cards --help")
 
-    assert "Usage: /cards [list|add|remove|update|publish|registry|help] [args]" in result
+    assert "Usage: /cards [list|add|remove|readme|update|publish|registry|help] [args]" in result

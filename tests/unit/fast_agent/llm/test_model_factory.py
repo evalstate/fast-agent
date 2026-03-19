@@ -216,7 +216,7 @@ def test_minimax25_alias_sets_sampling_defaults() -> None:
     config = ModelFactory.parse_model_string("minimax25")
 
     assert config.provider == Provider.HUGGINGFACE
-    assert config.model_name == "MiniMaxAI/MiniMax-M2.5:novita"
+    assert config.model_name == "MiniMaxAI/MiniMax-M2.5:fireworks-ai"
     assert config.temperature == 1.0
     assert config.top_p == 0.95
     assert config.top_k == 40

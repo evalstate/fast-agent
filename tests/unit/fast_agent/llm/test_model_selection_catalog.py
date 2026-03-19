@@ -51,9 +51,14 @@ def test_list_curated_aliases_for_provider() -> None:
 
 def test_legacy_aliases_are_listed_but_not_curated() -> None:
     curated_aliases = ModelSelectionCatalog.list_curated_aliases(Provider.HUGGINGFACE)
+    curated_models = ModelSelectionCatalog.list_curated_models(Provider.HUGGINGFACE)
     legacy_aliases = ModelSelectionCatalog.list_non_current_aliases(Provider.HUGGINGFACE)
 
     assert "minimax25" in curated_aliases
+    assert (
+        "hf.MiniMaxAI/MiniMax-M2.5:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40"
+        in curated_models
+    )
     assert "qwen35" in curated_aliases
     assert "qwen35instruct" in curated_aliases
     assert "glm47" in legacy_aliases
