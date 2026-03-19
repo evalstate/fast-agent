@@ -1433,10 +1433,10 @@ def _enable_smart_tooling(agent: Any) -> None:
         name="smart",
         description=(
             "Run or validate an AgentCard or card pack from a file or directory. Use this for "
-            "one-off delegation to card-defined agents. `action=\"run\"` (default) loads the "
-            "card(s), picks the main runnable agent automatically, optionally applies temporary "
-            "`mcp_connect` targets, and sends `message`. `action=\"validate\"` checks card files "
-            "without running them."
+            "one-off delegation to card-defined agents. Use action=`run` (default) to load the "
+            "card(s), pick the main runnable agent automatically, optionally apply temporary "
+            "`mcp_connect` targets, and send `message`. Use action=`validate` to check card "
+            "files without running them."
         ),
     )
     slash_command_tool = build_default_function_tool(
