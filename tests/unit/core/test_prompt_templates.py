@@ -163,12 +163,9 @@ This is the skill body content.
         if original_env_dir is not None:
             os.environ["ENVIRONMENT_DIR"] = original_env_dir
 
-    # Verify skills were loaded
-    assert "agentSkills" in context
-    assert "test-skill" in context["agentSkills"]
-    assert "A test skill for unit testing" in context["agentSkills"]
-    # Verify path is relative to workspace root, not skills directory
-    assert ".fast-agent/skills/test-skill/SKILL.md" in context["agentSkills"]
+    # agentSkills should NOT be set here; it is resolved per-agent
+    # by the dynamic resolver in instruction_refresh.build_instruction()
+    assert "agentSkills" not in context
 
 
 def test_enrich_with_environment_context_respects_skills_override(tmp_path):
@@ -205,12 +202,8 @@ description: Custom skill from override
         context, str(tmp_path), client_info, "custom-skills"
     )
 
-    # Should have custom skill, not default
-    assert "agentSkills" in context
-    assert "custom-skill" in context["agentSkills"]
-    assert "default-skill" not in context["agentSkills"]
-    # Verify path uses custom directory relative to workspace root
-    assert "custom-skills/custom-skill/SKILL.md" in context["agentSkills"]
+    # agentSkills should NOT be set here; it is resolved per-agent
+    assert "agentSkills" not in context
 
 
 def test_load_skills_for_context_handles_missing_directory(tmp_path):
