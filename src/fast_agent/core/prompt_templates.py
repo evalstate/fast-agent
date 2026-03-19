@@ -1,182 +1,186 @@
-"""
-Helpers for applying template variables to system prompts after initial bootstrap.
+"""Prompt template utilities for fast-agent.
+
+This module provides functions for building and rendering prompt templates,
+managing instruction context, and enriching prompts with environment information.
 """
 
 from __future__ import annotations
 
 import platform
-import re
+import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Mapping, MutableMapping, Sequence
+from typing import TYPE_CHECKING, Any
 
-from fast_agent.core.internal_resources import (
-    format_internal_resources_for_prompt,
-    list_internal_resources,
-)
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.core.template_escape import protect_escaped_braces, restore_escaped_braces
+from fast_agent.resources import get_resource_path
 
 if TYPE_CHECKING:
-    from fast_agent.skills import SkillManifest
+    pass
 
 logger = get_logger(__name__)
 
 
-def apply_template_variables(
-    template: str | None, variables: Mapping[str, str | None] | None
-) -> str | None:
+_SMART_PROMPT_KEY = "internal:smart_prompt"
+
+
+def smart_prompt_template() -> str:
+    """Return the built-in smart prompt template."""
+    path = get_resource_path("smart_prompt.md")
+    return path.read_text()
+
+
+# ---------------------------------------------------------------------------
+# Instruction building helpers
+# ---------------------------------------------------------------------------
+
+
+class InstructionBuilder:
+    """Utility for resolving ``{{placeholder}}`` values in instruction templates.
+
+    Supports both static string values and async *resolvers* – callables
+    that are invoked lazily at build time.  Static values take precedence
+    when the same key has both a static value and a resolver.
+
+    Usage::
+
+        builder = InstructionBuilder(template)
+        builder.set("key", "value")
+        builder.set_resolver("other", some_async_fn)
+        result = await builder.build()
     """
-    Apply a mapping of template variables to the provided template string.
 
-    This helper intentionally performs no work when either the template or variables
-    are empty so callers can safely execute it during both the initial and late
-    initialization passes without accidentally stripping placeholders too early.
+    def __init__(self, template: str, *, source: str | None = None) -> None:
+        self._template = template
+        self._static: dict[str, str] = {}
+        self._resolvers: dict[str, Any] = {}
+        self._source = source  # diagnostic label (agent name, etc.)
 
-    Supports both simple variable substitution and file template patterns:
-    - {{variable}} - Simple variable replacement
-    - {{file:relative/path}} - Reads file contents (relative to workspaceRoot, errors if missing)
-    - {{file_silent:relative/path}} - Reads file contents (relative to workspaceRoot, empty if missing)
-    - \\{{variable}} - Escape placeholders to render literal braces
+    # -- public setters -----------------------------------------------------
+
+    def set(self, key: str, value: str) -> None:
+        """Register a static replacement value for ``{{key}}``."""
+        self._static[key] = value
+
+    def set_many(self, values: dict[str, str]) -> None:
+        """Register multiple static replacement values."""
+        self._static.update(values)
+
+    def set_resolver(self, key: str, resolver: Any) -> None:
+        """Register an async callable that produces the replacement for ``{{key}}``."""
+        self._resolvers[key] = resolver
+
+    # -- build --------------------------------------------------------------
+
+    async def build(self) -> str:
+        """Resolve all placeholders and return the final instruction."""
+        result = self._template
+
+        # 1. Static values first (fast path)
+        for key, value in self._static.items():
+            placeholder = "{{" + key + "}}"
+            if placeholder in result:
+                result = result.replace(placeholder, value)
+
+        # 2. Resolvers for anything still unresolved
+        for key, resolver in self._resolvers.items():
+            placeholder = "{{" + key + "}}"
+            if placeholder in result:
+                try:
+                    value = await resolver()
+                    result = result.replace(placeholder, value)
+                except Exception as exc:
+                    logger.warning(
+                        "Resolver for '%s' failed: %s",
+                        key,
+                        exc,
+                        extra={"source": self._source},
+                    )
+
+        return result
+
+
+# ---------------------------------------------------------------------------
+# Internal-resource prompt formatting
+# ---------------------------------------------------------------------------
+
+
+def list_internal_resources() -> list[dict[str, str]]:
+    """Return manifests for built-in ``internal:`` resources.
+
+    Currently only the smart-prompt resource is advertised.
     """
-    if not template or not variables:
-        return template
+    return [
+        {
+            "key": _SMART_PROMPT_KEY,
+            "name": "Smart Prompt",
+            "description": (
+                "A comprehensive, best-practice system prompt that combines "
+                "well-known prompting guidelines."
+            ),
+        }
+    ]
 
-    resolved = protect_escaped_braces(template)
 
-    # Get workspaceRoot for file resolution
-    workspace_root = variables.get("workspaceRoot")
+def format_internal_resources_for_prompt(resources: list[dict[str, str]]) -> str:
+    """Render the internal-resources list into prompt-ready text."""
+    if not resources:
+        return ""
 
-    # Apply {{file:...}} templates (relative paths required, resolved from workspaceRoot)
-    file_pattern = re.compile(r"\{\{file:([^}]+)\}\}")
+    lines = [
+        "The following internal resources are available as instruction templates:",
+        "",
+    ]
+    for resource in resources:
+        lines.append(f"  - `{resource['key']}`: {resource['description']}")
+    lines.append("")
+    lines.append(
+        "Reference them in agent card instructions with "
+        "{{internal:resource_name}} to include their content."
+    )
+    return "\n".join(lines)
 
-    def replace_file(match):
-        file_path_str = match.group(1).strip()
-        file_path = Path(file_path_str).expanduser()
 
-        # Enforce relative paths
-        if file_path.is_absolute():
-            raise ValueError(
-                f"File template paths must be relative, got absolute path: {file_path_str}"
-            )
-
-        # Resolve against workspaceRoot if available
-        if workspace_root:
-            resolved_path = (Path(workspace_root) / file_path).resolve()
-        else:
-            resolved_path = file_path.resolve()
-
-        return resolved_path.read_text(encoding="utf-8")
-
-    resolved = file_pattern.sub(replace_file, resolved)
-
-    # Apply {{file_silent:...}} templates (missing files become empty strings)
-    file_silent_pattern = re.compile(r"\{\{file_silent:([^}]+)\}\}")
-
-    def replace_file_silent(match):
-        file_path_str = match.group(1).strip()
-        file_path = Path(file_path_str).expanduser()
-
-        # Enforce relative paths
-        if file_path.is_absolute():
-            raise ValueError(
-                f"File template paths must be relative, got absolute path: {file_path_str}"
-            )
-
-        # Resolve against workspaceRoot if available
-        if workspace_root:
-            resolved_path = (Path(workspace_root) / file_path).resolve()
-        else:
-            resolved_path = file_path.resolve()
-
-        try:
-            return resolved_path.read_text(encoding="utf-8")
-        except FileNotFoundError:
-            return ""
-
-    resolved = file_silent_pattern.sub(replace_file_silent, resolved)
-
-    # Apply simple variable substitutions
-    for key, value in variables.items():
-        if value is None:
-            continue
-        placeholder = f"{{{{{key}}}}}"
-        if placeholder in resolved:
-            resolved = resolved.replace(placeholder, value)
-
-    return restore_escaped_braces(resolved)
+# ---------------------------------------------------------------------------
+# Skills loading helper
+# ---------------------------------------------------------------------------
 
 
 def load_skills_for_context(
-    workspace_root: str | None,
-    skills_directory_override: str | Path | Sequence[str | Path] | None = None,
-) -> list["SkillManifest"]:
-    """
-    Load skill manifests from the workspace root or override directory.
+    cwd: str | Path,
+    skills_directory_override: str | None = None,
+) -> list[Any]:
+    """Discover skill manifests under *cwd* (or the override directory).
 
-    Args:
-        workspace_root: The workspace root directory
-        skills_directory_override: Optional override for skills directories (relative to workspace_root)
-
-    Returns:
-        List of SkillManifest objects
+    Returns a list of ``SkillManifest`` objects found on disk.
     """
     from fast_agent.skills.registry import SkillRegistry
 
-    if not workspace_root:
-        return []
+    registry = SkillRegistry(
+        base_dir=Path(cwd),
+        skills_directory_override=skills_directory_override,
+    )
+    return list(registry.discover_all().values())
 
-    base_dir = Path(workspace_root)
 
-    # If override is provided, treat it as relative to workspace_root
-    override_dirs = None
-    if skills_directory_override is not None:
-        entries = (
-            [skills_directory_override]
-            if isinstance(skills_directory_override, (str, Path))
-            else list(skills_directory_override)
-        )
-        override_dirs = []
-        for entry in entries:
-            override_path = Path(entry)
-            if override_path.is_absolute():
-                override_dirs.append(override_path)
-            else:
-                override_dirs.append(base_dir / override_path)
-
-    registry = SkillRegistry(base_dir=base_dir, directories=override_dirs)
-    try:
-        return registry.load_manifests()
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Failed to load skills; continuing without them", data={"error": str(exc)})
-        return []
+# ---------------------------------------------------------------------------
+# Environment context enrichment
+# ---------------------------------------------------------------------------
 
 
 def enrich_with_environment_context(
-    context: MutableMapping[str, str],
-    cwd: str | None,
-    client_info: Mapping[str, str] | None,
-    skills_directory_override: str | Path | Sequence[str | Path] | None = None,
-) -> None:
+    context: dict[str, str],
+    *,
+    cwd: str | None = None,
+    skills_directory_override: str | None = None,
+) -> dict[str, str]:
+    """Populate *context* with environment-derived values.
+
+    This is used when building instructions for agent cards so that
+    placeholders like ``{{hostPlatform}}``, ``{{pythonVer}}``, and
+    ``{{agentSkills}}`` have concrete values.
     """
-    Populate the provided context mapping with environment details used for template replacement.
-
-    Args:
-        context: The context mapping to populate
-        cwd: The current working directory (workspace root)
-        client_info: Client information mapping
-        skills_directory_override: Optional override for skills directories
-    """
-    if cwd:
-        context["workspaceRoot"] = cwd
-        from fast_agent.paths import resolve_environment_paths
-
-        env_paths = resolve_environment_paths(cwd=Path(cwd))
-        context["environmentDir"] = str(env_paths.root)
-        context["environmentAgentCardsDir"] = str(env_paths.agent_cards)
-        context["environmentToolCardsDir"] = str(env_paths.tool_cards)
-
-    server_platform = platform.platform()
-    python_version = platform.python_version()
+    server_platform = platform.system()
+    python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
 
     # Provide individual placeholders for automation
     if server_platform:
@@ -190,7 +194,12 @@ def enrich_with_environment_context(
 
         skill_manifests = load_skills_for_context(cwd, skills_directory_override)
         skills_text = format_skills_for_prompt(skill_manifests, read_tool_name="read_text_file")
-        context["agentSkills"] = skills_text
+        # NOTE: Do NOT set context["agentSkills"] here.
+        # The per-agent dynamic resolver in instruction_refresh.py handles
+        # agentSkills correctly — it filters to only the skills configured
+        # for each individual agent. Setting it here as a static value would
+        # override the dynamic resolver and cause ALL skills to appear in
+        # every agent's prompt, regardless of their skill configuration.
 
     internal_resources = list_internal_resources()
     context["agentInternalResources"] = format_internal_resources_for_prompt(internal_resources)
@@ -198,17 +207,14 @@ def enrich_with_environment_context(
     env_lines: list[str] = []
     if cwd:
         env_lines.append(f"Workspace root: {cwd}")
-    if client_info:
-        display_name = client_info.get("title") or client_info.get("name")
-        version = client_info.get("version")
-        if display_name:
-            if version and version != "unknown":
-                env_lines.append(f"Client: {display_name} {version}")
-            else:
-                env_lines.append(f"Client: {display_name}")
+
     if server_platform:
-        env_lines.append(f"Host platform: {server_platform}")
+        env_lines.append(f"Platform: {server_platform}")
+
+    if python_version:
+        env_lines.append(f"Python: {python_version}")
 
     if env_lines:
-        formatted = "Environment:\n- " + "\n- ".join(env_lines)
-        context["env"] = formatted
+        context["environment"] = "\n".join(env_lines)
+
+    return context
