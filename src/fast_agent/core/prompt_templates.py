@@ -183,8 +183,14 @@ def enrich_with_environment_context(
         context["hostPlatform"] = server_platform
     context["pythonVer"] = python_version
 
-    # agentSkills is resolved per-agent by the dynamic resolver in
-    # instruction_refresh.build_instruction().
+    # Load and format agent skills
+    # In ACP context, use read_text_file as the tool for reading skills
+    if cwd:
+        from fast_agent.skills.registry import format_skills_for_prompt
+
+        skill_manifests = load_skills_for_context(cwd, skills_directory_override)
+        skills_text = format_skills_for_prompt(skill_manifests, read_tool_name="read_text_file")
+        context["agentSkills"] = skills_text
 
     internal_resources = list_internal_resources()
     context["agentInternalResources"] = format_internal_resources_for_prompt(internal_resources)

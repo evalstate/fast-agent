@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import TYPE_CHECKING
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.core.instruction_utils import (
     apply_instruction_context,
     build_agent_instruction_context,
+)
+from fast_agent.core.prompt_templates import (
+    enrich_with_environment_context,
+    load_skills_for_context,
 )
 
 if TYPE_CHECKING:
@@ -181,3 +186,110 @@ def test_apply_instruction_context_sets_agent_metadata_on_mcp_agent(tmp_path: Pa
     assert agent.instruction_context["agentCardPath"] == str(card_path.resolve())
     assert agent.instruction_context["agentCardDir"] == str(card_path.parent.resolve())
     assert agent.instruction == "Agent planner @ /workspace"
+
+
+def test_apply_instruction_context_resolves_agent_skills_for_non_mcp_agent(
+    tmp_path: Path,
+) -> None:
+    skills_dir = tmp_path / ".fast-agent" / "skills" / "test-skill"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "SKILL.md").write_text(
+        """---
+name: test-skill
+description: A test skill for unit testing
+---
+""",
+        encoding="utf-8",
+    )
+
+    context: dict[str, str] = {}
+    original_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
+    import fast_agent.config as config_module
+
+    original_settings = getattr(config_module, "_settings", None)
+    config_module._settings = None
+    try:
+        enrich_with_environment_context(
+            context,
+            str(tmp_path),
+            {"name": "test-client"},
+        )
+    finally:
+        config_module._settings = original_settings
+        if original_env_dir is not None:
+            os.environ["ENVIRONMENT_DIR"] = original_env_dir
+
+    agent = StubAgent(
+        name="workflow",
+        instruction_template="Workflow skills:\n{{agentSkills}}",
+        source_path=tmp_path / "cards" / "workflow.md",
+        agent_type=AgentType.CHAIN,
+    )
+
+    asyncio.run(apply_instruction_context([agent], context))
+
+    assert "{{agentSkills}}" not in agent.instruction
+    assert "test-skill" in agent.instruction
+    assert "A test skill for unit testing" in agent.instruction
+
+
+def test_apply_instruction_context_uses_filtered_agent_skills_per_mcp_agent(
+    tmp_path: Path,
+) -> None:
+    for skill_name, description in (
+        ("skill-a", "Skill A description"),
+        ("skill-b", "Skill B description"),
+    ):
+        skill_dir = tmp_path / ".fast-agent" / "skills" / skill_name
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            f"""---
+name: {skill_name}
+description: {description}
+---
+""",
+            encoding="utf-8",
+        )
+
+    context: dict[str, str] = {}
+    original_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
+    import fast_agent.config as config_module
+
+    original_settings = getattr(config_module, "_settings", None)
+    config_module._settings = None
+    try:
+        enrich_with_environment_context(
+            context,
+            str(tmp_path),
+            {"name": "test-client"},
+        )
+        all_manifests = load_skills_for_context(str(tmp_path))
+    finally:
+        config_module._settings = original_settings
+        if original_env_dir is not None:
+            os.environ["ENVIRONMENT_DIR"] = original_env_dir
+
+    manifests_by_name = {manifest.name: manifest for manifest in all_manifests}
+
+    agent_a = StubMcpAgent(
+        name="agent-a",
+        instruction_template="Skills:\n{{agentSkills}}",
+        source_path=tmp_path / "cards" / "agent-a.md",
+        agent_type=AgentType.SMART,
+    )
+    agent_a.set_skill_manifests([manifests_by_name["skill-a"]])
+
+    agent_b = StubMcpAgent(
+        name="agent-b",
+        instruction_template="Skills:\n{{agentSkills}}",
+        source_path=tmp_path / "cards" / "agent-b.md",
+        agent_type=AgentType.SMART,
+    )
+    agent_b.set_skill_manifests([manifests_by_name["skill-b"]])
+
+    asyncio.run(apply_instruction_context([agent_a, agent_b], context))
+
+    assert "skill-a" in agent_a.instruction
+    assert "skill-b" not in agent_a.instruction
+    assert "skill-b" in agent_b.instruction
+    assert "skill-a" not in agent_b.instruction
