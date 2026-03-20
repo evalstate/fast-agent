@@ -22,6 +22,7 @@ from weakref import WeakKeyDictionary
 from fast_agent.core.instruction import InstructionBuilder
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.common import create_namespaced_name
+from fast_agent.skills import SKILLS_DEFAULT
 
 if TYPE_CHECKING:
     from fast_agent.mcp.mcp_aggregator import MCPAggregator
@@ -89,6 +90,35 @@ class McpInstructionCapable(InstructionCapable, Protocol):
 # ─────────────────────────────────────────────────────────────────────────────
 # Instruction Building
 # ─────────────────────────────────────────────────────────────────────────────
+
+
+def resolve_instruction_skill_manifests(
+    agent: object,
+    skill_manifests: Sequence["SkillManifest"] | None,
+) -> Sequence["SkillManifest"] | None:
+    """
+    Preserve the distinction between inherited environment skills and explicit overrides.
+
+    Empty manifests on an agent whose config still uses SKILLS_DEFAULT mean "inherit the
+    shared environment context". Empty manifests on an agent with an explicit skills
+    override mean "render no agent skills".
+    """
+    if skill_manifests is None:
+        return None
+    if skill_manifests:
+        return skill_manifests
+
+    config = getattr(agent, "config", None)
+    skills_config = getattr(config, "skills", SKILLS_DEFAULT) if config is not None else SKILLS_DEFAULT
+    if skills_config is SKILLS_DEFAULT:
+        instruction_context = getattr(agent, "instruction_context", None)
+        shared_agent_skills = (
+            instruction_context.get("agentSkills")
+            if isinstance(instruction_context, Mapping)
+            else None
+        )
+        return None if shared_agent_skills else skill_manifests
+    return skill_manifests
 
 
 def format_server_instructions(
@@ -305,7 +335,7 @@ async def rebuild_agent_instruction(
         new_instruction = await build_instruction(
             template,
             aggregator=agent.aggregator,
-            skill_manifests=agent.skill_manifests,
+            skill_manifests=resolve_instruction_skill_manifests(agent, agent.skill_manifests),
             skill_read_tool_name=agent.skill_read_tool_name,
             context=build_context,
             source=getattr(agent, "name", None),

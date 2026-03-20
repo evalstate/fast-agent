@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, cast
 import typer
 from prompt_toolkit import PromptSession
 
+from fast_agent.cli.command_support import get_settings_or_exit
 from fast_agent.cli.commands.server_helpers import add_servers_to_config
 from fast_agent.cli.constants import RESUME_LATEST_SENTINEL
 from fast_agent.core.exceptions import AgentConfigError
@@ -93,12 +94,11 @@ def _resolve_model_without_hardcoded_default(
 
 def _load_request_settings(request: "AgentRunRequest"):
     from fast_agent import config as config_module
-    from fast_agent.config import get_settings
 
     if request.config_path is None:
         config_module._settings = None
 
-    return get_settings(request.config_path)
+    return get_settings_or_exit(request.config_path)
 
 
 def _resolve_model_picker_initial_selection(

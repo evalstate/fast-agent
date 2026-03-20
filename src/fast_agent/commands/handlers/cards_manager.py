@@ -9,26 +9,15 @@ from typing import TYPE_CHECKING
 
 from rich.text import Text
 
+from fast_agent.cards import service as card_service
 from fast_agent.cards.manager import (
     CardPackPublishResult,
     CardPackUpdateInfo,
-    apply_card_pack_updates,
-    check_card_pack_updates,
-    fetch_marketplace_card_packs,
-    fetch_marketplace_card_packs_with_source,
     format_installed_at_display,
     format_marketplace_display_url,
     format_revision_short,
     get_marketplace_url,
-    install_marketplace_card_pack,
-    list_local_card_packs,
-    load_card_pack_readme,
-    publish_local_card_pack,
-    remove_local_card_pack,
     resolve_card_registries,
-    select_card_pack_by_name_or_index,
-    select_card_pack_updates,
-    select_installed_card_pack_by_name_or_index,
 )
 from fast_agent.commands.command_catalog import suggest_command_action
 from fast_agent.commands.handlers._marketplace_argument_parsing import parse_update_argument
@@ -40,6 +29,8 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from fast_agent.commands.context import CommandContext
+
+
 def _cards_usage_lines() -> list[str]:
     return [
         "Usage: /cards [list|add|remove|readme|update|publish|registry|help] [args]",
@@ -401,7 +392,7 @@ def _format_publish_result(result: CardPackPublishResult, *, title: str) -> Text
 async def handle_list_cards(ctx: CommandContext, *, agent_name: str) -> CommandOutcome:
     outcome = CommandOutcome()
     env_paths = resolve_environment_paths(ctx.resolve_settings())
-    packs = list_local_card_packs(environment_paths=env_paths)
+    packs = card_service.list_installed_packs(environment_paths=env_paths)
     outcome.add_message(
         _format_local_card_packs(environment_paths=env_paths, packs=packs),
         right_info="cards",
@@ -456,27 +447,27 @@ async def handle_set_cards_registry(
         selected_url = argument_clean
 
     try:
-        packs, resolved_url = await fetch_marketplace_card_packs_with_source(selected_url)
+        marketplace = await card_service.scan_marketplace(selected_url)
     except Exception as exc:  # noqa: BLE001
         outcome.add_message(f"Failed to load registry: {exc}", channel="error")
         return outcome
 
     cards_settings = getattr(settings, "cards", None)
     if cards_settings is not None:
-        cards_settings.marketplace_url = resolved_url
+        cards_settings.marketplace_url = marketplace.source
 
     content = Text()
-    if resolved_url != selected_url:
+    if marketplace.source != selected_url:
         content.append_text(Text(f"Resolved from: {selected_url}", style="dim"))
         content.append("\n")
     content.append_text(
         Text(
-            f"Registry set to: {format_marketplace_display_url(resolved_url)}",
+            f"Registry set to: {format_marketplace_display_url(marketplace.source)}",
             style="green",
         )
     )
     content.append("\n")
-    content.append_text(Text(f"Card packs discovered: {len(packs)}", style="dim"))
+    content.append_text(Text(f"Card packs discovered: {len(marketplace.packs)}", style="dim"))
     outcome.add_message(content, right_info="cards")
     return outcome
 
@@ -493,12 +484,12 @@ async def handle_add_card_pack(
     env_paths = resolve_environment_paths(ctx.resolve_settings())
     marketplace_url = get_marketplace_url(ctx.resolve_settings())
     try:
-        marketplace = await fetch_marketplace_card_packs(marketplace_url)
+        marketplace = await card_service.scan_marketplace(marketplace_url)
     except Exception as exc:  # noqa: BLE001
         outcome.add_message(f"Failed to load marketplace: {exc}", channel="error")
         return outcome
 
-    if not marketplace:
+    if not marketplace.packs:
         outcome.add_message("No card packs found in the marketplace.", channel="warning")
         return outcome
 
@@ -506,7 +497,7 @@ async def handle_add_card_pack(
     if not selection:
         content = Text()
         append_heading(content, "Marketplace card packs:")
-        content.append_text(_format_marketplace_packs(marketplace))
+        content.append_text(_format_marketplace_packs(marketplace.packs))
 
         if not interactive:
             outcome.add_message(content, right_info="cards", agent_name=agent_name)
@@ -521,41 +512,38 @@ async def handle_add_card_pack(
         await ctx.io.emit(CommandMessage(text=content, right_info="cards", agent_name=agent_name))
         selection = await ctx.io.prompt_selection(
             "Install card pack by number or name (empty to cancel): ",
-            options=[entry.name for entry in marketplace],
+            options=[entry.name for entry in marketplace.packs],
             allow_cancel=True,
         )
         if selection is None:
             return outcome
 
-    pack = select_card_pack_by_name_or_index(marketplace, selection)
-    if not pack:
-        outcome.add_message(f"Card pack not found: {selection}", channel="error")
-        return outcome
-
     try:
-        install_result = await install_marketplace_card_pack(
-            pack,
+        install_result = await card_service.install_selected_pack(
+            card_service.select_marketplace_pack(marketplace.packs, selection),
             environment_paths=env_paths,
             force=False,
         )
+    except card_service.CardPackLookupError as exc:
+        outcome.add_message(str(exc), channel="error")
+        return outcome
     except Exception as exc:  # noqa: BLE001
         outcome.add_message(f"Failed to install card pack: {exc}", channel="error")
         return outcome
 
     outcome.add_message(
         _format_install_result(
-            pack_name=pack.name,
-            install_path=install_result.pack_dir,
-            installed_files=install_result.installed_files,
+            pack_name=install_result.pack.name,
+            install_path=install_result.install_result.pack_dir,
+            installed_files=install_result.install_result.installed_files,
         ),
         right_info="cards",
         agent_name=agent_name,
     )
-    readme = load_card_pack_readme(install_result.pack_dir)
-    if readme:
+    if install_result.readme:
         outcome.add_message(
-            readme,
-            title=f"{pack.name} README",
+            install_result.readme,
+            title=f"{install_result.pack.name} README",
             right_info="cards",
             agent_name=agent_name,
             render_markdown=True,
@@ -572,7 +560,7 @@ async def handle_remove_card_pack(
 ) -> CommandOutcome:
     outcome = CommandOutcome()
     env_paths = resolve_environment_paths(ctx.resolve_settings())
-    packs = list_local_card_packs(environment_paths=env_paths)
+    packs = card_service.list_installed_packs(environment_paths=env_paths)
     if not packs:
         outcome.add_message("No local card packs to remove.", channel="warning")
         return outcome
@@ -603,18 +591,21 @@ async def handle_remove_card_pack(
             if selection is None:
                 return outcome
 
-    if selected is None:
-        assert selection is not None
-        selected = select_installed_card_pack_by_name_or_index(packs, selection)
-    if not selected:
-        outcome.add_message(f"Card pack not found: {selection}", channel="error")
-        return outcome
-
     try:
-        removal = remove_local_card_pack(
-            selected.pack_dir.name,
-            environment_paths=env_paths,
-        )
+        if selected is None:
+            assert selection is not None
+            removal = card_service.remove_pack(
+                environment_paths=env_paths,
+                selector=selection,
+            )
+        else:
+            removal = card_service.remove_pack(
+                environment_paths=env_paths,
+                selector=selected.name,
+            )
+    except card_service.CardPackLookupError as exc:
+        outcome.add_message(str(exc), channel="error")
+        return outcome
     except Exception as exc:  # noqa: BLE001
         outcome.add_message(f"Failed to remove card pack: {exc}", channel="error")
         return outcome
@@ -640,42 +631,53 @@ async def handle_card_pack_readme(
 ) -> CommandOutcome:
     outcome = CommandOutcome()
     env_paths = resolve_environment_paths(ctx.resolve_settings())
-    packs = list_local_card_packs(environment_paths=env_paths)
+    packs = card_service.list_installed_packs(environment_paths=env_paths)
     if not packs:
         outcome.add_message("No local card packs installed.", channel="warning")
         return outcome
 
+    selected_name: str | None = None
     selection = argument
     if not selection:
-        content = _format_local_card_packs(environment_paths=env_paths, packs=packs)
-        if not interactive:
-            outcome.add_message(content, right_info="cards", agent_name=agent_name)
-            outcome.add_message(
-                "Show with `/cards readme <number|name>`.",
-                channel="info",
-                right_info="cards",
-                agent_name=agent_name,
+        if len(packs) == 1:
+            selected_name = packs[0].name
+        else:
+            content = _format_local_card_packs(environment_paths=env_paths, packs=packs)
+            if not interactive:
+                outcome.add_message(content, right_info="cards", agent_name=agent_name)
+                outcome.add_message(
+                    "Show with `/cards readme <number|name>`.",
+                    channel="info",
+                    right_info="cards",
+                    agent_name=agent_name,
+                )
+                return outcome
+
+            await ctx.io.emit(CommandMessage(text=content, right_info="cards", agent_name=agent_name))
+            selection = await ctx.io.prompt_selection(
+                "Show README for card pack by number or name (empty to cancel): ",
+                options=[entry.name for entry in packs],
+                allow_cancel=True,
             )
-            return outcome
+            if selection is None:
+                return outcome
 
-        await ctx.io.emit(CommandMessage(text=content, right_info="cards", agent_name=agent_name))
-        selection = await ctx.io.prompt_selection(
-            "Show README for card pack by number or name (empty to cancel): ",
-            options=[entry.name for entry in packs],
-            allow_cancel=True,
+    if selected_name is None:
+        assert selection is not None
+        selected_name = selection
+
+    try:
+        readme_record = card_service.read_installed_pack_readme(
+            environment_paths=env_paths,
+            selector=selected_name,
         )
-        if selection is None:
-            return outcome
-
-    selected = select_installed_card_pack_by_name_or_index(packs, selection)
-    if not selected:
-        outcome.add_message(f"Card pack not found: {selection}", channel="error")
+    except card_service.CardPackLookupError as exc:
+        outcome.add_message(str(exc), channel="error")
         return outcome
 
-    readme = load_card_pack_readme(selected.pack_dir)
-    if not readme:
+    if not readme_record.readme:
         outcome.add_message(
-            f"Card pack '{selected.name}' does not include a README.md.",
+            f"Card pack '{readme_record.pack_name}' does not include a README.md.",
             channel="warning",
             right_info="cards",
             agent_name=agent_name,
@@ -683,8 +685,8 @@ async def handle_card_pack_readme(
         return outcome
 
     outcome.add_message(
-        readme,
-        title=f"{selected.name} README",
+        readme_record.readme,
+        title=f"{readme_record.pack_name} README",
         right_info="cards",
         agent_name=agent_name,
         render_markdown=True,
@@ -705,7 +707,7 @@ async def handle_update_card_pack(
         return outcome
 
     env_paths = resolve_environment_paths(ctx.resolve_settings())
-    updates = check_card_pack_updates(environment_paths=env_paths)
+    updates = card_service.check_updates(environment_paths=env_paths)
 
     if selector is None:
         outcome.add_message(
@@ -721,14 +723,15 @@ async def handle_update_card_pack(
         )
         return outcome
 
-    selected = select_card_pack_updates(updates, selector)
-    if not selected:
-        outcome.add_message(f"Card pack not found: {selector}", channel="error")
+    try:
+        plan = card_service.plan_updates(environment_paths=env_paths, selector=selector)
+    except card_service.CardPackLookupError as exc:
+        outcome.add_message(str(exc), channel="error")
         return outcome
 
-    if len(selected) > 1 and not yes:
+    if len(plan.selected) > 1 and not yes:
         outcome.add_message(
-            _format_update_results(selected, title="Update plan:"),
+            _format_update_results(plan.selected, title="Update plan:"),
             right_info="cards",
             agent_name=agent_name,
         )
@@ -741,16 +744,28 @@ async def handle_update_card_pack(
         return outcome
 
     applied = await asyncio.to_thread(
-        apply_card_pack_updates,
-        selected,
+        card_service.apply_update_plan,
+        plan.selected,
         environment_paths=env_paths,
         force=force,
     )
     outcome.add_message(
-        _format_update_results(applied, title="Card pack update results:"),
+        _format_update_results(applied.applied, title="Card pack update results:"),
         right_info="cards",
         agent_name=agent_name,
     )
+
+    # Show READMEs for successfully updated packs
+    for readme_record in applied.readmes:
+        if readme_record.readme:
+            outcome.add_message(
+                readme_record.readme,
+                title=f"{readme_record.pack_name} README (updated)",
+                right_info="cards",
+                agent_name=agent_name,
+                render_markdown=True,
+            )
+
     return outcome
 
 
@@ -767,7 +782,7 @@ async def handle_publish_card_pack(
         return outcome
 
     env_paths = resolve_environment_paths(ctx.resolve_settings())
-    packs = list_local_card_packs(environment_paths=env_paths)
+    packs = card_service.list_installed_packs(environment_paths=env_paths)
     if not packs:
         outcome.add_message("No local card packs to publish.", channel="warning")
         return outcome
@@ -789,20 +804,19 @@ async def handle_publish_card_pack(
         )
         return outcome
 
-    selected = select_installed_card_pack_by_name_or_index(packs, selector)
-    if not selected:
-        outcome.add_message(f"Card pack not found: {selector}", channel="error")
+    try:
+        result = await asyncio.to_thread(
+            card_service.publish_pack,
+            environment_paths=env_paths,
+            selector=selector,
+            push=push,
+            commit_message=message,
+            temp_dir=temp_dir,
+            keep_temp=keep_temp,
+        )
+    except card_service.CardPackLookupError as exc:
+        outcome.add_message(str(exc), channel="error")
         return outcome
-
-    result = await asyncio.to_thread(
-        publish_local_card_pack,
-        selected.pack_dir,
-        environment_paths=env_paths,
-        push=push,
-        commit_message=message,
-        temp_dir=temp_dir,
-        keep_temp=keep_temp,
-    )
 
     outcome.add_message(
         _format_publish_result(result, title="Card pack publish:"),

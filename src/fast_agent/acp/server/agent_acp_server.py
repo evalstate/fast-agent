@@ -88,7 +88,11 @@ from fast_agent.constants import (
 from fast_agent.context import Context
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.fastagent import AgentInstance
-from fast_agent.core.instruction_refresh import McpInstructionCapable, build_instruction
+from fast_agent.core.instruction_refresh import (
+    McpInstructionCapable,
+    build_instruction,
+    resolve_instruction_skill_manifests,
+)
 from fast_agent.core.instruction_utils import (
     build_agent_instruction_context,
     get_instruction_template,
@@ -746,7 +750,7 @@ class AgentACPServer(ACPAgent):
         effective_context = dict(context)
         if isinstance(agent, McpInstructionCapable):
             aggregator = agent.aggregator
-            skill_manifests = agent.skill_manifests
+            skill_manifests = resolve_instruction_skill_manifests(agent, agent.skill_manifests)
             skill_read_tool_name = agent.skill_read_tool_name
             if agent.instruction_context:
                 effective_context = dict(agent.instruction_context)

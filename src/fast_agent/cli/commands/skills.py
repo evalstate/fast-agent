@@ -11,6 +11,7 @@ from rich.table import Table
 
 from fast_agent.cli.command_support import (
     ensure_context_object,
+    get_settings_or_exit,
     resolve_context_path_option,
     resolve_context_string_option,
 )
@@ -23,7 +24,6 @@ from fast_agent.cli.display import (
     print_update_table,
 )
 from fast_agent.cli.env_helpers import resolve_environment_dir_option
-from fast_agent.config import get_settings
 from fast_agent.skills.command_support import filter_marketplace_skills
 from fast_agent.skills.configuration import (
     format_marketplace_display_url,
@@ -95,7 +95,7 @@ def _resolve_registry_input(ctx: typer.Context, command_registry: str | None = N
     )
     if ctx_registry:
         return ctx_registry
-    return get_marketplace_url(get_settings())
+    return get_marketplace_url(get_settings_or_exit())
 
 
 def _resolve_skills_dir_input(
@@ -139,7 +139,7 @@ def _print_skill_table(
 
 
 def _print_local_skills(*, managed_directory_override: Path | None = None) -> None:
-    settings = get_settings()
+    settings = get_settings_or_exit()
     management_scope = resolve_skills_management_scope(
         settings,
         managed_directory_override=managed_directory_override,
@@ -367,7 +367,7 @@ def skills_add(
 ) -> None:
     """Install a skill from the selected marketplace."""
     managed_directory = get_manager_directory(
-        get_settings(),
+        get_settings_or_exit(),
         managed_directory_override=_resolve_skills_dir_input(ctx, skills_dir),
     )
     marketplace, marketplace_url = _load_marketplace(ctx, registry=registry)
@@ -417,7 +417,7 @@ def skills_remove(
 ) -> None:
     """Remove an installed skill from the managed directory."""
     managed_directory = get_manager_directory(
-        get_settings(),
+        get_settings_or_exit(),
         managed_directory_override=_resolve_skills_dir_input(ctx, skills_dir),
     )
     manifests = SkillRegistry.load_directory(managed_directory) if managed_directory.exists() else []
@@ -471,7 +471,7 @@ def skills_update(
 ) -> None:
     """Check and apply skill updates."""
     managed_directory = get_manager_directory(
-        get_settings(),
+        get_settings_or_exit(),
         managed_directory_override=_resolve_skills_dir_input(ctx, skills_dir),
     )
     updates = check_skill_updates(destination_root=managed_directory)

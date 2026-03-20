@@ -434,7 +434,11 @@ class McpAgent(ABC, ToolAgent):
         Apply template substitution to the instruction, including server instructions.
         This is called during initialization after servers are connected.
         """
-        from fast_agent.core.instruction_refresh import build_instruction, format_agent_skills
+        from fast_agent.core.instruction_refresh import (
+            build_instruction,
+            format_agent_skills,
+            resolve_instruction_skill_manifests,
+        )
 
         if not self._instruction_template:
             return
@@ -443,7 +447,7 @@ class McpAgent(ABC, ToolAgent):
         new_instruction = await build_instruction(
             self._instruction_template,
             aggregator=self._aggregator,
-            skill_manifests=self._skill_manifests,
+            skill_manifests=resolve_instruction_skill_manifests(self, self._skill_manifests),
             skill_read_tool_name=self.skill_read_tool_name,
             context=self._instruction_context,
             source=self._name,

@@ -21,3 +21,9 @@ def test_go_specific_options_include_agent_and_noenv() -> None:
 
 def test_go_specific_options_include_smart() -> None:
     assert "--smart" in GO_SPECIFIC_OPTIONS
+
+
+def test_go_specific_options_include_pack_flags() -> None:
+    assert "--pack" in GO_SPECIFIC_OPTIONS
+    assert "--card-pack" in GO_SPECIFIC_OPTIONS
+    assert "--pack-registry" in GO_SPECIFIC_OPTIONS

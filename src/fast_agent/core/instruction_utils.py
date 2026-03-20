@@ -5,7 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from fast_agent.core.instruction_refresh import McpInstructionCapable, build_instruction
+from fast_agent.core.instruction_refresh import (
+    McpInstructionCapable,
+    build_instruction,
+    resolve_instruction_skill_manifests,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
@@ -97,7 +101,7 @@ async def apply_instruction_context(
         if isinstance(agent, McpInstructionCapable):
             agent.set_instruction_context(dict(resolved_context))
             aggregator = agent.aggregator
-            skill_manifests = agent.skill_manifests
+            skill_manifests = resolve_instruction_skill_manifests(agent, agent.skill_manifests)
             skill_read_tool_name = agent.skill_read_tool_name
 
         resolved = await build_instruction(

@@ -293,3 +293,94 @@ description: {description}
     assert "skill-b" not in agent_a.instruction
     assert "skill-b" in agent_b.instruction
     assert "skill-a" not in agent_b.instruction
+
+
+def test_apply_instruction_context_preserves_shared_skills_for_mcp_agent_without_override(
+    tmp_path: Path,
+) -> None:
+    skills_dir = tmp_path / ".fast-agent" / "skills" / "test-skill"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "SKILL.md").write_text(
+        """---
+name: test-skill
+description: A test skill for unit testing
+---
+""",
+        encoding="utf-8",
+    )
+
+    context: dict[str, str] = {}
+    original_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
+    import fast_agent.config as config_module
+
+    original_settings = getattr(config_module, "_settings", None)
+    config_module._settings = None
+    try:
+        enrich_with_environment_context(
+            context,
+            str(tmp_path),
+            {"name": "test-client"},
+        )
+    finally:
+        config_module._settings = original_settings
+        if original_env_dir is not None:
+            os.environ["ENVIRONMENT_DIR"] = original_env_dir
+
+    agent = StubMcpAgent(
+        name="planner",
+        instruction_template="Skills:\n{{agentSkills}}",
+        source_path=tmp_path / "cards" / "planner.md",
+        agent_type=AgentType.SMART,
+    )
+
+    asyncio.run(apply_instruction_context([agent], context))
+
+    assert "{{agentSkills}}" not in agent.instruction
+    assert "test-skill" in agent.instruction
+    assert "A test skill for unit testing" in agent.instruction
+
+
+def test_apply_instruction_context_blanks_shared_skills_for_explicit_mcp_disable(
+    tmp_path: Path,
+) -> None:
+    skills_dir = tmp_path / ".fast-agent" / "skills" / "test-skill"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "SKILL.md").write_text(
+        """---
+name: test-skill
+description: A test skill for unit testing
+---
+""",
+        encoding="utf-8",
+    )
+
+    context: dict[str, str] = {}
+    original_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
+    import fast_agent.config as config_module
+
+    original_settings = getattr(config_module, "_settings", None)
+    config_module._settings = None
+    try:
+        enrich_with_environment_context(
+            context,
+            str(tmp_path),
+            {"name": "test-client"},
+        )
+    finally:
+        config_module._settings = original_settings
+        if original_env_dir is not None:
+            os.environ["ENVIRONMENT_DIR"] = original_env_dir
+
+    agent = StubMcpAgent(
+        name="planner",
+        instruction_template="Skills:\n{{agentSkills}}",
+        source_path=tmp_path / "cards" / "planner.md",
+        agent_type=AgentType.SMART,
+    )
+    agent.config.skills = []
+
+    asyncio.run(apply_instruction_context([agent], context))
+
+    assert "{{agentSkills}}" not in agent.instruction
+    assert "test-skill" not in agent.instruction
+    assert "A test skill for unit testing" not in agent.instruction

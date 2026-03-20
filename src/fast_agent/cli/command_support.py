@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     import typer
 
+    from fast_agent.config import Settings
+
 
 def ensure_context_object(ctx: typer.Context) -> dict[str, Any]:
     """Return a mutable context object dictionary for a Typer command tree."""
@@ -49,3 +51,20 @@ def resolve_context_path_option(
     if isinstance(ctx_value, str) and ctx_value.strip():
         return Path(ctx_value)
     return None
+
+
+def get_settings_or_exit(config_path: str | Path | None = None) -> "Settings":
+    """Load settings or exit with a concise user-facing error."""
+    import typer
+
+    from fast_agent.config import get_settings
+    from fast_agent.core.exceptions import FastAgentError, format_fast_agent_error
+
+    try:
+        return get_settings(config_path)
+    except FastAgentError as exc:
+        typer.echo(f"Error loading fast-agent settings: {format_fast_agent_error(exc)}", err=True)
+        raise typer.Exit(1) from exc
+    except Exception as exc:  # noqa: BLE001
+        typer.echo(f"Error loading fast-agent settings: {exc}", err=True)
+        raise typer.Exit(1) from exc

@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator,
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
+from fast_agent.core.exceptions import ConfigFileError
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting
 from fast_agent.llm.structured_output_mode import StructuredOutputMode
 from fast_agent.llm.text_verbosity import TextVerbosityLevel
@@ -1222,8 +1223,11 @@ def load_yaml_mapping(path: Path | None) -> dict[str, Any]:
 
     import yaml  # pylint: disable=C0415
 
-    with open(path, "r", encoding="utf-8") as f:
-        payload = yaml.safe_load(f) or {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            payload = yaml.safe_load(f) or {}
+    except yaml.YAMLError as exc:
+        raise ConfigFileError(f"Failed to parse YAML file: {path}", str(exc)) from exc
     if not isinstance(payload, dict):
         return {}
     return resolve_env_vars(payload)

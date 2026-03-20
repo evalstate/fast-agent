@@ -202,6 +202,25 @@ async def test_agent_skills_template_substitution(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_skills_template_uses_shared_context_when_default_manifests_are_empty() -> None:
+    context = Context()
+
+    config = AgentConfig(
+        name="test",
+        instruction="Instructions:\n\n{{agentSkills}}\nEnd.",
+        servers=[],
+        skills=SKILLS_DEFAULT,
+    )
+
+    agent = McpAgent(config=config, context=context)
+    agent.set_instruction_context({"agentSkills": "<skill><name>shared</name></skill>"})
+    await agent._apply_instruction_templates()
+
+    assert "{{agentSkills}}" not in agent.instruction
+    assert "<name>shared</name>" in agent.instruction
+
+
+@pytest.mark.asyncio
 async def test_agent_skills_missing_placeholder_warns(tmp_path: Path) -> None:
     skills_root = tmp_path / "skills"
     create_skill(skills_root, "gamma")

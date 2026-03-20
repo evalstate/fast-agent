@@ -1,19 +1,18 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 from click.utils import strip_ansi
 from typer.testing import CliRunner
 
+import fast_agent.config as config_module
 from fast_agent.cli.commands import cards as cards_command
 from fast_agent.cli.main import LAZY_SUBCOMMANDS
 from fast_agent.config import get_settings, update_global_settings
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -444,3 +443,41 @@ def test_cards_publish_help_lists_temp_flags() -> None:
     assert result.exit_code == 0, output
     assert "--temp-dir" in output
     assert "--keep-temp" in output
+
+
+def test_cards_update_reports_invalid_settings_yaml_without_traceback(tmp_path: Path) -> None:
+    env_root = tmp_path / ".fast-agent"
+    env_root.mkdir(parents=True)
+    config_path = env_root / "fastagent.config.yaml"
+    config_path.write_text(
+        "mcp:\n"
+        "  targets:\n"
+        "    - name: openai\n"
+        "        target: https://developers.openai.com/mcp\n",
+        encoding="utf-8",
+    )
+
+    old_settings = get_settings()
+    old_cwd = Path.cwd()
+    old_env_dir = os.environ.get("ENVIRONMENT_DIR")
+    try:
+        os.chdir(tmp_path)
+        os.environ.pop("ENVIRONMENT_DIR", None)
+        config_module._settings = None
+
+        runner = CliRunner()
+        result = runner.invoke(cards_command.app, ["update"])
+        output = strip_ansi(result.output)
+
+        assert result.exit_code == 1, output
+        assert "Error loading fast-agent settings:" in output
+        assert f"Failed to parse YAML file: {config_path}" in output
+        assert "mapping values are not allowed here" in output
+        assert "Traceback" not in output
+    finally:
+        os.chdir(old_cwd)
+        if old_env_dir is None:
+            os.environ.pop("ENVIRONMENT_DIR", None)
+        else:
+            os.environ["ENVIRONMENT_DIR"] = old_env_dir
+        update_global_settings(old_settings)

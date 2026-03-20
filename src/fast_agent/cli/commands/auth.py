@@ -5,11 +5,13 @@ Shows keyring backend, per-server OAuth token status, and provides a way to clea
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import typer
 from rich.table import Table
 
+from fast_agent.cli.command_support import get_settings_or_exit
 from fast_agent.cli.display import print_detail_line, print_section_header
-from fast_agent.config import Settings, get_settings
 from fast_agent.core.keyring_utils import maybe_print_keyring_access_notice
 from fast_agent.mcp.oauth_client import (
     _derive_base_server_url,
@@ -19,6 +21,9 @@ from fast_agent.mcp.oauth_client import (
 )
 from fast_agent.ui.console import console
 from fast_agent.utils.async_utils import run_sync
+
+if TYPE_CHECKING:
+    from fast_agent.config import Settings
 
 app = typer.Typer(
     help=(
@@ -134,12 +139,12 @@ def status(
     config_path: str | None = typer.Option(None, "--config-path", "-c"),
 ) -> None:
     """Show keyring backend and token status for configured MCP servers (identity = base URL)."""
-    settings = get_settings(config_path)
+    settings = get_settings_or_exit(config_path)
     backend, backend_usable = _get_keyring_status()
 
     # Single-target view if target provided
     if target:
-        settings = get_settings(config_path)
+        settings = get_settings_or_exit(config_path)
         identity = _derive_base_server_url(target) if "://" in target else None
         if not identity:
             servers = getattr(getattr(settings, "mcp", None), "servers", {}) or {}
@@ -299,7 +304,7 @@ def clear(
     elif identity:
         targets_identities = [identity]
     elif server:
-        settings = get_settings(config_path)
+        settings = get_settings_or_exit(config_path)
         rows = _server_rows_from_settings(settings)
         match = next((r for r in rows if r["name"] == server), None)
         if not match:
@@ -332,6 +337,8 @@ def main(
     if ctx.invoked_subcommand is None:
         try:
             status(target=None, config_path=config_path)
+        except typer.Exit:
+            raise
         except Exception as e:
             typer.echo(f"Error showing auth status: {e}")
 
@@ -468,7 +475,7 @@ def login(
         )
     else:
         # Server name mode
-        settings = get_settings(config_path)
+        settings = get_settings_or_exit(config_path)
         servers = getattr(getattr(settings, "mcp", None), "servers", {}) or {}
         cfg = servers.get(target)
         if not cfg:
