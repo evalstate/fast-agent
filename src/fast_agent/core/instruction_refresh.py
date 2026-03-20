@@ -195,9 +195,13 @@ async def build_instruction(
 
         builder.set_resolver("agentSkills", resolve_agent_skills)
 
-    # Apply context values
+    # Apply context values. When per-agent skill manifests are available,
+    # drop any shared agentSkills fallback so the dynamic resolver wins.
     if context:
-        builder.set_many(dict(context))
+        context_values = dict(context)
+        if skill_manifests is not None:
+            context_values.pop("agentSkills", None)
+        builder.set_many(context_values)
 
     return await builder.build()
 
