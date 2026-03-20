@@ -249,6 +249,26 @@ def _resolve_effective_environment_dir(
     return resolve_environment_paths(settings=settings).root
 
 
+def _maybe_queue_pack_readme_notice(
+    *,
+    pack_name: str,
+    readme: str | None,
+    message: str | None,
+    prompt_file: str | None,
+) -> None:
+    if not readme or message is not None or prompt_file is not None:
+        return
+
+    from fast_agent.ui.enhanced_prompt import queue_startup_markdown_notice, queue_startup_notice
+
+    queue_startup_notice(f"[dim]Card pack README:[/dim] [cyan]{pack_name}[/cyan]")
+    queue_startup_markdown_notice(
+        readme,
+        title=f"{pack_name} README",
+        right_info="card pack",
+    )
+
+
 @app.callback(invoke_without_command=True, no_args_is_help=False)
 def go(
     ctx: typer.Context,
@@ -354,9 +374,24 @@ def go(
             typer.echo(f"Failed to prepare card pack: {exc}", err=True)
             raise typer.Exit(1) from exc
 
+        pack_readme = (
+            ensured_pack.install_record.readme
+            if ensured_pack.install_record is not None
+            else card_service.read_installed_pack_readme(
+                environment_paths=env_paths,
+                selector=ensured_pack.name,
+            ).readme
+        )
+
         status = "Installed" if ensured_pack.installed else "Using installed"
         typer.echo(f"{status} card pack: {ensured_pack.name}")
         typer.echo(f"Launching fast-agent go with environment: {effective_env_dir}")
+        _maybe_queue_pack_readme_notice(
+            pack_name=ensured_pack.name,
+            readme=pack_readme,
+            message=message,
+            prompt_file=prompt_file,
+        )
 
         agent_cards = _merge_pack_card_sources(agent_cards, env_paths.agent_cards)
         card_tools = _merge_pack_card_sources(card_tools, env_paths.tool_cards)

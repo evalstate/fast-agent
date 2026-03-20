@@ -35,6 +35,7 @@ def _build_pack_repo(
     pack_name: str = "alpha",
     agent_names: tuple[str, ...] = ("alpha",),
     tool_names: tuple[str, ...] = (),
+    readme: str | None = None,
 ) -> tuple[Path, Path]:
     repo = tmp_path / "repo"
     _init_repo(repo)
@@ -73,6 +74,8 @@ def _build_pack_repo(
         "\n".join(manifest_lines),
         encoding="utf-8",
     )
+    if readme is not None:
+        (pack_root / "README.md").write_text(readme, encoding="utf-8")
 
     _commit_all(repo, "initial")
 
@@ -473,3 +476,96 @@ def test_go_pack_reports_missing_pack(tmp_path: Path, monkeypatch) -> None:
 
     assert result.exit_code == 1
     assert "Card pack not found: missing" in result.output
+
+
+def test_go_pack_queues_readme_notice_for_interactive_startup(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _, marketplace_path = _build_pack_repo(
+        tmp_path,
+        readme="# Alpha Pack\n\nInstall notes.\n",
+    )
+    env_root = tmp_path / ".fast-agent-demo"
+    plain_notices: list[str] = []
+    markdown_notices: list[tuple[str, dict[str, str | None]]] = []
+
+    def _capture_markdown_notice(text: str, **kwargs: str | None) -> None:
+        markdown_notices.append((text, kwargs))
+
+    monkeypatch.setattr(go_command, "run_request", lambda _request: None)
+    monkeypatch.setattr(
+        "fast_agent.ui.enhanced_prompt.queue_startup_notice",
+        plain_notices.append,
+    )
+    monkeypatch.setattr(
+        "fast_agent.ui.enhanced_prompt.queue_startup_markdown_notice",
+        _capture_markdown_notice,
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        go_command.app,
+        [
+            "--pack",
+            "alpha",
+            "--pack-registry",
+            marketplace_path.as_posix(),
+            "--env",
+            env_root.as_posix(),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert any("Card pack README" in notice for notice in plain_notices)
+    assert markdown_notices == [
+        (
+            "# Alpha Pack\n\nInstall notes.",
+            {
+                "title": "alpha README",
+                "right_info": "card pack",
+            },
+        )
+    ]
+
+
+def test_go_pack_skips_readme_notice_for_noninteractive_runs(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _, marketplace_path = _build_pack_repo(
+        tmp_path,
+        readme="# Alpha Pack\n\nInstall notes.\n",
+    )
+    env_root = tmp_path / ".fast-agent-demo"
+
+    monkeypatch.setattr(go_command, "run_request", lambda _request: None)
+    monkeypatch.setattr(
+        "fast_agent.ui.enhanced_prompt.queue_startup_notice",
+        lambda *_args: (_ for _ in ()).throw(
+            AssertionError("plain startup notice should not be queued")
+        ),
+    )
+    monkeypatch.setattr(
+        "fast_agent.ui.enhanced_prompt.queue_startup_markdown_notice",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("markdown startup notice should not be queued")
+        ),
+    )
+
+    runner = CliRunner()
+    result = runner.invoke(
+        go_command.app,
+        [
+            "--pack",
+            "alpha",
+            "--pack-registry",
+            marketplace_path.as_posix(),
+            "--env",
+            env_root.as_posix(),
+            "--message",
+            "hello",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
