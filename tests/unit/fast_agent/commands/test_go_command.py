@@ -2,6 +2,7 @@ import json
 import subprocess
 from pathlib import Path
 
+from click.utils import strip_ansi
 from typer.testing import CliRunner
 
 from fast_agent.cli.commands import go as go_command
@@ -372,7 +373,7 @@ def test_go_pack_rejects_noenv() -> None:
     )
 
     assert result.exit_code == 2
-    assert "Cannot combine --pack with --noenv." in result.output
+    assert "Cannot combine --pack with --noenv." in strip_ansi(result.output)
 
 
 def test_go_pack_preserves_agent_target(tmp_path: Path, monkeypatch) -> None:
