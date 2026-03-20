@@ -23,6 +23,8 @@ fast-agent go [OPTIONS]
 - `--auth TEXT`: Bearer token for authorization with URL-based servers
 - `--client-metadata-url TEXT`: OAuth Client ID Metadata Document URL for URL-based servers
 - `--model TEXT`: Override the default model (e.g., haiku, sonnet, gpt-4)
+- `--pack`, `--card-pack TEXT`: Install or reuse a named card pack in the selected environment before launch
+- `--pack-registry TEXT`: Marketplace URL or file used to resolve `--pack` when it is not already installed
 - `--message`, `-m TEXT`: Message to send to the agent (skips interactive mode)
 - `--prompt-file`, `-p TEXT`: Path to a prompt file to use (either text or JSON)
 - `--quiet`: Disable progress display and logging
@@ -33,11 +35,20 @@ The `--model` value can include query overrides such as
 earlier Sonnet 4 / Sonnet 4.5 models; Sonnet 4.6 and Opus 4.6 already have long
 context enabled by default.
 
+When you use `--pack`, the `--model` value is still a fallback. If an AgentCard
+inside the pack declares an explicit model, that card model takes precedence.
+
 ### Examples
 
 ```bash
 # Basic usage with interactive mode
 fast-agent go --model=haiku
+
+# Install or reuse a card pack, then launch immediately
+fast-agent go --pack analyst --model haiku
+
+# Resolve the pack from a specific marketplace file and target a specific agent
+fast-agent go --pack analyst --pack-registry ./marketplace.json --agent planner --model haiku
 
 # Specifying servers from configuration
 fast-agent go --servers=fetch,filesystem --model=haiku

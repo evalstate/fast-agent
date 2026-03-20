@@ -1,6 +1,99 @@
+import json
+import subprocess
 from pathlib import Path
 
+from typer.testing import CliRunner
+
 from fast_agent.cli.commands import go as go_command
+from fast_agent.paths import resolve_environment_paths
+
+
+def _git(repo: Path, *args: str) -> str:
+    result = subprocess.run(
+        ["git", "-C", str(repo), *args],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+def _init_repo(repo: Path) -> None:
+    subprocess.run(["git", "init", str(repo)], check=True, capture_output=True, text=True)
+    _git(repo, "config", "user.email", "tests@example.com")
+    _git(repo, "config", "user.name", "Test User")
+
+
+def _commit_all(repo: Path, message: str) -> None:
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-m", message)
+
+
+def _build_pack_repo(
+    tmp_path: Path,
+    *,
+    pack_name: str = "alpha",
+    agent_names: tuple[str, ...] = ("alpha",),
+    tool_names: tuple[str, ...] = (),
+) -> tuple[Path, Path]:
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+
+    pack_root = repo / "packs" / pack_name
+    agent_cards_dir = pack_root / "agent-cards"
+    agent_cards_dir.mkdir(parents=True)
+    tool_cards_dir = pack_root / "tool-cards"
+
+    for agent_name in agent_names:
+        (agent_cards_dir / f"{agent_name}.md").write_text(
+            f"---\nname: {agent_name}\nmodel: passthrough\n---\n\nhello\n",
+            encoding="utf-8",
+        )
+
+    for tool_name in tool_names:
+        tool_cards_dir.mkdir(parents=True, exist_ok=True)
+        (tool_cards_dir / f"{tool_name}.md").write_text(
+            f"---\nname: {tool_name}\n---\n\nhello\n",
+            encoding="utf-8",
+        )
+
+    manifest_lines = [
+        "schema_version: 1",
+        f"name: {pack_name}",
+        "kind: card",
+        "install:",
+        "  agent_cards:",
+        *[f"    - 'agent-cards/{agent_name}.md'" for agent_name in agent_names],
+        "  tool_cards:",
+        *([f"    - 'tool-cards/{tool_name}.md'" for tool_name in tool_names] or ["    []"]),
+        "  files: []",
+        "",
+    ]
+    (pack_root / "card-pack.yaml").write_text(
+        "\n".join(manifest_lines),
+        encoding="utf-8",
+    )
+
+    _commit_all(repo, "initial")
+
+    marketplace_path = tmp_path / "marketplace.json"
+    marketplace_path.write_text(
+        json.dumps(
+            {
+                "entries": [
+                    {
+                        "name": pack_name,
+                        "kind": "card",
+                        "repo_url": repo.as_posix(),
+                        "repo_path": f"packs/{pack_name}",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    return repo, marketplace_path
 
 
 def test_run_async_agent_passes_card_tools() -> None:
@@ -193,3 +286,190 @@ def test_run_async_agent_passes_result_file() -> None:
     )
 
     assert run_kwargs["result_file"] == "result.json"
+
+
+def test_go_pack_installs_then_runs(tmp_path: Path, monkeypatch) -> None:
+    _, marketplace_path = _build_pack_repo(tmp_path)
+    env_root = tmp_path / ".fast-agent-demo"
+    captured_requests = []
+
+    monkeypatch.setattr(go_command, "run_request", captured_requests.append)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        go_command.app,
+        [
+            "--pack",
+            "alpha",
+            "--pack-registry",
+            marketplace_path.as_posix(),
+            "--model",
+            "haiku",
+            "--env",
+            env_root.as_posix(),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Installed card pack: alpha" in result.output
+    assert f"Launching fast-agent go with environment: {env_root}" in result.output
+    assert (env_root / "agent-cards" / "alpha.md").exists()
+    assert len(captured_requests) == 1
+    assert captured_requests[0].environment_dir == env_root
+    assert captured_requests[0].model == "haiku"
+    assert captured_requests[0].agent_cards == [str(env_root / "agent-cards")]
+
+
+def test_go_pack_reuses_installed_pack_without_registry_lookup(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _, marketplace_path = _build_pack_repo(tmp_path)
+    env_root = tmp_path / ".fast-agent-demo"
+    env_paths = resolve_environment_paths(override=env_root, cwd=tmp_path)
+    captured_requests = []
+
+    go_command.card_service.install_pack_sync(
+        marketplace_path.as_posix(),
+        "alpha",
+        environment_paths=env_paths,
+        force=False,
+    )
+
+    async def _fail_install_pack(*_args, **_kwargs):
+        raise AssertionError("Marketplace lookup should be skipped for installed packs.")
+
+    monkeypatch.setattr(go_command.card_service, "install_pack", _fail_install_pack)
+    monkeypatch.setattr(go_command, "run_request", captured_requests.append)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        go_command.app,
+        [
+            "--pack",
+            "alpha",
+            "--model",
+            "haiku",
+            "--env",
+            env_root.as_posix(),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Using installed card pack: alpha" in result.output
+    assert len(captured_requests) == 1
+    assert captured_requests[0].environment_dir == env_root
+
+
+def test_go_pack_rejects_noenv() -> None:
+    runner = CliRunner()
+    result = runner.invoke(
+        go_command.app,
+        ["--pack", "alpha", "--noenv"],
+    )
+
+    assert result.exit_code == 2
+    assert "Cannot combine --pack with --noenv." in result.output
+
+
+def test_go_pack_preserves_agent_target(tmp_path: Path, monkeypatch) -> None:
+    _, marketplace_path = _build_pack_repo(
+        tmp_path,
+        agent_names=("alpha", "planner"),
+    )
+    env_root = tmp_path / ".fast-agent-demo"
+    captured_requests = []
+
+    monkeypatch.setattr(go_command, "run_request", captured_requests.append)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        go_command.app,
+        [
+            "--pack",
+            "alpha",
+            "--pack-registry",
+            marketplace_path.as_posix(),
+            "--model",
+            "haiku",
+            "--env",
+            env_root.as_posix(),
+            "--agent",
+            "planner",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert len(captured_requests) == 1
+    assert captured_requests[0].target_agent_name == "planner"
+
+
+def test_go_pack_keeps_installed_card_dirs_after_explicit_sources(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    _, marketplace_path = _build_pack_repo(
+        tmp_path,
+        tool_names=("alpha-tool",),
+    )
+    env_root = tmp_path / ".fast-agent-demo"
+    explicit_agent_dir = tmp_path / "extra-agent-cards"
+    explicit_tool_dir = tmp_path / "extra-tool-cards"
+    explicit_agent_dir.mkdir()
+    explicit_tool_dir.mkdir()
+    captured_requests = []
+
+    monkeypatch.setattr(go_command, "run_request", captured_requests.append)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        go_command.app,
+        [
+            "--pack",
+            "alpha",
+            "--pack-registry",
+            marketplace_path.as_posix(),
+            "--env",
+            env_root.as_posix(),
+            "--agent-cards",
+            explicit_agent_dir.as_posix(),
+            "--card-tool",
+            explicit_tool_dir.as_posix(),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert len(captured_requests) == 1
+    assert captured_requests[0].agent_cards == [
+        explicit_agent_dir.as_posix(),
+        str(env_root / "agent-cards"),
+    ]
+    assert captured_requests[0].card_tools == [
+        explicit_tool_dir.as_posix(),
+        str(env_root / "tool-cards"),
+    ]
+
+
+def test_go_pack_reports_missing_pack(tmp_path: Path, monkeypatch) -> None:
+    _, marketplace_path = _build_pack_repo(tmp_path)
+
+    def _fail_run_request(_request):
+        raise AssertionError("run_request should not be called when pack lookup fails.")
+
+    monkeypatch.setattr(go_command, "run_request", _fail_run_request)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        go_command.app,
+        [
+            "--pack",
+            "missing",
+            "--pack-registry",
+            marketplace_path.as_posix(),
+            "--env",
+            (tmp_path / ".fast-agent-demo").as_posix(),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "Card pack not found: missing" in result.output

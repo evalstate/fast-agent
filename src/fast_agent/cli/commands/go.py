@@ -9,6 +9,8 @@ from typing import Any, Literal
 
 import typer
 
+from fast_agent.cards import service as card_service
+from fast_agent.cli.command_support import get_settings_or_exit
 from fast_agent.cli.env_helpers import resolve_environment_dir_option
 from fast_agent.cli.runtime.agent_setup import run_agent_request
 from fast_agent.cli.runtime.request_builders import (
@@ -40,6 +42,7 @@ from fast_agent.cli.runtime.run_request import (
 from fast_agent.cli.runtime.runner import run_request
 from fast_agent.cli.shared_options import CommonAgentOptions
 from fast_agent.constants import FAST_AGENT_SHELL_CHILD_ENV
+from fast_agent.paths import resolve_environment_paths
 
 CARD_EXTENSIONS = _CARD_EXTENSIONS
 DEFAULT_AGENT_CARDS_DIR = _DEFAULT_AGENT_CARDS_DIR
@@ -88,6 +91,16 @@ def _merge_card_sources(
     default_dir: Path,
 ) -> list[str] | None:
     return merge_card_sources(sources, default_dir)
+
+
+def _merge_pack_card_sources(
+    sources: list[str] | None,
+    pack_dir: Path,
+) -> list[str] | None:
+    pack_sources = merge_card_sources(None, pack_dir)
+    if not pack_sources:
+        return sources
+    return merge_card_sources([*(sources or []), *pack_sources], pack_dir)
 
 
 def _build_compat_run_request(**kwargs: Any) -> AgentRunRequest:
@@ -226,6 +239,16 @@ def run_async_agent(
     run_request(request)
 
 
+def _resolve_effective_environment_dir(
+    *,
+    settings: Any | None,
+    env_dir: Path | None,
+) -> Path:
+    if env_dir is not None:
+        return env_dir
+    return resolve_environment_paths(settings=settings).root
+
+
 @app.callback(invoke_without_command=True, no_args_is_help=False)
 def go(
     ctx: typer.Context,
@@ -239,6 +262,17 @@ def go(
     auth: str | None = CommonAgentOptions.auth(),
     client_metadata_url: str | None = CommonAgentOptions.client_metadata_url(),
     model: str | None = CommonAgentOptions.model(),
+    pack: str | None = typer.Option(
+        None,
+        "--pack",
+        "--card-pack",
+        help="Ensure a named card pack is installed in the selected environment before starting.",
+    ),
+    pack_registry: str | None = typer.Option(
+        None,
+        "--pack-registry",
+        help="Marketplace URL or path used to resolve --pack when it is not already installed.",
+    ),
     agent: str | None = CommonAgentOptions.agent(),
     message: str | None = typer.Option(
         None,
@@ -293,6 +327,39 @@ def go(
         raise typer.Exit(1)
 
     resolved_env_dir = resolve_environment_dir_option(ctx, env_dir, set_env_var=not noenv)
+    effective_env_dir = resolved_env_dir
+
+    if pack:
+        if noenv:
+            raise typer.BadParameter("Cannot combine --pack with --noenv.", param_hint="--pack")
+
+        settings = get_settings_or_exit(config_path) if (resolved_env_dir is None or pack_registry is None) else None
+        effective_env_dir = _resolve_effective_environment_dir(
+            settings=settings,
+            env_dir=resolved_env_dir,
+        )
+        env_paths = resolve_environment_paths(override=effective_env_dir)
+        resolved_pack_registry = card_service.resolve_registry(pack_registry, settings=settings)
+
+        try:
+            ensured_pack = card_service.ensure_pack_available_sync(
+                selector=pack,
+                environment_paths=env_paths,
+                registry=resolved_pack_registry,
+            )
+        except card_service.CardPackLookupError as exc:
+            typer.echo(str(exc), err=True)
+            raise typer.Exit(1) from exc
+        except Exception as exc:  # noqa: BLE001
+            typer.echo(f"Failed to prepare card pack: {exc}", err=True)
+            raise typer.Exit(1) from exc
+
+        status = "Installed" if ensured_pack.installed else "Using installed"
+        typer.echo(f"{status} card pack: {ensured_pack.name}")
+        typer.echo(f"Launching fast-agent go with environment: {effective_env_dir}")
+
+        agent_cards = _merge_pack_card_sources(agent_cards, env_paths.agent_cards)
+        card_tools = _merge_pack_card_sources(card_tools, env_paths.tool_cards)
 
     request = build_command_run_request(
         name=name,
@@ -314,7 +381,7 @@ def go(
         stdio=stdio,
         target_agent_name=agent,
         skills_directory=skills_dir,
-        environment_dir=resolved_env_dir,
+        environment_dir=effective_env_dir,
         noenv=noenv,
         force_smart=smart,
         shell_enabled=shell,
