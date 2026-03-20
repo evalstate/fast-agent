@@ -48,16 +48,16 @@ def build_child_system_prompt(
 ) -> str:
     """Build system prompt for the child agent.
 
-    Inspired by OpenClaw's buildSubagentSystemPrompt().
+    Provides execution context (task, workspace, depth).
+    Behavioral rules come from the agent's instruction (template YAML).
     """
     lines = [
-        "# Subagent Context",
+        "# Agent Context",
         "",
-        "You are a **sub-agent** spawned to handle a specific task.",
+        "You are an AI agent. Follow your instruction to complete the assignment.",
         "",
-        "## Your Role",
-        f"- You were created to handle: {task}",
-        "- Follow your instruction to complete this task.",
+        "## Your Assignment",
+        task,
         "",
     ]
 
@@ -84,7 +84,7 @@ def build_child_system_prompt(
                     "### Rules",
                     "- Write ALL output files inside this workspace (use relative paths like `src/`, `docs/`, `tests/`)",
                     "- You CANNOT access files outside this workspace",
-                    "- Read the ROSTER.md file to see your team members",
+                    "- Read `team_roster.json` to see your team members",
                     "",
                 ]
             )
@@ -121,26 +121,17 @@ def build_child_system_prompt(
 
     lines.extend(
         [
-            "## Rules",
-            "1. **Stay focused** — Do your assigned task, nothing else",
-            "2. **Be thorough** — Your output is the ONLY thing the orchestrator sees",
-            "3. **Be concise** — Include all relevant info, skip filler",
-            "4. **Don't initiate** — No proactive actions, no side quests",
-            "5. **No user interaction** — You cannot talk to the user directly",
+            "## General",
+            "- You cannot talk to the user directly",
+            "- Be thorough and concise in your outputs",
+            "- Include file paths for any files you created/modified",
             "",
-            "## Output Format",
-            "When complete, respond with:",
-            "- What you accomplished or found",
-            "- Any relevant details the orchestrator should know",
-            "- File paths for any files you created/modified",
-            "- Keep it concise but informative",
         ]
     )
 
     if depth < max_depth - 1:
         lines.extend(
             [
-                "",
                 "## Sub-Agent Spawning",
                 f"You are at depth {depth}/{max_depth}. "
                 "You can spawn your own sub-agents if needed.",
@@ -149,7 +140,6 @@ def build_child_system_prompt(
     else:
         lines.extend(
             [
-                "",
                 "## Depth Limit",
                 f"You are at depth {depth}/{max_depth}. You CANNOT spawn further sub-agents.",
             ]
@@ -274,7 +264,7 @@ async def run_child_agent(
         Result dict with status, result, summary, etc.
     """
     task = config["task"]
-    instruction = config.get("instruction", "You are a helpful sub-agent.")
+    instruction = config.get("instruction", "You are a helpful team member.")
     context = config.get("context", "")
     servers = config.get("servers", [])
     model = config.get("model", "")
