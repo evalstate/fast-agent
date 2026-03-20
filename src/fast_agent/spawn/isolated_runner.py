@@ -53,12 +53,11 @@ def build_child_system_prompt(
     lines = [
         "# Subagent Context",
         "",
-        "You are a **sub-agent** spawned by the orchestrator for a specific task.",
+        "You are a **sub-agent** spawned to handle a specific task.",
         "",
         "## Your Role",
         f"- You were created to handle: {task}",
-        "- Complete this task. That's your entire purpose.",
-        "- You are NOT the orchestrator. Don't try to be.",
+        "- Follow your instruction to complete this task.",
         "",
     ]
 
