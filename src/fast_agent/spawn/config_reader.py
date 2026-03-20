@@ -167,6 +167,29 @@ def get_server_env(
     return env if env else None
 
 
+def get_skills(skills_dir: str | Path, *names: str):
+    """Load SkillManifest objects for specific skills by name.
+
+    Shared helper used by both static agents (agent.py) and spawned
+    team agents (isolated_runner.py).
+    """
+    from fast_agent.skills.registry import SkillRegistry
+
+    manifests = []
+    sdir = Path(skills_dir)
+    for name in names:
+        skill_md = sdir / name / "SKILL.md"
+        if skill_md.exists():
+            manifest, error = SkillRegistry._parse_manifest(skill_md)
+            if manifest:
+                manifests.append(manifest)
+            elif error:
+                logger.warning("Failed to parse skill %s: %s", skill_md, error)
+        else:
+            logger.warning("Skill '%s' not found at %s", name, sdir / name)
+    return manifests
+
+
 def get_default_model(project_dir: str | Path) -> str:
     """Get default model from config."""
     config = _load_config(project_dir)

@@ -271,35 +271,25 @@ def _resolve_role_skills(
     role_config: dict[str, Any],
     skills_dir: str | Path,
 ) -> list[str]:
-    """Resolve skill names into a temporary parent directory."""
-    import shutil
-    import tempfile
+    """Validate and return skill names from role config.
 
+    Returns a list of skill names (strings) that exist in the skills directory.
+    The child process will resolve these names to SkillManifest objects using
+    the shared get_skills() helper from config_reader.
+    """
     skill_names = role_config.get("skills", [])
     if not skill_names:
         return []
 
     sdir = Path(skills_dir)
-    valid_skills: list[tuple[str, Path]] = []
+    valid: list[str] = []
     for name in skill_names:
-        skill_dir = sdir / name
-        if skill_dir.exists() and (skill_dir / "SKILL.md").exists():
-            valid_skills.append((name, skill_dir))
+        if (sdir / name / "SKILL.md").exists():
+            valid.append(name)
         else:
-            logger.warning("Skill '%s' not found at %s", name, skill_dir)
+            logger.warning("Skill '%s' not found at %s", name, sdir / name)
 
-    if not valid_skills:
-        return []
-
-    role_skills_dir = Path(tempfile.mkdtemp(prefix="fastagent_skills_"))
-    for name, skill_dir in valid_skills:
-        symlink = role_skills_dir / name
-        try:
-            symlink.symlink_to(skill_dir)
-        except OSError:
-            shutil.copytree(skill_dir, symlink)
-
-    return [str(role_skills_dir)]
+    return valid
 
 
 # ───────────────────────────────────────────────────────────

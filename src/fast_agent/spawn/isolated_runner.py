@@ -282,7 +282,7 @@ async def run_child_agent(
     max_depth = config.get("max_depth", 3)
     parent_run_id = config.get("parent_run_id", "")
     role = config.get("role", "agent")
-    skills = config.get("skills", [])
+    skill_names = config.get("skills", [])
 
     # Build system prompt with workspace awareness
     system_prompt = build_child_system_prompt(
@@ -338,8 +338,12 @@ async def run_child_agent(
 
         # Import FastAgent here (after chdir so it picks up the right config)
         from fast_agent import FastAgent
+        from fast_agent.spawn.config_reader import get_skills
 
-        logger.info("[SKILLS DEBUG] role=%s, skills_paths=%s", role, skills)
+        # Convert skill names to SkillManifest objects using shared helper
+        skills_dir = Path(project_dir) / ".fast-agent" / "skills"
+        skill_manifests = get_skills(skills_dir, *skill_names) if skill_names else []
+        logger.info("[SKILLS DEBUG] role=%s, skill_names=%s, manifests=%d", role, skill_names, len(skill_manifests))
         logger.info(
             "[SKILLS DEBUG] instruction has {agentSkills}: %s",
             "{agentSkills}" in full_instruction,
@@ -354,7 +358,7 @@ async def run_child_agent(
             name="child",
             instruction=full_instruction,
             servers=servers if servers else [],
-            skills=skills if skills else [],
+            skills=skill_manifests,
         )
         async def child_main() -> str | None:
             # Phase 2: chdir to workspace_dir BEFORE fast.run()
