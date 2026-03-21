@@ -3,7 +3,6 @@ Interface definitions to prevent circular imports.
 This module defines protocols (interfaces) that can be used to break circular dependencies.
 """
 
-from datetime import timedelta
 from typing import (
     TYPE_CHECKING,
     AsyncContextManager,
@@ -12,7 +11,6 @@ from typing import (
     runtime_checkable,
 )
 
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp import ClientSession
 
 from fast_agent.interfaces import (
@@ -29,6 +27,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "MCPConnectionManagerProtocol",
+    "ServerInitializerProtocol",
     "ServerRegistryProtocol",
     "ServerConnection",
     "FastAgentLLMProtocol",
@@ -47,16 +46,7 @@ class MCPConnectionManagerProtocol(Protocol):
     async def get_server(
         self,
         server_name: str,
-        client_session_factory: 
-            Callable[
-                [
-                    MemoryObjectReceiveStream,
-                    MemoryObjectSendStream,
-                    timedelta | None,
-                ],
-                ClientSession,
-            ]
-         | None = None,
+        client_session_factory: Callable[..., ClientSession] | None = None,
     ) -> "ServerConnection": ...
 
     async def disconnect_server(self, server_name: str) -> None: ...
@@ -65,8 +55,21 @@ class MCPConnectionManagerProtocol(Protocol):
 
 
 @runtime_checkable
+class ServerInitializerProtocol(Protocol):
+    """Protocol defining the interface required by temporary-session helpers."""
+
+    def initialize_server(
+        self,
+        server_name: str,
+        client_session_factory: Callable[..., ClientSession] | None = None,
+    ) -> AsyncContextManager[ClientSession]:
+        """Initialize a server and yield a client session."""
+        ...
+
+
+@runtime_checkable
 class ServerRegistryProtocol(Protocol):
-    """Protocol defining the minimal interface of ServerRegistry needed by gen_client."""
+    """Protocol defining the interface required by persistent-session helpers."""
 
     @property
     def registry(self) -> dict[str, "MCPServerSettings"]: ...
@@ -77,16 +80,7 @@ class ServerRegistryProtocol(Protocol):
     def initialize_server(
         self,
         server_name: str,
-        client_session_factory: 
-            Callable[
-                [
-                    MemoryObjectReceiveStream,
-                    MemoryObjectSendStream,
-                    timedelta | None,
-                ],
-                ClientSession,
-            ]
-         | None = None,
+        client_session_factory: Callable[..., ClientSession] | None = None,
     ) -> AsyncContextManager[ClientSession]:
         """Initialize a server and yield a client session."""
         ...

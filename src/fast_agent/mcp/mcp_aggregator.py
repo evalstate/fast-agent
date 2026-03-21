@@ -12,7 +12,6 @@ from typing import (
     Mapping,
     TypeVar,
     Union,
-    cast,
 )
 
 from mcp import GetPromptResult, ReadResourceResult
@@ -43,7 +42,6 @@ from fast_agent.event_progress import ProgressAction
 from fast_agent.mcp.common import SEP, create_namespaced_name, is_namespaced_name
 from fast_agent.mcp.experimental_session_client import ExperimentalSessionClient
 from fast_agent.mcp.gen_client import gen_client
-from fast_agent.mcp.interfaces import ServerRegistryProtocol
 from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 from fast_agent.mcp.mcp_connection_manager import MCPConnectionManager
 from fast_agent.mcp.skybridge import (
@@ -217,7 +215,7 @@ class MCPAggregator(ContextDependent):
             context = self._require_context()
             # Try to get existing connection manager from context
             if not hasattr(context, "_connection_manager") or context._connection_manager is None:
-                server_registry = cast("ServerRegistry", self._require_server_registry())
+                server_registry = self._require_server_registry()
                 manager = MCPConnectionManager(server_registry, context=context)
                 await manager.__aenter__()
                 context._connection_manager = manager
@@ -321,6 +319,9 @@ class MCPAggregator(ContextDependent):
         # Track discovered Skybridge configurations per server
         self._skybridge_configs: dict[str, SkybridgeServerConfig] = {}
 
+        # Cache for non-persistent mode capabilities, keyed by server name
+        self._nonpersistent_capabilities: dict[str, ServerCapabilities] = {}
+
         # Focused API for experimental data-layer session metadata controls.
         self.experimental_sessions = ExperimentalSessionClient(self)
 
@@ -329,7 +330,7 @@ class MCPAggregator(ContextDependent):
             raise RuntimeError("MCPAggregator requires a context")
         return self.context
 
-    def _require_server_registry(self) -> ServerRegistryProtocol:
+    def _require_server_registry(self) -> "ServerRegistry":
         context = self._require_context()
         server_registry = getattr(context, "server_registry", None)
         if server_registry is None:
@@ -567,7 +568,29 @@ class MCPAggregator(ContextDependent):
             self._prompt_cache.clear()
 
         self._skybridge_configs.clear()
+        self._nonpersistent_capabilities.clear()
         self._attached_server_names = []
+
+    @staticmethod
+    def _is_capability_probe_error(exc: Exception) -> bool:
+        if isinstance(exc, NotImplementedError):
+            return True
+
+        from mcp.shared.exceptions import McpError
+
+        if not isinstance(exc, McpError):
+            return False
+
+        error_data = getattr(exc, "error", None)
+        if error_data is None:
+            return False
+
+        code = getattr(error_data, "code", None)
+        if code == -32601:
+            return True
+
+        message = str(getattr(error_data, "message", "")).strip().lower()
+        return message == "method not found"
 
     async def _fetch_server_tools(self, server_name: str) -> list[Tool]:
         supports_tools = await self.server_supports_feature(server_name, "tools")
@@ -585,13 +608,12 @@ class MCPAggregator(ContextDependent):
                 method_args={},
             )
             return result.tools or []
-        except Exception as e:
-            if supports_tools:
+        except Exception as e:  # noqa: BLE001 - distinguish capability probes from infra failures
+            if supports_tools or not self._is_capability_probe_error(e):
                 logger.error(f"Error loading tools from server '{server_name}'", data=e)
-            else:
-                logger.debug(
-                    f"Server '{server_name}' does not provide tools (list_tools failed): {e}"
-                )
+                raise
+
+            logger.debug(f"Server '{server_name}' does not provide tools (list_tools failed): {e}")
             return []
 
     async def _fetch_server_prompts(self, server_name: str) -> list[Prompt]:
@@ -692,6 +714,7 @@ class MCPAggregator(ContextDependent):
         if server_name not in self.server_names:
             self.server_names.append(server_name)
 
+        self._nonpersistent_capabilities.pop(server_name, None)
         tools = await self._fetch_server_tools(server_name)
         prompts = await self._fetch_server_prompts(server_name)
 
@@ -770,6 +793,7 @@ class MCPAggregator(ContextDependent):
             self._prompt_cache.pop(server_name, None)
 
         self._skybridge_configs.pop(server_name, None)
+        self._nonpersistent_capabilities.pop(server_name, None)
         self._attached_server_names = [
             name for name in self._attached_server_names if name != server_name
         ]
@@ -973,11 +997,21 @@ class MCPAggregator(ContextDependent):
             },
         )
 
-    async def get_capabilities(self, server_name: str):
+    async def get_capabilities(self, server_name: str) -> ServerCapabilities | None:
         """Get server capabilities if available."""
         if not self.connection_persistence:
-            # For non-persistent connections, we can't easily check capabilities
-            return None
+            cached = self._nonpersistent_capabilities.get(server_name)
+            if cached is not None:
+                return cached
+
+            server_registry = self._require_server_registry()
+            capabilities = await server_registry.get_server_capabilities(
+                server_name=server_name,
+                client_session_factory=self._create_session_factory(server_name),
+            )
+            if capabilities is not None:
+                self._nonpersistent_capabilities[server_name] = capabilities
+            return capabilities
 
         try:
             manager = self._require_connection_manager()
@@ -1292,7 +1326,9 @@ class MCPAggregator(ContextDependent):
                             if session_title is None and isinstance(session_cookie, dict):
                                 cookie_data = session_cookie.get("data")
                                 if isinstance(cookie_data, dict):
-                                    cookie_title = cookie_data.get("title") or cookie_data.get("label")
+                                    cookie_title = cookie_data.get("title") or cookie_data.get(
+                                        "label"
+                                    )
                                     if isinstance(cookie_title, str) and cookie_title.strip():
                                         session_title = cookie_title.strip()
 
@@ -1516,7 +1552,9 @@ class MCPAggregator(ContextDependent):
                 # Let ServerSessionTerminatedError pass through for reconnection logic
                 raise
             except Exception as e:
-                self._maybe_mark_rejected_session_cookie(server_name=server_name, client=client, exc=e)
+                self._maybe_mark_rejected_session_cookie(
+                    server_name=server_name, client=client, exc=e
+                )
                 error_msg = (
                     f"Failed to {method_name} '{operation_name}' on server '{server_name}': {e}"
                 )

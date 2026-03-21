@@ -147,6 +147,116 @@ def _build_transport_metrics_hook(
     return channel_hook
 
 
+def create_transport_context(
+    *,
+    server_name: str,
+    config: MCPServerSettings,
+    transport_metrics: TransportChannelMetrics | None = None,
+    trigger_oauth: bool = True,
+    oauth_event_handler: OAuthEventHandler | None = None,
+    emit_oauth_console_output: bool = True,
+    oauth_abort_event: threading.Event | None = None,
+    allow_oauth_paste_fallback: bool = True,
+) -> AbstractAsyncContextManager[
+    tuple[
+        MemoryObjectReceiveStream,
+        MemoryObjectSendStream,
+        GetSessionIdCallback | None,
+    ]
+]:
+    """Build a transport context manager for a single MCP server."""
+
+    def prepare_http_transport_auth() -> tuple[
+        dict[str, str],
+        Union["OAuthClientProvider", None],
+        Callable[[object], None] | None,
+    ]:
+        headers, oauth_auth, user_auth_keys = _prepare_headers_and_auth(
+            config,
+            trigger_oauth=trigger_oauth,
+            oauth_event_handler=oauth_event_handler,
+            emit_oauth_console_output=emit_oauth_console_output,
+            oauth_abort_event=oauth_abort_event,
+            allow_oauth_paste_fallback=allow_oauth_paste_fallback,
+        )
+        if user_auth_keys:
+            logger.debug(
+                f"{server_name}: Using user-specified auth header(s); skipping OAuth provider.",
+                user_auth_headers=sorted(user_auth_keys),
+            )
+        return (
+            headers,
+            oauth_auth,
+            _build_transport_metrics_hook(
+                server_name,
+                transport_metrics,
+            ),
+        )
+
+    if config.transport == "stdio":
+        if not config.command:
+            raise ValueError(
+                f"Server '{server_name}' uses stdio transport but no command is specified"
+            )
+        server_params = StdioServerParameters(
+            command=config.command,
+            args=config.args if config.args is not None else [],
+            env={**get_default_environment(), **(config.env or {})},
+            cwd=config.cwd,
+        )
+        error_handler = get_stderr_handler(server_name)
+        logger.debug(f"{server_name}: Creating stdio client with custom error handler")
+
+        channel_hook = transport_metrics.record_event if transport_metrics else None
+        return _add_none_to_context(
+            tracking_stdio_client(
+                server_params,
+                channel_hook=channel_hook,
+                errlog=error_handler,
+            )
+        )
+
+    if config.transport == "sse":
+        if not config.url:
+            raise ValueError(f"Server '{server_name}' uses sse transport but no url is specified")
+        headers, oauth_auth, channel_hook = prepare_http_transport_auth()
+        return tracking_sse_client(
+            config.url,
+            headers,
+            sse_read_timeout=config.read_transport_sse_timeout_seconds,
+            auth=oauth_auth,
+            channel_hook=channel_hook,
+        )
+
+    if config.transport == "http":
+        if not config.url:
+            raise ValueError(f"Server '{server_name}' uses http transport but no url is specified")
+        headers, oauth_auth, channel_hook = prepare_http_transport_auth()
+
+        timeout = None
+        if config.http_timeout_seconds is not None or config.http_read_timeout_seconds is not None:
+            timeout = httpx.Timeout(
+                config.http_timeout_seconds or MCP_DEFAULT_TIMEOUT,
+                read=config.http_read_timeout_seconds or MCP_DEFAULT_SSE_READ_TIMEOUT,
+            )
+
+        http_client = create_mcp_http_client(
+            headers=headers,
+            auth=oauth_auth,
+            timeout=timeout,
+        )
+        return cast(
+            "AbstractAsyncContextManager[tuple[MemoryObjectReceiveStream, MemoryObjectSendStream, GetSessionIdCallback | None]]",
+            tracking_streamablehttp_client(
+                config.url,
+                http_client=http_client,
+                channel_hook=channel_hook,
+            ),
+        )
+
+    raise ValueError(f"Unsupported transport: {config.transport}")
+
+
 class ServerConnection:
     """
     Represents a long-lived MCP server connection, including:
@@ -419,14 +529,10 @@ async def _run_ping_loop(server_conn: ServerConnection) -> None:
             server_conn._ping_last_fail_at = datetime.now(timezone.utc)
             server_conn._ping_last_error = str(exc)
             server_conn.record_ping_event("error")
-            logger.warning(
-                f"{server_conn.server_name}: Ping failed ({missed}/{max_missed}): {exc}"
-            )
+            logger.warning(f"{server_conn.server_name}: Ping failed ({missed}/{max_missed}): {exc}")
             if missed >= max_missed:
                 server_conn._error_occurred = True
-                server_conn._error_message = (
-                    f"Ping failed {missed} time(s); last error: {exc}"
-                )
+                server_conn._error_message = f"Ping failed {missed} time(s); last error: {exc}"
                 server_conn.request_shutdown()
                 break
 
@@ -501,9 +607,13 @@ async def _server_lifecycle_task(server_conn: ServerConnection) -> None:
 
                         if get_session_id_cb is not None:
                             try:
-                                server_conn.session_id = get_session_id_cb() or server_conn.session_id
+                                server_conn.session_id = (
+                                    get_session_id_cb() or server_conn.session_id
+                                )
                             except Exception:
-                                logger.debug(f"{server_name}: Unable to refresh session id after init")
+                                logger.debug(
+                                    f"{server_name}: Unable to refresh session id after init"
+                                )
                         elif server_conn.server_config.transport == "stdio":
                             server_conn.session_id = "local"
 
@@ -931,9 +1041,13 @@ class MCPConnectionManager(ContextDependent):
                         f"{server_name}: Using user-specified auth header(s); skipping OAuth provider.",
                         user_auth_headers=sorted(user_auth_keys),
                     )
-                return headers, oauth_auth, _build_transport_metrics_hook(
-                    server_name,
-                    transport_metrics,
+                return (
+                    headers,
+                    oauth_auth,
+                    _build_transport_metrics_hook(
+                        server_name,
+                        transport_metrics,
+                    ),
                 )
 
             if config.transport == "stdio":
@@ -1136,7 +1250,9 @@ class MCPConnectionManager(ContextDependent):
             if _is_oauth_registration_404_message(formatted_error):
                 raise ServerInitializationError(
                     f"MCP Server: '{server_name}': OAuth client registration failed.",
-                    _format_oauth_registration_404_details(formatted_error, server_conn.server_config.url),
+                    _format_oauth_registration_404_details(
+                        formatted_error, server_conn.server_config.url
+                    ),
                 )
 
             if _is_stdio_startup_error(server_conn, formatted_error):
@@ -1236,7 +1352,9 @@ class MCPConnectionManager(ContextDependent):
             if _is_oauth_registration_404_message(formatted_error):
                 raise ServerInitializationError(
                     f"MCP Server: '{server_name}': OAuth client registration failed during reconnect.",
-                    _format_oauth_registration_404_details(formatted_error, server_conn.server_config.url),
+                    _format_oauth_registration_404_details(
+                        formatted_error, server_conn.server_config.url
+                    ),
                 )
 
             if _is_stdio_startup_error(server_conn, formatted_error):

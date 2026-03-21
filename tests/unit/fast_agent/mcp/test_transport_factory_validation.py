@@ -3,71 +3,31 @@
 import pytest
 
 from fast_agent.config import MCPServerSettings
+from fast_agent.mcp.mcp_connection_manager import create_transport_context
 
 
 def test_transport_factory_validation_stdio_without_command():
     """Test that stdio transport without command raises appropriate error."""
-    from fast_agent.config import MCPSettings, Settings
-    from fast_agent.mcp_server_registry import ServerRegistry
-
-    # Create a server config with stdio transport but no command
     server_config = MCPServerSettings(transport="stdio")
 
-    # Create settings with this server
-    settings = Settings(mcp=MCPSettings(servers={"test_server": server_config}))
-
-    registry = ServerRegistry(settings)
-
-    # Should raise error when trying to create transport context
     with pytest.raises(ValueError, match="uses stdio transport but no command is specified"):
-        # We need to access the internal transport_context_factory
-        # This is a bit of a hack but necessary for unit testing
-        config = registry.get_server_config("test_server")
-        assert config is not None
-
-        # Simulate what happens inside launch_server
-        def transport_context_factory():
-            if config.transport == "stdio":
-                if not config.command:
-                    raise ValueError(
-                        "Server 'test_server' uses stdio transport but no command is specified"
-                    )
-
-        transport_context_factory()
+        create_transport_context(server_name="test_server", config=server_config)
 
 
 def test_transport_factory_validation_http_without_url():
     """Test that http transport without URL raises appropriate error."""
-    from fast_agent.config import MCPServerSettings
-
-    # Create a server config with http transport but no url
     server_config = MCPServerSettings(transport="http")
 
-    # Simulate what happens inside launch_server
-    def transport_context_factory():
-        if server_config.transport == "http":
-            if not server_config.url:
-                raise ValueError("Server 'test_server' uses http transport but no url is specified")
-
     with pytest.raises(ValueError, match="uses http transport but no url is specified"):
-        transport_context_factory()
+        create_transport_context(server_name="test_server", config=server_config)
 
 
 def test_transport_factory_validation_sse_without_url():
     """Test that sse transport without URL raises appropriate error."""
-    from fast_agent.config import MCPServerSettings
-
-    # Create a server config with sse transport but no url
     server_config = MCPServerSettings(transport="sse")
 
-    # Simulate what happens inside launch_server
-    def transport_context_factory():
-        if server_config.transport == "sse":
-            if not server_config.url:
-                raise ValueError("Server 'test_server' uses sse transport but no url is specified")
-
     with pytest.raises(ValueError, match="uses sse transport but no url is specified"):
-        transport_context_factory()
+        create_transport_context(server_name="test_server", config=server_config)
 
 
 def test_inferred_http_transport_has_url():

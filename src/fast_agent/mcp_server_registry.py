@@ -7,6 +7,12 @@ supports dynamic registration of initialization hooks, and provides methods for
 server initialization.
 """
 
+from contextlib import asynccontextmanager
+from datetime import timedelta
+from typing import AsyncGenerator, Callable
+
+from mcp import ClientSession
+from mcp.types import ServerCapabilities
 
 from fast_agent.config import (
     MCPServerSettings,
@@ -87,3 +93,65 @@ class ServerRegistry:
         elif server_config.name is None:
             server_config.name = server_name
         return server_config
+
+    @asynccontextmanager
+    async def _initialize_server_session(
+        self,
+        server_name: str,
+        client_session_factory: Callable[..., ClientSession] | None = None,
+    ) -> AsyncGenerator[tuple[ClientSession, ServerCapabilities | None], None]:
+        """
+        Create a temporary connection to a server and yield an initialized session.
+        """
+        config = self.get_server_config(server_name)
+        if config is None:
+            raise ValueError(f"Server '{server_name}' not found in registry.")
+
+        from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
+        from fast_agent.mcp.mcp_connection_manager import create_transport_context
+
+        factory = client_session_factory or MCPAgentClientSession
+        transport_ctx = create_transport_context(server_name=server_name, config=config)
+
+        async with transport_ctx as (read_stream, write_stream, _get_session_id):
+            read_timeout = (
+                timedelta(seconds=config.read_timeout_seconds)
+                if config.read_timeout_seconds
+                else None
+            )
+            session = factory(
+                read_stream,
+                write_stream,
+                read_timeout,
+                server_config=config,
+            )
+            async with session:
+                result = await session.initialize()
+                yield session, result.capabilities
+
+    @asynccontextmanager
+    async def initialize_server(
+        self,
+        server_name: str,
+        client_session_factory: Callable[..., ClientSession] | None = None,
+    ) -> AsyncGenerator[ClientSession, None]:
+        """Create a temporary connection to a server, initialize the session, and yield it."""
+
+        async with self._initialize_server_session(
+            server_name=server_name,
+            client_session_factory=client_session_factory,
+        ) as (session, _):
+            yield session
+
+    async def get_server_capabilities(
+        self,
+        server_name: str,
+        client_session_factory: Callable[..., ClientSession] | None = None,
+    ) -> ServerCapabilities | None:
+        """Create a temporary connection and return the server capabilities."""
+
+        async with self._initialize_server_session(
+            server_name=server_name,
+            client_session_factory=client_session_factory,
+        ) as (_, capabilities):
+            return capabilities
