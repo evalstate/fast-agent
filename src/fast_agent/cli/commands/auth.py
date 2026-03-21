@@ -12,11 +12,12 @@ from rich.table import Table
 
 from fast_agent.cli.command_support import get_settings_or_exit
 from fast_agent.cli.display import print_detail_line, print_section_header
-from fast_agent.core.keyring_utils import maybe_print_keyring_access_notice
+from fast_agent.core.keyring_utils import get_keyring_status
 from fast_agent.mcp.oauth_client import (
     _derive_base_server_url,
     clear_keyring_token,
     compute_server_identity,
+    keyring_token_present,
     list_keyring_tokens,
 )
 from fast_agent.ui.console import console
@@ -39,52 +40,6 @@ def _print_keyring_backend_status(*, backend: str, usable: bool) -> None:
     print_detail_line(console, "keyring backend", value, value_style=value_style)
 
 
-def _get_keyring_status() -> tuple[str, bool]:
-    """Return (backend_name, usable) where usable=False for the fail backend or missing keyring."""
-    try:
-        maybe_print_keyring_access_notice(purpose="checking keyring backend")
-        import keyring
-
-        kr = keyring.get_keyring()
-        name = getattr(kr, "name", kr.__class__.__name__)
-        try:
-            from keyring.backends.fail import Keyring as FailKeyring
-
-            return name, not isinstance(kr, FailKeyring)
-        except Exception:
-            # If fail backend marker cannot be imported, assume usable
-            return name, True
-    except Exception:
-        return "unavailable", False
-
-
-def _get_keyring_backend_name() -> str:
-    # Backwards-compat helper; prefer _get_keyring_status in new code
-    name, _ = _get_keyring_status()
-    return name
-
-
-def _keyring_get_password(service: str, username: str) -> str | None:
-    try:
-        maybe_print_keyring_access_notice(purpose="checking stored MCP OAuth tokens")
-        import keyring
-
-        return keyring.get_password(service, username)
-    except Exception:
-        return None
-
-
-def _keyring_delete_password(service: str, username: str) -> bool:
-    try:
-        maybe_print_keyring_access_notice(purpose="clearing stored MCP OAuth tokens")
-        import keyring
-
-        keyring.delete_password(service, username)
-        return True
-    except Exception:
-        return False
-
-
 def _server_rows_from_settings(settings: Settings):
     rows = []
     mcp = getattr(settings, "mcp", None)
@@ -102,9 +57,7 @@ def _server_rows_from_settings(settings: Settings):
         # token presence only meaningful if persist is keyring and transport is http/sse
         has_token = False
         if persist == "keyring" and transport in ("http", "sse") and oauth_enabled:
-            has_token = (
-                _keyring_get_password("fast-agent-mcp", f"oauth:tokens:{identity}") is not None
-            )
+            has_token = keyring_token_present(identity)
         rows.append(
             {
                 "name": name,
@@ -140,7 +93,9 @@ def status(
 ) -> None:
     """Show keyring backend and token status for configured MCP servers (identity = base URL)."""
     settings = get_settings_or_exit(config_path)
-    backend, backend_usable = _get_keyring_status()
+    keyring_status = get_keyring_status()
+    backend = keyring_status.name
+    backend_usable = keyring_status.available
 
     # Single-target view if target provided
     if target:
@@ -158,15 +113,7 @@ def status(
         # Direct presence check
         present = False
         if backend_usable:
-            try:
-                maybe_print_keyring_access_notice(purpose="checking stored MCP OAuth tokens")
-                import keyring
-
-                present = (
-                    keyring.get_password("fast-agent-mcp", f"oauth:tokens:{identity}") is not None
-                )
-            except Exception:
-                present = False
+            present = keyring_token_present(identity)
 
         table = Table(show_header=True, box=None)
         table.add_column("Identity", header_style="bold")
@@ -218,24 +165,10 @@ def status(
                 else f"[yellow]{persist}[/yellow]"
             )
             # Direct presence check for each identity so status works even without index
-            has_token = False
             token_disp = "[dim]✗[/dim]"
             if persist == "keyring" and row["oauth"]:
                 if backend_usable:
-                    try:
-                        maybe_print_keyring_access_notice(
-                            purpose="checking stored MCP OAuth tokens"
-                        )
-                        import keyring
-
-                        has_token = (
-                            keyring.get_password(
-                                "fast-agent-mcp", f"oauth:tokens:{row['identity']}"
-                            )
-                            is not None
-                        )
-                    except Exception:
-                        has_token = False
+                    has_token = bool(row["has_token"])
                     token_disp = "[bold green]✓[/bold green]" if has_token else "[dim]✗[/dim]"
                 else:
                     token_disp = "[red]not available[/red]"

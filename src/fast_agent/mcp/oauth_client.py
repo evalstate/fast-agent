@@ -363,17 +363,21 @@ def compute_server_identity(server_config: MCPServerSettings) -> str:
     return "default"
 
 
-def keyring_has_token(server_config: MCPServerSettings) -> bool:
-    """Check if keyring has a token stored for this server."""
+def keyring_token_present(identity: str, service: str = "fast-agent-mcp") -> bool:
+    """Return True when a stored OAuth token exists for the given identity."""
     try:
         maybe_print_keyring_access_notice(purpose="checking stored MCP OAuth tokens")
         import keyring
 
-        identity = compute_server_identity(server_config)
         token_key = f"oauth:tokens:{identity}"
-        return keyring.get_password("fast-agent-mcp", token_key) is not None
+        return keyring.get_password(service, token_key) is not None
     except Exception:
         return False
+
+
+def keyring_has_token(server_config: MCPServerSettings) -> bool:
+    """Check if keyring has a token stored for this server."""
+    return keyring_token_present(compute_server_identity(server_config))
 
 
 async def _print_authorization_link(auth_url: str, warn_if_no_keyring: bool = False) -> None:

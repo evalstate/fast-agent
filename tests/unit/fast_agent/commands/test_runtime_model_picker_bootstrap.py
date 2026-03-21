@@ -7,6 +7,7 @@ import pytest
 import yaml
 
 from fast_agent.cli.runtime.agent_setup import (
+    _emit_model_picker_keyring_notice,
     _generic_model_prompt_default,
     _load_request_settings,
     _normalize_generic_model_spec,
@@ -92,6 +93,27 @@ def test_should_prompt_for_model_picker_when_cards_present() -> None:
         stdin_is_tty=True,
         stdout_is_tty=True,
     )
+
+
+def test_model_picker_keyring_notice_is_emitted_immediately(monkeypatch) -> None:
+    emitted: list[tuple[str, bool]] = []
+    queued: list[object] = []
+
+    def fake_emit_keyring_access_notice(*, purpose=None, emitter=None):
+        assert purpose == "checking stored Codex OAuth tokens for model setup"
+        assert emitter is not None
+        emitter("keyring notice")
+        return True
+
+    monkeypatch.setattr("fast_agent.cli.runtime.agent_setup.emit_keyring_access_notice", fake_emit_keyring_access_notice)
+    monkeypatch.setattr("fast_agent.cli.runtime.agent_setup.typer.echo", lambda message, err=False: emitted.append((message, err)))
+    monkeypatch.setattr("fast_agent.cli.runtime.agent_setup.sys.stderr.isatty", lambda: True)
+    monkeypatch.setattr("fast_agent.ui.enhanced_prompt.queue_startup_notice", queued.append)
+
+    _emit_model_picker_keyring_notice(_make_request())
+
+    assert emitted == [("keyring notice", True)]
+    assert queued == []
 
 
 def test_resolve_model_without_hardcoded_default_returns_none_without_sources() -> None:

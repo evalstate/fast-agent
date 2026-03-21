@@ -347,11 +347,22 @@ def _emit_startup_notice(request: AgentRunRequest, message: str) -> None:
     typer.echo(message, err=True)
 
 
+def _emit_immediate_notice(message: str) -> None:
+    try:
+        if not sys.stderr.isatty():
+            return
+    except Exception:
+        return
+
+    typer.echo(message, err=True)
+
+
 def _emit_model_picker_keyring_notice(request: AgentRunRequest) -> None:
     """Explain the one-time keyring probe that happens while building the model picker."""
+    del request
     emit_keyring_access_notice(
         purpose="checking stored Codex OAuth tokens for model setup",
-        emitter=lambda message: _emit_startup_notice(request, message),
+        emitter=_emit_immediate_notice,
     )
 
 
