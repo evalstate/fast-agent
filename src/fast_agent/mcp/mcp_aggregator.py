@@ -38,7 +38,11 @@ from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.exceptions import ServerSessionTerminatedError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.logging.progress_payloads import build_progress_payload
-from fast_agent.core.model_resolution import HARDCODED_DEFAULT_MODEL, resolve_model_spec
+from fast_agent.core.model_resolution import (
+    HARDCODED_DEFAULT_MODEL,
+    get_context_cli_model_override,
+    resolve_model_spec,
+)
 from fast_agent.event_progress import ProgressAction
 from fast_agent.mcp.common import SEP, create_namespaced_name, is_namespaced_name
 from fast_agent.mcp.experimental_session_client import ExperimentalSessionClient
@@ -459,13 +463,10 @@ class MCPAggregator(ContextDependent):
 
             # Access config directly if it was passed from BaseAgent
             if self.config:
-                cli_model_override = None
-                if self.context and getattr(self.context, "config", None):
-                    cli_model_override = getattr(self.context.config, "cli_model_override", None)
                 agent_model, model_source = resolve_model_spec(
                     self.context,
                     model=self.config.model,
-                    cli_model=cli_model_override,
+                    cli_model=get_context_cli_model_override(self.context),
                     hardcoded_default=HARDCODED_DEFAULT_MODEL,
                 )
                 if model_source:

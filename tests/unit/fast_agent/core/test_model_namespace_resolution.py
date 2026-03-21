@@ -5,10 +5,18 @@ import os
 import pytest
 from pydantic import ValidationError
 
+from fast_agent.agents.agent_types import AgentConfig
+from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.config import Settings
 from fast_agent.context import Context
+from fast_agent.core.direct_factory import get_model_factory
 from fast_agent.core.exceptions import ModelConfigError
-from fast_agent.core.model_resolution import resolve_model_reference, resolve_model_spec
+from fast_agent.core.model_resolution import (
+    get_context_cli_model_override,
+    resolve_model_reference,
+    resolve_model_spec,
+)
+from fast_agent.llm.internal.passthrough import PassthroughLLM
 
 
 def _build_context() -> Context:
@@ -112,6 +120,26 @@ def test_resolve_model_spec_cli_overrides_explicit_system_default_alias() -> Non
 
     assert model == "gpt-5-mini?reasoning=low"
     assert source == "CLI --model"
+
+
+def test_get_context_cli_model_override_returns_normalized_string() -> None:
+    context = Context(config=Settings())
+    assert context.config is not None
+    context.config.cli_model_override = "  passthrough  "  # type: ignore[attr-defined]
+
+    assert get_context_cli_model_override(context) == "passthrough"
+
+
+def test_get_model_factory_inherits_context_cli_override_for_system_default() -> None:
+    context = Context(config=Settings(default_model="responses.gpt-5-mini"))
+    assert context.config is not None
+    context.config.cli_model_override = "passthrough"  # type: ignore[attr-defined]
+
+    factory = get_model_factory(context, model="$system.default")
+    llm = factory(agent=LlmAgent(AgentConfig(name="test")))
+
+    assert isinstance(llm, PassthroughLLM)
+    assert llm.model_name == "passthrough"
 
 
 def test_resolve_model_spec_falls_back_when_explicit_alias_unresolved() -> None:

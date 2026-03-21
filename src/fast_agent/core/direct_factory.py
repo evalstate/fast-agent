@@ -25,7 +25,11 @@ from fast_agent.core import Core
 from fast_agent.core.agent_card_types import AgentCardData
 from fast_agent.core.exceptions import AgentConfigError, ModelConfigError
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.core.model_resolution import HARDCODED_DEFAULT_MODEL, resolve_model_spec
+from fast_agent.core.model_resolution import (
+    HARDCODED_DEFAULT_MODEL,
+    get_context_cli_model_override,
+    resolve_model_spec,
+)
 from fast_agent.core.validation import (
     get_dependencies_groups,
     is_basic_like_agent_type,
@@ -516,6 +520,7 @@ def get_model_factory(
     Returns:
         ModelFactory instance for the specified or default model
     """
+    cli_model = cli_model or get_context_cli_model_override(context)
     model_spec, source = resolve_model_spec(
         context,
         model=model,

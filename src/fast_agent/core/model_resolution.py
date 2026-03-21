@@ -125,6 +125,20 @@ def get_context_model_references(
     return model_references if isinstance(model_references, Mapping) else None
 
 
+def get_context_cli_model_override(context: Any) -> str | None:
+    """Return the current run's CLI/model-picker override from context, if any."""
+    if not context:
+        return None
+    config = getattr(context, "config", None)
+    if not config:
+        return None
+    cli_model = getattr(config, "cli_model_override", None)
+    if not isinstance(cli_model, str):
+        return None
+    normalized = cli_model.strip()
+    return normalized or None
+
+
 def resolve_model_spec(
     context: Any,
     model: str | None = None,
@@ -184,9 +198,7 @@ def resolve_model_spec(
         _add_candidate(hardcoded_default, "hardcoded default")
 
     references = (
-        model_references
-        if model_references is not None
-        else get_context_model_references(context)
+        model_references if model_references is not None else get_context_model_references(context)
     )
 
     for index, (candidate, source) in enumerate(candidates):
