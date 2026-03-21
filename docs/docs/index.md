@@ -81,7 +81,7 @@ Fully extendable agent hook system and bundled skills to customise `fast-agent` 
 
 Seamless shell integration, protecting your scrollback buffer for review, or use with ACP to use Agents with your editor of choice. 
 
-### For Agent Developers
+### Agent Developers and Application Builders
 
 **fast-agent** lets you create and interact with sophisticated Agents and Workflows in minutes. 
 
@@ -93,6 +93,7 @@ Prebuilt agents and examples implementing the patterns in Anthropic's [building 
 
 Comprehensive CLI and Model support with embedded telemetry in results files make `fast-agent` an excellent choice for testing and evaluations. 
 
+### Quick Installation Guide
 
 * `uv tool install fast-agent-mcp` - Install fast-agent. If you have multiple Python versions, use `--python 3.13.5` to ensure you get the latest version of fast-agent.
 * `fast-agent go` - Start an interactive session...
@@ -100,7 +101,6 @@ Comprehensive CLI and Model support with embedded telemetry in results files mak
 * `fast-agent go --pack hf-dev` - ...from an installed or marketplace card pack.
 * `fast-agent scaffold` - Create Agent and Configuration files for Python development.
 
-Contributing to docs? See [Generated Docs](./ref/generated_docs.md) for how to regenerate reference tables and includes.
 </div>
 <div markdown>
 <!--[Welcome Image](welcome_small.png)-->
