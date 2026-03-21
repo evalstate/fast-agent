@@ -150,20 +150,19 @@ def _build_transport_metrics_hook(
 def create_transport_context(
     server_name: str,
     config: MCPServerSettings,
-) -> AbstractAsyncContextManager[
-    tuple[
-        MemoryObjectReceiveStream,
-        MemoryObjectSendStream,
-        GetSessionIdCallback | None,
-    ]
-]:
+) -> AbstractAsyncContextManager:  # yields (read_stream, write_stream, get_session_id_cb | None)
     """
     Create a transport context manager for the given server configuration.
 
     Handles stdio/sse/http transport creation and header preparation, but NOT
-    lifecycle management, task groups, or connection persistence. Used by both
-    MCPConnectionManager.launch_server() (indirectly) and
+    lifecycle management, task groups, or connection persistence. Used by
     ServerRegistry.initialize_server() for non-persistent connections.
+
+    Note: OAuth event handlers (oauth_event_handler, oauth_abort_event) and
+    transport_metrics (channel_hook) are intentionally omitted. This function
+    creates short-lived probe connections where full lifecycle tracking is
+    unnecessary. The persistent path in MCPConnectionManager.launch_server()
+    uses its own transport_context_factory closure with those features.
     """
     headers, oauth_auth, user_auth_keys = _prepare_headers_and_auth(config)
     if user_auth_keys:

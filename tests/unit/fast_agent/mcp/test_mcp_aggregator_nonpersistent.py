@@ -7,15 +7,21 @@ from mcp.types import (
     Implementation,
     InitializeResult,
     ListToolsResult,
+    PromptsCapability,
     ServerCapabilities,
     Tool,
+    ToolsCapability,
 )
 
 from fast_agent.config import MCPServerSettings
 from fast_agent.context import Context
 from fast_agent.mcp.gen_client import gen_client
 from fast_agent.mcp.interfaces import ServerInitializerProtocol
-from fast_agent.mcp.mcp_aggregator import METHOD_NOT_FOUND_ERROR_CODE, MCPAggregator
+from fast_agent.mcp.mcp_aggregator import (
+    METHOD_NOT_FOUND_ERROR_CODE,
+    MCPAggregator,
+    _is_capability_probe_error,
+)
 from fast_agent.mcp_server_registry import ServerRegistry
 
 
@@ -23,11 +29,6 @@ def _build_context(configs: dict[str, MCPServerSettings]) -> Context:
     registry = ServerRegistry()
     registry.registry = configs
     return Context(server_registry=registry)
-
-
-# ---------------------------------------------------------------------------
-# Test 1: initialize_server creates and tears down session
-# ---------------------------------------------------------------------------
 
 
 class _DummySession:
@@ -48,7 +49,7 @@ class _DummySession:
         self.initialized = True
         return InitializeResult(
             protocolVersion="2025-03-26",
-            capabilities=ServerCapabilities(tools={}),
+            capabilities=ServerCapabilities(tools=ToolsCapability()),
             serverInfo=Implementation(name="stub", version="0.1"),
         )
 
@@ -76,7 +77,7 @@ async def test_initialize_server_creates_and_tears_down_session(monkeypatch) -> 
         _fake_transport,
     )
 
-    def _fake_factory(read_stream, write_stream, read_timeout):
+    def _fake_factory(read_stream, write_stream, read_timeout, **kwargs):
         return session
 
     async with registry.initialize_server(
@@ -88,13 +89,7 @@ async def test_initialize_server_creates_and_tears_down_session(monkeypatch) -> 
 
     assert session.closed is True
     assert transport_exited is True
-    assert "demo" in registry._init_results
-    assert registry._init_results["demo"].capabilities is not None
-
-
-# ---------------------------------------------------------------------------
-# Test 2: get_capabilities returns real capabilities in non-persistent mode
-# ---------------------------------------------------------------------------
+    assert registry.get_server_capabilities("demo") is not None
 
 
 @pytest.mark.asyncio
@@ -105,7 +100,7 @@ async def test_get_capabilities_nonpersistent_returns_real_capabilities(
         {"alpha": MCPServerSettings(name="alpha", transport="stdio", command="echo")}
     )
 
-    expected_caps = ServerCapabilities(tools={}, prompts={})
+    expected_caps = ServerCapabilities(tools=ToolsCapability(), prompts=PromptsCapability())
 
     @asynccontextmanager
     async def _fake_initialize_server(self, server_name, client_session_factory=None):
@@ -132,18 +127,13 @@ async def test_get_capabilities_nonpersistent_returns_real_capabilities(
     assert caps is expected_caps
 
 
-# ---------------------------------------------------------------------------
-# Test 3: get_capabilities caches result (second call does not reconnect)
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_get_capabilities_nonpersistent_caches_result(monkeypatch) -> None:
     context = _build_context(
         {"alpha": MCPServerSettings(name="alpha", transport="stdio", command="echo")}
     )
 
-    expected_caps = ServerCapabilities(tools={})
+    expected_caps = ServerCapabilities(tools=ToolsCapability())
     init_count = 0
 
     @asynccontextmanager
@@ -177,11 +167,6 @@ async def test_get_capabilities_nonpersistent_caches_result(monkeypatch) -> None
     assert init_count == 1
 
 
-# ---------------------------------------------------------------------------
-# Test 4: _fetch_server_tools re-raises infrastructure error
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_fetch_server_tools_reraises_infrastructure_error() -> None:
     context = _build_context({})
@@ -210,11 +195,6 @@ async def test_fetch_server_tools_reraises_infrastructure_error() -> None:
 
     with pytest.raises(AttributeError, match="broken transport"):
         await aggregator._fetch_server_tools("broken")
-
-
-# ---------------------------------------------------------------------------
-# Test 5: _fetch_server_tools returns empty for McpError on optimistic probe
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -252,9 +232,96 @@ async def test_fetch_server_tools_returns_empty_for_mcp_error() -> None:
     assert tools == []
 
 
-# ---------------------------------------------------------------------------
-# Test 6: _fetch_server_tools returns tools on success (non-persistent)
-# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_fetch_server_tools_returns_empty_for_not_implemented_error() -> None:
+    context = _build_context({})
+
+    class _NotImplAggregator(MCPAggregator):
+        async def server_supports_feature(self, server_name, feature):
+            return False
+
+        async def _execute_on_server(
+            self,
+            server_name,
+            operation_type,
+            operation_name,
+            method_name,
+            method_args=None,
+            error_factory=None,
+            progress_callback=None,
+        ):
+            raise NotImplementedError("list_tools not supported")
+
+    aggregator = _NotImplAggregator(
+        server_names=["legacy"],
+        connection_persistence=False,
+        context=context,
+    )
+
+    tools = await aggregator._fetch_server_tools("legacy")
+    assert tools == []
+
+
+@pytest.mark.asyncio
+async def test_fetch_server_tools_returns_empty_for_method_not_found_message() -> None:
+    """McpError with 'method not found' in message (without -32601 code) degrades gracefully."""
+    context = _build_context({})
+
+    class _MsgOnlyAggregator(MCPAggregator):
+        async def server_supports_feature(self, server_name, feature):
+            return False
+
+        async def _execute_on_server(
+            self,
+            server_name,
+            operation_type,
+            operation_name,
+            method_name,
+            method_args=None,
+            error_factory=None,
+            progress_callback=None,
+        ):
+            raise McpError(ErrorData(code=-32000, message="Method not found on this server"))
+
+    aggregator = _MsgOnlyAggregator(
+        server_names=["msg-only"],
+        connection_persistence=False,
+        context=context,
+    )
+
+    tools = await aggregator._fetch_server_tools("msg-only")
+    assert tools == []
+
+
+@pytest.mark.asyncio
+async def test_fetch_server_tools_reraises_non_probe_mcp_error() -> None:
+    """McpError that is NOT a capability probe (e.g. -32600 Invalid request) re-raises."""
+    context = _build_context({})
+
+    class _InvalidRequestAggregator(MCPAggregator):
+        async def server_supports_feature(self, server_name, feature):
+            return False
+
+        async def _execute_on_server(
+            self,
+            server_name,
+            operation_type,
+            operation_name,
+            method_name,
+            method_args=None,
+            error_factory=None,
+            progress_callback=None,
+        ):
+            raise McpError(ErrorData(code=-32600, message="Invalid request"))
+
+    aggregator = _InvalidRequestAggregator(
+        server_names=["bad-req"],
+        connection_persistence=False,
+        context=context,
+    )
+
+    with pytest.raises(McpError):
+        await aggregator._fetch_server_tools("bad-req")
 
 
 @pytest.mark.asyncio
@@ -292,11 +359,6 @@ async def test_fetch_server_tools_nonpersistent_success() -> None:
     assert [t.name for t in tools] == ["read_file", "write_file"]
 
 
-# ---------------------------------------------------------------------------
-# Test 7: gen_client accepts ServerInitializerProtocol (narrow protocol)
-# ---------------------------------------------------------------------------
-
-
 class _DummyInitializer:
     """Stub implementing only ServerInitializerProtocol, no connection_manager."""
 
@@ -304,6 +366,9 @@ class _DummyInitializer:
     async def initialize_server(self, server_name, client_session_factory=None):
         session = _DummySession()
         yield session
+
+    def get_server_capabilities(self, server_name):
+        return None
 
 
 @pytest.mark.asyncio
@@ -315,26 +380,14 @@ async def test_gen_client_accepts_initializer_protocol() -> None:
         assert session is not None
 
 
-# ---------------------------------------------------------------------------
-# Test 8: connect/disconnect still require full ServerRegistryProtocol
-# ---------------------------------------------------------------------------
-
-
 def test_connect_requires_full_protocol() -> None:
     """ServerInitializerProtocol alone is not sufficient for connect/disconnect."""
     from fast_agent.mcp.interfaces import ServerRegistryProtocol
 
     stub = _DummyInitializer()
 
-    # The narrow protocol should satisfy ServerInitializerProtocol
     assert isinstance(stub, ServerInitializerProtocol)
-    # But NOT ServerRegistryProtocol (missing connection_manager, registry, etc.)
     assert not isinstance(stub, ServerRegistryProtocol)
-
-
-# ---------------------------------------------------------------------------
-# Test 9: _fetch_server_tools re-raises McpError when server advertised tools
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -365,3 +418,82 @@ async def test_fetch_server_tools_reraises_mcp_error_when_tools_advertised() -> 
 
     with pytest.raises(McpError):
         await aggregator._fetch_server_tools("broken")
+
+
+def test_is_capability_probe_error_with_not_implemented_error() -> None:
+    assert _is_capability_probe_error(NotImplementedError("not supported")) is True
+
+
+def test_is_capability_probe_error_with_method_not_found_code() -> None:
+    exc = McpError(ErrorData(code=METHOD_NOT_FOUND_ERROR_CODE, message="Method not found"))
+    assert _is_capability_probe_error(exc) is True
+
+
+def test_is_capability_probe_error_with_method_not_found_message() -> None:
+    exc = McpError(ErrorData(code=-32000, message="Method not found on server"))
+    assert _is_capability_probe_error(exc) is True
+
+
+def test_is_capability_probe_error_rejects_infrastructure_errors() -> None:
+    assert _is_capability_probe_error(RuntimeError("connection lost")) is False
+    assert _is_capability_probe_error(AttributeError("no such attr")) is False
+    exc = McpError(ErrorData(code=-32600, message="Invalid request"))
+    assert _is_capability_probe_error(exc) is False
+
+
+@pytest.mark.asyncio
+async def test_detach_server_clears_capabilities_cache(monkeypatch) -> None:
+    context = _build_context(
+        {"alpha": MCPServerSettings(name="alpha", transport="stdio", command="echo")}
+    )
+
+    expected_caps = ServerCapabilities(tools=ToolsCapability())
+
+    @asynccontextmanager
+    async def _fake_initialize_server(self, server_name, client_session_factory=None):
+        self._init_results[server_name] = InitializeResult(
+            protocolVersion="2025-03-26",
+            capabilities=expected_caps,
+            serverInfo=Implementation(name="stub", version="0.1"),
+        )
+        yield _DummySession()
+
+    monkeypatch.setattr(
+        ServerRegistry,
+        "initialize_server",
+        _fake_initialize_server,
+    )
+
+    aggregator = MCPAggregator(
+        server_names=["alpha"],
+        connection_persistence=False,
+        context=context,
+    )
+
+    caps = await aggregator.get_capabilities("alpha")
+    assert caps is expected_caps
+
+    # Simulate that the server was attached (normally done by load_servers)
+    aggregator._attached_server_names.append("alpha")
+    await aggregator.detach_server("alpha")
+
+    assert aggregator._capabilities_cache.get("alpha") is None
+
+
+@pytest.mark.asyncio
+async def test_reset_runtime_indexes_clears_capabilities_cache() -> None:
+    context = _build_context({})
+
+    aggregator = MCPAggregator(
+        server_names=[],
+        connection_persistence=False,
+        context=context,
+    )
+
+    # Manually populate the cache
+    aggregator._capabilities_cache["alpha"] = ServerCapabilities(tools=ToolsCapability())
+    assert aggregator._capabilities_cache.get("alpha") is not None
+
+    await aggregator._reset_runtime_indexes()
+
+    assert aggregator._capabilities_cache.get("alpha") is None

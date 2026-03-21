@@ -17,6 +17,7 @@ from typing import (
 
 from mcp import GetPromptResult, ReadResourceResult
 from mcp.client.session import ClientSession
+from mcp.shared.exceptions import McpError
 from mcp.shared.session import ProgressFnT
 from mcp.types import (
     CallToolResult,
@@ -84,6 +85,21 @@ R = TypeVar("R")
 SESSION_NOT_FOUND_ERROR_CODE = -32043
 LEGACY_SESSION_REQUIRED_ERROR_CODE = -32002
 METHOD_NOT_FOUND_ERROR_CODE = -32601
+METHOD_NOT_FOUND_MESSAGE = "method not found"
+
+
+def _is_capability_probe_error(exc: Exception) -> bool:
+    """Return True when exc indicates a server does not support a probed method."""
+    if isinstance(exc, NotImplementedError):
+        return True
+    if isinstance(exc, McpError):
+        code = getattr(getattr(exc, "error", None), "code", None)
+        if code == METHOD_NOT_FOUND_ERROR_CODE:
+            return True
+        message = getattr(getattr(exc, "error", None), "message", None)
+        if isinstance(message, str) and METHOD_NOT_FOUND_MESSAGE in message.lower():
+            return True
+    return False
 
 
 class NamespacedTool(BaseModel):
@@ -578,8 +594,6 @@ class MCPAggregator(ContextDependent):
         self._attached_server_names = []
 
     async def _fetch_server_tools(self, server_name: str) -> list[Tool]:
-        from mcp.shared.exceptions import McpError
-
         supports_tools = await self.server_supports_feature(server_name, "tools")
         if not supports_tools:
             logger.debug(
@@ -595,13 +609,13 @@ class MCPAggregator(ContextDependent):
                 method_args={},
             )
             return result.tools or []
-        except (McpError, NotImplementedError) as e:
+        except Exception as e:  # noqa: BLE001 - optimistic probe: degrade only for capability gaps
             if supports_tools:
+                raise
+            if not _is_capability_probe_error(e):
                 raise
             logger.debug(f"Server '{server_name}' does not provide tools (list_tools failed): {e}")
             return []
-        except Exception:
-            raise
 
     async def _fetch_server_prompts(self, server_name: str) -> list[Prompt]:
         if not await self.server_supports_feature(server_name, "prompts"):
@@ -993,21 +1007,19 @@ class MCPAggregator(ContextDependent):
                 if cached is not None:
                     return cached
 
-            try:
-                server_registry = cast("ServerRegistry", self._require_server_registry())
-                async with server_registry.initialize_server(
-                    server_name=server_name,
-                ) as _session:
-                    init_result = server_registry._init_results.get(server_name)
-                    capabilities = init_result.capabilities if init_result else None
+                try:
+                    server_registry = self._require_server_registry()
+                    async with server_registry.initialize_server(
+                        server_name=server_name,
+                    ) as _session:
+                        capabilities = server_registry.get_server_capabilities(server_name)
 
-                if capabilities is not None:
-                    async with self._capabilities_cache_lock:
+                    if capabilities is not None:
                         self._capabilities_cache[server_name] = capabilities
-                return capabilities
-            except Exception as e:
-                logger.debug(f"Error getting capabilities for server '{server_name}': {e}")
-                return None
+                    return capabilities
+                except Exception as e:  # noqa: BLE001 - graceful fallback for capability probes
+                    logger.debug(f"Error getting capabilities for server '{server_name}': {e}")
+                    return None
 
         try:
             manager = self._require_connection_manager()
@@ -1016,7 +1028,7 @@ class MCPAggregator(ContextDependent):
                 client_session_factory=self._create_session_factory(server_name),
             )
             return server_conn.server_capabilities
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - graceful fallback for capability probes
             logger.debug(f"Error getting capabilities for server '{server_name}': {e}")
             return None
 

@@ -25,6 +25,8 @@ from fast_agent.interfaces import (
 )
 
 if TYPE_CHECKING:
+    from mcp.types import ServerCapabilities
+
     from fast_agent.config import MCPServerSettings
 
 __all__ = [
@@ -66,7 +68,7 @@ class MCPConnectionManagerProtocol(Protocol):
 
 @runtime_checkable
 class ServerInitializerProtocol(Protocol):
-    """Protocol for the narrow server initialization boundary needed by gen_client."""
+    """Protocol for temporary (non-persistent) server connections used by gen_client."""
 
     def initialize_server(
         self,
@@ -82,6 +84,10 @@ class ServerInitializerProtocol(Protocol):
         | None = None,
     ) -> AsyncContextManager[ClientSession]:
         """Initialize a server and yield a client session."""
+        ...
+
+    def get_server_capabilities(self, server_name: str) -> "ServerCapabilities | None":
+        """Return cached capabilities for a server, or None if not yet initialized."""
         ...
 
 
@@ -112,6 +118,8 @@ class ServerRegistryProtocol(Protocol):
         ...
 
     def get_server_config(self, server_name: str) -> "MCPServerSettings | None": ...
+
+    def get_server_capabilities(self, server_name: str) -> "ServerCapabilities | None": ...
 
 
 class ServerConnection(Protocol):

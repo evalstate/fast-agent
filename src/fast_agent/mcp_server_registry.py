@@ -22,7 +22,7 @@ from fast_agent.config import (
 from fast_agent.core.logging.logger import get_logger
 
 if TYPE_CHECKING:
-    from mcp.types import InitializeResult
+    from mcp.types import InitializeResult, ServerCapabilities
 
 logger = get_logger(__name__)
 
@@ -98,6 +98,11 @@ class ServerRegistry:
             server_config.name = server_name
         return server_config
 
+    def get_server_capabilities(self, server_name: str) -> "ServerCapabilities | None":
+        """Return cached capabilities for a server, or None if not yet initialized."""
+        init_result = self._init_results.get(server_name)
+        return init_result.capabilities if init_result else None
+
     @asynccontextmanager
     async def initialize_server(
         self,
@@ -112,8 +117,10 @@ class ServerRegistry:
         Create a temporary connection to a server, initialize the session, and yield it.
 
         Delegates transport creation to the shared create_transport_context helper.
-        The InitializeResult (including capabilities) is stored in self._init_results
-        keyed by server_name for later retrieval.
+        Capabilities are stored internally and retrievable via get_server_capabilities().
+
+        Note: transport_metrics and OAuth event handlers are intentionally omitted
+        for temporary connections -- they are short-lived probes, not managed lifecycles.
 
         Args:
             server_name: Name of the server to initialize.
@@ -126,8 +133,8 @@ class ServerRegistry:
         if config is None:
             raise ValueError(f"Server '{server_name}' not found in registry.")
 
-        factory = client_session_factory or MCPAgentClientSession
-        transport_context = create_transport_context(server_name, config)
+        # transport_metrics intentionally omitted for temporary connections
+        transport_context = create_transport_context(server_name=server_name, config=config)
 
         async with transport_context as (read_stream, write_stream, _get_session_id_cb):
             read_timeout = (
@@ -135,7 +142,12 @@ class ServerRegistry:
                 if config.read_timeout_seconds
                 else None
             )
-            session = factory(read_stream, write_stream, read_timeout)
+            if client_session_factory is not None:
+                session = client_session_factory(read_stream, write_stream, read_timeout)
+            else:
+                session = MCPAgentClientSession(
+                    read_stream, write_stream, read_timeout, server_config=config
+                )
 
             async with session:
                 result: "InitializeResult" = await session.initialize()
