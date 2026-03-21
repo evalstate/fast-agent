@@ -41,7 +41,7 @@ Recent features include:
 
 > [!IMPORTANT]
 >
-> Documentation is included as a submodule. When cloning, use `--recurse-submodules` to get everything:
+> `skills-repo` is included as a submodule. For a fully initialized checkout, clone with `--recurse-submodules`:
 > ```bash
 > git clone --recurse-submodules https://github.com/evalstate/fast-agent.git
 > ```
@@ -49,7 +49,8 @@ Recent features include:
 > ```bash
 > git submodule update --init --recursive
 > ```
-> The documentation source is also available at: https://github.com/evalstate/fast-agent-docs
+> The documentation site now lives directly in `docs/` in this repo. Its canonical upstream remains:
+> https://github.com/evalstate/fast-agent-docs
 
 ### Agent Application Development
 
@@ -602,7 +603,7 @@ mcp:
 
 ## Documentation
 
-The documentation site is included as a submodule in `docs/`. To work with the docs locally:
+The documentation site lives directly in `docs/` in this repo. The canonical upstream remains [`evalstate/fast-agent-docs`](https://github.com/evalstate/fast-agent-docs). To work with the docs locally:
 
 ```bash
 # Install docs dependencies (first time only)
@@ -619,6 +620,16 @@ uv run scripts/docs.py all
 ```
 
 The generator extracts configuration field descriptions, model aliases, and API references directly from the source code to keep documentation in sync.
+
+To sync docs with the canonical upstream repo:
+
+```bash
+# Pull latest docs into this repo
+git subtree pull --prefix=docs https://github.com/evalstate/fast-agent-docs.git main --squash
+
+# Push local docs changes back to the canonical repo
+git subtree push --prefix=docs https://github.com/evalstate/fast-agent-docs.git main
+```
 
 ## Project Notes
 
