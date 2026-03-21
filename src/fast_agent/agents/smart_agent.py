@@ -486,11 +486,7 @@ def _render_unknown_slash_command(command_name: str) -> str:
     if suggestions:
         suggestion_line = "\nDid you mean: " + ", ".join(f"`/{name}`" for name in suggestions)
 
-    return (
-        f"Unknown slash command '/{command_name}'."
-        f"{suggestion_line}\n\n"
-        f"{_smart_slash_usage()}"
-    )
+    return f"Unknown slash command '/{command_name}'.{suggestion_line}\n\n{_smart_slash_usage()}"
 
 
 def _mcp_usage_text() -> str:
@@ -544,7 +540,9 @@ def _render_smart_slash_outcome(
     return _render_command_outcome(outcome, heading=heading, io=io)
 
 
-def _parse_mcp_session_args(tokens: list[str]) -> tuple[str, str | None, str | None, str | None, bool]:
+def _parse_mcp_session_args(
+    tokens: list[str],
+) -> tuple[str, str | None, str | None, str | None, bool]:
     session_tokens = tokens[1:]
     action = "list"
     server_identity: str | None = None
@@ -583,7 +581,9 @@ def _parse_mcp_session_args(tokens: list[str]) -> tuple[str, str | None, str | N
             if token == "--title":
                 idx += 1
                 if idx >= len(args):
-                    raise AgentConfigError("Invalid /mcp session arguments", "Missing value for --title")
+                    raise AgentConfigError(
+                        "Invalid /mcp session arguments", "Missing value for --title"
+                    )
                 title = args[idx]
             elif token.startswith("--title="):
                 title = token.split("=", 1)[1] or None
@@ -1412,7 +1412,7 @@ def _slash_command_tool_description() -> str:
     return (
         "Execute a fast-agent slash command using native `/...` syntax. "
         "Use `/commands` or `/commands --json` to discover capabilities. "
-        "Supports `/skills` (including available/search/help), `/cards`, `/model`, `/mcp`, "
+        "Supports `/skills` (including available/search/registry/help), `/cards`, `/model`, `/mcp`, "
         "`/tools`, `/prompts`, "
         "`/usage`, `/system`, `/markdown`, and `/check`."
     )
@@ -1432,11 +1432,9 @@ def _enable_smart_tooling(agent: Any) -> None:
         agent.smart,
         name="smart",
         description=(
-            "Run or validate an AgentCard or card pack from a file or directory. Use this for "
-            "one-off delegation to card-defined agents. Use action=`run` (default) to load the "
-            "card(s), pick the main runnable agent automatically, optionally apply temporary "
-            "`mcp_connect` targets, and send `message`. Use action=`validate` to check card "
-            "files without running them."
+            "Run subagent tasks from a definition in a file or directory. Subagents are defined with "
+            "AgentCards. Use action=`run` to load a subagent and send it a message. Optionally supply "
+            "`mcp_connect` targets. Use action=`validate` to check card file validity without running them"
         ),
     )
     slash_command_tool = build_default_function_tool(
