@@ -88,14 +88,21 @@ def evt_thinking(run_id: str, role: str, model: str = "") -> SpawnEvent:
     )
 
 
-def evt_tool_call(run_id: str, role: str, tool_name: str, args_preview: str = "") -> SpawnEvent:
+def evt_tool_call(
+    run_id: str,
+    role: str,
+    tool_name: str,
+    args_preview: str = "",
+    args_full: dict[str, Any] | None = None,
+) -> SpawnEvent:
     """Agent is calling a tool."""
-    return SpawnEvent(
-        event="tool_call",
-        run_id=run_id,
-        role=role,
-        data={"tool_name": tool_name, "args_preview": args_preview[:100]},
-    )
+    data: dict[str, Any] = {
+        "tool_name": tool_name,
+        "args_preview": args_preview[:200],
+    }
+    if args_full is not None:
+        data["args_full"] = args_full
+    return SpawnEvent(event="tool_call", run_id=run_id, role=role, data=data)
 
 
 def evt_tool_result(
@@ -104,18 +111,20 @@ def evt_tool_result(
     tool_name: str,
     status: str = "ok",
     duration_ms: float = 0,
+    result_preview: str = "",
+    is_error: bool = False,
 ) -> SpawnEvent:
     """Tool call completed."""
-    return SpawnEvent(
-        event="tool_result",
-        run_id=run_id,
-        role=role,
-        data={
-            "tool_name": tool_name,
-            "status": status,
-            "duration_ms": round(duration_ms, 1),
-        },
-    )
+    data: dict[str, Any] = {
+        "tool_name": tool_name,
+        "status": status,
+        "duration_ms": round(duration_ms, 1),
+    }
+    if result_preview:
+        data["result_preview"] = result_preview[:500]
+    if is_error:
+        data["is_error"] = True
+    return SpawnEvent(event="tool_result", run_id=run_id, role=role, data=data)
 
 
 def evt_result(

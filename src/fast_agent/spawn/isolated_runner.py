@@ -457,11 +457,19 @@ def _install_tool_hooks(agent_app: Any, run_id: str, role: str) -> None:
                 s = str(v)
                 if cwd and s.startswith(cwd):
                     s = "." + s[len(cwd):]
-                return s[:40]
+                return s[:80]
 
             args_preview = ", ".join(
-                f"{k}={_shorten(v)}" for k, v in list(tool_args.items())[:3]
+                f"{k}={_shorten(v)}" for k, v in list(tool_args.items())[:5]
             )
+
+            # Serialize full args (with safety truncation for large values)
+            def _safe_arg(v: object) -> object:
+                s = str(v)
+                return s[:2000] if len(s) > 2000 else v
+
+            args_full = {k: _safe_arg(v) for k, v in tool_args.items()}
+
             _tool_start_times[tool_name] = time.time()
             emit_event(
                 "tool_call",
@@ -469,6 +477,7 @@ def _install_tool_hooks(agent_app: Any, run_id: str, role: str) -> None:
                 role,
                 tool_name=tool_name,
                 args_preview=args_preview,
+                args_full=args_full,
             )
 
     async def after_tool_call(runner: Any, tool_message: Any) -> None:
@@ -477,10 +486,22 @@ def _install_tool_hooks(agent_app: Any, run_id: str, role: str) -> None:
         for tool_name, start_t in list(_tool_start_times.items()):
             duration_ms = (now - start_t) * 1000
             status = "ok"
+            is_error = False
+            result_preview = ""
+
+            # Extract result content from tool_results
             for _corr_id, result in tool_results.items():
                 if getattr(result, "isError", False):
                     status = "error"
-                    break
+                    is_error = True
+                # Extract text content from result
+                content_list = getattr(result, "content", None) or []
+                for content_item in content_list:
+                    text = getattr(content_item, "text", None)
+                    if text:
+                        result_preview += text[:500]
+                        break  # take first text content
+
             emit_event(
                 "tool_result",
                 run_id,
@@ -488,6 +509,8 @@ def _install_tool_hooks(agent_app: Any, run_id: str, role: str) -> None:
                 tool_name=tool_name,
                 status=status,
                 duration_ms=round(duration_ms, 1),
+                result_preview=result_preview[:500],
+                is_error=is_error,
             )
         _tool_start_times.clear()
 
