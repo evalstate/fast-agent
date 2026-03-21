@@ -18,6 +18,14 @@ _UVLOOP_PROMPT_TOOLKIT_DEPRECATION_MESSAGE = (
 )
 
 
+def install_known_runtime_warning_filters(
+    *,
+    version_info: tuple[int, ...] | None = None,
+) -> None:
+    """Install targeted runtime warning filters for supported fast-agent runtimes."""
+    _suppress_known_uvloop_prompt_toolkit_deprecation(version_info=version_info)
+
+
 def _suppress_known_uvloop_prompt_toolkit_deprecation(
     *,
     version_info: tuple[int, ...] | None = None,
@@ -58,6 +66,8 @@ def configure_uvloop(
     if _UVLOOP_REQUESTED is not None and _UVLOOP_CONFIGURED is not None:
         return _UVLOOP_REQUESTED, _UVLOOP_CONFIGURED
 
+    install_known_runtime_warning_filters()
+
     explicit_enable = _env_value(env_var)
     explicit_disable = _env_value(disable_env_var)
     requested = explicit_enable is True and explicit_disable is not True
@@ -66,7 +76,6 @@ def configure_uvloop(
     if explicit_disable is True or explicit_enable is False:
         enabled = False
     elif not sys.platform.startswith("win"):
-        _suppress_known_uvloop_prompt_toolkit_deprecation()
         try:
             import uvloop
         except Exception:
