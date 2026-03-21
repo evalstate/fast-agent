@@ -5,12 +5,18 @@ hide:
     - toc
 ---
 
+<center>
+
+<h1>fast-agent</h1>
+
+</center>
+
 <div class="grid cards" markdown>
 -   :material-clock-fast:{ .lg .middle } __Start now__
 
     ---
 
-    Run with the [uv](https://astral.sh/uv) package manager:
+    Run `fast-agent` with the [uv](https://astral.sh/uv) package manager:
 
     ```
     uvx fast-agent-mcp@latest -x
@@ -24,7 +30,7 @@ hide:
 
     ---
 
-    Support for [Agent Skills](https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills) to define context efficient behaviour for your Agents. Read the documentation [here](./agents/skills.md).
+     Use [Agent Skills](https://agentskills.io) to progressively disclose capabilities for your Agents. With registry update support. Check the documentation [here](./agents/skills.md).
 
 -   :material-connection:{ .lg .middle } __New - Elicitation Quickstart Guide__
 
@@ -37,7 +43,7 @@ hide:
 
     ---
 
-    Advanced [support](./models/llm_providers.md) for models including OpenAI, Anthropic, Hugging Face, llama.cpp and more. Bring your Codex OAuth token.
+    Advanced [support](./models/llm_providers.md) for models including OpenAI, Anthropic, Hugging Face, llama.cpp and more. Supports using Codex with OAuth.
 
 
 -   :material-check-all:{ .lg .middle } __MCP Feature Support__
@@ -57,22 +63,42 @@ hide:
 </div>
 
 <center>
-## Getting Started
+
+<h2> Getting Started </h2>
+
 </center>
+
 <br />
 <div class="grid" markdown>
 <div align="top" markdown>
-**fast-agent** lets you create and interact with sophisticated Agents and Workflows in minutes. It's multi-modal - supporting Images and PDFs in Prompts, Resources and MCP Tool Call results.  
+
+
+### Coding Agent
+
+**fast-agent** makes supervising LLM and Tool streams simple, highlighting important results, actions and exceptions in long tool loops.
+
+Fully extendable agent hook system and bundled skills to customise `fast-agent` with Python code. Fork, rewind and pin sessions.
+
+Seamless shell integration, protecting your scrollback buffer for review, or use with ACP to use Agents with your editor of choice. 
+
+### For Agent Developers
+
+**fast-agent** lets you create and interact with sophisticated Agents and Workflows in minutes. 
+
+It's multi-modal - supporting Images and PDFs in Prompts, Resources and MCP Tool Call results.  
 
 Prebuilt agents and examples implementing the patterns in Anthropic's [building effective agents](https://www.anthropic.com/engineering/building-effective-agents) paper get you building valuable applications quickly. Seamlessly use MCP Servers with your agents, or host your agents as MCP Servers.
+
+### Evaluations and Automations
+
+Comprehensive CLI and Model support with embedded telemetry in results files make `fast-agent` an excellent choice for testing and evaluations. 
+
 
 * `uv tool install fast-agent-mcp` - Install fast-agent. If you have multiple Python versions, use `--python 3.13.5` to ensure you get the latest version of fast-agent.
 * `fast-agent go` - Start an interactive session...
 * `fast-agent go --url https://hf.co/mcp` - ...with a remote MCP.
-* `fast-agent go --pack analyst --model haiku` - ...from an installed or marketplace card pack.
-* `fast-agent scaffold` - Create Agent and Configuration files.
-* `uv run agent.py` - Run your first Agent
-* `fast-agent quickstart workflow` - Create Agent workflow examples
+* `fast-agent go --pack hf-dev` - ...from an installed or marketplace card pack.
+* `fast-agent scaffold` - Create Agent and Configuration files for Python development.
 
 Contributing to docs? See [Generated Docs](./ref/generated_docs.md) for how to regenerate reference tables and includes.
 </div>
