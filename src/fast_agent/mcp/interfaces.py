@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "MCPConnectionManagerProtocol",
+    "ServerInitializerProtocol",
     "ServerRegistryProtocol",
     "ServerConnection",
     "FastAgentLLMProtocol",
@@ -47,21 +48,41 @@ class MCPConnectionManagerProtocol(Protocol):
     async def get_server(
         self,
         server_name: str,
-        client_session_factory: 
-            Callable[
-                [
-                    MemoryObjectReceiveStream,
-                    MemoryObjectSendStream,
-                    timedelta | None,
-                ],
-                ClientSession,
-            ]
-         | None = None,
+        client_session_factory: Callable[
+            [
+                MemoryObjectReceiveStream,
+                MemoryObjectSendStream,
+                timedelta | None,
+            ],
+            ClientSession,
+        ]
+        | None = None,
     ) -> "ServerConnection": ...
 
     async def disconnect_server(self, server_name: str) -> None: ...
 
     async def disconnect_all_servers(self) -> None: ...
+
+
+@runtime_checkable
+class ServerInitializerProtocol(Protocol):
+    """Protocol for the narrow server initialization boundary needed by gen_client."""
+
+    def initialize_server(
+        self,
+        server_name: str,
+        client_session_factory: Callable[
+            [
+                MemoryObjectReceiveStream,
+                MemoryObjectSendStream,
+                timedelta | None,
+            ],
+            ClientSession,
+        ]
+        | None = None,
+    ) -> AsyncContextManager[ClientSession]:
+        """Initialize a server and yield a client session."""
+        ...
 
 
 @runtime_checkable
@@ -77,16 +98,15 @@ class ServerRegistryProtocol(Protocol):
     def initialize_server(
         self,
         server_name: str,
-        client_session_factory: 
-            Callable[
-                [
-                    MemoryObjectReceiveStream,
-                    MemoryObjectSendStream,
-                    timedelta | None,
-                ],
-                ClientSession,
-            ]
-         | None = None,
+        client_session_factory: Callable[
+            [
+                MemoryObjectReceiveStream,
+                MemoryObjectSendStream,
+                timedelta | None,
+            ],
+            ClientSession,
+        ]
+        | None = None,
     ) -> AsyncContextManager[ClientSession]:
         """Initialize a server and yield a client session."""
         ...

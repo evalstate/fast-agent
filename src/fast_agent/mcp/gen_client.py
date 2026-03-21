@@ -6,7 +6,7 @@ from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStre
 from mcp import ClientSession
 
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.mcp.interfaces import ServerRegistryProtocol
+from fast_agent.mcp.interfaces import ServerInitializerProtocol, ServerRegistryProtocol
 from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 
 logger = get_logger(__name__)
@@ -15,7 +15,7 @@ logger = get_logger(__name__)
 @asynccontextmanager
 async def gen_client(
     server_name: str,
-    server_registry: ServerRegistryProtocol,
+    server_registry: ServerInitializerProtocol,
     client_session_factory: Callable[
         [MemoryObjectReceiveStream, MemoryObjectSendStream, timedelta | None],
         ClientSession,

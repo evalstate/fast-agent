@@ -83,6 +83,7 @@ R = TypeVar("R")
 
 SESSION_NOT_FOUND_ERROR_CODE = -32043
 LEGACY_SESSION_REQUIRED_ERROR_CODE = -32002
+METHOD_NOT_FOUND_ERROR_CODE = -32601
 
 
 class NamespacedTool(BaseModel):
@@ -320,6 +321,10 @@ class MCPAggregator(ContextDependent):
 
         # Track discovered Skybridge configurations per server
         self._skybridge_configs: dict[str, SkybridgeServerConfig] = {}
+
+        # Cache for server capabilities in non-persistent mode
+        self._capabilities_cache: dict[str, ServerCapabilities] = {}
+        self._capabilities_cache_lock = Lock()
 
         # Focused API for experimental data-layer session metadata controls.
         self.experimental_sessions = ExperimentalSessionClient(self)
@@ -566,10 +571,15 @@ class MCPAggregator(ContextDependent):
         async with self._prompt_cache_lock:
             self._prompt_cache.clear()
 
+        async with self._capabilities_cache_lock:
+            self._capabilities_cache.clear()
+
         self._skybridge_configs.clear()
         self._attached_server_names = []
 
     async def _fetch_server_tools(self, server_name: str) -> list[Tool]:
+        from mcp.shared.exceptions import McpError
+
         supports_tools = await self.server_supports_feature(server_name, "tools")
         if not supports_tools:
             logger.debug(
@@ -585,14 +595,13 @@ class MCPAggregator(ContextDependent):
                 method_args={},
             )
             return result.tools or []
-        except Exception as e:
+        except (McpError, NotImplementedError) as e:
             if supports_tools:
-                logger.error(f"Error loading tools from server '{server_name}'", data=e)
-            else:
-                logger.debug(
-                    f"Server '{server_name}' does not provide tools (list_tools failed): {e}"
-                )
+                raise
+            logger.debug(f"Server '{server_name}' does not provide tools (list_tools failed): {e}")
             return []
+        except Exception:
+            raise
 
     async def _fetch_server_prompts(self, server_name: str) -> list[Prompt]:
         if not await self.server_supports_feature(server_name, "prompts"):
@@ -768,6 +777,9 @@ class MCPAggregator(ContextDependent):
 
         async with self._prompt_cache_lock:
             self._prompt_cache.pop(server_name, None)
+
+        async with self._capabilities_cache_lock:
+            self._capabilities_cache.pop(server_name, None)
 
         self._skybridge_configs.pop(server_name, None)
         self._attached_server_names = [
@@ -973,18 +985,36 @@ class MCPAggregator(ContextDependent):
             },
         )
 
-    async def get_capabilities(self, server_name: str):
+    async def get_capabilities(self, server_name: str) -> ServerCapabilities | None:
         """Get server capabilities if available."""
         if not self.connection_persistence:
-            # For non-persistent connections, we can't easily check capabilities
-            return None
+            async with self._capabilities_cache_lock:
+                cached = self._capabilities_cache.get(server_name)
+                if cached is not None:
+                    return cached
+
+            try:
+                server_registry = cast("ServerRegistry", self._require_server_registry())
+                async with server_registry.initialize_server(
+                    server_name=server_name,
+                ) as _session:
+                    init_result = server_registry._init_results.get(server_name)
+                    capabilities = init_result.capabilities if init_result else None
+
+                if capabilities is not None:
+                    async with self._capabilities_cache_lock:
+                        self._capabilities_cache[server_name] = capabilities
+                return capabilities
+            except Exception as e:
+                logger.debug(f"Error getting capabilities for server '{server_name}': {e}")
+                return None
 
         try:
             manager = self._require_connection_manager()
             server_conn = await manager.get_server(
-                server_name, client_session_factory=self._create_session_factory(server_name)
+                server_name,
+                client_session_factory=self._create_session_factory(server_name),
             )
-            # server_capabilities is a property, not a coroutine
             return server_conn.server_capabilities
         except Exception as e:
             logger.debug(f"Error getting capabilities for server '{server_name}': {e}")
@@ -1292,7 +1322,9 @@ class MCPAggregator(ContextDependent):
                             if session_title is None and isinstance(session_cookie, dict):
                                 cookie_data = session_cookie.get("data")
                                 if isinstance(cookie_data, dict):
-                                    cookie_title = cookie_data.get("title") or cookie_data.get("label")
+                                    cookie_title = cookie_data.get("title") or cookie_data.get(
+                                        "label"
+                                    )
                                     if isinstance(cookie_title, str) and cookie_title.strip():
                                         session_title = cookie_title.strip()
 
@@ -1516,7 +1548,9 @@ class MCPAggregator(ContextDependent):
                 # Let ServerSessionTerminatedError pass through for reconnection logic
                 raise
             except Exception as e:
-                self._maybe_mark_rejected_session_cookie(server_name=server_name, client=client, exc=e)
+                self._maybe_mark_rejected_session_cookie(
+                    server_name=server_name, client=client, exc=e
+                )
                 error_msg = (
                     f"Failed to {method_name} '{operation_name}' on server '{server_name}': {e}"
                 )
