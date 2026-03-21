@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 # Recursion limits
 DEFAULT_MAX_DEPTH = 6
-DEFAULT_TIMEOUT_SECONDS = 600
+DEFAULT_TIMEOUT_SECONDS = 3600
 
 # Track background tasks and their subprocesses
 _background_tasks: dict[str, asyncio.Task[None]] = {}
@@ -242,14 +242,27 @@ async def _run_subprocess(
         await asyncio.wait_for(stderr_task, timeout=5)
         await process.wait()
     except asyncio.TimeoutError:
-        logger.warning("Isolated agent %s timed out, sending SIGTERM...", run_id)
+        duration = time.time() - start_time
+        agent_name = config.get("agent_name", config.get("role", run_id))
+        role = config.get("role", "unknown")
+        logger.error(
+            "⏰ [TIMEOUT] Agent '%s' (role=%s, run_id=%s) KILLED after %.0fs "
+            "(limit=%ds). The agent's work was interrupted mid-execution. "
+            "Consider increasing timeout_seconds in the team template.",
+            agent_name,
+            role,
+            run_id,
+            duration,
+            timeout_seconds,
+        )
         try:
             process.terminate()
             try:
                 await asyncio.wait_for(process.wait(), timeout=5)
             except asyncio.TimeoutError:
                 logger.warning(
-                    "Isolated agent %s didn't stop, sending SIGKILL...",
+                    "Agent '%s' (run_id=%s) didn't stop after SIGTERM, sending SIGKILL...",
+                    agent_name,
                     run_id,
                 )
                 process.kill()
@@ -257,11 +270,10 @@ async def _run_subprocess(
         except ProcessLookupError:
             pass
 
-        duration = time.time() - start_time
         return {
             "status": "timeout",
             "result": "",
-            "summary": f"Agent timed out after {timeout_seconds}s",
+            "summary": f"Agent '{agent_name}' timed out after {timeout_seconds}s",
             "error": f"Subprocess timed out after {timeout_seconds}s",
             "metadata": {"duration_seconds": round(duration, 1)},
         }
