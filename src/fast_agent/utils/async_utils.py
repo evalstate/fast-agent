@@ -1,5 +1,6 @@
 import asyncio
 import concurrent.futures
+import contextlib
 import os
 import sys
 import warnings
@@ -24,6 +25,18 @@ def install_known_runtime_warning_filters(
 ) -> None:
     """Install targeted runtime warning filters for supported fast-agent runtimes."""
     _suppress_known_uvloop_prompt_toolkit_deprecation(version_info=version_info)
+
+
+@contextlib.contextmanager
+def suppress_known_runtime_warnings(
+    *,
+    version_info: tuple[int, ...] | None = None,
+):
+    """Apply targeted warning filters for a narrow runtime scope."""
+    install_known_runtime_warning_filters(version_info=version_info)
+    with warnings.catch_warnings():
+        install_known_runtime_warning_filters(version_info=version_info)
+        yield
 
 
 def _suppress_known_uvloop_prompt_toolkit_deprecation(

@@ -12,6 +12,7 @@ from fast_agent.commands.results import CommandOutcome
 from fast_agent.commands.session_summaries import build_session_list_summary
 from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.session import display_session_name
+from fast_agent.session.preview import find_last_assistant_preview_text
 from fast_agent.ui.shell_notice import format_shell_notice
 
 if TYPE_CHECKING:
@@ -70,13 +71,7 @@ def _resolve_pin_state(value: str | None, *, current: bool) -> tuple[bool | None
 
 
 def _find_last_assistant_text(history: list[PromptMessageExtended]) -> str | None:
-    for message in reversed(history):
-        if message.role != "assistant":
-            continue
-        text = message.last_text()
-        if text:
-            return text
-    return None
+    return find_last_assistant_preview_text(history)
 
 
 def _build_session_entries(entries: list[SessionEntrySummary], *, usage: str) -> Text:

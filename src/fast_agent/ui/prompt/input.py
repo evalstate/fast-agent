@@ -86,6 +86,7 @@ from fast_agent.ui.prompt.keybindings import ShellPrefixLexer, create_keybinding
 from fast_agent.ui.prompt.special_commands import handle_special_commands_async
 from fast_agent.ui.service_tier_display import cycle_service_tier
 from fast_agent.ui.shell_notice import format_shell_notice
+from fast_agent.utils.async_utils import suppress_known_runtime_warnings
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
@@ -1011,11 +1012,12 @@ async def get_selection_input(
 
         try:
             # Get user input
-            selection = await prompt_session.prompt_async(
-                prompt_text,
-                default=default or "",
-                set_exception_handler=False,
-            )
+            with suppress_known_runtime_warnings():
+                selection = await prompt_session.prompt_async(
+                    prompt_text,
+                    default=default or "",
+                    set_exception_handler=False,
+                )
 
             # Handle cancellation
             if allow_cancel and not selection.strip():
@@ -1067,11 +1069,12 @@ async def get_argument_input(
 
     try:
         # Get user input
-        arg_value = await prompt_session.prompt_async(
-            prompt_text,
-            default=default or "",
-            set_exception_handler=False,
-        )
+        with suppress_known_runtime_warnings():
+            arg_value = await prompt_session.prompt_async(
+                prompt_text,
+                default=default or "",
+                set_exception_handler=False,
+            )
 
         # For optional arguments, empty input means skip
         if not required and not arg_value:

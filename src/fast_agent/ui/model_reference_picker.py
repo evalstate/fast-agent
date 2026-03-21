@@ -9,6 +9,7 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.layout.controls import FormattedTextControl
 
 from fast_agent.ui.single_list_picker_layout import build_single_list_picker_app
+from fast_agent.utils.async_utils import suppress_known_runtime_warnings
 
 StyleFragments = list[tuple[str, str]]
 
@@ -224,7 +225,8 @@ class _ReferencePicker:
         ]
 
     async def run_async(self) -> ModelReferencePickerResult | None:
-        result = await self.app.run_async()
+        with suppress_known_runtime_warnings():
+            result = await self.app.run_async()
         if result is None:
             return None
         if isinstance(result, ModelReferencePickerResult):

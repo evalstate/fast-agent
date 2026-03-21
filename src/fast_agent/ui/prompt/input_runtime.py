@@ -15,6 +15,7 @@ from rich import print as rich_print
 
 from fast_agent.ui.command_payloads import CommandPayload, InterruptCommand
 from fast_agent.ui.prompt_marks import emit_prompt_mark
+from fast_agent.utils.async_utils import suppress_known_runtime_warnings
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -120,11 +121,12 @@ async def run_prompt_once(
     try:
         emit_prompt_mark("A")
         prompt_mark_started = True
-        result = await session.prompt_async(
-            resolve_prompt_text,
-            default=default_buffer,
-            set_exception_handler=False,
-        )
+        with suppress_known_runtime_warnings():
+            result = await session.prompt_async(
+                resolve_prompt_text,
+                default=default_buffer,
+                set_exception_handler=False,
+            )
         prompt_returned_at = time.perf_counter()
         emit_prompt_mark("B")
 

@@ -42,9 +42,6 @@ from fast_agent.types import (
     text_content,
     video_link,
 )
-from fast_agent.utils.async_utils import install_known_runtime_warning_filters
-
-install_known_runtime_warning_filters()
 
 
 def __getattr__(name: str):

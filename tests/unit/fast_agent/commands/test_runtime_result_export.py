@@ -8,7 +8,8 @@ from typing import Any, cast
 
 import pytest
 import typer
-from mcp.types import TextContent
+from mcp import CallToolRequest
+from mcp.types import CallToolRequestParams, TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.cli.runtime.agent_setup import (
@@ -26,6 +27,7 @@ from fast_agent.cli.runtime.runner import _should_convert_keyboard_interrupt_to_
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompt_serialization import load_messages
 from fast_agent.session import ResumeSessionAgentsResult
+from fast_agent.types.llm_stop_reason import LlmStopReason
 
 
 class _DummyAgent:
@@ -166,6 +168,42 @@ def test_find_last_assistant_text_returns_none_without_assistant_messages() -> N
     history = [PromptMessageExtended(role="user", content=[TextContent(type="text", text="hello")])]
 
     assert _find_last_assistant_text(history) is None
+
+
+def test_find_last_assistant_text_falls_back_to_pending_tool_summary() -> None:
+    history = [
+        PromptMessageExtended(role="user", content=[TextContent(type="text", text="hello")]),
+        PromptMessageExtended(
+            role="assistant",
+            tool_calls={
+                "call-1": CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(name="read_text_file", arguments={}),
+                )
+            },
+            stop_reason=LlmStopReason.TOOL_USE,
+        ),
+    ]
+
+    assert _find_last_assistant_text(history) == "Pending tool call: read_text_file"
+
+
+def test_find_last_assistant_text_prefers_text_over_pending_tool_summary() -> None:
+    history = [
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="partial answer")],
+            tool_calls={
+                "call-1": CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(name="read_text_file", arguments={}),
+                )
+            },
+            stop_reason=LlmStopReason.TOOL_USE,
+        )
+    ]
+
+    assert _find_last_assistant_text(history) == "partial answer"
 
 
 @pytest.mark.asyncio

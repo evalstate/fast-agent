@@ -21,11 +21,13 @@ from fast_agent.core.keyring_utils import emit_keyring_access_notice
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.llm.model_reference_config import resolve_model_reference_start_path
 from fast_agent.llm.provider_types import Provider
+from fast_agent.session.preview import find_last_assistant_preview_text
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 from fast_agent.ui.model_picker_common import (
     has_explicit_provider_prefix,
     normalize_generic_model_spec,
 )
+from fast_agent.utils.async_utils import suppress_known_runtime_warnings
 
 from .request_builders import resolve_default_instruction, resolve_smart_agent_enabled
 from .shell_cwd_policy import (
@@ -46,15 +48,8 @@ logger = get_logger(__name__)
 
 
 def _find_last_assistant_text(history: list[Any]) -> str | None:
-    for message in reversed(history):
-        if getattr(message, "role", None) != "assistant":
-            continue
-        text = getattr(message, "last_text", None)
-        if callable(text):
-            value = text()
-            if value:
-                return str(value)
-    return None
+    typed_history = [message for message in history if hasattr(message, "role")]
+    return find_last_assistant_preview_text(typed_history)
 
 
 def _is_interactive_startup_notice_context(request: AgentRunRequest) -> bool:
@@ -243,10 +238,11 @@ async def _prompt_for_generic_model_spec(*, default_model: str = "llama3.2") -> 
     prompt_session = PromptSession()
     while True:
         try:
-            entered = await prompt_session.prompt_async(
-                "Local model (e.g. llama3.2): ",
-                default=default_model,
-            )
+            with suppress_known_runtime_warnings():
+                entered = await prompt_session.prompt_async(
+                    "Local model (e.g. llama3.2): ",
+                    default=default_model,
+                )
         except (EOFError, KeyboardInterrupt):
             typer.echo("Model selection cancelled.", err=True)
             raise typer.Exit(1)
