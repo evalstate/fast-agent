@@ -2,6 +2,7 @@ import asyncio
 import concurrent.futures
 import os
 import sys
+import warnings
 from collections.abc import Awaitable, Callable, Iterable
 from typing import ParamSpec, TypeVar
 
@@ -10,6 +11,31 @@ P = ParamSpec("P")
 
 _UVLOOP_REQUESTED: bool | None = None
 _UVLOOP_CONFIGURED: bool | None = None
+
+_UVLOOP_PROMPT_TOOLKIT_DEPRECATION_MESSAGE = (
+    r"'asyncio\.iscoroutinefunction' is deprecated and slated for removal in Python 3\.16; "
+    r"use inspect\.iscoroutinefunction\(\) instead"
+)
+
+
+def _suppress_known_uvloop_prompt_toolkit_deprecation(
+    *,
+    version_info: tuple[int, ...] | None = None,
+) -> None:
+    """Hide the known Python 3.14 uvloop/prompt-toolkit startup warning."""
+    current_version = sys.version_info if version_info is None else version_info
+    if current_version < (3, 14):
+        return
+
+    # uvloop 0.22.1 still calls `asyncio.iscoroutinefunction()` internally from
+    # its signal-handler path, which Python 3.14 surfaces as a DeprecationWarning
+    # during prompt-toolkit startup. Remove this filter when uvloop ships a
+    # release that switches to `inspect.iscoroutinefunction()` and we adopt it.
+    warnings.filterwarnings(
+        "ignore",
+        message=_UVLOOP_PROMPT_TOOLKIT_DEPRECATION_MESSAGE,
+        category=DeprecationWarning,
+    )
 
 
 def _env_value(name: str) -> bool | None:
@@ -40,6 +66,7 @@ def configure_uvloop(
     if explicit_disable is True or explicit_enable is False:
         enabled = False
     elif not sys.platform.startswith("win"):
+        _suppress_known_uvloop_prompt_toolkit_deprecation()
         try:
             import uvloop
         except Exception:
