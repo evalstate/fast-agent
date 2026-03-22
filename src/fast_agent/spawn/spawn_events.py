@@ -20,7 +20,7 @@ EVENT_PREFIX = "__SPAWN_EVENT__"
 class SpawnEvent:
     """A structured event from a spawned agent process."""
 
-    event: str  # started | mcp_connected | thinking | tool_call | tool_result | result | error
+    event: str  # started | mcp_connected | thinking | tool_call | tool_result | result | error | agent_completed
     run_id: str
     role: str
     timestamp: float = field(default_factory=time.time)
@@ -150,3 +150,30 @@ def evt_error(run_id: str, role: str, message: str = "") -> SpawnEvent:
         role=role,
         data={"message": message[:500]},
     )
+
+
+def evt_agent_completed(
+    run_id: str,
+    role: str,
+    agent_name: str = "",
+    status: str = "idle",
+    result_summary: str = "",
+    duration_seconds: float = 0,
+) -> SpawnEvent:
+    """Agent completed its task and is going idle.
+
+    Emitted by the parent process (isolated_spawner) after the child exits.
+    Used by the bridge to notify PM/stakeholder of completion.
+    """
+    return SpawnEvent(
+        event="agent_completed",
+        run_id=run_id,
+        role=role,
+        data={
+            "agent_name": agent_name,
+            "status": status,
+            "result_summary": result_summary[:500],
+            "duration_seconds": round(duration_seconds, 1),
+        },
+    )
+

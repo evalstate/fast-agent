@@ -787,6 +787,24 @@ async def run_isolated_agent_background(
                 env_vars=env_vars,
             )
 
+            # ── Emit agent_completed event for PM/bridge notification ──
+            if display_manager:
+                from fast_agent.spawn.spawn_events import evt_agent_completed
+
+                # Determine status independently of registry
+                _is_error = result.get("status") != "completed"
+                _is_idle = lifecycle == "resumable" and not _is_error
+                _agent_status = "error" if _is_error else ("idle" if _is_idle else "completed")
+
+                completed_evt = evt_agent_completed(
+                    run_id=run_id,
+                    role=role or "agent",
+                    agent_name=agent_name or role or "agent",
+                    status=_agent_status,
+                    result_summary=result.get("result", "")[:200],
+                )
+                display_manager.handle_event(completed_evt)
+
         except asyncio.CancelledError:
             if registry:
                 from fast_agent.spawn.spawn_registry import SpawnStatus
