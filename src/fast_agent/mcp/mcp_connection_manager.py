@@ -35,6 +35,7 @@ from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.exceptions import ServerInitializationError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
+from fast_agent.mcp.interfaces import ClientSessionFactory
 from fast_agent.mcp.logger_textio import get_stderr_handler
 from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 from fast_agent.mcp.oauth_client import (
@@ -251,7 +252,7 @@ class ServerConnection:
                 ]
             ],
         ],
-        client_session_factory: Callable[..., ClientSession],
+        client_session_factory: ClientSessionFactory,
     ) -> None:
         self.server_name = server_name
         self.server_config = server_config
@@ -939,10 +940,7 @@ class MCPConnectionManager(ContextDependent):
     async def launch_server(
         self,
         server_name: str,
-        client_session_factory: Callable[
-            [MemoryObjectReceiveStream, MemoryObjectSendStream, timedelta | None],
-            ClientSession,
-        ],
+        client_session_factory: ClientSessionFactory,
         *,
         startup_timeout_seconds: float | None = None,
         trigger_oauth: bool = True,
@@ -1120,7 +1118,7 @@ class MCPConnectionManager(ContextDependent):
         self,
         *,
         server_name: str,
-        client_session_factory: Callable,
+        client_session_factory: ClientSessionFactory,
         startup_timeout_seconds: float | None,
         trigger_oauth: bool,
         oauth_event_handler: OAuthEventHandler | None,
@@ -1165,7 +1163,7 @@ class MCPConnectionManager(ContextDependent):
     async def get_server(
         self,
         server_name: str,
-        client_session_factory: Callable,
+        client_session_factory: ClientSessionFactory,
         *,
         startup_timeout_seconds: float | None = None,
         trigger_oauth: bool = True,
@@ -1262,7 +1260,7 @@ class MCPConnectionManager(ContextDependent):
     async def reconnect_server(
         self,
         server_name: str,
-        client_session_factory: Callable,
+        client_session_factory: ClientSessionFactory,
         *,
         startup_timeout_seconds: float | None = None,
         trigger_oauth: bool = True,
