@@ -1,10 +1,13 @@
 """Tests for Anthropic reasoning defaults and adaptive thinking behavior."""
 
+from pydantic import BaseModel
+
 from fast_agent.config import AnthropicSettings, Settings
 from fast_agent.context import Context
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
 from fast_agent.llm.reasoning_effort import is_auto_reasoning
+from fast_agent.llm.request_params import RequestParams
 
 
 def _make_llm(
@@ -22,6 +25,10 @@ def _make_llm(
         name="test-agent",
         long_context=long_context,
     )
+
+
+class _StructuredResponse(BaseModel):
+    answer: str
 
 
 def test_opus_46_uses_adaptive_thinking_by_default():
@@ -181,3 +188,43 @@ def test_unsupported_model_keeps_long_context_disabled():
     assert llm._long_context is False
     assert llm.model_info is not None
     assert llm.model_info.context_window == 200_000
+
+
+def test_json_structured_output_uses_output_config_format():
+    llm = _make_llm("claude-opus-4-6", reasoning=False)
+
+    args, thinking_enabled = llm._build_anthropic_base_args(
+        model="claude-opus-4-6",
+        messages=[],
+        params=RequestParams(maxTokens=1024),
+        history=None,
+        current_extended=None,
+        request_tools=[],
+        structured_mode="json",
+        structured_model=_StructuredResponse,
+    )
+
+    assert not thinking_enabled
+    assert "output_format" not in args
+    assert args["output_config"]["format"]["type"] == "json_schema"
+    assert "schema" in args["output_config"]["format"]
+
+
+def test_json_structured_output_merges_with_adaptive_effort():
+    llm = _make_llm("claude-opus-4-6", reasoning="max")
+
+    args, thinking_enabled = llm._build_anthropic_base_args(
+        model="claude-opus-4-6",
+        messages=[],
+        params=RequestParams(maxTokens=1024),
+        history=None,
+        current_extended=None,
+        request_tools=[],
+        structured_mode="json",
+        structured_model=_StructuredResponse,
+    )
+
+    assert thinking_enabled
+    assert args["thinking"] == {"type": "adaptive"}
+    assert args["output_config"]["effort"] == "max"
+    assert args["output_config"]["format"]["type"] == "json_schema"

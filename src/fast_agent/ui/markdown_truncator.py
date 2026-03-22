@@ -93,6 +93,14 @@ class MarkdownTruncator:
             self._height_cache.popitem(last=False)
         return height
 
+    def estimate_rendered_height(self, text: str, terminal_width: int) -> int:
+        """Cheap width-based estimate for markdown display height."""
+        if not text:
+            return 0
+        if terminal_width <= 0:
+            return len(text.split("\n"))
+        return self._buffer.estimate_display_lines(text, terminal_width)
+
     def truncate_to_height(
         self,
         text: str,
