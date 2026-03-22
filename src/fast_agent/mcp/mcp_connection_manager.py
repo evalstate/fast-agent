@@ -147,6 +147,75 @@ def _build_transport_metrics_hook(
     return channel_hook
 
 
+def create_transport_context(
+    server_name: str,
+    config: MCPServerSettings,
+) -> AbstractAsyncContextManager:  # yields (read_stream, write_stream, get_session_id_cb | None)
+    """
+    Create a transport context manager for the given server configuration.
+
+    Handles stdio/sse/http transport creation and header preparation, but NOT
+    lifecycle management, task groups, or connection persistence. Used by
+    ServerRegistry.initialize_server() for non-persistent connections.
+
+    Note: OAuth event handlers (oauth_event_handler, oauth_abort_event) and
+    transport_metrics (channel_hook) are intentionally omitted. This function
+    creates short-lived probe connections where full lifecycle tracking is
+    unnecessary. The persistent path in MCPConnectionManager.launch_server()
+    uses its own transport_context_factory closure with those features.
+    """
+    headers, oauth_auth, user_auth_keys = _prepare_headers_and_auth(config)
+    if user_auth_keys:
+        logger.debug(
+            f"{server_name}: Using user-specified auth header(s); skipping OAuth provider.",
+            user_auth_headers=sorted(user_auth_keys),
+        )
+
+    if config.transport == "stdio":
+        if not config.command:
+            raise ValueError(
+                f"Server '{server_name}' uses stdio transport but no command is specified"
+            )
+        server_params = StdioServerParameters(
+            command=config.command,
+            args=config.args if config.args is not None else [],
+            env={**get_default_environment(), **(config.env or {})},
+            cwd=config.cwd,
+        )
+        error_handler = get_stderr_handler(server_name)
+        logger.debug(f"{server_name}: Creating stdio client with custom error handler")
+        return _add_none_to_context(tracking_stdio_client(server_params, errlog=error_handler))
+    elif config.transport == "sse":
+        if not config.url:
+            raise ValueError(f"Server '{server_name}' uses sse transport but no url is specified")
+        return tracking_sse_client(
+            config.url,
+            headers,
+            sse_read_timeout=config.read_transport_sse_timeout_seconds,
+            auth=oauth_auth,
+        )
+    elif config.transport == "http":
+        if not config.url:
+            raise ValueError(f"Server '{server_name}' uses http transport but no url is specified")
+        timeout = None
+        if config.http_timeout_seconds is not None or config.http_read_timeout_seconds is not None:
+            timeout = httpx.Timeout(
+                config.http_timeout_seconds or MCP_DEFAULT_TIMEOUT,
+                read=config.http_read_timeout_seconds or MCP_DEFAULT_SSE_READ_TIMEOUT,
+            )
+        http_client = create_mcp_http_client(
+            headers=headers,
+            auth=oauth_auth,
+            timeout=timeout,
+        )
+        return tracking_streamablehttp_client(
+            config.url,
+            http_client=http_client,
+        )
+    else:
+        raise ValueError(f"Unsupported transport: {config.transport}")
+
+
 class ServerConnection:
     """
     Represents a long-lived MCP server connection, including:

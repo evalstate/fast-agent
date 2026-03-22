@@ -7,6 +7,12 @@ supports dynamic registration of initialization hooks, and provides methods for
 server initialization.
 """
 
+from contextlib import asynccontextmanager
+from datetime import timedelta
+from typing import TYPE_CHECKING, AsyncGenerator, Callable
+
+from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from mcp import ClientSession
 
 from fast_agent.config import (
     MCPServerSettings,
@@ -14,6 +20,9 @@ from fast_agent.config import (
     get_settings,
 )
 from fast_agent.core.logging.logger import get_logger
+
+if TYPE_CHECKING:
+    from mcp.types import InitializeResult, ServerCapabilities
 
 logger = get_logger(__name__)
 
@@ -40,6 +49,7 @@ class ServerRegistry:
             config (Settings): The Settings object containing the server configurations.
             config_path (str): Path to the YAML configuration file.
         """
+        self._init_results: dict[str, "InitializeResult"] = {}
         if config is not None and config.mcp is not None:
             self.registry = config.mcp.servers or {}
 
@@ -87,3 +97,59 @@ class ServerRegistry:
         elif server_config.name is None:
             server_config.name = server_name
         return server_config
+
+    def get_server_capabilities(self, server_name: str) -> "ServerCapabilities | None":
+        """Return cached capabilities for a server, or None if not yet initialized."""
+        init_result = self._init_results.get(server_name)
+        return init_result.capabilities if init_result else None
+
+    @asynccontextmanager
+    async def initialize_server(
+        self,
+        server_name: str,
+        client_session_factory: Callable[
+            [MemoryObjectReceiveStream, MemoryObjectSendStream, timedelta | None],
+            ClientSession,
+        ]
+        | None = None,
+    ) -> AsyncGenerator[ClientSession, None]:
+        """
+        Create a temporary connection to a server, initialize the session, and yield it.
+
+        Delegates transport creation to the shared create_transport_context helper.
+        Capabilities are stored internally and retrievable via get_server_capabilities().
+
+        Note: transport_metrics and OAuth event handlers are intentionally omitted
+        for temporary connections -- they are short-lived probes, not managed lifecycles.
+
+        Args:
+            server_name: Name of the server to initialize.
+            client_session_factory: Optional factory for creating the ClientSession.
+        """
+        from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
+        from fast_agent.mcp.mcp_connection_manager import create_transport_context
+
+        config = self.get_server_config(server_name)
+        if config is None:
+            raise ValueError(f"Server '{server_name}' not found in registry.")
+
+        # transport_metrics intentionally omitted for temporary connections
+        transport_context = create_transport_context(server_name=server_name, config=config)
+
+        async with transport_context as (read_stream, write_stream, _get_session_id_cb):
+            read_timeout = (
+                timedelta(seconds=config.read_timeout_seconds)
+                if config.read_timeout_seconds
+                else None
+            )
+            if client_session_factory is not None:
+                session = client_session_factory(read_stream, write_stream, read_timeout)
+            else:
+                session = MCPAgentClientSession(
+                    read_stream, write_stream, read_timeout, server_config=config
+                )
+
+            async with session:
+                result: "InitializeResult" = await session.initialize()
+                self._init_results[server_name] = result
+                yield session

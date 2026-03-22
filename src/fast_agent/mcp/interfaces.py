@@ -25,10 +25,13 @@ from fast_agent.interfaces import (
 )
 
 if TYPE_CHECKING:
+    from mcp.types import ServerCapabilities
+
     from fast_agent.config import MCPServerSettings
 
 __all__ = [
     "MCPConnectionManagerProtocol",
+    "ServerInitializerProtocol",
     "ServerRegistryProtocol",
     "ServerConnection",
     "FastAgentLLMProtocol",
@@ -47,21 +50,45 @@ class MCPConnectionManagerProtocol(Protocol):
     async def get_server(
         self,
         server_name: str,
-        client_session_factory: 
-            Callable[
-                [
-                    MemoryObjectReceiveStream,
-                    MemoryObjectSendStream,
-                    timedelta | None,
-                ],
-                ClientSession,
-            ]
-         | None = None,
+        client_session_factory: Callable[
+            [
+                MemoryObjectReceiveStream,
+                MemoryObjectSendStream,
+                timedelta | None,
+            ],
+            ClientSession,
+        ]
+        | None = None,
     ) -> "ServerConnection": ...
 
     async def disconnect_server(self, server_name: str) -> None: ...
 
     async def disconnect_all_servers(self) -> None: ...
+
+
+@runtime_checkable
+class ServerInitializerProtocol(Protocol):
+    """Protocol for temporary (non-persistent) server connections used by gen_client."""
+
+    def initialize_server(
+        self,
+        server_name: str,
+        client_session_factory: Callable[
+            [
+                MemoryObjectReceiveStream,
+                MemoryObjectSendStream,
+                timedelta | None,
+            ],
+            ClientSession,
+        ]
+        | None = None,
+    ) -> AsyncContextManager[ClientSession]:
+        """Initialize a server and yield a client session."""
+        ...
+
+    def get_server_capabilities(self, server_name: str) -> "ServerCapabilities | None":
+        """Return cached capabilities for a server, or None if not yet initialized."""
+        ...
 
 
 @runtime_checkable
@@ -77,21 +104,22 @@ class ServerRegistryProtocol(Protocol):
     def initialize_server(
         self,
         server_name: str,
-        client_session_factory: 
-            Callable[
-                [
-                    MemoryObjectReceiveStream,
-                    MemoryObjectSendStream,
-                    timedelta | None,
-                ],
-                ClientSession,
-            ]
-         | None = None,
+        client_session_factory: Callable[
+            [
+                MemoryObjectReceiveStream,
+                MemoryObjectSendStream,
+                timedelta | None,
+            ],
+            ClientSession,
+        ]
+        | None = None,
     ) -> AsyncContextManager[ClientSession]:
         """Initialize a server and yield a client session."""
         ...
 
     def get_server_config(self, server_name: str) -> "MCPServerSettings | None": ...
+
+    def get_server_capabilities(self, server_name: str) -> "ServerCapabilities | None": ...
 
 
 class ServerConnection(Protocol):
