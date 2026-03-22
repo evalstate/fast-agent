@@ -22,6 +22,8 @@ Tools:
 19. get_team_result — get consolidated team result
 20. list_team_templates_tool — list available templates
 21. trigger_retrospective — run team retrospective
+22. send_team_message — send directive to team PM
+23. resume_team_tool — resume completed team with follow-up sprint
 
 All paths are resolved from environment variables set by the host
 process, not from module-level globals.
@@ -993,6 +995,167 @@ def list_team_templates_tool() -> str:
     """List all available team templates."""
     templates = _list_templates(template_dir=str(_PROJECT_DIR / "team_templates"))
     return json.dumps({"count": len(templates), "templates": templates})
+
+
+# ───────────────────────────────────────────────────────────
+# Phase 2: User → PM Communication Bridge
+# ───────────────────────────────────────────────────────────
+
+
+@mcp.tool()
+async def send_team_message(
+    session_id: str,
+    message: str,
+    priority: str = "normal",
+) -> str:
+    """Send a directive message to the team's PM (orchestrator).
+
+    This is the ONLY way for Jarvis to communicate with a running team.
+    Messages always route to the PM — never directly to team members.
+    If PM is idle, it will be auto-woken to process the directive.
+
+    Args:
+        session_id: The team session_id from spawn_team_tool.
+        message: Directive or feedback for the PM.
+        priority: Message priority: low | normal | high | urgent.
+    """
+    session = get_team_session(session_id)
+    if not session:
+        return json.dumps({"error": f"Team session '{session_id}' not found."})
+
+    # Find the orchestrator (PM) agent name
+    orchestrator_role = session.template.get("orchestrator", "")
+    pm_agent_name = ""
+    pm_run_id = ""
+    for name, info in session.agents.items():
+        if info.get("role") == orchestrator_role:
+            pm_agent_name = name
+            pm_run_id = info.get("run_id", "")
+            break
+
+    if not pm_agent_name:
+        return json.dumps({"error": "No PM/orchestrator found in this team session."})
+
+    # Send message via MessageBus
+    msg = _bus.send(
+        from_name="Jarvis",
+        to_name=pm_agent_name,
+        content=message,
+        message_type="directive",
+        priority=priority,
+        context={"session_id": session_id},
+    )
+
+    # Auto-wake PM if idle
+    woke = False
+    if pm_run_id:
+        record = _registry.get_latest(pm_run_id)
+        if record and record.status in ("idle", "completed"):
+            try:
+                await _check_and_resume_on_inbox(
+                    run_id=pm_run_id,
+                    registry=_registry,
+                    display_manager=_display,
+                    project_dir=str(_PROJECT_DIR),
+                )
+                woke = True
+            except Exception as e:
+                logger.warning("Failed to auto-wake PM: %s", e)
+
+    return json.dumps({
+        "status": "sent",
+        "message_id": msg.message_id,
+        "to": pm_agent_name,
+        "priority": priority,
+        "auto_woke_pm": woke,
+        "message": (
+            f"Directive sent to {pm_agent_name}."
+            + (" PM was idle and has been woken." if woke else "")
+        ),
+    })
+
+
+# ───────────────────────────────────────────────────────────
+# Phase 4: Resume Team Session
+# ───────────────────────────────────────────────────────────
+
+
+@mcp.tool()
+async def resume_team_tool(
+    session_id: str,
+    follow_up_task: str,
+    template_name: str = "",
+    team_name: str = "",
+) -> str:
+    """Resume a completed team with a follow-up sprint.
+
+    Collects results from the previous sprint and spawns a new team
+    session with enriched context. The new PM receives the previous
+    sprint's results as context for the follow-up task.
+
+    Args:
+        session_id: The session_id of the completed team to resume.
+        follow_up_task: New task/brief for the next sprint.
+        template_name: Override template (default: same as previous).
+        team_name: Override team name (default: same as previous).
+    """
+    session = get_team_session(session_id)
+    if not session:
+        return json.dumps({"error": f"Team session '{session_id}' not found."})
+
+    # Collect previous sprint results
+    prev_results: list[str] = []
+    for role, info in session.agents.items():
+        run_id = info.get("run_id", "")
+        status = info.get("status", "unknown")
+        result = info.get("result", "")
+        if run_id:
+            record = _registry.get_latest(run_id)
+            if record and record.result:
+                result = record.result
+                status = record.status
+        if result:
+            prev_results.append(
+                f"### {role} ({status})\n{result[:2000]}"
+            )
+
+    prev_context = "\n\n".join(prev_results) if prev_results else "(no results from previous sprint)"
+
+    enriched_brief = (
+        f"## Follow-Up Sprint\n\n"
+        f"### Previous Sprint Results (session: {session_id})\n\n"
+        f"{prev_context}\n\n"
+        f"### New Task\n\n"
+        f"{follow_up_task}"
+    )
+
+    tpl = template_name or session.template.get("name", "agile_team")
+    tname = team_name or session.team_name
+
+    new_session = await _spawn_team(
+        template_name=tpl,
+        project_brief=enriched_brief,
+        registry=_registry,
+        project_dir=str(_PROJECT_DIR),
+        team_name=tname,
+        display_manager=_display,
+        parent_session_id=session_id,
+        mode="background",
+    )
+
+    return json.dumps({
+        "status": "resumed",
+        "previous_session_id": session_id,
+        "new_session_id": new_session.session_id,
+        "template": tpl,
+        "team_name": tname,
+        "agents_with_results": len(prev_results),
+        "message": (
+            f"Team resumed with new sprint. "
+            f"New session: {new_session.session_id}. "
+            f"Use get_team_status(session_id='{new_session.session_id}') to monitor."
+        ),
+    })
 
 
 if __name__ == "__main__":
