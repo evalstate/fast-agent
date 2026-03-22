@@ -9,9 +9,8 @@ server initialization.
 
 from contextlib import asynccontextmanager
 from datetime import timedelta
-from typing import TYPE_CHECKING, AsyncGenerator, Callable
+from typing import TYPE_CHECKING, AsyncIterator
 
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp import ClientSession
 
 from fast_agent.config import (
@@ -20,6 +19,7 @@ from fast_agent.config import (
     get_settings,
 )
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.mcp.interfaces import ClientSessionFactory
 
 if TYPE_CHECKING:
     from mcp.types import InitializeResult, ServerCapabilities
@@ -107,12 +107,8 @@ class ServerRegistry:
     async def initialize_server(
         self,
         server_name: str,
-        client_session_factory: Callable[
-            [MemoryObjectReceiveStream, MemoryObjectSendStream, timedelta | None],
-            ClientSession,
-        ]
-        | None = None,
-    ) -> AsyncGenerator[ClientSession, None]:
+        client_session_factory: ClientSessionFactory | None = None,
+    ) -> AsyncIterator[ClientSession]:
         """
         Create a temporary connection to a server, initialize the session, and yield it.
 
@@ -143,7 +139,12 @@ class ServerRegistry:
                 else None
             )
             if client_session_factory is not None:
-                session = client_session_factory(read_stream, write_stream, read_timeout)
+                session = client_session_factory(
+                    read_stream,
+                    write_stream,
+                    read_timeout,
+                    server_config=config,
+                )
             else:
                 session = MCPAgentClientSession(
                     read_stream, write_stream, read_timeout, server_config=config

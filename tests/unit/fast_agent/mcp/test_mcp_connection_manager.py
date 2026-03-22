@@ -15,6 +15,7 @@ from fast_agent.mcp.mcp_connection_manager import (
     _format_oauth_registration_404_details,
     _is_oauth_registration_404_message,
     _is_oauth_timeout_message,
+    _managed_http_transport_context,
     _prepare_headers_and_auth,
     _server_lifecycle_task,
     _wait_for_initialized_with_startup_budget,
@@ -94,6 +95,50 @@ def test_prepare_headers_invokes_oauth_when_no_auth_headers(monkeypatch):
     assert auth is sentinel
     assert user_keys == set()
     assert calls == [config]
+
+
+@pytest.mark.asyncio
+async def test_managed_http_transport_context_closes_client_after_transport() -> None:
+    class _FakeClient:
+        def __init__(self) -> None:
+            self.entered = False
+            self.exited = False
+
+        async def __aenter__(self):
+            self.entered = True
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> bool:
+            del exc_type, exc, tb
+            self.exited = True
+            return False
+
+    class _FakeTransportContext:
+        def __init__(self) -> None:
+            self.entered = False
+            self.exited = False
+
+        async def __aenter__(self):
+            self.entered = True
+            return object(), object(), None
+
+        async def __aexit__(self, exc_type, exc, tb):
+            del exc_type, exc, tb
+            self.exited = True
+            return None
+
+    client = cast("Any", _FakeClient())
+    transport_context = _FakeTransportContext()
+
+    async with _managed_http_transport_context(client, transport_context) as streams:
+        assert streams[2] is None
+        assert transport_context.entered is True
+        assert transport_context.exited is False
+        assert client.entered is True
+        assert client.exited is False
+
+    assert transport_context.exited is True
+    assert client.exited is True
 
 
 @pytest.mark.asyncio

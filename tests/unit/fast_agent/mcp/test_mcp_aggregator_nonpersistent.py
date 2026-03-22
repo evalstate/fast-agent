@@ -135,6 +135,38 @@ async def test_initialize_server_creates_and_tears_down_session(monkeypatch) -> 
     assert registry.get_server_capabilities("demo") is not None
 
 
+@pytest.mark.asyncio
+async def test_initialize_server_forwards_server_config_to_custom_factory(monkeypatch) -> None:
+    registry = ServerRegistry()
+    server_config = MCPServerSettings(name="demo", transport="stdio", command="echo")
+    registry.registry = {"demo": server_config}
+
+    session = _DummySession()
+    captured_server_config = None
+
+    @asynccontextmanager
+    async def _fake_transport(server_name, config):
+        yield (object(), object(), None)
+
+    monkeypatch.setattr(
+        "fast_agent.mcp.mcp_connection_manager.create_transport_context",
+        _fake_transport,
+    )
+
+    def _fake_factory(read_stream, write_stream, read_timeout, **kwargs):
+        del read_stream, write_stream, read_timeout
+        nonlocal captured_server_config
+        captured_server_config = kwargs.get("server_config")
+        return session
+
+    async with registry.initialize_server(
+        "demo", client_session_factory=_fake_factory
+    ) as yielded_session:
+        assert yielded_session is session
+
+    assert captured_server_config is server_config
+
+
 # ---------------------------------------------------------------------------
 # get_capabilities (non-persistent path)
 # ---------------------------------------------------------------------------
