@@ -8,7 +8,7 @@ import threading
 import time
 import traceback
 from collections import deque
-from contextlib import AbstractAsyncContextManager, suppress
+from contextlib import AbstractAsyncContextManager, asynccontextmanager, suppress
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Union, cast
@@ -76,6 +76,17 @@ class StreamingContextAdapter:
 def _add_none_to_context(context_manager):
     """Helper to add a None value to context managers that return 2 values instead of 3"""
     return StreamingContextAdapter(context_manager)
+
+
+@asynccontextmanager
+async def _managed_http_transport_context(
+    http_client: httpx.AsyncClient,
+    transport_context: AbstractAsyncContextManager,
+):
+    """Own an HTTP client for a transport context built from that client."""
+    async with http_client:
+        async with transport_context as streams:
+            yield streams
 
 
 def _prepare_headers_and_auth(
@@ -150,7 +161,7 @@ def _build_transport_metrics_hook(
 def create_transport_context(
     server_name: str,
     config: MCPServerSettings,
-) -> AbstractAsyncContextManager:  # yields (read_stream, write_stream, get_session_id_cb | None)
+) -> AbstractAsyncContextManager:
     """
     Create a transport context manager for the given server configuration.
 
@@ -208,9 +219,12 @@ def create_transport_context(
             auth=oauth_auth,
             timeout=timeout,
         )
-        return tracking_streamablehttp_client(
-            config.url,
-            http_client=http_client,
+        return _managed_http_transport_context(
+            http_client,
+            tracking_streamablehttp_client(
+                config.url,
+                http_client=http_client,
+            ),
         )
     else:
         raise ValueError(f"Unsupported transport: {config.transport}")
@@ -1067,10 +1081,13 @@ class MCPConnectionManager(ContextDependent):
                     auth=oauth_auth,
                     timeout=timeout,
                 )
-                return tracking_streamablehttp_client(
-                    config.url,
-                    http_client=http_client,
-                    channel_hook=channel_hook,
+                return _managed_http_transport_context(
+                    http_client,
+                    tracking_streamablehttp_client(
+                        config.url,
+                        http_client=http_client,
+                        channel_hook=channel_hook,
+                    ),
                 )
             else:
                 raise ValueError(f"Unsupported transport: {config.transport}")

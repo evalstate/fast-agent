@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 
 import pytest
 from mcp.shared.exceptions import McpError
@@ -20,8 +21,10 @@ from fast_agent.mcp.interfaces import ServerInitializerProtocol
 from fast_agent.mcp.mcp_aggregator import (
     METHOD_NOT_FOUND_ERROR_CODE,
     MCPAggregator,
+    MCPAttachOptions,
     _is_capability_probe_error,
 )
+from fast_agent.mcp.skybridge import SkybridgeServerConfig
 from fast_agent.mcp_server_registry import ServerRegistry
 
 
@@ -473,3 +476,90 @@ async def test_reset_runtime_indexes_clears_capabilities_cache() -> None:
     await aggregator._reset_runtime_indexes()
 
     assert aggregator._capabilities_cache.get("alpha") is None
+
+
+@pytest.mark.asyncio
+async def test_attach_server_force_reconnect_refreshes_capabilities_cache() -> None:
+    capability_generations = [
+        ServerCapabilities(tools=ToolsCapability()),
+        ServerCapabilities(prompts=PromptsCapability()),
+    ]
+
+    class _SequencedRegistry(ServerRegistry):
+        def __init__(self) -> None:
+            super().__init__()
+            self.registry = {
+                "alpha": MCPServerSettings(name="alpha", transport="stdio", command="echo")
+            }
+            self.initialize_count = 0
+
+        @asynccontextmanager
+        async def initialize_server(self, server_name, client_session_factory=None):
+            del client_session_factory
+            capabilities = capability_generations[min(self.initialize_count, 1)]
+            self.initialize_count += 1
+            self._init_results[server_name] = InitializeResult(
+                protocolVersion="2025-03-26",
+                capabilities=capabilities,
+                serverInfo=Implementation(name="stub", version="0.1"),
+            )
+            yield _DummySession()
+
+    registry = _SequencedRegistry()
+    context = Context(server_registry=registry)
+
+    class _ReconnectAwareAggregator(MCPAggregator):
+        async def _execute_on_server(
+            self,
+            server_name,
+            operation_type,
+            operation_name,
+            method_name,
+            method_args=None,
+            error_factory=None,
+            progress_callback=None,
+        ):
+            del operation_type, operation_name, method_args, error_factory, progress_callback
+            capabilities = self._require_server_registry().get_server_capabilities(server_name)
+            if method_name == "list_tools":
+                if capabilities and capabilities.tools:
+                    return ListToolsResult(
+                        tools=[Tool(name="echo", inputSchema={"type": "object"})]
+                    )
+                raise McpError(
+                    ErrorData(code=METHOD_NOT_FOUND_ERROR_CODE, message="Method not found")
+                )
+            if method_name == "list_prompts":
+                prompts = (
+                    [SimpleNamespace(name="new-prompt")]
+                    if capabilities and capabilities.prompts
+                    else []
+                )
+                return SimpleNamespace(prompts=prompts)
+            raise AssertionError(f"Unexpected MCP method: {method_name}")
+
+        async def _evaluate_skybridge_for_server(
+            self, server_name: str
+        ) -> tuple[str, SkybridgeServerConfig]:
+            return server_name, SkybridgeServerConfig(server_name=server_name)
+
+    aggregator = _ReconnectAwareAggregator(
+        server_names=["alpha"],
+        connection_persistence=False,
+        context=context,
+    )
+
+    first_caps = await aggregator.get_capabilities("alpha")
+    assert first_caps is capability_generations[0]
+
+    aggregator._attached_server_names.append("alpha")
+    result = await aggregator.attach_server(
+        server_name="alpha",
+        options=MCPAttachOptions(force_reconnect=True),
+    )
+
+    assert registry.initialize_count == 2
+    assert aggregator._capabilities_cache["alpha"] is capability_generations[1]
+    assert result.prompts_added == ["new-prompt"]
+    assert result.tools_total == 0
+    assert result.prompts_total == 1

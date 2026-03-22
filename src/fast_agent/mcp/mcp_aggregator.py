@@ -683,6 +683,10 @@ class MCPAggregator(ContextDependent):
                 prompts_total=len(existing_prompt_names),
             )
 
+        if attach_options.force_reconnect:
+            async with self._capabilities_cache_lock:
+                self._capabilities_cache.pop(server_name, None)
+
         if self.connection_persistence:
             logger.info(
                 f"Creating persistent connection to server: {server_name}",
