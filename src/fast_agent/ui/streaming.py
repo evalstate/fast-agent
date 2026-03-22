@@ -3,13 +3,16 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import sys
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Protocol
+from typing import IO, TYPE_CHECKING, Any, Callable, Protocol, TextIO, cast
 
-from rich.console import Group
-from rich.live import Live
+from rich.console import Console, Group, RenderHook
+from rich.control import Control
+from rich.file_proxy import FileProxy
 from rich.markdown import Markdown
+from rich.segment import ControlType, Segment
 from rich.text import Text
 
 from fast_agent.core.logging.logger import get_logger
@@ -23,16 +26,17 @@ from fast_agent.ui.stream_segments import StreamSegmentAssembler
 from fast_agent.ui.stream_viewport import StreamViewport
 
 if TYPE_CHECKING:
-    from rich.console import RenderableType
+    from rich.console import ConsoleRenderable, RenderableType
 
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
     from fast_agent.ui.console_display import ConsoleDisplay
+    from fast_agent.ui.stream_segments import StreamSegment
 
 
 logger = get_logger(__name__)
 
 MARKDOWN_STREAM_TARGET_RATIO = 0.93
-MARKDOWN_STREAM_REFRESH_PER_SECOND = 4
+MARKDOWN_STREAM_REFRESH_PER_SECOND = 8
 # Keep only a small anti-flicker pad now that scroll-indicator churn is debounced.
 MARKDOWN_STREAM_HEIGHT_FUDGE = 1
 PLAIN_STREAM_TARGET_RATIO = 0.95
@@ -69,6 +73,306 @@ class _ToolStreamEvent:
 class _QueuedItem:
     payload: object
     enqueued_at: float
+
+
+@dataclass(frozen=True)
+class _RenderedLine:
+    text: str
+    cell_length: int
+
+
+class _DiffLive(RenderHook):
+    """Minimal live-region renderer that updates changed lines in place."""
+
+    def __init__(
+        self,
+        renderable: RenderableType | None = None,
+        *,
+        console: Console,
+        screen: bool = False,
+        auto_refresh: bool = True,
+        refresh_per_second: float = 4,
+        transient: bool = False,
+        redirect_stdout: bool = True,
+        redirect_stderr: bool = True,
+        vertical_overflow: str = "ellipsis",
+        get_renderable: Callable[[], RenderableType] | None = None,
+    ) -> None:
+        del screen, auto_refresh, refresh_per_second, vertical_overflow
+        self.console = console
+        self.transient = transient
+        self._renderable = renderable
+        self._get_renderable = get_renderable
+        self._started = False
+        self._lines: list[_RenderedLine] = []
+        self._is_interactive = self.console.is_terminal
+        self._nested = False
+        self._redirect_stdout = redirect_stdout
+        self._redirect_stderr = redirect_stderr
+        self._restore_stdout: IO[str] | None = None
+        self._restore_stderr: IO[str] | None = None
+        self._console_state_active = False
+        self._cursor_below_frame = False
+
+    def __enter__(self) -> "_DiffLive":
+        if not self._started:
+            self._started = True
+            if self._is_interactive:
+                if not self.console.set_live(self):
+                    self._nested = True
+                    return self
+                console.ensure_blocking_console()
+                self.console.show_cursor(False)
+                self._enable_redirect_io()
+                self.console.push_render_hook(self)
+                self._console_state_active = True
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        self.stop()
+
+    def update(self, renderable: RenderableType, *, refresh: bool = False) -> None:
+        self._renderable = renderable
+        if refresh:
+            self.refresh()
+
+    def refresh(self) -> None:
+        if not self._started:
+            self.__enter__()
+        renderable = self.get_renderable()
+        if renderable is None:
+            return
+        if not self._is_interactive:
+            return
+        lines = self._render_lines(renderable)
+        if not self._lines:
+            self._write_initial(lines)
+        else:
+            self._write_diff(lines)
+        self._lines = lines
+
+    def stop(self) -> None:
+        if not self._started:
+            return
+        try:
+            self._started = False
+            if not self._is_interactive:
+                renderable = self.get_renderable()
+                if renderable is not None:
+                    self.console.print(renderable)
+                return
+            self.console.clear_live()
+            if self._nested:
+                if not self.transient:
+                    renderable = self.get_renderable()
+                    if renderable is not None:
+                        self.console.print(renderable)
+                return
+            if self._lines:
+                if self.transient:
+                    self._clear_region()
+                else:
+                    self._write("\n")
+        finally:
+            if self._is_interactive and self._console_state_active:
+                self._disable_redirect_io()
+                self.console.pop_render_hook()
+                self.console.show_cursor(True)
+                self._console_state_active = False
+            self._nested = False
+
+    def get_renderable(self) -> RenderableType | None:
+        if self._get_renderable is not None:
+            return self._get_renderable()
+        return self._renderable
+
+    def process_renderables(
+        self,
+        renderables: list["ConsoleRenderable"],
+    ) -> list["ConsoleRenderable"]:
+        if not self._is_interactive or not self._started or self._nested:
+            return renderables
+        renderable = self.get_renderable()
+        if renderable is None:
+            return renderables
+        if isinstance(renderable, str):
+            current_renderable: ConsoleRenderable = self.console.render_str(renderable)
+        else:
+            current_renderable = cast("ConsoleRenderable", renderable)
+        # Rich prints a trailing newline for console output, so once we re-render
+        # the live frame as part of that output the cursor ends one line below it.
+        self._cursor_below_frame = True
+        return [self._position_cursor_control(), *renderables, current_renderable]
+
+    def _render_lines(self, renderable: RenderableType) -> list[_RenderedLine]:
+        options = self.console.options.update(width=self.console.size.width)
+        rendered_lines = self.console.render_lines(renderable, options=options, pad=False)
+        return [
+            _RenderedLine(
+                text=self.console._render_buffer(line),
+                cell_length=Segment.get_line_length(line),
+            )
+            for line in rendered_lines
+        ]
+
+    def _write_initial(self, lines: list[_RenderedLine]) -> None:
+        if not lines:
+            return
+        payload_parts: list[str] = []
+        for index, line in enumerate(lines):
+            if index:
+                payload_parts.append(self._scroll_newline())
+            payload_parts.append(line.text)
+        payload_parts.append(str(Control.move_to_column(0)))
+        payload = "".join(payload_parts)
+        self._write(payload)
+        self._cursor_below_frame = False
+
+    def _write_diff(self, lines: list[_RenderedLine]) -> None:
+        old_lines = self._lines
+        first_diff = 0
+        shared = min(len(old_lines), len(lines))
+        while first_diff < shared and old_lines[first_diff] == lines[first_diff]:
+            first_diff += 1
+        if first_diff == len(old_lines) == len(lines):
+            return
+        if first_diff == len(old_lines) and len(lines) > len(old_lines):
+            self._write_appended_lines(lines[first_diff:])
+            return
+        if (
+            old_lines
+            and len(lines) > len(old_lines)
+            and first_diff == len(old_lines) - 1
+        ):
+            self._rewrite_growing_last_line(old_lines[-1], lines[first_diff:])
+            return
+
+        max_height = max(len(old_lines), len(lines))
+        current_row = len(old_lines) - 1
+        if self._cursor_below_frame:
+            current_row += 1
+        payload: list[str] = [self._move_to_line_start(first_diff - current_row)]
+        last_old_row = len(old_lines) - 1
+
+        for row in range(first_diff, max_height):
+            new_line = lines[row] if row < len(lines) else None
+            old_line = old_lines[row] if row < len(old_lines) else None
+            if new_line is not None:
+                payload.append(new_line.text)
+                if old_line is not None and old_line.cell_length > new_line.cell_length:
+                    payload.append(str(Control((ControlType.ERASE_IN_LINE, 0))))
+            else:
+                payload.append(str(Control((ControlType.ERASE_IN_LINE, 2))))
+
+            if row < max_height - 1:
+                next_row = row + 1
+                if row >= last_old_row or next_row > last_old_row:
+                    payload.append(self._scroll_newline())
+                else:
+                    payload.append(self._move_to_line_start(1))
+
+        target_row = len(lines) - 1
+        payload.append(self._move_to_line_start(target_row - (max_height - 1)))
+        self._write("".join(payload))
+        self._cursor_below_frame = False
+
+    def _write_appended_lines(self, lines: list[_RenderedLine]) -> None:
+        if not lines:
+            return
+        payload_parts: list[str] = []
+        if self._cursor_below_frame:
+            payload_parts.append(str(Control.move_to_column(0)))
+            payload_parts.append(lines[0].text)
+            remaining_lines = lines[1:]
+        else:
+            remaining_lines = lines
+        for line in remaining_lines:
+            payload_parts.append(self._scroll_newline())
+            payload_parts.append(line.text)
+        payload_parts.append(str(Control.move_to_column(0)))
+        payload = "".join(payload_parts)
+        self._write(payload)
+        self._cursor_below_frame = False
+
+    def _rewrite_growing_last_line(
+        self,
+        old_last_line: _RenderedLine,
+        new_lines: list[_RenderedLine],
+    ) -> None:
+        if not new_lines:
+            return
+        row_delta = -1 if self._cursor_below_frame else 0
+        payload = [self._move_to_line_start(row_delta), new_lines[0].text]
+        if old_last_line.cell_length > new_lines[0].cell_length:
+            payload.append(str(Control((ControlType.ERASE_IN_LINE, 0))))
+        for line in new_lines[1:]:
+            payload.append(self._scroll_newline())
+            payload.append(line.text)
+        payload.append(str(Control.move_to_column(0)))
+        self._write("".join(payload))
+        self._cursor_below_frame = False
+
+    def _clear_region(self) -> None:
+        height = len(self._lines)
+        if height <= 0:
+            return
+        cursor_row = height - 1
+        if self._cursor_below_frame:
+            cursor_row += 1
+        payload = [self._move_to_line_start(-cursor_row)]
+        for row in range(height):
+            payload.append(str(Control((ControlType.ERASE_IN_LINE, 2))))
+            if row < height - 1:
+                payload.append(self._move_to_line_start(1))
+        payload.append(self._move_to_line_start(-(height - 1)))
+        self._write("".join(payload))
+        self._lines = []
+        self._cursor_below_frame = False
+
+    def _move_to_line_start(self, row_delta: int) -> str:
+        return str(Control.move_to_column(0, y=row_delta))
+
+    def _scroll_newline(self) -> str:
+        """Advance to the next physical row in a way that is safe after right-edge writes."""
+        return f"{Control.move_to_column(0)}\n"
+
+    def _position_cursor_control(self) -> Control:
+        height = len(self._lines)
+        if height <= 0:
+            return Control()
+        lines_to_rewind = height - 1
+        if self._cursor_below_frame:
+            lines_to_rewind += 1
+        return Control(
+            ControlType.CARRIAGE_RETURN,
+            (ControlType.ERASE_IN_LINE, 2),
+            *(((ControlType.CURSOR_UP, 1), (ControlType.ERASE_IN_LINE, 2)) * lines_to_rewind),
+        )
+
+    def _write(self, text: str) -> None:
+        if not text:
+            return
+        with self.console._lock:
+            self.console.file.write(text)
+            self.console.file.flush()
+
+    def _enable_redirect_io(self) -> None:
+        if not self._is_interactive:
+            return
+        if self._redirect_stdout and not isinstance(sys.stdout, FileProxy):
+            self._restore_stdout = sys.stdout
+            sys.stdout = cast("TextIO", FileProxy(self.console, sys.stdout))
+        if self._redirect_stderr and not isinstance(sys.stderr, FileProxy):
+            self._restore_stderr = sys.stderr
+            sys.stderr = cast("TextIO", FileProxy(self.console, sys.stderr))
+
+    def _disable_redirect_io(self) -> None:
+        if self._restore_stdout:
+            sys.stdout = cast("TextIO", self._restore_stdout)
+            self._restore_stdout = None
+        if self._restore_stderr:
+            sys.stderr = cast("TextIO", self._restore_stderr)
+            self._restore_stderr = None
 
 
 class NullStreamingHandle:
@@ -175,7 +479,7 @@ class StreamingMessageHandle:
         self._queue: asyncio.Queue[object] | None = asyncio.Queue() if self._async_mode else None
         self._stop_sentinel: object = object()
         self._worker_task: asyncio.Task[None] | None = None
-        self._live: Live | None = Live(
+        self._live: _DiffLive | None = _DiffLive(
             None,
             console=console.console,
             vertical_overflow="ellipsis",
@@ -384,12 +688,6 @@ class StreamingMessageHandle:
         self._show_stream_cursor = False
         if not self._preserve_final_frame:
             self._reset_scroll_indicator()
-
-        if self._preserve_final_frame:
-            # Avoid carrying the anti-flicker height padding into the persisted
-            # final frame, otherwise short responses keep visible blank lines.
-            self._max_render_height = 0
-            self._height_fudge = 0
 
         # Flush any buffered reasoning content before closing the live view
         if self._segment_assembler.flush():
@@ -633,8 +931,9 @@ class StreamingMessageHandle:
         width = console.console.size.width
         render_start = time.perf_counter()
 
-        total_segments = len(window_segments)
-        for segment_index, segment in enumerate(window_segments):
+        display_segments = self._coalesce_display_segments(window_segments)
+        total_segments = len(display_segments)
+        for segment_index, segment in enumerate(display_segments):
             cursor_suffix = self._cursor_suffix(
                 segment_index=segment_index,
                 total_segments=total_segments,
@@ -775,6 +1074,22 @@ class StreamingMessageHandle:
                 except Exception:
                     pass
                 self._pending_batch_meta = None
+
+    def _coalesce_display_segments(self, segments: list["StreamSegment"]) -> list["StreamSegment"]:
+        if not segments:
+            return []
+
+        merged: list["StreamSegment"] = []
+        for segment in segments:
+            if (
+                merged
+                and segment.kind == "markdown"
+                and merged[-1].kind == "markdown"
+            ):
+                merged[-1] = merged[-1].copy_with_text(merged[-1].text + segment.text)
+                continue
+            merged.append(segment)
+        return merged
 
     async def _render_worker(self) -> None:
         assert self._queue is not None

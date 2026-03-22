@@ -1,11 +1,15 @@
-from typing import Literal
+import io
+from typing import Any, Literal, cast
+
+from rich.console import Console
+from rich.text import Text
 
 from fast_agent.config import Settings
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.ui import console
 from fast_agent.ui import streaming as streaming_module
 from fast_agent.ui.console_display import ConsoleDisplay, _StreamingMessageHandle
-from fast_agent.ui.stream_segments import StreamSegmentAssembler
+from fast_agent.ui.stream_segments import StreamSegment, StreamSegmentAssembler
 
 
 def _set_console_size(width: int = 80, height: int = 24) -> tuple[object | None, object | None]:
@@ -96,6 +100,305 @@ def test_streaming_live_starts_without_initial_renderable() -> None:
     handle = _make_handle("markdown")
     assert handle._live is not None
     assert getattr(handle._live, "_renderable", "missing") is None
+
+
+def test_diff_live_updates_only_changed_tail_line() -> None:
+    output = io.StringIO()
+    live = streaming_module._DiffLive(
+        console=Console(file=output, force_terminal=True, color_system=None, width=40),
+        transient=True,
+    )
+
+    live.__enter__()
+    output.truncate(0)
+    output.seek(0)
+    live.update(Text("alpha\nbeta"), refresh=True)
+
+    output.truncate(0)
+    output.seek(0)
+    live.update(Text("alpha\ngamma"), refresh=True)
+
+    rendered = output.getvalue()
+    assert "\x1b[2K\x1b[1A\x1b[2K" not in rendered
+    assert "\x1b[1Ggamma" in rendered
+
+
+def test_diff_live_appends_new_lines_with_newline_scroll() -> None:
+    output = io.StringIO()
+    live = streaming_module._DiffLive(
+        console=Console(file=output, force_terminal=True, color_system=None, width=40),
+        transient=True,
+    )
+
+    live.__enter__()
+    output.truncate(0)
+    output.seek(0)
+    live.update(Text("alpha\nbeta"), refresh=True)
+
+    output.truncate(0)
+    output.seek(0)
+    live.update(Text("alpha\nbeta\ngamma"), refresh=True)
+
+    rendered = output.getvalue()
+    assert rendered.startswith("\x1b[1G\ngamma")
+    assert "\x1b[1B" not in rendered
+
+
+def test_diff_live_clears_only_shortened_line_tail() -> None:
+    output = io.StringIO()
+    live = streaming_module._DiffLive(
+        console=Console(file=output, force_terminal=True, color_system=None, width=40),
+        transient=True,
+    )
+
+    live.__enter__()
+    output.truncate(0)
+    output.seek(0)
+    live.update(Text("abcdefgh"), refresh=True)
+
+    output.truncate(0)
+    output.seek(0)
+    live.update(Text("abc"), refresh=True)
+
+    rendered = output.getvalue()
+    assert rendered.startswith("\x1b[1Gabc")
+    assert "\x1b[0K" in rendered
+
+
+def test_diff_live_non_terminal_prints_only_final_frame() -> None:
+    output = io.StringIO()
+    live = streaming_module._DiffLive(
+        console=Console(file=output, force_terminal=False, color_system=None, width=40),
+        transient=True,
+    )
+
+    live.__enter__()
+    live.update(Text("alpha"), refresh=True)
+
+    assert output.getvalue() == ""
+
+    live.stop()
+
+    rendered = output.getvalue()
+    assert "alpha" in rendered
+    assert "\x1b[" not in rendered
+
+
+def test_diff_live_reprints_frame_after_console_print() -> None:
+    output = io.StringIO()
+    local_console = Console(file=output, force_terminal=True, color_system=None, width=40)
+    live = streaming_module._DiffLive(
+        console=local_console,
+        transient=True,
+    )
+
+    live.__enter__()
+    live.update(Text("frame"), refresh=True)
+
+    output.truncate(0)
+    output.seek(0)
+    local_console.print("notice")
+
+    rendered = output.getvalue()
+    assert "notice" in rendered
+    assert "frame" in rendered
+
+
+def test_diff_live_resyncs_cursor_after_console_print_before_next_update() -> None:
+    output = io.StringIO()
+    local_console = Console(file=output, force_terminal=True, color_system=None, width=40)
+    live = streaming_module._DiffLive(
+        console=local_console,
+        transient=True,
+    )
+
+    live.__enter__()
+    live.update(Text("frame1\nline2"), refresh=True)
+
+    output.truncate(0)
+    output.seek(0)
+    local_console.print("notice")
+
+    output.truncate(0)
+    output.seek(0)
+    live.update(Text("frameX\nline2"), refresh=True)
+
+    rendered = output.getvalue()
+    assert rendered.startswith("\x1b[1G\x1b[2AframeX")
+    assert "\x1b[1G\x1b[1AframeX" not in rendered
+
+
+def test_diff_live_appends_without_extra_scroll_after_console_print() -> None:
+    output = io.StringIO()
+    local_console = Console(file=output, force_terminal=True, color_system=None, width=40)
+    live = streaming_module._DiffLive(
+        console=local_console,
+        transient=True,
+    )
+
+    live.__enter__()
+    live.update(Text("a\nb"), refresh=True)
+
+    output.truncate(0)
+    output.seek(0)
+    local_console.print("notice")
+
+    output.truncate(0)
+    output.seek(0)
+    live.update(Text("a\nb\nc"), refresh=True)
+
+    rendered = output.getvalue()
+    assert rendered.startswith("\x1b[1Gc")
+    assert rendered != "\x1b[1G\nc\x1b[1G"
+
+
+def test_diff_live_growing_last_line_rewinds_after_console_print() -> None:
+    output = io.StringIO()
+    local_console = Console(file=output, force_terminal=True, color_system=None, width=4)
+    live = streaming_module._DiffLive(
+        console=local_console,
+        transient=True,
+    )
+
+    live.__enter__()
+    live.update(Text("abcd\nefg"), refresh=True)
+
+    output.truncate(0)
+    output.seek(0)
+    local_console.print("notice")
+
+    output.truncate(0)
+    output.seek(0)
+    live.update(Text("abcd\nefgh\ni"), refresh=True)
+
+    rendered = output.getvalue()
+    assert rendered.startswith("\x1b[1G\x1b[1Aefgh")
+    assert not rendered.startswith("\x1b[1Gefgh")
+
+
+def test_render_coalesces_contiguous_markdown_segments() -> None:
+    handle = _make_handle("markdown")
+
+    merged = handle._coalesce_display_segments(
+        [
+            StreamSegment(kind="markdown", text="See [foo]\n\n", frozen=True),
+            StreamSegment(kind="markdown", text="[foo]: https://example.com\n"),
+            StreamSegment(kind="tool", text="tool\n"),
+        ]
+    )
+
+    assert [segment.kind for segment in merged] == ["markdown", "tool"]
+    assert merged[0].text == "See [foo]\n\n[foo]: https://example.com\n"
+
+
+def test_diff_live_uses_newlines_when_last_line_wraps_and_grows() -> None:
+    output = io.StringIO()
+    live = streaming_module._DiffLive(
+        console=Console(file=output, force_terminal=True, color_system=None, width=4),
+        transient=True,
+    )
+
+    live.__enter__()
+    live._lines = [
+        streaming_module._RenderedLine("abcd", 4),
+        streaming_module._RenderedLine("efg", 3),
+    ]
+    output.truncate(0)
+    output.seek(0)
+    live._write_diff(
+        [
+            streaming_module._RenderedLine("abcd", 4),
+            streaming_module._RenderedLine("efgh", 4),
+            streaming_module._RenderedLine("i", 1),
+        ]
+    )
+
+    rendered = output.getvalue()
+    assert rendered.startswith("\x1b[1Gefgh\x1b[1G\ni")
+    assert "\x1b[1B" not in rendered
+    assert "\x1b[1G\n" in rendered
+
+
+def test_diff_live_uses_newline_when_frame_grows_past_old_bottom() -> None:
+    output = io.StringIO()
+    live = streaming_module._DiffLive(
+        console=Console(file=output, force_terminal=True, color_system=None, width=40),
+        transient=True,
+    )
+
+    live.__enter__()
+    live._lines = [
+        streaming_module._RenderedLine("alpha", 5),
+        streaming_module._RenderedLine("beta", 4),
+    ]
+    output.truncate(0)
+    output.seek(0)
+    live._write_diff(
+        [
+            streaming_module._RenderedLine("ALPHA", 5),
+            streaming_module._RenderedLine("BETA", 4),
+            streaming_module._RenderedLine("gamma", 5),
+        ]
+    )
+
+    rendered = output.getvalue()
+    assert "\x1b[1G\n" in rendered
+    assert "\x1b[1B\x1b[1Ggamma" not in rendered
+
+
+def test_diff_live_uses_newline_for_tail_full_width_line_updates() -> None:
+    output = io.StringIO()
+    live = streaming_module._DiffLive(
+        console=Console(file=output, force_terminal=True, color_system=None, width=4),
+        transient=True,
+    )
+
+    live.__enter__()
+    live._lines = [
+        streaming_module._RenderedLine("one", 3),
+        streaming_module._RenderedLine("abcd", 4),
+    ]
+    output.truncate(0)
+    output.seek(0)
+    live._write_diff(
+        [
+            streaming_module._RenderedLine("one", 3),
+            streaming_module._RenderedLine("wxyz", 4),
+            streaming_module._RenderedLine("tail", 4),
+        ]
+    )
+
+    rendered = output.getvalue()
+    assert "\x1b[1G\n" in rendered
+    assert "\x1b[1B" not in rendered
+
+
+def test_diff_live_does_not_scroll_for_full_width_mid_frame_updates() -> None:
+    output = io.StringIO()
+    live = streaming_module._DiffLive(
+        console=Console(file=output, force_terminal=True, color_system=None, width=4),
+        transient=True,
+    )
+
+    live.__enter__()
+    live._lines = [
+        streaming_module._RenderedLine("one", 3),
+        streaming_module._RenderedLine("abcd", 4),
+        streaming_module._RenderedLine("tail", 4),
+    ]
+    output.truncate(0)
+    output.seek(0)
+    live._write_diff(
+        [
+            streaming_module._RenderedLine("one", 3),
+            streaming_module._RenderedLine("wxyz", 4),
+            streaming_module._RenderedLine("TAIL", 4),
+        ]
+    )
+
+    rendered = output.getvalue()
+    assert "\x1b[1G\n" not in rendered
+    assert "\x1b[1G\x1b[1B" in rendered
 
 
 def test_sync_streaming_markdown_unthrottled_before_scroll(monkeypatch) -> None:
@@ -206,7 +509,7 @@ def test_preserve_final_frame_sets_live_non_transient() -> None:
 
     handle = _make_handle("markdown")
     fake_live = _FakeLive()
-    handle._live = fake_live
+    handle._live = cast("Any", fake_live)
     handle._live_started = True
 
     assert handle.preserve_final_frame() is True
@@ -216,7 +519,7 @@ def test_preserve_final_frame_sets_live_non_transient() -> None:
     assert fake_live.exited is True
 
 
-def test_preserve_final_frame_finalize_disables_padding(monkeypatch) -> None:
+def test_preserve_final_frame_finalize_keeps_padding_stable(monkeypatch) -> None:
     handle = _make_handle("markdown")
     handle._preserve_final_frame = True
     handle._max_render_height = 99
@@ -234,7 +537,7 @@ def test_preserve_final_frame_finalize_disables_padding(monkeypatch) -> None:
 
     handle.finalize("short response")
 
-    assert captured == [(0, 0)]
+    assert captured == [(99, 3)]
 
 
 def test_scrolling_indicator_is_debounced_and_sticky() -> None:
