@@ -369,13 +369,36 @@ def _build_large_table(scale: int) -> str:
 
 
 def _build_long_paragraphs(scale: int) -> str:
-    paragraphs = max(6, 4 * scale)
-    sentence = (
-        "This paragraph is intentionally verbose to test wrapping and scrolling performance."
-    )
+    paragraphs = max(10, 6 * scale)
     content = ["### Long Paragraphs", ""]
+    paragraph_starters = [
+        "Harbor reports describe a tug easing a damaged ferry toward a foggy pier while passengers count lighthouse flashes and argue about whether the tide is helping or hurting.",
+        "A field notebook from a dry plateau lists juniper shade, broken survey stakes, two rusted drums, and a water truck that always seems to arrive five minutes after the crew gives up waiting.",
+        "Kitchen staff preparing for a banquet compare copper pans, late herb deliveries, and the exact moment a sauce turns glossy enough to stop stirring without burning the shallots.",
+        "Rail dispatch notes mention a stalled freight outside the tunnel, a replacement crew driving in from the coast, and three stations improvising around a schedule that was already unrealistic.",
+        "Museum conservators rotate a cracked astrolabe under cool lamps, debating whether the green residue is harmless age, old polish, or evidence of a repair done in haste decades ago.",
+        "Storm chasers on a farm road keep revising the map because every ridge hides the cell for a minute, then reveals a darker wall cloud and another set of power lines humming in the wind.",
+        "A robotics lab status board mixes calibration warnings, battery temperatures, handwritten arrows, and one stubborn sensor marked with a red circle because nobody trusts its cheerful numbers.",
+        "Divers surfacing near a basalt cliff sort tagged samples into orange crates while a support boat radios changing currents, depth readings, and a reminder that daylight is already getting thin.",
+    ]
+    paragraph_tails = [
+        "Watch the commas, emplacements, and long noun phrases here because they create uneven wrap points that should make line movement easier to spot.",
+        "This section intentionally mixes short clauses with longer turns of phrase so a tiny rendering shift is visible instead of disappearing into repeated filler.",
+        "If the renderer repaints or duplicates a line, the place names and object words in this paragraph should make the glitch much easier to identify at a glance.",
+        "The sentence lengths vary on purpose, and the descriptive details are meant to give each paragraph a distinct silhouette once it soft-wraps in a narrow terminal.",
+    ]
     for idx in range(paragraphs):
-        content.append(_repeat_sentence(sentence, 320 + idx * 30))
+        starter = paragraph_starters[idx % len(paragraph_starters)]
+        tail = paragraph_tails[idx % len(paragraph_tails)]
+        paragraph = " ".join(
+            [
+                f"Paragraph {idx + 1:02d}.",
+                starter,
+                tail,
+                f"Marker set {idx + 1:02d}: amber-{idx % 5}, cobalt-{(idx + 2) % 7}, transit-{100 + idx}.",
+            ]
+        )
+        content.append(_repeat_sentence(paragraph, 320 + idx * 30))
         content.append("")
     return "\n".join(content)
 

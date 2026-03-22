@@ -11,6 +11,7 @@ from typing import IO, TYPE_CHECKING, Any, Callable, Protocol, TextIO, cast
 from rich.console import Console, Group, RenderHook
 from rich.control import Control
 from rich.file_proxy import FileProxy
+from rich.live import Live
 from rich.markdown import Markdown
 from rich.segment import ControlType, Segment
 from rich.text import Text
@@ -37,6 +38,8 @@ logger = get_logger(__name__)
 
 MARKDOWN_STREAM_TARGET_RATIO = 0.93
 MARKDOWN_STREAM_REFRESH_PER_SECOND = 8
+MARKDOWN_STREAM_PRE_SCROLL_THROTTLE_RATIO = 0.7
+STREAM_RENDER_WIDTH_GUTTER = 1
 # Keep only a small anti-flicker pad now that scroll-indicator churn is debounced.
 MARKDOWN_STREAM_HEIGHT_FUDGE = 1
 PLAIN_STREAM_TARGET_RATIO = 0.95
@@ -59,6 +62,11 @@ def _resolve_progress_resume_debounce_seconds() -> float:
 
 
 STREAM_PROGRESS_RESUME_DEBOUNCE_SECONDS = _resolve_progress_resume_debounce_seconds()
+
+
+def _alt_screen_streaming_enabled() -> bool:
+    raw_value = os.getenv("FAST_AGENT_STREAM_ALT_SCREEN", "").strip().lower()
+    return raw_value in {"1", "true", "yes", "on"}
 
 _FENCE_OPEN_LINE_RE = re.compile(r"^\s{0,3}(?P<delim>`{3,}|~{3,})(?P<info>.*)$")
 
@@ -466,11 +474,13 @@ class StreamingMessageHandle:
         self._pending_batch_meta: dict[str, Any] | None = None
         self._scrolling_started = False
         self._scroll_start_time: float | None = None
+        self._pre_scroll_throttle_started = False
         self._display_truncated = False
         self._scroll_indicator_visible = False
         self._scroll_indicator_pending_since: float | None = None
         self._header_cache: dict[tuple[int, bool], Text] = {}
         self._next_render_deadline: float | None = None
+        self._alt_screen_streaming = _alt_screen_streaming_enabled()
         try:
             self._loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
         except RuntimeError:
@@ -479,14 +489,28 @@ class StreamingMessageHandle:
         self._queue: asyncio.Queue[object] | None = asyncio.Queue() if self._async_mode else None
         self._stop_sentinel: object = object()
         self._worker_task: asyncio.Task[None] | None = None
-        self._live: _DiffLive | None = _DiffLive(
-            None,
-            console=console.console,
-            vertical_overflow="ellipsis",
-            refresh_per_second=refresh_rate,
-            auto_refresh=False,
-            transient=True,
-        )
+        self._live: Any | None
+        if self._alt_screen_streaming:
+            self._live = Live(
+                None,
+                console=console.console,
+                screen=True,
+                vertical_overflow="ellipsis",
+                refresh_per_second=refresh_rate,
+                auto_refresh=False,
+                transient=True,
+                redirect_stdout=True,
+                redirect_stderr=True,
+            )
+        else:
+            self._live = _DiffLive(
+                None,
+                console=console.console,
+                vertical_overflow="ellipsis",
+                refresh_per_second=refresh_rate,
+                auto_refresh=False,
+                transient=True,
+            )
         self._live_started = False
         self._active = True
         self._finalized = False
@@ -803,13 +827,23 @@ class StreamingMessageHandle:
     def _render_throttle_active(self) -> bool:
         """Whether frame pacing should currently throttle renders.
 
-        Markdown renders are unthrottled until truncation begins (first scroll),
-        then we switch to the configured cadence. Plain-text mode keeps its
-        existing fixed cadence.
+        Plain-text mode keeps its fixed cadence. Markdown starts unthrottled,
+        but once content begins truncating or grows tall enough to be highly
+        reflow-sensitive in the current viewport, we switch to the configured
+        cadence for the rest of the stream.
         """
         if self._use_plain_text:
             return True
-        return self._scrolling_started
+        return self._scrolling_started or self._pre_scroll_throttle_started
+
+    def _update_pre_scroll_throttle(self, *, content_height: int, max_allowed_height: int) -> None:
+        if self._use_plain_text or self._pre_scroll_throttle_started:
+            return
+        if max_allowed_height <= 0:
+            return
+        threshold = max(6, int(max_allowed_height * MARKDOWN_STREAM_PRE_SCROLL_THROTTLE_RATIO))
+        if content_height >= threshold:
+            self._pre_scroll_throttle_started = True
 
     def _render_sync_if_due(self) -> None:
         """Render in sync mode while respecting frame-rate limits."""
@@ -879,6 +913,8 @@ class StreamingMessageHandle:
         """
         if not self._live:
             return False
+        if self._alt_screen_streaming:
+            return False
         if (
             not self._live_started
             and not self._segment_assembler.segments
@@ -908,172 +944,199 @@ class StreamingMessageHandle:
 
         if not self._live:
             return
+        width_override = self._effective_stream_width()
+        width_attr_present = hasattr(console.console, "_width")
+        original_width_attr = getattr(console.console, "_width", None)
+        try:
+            if width_override is not None:
+                console.console._width = width_override
 
-        header = self._build_header()
-        max_allowed_height = max(1, console.console.size.height - 2)
-        window_segments, window_heights = self._viewport.slice_segments_with_heights(
-            segments,
-            terminal_height=max_allowed_height,
-            console=console.console,
-            target_ratio=self._stream_target_ratio,
-        )
-        if not window_segments:
-            return
-        is_truncated = len(window_segments) < len(segments) or (
-            bool(window_segments) and bool(segments) and window_segments[0] is not segments[0]
-        )
-        now = time.monotonic()
-        self._update_scroll_status(is_truncated=is_truncated, now=now)
-        self._segment_assembler.compact(window_segments)
-
-        renderables: list[RenderableType] = []
-        content_height = sum(window_heights)
-        width = console.console.size.width
-        render_start = time.perf_counter()
-
-        display_segments = self._coalesce_display_segments(window_segments)
-        total_segments = len(display_segments)
-        for segment_index, segment in enumerate(display_segments):
-            cursor_suffix = self._cursor_suffix(
-                segment_index=segment_index,
-                total_segments=total_segments,
+            header = self._build_header()
+            max_allowed_height = max(1, console.console.size.height - 2)
+            window_segments, window_heights = self._viewport.slice_segments_with_heights(
+                segments,
+                terminal_height=max_allowed_height,
+                console=console.console,
+                target_ratio=self._stream_target_ratio,
             )
-            if segment.kind == "markdown":
-                prepared = prepare_markdown_content(segment.text, self._display._escape_xml)
-                prepared_for_display = self._close_incomplete_code_blocks(prepared)
-                if cursor_suffix:
-                    prepared_for_display += cursor_suffix
-                if prepared_for_display:
-                    renderables.append(
-                        Markdown(prepared_for_display, code_theme=self._display.code_style)
-                    )
-                else:
-                    renderables.append(Text(""))
-            elif segment.kind == "reasoning":
-                if self._render_reasoning_markdown:
+            if not window_segments:
+                return
+            is_truncated = len(window_segments) < len(segments) or (
+                bool(window_segments) and bool(segments) and window_segments[0] is not segments[0]
+            )
+            now = time.monotonic()
+            self._update_scroll_status(is_truncated=is_truncated, now=now)
+            self._segment_assembler.compact(window_segments)
+
+            renderables: list[RenderableType] = []
+            content_height = sum(window_heights)
+            self._update_pre_scroll_throttle(
+                content_height=content_height,
+                max_allowed_height=max_allowed_height,
+            )
+            width = console.console.size.width
+            render_start = time.perf_counter()
+
+            display_segments = self._coalesce_display_segments(window_segments)
+            total_segments = len(display_segments)
+            for segment_index, segment in enumerate(display_segments):
+                cursor_suffix = self._cursor_suffix(
+                    segment_index=segment_index,
+                    total_segments=total_segments,
+                )
+                if segment.kind == "markdown":
                     prepared = prepare_markdown_content(segment.text, self._display._escape_xml)
                     prepared_for_display = self._close_incomplete_code_blocks(prepared)
                     if cursor_suffix:
                         prepared_for_display += cursor_suffix
-                    markdown = Markdown(
-                        prepared_for_display,
-                        code_theme=self._display.code_style,
-                        style="dim italic",
-                    )
-                    renderables.append(markdown)
+                    if prepared_for_display:
+                        renderables.append(
+                            Markdown(prepared_for_display, code_theme=self._display.code_style)
+                        )
+                    else:
+                        renderables.append(Text(""))
+                elif segment.kind == "reasoning":
+                    if self._render_reasoning_markdown:
+                        prepared = prepare_markdown_content(segment.text, self._display._escape_xml)
+                        prepared_for_display = self._close_incomplete_code_blocks(prepared)
+                        if cursor_suffix:
+                            prepared_for_display += cursor_suffix
+                        markdown = Markdown(
+                            prepared_for_display,
+                            code_theme=self._display.code_style,
+                            style="dim italic",
+                        )
+                        renderables.append(markdown)
+                    else:
+                        renderables.append(Text(f"{segment.text}{cursor_suffix}", style="dim italic"))
                 else:
-                    renderables.append(Text(f"{segment.text}{cursor_suffix}", style="dim italic"))
-            else:
-                if segment.kind == "tool":
-                    header_text = (
-                        self._tool_header_prefix.copy()
-                        if self._tool_header_prefix is not None
-                        else Text()
-                    )
-                    tool_name = segment.tool_name or "tool"
-                    if tool_name:
-                        if header_text.plain:
-                            header_text.append(" ")
-                        header_text.append(tool_name, style=self._tool_header_color or "")
+                    if segment.kind == "tool":
+                        header_text = (
+                            self._tool_header_prefix.copy()
+                            if self._tool_header_prefix is not None
+                            else Text()
+                        )
+                        tool_name = segment.tool_name or "tool"
+                        if tool_name:
+                            if header_text.plain:
+                                header_text.append(" ")
+                            header_text.append(tool_name, style=self._tool_header_color or "")
 
-                    tool_text = header_text
-                    if segment.text:
-                        _, _, args_text = segment.text.partition("\n")
-                        if args_text:
-                            tool_text.append("\n")
-                            if "apply_patch preview:" in args_text:
-                                tool_text.append_text(
-                                    style_apply_patch_preview_text(args_text, default_style="white")
-                                )
-                            else:
-                                tool_text.append(args_text)
-                    if cursor_suffix:
-                        tool_text.append(cursor_suffix, style="dim")
-                    renderables.append(tool_text)
-                else:
-                    renderables.append(Text(f"{segment.text}{cursor_suffix}"))
+                        tool_text = header_text
+                        if segment.text:
+                            _, _, args_text = segment.text.partition("\n")
+                            if args_text:
+                                tool_text.append("\n")
+                                if "apply_patch preview:" in args_text:
+                                    tool_text.append_text(
+                                        style_apply_patch_preview_text(
+                                            args_text, default_style="white"
+                                        )
+                                    )
+                                else:
+                                    tool_text.append(args_text)
+                        if cursor_suffix:
+                            tool_text.append(cursor_suffix, style="dim")
+                        renderables.append(tool_text)
+                    else:
+                        renderables.append(Text(f"{segment.text}{cursor_suffix}"))
 
-        self._max_render_height = min(self._max_render_height, max_allowed_height)
-        budget_height = min(content_height + self._height_fudge, max_allowed_height)
+            self._max_render_height = min(self._max_render_height, max_allowed_height)
+            budget_height = min(content_height + self._height_fudge, max_allowed_height)
 
-        if budget_height > self._max_render_height:
-            self._max_render_height = budget_height
+            if budget_height > self._max_render_height:
+                self._max_render_height = budget_height
 
-        padding_lines = max(0, self._max_render_height - content_height)
-        if padding_lines:
-            # Text("\n" * n) renders n+1 lines, so subtract one for exact padding.
-            renderables.append(Text("\n" * max(0, padding_lines - 1)))
+            padding_lines = max(0, self._max_render_height - content_height)
+            if padding_lines:
+                # Text("\n" * n) renders n+1 lines, so subtract one for exact padding.
+                renderables.append(Text("\n" * max(0, padding_lines - 1)))
 
-        content = (
-            Group(*renderables)
-            if len(renderables) > 1
-            else (renderables[0] if renderables else Text(""))
-        )
-
-        header_with_spacing = header.copy()
-        header_with_spacing.append("\n", style="default")
-
-        combined = Group(header_with_spacing, content)
-        render_interval_ms = (
-            (now - self._last_render_time) * 1000 if self._last_render_time else None
-        )
-        try:
-            self._live.update(combined, refresh=True)
-            self._last_render_time = time.monotonic()
-        except Exception as exc:
-            logger.warning(
-                "Error updating live display during streaming",
-                exc_info=True,
-                data={"error": str(exc)},
+            content = (
+                Group(*renderables)
+                if len(renderables) > 1
+                else (renderables[0] if renderables else Text(""))
             )
-        finally:
-            if self._performance_hook:
-                render_ms = (time.perf_counter() - render_start) * 1000
-                batch_meta = self._pending_batch_meta or {}
-                oldest_enqueued = batch_meta.get("oldest_enqueued_at")
-                newest_enqueued = batch_meta.get("newest_enqueued_at")
-                queue_age_ms = (
-                    (render_start - oldest_enqueued) * 1000
-                    if isinstance(oldest_enqueued, (int, float))
-                    else None
+
+            header_with_spacing = header.copy()
+            header_with_spacing.append("\n", style="default")
+
+            combined = Group(header_with_spacing, content)
+            render_interval_ms = (
+                (now - self._last_render_time) * 1000 if self._last_render_time else None
+            )
+            try:
+                self._live.update(combined, refresh=True)
+                self._last_render_time = time.monotonic()
+            except Exception as exc:
+                logger.warning(
+                    "Error updating live display during streaming",
+                    exc_info=True,
+                    data={"error": str(exc)},
                 )
-                batch_span_ms = (
-                    (newest_enqueued - oldest_enqueued) * 1000
-                    if isinstance(oldest_enqueued, (int, float))
-                    and isinstance(newest_enqueued, (int, float))
-                    else None
-                )
-                scroll_age_ms = (
-                    (now - self._scroll_start_time) * 1000
-                    if self._scroll_start_time is not None
-                    else None
-                )
-                try:
-                    self._performance_hook(
-                        {
-                            "render_ms": render_ms,
-                            "content_height": content_height,
-                            "max_allowed_height": max_allowed_height,
-                            "max_render_height": self._max_render_height,
-                            "segment_count": len(segments),
-                            "window_segment_count": len(window_segments),
-                            "width": width,
-                            "height": console.console.size.height,
-                            "batch_size": batch_meta.get("batch_size"),
-                            "queue_depth": batch_meta.get("queue_depth"),
-                            "queue_age_ms": queue_age_ms,
-                            "batch_span_ms": batch_span_ms,
-                            "batch_window_ms": batch_meta.get("batch_window_ms"),
-                            "batch_chars": batch_meta.get("batch_chars"),
-                            "render_interval_ms": render_interval_ms,
-                            "phase": "scrolling" if self._scrolling_started else "pre_scroll",
-                            "is_truncated": is_truncated,
-                            "scroll_age_ms": scroll_age_ms,
-                        }
+            finally:
+                if self._performance_hook:
+                    render_ms = (time.perf_counter() - render_start) * 1000
+                    batch_meta = self._pending_batch_meta or {}
+                    oldest_enqueued = batch_meta.get("oldest_enqueued_at")
+                    newest_enqueued = batch_meta.get("newest_enqueued_at")
+                    queue_age_ms = (
+                        (render_start - oldest_enqueued) * 1000
+                        if isinstance(oldest_enqueued, (int, float))
+                        else None
                     )
-                except Exception:
-                    pass
-                self._pending_batch_meta = None
+                    batch_span_ms = (
+                        (newest_enqueued - oldest_enqueued) * 1000
+                        if isinstance(oldest_enqueued, (int, float))
+                        and isinstance(newest_enqueued, (int, float))
+                        else None
+                    )
+                    scroll_age_ms = (
+                        (now - self._scroll_start_time) * 1000
+                        if self._scroll_start_time is not None
+                        else None
+                    )
+                    try:
+                        self._performance_hook(
+                            {
+                                "render_ms": render_ms,
+                                "content_height": content_height,
+                                "max_allowed_height": max_allowed_height,
+                                "max_render_height": self._max_render_height,
+                                "segment_count": len(segments),
+                                "window_segment_count": len(window_segments),
+                                "width": width,
+                                "height": console.console.size.height,
+                                "batch_size": batch_meta.get("batch_size"),
+                                "queue_depth": batch_meta.get("queue_depth"),
+                                "queue_age_ms": queue_age_ms,
+                                "batch_span_ms": batch_span_ms,
+                                "batch_window_ms": batch_meta.get("batch_window_ms"),
+                                "batch_chars": batch_meta.get("batch_chars"),
+                                "render_interval_ms": render_interval_ms,
+                                "phase": "scrolling" if self._scrolling_started else "pre_scroll",
+                                "is_truncated": is_truncated,
+                                "scroll_age_ms": scroll_age_ms,
+                            }
+                        )
+                    except Exception:
+                        pass
+                    self._pending_batch_meta = None
+        finally:
+            if width_override is not None:
+                if width_attr_present:
+                    console.console._width = original_width_attr
+                elif hasattr(console.console, "_width"):
+                    delattr(console.console, "_width")
+
+    def _effective_stream_width(self) -> int | None:
+        """Return an optional live-render width override for normal-screen markdown."""
+        if self._use_plain_text or self._alt_screen_streaming:
+            return None
+        actual_width = console.console.size.width
+        if actual_width <= 20:
+            return None
+        return max(20, actual_width - STREAM_RENDER_WIDTH_GUTTER)
 
     def _coalesce_display_segments(self, segments: list["StreamSegment"]) -> list["StreamSegment"]:
         if not segments:
