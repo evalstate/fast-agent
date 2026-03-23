@@ -302,7 +302,7 @@ class MCPAggregator(ContextDependent):
 
         # Server notification callback: async (server_name, notification) -> None
         # Set this to receive MCP server notifications (log messages, resource updates, etc.)
-        self._server_notification_callback = None
+        self.server_notification_callback = None
 
         # Set up logger with agent name in namespace if available
         global logger
@@ -493,7 +493,7 @@ class MCPAggregator(ContextDependent):
                 api_key=api_key,
                 elicitation_handler=elicitation_handler,
                 tool_list_changed_callback=self._handle_tool_list_changed,
-                server_notification_callback=self._server_notification_callback,
+                aggregator=self,
                 **kwargs,  # Pass through any additional kwargs like server_config
             )
 
