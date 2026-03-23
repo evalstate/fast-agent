@@ -143,6 +143,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         self.session_server_name = kwargs.pop("server_name", None)
         # Extract the notification callbacks if provided
         self._tool_list_changed_callback = kwargs.pop("tool_list_changed_callback", None)
+        self._server_notification_callback = kwargs.pop("server_notification_callback", None)
         # Extract server_config if provided
         self.server_config: MCPServerSettings | None = kwargs.pop("server_config", None)
         # Extract agent_model if provided (for auto_sampling fallback)
@@ -948,7 +949,27 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                         f"Tool list changed for server '{self.session_server_name}' but no callback registered"
                     )
 
+        # Forward to generic server notification callback if registered
+        if self._server_notification_callback:
+            import asyncio
+
+            asyncio.create_task(
+                self._handle_server_notification(notification)
+            )
+
         return None
+
+    async def _handle_server_notification(self, notification: ServerNotification) -> None:
+        """Forward server notifications to the registered callback."""
+        try:
+            await self._server_notification_callback(
+                self.session_server_name or "unknown",
+                notification,
+            )
+        except Exception as e:
+            logger.warning(
+                f"Error in server notification callback for '{self.session_server_name}': {e}"
+            )
 
     async def _handle_tool_list_change_callback(self, server_name: str) -> None:
         """

@@ -300,6 +300,10 @@ class MCPAggregator(ContextDependent):
         # Default to NoOpToolPermissionHandler if none provided (allows all).
         self._permission_handler = resolved_permission_handler or NoOpToolPermissionHandler()
 
+        # Server notification callback: async (server_name, notification) -> None
+        # Set this to receive MCP server notifications (log messages, resource updates, etc.)
+        self._server_notification_callback = None
+
         # Set up logger with agent name in namespace if available
         global logger
         logger_name = f"{__name__}.{name}" if name else __name__
@@ -489,6 +493,7 @@ class MCPAggregator(ContextDependent):
                 api_key=api_key,
                 elicitation_handler=elicitation_handler,
                 tool_list_changed_callback=self._handle_tool_list_changed,
+                server_notification_callback=self._server_notification_callback,
                 **kwargs,  # Pass through any additional kwargs like server_config
             )
 
