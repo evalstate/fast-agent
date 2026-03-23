@@ -9,6 +9,21 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 Mode = Literal["interactive", "serve"]
+ExecutionMode = Literal["repl", "one_shot_message", "one_shot_prompt_file"]
+
+
+def resolve_execution_mode(
+    *,
+    message: str | None,
+    prompt_file: str | None,
+) -> ExecutionMode:
+    if message is not None and prompt_file is not None:
+        raise ValueError("Cannot combine --message with --prompt-file")
+    if message is not None:
+        return "one_shot_message"
+    if prompt_file is not None:
+        return "one_shot_prompt_file"
+    return "repl"
 
 
 class UrlServerConfig(TypedDict, total=False):
@@ -62,12 +77,23 @@ class AgentRunRequest:
     permissions_enabled: bool
     reload: bool
     watch: bool
+    execution_mode: ExecutionMode | None = None
     quiet: bool = False
     missing_shell_cwd_policy: Literal["ask", "create", "warn", "error"] | None = None
 
     def __post_init__(self) -> None:
         if self.noenv and self.environment_dir is not None:
             raise ValueError("--noenv cannot be combined with --env")
+        resolved_execution_mode = resolve_execution_mode(
+            message=self.message,
+            prompt_file=self.prompt_file,
+        )
+        if self.execution_mode is None:
+            self.execution_mode = resolved_execution_mode
+        elif self.execution_mode != resolved_execution_mode:
+            raise ValueError(
+                f"execution_mode {self.execution_mode!r} does not match request inputs"
+            )
 
     @property
     def allow_sessions(self) -> bool:
@@ -80,6 +106,10 @@ class AgentRunRequest:
     @property
     def allow_permission_store(self) -> bool:
         return not self.noenv
+
+    @property
+    def is_repl(self) -> bool:
+        return self.execution_mode == "repl"
 
     def to_agent_setup_kwargs(self) -> dict[str, Any]:
         """Convert to the legacy kwargs shape used by `_run_agent` wrappers."""
@@ -114,6 +144,7 @@ class AgentRunRequest:
             "permissions_enabled": self.permissions_enabled,
             "reload": self.reload,
             "watch": self.watch,
+            "execution_mode": self.execution_mode,
             "quiet": self.quiet,
             "missing_shell_cwd_policy": self.missing_shell_cwd_policy,
         }

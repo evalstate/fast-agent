@@ -19,7 +19,13 @@ from fast_agent.constants import (
 )
 from fast_agent.paths import resolve_environment_paths
 
-from .run_request import AgentRunRequest, StdioServerConfig, UrlServerConfig
+from .run_request import (
+    AgentRunRequest,
+    ExecutionMode,
+    StdioServerConfig,
+    UrlServerConfig,
+    resolve_execution_mode,
+)
 
 CARD_EXTENSIONS: Final[frozenset[str]] = frozenset({".md", ".markdown", ".yaml", ".yml"})
 
@@ -118,6 +124,23 @@ def validate_noenv_conflicts(
 
     if resume is not None:
         raise typer.BadParameter("Cannot combine --noenv with --resume.")
+
+
+def validate_execution_mode_inputs(
+    *,
+    message: str | None,
+    prompt_file: str | None,
+) -> ExecutionMode:
+    try:
+        return resolve_execution_mode(
+            message=message,
+            prompt_file=prompt_file,
+        )
+    except ValueError as exc:
+        raise typer.BadParameter(
+            str(exc),
+            param_hint="--message/--prompt-file",
+        ) from exc
 
 
 def validate_multi_model_card_conflicts(
@@ -332,6 +355,10 @@ def build_agent_run_request(
         environment_dir=environment_dir,
         resume=resume,
     )
+    execution_mode = validate_execution_mode_inputs(
+        message=message,
+        prompt_file=prompt_file,
+    )
 
     server_list = servers.split(",") if servers else None
 
@@ -405,6 +432,7 @@ def build_agent_run_request(
         permissions_enabled=effective_permissions_enabled,
         reload=reload,
         watch=watch,
+        execution_mode=execution_mode,
         quiet=quiet,
         missing_shell_cwd_policy=missing_shell_cwd_policy,
     )

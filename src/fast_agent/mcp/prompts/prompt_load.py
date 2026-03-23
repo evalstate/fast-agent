@@ -8,7 +8,7 @@ from fast_agent.constants import FAST_AGENT_USAGE
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import AgentProtocol
 from fast_agent.llm.provider_types import Provider
-from fast_agent.llm.usage_tracking import FastAgentUsage, TurnUsage
+from fast_agent.llm.usage_tracking import TurnUsage
 from fast_agent.mcp import mime_utils, resource_utils
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompts.prompt_template import (
@@ -220,26 +220,14 @@ def _payload_provider(payload: dict[str, Any]) -> Provider | None:
         return None
 
 
-def _coerce_int(value: Any) -> int:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return 0
-
-
 def _turn_usage_from_payload(payload: dict[str, Any]) -> TurnUsage | None:
     turn_data = payload.get("turn")
     if not isinstance(turn_data, dict):
         return None
 
     turn_snapshot = dict(turn_data)
-    input_tokens = _coerce_int(turn_snapshot.get("input_tokens"))
-    output_tokens = _coerce_int(turn_snapshot.get("output_tokens"))
-    turn_snapshot["raw_usage"] = FastAgentUsage(
-        input_chars=input_tokens,
-        output_chars=output_tokens,
-        model_type="rehydrated",
-    )
+    if "raw_usage" in payload:
+        turn_snapshot["raw_usage"] = payload.get("raw_usage")
 
     try:
         return TurnUsage.model_validate(turn_snapshot)

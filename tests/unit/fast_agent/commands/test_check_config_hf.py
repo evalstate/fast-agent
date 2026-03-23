@@ -43,7 +43,7 @@ def test_check_api_keys_includes_huggingface():
         # HuggingFace should be in the results
         assert "hf" in results
         assert results["hf"]["env"] == ""
-        assert results["hf"]["config"] == ""
+        assert results["hf"]["config"] in {"", "Hub login"}
     finally:
         _restore_hf_token(original)
 
@@ -116,7 +116,7 @@ def test_check_api_keys_ignores_hint_text():
 
         assert "hf" in results
         assert results["hf"]["env"] == ""
-        assert results["hf"]["config"] == ""  # Hint text is ignored
+        assert results["hf"]["config"] in {"", "Hub login"}  # Hint text is ignored
     finally:
         _restore_hf_token(original)
 

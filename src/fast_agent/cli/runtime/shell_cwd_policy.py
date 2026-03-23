@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Mapping, Sequence, cast
 
 if TYPE_CHECKING:
+    from fast_agent.cli.runtime.run_request import ExecutionMode
     from fast_agent.core.agent_card_types import AgentCardData
 
 
@@ -52,16 +53,14 @@ def resolve_missing_shell_cwd_policy(
 def can_prompt_for_missing_cwd(
     *,
     mode: Literal["interactive", "serve"],
-    message: str | None,
-    prompt_file: str | None,
+    execution_mode: "ExecutionMode",
     stdin_is_tty: bool,
     tty_device_available: bool,
 ) -> bool:
     """Return True when we can ask interactively about creating missing directories."""
     return (
         mode == "interactive"
-        and message is None
-        and prompt_file is None
+        and execution_mode == "repl"
         and (stdin_is_tty or tty_device_available)
     )
 

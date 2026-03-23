@@ -25,8 +25,8 @@ fast-agent go [OPTIONS]
 - `--model TEXT`: Override the default model (e.g., haiku, sonnet, gpt-4)
 - `--pack`, `--card-pack TEXT`: Install or reuse a named card pack in the selected environment before launch
 - `--pack-registry TEXT`: Marketplace URL or file used to resolve `--pack` when it is not already installed
-- `--message`, `-m TEXT`: Message to send to the agent (skips interactive mode)
-- `--prompt-file`, `-p TEXT`: Path to a prompt file to use (either text or JSON)
+- `--message`, `-m TEXT`: Message to send to the agent once, then exit
+- `--prompt-file`, `-p TEXT`: Prompt file to send to the agent once, then exit (either text or JSON)
 - `--quiet`: Disable progress display and logging
 
 The `--model` value can include query overrides such as
@@ -62,7 +62,7 @@ fast-agent go --url=https://api.example.com/mcp --auth=YOUR_API_TOKEN
 # Non-interactive mode with a single message
 fast-agent go --message="What is the weather today?" --model=haiku
 
-# Using a prompt file
+# Non-interactive mode with a prompt file
 fast-agent go --prompt-file=my-prompt.txt --model=haiku
 ```
 

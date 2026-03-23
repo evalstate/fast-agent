@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import dataclasses
 import inspect
 import os
 import warnings
+from collections.abc import Mapping
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
@@ -12,6 +15,98 @@ from uuid import UUID
 import httpx
 
 from fast_agent.core.logging import logger
+
+type JsonScalar = str | int | float | bool | None
+type JsonValue = JsonScalar | list[JsonValue] | dict[str, JsonValue]
+
+_TEXTLIKE_BYTES_TYPES = (bytes, bytearray, memoryview)
+
+
+def snapshot_json_value(obj: object | None) -> JsonValue:
+    """Capture a JSON-safe snapshot for persistence/debugging."""
+    return _snapshot_json_value(obj, seen=set())
+
+
+def _snapshot_json_value(obj: object | None, *, seen: set[int]) -> JsonValue:
+    if obj is None:
+        return None
+
+    if isinstance(obj, (str, bool, int, float)):
+        return obj
+
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, (Decimal, UUID)):
+        return str(obj)
+    if isinstance(obj, Path):
+        return str(obj)
+    if isinstance(obj, Enum):
+        return obj.value
+
+    if isinstance(obj, _TEXTLIKE_BYTES_TYPES):
+        return str(obj)
+
+    if isinstance(obj, Mapping):
+        obj_id = id(obj)
+        if obj_id in seen:
+            return f"<circular-reference:{type(obj).__name__}>"
+
+        seen.add(obj_id)
+        try:
+            return {str(key): _snapshot_json_value(value, seen=seen) for key, value in obj.items()}
+        finally:
+            seen.remove(obj_id)
+
+    extracted = _extract_snapshot_source(obj)
+    if extracted is None or extracted is obj:
+        if isinstance(obj, Iterable) and not isinstance(obj, (str, bytes, bytearray, memoryview)):
+            obj_id = id(obj)
+            if obj_id in seen:
+                return f"<circular-reference:{type(obj).__name__}>"
+
+            seen.add(obj_id)
+            try:
+                return [_snapshot_json_value(item, seen=seen) for item in obj]
+            finally:
+                seen.remove(obj_id)
+        return str(obj)
+
+    obj_id = id(obj)
+    if obj_id in seen:
+        return f"<circular-reference:{type(obj).__name__}>"
+
+    seen.add(obj_id)
+    try:
+        return _snapshot_json_value(extracted, seen=seen)
+    finally:
+        seen.remove(obj_id)
+
+
+def _extract_snapshot_source(obj: object) -> object | None:
+    model_dump = getattr(obj, "model_dump", None)
+    if callable(model_dump):
+        try:
+            return model_dump(mode="json")
+        except TypeError:
+            try:
+                return model_dump()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    dict_method = getattr(obj, "dict", None)
+    if callable(dict_method):
+        try:
+            return dict_method()
+        except Exception:
+            pass
+
+    raw_dict = getattr(obj, "__dict__", None)
+    if isinstance(raw_dict, Mapping) and raw_dict:
+        return raw_dict
+
+    return None
 
 
 class JSONSerializer:

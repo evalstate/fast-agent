@@ -26,7 +26,7 @@ def _should_convert_keyboard_interrupt_to_task_cancel(request: "AgentRunRequest"
     so the interactive stack can handle it as an in-flight turn cancellation
     instead of immediately tearing down the entire loop.
     """
-    return request.mode == "interactive" and request.message is None
+    return request.mode == "interactive" and request.is_repl
 
 
 def run_request(request: AgentRunRequest) -> None:

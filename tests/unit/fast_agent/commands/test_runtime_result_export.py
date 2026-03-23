@@ -130,6 +130,13 @@ def test_should_convert_keyboard_interrupt_to_task_cancel_only_for_interactive_r
     one_shot_request = _make_request(result_file=None, message="hello")
     assert _should_convert_keyboard_interrupt_to_task_cancel(one_shot_request) is False
 
+    prompt_file_request = _make_request(
+        result_file=None,
+        message=None,
+        prompt_file="prompt.txt",
+    )
+    assert _should_convert_keyboard_interrupt_to_task_cancel(prompt_file_request) is False
+
 
 def test_run_request_closes_loop_when_cleanup_is_interrupted(
     monkeypatch: pytest.MonkeyPatch,
@@ -286,6 +293,58 @@ async def test_run_single_agent_cli_flow_exports_transient_turn_when_history_dis
     exported = load_messages(str(output))
     assert [message.role for message in exported] == ["user", "assistant"]
     assert exported[0].first_text() == "hello"
+    assert exported[1].last_text() == "done"
+    captured = capsys.readouterr()
+    assert captured.out.strip() == "done"
+
+
+@pytest.mark.asyncio
+async def test_run_single_agent_cli_flow_prompt_file_is_one_shot_and_exports_results(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class _TrackingAgentApp(_DummyAgentApp):
+        def __init__(self) -> None:
+            super().__init__(["agent"])
+            self.interactive_calls = 0
+
+        async def interactive(self, agent_name: str | None = None) -> None:
+            del agent_name
+            self.interactive_calls += 1
+
+    prompt = [
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="hello from prompt")],
+        )
+    ]
+    prompt_file = tmp_path / "prompt.json"
+    prompt_file.write_text("[]", encoding="utf-8")
+    output = tmp_path / "out.json"
+
+    agent = _NonPersistentMessageAgent("agent", "done")
+    app = _TrackingAgentApp()
+    app._agents["agent"] = agent
+
+    monkeypatch.setattr(
+        "fast_agent.mcp.prompts.prompt_load.load_prompt",
+        lambda _path: prompt,
+    )
+
+    await _run_single_agent_cli_flow(
+        app,
+        _make_request(
+            result_file=str(output),
+            message=None,
+            prompt_file=str(prompt_file),
+        ),
+    )
+
+    assert app.interactive_calls == 0
+    exported = load_messages(str(output))
+    assert [message.role for message in exported] == ["user", "assistant"]
+    assert exported[0].first_text() == "hello from prompt"
     assert exported[1].last_text() == "done"
     captured = capsys.readouterr()
     assert captured.out.strip() == "done"

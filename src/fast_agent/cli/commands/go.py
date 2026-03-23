@@ -141,6 +141,7 @@ def _build_compat_run_request(**kwargs: Any) -> AgentRunRequest:
         permissions_enabled=kwargs.get("permissions_enabled", True),
         reload=kwargs.get("reload", False),
         watch=kwargs.get("watch", False),
+        execution_mode=kwargs.get("execution_mode"),
         quiet=kwargs.get("quiet", False),
         missing_shell_cwd_policy=kwargs.get("missing_shell_cwd_policy"),
     )
@@ -304,7 +305,7 @@ def go(
         None,
         "--prompt-file",
         "-p",
-        help="Path to a prompt file to use (either text or JSON)",
+        help="Prompt file to send once and exit (either text or JSON)",
     ),
     results: str | None = typer.Option(
         None,

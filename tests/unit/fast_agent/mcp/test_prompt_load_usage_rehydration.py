@@ -24,9 +24,10 @@ def _usage_payload(
     input_tokens: int,
     output_tokens: int,
     provider: str = "responses",
+    raw_usage: object | None = None,
 ) -> dict[str, object]:
     total_tokens = input_tokens + output_tokens
-    return {
+    payload: dict[str, object] = {
         "turn": {
             "provider": provider,
             "model": model,
@@ -39,6 +40,9 @@ def _usage_payload(
             "model": model,
         },
     }
+    if raw_usage is not None:
+        payload["raw_usage"] = raw_usage
+    return payload
 
 
 def _history_with_usage(
@@ -47,6 +51,7 @@ def _history_with_usage(
     input_tokens: int,
     output_tokens: int,
     provider: str = "responses",
+    raw_usage: object | None = None,
 ):
     assistant = Prompt.assistant("done")
     assistant.channels = {
@@ -59,6 +64,7 @@ def _history_with_usage(
                         input_tokens=input_tokens,
                         output_tokens=output_tokens,
                         provider=provider,
+                        raw_usage=raw_usage,
                     )
                 ),
             )
@@ -159,3 +165,40 @@ def test_load_history_rehydrates_openresponses_usage(tmp_path) -> None:
     assert turn.model == "openai/gpt-5"
     assert turn.input_tokens == 80
     assert turn.output_tokens == 20
+
+
+@pytest.mark.unit
+def test_load_history_preserves_raw_usage_snapshot_shape(tmp_path) -> None:
+    history_path = tmp_path / "history.json"
+    save_messages(
+        _history_with_usage(
+            model="gpt-5.3-codex",
+            input_tokens=102,
+            output_tokens=108,
+            raw_usage={
+                "input_tokens": 102,
+                "input_tokens_details": {"cached_tokens": 5},
+                "output_tokens": 108,
+                "output_tokens_details": {"reasoning_tokens": 64},
+                "total_tokens": 210,
+            },
+        ),
+        str(history_path),
+    )
+
+    agent = LlmAgent(AgentConfig("rehydrate-raw-usage"))
+    llm = ResponsesLLM(provider=Provider.RESPONSES, model="gpt-5.3-codex")
+    agent._llm = llm
+
+    notice = load_history_into_agent(agent, history_path)
+
+    assert notice is None
+    assert llm.usage_accumulator.turn_count == 1
+    turn = llm.usage_accumulator.turns[0]
+    assert turn.raw_usage == {
+        "input_tokens": 102,
+        "input_tokens_details": {"cached_tokens": 5},
+        "output_tokens": 108,
+        "output_tokens_details": {"reasoning_tokens": 64},
+        "total_tokens": 210,
+    }

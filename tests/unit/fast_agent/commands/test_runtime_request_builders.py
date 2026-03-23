@@ -167,6 +167,65 @@ def test_build_command_run_request_resolves_defaults() -> None:
     assert request.instruction == resolve_default_instruction(None, "serve")
     assert request.agent_name == "agent"
     assert request.result_file == "out.json"
+    assert request.execution_mode == "repl"
+
+
+def test_build_command_run_request_marks_message_mode_one_shot() -> None:
+    request = build_command_run_request(
+        name="cli",
+        instruction_option=None,
+        config_path=None,
+        servers=None,
+        urls=None,
+        auth=None,
+        client_metadata_url=None,
+        agent_cards=None,
+        card_tools=None,
+        model=None,
+        message="hello",
+        prompt_file=None,
+        result_file=None,
+        resume=None,
+        npx=None,
+        uvx=None,
+        stdio=None,
+        target_agent_name=None,
+        skills_directory=None,
+        environment_dir=None,
+        shell_enabled=False,
+        mode="interactive",
+    )
+
+    assert request.execution_mode == "one_shot_message"
+
+
+def test_build_command_run_request_marks_prompt_file_mode_one_shot() -> None:
+    request = build_command_run_request(
+        name="cli",
+        instruction_option=None,
+        config_path=None,
+        servers=None,
+        urls=None,
+        auth=None,
+        client_metadata_url=None,
+        agent_cards=None,
+        card_tools=None,
+        model=None,
+        message=None,
+        prompt_file="prompt.txt",
+        result_file=None,
+        resume=None,
+        npx=None,
+        uvx=None,
+        stdio=None,
+        target_agent_name=None,
+        skills_directory=None,
+        environment_dir=None,
+        shell_enabled=False,
+        mode="interactive",
+    )
+
+    assert request.execution_mode == "one_shot_prompt_file"
 
 
 def test_build_command_run_request_smart_flag_uses_smart_instruction() -> None:
@@ -228,6 +287,34 @@ def test_build_command_run_request_accepts_missing_shell_cwd_override() -> None:
     )
 
     assert request.missing_shell_cwd_policy == "error"
+
+
+def test_build_command_run_request_rejects_message_and_prompt_file() -> None:
+    with pytest.raises(typer.BadParameter, match="Cannot combine --message with --prompt-file"):
+        build_command_run_request(
+            name="cli",
+            instruction_option=None,
+            config_path=None,
+            servers=None,
+            urls=None,
+            auth=None,
+            client_metadata_url=None,
+            agent_cards=None,
+            card_tools=None,
+            model=None,
+            message="hello",
+            prompt_file="prompt.txt",
+            result_file=None,
+            resume=None,
+            npx=None,
+            uvx=None,
+            stdio=None,
+            target_agent_name=None,
+            skills_directory=None,
+            environment_dir=None,
+            shell_enabled=False,
+            mode="interactive",
+        )
 
 
 def test_resolve_smart_agent_enabled_disables_smart_for_multi_model_even_when_forced() -> None:

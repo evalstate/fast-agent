@@ -8,6 +8,7 @@ from mcp.types import CallToolRequest, CallToolRequestParams, ContentBlock, Text
 from openai.types.responses import ResponseReasoningItem
 from pydantic_core import from_json
 
+from fast_agent.core.logging.json_serializer import snapshot_json_value
 from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.provider.openai.web_tools import (
     extract_url_citation_payload,
@@ -215,7 +216,7 @@ class ResponsesOutputMixin:
                 total_tokens=total_tokens,
                 cache_usage=cache_usage,
                 reasoning_tokens=reasoning_tokens,
-                raw_usage=usage,
+                raw_usage=snapshot_json_value(usage),
             )
             self._finalize_turn_usage(turn_usage)
         except Exception as e:

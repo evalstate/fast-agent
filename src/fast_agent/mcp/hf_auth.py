@@ -4,18 +4,15 @@ import os
 from collections.abc import Callable
 from urllib.parse import urlparse
 
+from fast_agent.utils.huggingface_hub import get_huggingface_hub_token
+
 # Type alias for token provider functions
 TokenProvider = Callable[[], str | None]
 
 
 def _default_hub_token_provider() -> str | None:
     """Default token provider that uses huggingface_hub.get_token()."""
-    try:
-        from huggingface_hub import get_token  # ty: ignore[unresolved-import]
-
-        return get_token()
-    except Exception:
-        return None
+    return get_huggingface_hub_token()
 
 
 def is_huggingface_url(url: str) -> bool:

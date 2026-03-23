@@ -717,7 +717,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
         return build_usage_payload(self.usage_accumulator)
 
-    def _serialize_raw_usage(self, raw_usage: object) -> object:
+    def _serialize_raw_usage(self, raw_usage: object | None) -> object:
         from fast_agent.llm.response_telemetry import serialize_raw_usage
 
         return serialize_raw_usage(raw_usage)

@@ -159,8 +159,7 @@ def test_can_prompt_for_missing_cwd_requires_interactive_tty() -> None:
     assert (
         can_prompt_for_missing_cwd(
             mode="interactive",
-            message=None,
-            prompt_file=None,
+            execution_mode="repl",
             stdin_is_tty=True,
             tty_device_available=False,
         )
@@ -170,8 +169,7 @@ def test_can_prompt_for_missing_cwd_requires_interactive_tty() -> None:
     assert (
         can_prompt_for_missing_cwd(
             mode="serve",
-            message=None,
-            prompt_file=None,
+            execution_mode="repl",
             stdin_is_tty=True,
             tty_device_available=False,
         )
@@ -181,8 +179,7 @@ def test_can_prompt_for_missing_cwd_requires_interactive_tty() -> None:
     assert (
         can_prompt_for_missing_cwd(
             mode="interactive",
-            message="run",
-            prompt_file=None,
+            execution_mode="one_shot_message",
             stdin_is_tty=True,
             tty_device_available=False,
         )
@@ -192,11 +189,9 @@ def test_can_prompt_for_missing_cwd_requires_interactive_tty() -> None:
     assert (
         can_prompt_for_missing_cwd(
             mode="interactive",
-            message=None,
-            prompt_file=None,
+            execution_mode="repl",
             stdin_is_tty=False,
             tty_device_available=True,
         )
         is True
     )
-

@@ -987,8 +987,7 @@ class InteractivePrompt:
             resolved_shell_cwd_policy,
             can_prompt=can_prompt_for_missing_cwd(
                 mode="interactive",
-                message=None,
-                prompt_file=None,
+                execution_mode="repl",
                 stdin_is_tty=sys.stdin.isatty(),
                 tty_device_available=False,
             ),
