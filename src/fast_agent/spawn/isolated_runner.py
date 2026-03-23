@@ -357,6 +357,8 @@ async def run_child_agent(
             async with fast.run() as agent:
                 _install_tool_hooks(agent, event_run_id, role)
 
+                # Signal that agent is ready (MCP servers loaded, hooks installed)
+                emit_event("agent_ready", event_run_id, role, agent_name=role)
                 # If resuming, load previous session history into agent
                 # This uses FastAgent's native API — no LLM call, just
                 # restores message_history so the next send() has full context
@@ -378,6 +380,99 @@ async def run_child_agent(
                         )
 
                 response = await agent.send(task)
+
+                # ── Keep-alive: wait for inbox messages via AgentChannel ──
+                agent_name = os.environ.get("TEAM_MY_NAME", "")
+                is_team_agent = bool(agent_name and os.environ.get("TEAM_WORKSPACE"))
+
+                if is_team_agent:
+                    from fast_agent.spawn.agent_channel import AgentChannel
+                    from fast_agent.spawn.message_bus import MessageBus
+
+                    idle_timeout = int(os.environ.get("AGENT_IDLE_TIMEOUT", "7200"))
+                    channel = AgentChannel(agent_name)
+                    await channel.start_server()
+
+                    # Resolve messages dir for inbox reads
+                    _msgs_dir = os.environ.get("TEAM_MESSAGES_DIR", "")
+                    if not _msgs_dir:
+                        _ws = os.environ.get("TEAM_WORKSPACE", "")
+                        if _ws:
+                            _cur = Path(_ws)
+                            while _cur != _cur.parent:
+                                if _cur.name == ".runtime":
+                                    _msgs_dir = str(_cur / "state" / "messages")
+                                    break
+                                _cur = _cur.parent
+
+                    emit_event("idle", event_run_id, role, agent_name=agent_name)
+                    logger.info(
+                        "📡 %s entering keep-alive mode (timeout=%ds)",
+                        agent_name,
+                        idle_timeout,
+                    )
+
+                    try:
+                        while True:
+                            signal = await channel.listen(timeout=idle_timeout)
+                            if signal is None:
+                                logger.info(
+                                    "⏰ %s idle timeout (%ds) — exiting",
+                                    agent_name,
+                                    idle_timeout,
+                                )
+                                break
+
+                            logger.info(
+                                "📬 %s woke up on signal '%s'",
+                                agent_name,
+                                signal,
+                            )
+
+                            # Read inbox
+                            if _msgs_dir:
+                                bus = MessageBus(messages_dir=_msgs_dir)
+                                unread = bus.read_unread(agent_name)
+                            else:
+                                unread = []
+
+                            if not unread:
+                                continue
+
+                            # Format inbox messages as follow-up
+                            inbox_lines = [
+                                f"\n━━━ 📬 NEW MESSAGES ({len(unread)} unread) ━━━\n"
+                            ]
+                            for msg in unread:
+                                inbox_lines.append(
+                                    f"[{msg.message_type.upper()}] from {msg.from_name}:\n"
+                                    f"  {msg.content}\n"
+                                )
+                                bus.mark_done(agent_name, msg.message_id)
+
+                            inbox_lines.append(
+                                "→ Handle these messages: take action and/or reply.\n"
+                                "━━━━━━━━━━━━━━━━━━━━\n"
+                            )
+                            follow_up = "\n".join(inbox_lines)
+
+                            emit_event(
+                                "resumed",
+                                event_run_id,
+                                role,
+                                agent_name=agent_name,
+                                message_count=len(unread),
+                            )
+                            response = await agent.send(follow_up)
+                            emit_event(
+                                "idle",
+                                event_run_id,
+                                role,
+                                agent_name=agent_name,
+                            )
+                    finally:
+                        await channel.stop()
+
                 return response
 
         response = await child_main()
@@ -514,33 +609,108 @@ def _install_tool_hooks(agent_app: Any, run_id: str, role: str) -> None:
             )
         _tool_start_times.clear()
 
+    # ── Centralized activity hooks: thinking + response ──────────────
+
+    async def spawn_before_llm(runner: Any, messages: Any) -> None:
+        """Emit 'thinking' event before each LLM call."""
+        model = ""
+        rp = getattr(runner, "request_params", None)
+        if rp:
+            model = getattr(rp, "model", "") or ""
+        emit_event("thinking", run_id, role, model=model)
+
+    async def spawn_after_llm(runner: Any, message: Any) -> None:
+        """Emit 'response' event after each LLM reply, including reasoning."""
+        # Extract response text
+        text = ""
+        content = getattr(message, "content", None) or []
+        for item in content:
+            t = getattr(item, "text", None)
+            if t:
+                text = t[:1000]
+                break
+
+        # Extract model reasoning from channels (Anthropic/OpenAI/Kimi)
+        reasoning_text = ""
+        channels = getattr(message, "channels", None) or {}
+        reasoning_blocks = channels.get("reasoning", [])
+        for block in reasoning_blocks:
+            t = getattr(block, "text", None)
+            if t:
+                reasoning_text = t[:2000]
+                break
+
+        stop_reason = str(getattr(message, "stop_reason", "") or "")
+        emit_event(
+            "response", run_id, role,
+            text=text,
+            reasoning=reasoning_text,
+            stop_reason=stop_reason,
+        )
+
+    # RTAC: Real-time Agent Communication — inbox watcher hook
+    rtac_before_llm: Any = None
+    try:
+        from fast_agent.spawn.inbox_watcher_hook import create_inbox_watcher
+
+        watcher = create_inbox_watcher()
+        if watcher is not None:
+            rtac_before_llm = watcher.before_llm_call
+    except Exception:
+        pass  # RTAC is optional — don't break spawn if it fails
+
+    # ── Merge all hooks: spawn events + RTAC + card-defined hooks ──
+
     existing = child_agent.tool_runner_hooks
     if existing is not None:
-        orig_before = existing.before_tool_call
-        orig_after = existing.after_tool_call
+        orig_before_tool = existing.before_tool_call
+        orig_after_tool = existing.after_tool_call
+        orig_before_llm = existing.before_llm_call
+        orig_after_llm = existing.after_llm_call
 
-        async def merged_before(runner: Any, request: Any) -> None:
-            if orig_before:
-                await orig_before(runner, request)
+        async def merged_before_tool(runner: Any, request: Any) -> None:
+            if orig_before_tool:
+                await orig_before_tool(runner, request)
             await before_tool_call(runner, request)
 
-        async def merged_after(runner: Any, result: Any) -> None:
-            if orig_after:
-                await orig_after(runner, result)
+        async def merged_after_tool(runner: Any, result: Any) -> None:
+            if orig_after_tool:
+                await orig_after_tool(runner, result)
             await after_tool_call(runner, result)
 
+        async def merged_before_llm(runner: Any, messages: Any) -> None:
+            await spawn_before_llm(runner, messages)
+            if orig_before_llm:
+                await orig_before_llm(runner, messages)
+            if rtac_before_llm:
+                await rtac_before_llm(runner, messages)
+
+        async def merged_after_llm(runner: Any, message: Any) -> None:
+            await spawn_after_llm(runner, message)
+            if orig_after_llm:
+                await orig_after_llm(runner, message)
+
         child_agent.tool_runner_hooks = ToolRunnerHooks(
-            before_llm_call=existing.before_llm_call,
-            after_llm_call=existing.after_llm_call,
-            before_tool_call=merged_before,
-            after_tool_call=merged_after,
+            before_llm_call=merged_before_llm,
+            after_llm_call=merged_after_llm,
+            before_tool_call=merged_before_tool,
+            after_tool_call=merged_after_tool,
             after_turn_complete=existing.after_turn_complete,
         )
     else:
         child_agent.tool_runner_hooks = ToolRunnerHooks(
+            before_llm_call=spawn_before_llm if not rtac_before_llm else
+                (lambda r, m: _chain_before_llm(spawn_before_llm, rtac_before_llm, r, m)),
+            after_llm_call=spawn_after_llm,
             before_tool_call=before_tool_call,
             after_tool_call=after_tool_call,
         )
+
+
+async def _chain_before_llm(spawn_fn: Any, rtac_fn: Any, runner: Any, messages: Any) -> None:
+    """Chain spawn_before_llm and RTAC before_llm hooks."""
+    await spawn_fn(runner, messages)
+    await rtac_fn(runner, messages)
 
 
 async def main() -> None:

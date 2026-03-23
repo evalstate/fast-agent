@@ -20,7 +20,7 @@ EVENT_PREFIX = "__SPAWN_EVENT__"
 class SpawnEvent:
     """A structured event from a spawned agent process."""
 
-    event: str  # started | mcp_connected | thinking | tool_call | tool_result | result | error | agent_completed
+    event: str  # started | mcp_connected | thinking | response | tool_call | tool_result | result | error | agent_completed
     run_id: str
     role: str
     timestamp: float = field(default_factory=time.time)
@@ -86,6 +86,24 @@ def evt_thinking(run_id: str, role: str, model: str = "") -> SpawnEvent:
         role=role,
         data={"model": model},
     )
+
+
+def evt_response(
+    run_id: str,
+    role: str,
+    text: str = "",
+    reasoning: str = "",
+    stop_reason: str = "",
+) -> SpawnEvent:
+    """LLM response received, with optional reasoning content."""
+    data: dict[str, Any] = {}
+    if text:
+        data["text"] = text[:1000]
+    if reasoning:
+        data["reasoning"] = reasoning[:2000]
+    if stop_reason:
+        data["stop_reason"] = stop_reason
+    return SpawnEvent(event="response", run_id=run_id, role=role, data=data)
 
 
 def evt_tool_call(
@@ -175,5 +193,25 @@ def evt_agent_completed(
             "result_summary": result_summary[:500],
             "duration_seconds": round(duration_seconds, 1),
         },
+    )
+
+
+def evt_agent_ready(
+    run_id: str,
+    role: str,
+    agent_name: str = "",
+) -> SpawnEvent:
+    """Agent's MCP servers are loaded and it is ready to receive tasks.
+
+    Emitted by the child process immediately after ``fast.run()`` context
+    is entered and tool hooks are installed.  The parent process uses this
+    to update the registry so meeting creators know the agent can accept
+    join_meeting instructions.
+    """
+    return SpawnEvent(
+        event="agent_ready",
+        run_id=run_id,
+        role=role,
+        data={"agent_name": agent_name or role},
     )
 

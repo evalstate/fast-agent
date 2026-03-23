@@ -266,6 +266,13 @@ class SpawnDisplayManager:
             model = data.get("model", panel.model)
             self._write(f"  🤔 Thinking... ({model})")
 
+        elif event.event == "response":
+            panel.status = "response"
+            text = data.get("text", "")[:80]
+            has_reasoning = bool(data.get("reasoning"))
+            prefix = "🧠💬" if has_reasoning else "💬"
+            self._write(f"  {prefix} [{panel.display_name}] {text}...")
+
         elif event.event == "tool_call":
             panel.status = "tool_call"
             tool_name = data.get("tool_name", "unknown")
@@ -312,6 +319,15 @@ class SpawnDisplayManager:
             dur = f"{panel.duration:.1f}s"
             self._write(f"  ❌ Error ({dur}): {panel.error_message[:100]}")
             self._write(f"  ── {panel.display_name} [{short_id}] failed ────────────────\n")
+
+        elif event.event == "idle":
+            panel.status = "idle"
+            self._write(f"  💤 [{panel.display_name}] Idle — waiting for messages")
+
+        elif event.event == "resumed":
+            panel.status = "running"
+            msg_count = data.get("message_count", 0)
+            self._write(f"  ⚡ [{panel.display_name}] Resumed ({msg_count} messages)")
 
     # ─── Team Management ───
 
