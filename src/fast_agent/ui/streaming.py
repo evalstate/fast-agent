@@ -49,6 +49,11 @@ STREAM_BATCH_PERIOD = 1 / 100
 STREAM_BATCH_MAX_DURATION = 1 / 60
 STREAM_CURSOR_BLOCK = "●"
 SCROLL_INDICATOR_DEBOUNCE_SECONDS = 0.2
+# Lines reserved for the stream header (header text + spacing newline) plus a
+# safety margin that absorbs rendering differences (e.g. inter-paragraph spacing
+# introduced when consecutive markdown segments are coalesced into a single
+# Markdown renderable).
+_STREAM_HEADER_AND_MARGIN_LINES = 3
 
 
 def _resolve_progress_resume_debounce_seconds() -> float:
@@ -121,6 +126,7 @@ class _DiffLive(RenderHook):
         self._restore_stderr: IO[str] | None = None
         self._console_state_active = False
         self._cursor_below_frame = False
+        self._frame_truncated = False
 
     def __enter__(self) -> "_DiffLive":
         if not self._started:
@@ -153,6 +159,24 @@ class _DiffLive(RenderHook):
         if not self._is_interactive:
             return
         lines = self._render_lines(renderable)
+
+        # Safety: clamp both the new frame and the stored old frame to the
+        # visible terminal height.  When a frame exceeds the visible area,
+        # _scroll_newline() at the bottom row triggers implicit terminal
+        # scrolls that shift all content upward.  Our relative-cursor
+        # bookkeeping cannot detect these shifts, so subsequent diffs would
+        # mis-position the cursor and duplicate or overwrite rows.  Keeping
+        # both old and new within bounds guarantees that cursor-up commands
+        # can always reach the first stored line.
+        max_visible = self.console.size.height
+        self._frame_truncated = False
+        if max_visible > 0:
+            if len(lines) > max_visible:
+                self._frame_truncated = True
+                lines = lines[-max_visible:]
+            if len(self._lines) > max_visible:
+                self._lines = self._lines[-max_visible:]
+
         if not self._lines:
             self._write_initial(lines)
         else:
@@ -179,6 +203,13 @@ class _DiffLive(RenderHook):
             if self._lines:
                 if self.transient:
                     self._clear_region()
+                elif self._frame_truncated:
+                    renderable = self.get_renderable()
+                    self._clear_region()
+                    if renderable is not None:
+                        self.console.print(renderable)
+                    else:
+                        self._write("\n")
                 else:
                     self._write("\n")
         finally:
@@ -188,6 +219,7 @@ class _DiffLive(RenderHook):
                 self.console.show_cursor(True)
                 self._console_state_active = False
             self._nested = False
+            self._frame_truncated = False
 
     def get_renderable(self) -> RenderableType | None:
         if self._get_renderable is not None:
@@ -952,7 +984,14 @@ class StreamingMessageHandle:
                 console.console._width = width_override
 
             header = self._build_header()
-            max_allowed_height = max(1, console.console.size.height - 2)
+            # Reserve lines for the header (text + spacing newline) and a
+            # safety margin that absorbs height differences introduced when
+            # consecutive markdown segments are coalesced into one Markdown
+            # renderable (Rich adds inter-paragraph spacing that the
+            # per-segment height estimates do not account for).
+            max_allowed_height = max(
+                1, console.console.size.height - _STREAM_HEADER_AND_MARGIN_LINES
+            )
             window_segments, window_heights = self._viewport.slice_segments_with_heights(
                 segments,
                 terminal_height=max_allowed_height,
@@ -1048,6 +1087,10 @@ class StreamingMessageHandle:
                 self._max_render_height = budget_height
 
             padding_lines = max(0, self._max_render_height - content_height)
+            # Ensure content + padding cannot exceed the content budget so the
+            # total frame (header + content + padding) stays within the terminal.
+            if content_height + padding_lines > max_allowed_height:
+                padding_lines = max(0, max_allowed_height - content_height)
             if padding_lines:
                 # Text("\n" * n) renders n+1 lines, so subtract one for exact padding.
                 renderables.append(Text("\n" * max(0, padding_lines - 1)))

@@ -216,6 +216,28 @@ def test_diff_live_non_terminal_prints_only_final_frame() -> None:
     assert "\x1b[" not in rendered
 
 
+def test_diff_live_stop_reprints_full_truncated_frame_when_preserved() -> None:
+    output = io.StringIO()
+    local_console = Console(file=output, force_terminal=True, color_system=None, width=40)
+    local_console._height = 2
+    live = streaming_module._DiffLive(
+        console=local_console,
+        transient=False,
+    )
+
+    live.__enter__()
+    live.update(Text("one\ntwo\nthree"), refresh=True)
+
+    output.truncate(0)
+    output.seek(0)
+    live.stop()
+
+    rendered = output.getvalue()
+    assert "one" in rendered
+    assert "two" in rendered
+    assert "three" in rendered
+
+
 def test_diff_live_reprints_frame_after_console_print() -> None:
     output = io.StringIO()
     local_console = Console(file=output, force_terminal=True, color_system=None, width=40)
@@ -680,3 +702,97 @@ def test_close_incomplete_code_blocks_supports_tilde_fences() -> None:
     text = """Here is code:\n~~~json\n{\"a\": 1}"""
 
     assert handle._close_incomplete_code_blocks(text) == text + "\n~~~\n"
+
+
+# -- _DiffLive height-clamp tests -------------------------------------------
+
+
+def test_diff_live_clamps_new_frame_to_terminal_height() -> None:
+    """When the rendered frame exceeds terminal height, only the tail is kept."""
+    output = io.StringIO()
+    # Terminal height = 4
+    live = streaming_module._DiffLive(
+        console=Console(
+            file=output, force_terminal=True, color_system=None, width=40, height=4
+        ),
+        transient=True,
+    )
+
+    live.__enter__()
+
+    # Build a 6-line renderable – taller than the 4-row terminal.
+    live.update(Text("L1\nL2\nL3\nL4\nL5\nL6"), refresh=True)
+
+    # The stored frame should be clamped to 4 lines (the terminal height).
+    assert len(live._lines) == 4
+    # The kept lines are the tail: L3, L4, L5, L6.
+    stored_texts = [line.text for line in live._lines]
+    assert "L3" in stored_texts[0]
+    assert "L6" in stored_texts[-1]
+
+
+def test_diff_live_clamps_old_frame_for_safe_diff() -> None:
+    """If a previous frame exceeded height, old lines are clamped before diff."""
+    output = io.StringIO()
+    live = streaming_module._DiffLive(
+        console=Console(
+            file=output, force_terminal=True, color_system=None, width=40, height=4
+        ),
+        transient=True,
+    )
+
+    live.__enter__()
+
+    # Manually set _lines to something oversized (simulates a pre-fix state or
+    # a terminal that was resized smaller between frames).
+    live._lines = [
+        streaming_module._RenderedLine(f"old{i}", len(f"old{i}")) for i in range(8)
+    ]
+
+    # Now refresh with a small frame – the old lines should be clamped first
+    # so the diff can compute correct cursor-up distances.
+    live.update(Text("A\nB"), refresh=True)
+
+    assert len(live._lines) == 2
+    assert "A" in live._lines[0].text
+
+
+def test_diff_live_height_clamp_preserves_cursor_tracking() -> None:
+    """After clamping, subsequent diffs position correctly."""
+    output = io.StringIO()
+    live = streaming_module._DiffLive(
+        console=Console(
+            file=output, force_terminal=True, color_system=None, width=40, height=5
+        ),
+        transient=True,
+    )
+
+    live.__enter__()
+    # First frame: exactly 5 lines (fits the terminal).
+    live.update(Text("A\nB\nC\nD\nE"), refresh=True)
+    assert len(live._lines) == 5
+
+    output.truncate(0)
+    output.seek(0)
+
+    # Second frame: 7 lines – will be clamped to 5.
+    live.update(Text("A\nB\nC\nD\nE\nF\nG"), refresh=True)
+    assert len(live._lines) == 5
+    assert "G" in live._lines[-1].text
+
+    output.truncate(0)
+    output.seek(0)
+
+    # Third frame: change the last line only – diff should emit minimal output.
+    live.update(Text("A\nB\nC\nD\nE\nF\nZ"), refresh=True)
+    assert len(live._lines) == 5
+    rendered = output.getvalue()
+    assert "Z" in rendered
+    # Should NOT contain a large cursor-up (max 4 for a 5-line frame).
+    assert "\x1b[5A" not in rendered
+    assert "\x1b[6A" not in rendered
+
+
+def test_stream_header_margin_constant() -> None:
+    """The header/margin constant should reserve 3 lines (header + safety)."""
+    assert streaming_module._STREAM_HEADER_AND_MARGIN_LINES == 3
