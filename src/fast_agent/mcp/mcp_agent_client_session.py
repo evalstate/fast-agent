@@ -3,6 +3,7 @@ A derived client session for the MCP Agent framework.
 It adds logging and supports sampling requests.
 """
 
+import asyncio
 import json
 import os
 import sys
@@ -33,6 +34,7 @@ from mcp.types import (
     InitializeResult,
     ListRootsResult,
     PingRequest,
+    ProgressNotification,
     ReadResourceRequest,
     ReadResourceRequestParams,
     ReadResourceResult,
@@ -939,9 +941,6 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                     logger.info(
                         f"Tool list changed for server '{self.session_server_name}', triggering callback"
                     )
-                    # Use asyncio.create_task to prevent blocking the notification handler
-                    import asyncio
-
                     asyncio.create_task(
                         self._handle_tool_list_change_callback(self.session_server_name)
                     )
@@ -950,14 +949,11 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                         f"Tool list changed for server '{self.session_server_name}' but no callback registered"
                     )
 
-        # Forward to server notification callback if registered on the aggregator
+        # Forward non-progress server notifications to the aggregator callback.
+        # Progress updates already flow through the request progress callback path.
         _cb = getattr(self._aggregator, "server_notification_callback", None) if self._aggregator else None
-        if _cb:
-            import asyncio
-
-            asyncio.create_task(
-                self._handle_server_notification(notification)
-            )
+        if _cb and not isinstance(notification.root, ProgressNotification):
+            asyncio.create_task(self._handle_server_notification(notification))
 
         return None
 

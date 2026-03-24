@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
+from mcp import ClientSession, ServerNotification
 from mcp.types import (
     LATEST_PROTOCOL_VERSION,
     ClientCapabilities,
@@ -11,6 +13,10 @@ from mcp.types import (
     Implementation,
     InitializeRequest,
     InitializeRequestParams,
+    ProgressNotification,
+    ProgressNotificationParams,
+    ResourceUpdatedNotification,
+    ResourceUpdatedNotificationParams,
 )
 
 from fast_agent.config import MCPServerSettings
@@ -358,3 +364,106 @@ async def test_experimental_session_create_replaces_existing_cookie() -> None:
         "expiresAt": "2026-02-24T12:00:00Z",
         "state": "state-new",
     }
+
+
+@pytest.mark.asyncio
+async def test_received_notification_schedules_server_notification_callback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _noop_parent_notification(
+        self: ClientSession, notification: ServerNotification
+    ) -> None:
+        del self, notification
+
+    received: list[ServerNotification] = []
+    started = asyncio.Event()
+    release = asyncio.Event()
+    notification_tasks: list[asyncio.Task[None]] = []
+    real_create_task = asyncio.create_task
+
+    async def _record_notification(
+        self: MCPAgentClientSession, notification: ServerNotification
+    ) -> None:
+        del self
+        started.set()
+        await release.wait()
+        received.append(notification)
+
+    def _capture_create_task(coro: Any) -> asyncio.Task[None]:
+        task = real_create_task(coro)
+        if getattr(getattr(coro, "cr_code", None), "co_name", None) == "_record_notification":
+            notification_tasks.append(task)
+        return task
+
+    monkeypatch.setattr(ClientSession, "_received_notification", _noop_parent_notification)
+    monkeypatch.setattr(
+        MCPAgentClientSession,
+        "_handle_server_notification",
+        _record_notification,
+    )
+    monkeypatch.setattr(asyncio, "create_task", _capture_create_task)
+
+    session = _new_session()
+    session._aggregator = SimpleNamespace(server_notification_callback=object())
+    session._tool_list_changed_callback = None
+
+    notification = ServerNotification(
+        ResourceUpdatedNotification(
+            params=ResourceUpdatedNotificationParams(
+                uri=cast("Any", "file:///demo.txt")
+            )
+        )
+    )
+
+    await session._received_notification(notification)
+
+    assert len(notification_tasks) == 1
+    await started.wait()
+    assert received == []
+    release.set()
+    await notification_tasks[0]
+    assert received == [notification]
+
+
+@pytest.mark.asyncio
+async def test_received_notification_skips_progress_for_server_notification_callback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _noop_parent_notification(
+        self: ClientSession, notification: ServerNotification
+    ) -> None:
+        del self, notification
+
+    received: list[ServerNotification] = []
+
+    async def _record_notification(
+        self: MCPAgentClientSession, notification: ServerNotification
+    ) -> None:
+        del self
+        received.append(notification)
+
+    monkeypatch.setattr(ClientSession, "_received_notification", _noop_parent_notification)
+    monkeypatch.setattr(
+        MCPAgentClientSession,
+        "_handle_server_notification",
+        _record_notification,
+    )
+
+    session = _new_session()
+    session._aggregator = SimpleNamespace(server_notification_callback=object())
+    session._tool_list_changed_callback = None
+
+    notification = ServerNotification(
+        ProgressNotification(
+            params=ProgressNotificationParams(
+                progressToken="tool-call-1",
+                progress=1,
+                total=10,
+                message="step 1",
+            )
+        )
+    )
+
+    await session._received_notification(notification)
+
+    assert received == []
