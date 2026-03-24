@@ -621,26 +621,58 @@ def _install_tool_hooks(agent_app: Any, run_id: str, role: str) -> None:
 
     async def spawn_after_llm(runner: Any, message: Any) -> None:
         """Emit 'response' event after each LLM reply, including reasoning."""
-        # Extract response text
+        import re
+        from fast_agent.mcp.helpers.content_helpers import get_text
+
+        # Extract stop reason
+        stop_reason = str(getattr(message, "stop_reason", "") or "")
+
+        # Extract response text from content blocks
         text = ""
-        content = getattr(message, "content", None) or []
-        for item in content:
-            t = getattr(item, "text", None)
-            if t:
-                text = t[:1000]
-                break
+        if hasattr(message, "first_text"):
+            raw = message.first_text() or ""
+            # filter out the "<no text>" sentinel from PromptMessageExtended
+            text = "" if raw == "<no text>" else raw
+        else:
+            content = getattr(message, "content", None) or []
+            for item in content:
+                t = get_text(item)
+                if t:
+                    text = t
+                    break
+
+        # Strip <think>...</think> tags that qwen3 models embed in content
+        if text:
+            text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
 
         # Extract model reasoning from channels (Anthropic/OpenAI/Kimi)
         reasoning_text = ""
         channels = getattr(message, "channels", None) or {}
         reasoning_blocks = channels.get("reasoning", [])
         for block in reasoning_blocks:
-            t = getattr(block, "text", None)
+            t = get_text(block)
             if t:
                 reasoning_text = t[:2000]
                 break
 
-        stop_reason = str(getattr(message, "stop_reason", "") or "")
+        # Fallback: if no text but reasoning exists (e.g. qwen3 thinking-only),
+        # use a truncated version of reasoning as the response text
+        if not text and reasoning_text and "TOOL_USE" not in stop_reason:
+            # Strip think tags from reasoning too
+            clean_reasoning = re.sub(
+                r"<think>|</think>", "", reasoning_text
+            ).strip()
+            if clean_reasoning:
+                text = clean_reasoning[:500] + ("..." if len(clean_reasoning) > 500 else "")
+
+        # Truncate final text
+        text = text[:1000] if text else ""
+
+        # Skip emitting response for pure TOOL_USE with no text
+        # (tool_call events already cover this use case)
+        if "TOOL_USE" in stop_reason and not text:
+            return
+
         emit_event(
             "response", run_id, role,
             text=text,

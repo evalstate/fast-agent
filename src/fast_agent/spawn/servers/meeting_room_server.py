@@ -336,10 +336,20 @@ async def wait_for_my_turn(meeting_id: str, agent_name: str = "", timeout_second
 
         if not state.get("started"):
             if time.time() - start_time > timeout_seconds:
+                joined = state.get("joined", [])
                 return json.dumps(
                     {
                         "status": "timeout",
                         "reason": "waiting_for_participants",
+                        "meeting_state": {
+                            "started": False,
+                            "participants": participants,
+                            "joined": joined,
+                            "joined_count": len(joined),
+                            "total_participants": len(participants),
+                            "current_turn": None,
+                            "current_round": None,
+                        },
                     }
                 )
             await asyncio.sleep(poll_interval)
@@ -357,7 +367,22 @@ async def wait_for_my_turn(meeting_id: str, agent_name: str = "", timeout_second
             )
 
         if time.time() - start_time > timeout_seconds:
-            return json.dumps({"status": "timeout", "reason": "waited_too_long"})
+            joined = state.get("joined", [])
+            return json.dumps(
+                {
+                    "status": "timeout",
+                    "reason": "waited_too_long",
+                    "meeting_state": {
+                        "started": state.get("started", False),
+                        "participants": participants,
+                        "joined": joined,
+                        "joined_count": len(joined),
+                        "total_participants": len(participants),
+                        "current_turn": state.get("current_turn"),
+                        "current_round": state.get("current_round"),
+                    },
+                }
+            )
 
         await asyncio.sleep(poll_interval)
 

@@ -460,6 +460,17 @@ async def _spawn_single_agent(
             f"--- MAIN TASK (after first task is done) ---\n"
             + task
         )
+    else:
+        # Idle-first: agent starts by checking inbox for pending assignments
+        # New messages are pushed via RTAC (InboxWatcherHook) automatically
+        task = (
+            f"📋 STARTUP — Check for pending assignments before starting:\n"
+            f"1. Check your inbox for any pending tasks or meeting invites\n"
+            f"2. If you have urgent messages, handle them first\n"
+            f"3. Otherwise, proceed with your main task below\n\n"
+            f"--- MAIN TASK ---\n"
+            + task
+        )
     instruction = role_config.get("instruction", f"You are {agent_name}.")
     instruction = instruction.replace("{agent_name}", agent_name)
     servers = list(role_config.get("servers", ["filesystem"]))

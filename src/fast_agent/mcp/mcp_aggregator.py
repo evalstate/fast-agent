@@ -162,7 +162,7 @@ class ServerStatus(BaseModel):
 
 @dataclass(frozen=True, slots=True)
 class MCPAttachOptions:
-    startup_timeout_seconds: float = 10.0
+    startup_timeout_seconds: float = 60.0
     trigger_oauth: bool = True
     force_reconnect: bool = False
     reconnect_on_disconnect: bool | None = None

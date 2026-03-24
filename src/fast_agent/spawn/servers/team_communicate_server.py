@@ -19,6 +19,9 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from fast_agent.spawn.message_bus import MessageBus
+from fast_agent.spawn.servers._team_helpers import (
+    auto_wake_if_idle as _auto_wake_if_idle,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -80,67 +83,7 @@ def _resolve_agent_name(to: str) -> str | None:
     return None
 
 
-def _auto_wake_if_idle(agent_name: str) -> None:
-    """Auto-wake an idle agent by triggering inbox resume.
-
-    When a message is sent to an agent that has status=idle,
-    this triggers the auto-resume mechanism to wake them up.
-    """
-    try:
-        from fast_agent.spawn.spawn_registry import SpawnRegistry
-        from pathlib import Path
-
-        workspace = os.environ.get("TEAM_WORKSPACE", "")
-        if not workspace:
-            return
-
-        # Find .runtime root → registry
-        cur = Path(workspace)
-        registry_path = None
-        while cur != cur.parent:
-            if cur.name == ".runtime":
-                registry_path = cur / "state" / "spawn_registry.json"
-                break
-            cur = cur.parent
-
-        if not registry_path or not registry_path.exists():
-            return
-
-        registry = SpawnRegistry(str(registry_path))
-        record = registry.find_by_name(agent_name)
-
-        if not record:
-            return
-
-        if record.status != "idle":
-            return
-
-        if registry.has_running_resume(agent_name):
-            logger.info("📬 %s already has a running instance — skip wake", agent_name)
-            return
-
-        # Trigger async resume
-        import asyncio
-        from fast_agent.spawn.isolated_spawner import _check_and_resume_on_inbox
-
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.ensure_future(
-                    _check_and_resume_on_inbox(
-                        run_id=record.run_id,
-                        agent_name=agent_name,
-                        registry=registry,
-                        display_manager=None,
-                        env_vars=record.original_config.get("env_vars") if record.original_config else None,
-                    )
-                )
-                logger.info("📬 Auto-waking idle agent %s", agent_name)
-        except RuntimeError:
-            pass  # No event loop — skip
-
-    except Exception as e:
-        logger.warning("Auto-wake failed for %s: %s", agent_name, e)
+# _auto_wake_if_idle imported from _team_helpers (AgentChannel-first wake)
 
 
 def _parse_recipients(value: str) -> list[str]:

@@ -120,7 +120,23 @@ def get_project_registry() -> "SpawnRegistry | None":
 
 
 def auto_wake_if_idle(agent_name: str) -> None:
-    """Auto-wake an idle agent by triggering inbox resume."""
+    """Auto-wake an idle agent via AgentChannel socket signal.
+
+    Priority order:
+    1. AgentChannel socket signal (instant, zero-overhead — agent alive)
+    2. Spawner-based resume (expensive — agent process died)
+    """
+    # Try AgentChannel first (agent process still alive)
+    try:
+        from fast_agent.spawn.agent_channel import AgentChannel
+
+        if AgentChannel.send_signal(agent_name, "wake"):
+            logger.info("📡 Woke %s via AgentChannel socket", agent_name)
+            return
+    except Exception:
+        pass
+
+    # Fallback: spawner-based resume (process died)
     try:
         registry = get_project_registry()
         if not registry:
@@ -132,13 +148,13 @@ def auto_wake_if_idle(agent_name: str) -> None:
         record = registry.find_by_name(agent_name)
 
         if not record:
-            logger.debug(
+            logger.warning(
                 "Cannot auto-wake %s: not found in registry", agent_name
             )
             return
 
         if record.status != "idle":
-            logger.debug(
+            logger.warning(
                 "Skip auto-wake %s: status=%s (not idle)",
                 agent_name, record.status,
             )
@@ -169,7 +185,7 @@ def auto_wake_if_idle(agent_name: str) -> None:
                         ),
                     )
                 )
-                logger.info("📬 Auto-waking idle agent %s (run_id=%s)", agent_name, record.run_id)
+                logger.info("📬 Auto-waking idle agent %s via spawner (run_id=%s)", agent_name, record.run_id)
             else:
                 logger.warning(
                     "Cannot auto-wake %s: event loop not running", agent_name
@@ -180,3 +196,4 @@ def auto_wake_if_idle(agent_name: str) -> None:
             )
     except Exception as e:
         logger.error("Auto-wake failed for %s: %s", agent_name, e, exc_info=True)
+

@@ -229,6 +229,21 @@ async def _run_subprocess(
             evt = SpawnEvent.from_line(line)
             if evt and display_manager:
                 display_manager.handle_event(evt)
+            if evt and evt.event in ("idle", "resumed"):
+                # Update registry in real-time for keep-alive agents
+                # so the UI reflects idle/running status immediately
+                try:
+                    from fast_agent.spawn.spawn_registry import (
+                        SpawnRegistry,
+                        SpawnStatus,
+                    )
+                    reg_path = Path(project_dir).resolve() / ".runtime" / "state" / "spawn_registry.json"
+                    if reg_path.exists():
+                        _rt_reg = SpawnRegistry(registry_file=str(reg_path))
+                        _new_status = SpawnStatus.IDLE if evt.event == "idle" else SpawnStatus.RUNNING
+                        _rt_reg.update_status(run_id, _new_status)
+                except Exception:
+                    pass  # Best-effort
             elif not evt:
                 stderr_lines.append(line)
 

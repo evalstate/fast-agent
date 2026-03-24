@@ -252,6 +252,35 @@ async def read_email(
         if not wait or (_time.time() - start) >= timeout_seconds:
             break
 
+        # ── Idle detection: avoid blocking forever when all teammates idle ──
+        if from_agent and wait:
+            try:
+                registry = get_project_registry()
+                if registry:
+                    resolved_from = resolve_agent_name(from_agent) or from_agent
+                    record = registry.find_by_name(resolved_from)
+                    if record and record.status in ("idle", "completed"):
+                        # Check if agent is alive via AgentChannel
+                        try:
+                            from fast_agent.spawn.agent_channel import AgentChannel
+                            alive = AgentChannel.is_alive(resolved_from)
+                        except Exception:
+                            alive = False
+
+                        if not alive:
+                            return json.dumps({
+                                "status": "teammate_idle",
+                                "agent": resolved_from,
+                                "agent_status": record.status,
+                                "message": (
+                                    f"{resolved_from} is {record.status} and not actively processing. "
+                                    f"They won't send new emails until woken. "
+                                    f"Consider: send_email to wake them, or proceed with your own work."
+                                ),
+                            })
+            except Exception:
+                pass  # Best-effort; continue polling
+
         await asyncio.sleep(poll_interval)
 
     filter_note = f" from {from_agent}" if from_agent else ""
