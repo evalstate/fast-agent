@@ -90,6 +90,34 @@ def _audit(meeting_dir: Path, message: str) -> None:
         f.write(f"[{ts}] {message}\n")
 
 
+def _notify_turn_agent(
+    meeting_id: str, agent_name: str, agenda: str, round_num: int
+) -> None:
+    """Send YOUR_TURN inbox notification + wake signal to the current speaker.
+
+    This ensures agents are notified even if their wait_for_my_turn poll
+    has already timed out.
+    """
+    bus = _get_bus()
+    if bus:
+        msg = (
+            f"🎙️ YOUR TURN TO SPEAK\n"
+            f"Meeting: {meeting_id}\n"
+            f"Agenda: {agenda}\n"
+            f"Round: {round_num}\n\n"
+            f"→ get_transcript(meeting_id=\"{meeting_id}\")\n"
+            f"→ speak(meeting_id=\"{meeting_id}\", message=\"...\")"
+        )
+        bus.send(
+            from_name="Meeting Room",
+            to_name=agent_name,
+            content=msg,
+            message_type="meeting_turn",
+        )
+    _auto_wake_if_idle(agent_name)
+    logger.info("🎙️ Notified %s: your turn in %s (round %d)", agent_name, meeting_id, round_num)
+
+
 # ───────────────────────────────────────────────────────────────────
 # MCP Tools
 # ───────────────────────────────────────────────────────────────────
@@ -179,8 +207,7 @@ async def create_meeting(
                 f"Created by: {my_name}\n\n"
                 f"→ To join: join_meeting(meeting_id=\"{meeting_id}\", "
                 f"agent_name=\"{participant}\")\n"
-                f"→ Then: wait_for_my_turn(meeting_id=\"{meeting_id}\", "
-                f"agent_name=\"{participant}\")"
+                f"You will receive a 🎙️ YOUR TURN notification when it's your turn to speak."
             )
             bus.send(
                 from_name=my_name,
@@ -255,14 +282,20 @@ async def join_meeting(meeting_id: str, agent_name: str = "") -> str:
         all_joined = all(p in joined for p in participants)
         if all_joined:
             state["started"] = True
+            state["turn_started_at"] = time.time()
 
         _write_json(meeting_dir / "state.json", state)
 
     _audit(meeting_dir, f"{agent_name} joined the meeting")
     if all_joined:
+        first_speaker = participants[0]
         _audit(
             meeting_dir,
-            f"All participants joined. Meeting started. First turn: {participants[0]}",
+            f"All participants joined. Meeting started. First turn: {first_speaker}",
+        )
+        # Wake first speaker — even if their wait_for_my_turn already timed out
+        _notify_turn_agent(
+            meeting_id, first_speaker, config.get("agenda", ""), 1
         )
 
     return json.dumps(
@@ -274,24 +307,26 @@ async def join_meeting(meeting_id: str, agent_name: str = "") -> str:
             "max_rounds": config.get("max_rounds", 3),
             "all_joined": all_joined,
             "your_name": agent_name,
+            "note": "You will receive a 🎙️ YOUR TURN inbox notification when it's your turn. Continue other work.",
         }
     )
 
 
 @mcp.tool()
-async def wait_for_my_turn(meeting_id: str, agent_name: str = "", timeout_seconds: int = 180) -> str:
-    """Wait (poll) until it's your turn to speak or the meeting ends.
+async def wait_for_my_turn(meeting_id: str, agent_name: str = "") -> str:
+    """Check if it's your turn to speak in the meeting.
 
-    Call after ``join_meeting``. When this returns ``your_turn``, call
-    ``get_transcript`` then ``speak`` or ``skip_turn``.
+    This is an INSTANT check — no blocking or polling.
+    You will also receive a 🎙️ YOUR TURN inbox notification
+    automatically when it's your turn, so you don't need to
+    call this repeatedly.
 
     Args:
-        meeting_id: The meeting to wait in.
+        meeting_id: The meeting to check.
         agent_name: YOUR agent name. Auto-detected if empty.
-        timeout_seconds: Max seconds to wait (default 180).
 
     Returns:
-        JSON with status: "your_turn", "meeting_ended", or "timeout".
+        JSON with status: "your_turn", "not_your_turn", or "meeting_ended".
     """
     agent_name = agent_name or _get_my_name()
     meeting_dir = _get_meeting_dir(meeting_id)
@@ -307,84 +342,70 @@ async def wait_for_my_turn(meeting_id: str, agent_name: str = "", timeout_second
         return json.dumps({"error": (f"'{agent_name}' not in meeting participants: {participants}")})
 
     my_index = participants.index(agent_name)
-    start_time = time.time()
-    poll_interval = 2
+    state = _read_json(meeting_dir / "state.json")
+    if not isinstance(state, dict):
+        state = {}
 
-    while True:
-        state = _read_json(meeting_dir / "state.json")
-        if not isinstance(state, dict):
-            state = {}
+    # Meeting ended?
+    if state.get("ended"):
+        transcript = _read_json(meeting_dir / "transcript.json")
+        if not isinstance(transcript, list):
+            transcript = []
+        cursors: dict[str, int] = state.get("read_cursors", {})
+        last_read = cursors.get(agent_name, 0)
+        unread = transcript[last_read:]
+        return json.dumps(
+            {
+                "status": "meeting_ended",
+                "outcome": state.get("outcome"),
+                "meeting_id": meeting_id,
+                "unread_messages": unread,
+                "unread_count": len(unread),
+            },
+            ensure_ascii=False,
+        )
 
-        if state.get("ended"):
-            # Include unread transcript so agent doesn't miss anything
-            transcript = _read_json(meeting_dir / "transcript.json")
-            if not isinstance(transcript, list):
-                transcript = []
-            cursors: dict[str, int] = state.get("read_cursors", {})
-            last_read = cursors.get(agent_name, 0)
-            unread = transcript[last_read:]
-            return json.dumps(
-                {
-                    "status": "meeting_ended",
-                    "outcome": state.get("outcome"),
-                    "meeting_id": meeting_id,
-                    "unread_messages": unread,
-                    "unread_count": len(unread),
-                },
-                ensure_ascii=False,
-            )
+    # Not started yet?
+    if not state.get("started"):
+        joined = state.get("joined", [])
+        return json.dumps(
+            {
+                "status": "waiting_for_participants",
+                "meeting_id": meeting_id,
+                "joined": joined,
+                "joined_count": len(joined),
+                "total_participants": len(participants),
+                "note": "You will receive a 🎙️ YOUR TURN notification when meeting starts and it's your turn.",
+            }
+        )
 
-        if not state.get("started"):
-            if time.time() - start_time > timeout_seconds:
-                joined = state.get("joined", [])
-                return json.dumps(
-                    {
-                        "status": "timeout",
-                        "reason": "waiting_for_participants",
-                        "meeting_state": {
-                            "started": False,
-                            "participants": participants,
-                            "joined": joined,
-                            "joined_count": len(joined),
-                            "total_participants": len(participants),
-                            "current_turn": None,
-                            "current_round": None,
-                        },
-                    }
-                )
-            await asyncio.sleep(poll_interval)
-            continue
+    # Is it my turn?
+    current_turn = state.get("current_turn", 0)
+    if current_turn == my_index:
+        return json.dumps(
+            {
+                "status": "your_turn",
+                "round": state.get("current_round", 1),
+                "turn": current_turn,
+                "meeting_id": meeting_id,
+            }
+        )
 
-        current_turn = state.get("current_turn", 0)
-        if current_turn == my_index:
-            return json.dumps(
-                {
-                    "status": "your_turn",
-                    "round": state.get("current_round", 1),
-                    "turn": current_turn,
-                    "meeting_id": meeting_id,
-                }
-            )
-
-        if time.time() - start_time > timeout_seconds:
-            joined = state.get("joined", [])
-            return json.dumps(
-                {
-                    "status": "timeout",
-                    "reason": "waited_too_long",
-                    "meeting_state": {
-                        "started": state.get("started", False),
-                        "participants": participants,
-                        "joined": joined,
-                        "joined_count": len(joined),
-                        "total_participants": len(participants),
-                        "current_turn": state.get("current_turn"),
-                        "current_round": state.get("current_round"),
-                    },
-                }
-            )
-
-        await asyncio.sleep(poll_interval)
+    # Not my turn
+    current_speaker = (
+        participants[current_turn]
+        if current_turn < len(participants)
+        else "unknown"
+    )
+    return json.dumps(
+        {
+            "status": "not_your_turn",
+            "meeting_id": meeting_id,
+            "current_speaker": current_speaker,
+            "round": state.get("current_round", 1),
+            "note": "You will receive a 🎙️ YOUR TURN notification when it's your turn.",
+        }
+    )
 
 
 @mcp.tool()
@@ -631,6 +652,7 @@ async def speak(meeting_id: str, message: str, agent_name: str = "") -> str:
 
         state["current_turn"] = next_turn
         state["current_round"] = current_round
+        state["turn_started_at"] = time.time()
         _write_json(meeting_dir / "state.json", state)
 
         next_speaker = participants[next_turn]
@@ -642,6 +664,11 @@ async def speak(meeting_id: str, message: str, agent_name: str = "") -> str:
     _audit(
         meeting_dir,
         f"Turn advanced → {next_speaker} (round {current_round})",
+    )
+
+    # Wake next speaker — ensures they know it's their turn
+    _notify_turn_agent(
+        meeting_id, next_speaker, config.get("agenda", ""), current_round
     )
 
     return json.dumps(
@@ -741,6 +768,7 @@ async def skip_turn(meeting_id: str, agent_name: str = "", reason: str = "") -> 
 
         state["current_turn"] = next_turn
         state["current_round"] = current_round
+        state["turn_started_at"] = time.time()
         _write_json(meeting_dir / "state.json", state)
 
         next_speaker = participants[next_turn]
@@ -748,6 +776,11 @@ async def skip_turn(meeting_id: str, agent_name: str = "", reason: str = "") -> 
     _audit(
         meeting_dir,
         f"{agent_name} skipped turn: {reason or 'no reason'}",
+    )
+
+    # Wake next speaker
+    _notify_turn_agent(
+        meeting_id, next_speaker, config.get("agenda", ""), current_round
     )
 
     return json.dumps(

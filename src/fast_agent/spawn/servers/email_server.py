@@ -37,6 +37,7 @@ def send_email(
     my_name: str = "",
     cc: str = "",
     priority: str = "normal",
+    no_reply: bool = False,
 ) -> str:
     """Send an email to one or more teammates. No meeting needed.
 
@@ -58,6 +59,9 @@ def send_email(
             informational copy prefixed with [CC]. Use for keeping
             stakeholders informed without direct action needed.
         priority: "normal" | "high" | "low"
+        no_reply: If True, marks this email as informational only.
+            Recipients will see [NO REPLY NEEDED] and should NOT reply.
+            Use for: deliverable notifications, FYI updates, status broadcasts.
     """
     bus = get_bus()
     if not bus:
@@ -81,6 +85,9 @@ def send_email(
             "available_teammates": teammates,
         })
 
+    # Apply no-reply prefix
+    email_body = f"[NO REPLY NEEDED]\n{body}" if no_reply else body
+
     # Generate batch_id for grouping multi-recipient sends in timeline
     batch_id = f"batch_{uuid.uuid4().hex[:8]}"
 
@@ -90,13 +97,14 @@ def send_email(
         msg = bus.send(
             from_name=my_name,
             to_name=recipient,
-            content=body,
+            content=email_body,
             message_type="email",
             priority=priority,
             context={
                 "subject": subject,
                 "batch_id": batch_id,
                 "recipient_type": "to",
+                "no_reply": no_reply,
             },
         )
         auto_wake_if_idle(recipient)
@@ -108,7 +116,7 @@ def send_email(
     cc_sent: list[dict[str, str]] = []
     if cc_recipients:
         to_names = ", ".join(recipients)
-        cc_content = f"[CC — originally to: {to_names}]\n{body}"
+        cc_content = f"[CC — originally to: {to_names}]\n{email_body}"
         for recipient in cc_recipients:
             msg = bus.send(
                 from_name=my_name,
@@ -120,6 +128,7 @@ def send_email(
                     "subject": subject,
                     "batch_id": batch_id,
                     "recipient_type": "cc",
+                    "no_reply": no_reply,
                 },
             )
             auto_wake_if_idle(recipient)
