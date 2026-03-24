@@ -42,7 +42,9 @@ def test_render_attachment_indicator_uses_red_count_for_questionable_summary() -
         DraftAttachmentSummary(count=2, mime_types=("image/png",), any_questionable=True)
     )
 
-    assert indicator == f"<style bg='{ATTACHMENT_QUESTIONABLE_COLOR}'>{ATTACHMENT_GLYPH}2</style>"
+    assert indicator == (
+        f"<style bg='{ATTACHMENT_QUESTIONABLE_COLOR}'> {ATTACHMENT_GLYPH}2</style>"
+    )
 
 
 def test_render_attachment_indicator_formats_supported_indicator() -> None:
@@ -50,10 +52,12 @@ def test_render_attachment_indicator_formats_supported_indicator() -> None:
         DraftAttachmentSummary(count=1, mime_types=("image/png",), any_questionable=False)
     )
 
-    assert indicator == f"<style bg='{ATTACHMENT_SUPPORTED_COLOR}'>{ATTACHMENT_GLYPH}1</style>"
+    assert indicator == (
+        f"<style bg='{ATTACHMENT_SUPPORTED_COLOR}'> {ATTACHMENT_GLYPH}1</style>"
+    )
 
 
 def test_render_attachment_indicator_formats_idle_indicator() -> None:
     indicator = render_attachment_indicator(None)
 
-    assert indicator == f"<style bg='{ATTACHMENT_IDLE_COLOR}'>{ATTACHMENT_GLYPH} </style>"
+    assert indicator == f"<style bg='{ATTACHMENT_IDLE_COLOR}'> {ATTACHMENT_GLYPH} </style>"
