@@ -15,7 +15,7 @@ from fast_agent.ui.command_payloads import (
 )
 from fast_agent.ui.prompt import parse_special_input
 
-type ExpectedParseResult = str | CommandPayload
+type ExpectedParseResult = str | CommandPayload | dict[str, object]
 
 
 @pytest.mark.parametrize(
@@ -75,62 +75,46 @@ type ExpectedParseResult = str | CommandPayload
         ),
         pytest.param(
             "/connect https://example.com/mcp",
-            McpConnectCommand(
-                target_text="https://example.com/mcp",
-                parsed_mode="url",
-                server_name=None,
-                auth_token=None,
-                timeout_seconds=None,
-                trigger_oauth=None,
-                reconnect_on_disconnect=None,
-                force_reconnect=False,
-                error=None,
-            ),
+            {
+                "kind": "mcp_connect",
+                "target_text": "https://example.com/mcp",
+                "parsed_mode": "url",
+                "server_name": None,
+                "error": None,
+            },
             id="connect-alias-url",
         ),
         pytest.param(
             "/connect @modelcontextprotocol/server-everything",
-            McpConnectCommand(
-                target_text="@modelcontextprotocol/server-everything",
-                parsed_mode="npx",
-                server_name=None,
-                auth_token=None,
-                timeout_seconds=None,
-                trigger_oauth=None,
-                reconnect_on_disconnect=None,
-                force_reconnect=False,
-                error=None,
-            ),
+            {
+                "kind": "mcp_connect",
+                "target_text": "@modelcontextprotocol/server-everything",
+                "parsed_mode": "npx",
+                "server_name": None,
+                "error": None,
+            },
             id="connect-alias-npx-scoped-package",
         ),
         pytest.param(
             "/connect uvx demo-server",
-            McpConnectCommand(
-                target_text="uvx demo-server",
-                parsed_mode="uvx",
-                server_name=None,
-                auth_token=None,
-                timeout_seconds=None,
-                trigger_oauth=None,
-                reconnect_on_disconnect=None,
-                force_reconnect=False,
-                error=None,
-            ),
+            {
+                "kind": "mcp_connect",
+                "target_text": "uvx demo-server",
+                "parsed_mode": "uvx",
+                "server_name": None,
+                "error": None,
+            },
             id="connect-alias-uvx",
         ),
         pytest.param(
             "/connect python demo_server.py",
-            McpConnectCommand(
-                target_text="python demo_server.py",
-                parsed_mode="stdio",
-                server_name=None,
-                auth_token=None,
-                timeout_seconds=None,
-                trigger_oauth=None,
-                reconnect_on_disconnect=None,
-                force_reconnect=False,
-                error=None,
-            ),
+            {
+                "kind": "mcp_connect",
+                "target_text": "python demo_server.py",
+                "parsed_mode": "stdio",
+                "server_name": None,
+                "error": None,
+            },
             id="connect-alias-stdio",
         ),
         pytest.param(
@@ -159,4 +143,13 @@ def test_parse_special_input_intent_contract(
     raw_input: str,
     expected: ExpectedParseResult,
 ) -> None:
-    assert parse_special_input(raw_input) == expected
+    actual = parse_special_input(raw_input)
+    if isinstance(expected, dict):
+        assert isinstance(actual, McpConnectCommand)
+        assert actual.kind == expected["kind"]
+        assert actual.target_text == expected["target_text"]
+        assert actual.parsed_mode == expected["parsed_mode"]
+        assert actual.server_name == expected["server_name"]
+        assert actual.error == expected["error"]
+        return
+    assert actual == expected

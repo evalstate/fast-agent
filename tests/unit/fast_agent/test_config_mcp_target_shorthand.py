@@ -105,10 +105,10 @@ def test_config_mcp_targets_list_derives_server_aliases() -> None:
     )
 
     assert settings.mcp is not None
-    assert "demo-hf-space" in settings.mcp.servers
+    assert "demo_hf_space" in settings.mcp.servers
     assert "server-filesystem" in settings.mcp.servers
 
-    remote = settings.mcp.servers["demo-hf-space"]
+    remote = settings.mcp.servers["demo_hf_space"]
     assert remote.transport == "http"
     assert remote.url == "https://demo.hf.space/mcp"
 

@@ -62,6 +62,15 @@ async def test_run_slash_command_check_rejects_invalid_argument_syntax(tmp_path:
 
 
 @pytest.mark.asyncio
+async def test_run_slash_command_mcp_connect_wraps_parse_errors(tmp_path: Path) -> None:
+    settings = Settings(environment_dir=str(tmp_path / ".fast-agent"))
+    agent = _SmartAgentStub(settings=settings)
+
+    with pytest.raises(AgentConfigError, match="Invalid /mcp connect arguments"):
+        await _run_slash_command_call(agent, "/mcp connect npx demo-server --timeout 0")
+
+
+@pytest.mark.asyncio
 async def test_run_slash_command_check_returns_markdown_heading(tmp_path: Path) -> None:
     settings = Settings(environment_dir=str(tmp_path / ".fast-agent"))
     agent = _SmartAgentStub(settings=settings)

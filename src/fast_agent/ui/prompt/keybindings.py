@@ -12,6 +12,7 @@ from prompt_toolkit.lexers import Lexer
 from rich import print as rich_print
 
 from fast_agent.ui.prompt.editor import get_text_from_editor
+from fast_agent.ui.prompt.parser import try_parse_hash_agent_command
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -30,7 +31,7 @@ class ShellPrefixLexer(Lexer):
             stripped = line.lstrip()
             if stripped.startswith("!"):
                 return [("class:shell-command", line)]
-            if stripped.startswith("#"):
+            if try_parse_hash_agent_command(stripped) is not None:
                 return [("class:comment-command", line)]
             return [("", line)]
 
@@ -113,7 +114,9 @@ def create_keybindings(
             return True
         if stripped.startswith("!"):
             return True
-        if stripped.startswith(("/", "@", "#")):
+        if stripped.startswith(("/", "@")):
+            return True
+        if try_parse_hash_agent_command(stripped) is not None:
             return True
         return True
 

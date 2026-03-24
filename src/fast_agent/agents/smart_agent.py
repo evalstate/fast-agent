@@ -68,11 +68,13 @@ from fast_agent.core.internal_resources import (
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt_templates import enrich_with_environment_context
 from fast_agent.core.validation import validate_provider_keys_post_creation
+from fast_agent.mcp.connect_targets import infer_server_name, parse_connect_command_text
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompts.prompt_load import load_prompt
 from fast_agent.mcp.ui_mixin import McpUIMixin
 from fast_agent.paths import resolve_environment_paths
 from fast_agent.tools.function_tool_loader import build_default_function_tool
+from fast_agent.utils.slash_commands import split_subcommand_and_remainder
 
 if TYPE_CHECKING:
     from fast_agent.agents.llm_agent import LlmAgent
@@ -667,6 +669,30 @@ async def _run_mcp_slash_command_call(agent: Any, arguments: str) -> str:
     )
 
     args = arguments.strip() or "list"
+    subcmd_text, connect_remainder = split_subcommand_and_remainder(args)
+    subcmd = (subcmd_text or "list").lower()
+
+    if subcmd == "connect":
+        if not connect_remainder:
+            raise AgentConfigError(
+                "Invalid /mcp connect arguments",
+                (
+                    "Usage: /mcp connect <target> [--name <server>] [--auth <token-value>] "
+                    "[--timeout <seconds>] [--oauth|--no-oauth] [--reconnect|--no-reconnect]"
+                ),
+            )
+        try:
+            request = parse_connect_command_text(connect_remainder)
+        except ValueError as exc:
+            raise AgentConfigError("Invalid /mcp connect arguments", str(exc)) from exc
+        outcome = await mcp_runtime_handlers.handle_mcp_connect(
+            context,
+            manager=runtime_manager,
+            agent_name=agent_name,
+            request=request,
+        )
+        return _render_smart_slash_outcome(outcome, heading="mcp", io=io)
+
     try:
         tokens = shlex.split(args)
     except ValueError as exc:
@@ -685,25 +711,6 @@ async def _run_mcp_slash_command_call(agent: Any, arguments: str) -> str:
             context,
             manager=runtime_manager,
             agent_name=agent_name,
-        )
-        return _render_smart_slash_outcome(outcome, heading="mcp", io=io)
-
-    if subcmd == "connect":
-        if len(tokens) < 2:
-            raise AgentConfigError(
-                "Invalid /mcp connect arguments",
-                (
-                    "Usage: /mcp connect <target> [--name <server>] [--auth <token-value>] "
-                    "[--timeout <seconds>] [--oauth|--no-oauth] [--reconnect|--no-reconnect]"
-                ),
-            )
-
-        target_text = " ".join(tokens[1:])
-        outcome = await mcp_runtime_handlers.handle_mcp_connect(
-            context,
-            manager=runtime_manager,
-            agent_name=agent_name,
-            target_text=target_text,
         )
         return _render_smart_slash_outcome(outcome, heading="mcp", io=io)
 
@@ -844,12 +851,19 @@ async def _apply_runtime_mcp_connections(
         target = raw_target.strip()
         if not target:
             continue
+        try:
+            request = parse_connect_command_text(target)
+        except ValueError as exc:
+            raise AgentConfigError(
+                "Failed to connect MCP server for smart tool call",
+                str(exc),
+            ) from exc
 
         outcome = await mcp_runtime_handlers.handle_mcp_connect(
             None,
             manager=manager,
             agent_name=target_agent_name,
-            target_text=target,
+            request=request,
         )
         errors, target_warnings = _collect_outcome_messages(outcome)
         warnings.extend(target_warnings)
@@ -859,13 +873,7 @@ async def _apply_runtime_mcp_connections(
                 "\n".join(errors),
             )
 
-        parsed = mcp_runtime_handlers.parse_connect_input(target)
-        mode = mcp_runtime_handlers.infer_connect_mode(parsed.target_text)
-        resolved_name = parsed.server_name or mcp_runtime_handlers.infer_server_name(
-            parsed.target_text,
-            mode,
-        )
-        connected_names.append(resolved_name)
+        connected_names.append(infer_server_name(request.target))
 
     return _SmartConnectSummary(connected=connected_names, warnings=warnings)
 

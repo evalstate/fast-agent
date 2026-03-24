@@ -325,6 +325,36 @@ async def test_slash_command_mcp_connect_preserves_quoted_target_arguments() -> 
 
 
 @pytest.mark.asyncio
+async def test_slash_command_mcp_connect_preserves_quoted_windows_path() -> None:
+    app = _App()
+    instance = AgentInstance(
+        app=cast("AgentApp", app),
+        agents={"main": cast("AgentProtocol", _Agent())},
+        registry_version=0,
+    )
+    handler = SlashCommandHandler(
+        session_id="s1",
+        instance=instance,
+        primary_agent_name="main",
+        attach_mcp_server_callback=app.attach_mcp_server,
+        detach_mcp_server_callback=app.detach_mcp_server,
+        list_attached_mcp_servers_callback=app.list_attached_mcp_servers,
+        list_configured_detached_mcp_servers_callback=app.list_configured_detached_mcp_servers,
+    )
+
+    connected = await handler.execute_command(
+        "mcp",
+        'connect "C:\\Program Files\\Tool\\tool.exe" --flag --name docs',
+    )
+
+    assert "Connected MCP server 'docs'" in connected
+    assert app.attached_configs
+    server_config = app.attached_configs[-1]
+    assert getattr(server_config, "command", None) == "C:\\Program Files\\Tool\\tool.exe"
+    assert getattr(server_config, "args", None) == ["--flag"]
+
+
+@pytest.mark.asyncio
 async def test_slash_command_mcp_session_jar() -> None:
     app = _App()
     instance = AgentInstance(

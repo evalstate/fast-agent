@@ -12,14 +12,12 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-from fast_agent.commands.mcp_command_intents import (
-    parse_mcp_connect_tokens,
-    parse_mcp_session_tokens,
-)
+from fast_agent.commands.mcp_command_intents import parse_mcp_session_tokens
 from fast_agent.commands.shared_command_intents import (
     parse_current_agent_history_intent,
     parse_session_command_intent,
 )
+from fast_agent.mcp.connect_targets import parse_connect_command_text
 from fast_agent.ui.command_payloads import (
     AgentCommand,
     CardsCommand,
@@ -40,7 +38,6 @@ from fast_agent.ui.command_payloads import (
     LoadHistoryCommand,
     LoadPromptCommand,
     McpConnectCommand,
-    McpConnectMode,
     McpDisconnectCommand,
     McpListCommand,
     McpReconnectCommand,
@@ -67,6 +64,7 @@ from fast_agent.ui.command_payloads import (
     TitleSessionCommand,
     UnknownCommand,
 )
+from fast_agent.utils.slash_commands import split_subcommand_and_remainder
 
 
 def _default_shell_command() -> str:
@@ -87,32 +85,6 @@ def _default_shell_command() -> str:
             return shell_path
 
     return "sh"
-
-
-def _infer_mcp_connect_mode(target_text: str) -> McpConnectMode:
-    stripped = target_text.strip().lower()
-    if stripped.startswith(("http://", "https://")):
-        return "url"
-    if stripped.startswith("@"):
-        return "npx"
-    if stripped.startswith("npx "):
-        return "npx"
-    if stripped.startswith("uvx "):
-        return "uvx"
-    return "stdio"
-
-
-def _rebuild_mcp_target_text(tokens: list[str]) -> str:
-    if not tokens:
-        return ""
-
-    rebuilt_parts: list[str] = []
-    for token in tokens:
-        if token == "" or any(char.isspace() for char in token):
-            rebuilt_parts.append(shlex.quote(token))
-        else:
-            rebuilt_parts.append(token)
-    return " ".join(rebuilt_parts)
 
 
 def _parse_quoted_history_target(text: str) -> str | None:
@@ -154,6 +126,37 @@ def _parse_hash_agent_command(body: str, *, quiet: bool) -> HashAgentCommand | s
             return HashAgentCommand(agent_name=agent_name, message=message, quiet=quiet)
 
     return HashAgentCommand(agent_name=stripped, message="", quiet=quiet)
+
+
+def try_parse_hash_agent_command(text: str) -> HashAgentCommand | None:
+    prefix = ""
+    quiet = False
+    if text.startswith("##"):
+        prefix = "##"
+        quiet = True
+    elif text.startswith("#"):
+        prefix = "#"
+    else:
+        return None
+
+    body = text[len(prefix) :]
+    if not body or body[0].isspace():
+        return None
+
+    parsed = _parse_hash_agent_command(body, quiet=quiet)
+    return parsed if isinstance(parsed, HashAgentCommand) else None
+
+
+def _parse_connect_command(remainder: str, *, usage: str) -> McpConnectCommand:
+    if not remainder:
+        return McpConnectCommand(request=None, error=usage)
+    try:
+        return McpConnectCommand(
+            request=parse_connect_command_text(remainder),
+            error=None,
+        )
+    except ValueError as exc:
+        return McpConnectCommand(request=None, error=str(exc))
 
 
 def _parse_history_command(remainder: str) -> CommandPayload:
@@ -424,20 +427,21 @@ def _parse_mcp_command(remainder: str) -> CommandPayload:
     if not remainder:
         return ShowMcpStatusCommand()
 
+    subcmd, sub_remainder = split_subcommand_and_remainder(remainder)
+    subcmd = subcmd.lower()
+    if subcmd == "connect":
+        return _parse_connect_command(
+            sub_remainder,
+            usage=(
+                "Usage: /mcp connect <target> [--name <server>] [--auth <token-value>] "
+                "[--timeout <seconds>] [--oauth|--no-oauth] [--reconnect|--no-reconnect]"
+            ),
+        )
+
     try:
         tokens = shlex.split(remainder)
     except ValueError as exc:
-        return McpConnectCommand(
-            target_text="",
-            parsed_mode="stdio",
-            server_name=None,
-            auth_token=None,
-            timeout_seconds=None,
-            trigger_oauth=None,
-            reconnect_on_disconnect=None,
-            force_reconnect=False,
-            error=f"Invalid arguments: {exc}",
-        )
+        return McpConnectCommand(request=None, error=f"Invalid arguments: {exc}")
 
     subcmd = tokens[0].lower() if tokens else ""
     if subcmd == "list":
@@ -456,35 +460,13 @@ def _parse_mcp_command(remainder: str) -> CommandPayload:
         return McpReconnectCommand(server_name=name, error=error)
     if subcmd == "session":
         return parse_mcp_session_tokens(tokens[1:])
-    if subcmd == "connect":
-        return parse_mcp_connect_tokens(tokens[1:])
     return UnknownCommand(command="mcp")
 
 
 def _parse_connect_alias_command(remainder: str) -> McpConnectCommand:
-    parsed_mode = _infer_mcp_connect_mode(remainder)
-    if not remainder:
-        return McpConnectCommand(
-            target_text="",
-            parsed_mode="stdio",
-            server_name=None,
-            auth_token=None,
-            timeout_seconds=None,
-            trigger_oauth=None,
-            reconnect_on_disconnect=None,
-            force_reconnect=False,
-            error="Usage: /connect <target>",
-        )
-    return McpConnectCommand(
-        target_text=remainder,
-        parsed_mode=parsed_mode,
-        server_name=None,
-        auth_token=None,
-        timeout_seconds=None,
-        trigger_oauth=None,
-        reconnect_on_disconnect=None,
-        force_reconnect=False,
-        error=None,
+    return _parse_connect_command(
+        remainder,
+        usage="Usage: /connect <target>",
     )
 
 
@@ -632,14 +614,9 @@ def parse_special_input(text: str) -> str | CommandPayload:
     if cmd_line and cmd_line.startswith("@"):
         return SwitchAgentCommand(agent_name=cmd_line[1:].strip())
 
-    if cmd_line and cmd_line.startswith("##"):
-        quiet_body = cmd_line[2:]
-        if quiet_body and not quiet_body[0].isspace():
-            return _parse_hash_agent_command(quiet_body, quiet=True)
-        return text
-
-    if cmd_line and cmd_line.startswith("#"):
-        return _parse_hash_agent_command(cmd_line[1:], quiet=False)
+    parsed_hash_command = try_parse_hash_agent_command(text)
+    if parsed_hash_command is not None:
+        return parsed_hash_command
 
     if cmd_line and cmd_line.startswith("!"):
         command = cmd_line[1:].strip()

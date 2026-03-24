@@ -12,6 +12,7 @@ from rich import print as rich_print
 from rich.text import Text
 
 from fast_agent.commands.handlers import mcp_runtime as mcp_runtime_handlers
+from fast_agent.mcp.connect_targets import ParsedMcpConnectRequest, infer_server_name
 from fast_agent.ui.console import console, ensure_blocking_console
 
 if TYPE_CHECKING:
@@ -25,11 +26,9 @@ async def handle_mcp_connect(
     context: "CommandContext",
     prompt_provider: "AgentApp",
     agent: str,
-    runtime_target: str,
-    target_text: str,
-    server_name: str | None,
+    request: ParsedMcpConnectRequest,
 ) -> "CommandOutcome | None":
-    label = server_name or target_text.split(maxsplit=1)[0]
+    label = request.target.server_name or infer_server_name(request.target)
     attached_before_connect: set[str] = set()
     try:
         attached_before_connect = set(await prompt_provider.list_attached_mcp_servers(agent))
@@ -37,19 +36,7 @@ async def handle_mcp_connect(
         attached_before_connect = set()
 
     async def _handle_mcp_connect_cancel() -> None:
-        cancel_server_name = server_name
-        if not cancel_server_name:
-            try:
-                parsed_runtime = mcp_runtime_handlers.parse_connect_input(runtime_target)
-                cancel_server_name = parsed_runtime.server_name
-                if not cancel_server_name:
-                    mode = mcp_runtime_handlers.infer_connect_mode(parsed_runtime.target_text)
-                    cancel_server_name = mcp_runtime_handlers._infer_server_name(
-                        parsed_runtime.target_text,
-                        mode,
-                    )
-            except Exception:
-                cancel_server_name = None
+        cancel_server_name = request.target.server_name or infer_server_name(request.target)
 
         should_detach_on_cancel = bool(cancel_server_name) and (
             cancel_server_name not in attached_before_connect
@@ -90,7 +77,7 @@ async def handle_mcp_connect(
                 context,
                 manager=prompt_provider,
                 agent_name=agent,
-                target_text=runtime_target,
+                request=request,
                 on_progress=_emit_mcp_progress,
             )
         )

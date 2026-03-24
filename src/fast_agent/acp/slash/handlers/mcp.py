@@ -16,11 +16,9 @@ from acp.schema import (
 )
 
 from fast_agent.commands.handlers import mcp_runtime as mcp_runtime_handlers
-from fast_agent.commands.mcp_command_intents import (
-    build_mcp_connect_runtime_target,
-    parse_mcp_connect_tokens,
-    parse_mcp_session_tokens,
-)
+from fast_agent.commands.mcp_command_intents import parse_mcp_session_tokens
+from fast_agent.mcp.connect_targets import parse_connect_command_text, render_connect_request
+from fast_agent.utils.slash_commands import split_subcommand_and_remainder
 
 if TYPE_CHECKING:
     from fast_agent.acp.command_io import ACPCommandIO
@@ -45,6 +43,7 @@ def _mcp_usage_text(heading: str) -> str:
         "- /mcp list\n"
         "- /mcp connect <target> [--name <server>] [--auth <token>] [--timeout <seconds>] "
         "[--oauth|--no-oauth] [--reconnect|--no-reconnect]\n"
+        "  Example: /mcp connect \"C:\\Program Files\\Tool\\tool.exe\" --flag\n"
         "- /mcp session [list [server]|jar [server]|new [server] [--title <title>]|"
         "use <server> <session_id>|clear [server|--all]]\n"
         "- /mcp disconnect <server_name>\n"
@@ -95,12 +94,13 @@ async def _send_connect_tool_update(
         return
 
 
-def _connect_tool_call_title(parsed_connect) -> str:
+def _connect_tool_call_title(request) -> str:
     connect_label = "MCP server"
-    if parsed_connect.server_name:
-        connect_label = f"MCP server '{parsed_connect.server_name}'"
-    elif parsed_connect.target_text:
-        first_target_token = parsed_connect.target_text.split()[0]
+    if request.target.server_name:
+        connect_label = f"MCP server '{request.target.server_name}'"
+    else:
+        target_text = render_connect_request(request)
+        first_target_token = target_text.split()[0]
         connect_label = f"MCP target '{first_target_token}'"
     return f"Connect {connect_label}"
 
@@ -256,19 +256,24 @@ async def _handle_mcp_connect_command(
     ctx,
     io: "ACPCommandIO",
     manager,
-    tokens: list[str],
+    remainder: str,
 ) -> str:
     if handler._attach_mcp_server_callback is None:
         return "mcp\n\nRuntime MCP server attachment is not available."
-    parsed_connect = parse_mcp_connect_tokens(tokens[1:])
-    if parsed_connect.error:
-        return f"{heading}\n\n{parsed_connect.error}"
+    if not remainder:
+        return (
+            f"{heading}\n\nUsage: /mcp connect <target> [--name <server>] [--auth <token>] "
+            "[--timeout <seconds>] [--oauth|--no-oauth] [--reconnect|--no-reconnect]"
+        )
+    try:
+        request = parse_connect_command_text(remainder)
+    except ValueError as exc:
+        return f"{heading}\n\n{exc}"
 
-    runtime_target = build_mcp_connect_runtime_target(parsed_connect)
-    display_target = build_mcp_connect_runtime_target(parsed_connect, redact_auth=True)
+    display_target = render_connect_request(request, redact_auth=True)
     tool_call_id = handler._build_tool_call_id()
     oauth_authorization_url: str | None = None
-    tool_call_title = _connect_tool_call_title(parsed_connect)
+    tool_call_title = _connect_tool_call_title(request)
 
     async def _send_connect_progress(message: str) -> None:
         nonlocal oauth_authorization_url
@@ -302,7 +307,7 @@ async def _handle_mcp_connect_command(
             ctx,
             manager=manager,
             agent_name=handler.current_agent_name,
-            target_text=runtime_target,
+            request=request,
             on_progress=_send_connect_progress,
         )
     except asyncio.CancelledError:
@@ -432,15 +437,8 @@ async def _handle_mcp_reconnect_command(
 async def handle_mcp(handler: "SlashCommandHandler", arguments: str | None = None) -> str:
     heading = "mcp"
     args = (arguments or "").strip() or "list"
-
-    try:
-        tokens = shlex.split(args)
-    except ValueError as exc:
-        return f"{heading}\n\nInvalid arguments: {exc}"
-
-    if not tokens:
-        tokens = ["list"]
-    subcmd = tokens[0].lower()
+    subcmd_text, remainder = split_subcommand_and_remainder(args)
+    subcmd = (subcmd_text or "list").lower()
 
     if subcmd in {"help", "--help", "-h"}:
         return _mcp_usage_text(heading)
@@ -451,11 +449,25 @@ async def handle_mcp(handler: "SlashCommandHandler", arguments: str | None = Non
 
     command_handlers = {
         "list": _handle_mcp_list_command,
-        "connect": _handle_mcp_connect_command,
         "session": _handle_mcp_session_command,
         "disconnect": _handle_mcp_disconnect_command,
         "reconnect": _handle_mcp_reconnect_command,
     }
+    if subcmd == "connect":
+        return await _handle_mcp_connect_command(
+            handler,
+            heading=heading,
+            ctx=ctx,
+            io=io,
+            manager=manager,
+            remainder=remainder,
+        )
+
+    try:
+        tokens = shlex.split(args)
+    except ValueError as exc:
+        return f"{heading}\n\nInvalid arguments: {exc}"
+
     handler_func = command_handlers.get(subcmd)
     if handler_func is None:
         return _mcp_usage_text(heading)

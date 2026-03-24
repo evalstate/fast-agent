@@ -182,3 +182,15 @@ async def test_apply_runtime_mcp_connections_raises_on_connect_error() -> None:
             target_agent_name="main",
             mcp_connect=["npx demo-server --name demo"],
         )
+
+
+@pytest.mark.asyncio
+async def test_apply_runtime_mcp_connections_wraps_parse_errors() -> None:
+    agent = _FakeMcpAgent(default=True)
+    with pytest.raises(AgentConfigError, match="Failed to connect MCP server for smart tool call"):
+        await _apply_runtime_mcp_connections(
+            context=None,
+            agents_map=cast("Any", {"main": agent}),
+            target_agent_name="main",
+            mcp_connect=["npx demo-server --timeout 0"],
+        )

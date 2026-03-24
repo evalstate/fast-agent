@@ -17,13 +17,10 @@ class TestParseHashAgentCommand:
         assert result.message == "this is a   long   message"
         assert result.quiet is False
 
-    def test_parse_hash_agent_strips_agent_name(self):
-        """Test that agent name is stripped of whitespace."""
+    def test_parse_hash_with_space_after_prefix_is_plain_text(self):
+        """Headings and spaced hashes should stay as text."""
         result = parse_special_input("#  agent_name  message")
-        assert isinstance(result, HashAgentCommand)
-        assert result.agent_name == "agent_name"
-        assert result.message == "message"
-        assert result.quiet is False
+        assert result == "#  agent_name  message"
 
     def test_parse_hash_only_returns_plain_text(self):
         """Test that # alone returns original text."""
@@ -40,6 +37,14 @@ class TestParseHashAgentCommand:
         """Test that ## message remains plain text until implicit targeting exists."""
         result = parse_special_input("## heading")
         assert result == "## heading"
+
+    def test_parse_heading_returns_plain_text(self):
+        result = parse_special_input("# Heading")
+        assert result == "# Heading"
+
+    def test_parse_multiline_heading_returns_plain_text(self):
+        result = parse_special_input("# heading\nmore")
+        assert result == "# heading\nmore"
 
     def test_parse_hash_agent_multiline_message(self):
         """Test parsing with newlines in message."""

@@ -19,7 +19,6 @@ from fast_agent.commands.handlers import sessions as sessions_handlers
 from fast_agent.commands.handlers import skills as skills_handlers
 from fast_agent.commands.handlers import tools as tools_handlers
 from fast_agent.commands.handlers.shared import clear_agent_histories
-from fast_agent.commands.mcp_command_intents import build_mcp_connect_runtime_target
 from fast_agent.ui import enhanced_prompt
 from fast_agent.ui.command_payloads import (
     AgentCommand,
@@ -405,24 +404,20 @@ async def _dispatch_mcp_payload(
             )
             await emit_command_outcome(context, outcome)
             return result
-        case McpConnectCommand(
-            target_text=target_text,
-            server_name=server_name,
-            error=error,
-        ):
+        case McpConnectCommand(request=request, error=error):
             context = build_command_context(prompt_provider, agent)
             if error:
                 rich_print(f"[red]{error}[/red]")
                 return result
-            runtime_target = build_mcp_connect_runtime_target(payload)
+            if request is None:
+                rich_print("[red]Connection target is required[/red]")
+                return result
 
             outcome = await handle_mcp_connect(
                 context=context,
                 prompt_provider=prompt_provider,
                 agent=agent,
-                runtime_target=runtime_target,
-                target_text=target_text,
-                server_name=server_name,
+                request=request,
             )
             if outcome is not None:
                 await emit_command_outcome(context, outcome)

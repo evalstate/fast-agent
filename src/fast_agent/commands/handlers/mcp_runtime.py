@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import json
-import math
 import os
 import re
 import shlex
-from dataclasses import dataclass
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from shutil import get_terminal_size
@@ -17,11 +16,10 @@ from rich.text import Text
 
 from fast_agent.commands.results import CommandOutcome
 from fast_agent.mcp.connect_targets import (
+    ParsedMcpConnectRequest,
     build_server_config_from_target,
     infer_server_name,
-)
-from fast_agent.mcp.connect_targets import (
-    infer_connect_mode as infer_connect_mode_shared,
+    render_normalized_target,
 )
 from fast_agent.mcp.experimental_session_client import ExperimentalSessionClient, SessionJarEntry
 from fast_agent.mcp.mcp_aggregator import MCPAttachOptions
@@ -73,17 +71,6 @@ class SessionClientProtocol(Protocol):
     async def clear_cookie(self, server_identifier: str | None) -> str: ...
 
     async def clear_all_cookies(self) -> list[str]: ...
-
-
-@dataclass(frozen=True, slots=True)
-class ParsedMcpConnectInput:
-    target_text: str
-    server_name: str | None
-    timeout_seconds: float | None
-    trigger_oauth: bool | None
-    reconnect_on_disconnect: bool | None
-    force_reconnect: bool
-    auth_token: str | None
 
 
 _AUTH_ENV_BRACED_RE = re.compile(r"^\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?::(?P<default>.*))?\}$")
@@ -139,102 +126,26 @@ def _resolve_auth_token_value(raw_value: str) -> str:
     return normalized_value
 
 
-def infer_connect_mode(target_text: str) -> str:
-    return infer_connect_mode_shared(target_text)
-
-
-def _infer_server_name(target_text: str, mode: str) -> str:
-    """Backward-compatible private wrapper used by interactive UI code."""
-    return infer_server_name(target_text, mode)
-
-
-def _rebuild_target_text(tokens: list[str]) -> str:
-    """Rebuild target text while preserving whitespace grouping for later shlex parsing."""
-    if not tokens:
-        return ""
-
-    rebuilt_parts: list[str] = []
-    for token in tokens:
-        if token == "" or any(char.isspace() for char in token):
-            rebuilt_parts.append(shlex.quote(token))
-        else:
-            rebuilt_parts.append(token)
-    return " ".join(rebuilt_parts)
-
-
-def parse_connect_input(target_text: str) -> ParsedMcpConnectInput:
-    tokens = shlex.split(target_text)
-    target_tokens: list[str] = []
-    server_name: str | None = None
-    timeout_seconds: float | None = None
-    trigger_oauth: bool | None = None
-    reconnect_on_disconnect: bool | None = None
-    force_reconnect = False
-    auth_token: str | None = None
-
-    idx = 0
-    while idx < len(tokens):
-        token = tokens[idx]
-        if token in {"--name", "-n"}:
-            idx += 1
-            if idx >= len(tokens):
-                raise ValueError("Missing value for --name")
-            server_name = tokens[idx]
-        elif token == "--timeout":
-            idx += 1
-            if idx >= len(tokens):
-                raise ValueError("Missing value for --timeout")
-            timeout_seconds = float(tokens[idx])
-            if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
-                raise ValueError(
-                    "Invalid value for --timeout: expected a finite number greater than 0"
-                )
-        elif token == "--oauth":
-            trigger_oauth = True
-        elif token == "--no-oauth":
-            trigger_oauth = False
-        elif token == "--reconnect":
-            force_reconnect = True
-        elif token == "--no-reconnect":
-            reconnect_on_disconnect = False
-        elif token == "--auth":
-            idx += 1
-            if idx >= len(tokens):
-                raise ValueError("Missing value for --auth")
-            auth_token = _resolve_auth_token_value(tokens[idx])
-        elif token.startswith("--auth="):
-            auth_token = token.split("=", 1)[1]
-            if not auth_token:
-                raise ValueError("Missing value for --auth")
-            auth_token = _resolve_auth_token_value(auth_token)
-        else:
-            target_tokens.append(token)
-        idx += 1
-
-    normalized_target = _rebuild_target_text(target_tokens).strip()
-    if not normalized_target:
-        raise ValueError("Connection target is required")
-
-    return ParsedMcpConnectInput(
-        target_text=normalized_target,
-        server_name=server_name,
-        timeout_seconds=timeout_seconds,
-        trigger_oauth=trigger_oauth,
-        reconnect_on_disconnect=reconnect_on_disconnect,
-        force_reconnect=force_reconnect,
-        auth_token=auth_token,
+def _resolve_request_auth(request: ParsedMcpConnectRequest) -> ParsedMcpConnectRequest:
+    auth_token = request.options.auth_token
+    if auth_token is None:
+        return request
+    return replace(
+        request,
+        options=replace(
+            request.options,
+            auth_token=_resolve_auth_token_value(auth_token),
+        ),
     )
 
 
 def _build_server_config(
-    target_text: str,
-    server_name: str,
+    request: ParsedMcpConnectRequest,
     *,
     auth_token: str | None = None,
 ) -> tuple[str, MCPServerSettings]:
     return build_server_config_from_target(
-        target_text,
-        server_name=server_name,
+        request.target,
         auth_token=auth_token,
     )
 
@@ -290,9 +201,7 @@ async def _resolve_configured_server_alias(
     *,
     manager: McpRuntimeManager,
     agent_name: str,
-    target_text: str,
-    explicit_server_name: str | None,
-    auth_token: str | None,
+    request: ParsedMcpConnectRequest,
 ) -> str | None:
     """Return configured server name when target text is an alias.
 
@@ -300,17 +209,16 @@ async def _resolve_configured_server_alias(
     --name override or URL auth token is provided.
     """
 
-    if explicit_server_name is not None or auth_token is not None:
+    if request.target.server_name is not None or request.options.auth_token is not None:
         return None
 
-    if infer_connect_mode(target_text) != "stdio":
+    if request.target.mode != "stdio":
         return None
 
-    tokens = shlex.split(target_text)
-    if len(tokens) != 1:
+    if not request.target.command or request.target.args:
         return None
 
-    candidate = tokens[0]
+    candidate = request.target.command
     if not candidate or candidate.startswith("-"):
         return None
 
@@ -1252,7 +1160,7 @@ async def handle_mcp_connect(
     *,
     manager: McpRuntimeManager,
     agent_name: str,
-    target_text: str,
+    request: ParsedMcpConnectRequest,
     on_progress: Callable[[str], Awaitable[None]] | None = None,
     on_oauth_event: Callable[[OAuthEvent], Awaitable[None]] | None = None,
 ) -> CommandOutcome:
@@ -1306,7 +1214,7 @@ async def handle_mcp_connect(
             await emit_progress(f"OAuth status: {event.message}")
 
     try:
-        parsed = parse_connect_input(target_text)
+        parsed = _resolve_request_auth(request)
     except ValueError as exc:
         outcome.add_message(f"Invalid MCP connect arguments: {exc}", channel="error")
         return outcome
@@ -1314,22 +1222,21 @@ async def handle_mcp_connect(
     configured_alias = await _resolve_configured_server_alias(
         manager=manager,
         agent_name=agent_name,
-        target_text=parsed.target_text,
-        explicit_server_name=parsed.server_name,
-        auth_token=parsed.auth_token,
+        request=parsed,
     )
 
-    mode = "configured" if configured_alias is not None else infer_connect_mode(parsed.target_text)
-    server_name = (
-        configured_alias or parsed.server_name or infer_server_name(parsed.target_text, mode)
-    )
+    target_mode = parsed.target.mode
+    mode = "configured" if configured_alias is not None else target_mode
+    server_name = configured_alias or infer_server_name(parsed.target)
     if mode == "configured":
         await emit_progress(f"Connecting MCP server '{server_name}' from config file…")
     else:
         await emit_progress(f"Connecting MCP server '{server_name}' via {mode}…")
 
-    trigger_oauth = True if parsed.trigger_oauth is None else parsed.trigger_oauth
-    startup_timeout_seconds = parsed.timeout_seconds
+    trigger_oauth = (
+        True if parsed.options.trigger_oauth is None else parsed.options.trigger_oauth
+    )
+    startup_timeout_seconds = parsed.options.timeout_seconds
     if startup_timeout_seconds is None:
         # OAuth-backed URL servers often need additional non-callback time for
         # metadata discovery and token exchange after the browser callback.
@@ -1341,15 +1248,14 @@ async def handle_mcp_connect(
             config = None
         else:
             server_name, config = _build_server_config(
-                parsed.target_text,
-                server_name,
-                auth_token=parsed.auth_token,
+                parsed,
+                auth_token=parsed.options.auth_token,
             )
         attach_options = MCPAttachOptions(
             startup_timeout_seconds=startup_timeout_seconds,
             trigger_oauth=trigger_oauth,
-            force_reconnect=parsed.force_reconnect,
-            reconnect_on_disconnect=parsed.reconnect_on_disconnect,
+            force_reconnect=parsed.options.force_reconnect,
+            reconnect_on_disconnect=parsed.options.reconnect_on_disconnect,
             oauth_event_handler=emit_oauth_event
             if (on_progress is not None or on_oauth_event is not None)
             else None,
@@ -1450,7 +1356,7 @@ async def handle_mcp_connect(
         else prompts_added_count
     )
 
-    if already_attached and not parsed.force_reconnect:
+    if already_attached and not parsed.options.force_reconnect:
         outcome.add_message(
             (
                 f"MCP server '{server_name}' is already attached. "
@@ -1462,10 +1368,12 @@ async def handle_mcp_connect(
         )
         await emit_progress(f"MCP server '{server_name}' is already connected.")
     else:
-        action = "Reconnected" if already_attached and parsed.force_reconnect else "Connected"
+        action = (
+            "Reconnected" if already_attached and parsed.options.force_reconnect else "Connected"
+        )
         if mode == "configured":
             configured_source = _resolve_configured_source_from_context(ctx, server_name)
-            source_text = configured_source or parsed.target_text
+            source_text = configured_source or render_normalized_target(parsed.target)
             message_text = f"{action} MCP server '{server_name}' from configuration: {source_text}."
         else:
             message_text = f"{action} MCP server '{server_name}' ({mode})."

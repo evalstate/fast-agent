@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Literal, TypeGuard
 
+from fast_agent.mcp.connect_targets import ParsedMcpConnectRequest, render_normalized_target
+
 
 class CommandBase:
     kind: str
@@ -36,16 +38,57 @@ class McpListCommand(CommandBase):
 
 @dataclass(frozen=True, slots=True)
 class McpConnectCommand(CommandBase):
-    target_text: str
-    parsed_mode: McpConnectMode
-    server_name: str | None
-    auth_token: str | None
-    timeout_seconds: float | None
-    trigger_oauth: bool | None
-    reconnect_on_disconnect: bool | None
-    force_reconnect: bool
+    request: ParsedMcpConnectRequest | None
     error: str | None
     kind: Literal["mcp_connect"] = "mcp_connect"
+
+    @property
+    def target_text(self) -> str:
+        if self.request is None:
+            return ""
+        return render_normalized_target(self.request.target)
+
+    @property
+    def parsed_mode(self) -> McpConnectMode:
+        if self.request is None:
+            return "stdio"
+        return self.request.target.mode
+
+    @property
+    def server_name(self) -> str | None:
+        if self.request is None:
+            return None
+        return self.request.target.server_name
+
+    @property
+    def auth_token(self) -> str | None:
+        if self.request is None:
+            return None
+        return self.request.options.auth_token
+
+    @property
+    def timeout_seconds(self) -> float | None:
+        if self.request is None:
+            return None
+        return self.request.options.timeout_seconds
+
+    @property
+    def trigger_oauth(self) -> bool | None:
+        if self.request is None:
+            return None
+        return self.request.options.trigger_oauth
+
+    @property
+    def reconnect_on_disconnect(self) -> bool | None:
+        if self.request is None:
+            return None
+        return self.request.options.reconnect_on_disconnect
+
+    @property
+    def force_reconnect(self) -> bool:
+        if self.request is None:
+            return False
+        return self.request.options.force_reconnect
 
 
 @dataclass(frozen=True, slots=True)

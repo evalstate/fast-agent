@@ -23,6 +23,7 @@ from rich import print as rich_print
 from rich.text import Text
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.mcp.connect_targets import parse_connect_command_text
 from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.ui.command_payloads import (
     AgentCommand,
@@ -157,16 +158,28 @@ def _mcp_connect_cmd(
     force_reconnect: bool,
     error: str | None,
 ) -> McpConnectCommand:
+    del parsed_mode
+    if error or not target_text:
+        return McpConnectCommand(request=None, error=error)
+
+    argv = [target_text]
+    if server_name:
+        argv.extend(["--name", shlex.quote(server_name)])
+    if auth_token:
+        argv.extend(["--auth", shlex.quote(auth_token)])
+    if timeout_seconds is not None:
+        argv.extend(["--timeout", str(timeout_seconds)])
+    if trigger_oauth is True:
+        argv.append("--oauth")
+    elif trigger_oauth is False:
+        argv.append("--no-oauth")
+    if reconnect_on_disconnect is False:
+        argv.append("--no-reconnect")
+    if force_reconnect:
+        argv.append("--reconnect")
     return McpConnectCommand(
-        target_text=target_text,
-        parsed_mode=parsed_mode,
-        server_name=server_name,
-        auth_token=auth_token,
-        timeout_seconds=timeout_seconds,
-        trigger_oauth=trigger_oauth,
-        reconnect_on_disconnect=reconnect_on_disconnect,
-        force_reconnect=force_reconnect,
-        error=error,
+        request=parse_connect_command_text(" ".join(argv)),
+        error=None,
     )
 
 

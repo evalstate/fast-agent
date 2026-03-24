@@ -193,13 +193,22 @@ def status(
         codex_table = Table(show_header=True, box=None)
         codex_table.add_column("Codex OAuth", style="white", header_style="bold")
         codex_table.add_column("Token", header_style="bold")
+        codex_table.add_column("Source", header_style="bold")
         codex_table.add_column("Expires", header_style="bold")
 
         if not codex_status.get("present"):
             token_display = "[dim]Not configured[/dim]"
+            source_display = "[dim]-[/dim]"
             expires_display = "[dim]-[/dim]"
         else:
             token_display = "[bold green]Present[/bold green]"
+            source = codex_status.get("source")
+            if source == "keyring":
+                source_display = "[green]Keyring OAuth[/green]"
+            elif source == "auth.json":
+                source_display = "[green]Codex auth.json[/green]"
+            else:
+                source_display = "[green]OAuth token[/green]"
             expires_at = codex_status.get("expires_at")
             if expires_at:
                 expires_display = datetime.fromtimestamp(expires_at).strftime("%Y-%m-%d %H:%M")
@@ -210,7 +219,7 @@ def status(
             else:
                 expires_display = "[green]unknown[/green]"
 
-        codex_table.add_row("Token", token_display, expires_display)
+        codex_table.add_row("Token", token_display, source_display, expires_display)
         print_section_header(console, "Codex OAuth", color="blue")
         console.print(codex_table)
     except Exception:
