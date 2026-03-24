@@ -1435,6 +1435,7 @@ def test_resource_mention_server_completion_filters_connected_resource_servers()
     names = [c.text for c in completions]
 
     assert "demo:" in names
+    assert "file:" in names
     assert "offline:" not in names
     assert "nores:" not in names
 
@@ -1452,6 +1453,42 @@ def test_resource_mention_resource_and_template_completion() -> None:
 
     assert "repo://items/123" in names
     assert "repo://items/{id}{" in names
+
+
+def test_resource_mention_local_file_completion_encodes_spaces() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        base = Path(tmpdir)
+        (base / "two words.txt").write_text("hi", encoding="utf-8")
+
+        completer = AgentCompleter(agents=["agent1"])
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(tmpdir)
+            doc = Document("^file:./two", cursor_position=len("^file:./two"))
+            completions = list(completer.get_completions(doc, None))
+        finally:
+            os.chdir(original_cwd)
+
+    assert any(completion.text == "./two%20words.txt" for completion in completions)
+
+
+def test_attach_command_completion_offers_clear_and_paths() -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        base = Path(tmpdir)
+        (base / "report.pdf").write_bytes(b"%PDF-1.4")
+        (base / "two words.pdf").write_bytes(b"%PDF-1.4")
+
+        completer = AgentCompleter(agents=["agent1"])
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(tmpdir)
+            doc = Document("/attach t", cursor_position=len("/attach t"))
+            completions = list(completer.get_completions(doc, None))
+        finally:
+            os.chdir(original_cwd)
+
+    names = [completion.text for completion in completions]
+    assert "'two words.pdf'" in names
 
 
 def test_resource_mention_argument_value_completion() -> None:

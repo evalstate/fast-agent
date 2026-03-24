@@ -482,6 +482,7 @@ def _build_toolbar(
     toolbar_color: str,
     agent_provider: "AgentApp | None",
     shell_context: ShellInputContext,
+    session_factory: "Callable[[], PromptSession]",
 ) -> "Callable[[], HTML]":
     shell_state = ShellToolbarState(
         enabled=shell_context.enabled,
@@ -491,6 +492,10 @@ def _build_toolbar(
 
     def get_toolbar() -> HTML:
         global _copy_notice
+        try:
+            current_input_text = session_factory().default_buffer.text
+        except Exception:
+            current_input_text = ""
         result = render_input_toolbar(
             agent_name=agent_name,
             toolbar_color=toolbar_color,
@@ -501,6 +506,7 @@ def _build_toolbar(
             copy_notice=_copy_notice,
             copy_notice_until=_copy_notice_until,
             shell_path_switch_delay_seconds=_SHELL_PATH_SWITCH_DELAY_SECONDS,
+            current_input_text=current_input_text,
         )
         shell_state.show_path_segment = result.show_shell_path_segment
         if result.clear_copy_notice:
@@ -704,7 +710,7 @@ def _show_input_help_banner(
     rich_print(
         """[dim]Use '/' for commands, '!' for shell. '#' to query, '@' to switch agents\n"""
         """CTRL+T multiline, CTRL+Y copy last message, CTRL+E external editor.\n"""
-        """CTRL+Space or Tab for path completion. '^' for resource attach.[/dim]"""
+        """CTRL+Space or Tab for path completion. Use /attach, `^file:`, or F10 for attachments.[/dim]"""
     )
 
 
@@ -919,6 +925,7 @@ async def get_enhanced_input(
         toolbar_color=toolbar_color,
         agent_provider=agent_provider,
         shell_context=shell_context,
+        session_factory=session_factory,
     )
     session = create_prompt_session(
         history=agent_histories[agent_name],

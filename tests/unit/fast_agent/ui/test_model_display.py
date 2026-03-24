@@ -50,6 +50,24 @@ def test_resolve_llm_display_name_uses_wire_model_name_for_anthropic_presets() -
     assert resolve_llm_display_name(_StubLLM(resolved_model)) == "claude-sonnet-4-6"
 
 
+def test_resolve_llm_display_name_marks_anthropic_vertex_route() -> None:
+    resolved_model = ResolvedModelSpec(
+        raw_input="sonnet?via=vertex",
+        selected_model_name="sonnet?via=vertex",
+        source="preset",
+        model_config=ModelConfig(
+            provider=Provider.ANTHROPIC,
+            model_name="claude-sonnet-4-6",
+            via="vertex",
+        ),
+        provider=Provider.ANTHROPIC,
+        wire_model_name="claude-sonnet-4-6",
+    )
+
+    assert resolved_model.display_name == "claude-sonnet-4-6 · Vertex"
+    assert resolve_llm_display_name(_StubLLM(resolved_model)) == "claude-sonnet-4-6 · Vertex"
+
+
 def test_resolve_llm_display_name_uses_wire_model_name_for_provider_routed_presets() -> None:
     resolved_model = ResolvedModelSpec(
         raw_input="glm",
@@ -90,6 +108,10 @@ def test_resolve_model_display_name_formats_raw_model_strings() -> None:
         == "Kimi-K2-Instruct-0905"
     )
     assert resolve_model_display_name("zai-org/GLM-5:novita") == "GLM-5"
+    assert (
+        resolve_model_display_name("claude-sonnet-4-6?via=vertex")
+        == "claude-sonnet-4-6 · Vertex"
+    )
 
 
 def test_resolve_llm_display_name_uses_overlay_name() -> None:

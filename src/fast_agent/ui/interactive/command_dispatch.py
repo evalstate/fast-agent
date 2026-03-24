@@ -22,6 +22,7 @@ from fast_agent.commands.handlers.shared import clear_agent_histories
 from fast_agent.ui import enhanced_prompt
 from fast_agent.ui.command_payloads import (
     AgentCommand,
+    AttachCommand,
     CardsCommand,
     ClearCommand,
     ClearSessionsCommand,
@@ -69,6 +70,12 @@ from fast_agent.ui.command_payloads import (
     UnknownCommand,
 )
 from fast_agent.ui.history_display import display_history_show
+from fast_agent.ui.prompt.attachment_tokens import (
+    append_attachment_tokens,
+    build_local_attachment_token,
+    normalize_local_attachment_reference,
+    strip_local_attachment_tokens,
+)
 
 from .command_context import build_command_context, emit_command_outcome
 from .mcp_connect_flow import handle_mcp_connect
@@ -131,6 +138,8 @@ async def _dispatch_local_ui_payload(
     *,
     prompt_provider: "AgentApp",
     available_agents_set: set[str],
+    agent_name: str,
+    buffer_prefill: str,
 ) -> DispatchResult | None:
     result = DispatchResult(handled=True)
     match payload:
@@ -158,6 +167,43 @@ async def _dispatch_local_ui_payload(
             return result
         case ShellCommand(command=shell_cmd):
             result.shell_execute_cmd = shell_cmd
+            return result
+        case AttachCommand(paths=paths, clear=clear, error=error):
+            if error:
+                rich_print(f"[red]{error}[/red]")
+                return result
+
+            if clear:
+                result.buffer_prefill = strip_local_attachment_tokens(buffer_prefill)
+                return result
+
+            resolved_paths = list(paths)
+            if not resolved_paths:
+                context = build_command_context(prompt_provider, agent_name)
+                prompted_path = await context.io.prompt_text(
+                    "Attach file path:",
+                    allow_empty=False,
+                )
+                if not prompted_path:
+                    result.buffer_prefill = buffer_prefill
+                    return result
+                resolved_paths = [prompted_path]
+
+            tokens: list[str] = []
+            for raw_path in resolved_paths:
+                try:
+                    attachment_path = normalize_local_attachment_reference(raw_path)
+                    if not attachment_path.exists():
+                        raise FileNotFoundError(raw_path)
+                    if not attachment_path.is_file():
+                        raise IsADirectoryError(raw_path)
+                    token = build_local_attachment_token(attachment_path)
+                except Exception as exc:
+                    rich_print(f"[red]Unable to attach '{raw_path}': {exc}[/red]")
+                    continue
+                tokens.append(token)
+
+            result.buffer_prefill = append_attachment_tokens(buffer_prefill, tokens)
             return result
         case UnknownCommand(command=command):
             rich_print(f"[red]Command not found: {command}[/red]")
@@ -728,6 +774,7 @@ async def dispatch_command_payload(
     available_agents: list[str],
     available_agents_set: set[str],
     merge_pinned_agents: Callable[[list[str]], list[str]],
+    buffer_prefill: str = "",
 ) -> DispatchResult:
     del available_agents
 
@@ -735,6 +782,8 @@ async def dispatch_command_payload(
         payload,
         prompt_provider=prompt_provider,
         available_agents_set=available_agents_set,
+        agent_name=agent,
+        buffer_prefill=buffer_prefill,
     )
     if local_result is not None:
         return local_result

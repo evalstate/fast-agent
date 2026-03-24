@@ -20,6 +20,7 @@ from fast_agent.commands.shared_command_intents import (
 from fast_agent.mcp.connect_targets import parse_connect_command_text
 from fast_agent.ui.command_payloads import (
     AgentCommand,
+    AttachCommand,
     CardsCommand,
     ClearCommand,
     ClearSessionsCommand,
@@ -157,6 +158,21 @@ def _parse_connect_command(remainder: str, *, usage: str) -> McpConnectCommand:
         )
     except ValueError as exc:
         return McpConnectCommand(request=None, error=str(exc))
+
+
+def _parse_attach_command(remainder: str) -> AttachCommand:
+    if not remainder:
+        return AttachCommand(paths=())
+
+    try:
+        tokens = shlex.split(remainder)
+    except ValueError as exc:
+        return AttachCommand(paths=(), error=str(exc))
+
+    if len(tokens) == 1 and tokens[0].lower() == "clear":
+        return AttachCommand(paths=(), clear=True)
+
+    return AttachCommand(paths=tuple(tokens))
 
 
 def _parse_history_command(remainder: str) -> CommandPayload:
@@ -588,6 +604,7 @@ def _parse_slash_command(cmd_line: str) -> str | CommandPayload:
         "mcp": _parse_mcp_command,
         "connect": _parse_connect_alias_command,
         "prompt": _parse_prompt_command,
+        "attach": _parse_attach_command,
     }
     parser = command_parsers.get(cmd)
     if parser is not None:

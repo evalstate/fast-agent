@@ -10,6 +10,10 @@ from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.model_overlays import load_model_overlay_registry
 from fast_agent.llm.model_selection import CatalogModelEntry, ModelSelectionCatalog
+from fast_agent.llm.provider.anthropic.vertex_config import (
+    anthropic_vertex_intent,
+    anthropic_vertex_ready,
+)
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import available_reasoning_values, format_reasoning_setting
@@ -49,6 +53,7 @@ REFER_TO_DOCS_PROVIDERS: tuple[Provider, ...] = (
 
 GENERIC_CUSTOM_MODEL_SENTINEL = "generic.__custom__"
 CODEX_LOGIN_SENTINEL = "codexresponses.__login__"
+ANTHROPIC_VERTEX_PROVIDER_KEY = "anthropic-vertex"
 
 
 @dataclass(frozen=True)
@@ -59,6 +64,7 @@ class ProviderOption:
     key: str | None = None
     display_name: str | None = None
     overlay_group: bool = False
+    disabled_reason: str | None = None
 
     @property
     def option_key(self) -> str:
@@ -145,6 +151,126 @@ def _provider_is_active(provider: Provider, config_payload: dict[str, Any]) -> b
     return False
 
 
+def _force_anthropic_vertex_route(model_spec: str) -> str:
+    return _update_query_param(model_spec, key="via", value="vertex")
+
+
+def _catalog_options_from_entries(
+    entries: tuple[CatalogModelEntry, ...],
+    *,
+    provider: Provider,
+    source: ModelSource,
+    spec_transform: Any = None,
+) -> list[ModelOption]:
+    transform = spec_transform or (lambda value: value)
+
+    curated_options: list[ModelOption] = []
+    for entry in entries:
+        spec = transform(entry.model)
+        tags: list[str] = []
+        if entry.local:
+            tags.append("local")
+        if entry.fast:
+            tags.append("fast")
+        if not entry.current:
+            tags.append("legacy")
+
+        suffix = f" ({', '.join(tags)})" if tags else ""
+        entry_label = entry.display_label or entry.alias
+        label = f"{entry_label:<19} → {spec}{suffix}"
+        if entry.description:
+            label = f"{label} — {entry.description}"
+        curated_options.append(
+            ModelOption(
+                spec=spec,
+                label=label,
+                preset_token=entry.alias,
+                fast=entry.fast,
+                curated=entry.current,
+            )
+        )
+
+    if source == "curated":
+        return curated_options
+
+    seen_identities: set[tuple[Provider, str]] = set()
+    options: list[ModelOption] = list(curated_options)
+    for curated in curated_options:
+        identity = model_identity(curated.spec)
+        if identity is not None:
+            seen_identities.add(identity)
+
+    for spec in _static_provider_models(provider):
+        transformed_spec = transform(spec)
+        identity = model_identity(transformed_spec)
+        if identity is not None and identity in seen_identities:
+            continue
+        if identity is not None:
+            seen_identities.add(identity)
+        options.append(ModelOption(spec=transformed_spec, label=f"{transformed_spec} (catalog)"))
+
+    return options
+
+
+def model_options_for_option(
+    snapshot: ModelPickerSnapshot,
+    option: ProviderOption,
+    *,
+    source: ModelSource,
+) -> list[ModelOption]:
+    if option.overlay_group:
+        return _catalog_options_from_entries(
+            option.curated_entries,
+            provider=Provider.ANTHROPIC,
+            source="curated",
+        )
+
+    provider = option.provider
+    assert provider is not None
+    spec_transform = (
+        _force_anthropic_vertex_route
+        if option.option_key == ANTHROPIC_VERTEX_PROVIDER_KEY
+        else None
+    )
+    return _catalog_options_from_entries(
+        option.curated_entries,
+        provider=provider,
+        source=source,
+        spec_transform=spec_transform,
+    )
+
+
+def _anthropic_vertex_provider_option(
+    *,
+    entries: tuple[CatalogModelEntry, ...],
+    config_payload: dict[str, Any],
+) -> ProviderOption | None:
+    if not anthropic_vertex_intent(config_payload):
+        return None
+
+    vertex_ready, disabled_reason = anthropic_vertex_ready(config_payload)
+    rewritten_entries = tuple(
+        CatalogModelEntry(
+            alias=entry.alias,
+            model=_force_anthropic_vertex_route(entry.model),
+            current=entry.current,
+            fast=entry.fast,
+            local=entry.local,
+            display_label=entry.display_label,
+            description=entry.description,
+        )
+        for entry in entries
+    )
+    return ProviderOption(
+        provider=Provider.ANTHROPIC,
+        active=vertex_ready,
+        curated_entries=rewritten_entries,
+        key=ANTHROPIC_VERTEX_PROVIDER_KEY,
+        display_name="Anthropic (Vertex)",
+        disabled_reason=disabled_reason,
+    )
+
+
 def build_snapshot(
     config_path: str | Path | None = None,
     *,
@@ -214,6 +340,13 @@ def build_snapshot(
                 curated_entries=entries,
             )
         )
+        if provider == Provider.ANTHROPIC:
+            vertex_option = _anthropic_vertex_provider_option(
+                entries=entries,
+                config_payload=config_payload,
+            )
+            if vertex_option is not None:
+                providers.append(vertex_option)
 
     return ModelPickerSnapshot(providers=tuple(providers), config_payload=config_payload)
 
@@ -286,7 +419,7 @@ def find_provider(snapshot: ModelPickerSnapshot, provider_name: str) -> Provider
 
 
 def build_provider_label(option: ProviderOption) -> str:
-    status = "active" if option.active else "inactive"
+    status = "active" if option.active else "disabled" if option.disabled_reason else "inactive"
     curated_count = len(option.curated_entries)
     if option.overlay_group:
         entry_text = "overlay" if curated_count == 1 else "overlays"
@@ -386,52 +519,11 @@ def model_options_for_provider(
                 activation_action=activation_action,
             )
         ]
-
-    curated_options: list[ModelOption] = []
-    for entry in provider_option.curated_entries:
-        tags: list[str] = []
-        if entry.local:
-            tags.append("local")
-        if entry.fast:
-            tags.append("fast")
-        if not entry.current:
-            tags.append("legacy")
-
-        suffix = f" ({', '.join(tags)})" if tags else ""
-        entry_label = entry.display_label or entry.alias
-        label = f"{entry_label:<19} → {entry.model}{suffix}"
-        if entry.description:
-            label = f"{label} — {entry.description}"
-        curated_options.append(
-            ModelOption(
-                spec=entry.model,
-                label=label,
-                preset_token=entry.alias,
-                fast=entry.fast,
-                curated=entry.current,
-            )
-        )
-
-    if source == "curated":
-        return curated_options
-
-    seen_identities: set[tuple[Provider, str]] = set()
-    options: list[ModelOption] = list(curated_options)
-
-    for curated in curated_options:
-        identity = model_identity(curated.spec)
-        if identity is not None:
-            seen_identities.add(identity)
-
-    for spec in _static_provider_models(provider):
-        identity = model_identity(spec)
-        if identity is not None and identity in seen_identities:
-            continue
-        if identity is not None:
-            seen_identities.add(identity)
-        options.append(ModelOption(spec=spec, label=f"{spec} (catalog)"))
-
-    return options
+    return _catalog_options_from_entries(
+        provider_option.curated_entries,
+        provider=provider,
+        source=source,
+    )
 
 
 def model_capabilities(model_spec: str) -> ModelCapabilities:

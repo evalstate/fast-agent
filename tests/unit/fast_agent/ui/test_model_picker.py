@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import types
 from typing import Any, cast
 
 from prompt_toolkit.data_structures import Point
@@ -11,10 +12,12 @@ from fast_agent.llm.model_selection import CatalogModelEntry
 from fast_agent.llm.provider_types import Provider
 from fast_agent.ui.model_picker import _find_initial_model_index, _SplitListPicker
 from fast_agent.ui.model_picker_common import (
+    ANTHROPIC_VERTEX_PROVIDER_KEY,
     GENERIC_CUSTOM_MODEL_SENTINEL,
     ModelOption,
     ModelPickerSnapshot,
     ProviderOption,
+    build_snapshot,
     model_options_for_provider,
     provider_activation_action,
 )
@@ -289,3 +292,69 @@ def test_picker_returns_overlay_token_as_resolved_model() -> None:
     assert app.result is not None
     assert app.result.selected_model == "haikutiny"
     assert app.result.resolved_model == "haikutiny"
+
+
+def test_snapshot_adds_anthropic_vertex_group_when_ready(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "fast_agent.llm.provider.anthropic.vertex_config.detect_google_adc",
+        lambda: types.SimpleNamespace(
+            available=True,
+            project_id="proj",
+            credentials=object(),
+        ),
+    )
+
+    snapshot = build_snapshot(
+        config_payload={
+            "anthropic": {
+                "vertex_ai": {
+                    "enabled": True,
+                    "project_id": "proj",
+                    "location": "global",
+                }
+            }
+        }
+    )
+
+    option = next(
+        provider
+        for provider in snapshot.providers
+        if provider.option_key == ANTHROPIC_VERTEX_PROVIDER_KEY
+    )
+
+    assert option.active is True
+    assert option.option_display_name == "Anthropic (Vertex)"
+    assert all("?via=vertex" in entry.model for entry in option.curated_entries)
+
+
+def test_snapshot_disables_anthropic_vertex_group_when_adc_missing(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "fast_agent.llm.provider.anthropic.vertex_config.detect_google_adc",
+        lambda: types.SimpleNamespace(
+            available=False,
+            project_id=None,
+            error=RuntimeError("missing"),
+            credentials=None,
+        ),
+    )
+
+    snapshot = build_snapshot(
+        config_payload={
+            "anthropic": {
+                "vertex_ai": {
+                    "enabled": True,
+                    "project_id": "proj",
+                    "location": "global",
+                }
+            }
+        }
+    )
+
+    option = next(
+        provider
+        for provider in snapshot.providers
+        if provider.option_key == ANTHROPIC_VERTEX_PROVIDER_KEY
+    )
+
+    assert option.active is False
+    assert option.disabled_reason == "Google ADC not found"

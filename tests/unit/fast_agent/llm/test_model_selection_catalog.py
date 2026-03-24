@@ -8,6 +8,7 @@ import pytest
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_overlays import load_model_overlay_registry
 from fast_agent.llm.model_selection import ModelSelectionCatalog
+from fast_agent.llm.provider.anthropic.vertex_config import GoogleAdcStatus
 from fast_agent.llm.provider_types import Provider
 
 if TYPE_CHECKING:
@@ -130,6 +131,29 @@ def test_configured_providers_reads_config_keys() -> None:
     assert Provider.ANTHROPIC in providers
     assert Provider.OPENAI in providers
     assert Provider.RESPONSES in providers
+
+
+def test_configured_providers_does_not_treat_anthropic_vertex_as_base_provider(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "fast_agent.llm.provider.anthropic.vertex_config.detect_google_adc",
+        lambda: GoogleAdcStatus(available=True, project_id="proj", credentials=object()),
+    )
+
+    providers = ModelSelectionCatalog.configured_providers(
+        {
+            "anthropic": {
+                "vertex_ai": {
+                    "enabled": True,
+                    "project_id": "proj",
+                    "location": "global",
+                }
+            }
+        }
+    )
+
+    assert Provider.ANTHROPIC not in providers
 
 
 def test_configured_providers_reads_environment_keys() -> None:

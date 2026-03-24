@@ -211,6 +211,8 @@ class ResolvedModelSpec:
         config = self.model_config
         kwargs: dict[str, object] = {}
 
+        if config.via is not None and self.provider == Provider.ANTHROPIC:
+            kwargs["via"] = config.via
         if config.reasoning_effort:
             kwargs["reasoning_effort"] = config.reasoning_effort
         if config.text_verbosity:

@@ -659,6 +659,15 @@ class AnthropicWebFetchSettings(BaseModel):
         return self
 
 
+class AnthropicVertexSettings(BaseModel):
+    """Anthropic-on-Vertex configuration."""
+
+    enabled: bool = False
+    project_id: str | None = None
+    location: str | None = None
+    base_url: str | None = None
+
+
 class AnthropicSettings(BaseModel):
     """Settings for using Anthropic models in the fast-agent application."""
 
@@ -690,6 +699,7 @@ class AnthropicSettings(BaseModel):
         default="auto",
         description="Structured output mode: auto, json, or tool_use",
     )
+    vertex_ai: AnthropicVertexSettings = Field(default_factory=AnthropicVertexSettings)
     web_search: AnthropicWebSearchSettings = Field(default_factory=AnthropicWebSearchSettings)
     web_fetch: AnthropicWebFetchSettings = Field(default_factory=AnthropicWebFetchSettings)
 

@@ -8,7 +8,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence, Type, Union, cast
 
-from anthropic import APIError, AsyncAnthropic, AuthenticationError, transform_schema
+from anthropic import (
+    APIError,
+    AsyncAnthropic,
+    AsyncAnthropicVertex,
+    AuthenticationError,
+    transform_schema,
+)
 from anthropic.lib.streaming import BetaAsyncMessageStream
 from mcp import Tool
 from mcp.types import (
@@ -66,6 +72,14 @@ from fast_agent.llm.provider.anthropic.beta_types import (
 from fast_agent.llm.provider.anthropic.cache_planner import AnthropicCachePlanner
 from fast_agent.llm.provider.anthropic.multipart_converter_anthropic import (
     AnthropicConverter,
+)
+from fast_agent.llm.provider.anthropic.vertex_config import (
+    AnthropicRoute,
+    anthropic_vertex_config,
+    detect_google_adc,
+    resolve_anthropic_route,
+    resolve_anthropic_vertex_location,
+    resolve_anthropic_vertex_project_id,
 )
 from fast_agent.llm.provider.anthropic.web_tools import (
     build_web_tool_params,
@@ -354,11 +368,17 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
     def __init__(self, **kwargs) -> None:
         # Initialize logger - keep it simple without name reference
         kwargs.pop("provider", None)
+        route_override = kwargs.pop("via", None)
         structured_override = kwargs.pop("structured_output_mode", None)
         long_context_requested = kwargs.pop("long_context", False)
         web_search_override = kwargs.pop("web_search", None)
         web_fetch_override = kwargs.pop("web_fetch", None)
         super().__init__(provider=Provider.ANTHROPIC, **kwargs)
+        self._route_override: AnthropicRoute | None = (
+            cast("AnthropicRoute | None", route_override)
+            if route_override in {"direct", "vertex"}
+            else None
+        )
         self._structured_output_mode_override: StructuredOutputMode | None = structured_override
         self._web_search_override: bool | None = (
             bool(web_search_override) if isinstance(web_search_override, bool) else None
@@ -486,6 +506,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     def _provider_base_url(self) -> str | None:
         assert self.context.config
+        if self._anthropic_route() == "vertex":
+            return self._vertex_cfg().base_url
         return self.context.config.anthropic.base_url if self.context.config.anthropic else None
 
     def _provider_default_headers(self) -> dict[str, str] | None:
@@ -493,6 +515,80 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         assert self.context.config
         return (
             self.context.config.anthropic.default_headers if self.context.config.anthropic else None
+        )
+
+    def _provider_api_key(self):
+        from fast_agent.llm.provider_key_manager import ProviderKeyManager
+
+        return ProviderKeyManager.get_api_key(
+            self.provider.config_name,
+            self.context.config,
+            route_hint=self._anthropic_route(),
+        )
+
+    def _vertex_cfg(self):
+        return anthropic_vertex_config(getattr(self.context, "config", None))
+
+    def _anthropic_route(self) -> AnthropicRoute:
+        explicit_route = self._route_override
+        if explicit_route is None:
+            resolved = self._resolved_model_spec
+            if resolved is not None:
+                explicit_route = resolved.model_config.via
+        return resolve_anthropic_route(
+            getattr(self.context, "config", None),
+            explicit_route=explicit_route,
+        )
+
+    def _vertex_project_id(self) -> str:
+        project_id = resolve_anthropic_vertex_project_id(getattr(self.context, "config", None))
+        if project_id is None:
+            raise ProviderKeyError(
+                "Google Cloud project not configured",
+                "Set anthropic.vertex_ai.project_id or configure "
+                "GOOGLE_CLOUD_PROJECT before using Anthropic via Vertex.",
+            )
+        return project_id
+
+    def _vertex_location(self) -> str:
+        location = resolve_anthropic_vertex_location(getattr(self.context, "config", None))
+        if location is None:
+            raise ProviderKeyError(
+                "Google Cloud location not configured",
+                "Set anthropic.vertex_ai.location before using Anthropic via Vertex.",
+            )
+        return location
+
+    def _vertex_credentials(self) -> object:
+        adc_status = detect_google_adc()
+        if not adc_status.available or adc_status.credentials is None:
+            raise ProviderKeyError(
+                "Google ADC not found",
+                "Anthropic via Vertex uses Google Application Default Credentials.\n"
+                "Run `gcloud auth application-default login` or configure a service account.",
+            )
+        return adc_status.credentials
+
+    def _initialize_anthropic_client(self) -> AsyncAnthropic | AsyncAnthropicVertex:
+        base_url = self._base_url()
+        default_headers = self._default_headers()
+
+        if self._anthropic_route() == "vertex":
+            return AsyncAnthropicVertex(
+                project_id=self._vertex_project_id(),
+                region=self._vertex_location(),
+                credentials=cast("Any", self._vertex_credentials()),
+                base_url=base_url,
+                default_headers=default_headers,
+            )
+
+        api_key = self._api_key()
+        if base_url and base_url.endswith("/v1"):
+            base_url = base_url.rstrip("/v1")
+        return AsyncAnthropic(
+            api_key=api_key,
+            base_url=base_url,
+            default_headers=default_headers,
         )
 
     def _get_cache_mode(self) -> str:
@@ -1320,7 +1416,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
     async def _execute_anthropic_stream(
         self,
         *,
-        anthropic: AsyncAnthropic,
+        anthropic: AsyncAnthropic | AsyncAnthropicVertex,
         arguments: dict[str, Any],
         model: str,
         capture_filename: Path | None,
@@ -1566,16 +1662,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         Override this method to use a different LLM.
         """
 
-        api_key = self._api_key()
-        base_url = self._base_url()
-        if base_url and base_url.endswith("/v1"):
-            base_url = base_url.rstrip("/v1")
-        default_headers = self._default_headers()
-
         try:
-            anthropic = AsyncAnthropic(
-                api_key=api_key, base_url=base_url, default_headers=default_headers
-            )
+            anthropic = self._initialize_anthropic_client()
             params = self.get_request_params(request_params)
             messages = self._build_request_messages(
                 params, message_param, pre_messages, history=history

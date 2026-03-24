@@ -66,6 +66,50 @@ def test_vertex_cfg_accepts_dict_and_provider_key_manager_allows_adc() -> None:
     assert ProviderKeyManager.get_api_key("google", config) == ""
 
 
+def test_vertex_partner_model_names_are_not_rewritten_to_google_publisher() -> None:
+    """Vertex partner models should keep the provider-native model id."""
+    config = Settings.model_validate(
+        {
+            "google": {
+                "vertex_ai": {
+                    "enabled": True,
+                    "project_id": "proj",
+                    "location": "global",
+                }
+            }
+        }
+    )
+
+    llm = _build_llm(config)
+
+    assert llm._resolve_model_name("claude-sonnet-4-6") == "claude-sonnet-4-6"
+    assert (
+        llm._resolve_model_name("publishers/anthropic/models/claude-sonnet-4-6")
+        == "publishers/anthropic/models/claude-sonnet-4-6"
+    )
+
+
+def test_vertex_first_party_non_gemini_models_are_rewritten_to_google_publisher() -> None:
+    config = Settings.model_validate(
+        {
+            "google": {
+                "vertex_ai": {
+                    "enabled": True,
+                    "project_id": "proj",
+                    "location": "global",
+                }
+            }
+        }
+    )
+
+    llm = _build_llm(config)
+
+    assert (
+        llm._resolve_model_name("text-embedding-005")
+        == "projects/proj/locations/global/publishers/google/models/text-embedding-005"
+    )
+
+
 def test_initialize_google_client_prefers_vertex_with_dict_config(monkeypatch) -> None:
     """Ensure dict-based vertex config builds a Vertex client (ADC, no API key)."""
     config = Settings.model_validate(

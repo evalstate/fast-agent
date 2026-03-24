@@ -124,6 +124,27 @@ def test_model_query_structured_tool_use():
     assert config.structured_output_mode == "tool_use"
 
 
+def test_model_query_via_vertex():
+    config = ModelFactory.parse_model_string("claude-sonnet-4-6?via=vertex")
+
+    assert config.provider == Provider.ANTHROPIC
+    assert config.model_name == "claude-sonnet-4-6"
+    assert config.via == "vertex"
+
+
+def test_model_query_source_alias_maps_to_via():
+    config = ModelFactory.parse_model_string("sonnet?source=vertex")
+
+    assert config.provider == Provider.ANTHROPIC
+    assert config.model_name == "claude-sonnet-4-6"
+    assert config.via == "vertex"
+
+
+def test_model_query_via_rejected_for_non_anthropic_model():
+    with pytest.raises(ModelConfigError, match="only supported for Anthropic"):
+        ModelFactory.parse_model_string("openai.gpt-4.1?via=vertex")
+
+
 def test_model_query_text_verbosity():
     config = ModelFactory.parse_model_string("gpt-5?verbosity=med&reasoning=high")
     assert config.provider == Provider.RESPONSES

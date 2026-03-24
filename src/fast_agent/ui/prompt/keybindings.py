@@ -11,6 +11,7 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.lexers import Lexer
 from rich import print as rich_print
 
+from fast_agent.ui.prompt.attachment_tokens import strip_local_attachment_tokens
 from fast_agent.ui.prompt.editor import get_text_from_editor
 from fast_agent.ui.prompt.parser import try_parse_hash_agent_command
 
@@ -186,6 +187,18 @@ def create_keybindings(
     def _(event) -> None:
         if _invoke_callback(on_cycle_web_fetch, event):
             return
+
+    @kb.add("f10")
+    def _(event) -> None:
+        cleared = strip_local_attachment_tokens(event.current_buffer.text)
+        if cleared == event.current_buffer.text:
+            return
+        event.current_buffer.text = cleared
+        event.current_buffer.cursor_position = len(cleared)
+        if event.app:
+            event.app.invalidate()
+        elif app:
+            app.invalidate()
 
     @kb.add("c-m", filter=Condition(lambda: _has_any_completions()), eager=True)
     @kb.add("enter", filter=Condition(lambda: _has_any_completions()), eager=True)

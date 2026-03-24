@@ -19,7 +19,6 @@ from tests.support.command_surface import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_dispatch_session_flow_updates_session_state(tmp_path: Path) -> None:
@@ -128,3 +127,56 @@ async def test_dispatch_hash_agent_sets_message_handoff() -> None:
     assert result.hash_send_target == "review"
     assert result.hash_send_message == "please assess this change"
     assert result.hash_send_quiet is True
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_dispatch_attach_command_prefills_buffer_with_file_tokens(tmp_path: Path) -> None:
+    attachment = tmp_path / "scan.pdf"
+    attachment.write_bytes(b"%PDF-1.4")
+
+    provider = CommandSurfaceProvider({"main": CommandSurfaceAgent(name="main")})
+    owner = CommandSurfaceOwner(agent_types=provider.agent_types())
+
+    result = await dispatch_tui_command(
+        f"/attach {attachment}",
+        owner=owner,
+        prompt_provider=provider,
+        buffer_prefill="summarize this",
+    )
+
+    assert result.buffer_prefill is not None
+    assert result.buffer_prefill.startswith("summarize this ^file:")
+    assert str(attachment) in result.buffer_prefill
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_dispatch_attach_clear_removes_only_local_tokens() -> None:
+    provider = CommandSurfaceProvider({"main": CommandSurfaceAgent(name="main")})
+    owner = CommandSurfaceOwner(agent_types=provider.agent_types())
+
+    result = await dispatch_tui_command(
+        "/attach clear",
+        owner=owner,
+        prompt_provider=provider,
+        buffer_prefill="compare ^file:/tmp/a.png with ^demo:file:///tmp/ref keep this",
+    )
+
+    assert result.buffer_prefill == "compare with ^demo:file:///tmp/ref keep this"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_dispatch_attach_command_rejects_directories(tmp_path: Path) -> None:
+    provider = CommandSurfaceProvider({"main": CommandSurfaceAgent(name="main")})
+    owner = CommandSurfaceOwner(agent_types=provider.agent_types())
+
+    result = await dispatch_tui_command(
+        f"/attach {tmp_path}",
+        owner=owner,
+        prompt_provider=provider,
+        buffer_prefill="draft",
+    )
+
+    assert result.buffer_prefill == "draft"

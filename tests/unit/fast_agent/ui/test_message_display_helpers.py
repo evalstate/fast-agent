@@ -1,9 +1,11 @@
-from mcp.types import CallToolRequest, CallToolRequestParams
+from mcp.types import CallToolRequest, CallToolRequestParams, ImageContent
 
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.message_display_helpers import (
     build_tool_use_additional_message,
+    build_user_message_display,
+    extract_user_attachments,
     resolve_highlight_index,
     tool_use_requests_file_read_access,
     tool_use_requests_shell_access,
@@ -100,3 +102,37 @@ def test_resolve_highlight_index_handles_empty_candidate_list() -> None:
 
 def test_resolve_highlight_index_returns_none_without_items() -> None:
     assert resolve_highlight_index(None, "shell") is None
+
+
+def test_extract_user_attachments_includes_local_image_source_uri() -> None:
+    image = ImageContent(
+        type="image",
+        data="ZmFrZQ==",
+        mimeType="image/png",
+    )
+    image.meta = {"fast_agent_source_uri": "file:///tmp/photo.png"}
+    message = PromptMessageExtended(
+        role="user",
+        content=[image],
+    )
+
+    assert extract_user_attachments(message) == ["image (file:///tmp/photo.png)"]
+
+
+def test_build_user_message_display_prefers_original_text_metadata() -> None:
+    image = ImageContent(type="image", data="ZmFrZQ==", mimeType="image/png")
+    image.meta = {"fast_agent_source_uri": "file:///tmp/photo.png"}
+    text = PromptMessageExtended.model_validate(
+        {
+            "role": "user",
+            "content": [{"type": "text", "text": "can you see"}],
+        }
+    )
+    text.content[0].meta = {"fast_agent_original_text": "can you see ^file:/tmp/photo.png"}
+
+    message = PromptMessageExtended(role="user", content=[text.content[0], image])
+
+    message_text, attachments = build_user_message_display([message])
+
+    assert message_text == "can you see ^file:/tmp/photo.png"
+    assert attachments == ["image (file:///tmp/photo.png)"]

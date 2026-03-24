@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from urllib.parse import parse_qs, urlsplit
 
 if TYPE_CHECKING:
     from fast_agent.llm.resolved_model import ResolvedModelSpec
@@ -40,6 +41,12 @@ def resolve_resolved_model_display_name(
             or resolved_model.wire_model_name
         )
 
+    if (
+        resolved_model.provider.value == "anthropic"
+        and resolved_model.model_config.via == "vertex"
+    ):
+        display = f"{display} · Vertex"
+
     if max_len is not None and len(display) > max_len:
         return display[: max_len - 1] + "…"
     return display
@@ -67,4 +74,14 @@ def resolve_model_display_name(
     resolved_display = resolve_llm_display_name(llm, max_len=max_len)
     if resolved_display is not None:
         return resolved_display
-    return format_model_display_name(model, max_len=max_len)
+    display = format_model_display_name(model)
+    if display is None:
+        return None
+    if model:
+        query = parse_qs(urlsplit(model).query)
+        via_values = query.get("via") or query.get("source") or []
+        if via_values and via_values[-1].strip().lower() == "vertex":
+            display = f"{display} · Vertex"
+    if max_len is not None and len(display) > max_len:
+        return display[: max_len - 1] + "…"
+    return display

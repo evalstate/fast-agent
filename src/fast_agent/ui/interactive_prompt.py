@@ -573,7 +573,11 @@ class InteractivePrompt:
             hash_send_quiet=dispatch_result.hash_send_quiet,
             shell_execute_cmd=dispatch_result.shell_execute_cmd,
         )
-        next_buffer_prefill = dispatch_result.buffer_prefill or buffer_prefill
+        next_buffer_prefill = (
+            dispatch_result.buffer_prefill
+            if dispatch_result.buffer_prefill is not None
+            else buffer_prefill
+        )
         should_continue = dispatch_result.handled and not pending.has_pending_execution()
         return next_state, pending, next_buffer_prefill, should_continue
 
@@ -732,6 +736,7 @@ class InteractivePrompt:
                         agent_names=agent_names,
                         pinned_agent=pinned_agent,
                     ),
+                    buffer_prefill=buffer_prefill,
                 )
             except KeyboardInterrupt:
                 self._handle_ctrl_c_interrupt(
@@ -877,14 +882,14 @@ class InteractivePrompt:
             agent_for_mentions = prompt_provider._agent(agent_name)
         except Exception:
             rich_print(f"[red]Unable to resolve resource mentions: agent '{agent_name}' unavailable[/red]")
-            return None
+            return user_input
 
         try:
             resolved_mentions = await resolve_mentions(agent_for_mentions, parsed_mentions)
             return build_prompt_with_resources(user_input, resolved_mentions)
         except Exception as exc:
             rich_print(f"[red]Failed to resolve resource mentions: {exc}[/red]")
-            return None
+            return user_input
 
     async def _send_regular_message(
         self,

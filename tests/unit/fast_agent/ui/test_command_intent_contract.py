@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from fast_agent.ui.command_payloads import (
+    AttachCommand,
     CommandPayload,
     HashAgentCommand,
     HistoryShowCommand,
@@ -21,6 +22,21 @@ type ExpectedParseResult = str | CommandPayload | dict[str, object]
 @pytest.mark.parametrize(
     ("raw_input", "expected"),
     [
+        pytest.param(
+            "/attach",
+            AttachCommand(paths=(), clear=False, error=None),
+            id="attach-open-prompt",
+        ),
+        pytest.param(
+            '/attach "./report one.pdf" ../two.png',
+            AttachCommand(paths=("./report one.pdf", "../two.png"), clear=False, error=None),
+            id="attach-paths",
+        ),
+        pytest.param(
+            "/attach clear",
+            AttachCommand(paths=(), clear=True, error=None),
+            id="attach-clear",
+        ),
         pytest.param(
             "/history analyst",
             ShowHistoryCommand(agent="analyst"),

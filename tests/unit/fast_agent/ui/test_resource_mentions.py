@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import base64
+
 import pytest
-from mcp.types import ReadResourceResult, TextResourceContents
+from mcp.types import EmbeddedResource, ImageContent, ReadResourceResult, TextResourceContents
 from pydantic import AnyUrl
 
 from fast_agent.ui.prompt.resource_mentions import (
@@ -75,6 +77,21 @@ def test_parse_mentions_records_template_warning_on_missing_args() -> None:
     assert parsed.warnings
 
 
+def test_parse_mentions_normalizes_local_file_paths(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    report = tmp_path / "report.pdf"
+    report.write_bytes(b"%PDF-1.4")
+    monkeypatch.chdir(tmp_path)
+
+    parsed = parse_mentions("Summarize ^file:./report.pdf")
+
+    assert len(parsed.mentions) == 1
+    assert parsed.mentions[0].server_name == "file"
+    assert parsed.mentions[0].resource_uri == str(report.resolve())
+
+
 @pytest.mark.asyncio
 async def test_resolve_mentions_builds_embedded_resources() -> None:
     parsed = parse_mentions("Read ^demo:file:///tmp/notes.txt")
@@ -84,6 +101,35 @@ async def test_resolve_mentions_builds_embedded_resources() -> None:
 
     assert prompt.role == "user"
     assert len(prompt.content) == 2
+
+
+@pytest.mark.asyncio
+async def test_resolve_mentions_builds_local_file_resource_without_agent_support(tmp_path) -> None:
+    notes = tmp_path / "notes.txt"
+    notes.write_text("hello", encoding="utf-8")
+    parsed = parse_mentions(f"Read ^file:{notes}")
+
+    resolved = await resolve_mentions(object(), parsed)
+    prompt = build_prompt_with_resources(parsed.text, resolved)
+
+    assert any(isinstance(item, EmbeddedResource) for item in prompt.content)
+
+
+@pytest.mark.asyncio
+async def test_resolve_mentions_builds_local_image_content(tmp_path) -> None:
+    image_path = tmp_path / "pixel.png"
+    image_path.write_bytes(
+        base64.b64decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9s2nRwAAAABJRU5ErkJggg=="
+        )
+    )
+    parsed = parse_mentions(f"^file:{image_path}")
+
+    resolved = await resolve_mentions(object(), parsed)
+    prompt = build_prompt_with_resources(parsed.text, resolved)
+
+    assert len(prompt.content) == 2
+    assert isinstance(prompt.content[1], ImageContent)
 
 
 @pytest.mark.asyncio

@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from fast_agent.core.exceptions import ProviderKeyError
+from fast_agent.llm.provider.anthropic.vertex_config import AnthropicRoute, resolve_anthropic_route
 from fast_agent.utils.huggingface_hub import get_huggingface_hub_token
 
 PROVIDER_ENVIRONMENT_MAP: dict[str, str] = {
@@ -74,7 +75,12 @@ class ProviderKeyManager:
         return keys
 
     @staticmethod
-    def get_api_key(provider_name: str, config: Any) -> str:
+    def get_api_key(
+        provider_name: str,
+        config: Any,
+        *,
+        route_hint: str | None = None,
+    ) -> str:
         """
         Gets the API key for the specified provider.
 
@@ -113,6 +119,20 @@ class ProviderKeyManager:
                 if isinstance(cfg, dict) and bool(
                     (cfg.get("google") or {}).get("vertex_ai", {}).get("enabled")
                 ):
+                    return ""
+            except Exception:
+                pass
+
+        if provider_name == "anthropic":
+            try:
+                explicit_route: AnthropicRoute | None
+                if route_hint == "direct":
+                    explicit_route = "direct"
+                elif route_hint == "vertex":
+                    explicit_route = "vertex"
+                else:
+                    explicit_route = None
+                if resolve_anthropic_route(config, explicit_route=explicit_route) == "vertex":
                     return ""
             except Exception:
                 pass

@@ -28,7 +28,8 @@ def extract_user_attachments(message: PromptMessageExtended) -> list[str]:
             label = content.name or content.mimeType or "resource"
             attachments.append(label)
         elif is_image_content(content):
-            attachments.append("image")
+            source_uri = _content_source_uri(content)
+            attachments.append(f"image ({source_uri})" if source_uri else "image")
         elif is_resource_content(content):
             # EmbeddedResource: show name or uri
             from mcp.types import EmbeddedResource
@@ -39,6 +40,29 @@ def extract_user_attachments(message: PromptMessageExtended) -> list[str]:
     return attachments
 
 
+def _content_source_uri(content: object) -> str | None:
+    meta = getattr(content, "meta", None)
+    if not isinstance(meta, dict):
+        return None
+    source_uri = meta.get("fast_agent_source_uri")
+    return source_uri if isinstance(source_uri, str) and source_uri else None
+
+
+def _message_display_text(message: PromptMessageExtended) -> str:
+    from mcp.types import TextContent
+
+    for content in message.content:
+        if not isinstance(content, TextContent):
+            continue
+        meta = getattr(content, "meta", None)
+        if isinstance(meta, dict):
+            original_text = meta.get("fast_agent_original_text")
+            if isinstance(original_text, str):
+                return original_text
+        return content.text
+    return message.last_text() or ""
+
+
 def build_user_message_display(
     messages: Sequence[PromptMessageExtended],
 ) -> tuple[str, list[str] | None]:
@@ -47,7 +71,7 @@ def build_user_message_display(
 
     if len(messages) == 1:
         message = messages[0]
-        message_text = message.last_text() or ""
+        message_text = _message_display_text(message)
         attachments = extract_user_attachments(message)
         return message_text, attachments or None
 
@@ -56,7 +80,7 @@ def build_user_message_display(
         attachments = extract_user_attachments(message)
         if attachments:
             lines.append(f"🔗 {', '.join(attachments)}")
-        message_text = message.last_text() or ""
+        message_text = _message_display_text(message)
         if message_text:
             lines.append(message_text)
         if index < len(messages):

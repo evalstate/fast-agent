@@ -14,6 +14,10 @@ from fast_agent.llm.model_display_name import resolve_model_display_name
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.llm.provider_types import Provider
 from fast_agent.ui import notification_tracker
+from fast_agent.ui.attachment_indicator import (
+    render_attachment_indicator,
+    summarize_draft_attachments,
+)
 from fast_agent.ui.model_chip_display import render_model_chip
 from fast_agent.ui.prompt.alert_flags import _resolve_alert_flags_from_history
 from fast_agent.ui.prompt.toolbar import (
@@ -53,6 +57,7 @@ class ToolbarRenderResult:
 @dataclass(slots=True)
 class ToolbarAgentState:
     agent: object | None = None
+    model_name: str | None = None
     model_display: str | None = None
     tdv_segment: str | None = None
     turn_count: int = 0
@@ -98,6 +103,7 @@ def render_input_toolbar(
     copy_notice: str | None,
     copy_notice_until: float,
     shell_path_switch_delay_seconds: float,
+    current_input_text: str = "",
 ) -> ToolbarRenderResult:
     mode_style, mode_text = _resolve_toolbar_mode(multiline_mode)
     shortcut_text = ""
@@ -107,7 +113,11 @@ def render_input_toolbar(
         toolbar_color,
         agent_state.agent,
     )
-    middle = _build_middle_segment(agent_state, shortcut_text)
+    attachment_summary = summarize_draft_attachments(
+        current_input_text,
+        model_name=agent_state.model_name,
+    )
+    middle = _build_middle_segment(agent_state, shortcut_text, attachment_summary=attachment_summary)
     notification_segment = _build_notification_segment()
     copy_notice_segment, clear_copy_notice = _build_copy_notice_segment(
         copy_notice,
@@ -165,6 +175,7 @@ def _resolve_toolbar_agent_state(
     tdv_segment = _resolve_tdv_segment(agent, model_name, llm)
     return ToolbarAgentState(
         agent=agent,
+        model_name=model_name,
         model_display=model_display,
         tdv_segment=tdv_segment,
         turn_count=turn_count,
@@ -369,7 +380,12 @@ def _style_tdv_flag(letter: str, supported: bool, alert_flags: set[str]) -> str:
     return f"<style fg='ansiblack' bg='ansiwhite'>{letter}</style>"
 
 
-def _build_middle_segment(agent_state: ToolbarAgentState, shortcut_text: str) -> str:
+def _build_middle_segment(
+    agent_state: ToolbarAgentState,
+    shortcut_text: str,
+    *,
+    attachment_summary=None,
+) -> str:
     middle_segments: list[str] = []
     if agent_state.model_display:
         model_prefix = ""
@@ -378,17 +394,21 @@ def _build_middle_segment(agent_state: ToolbarAgentState, shortcut_text: str) ->
         elif agent_state.is_overlay_model:
             model_prefix = "▼"
         model_label = f"{model_prefix}{agent_state.model_display}"
-        gauge_segment = f" {agent_state.model_gauges}" if agent_state.model_gauges else ""
+        attachment_indicator = render_attachment_indicator(attachment_summary)
         model_chip = render_model_chip(
             model_label=model_label,
             web_search_indicator=agent_state.web_search_indicator,
             web_fetch_indicator=agent_state.web_fetch_indicator,
             service_tier_indicator=agent_state.service_tier_indicator,
         )
+        prefix = ""
         if agent_state.tdv_segment:
-            middle_segments.append(f"{agent_state.tdv_segment}{gauge_segment} {model_chip}")
-        else:
-            middle_segments.append(f"{gauge_segment} {model_chip}")
+            prefix += agent_state.tdv_segment
+        if attachment_indicator:
+            prefix += attachment_indicator
+        if agent_state.model_gauges:
+            prefix += agent_state.model_gauges
+        middle_segments.append(f"{prefix} {model_chip}" if prefix else model_chip)
 
     context_chip = _format_context_usage_percent_for_toolbar(agent_state.context_pct)
     middle_segments.append(

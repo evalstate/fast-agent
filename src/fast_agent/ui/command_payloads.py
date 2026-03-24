@@ -324,6 +324,14 @@ class ShellCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class AttachCommand(CommandBase):
+    paths: tuple[str, ...]
+    clear: bool = False
+    error: str | None = None
+    kind: Literal["attach_command"] = "attach_command"
+
+
+@dataclass(frozen=True, slots=True)
 class ModelReasoningCommand(CommandBase):
     value: str | None
     kind: Literal["model_reasoning"] = "model_reasoning"
@@ -413,6 +421,7 @@ CommandPayload = (
     | ClearSessionsCommand
     | PinSessionCommand
     | ShellCommand
+    | AttachCommand
     | ModelReasoningCommand
     | ModelVerbosityCommand
     | ModelFastCommand

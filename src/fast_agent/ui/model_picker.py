@@ -28,7 +28,7 @@ from fast_agent.ui.model_picker_common import (
     build_snapshot,
     find_provider,
     model_identity,
-    model_options_for_provider,
+    model_options_for_option,
     provider_activation_action,
 )
 from fast_agent.ui.picker_theme import build_picker_style
@@ -166,13 +166,9 @@ class _SplitListPicker:
 
     @property
     def current_models(self) -> list[ModelOption]:
-        if self.current_provider.overlay_group:
-            return self._overlay_models()
-        provider = self.current_provider.provider
-        assert provider is not None
-        return model_options_for_provider(
+        return model_options_for_option(
             self.snapshot,
-            provider,
+            self.current_provider,
             source=self.state.source,
         )
 
@@ -240,16 +236,11 @@ class _SplitListPicker:
             self.current_provider.option_key,
         )
         for source in ("curated", "all"):
-            if provider_option.overlay_group:
-                models = self._overlay_models()
-            else:
-                provider = provider_option.provider
-                assert provider is not None
-                models = model_options_for_provider(
-                    self.snapshot,
-                    provider,
-                    source=source,
-                )
+            models = model_options_for_option(
+                self.snapshot,
+                provider_option,
+                source=source,
+            )
             match_index = _find_initial_model_index(models, self._initial_model_spec)
             if match_index is None:
                 continue
@@ -299,6 +290,8 @@ class _SplitListPicker:
             return "none yet"
         if option.active:
             return "available"
+        if option.disabled_reason is not None:
+            return "disabled"
         if self._provider_activation_action(option) is not None:
             return "sign in required"
         return "not configured"
@@ -311,6 +304,8 @@ class _SplitListPicker:
             return "inactive"
         if option.active:
             return "active"
+        if option.disabled_reason is not None:
+            return "attention"
         if self._provider_activation_action(option) is not None:
             return "attention"
         return "inactive"
@@ -468,6 +463,8 @@ class _SplitListPicker:
         warning = ""
         if self._provider_requires_docs_only():
             warning = " · see docs"
+        elif provider.disabled_reason is not None:
+            warning = f" · {provider.disabled_reason}"
         elif self._provider_activation_action(provider) is not None:
             warning = " · press Enter to log in"
 

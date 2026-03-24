@@ -35,6 +35,7 @@ from fast_agent.types.llm_stop_reason import LlmStopReason
 
 # Define default model and potentially other Google-specific defaults
 DEFAULT_GOOGLE_MODEL = "gemini3"
+_GOOGLE_VERTEX_PARTNER_MODEL_PREFIXES = ("claude",)
 
 
 # Define Google-specific parameter exclusions if necessary
@@ -184,8 +185,11 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
 
         * If the caller passes a full publisher resource name, it is respected as-is.
         * If Vertex is not enabled, the short id is returned unchanged (Developer API path).
-        * If Vertex is enabled and the id contains '-preview-', the suffix is stripped so that
-          e.g. 'gemini-2.5-flash-preview-09-2025' becomes 'gemini-2.5-flash'.
+        * If Vertex is enabled, short first-party Google model ids are expanded under
+          `publishers/google`, applying a preview→base fallback so that e.g.
+          'gemini-2.5-flash-preview-09-2025' becomes 'gemini-2.5-flash'.
+        * Known partner model ids such as Anthropic Claude are left untouched so Vertex can
+          resolve them using the provider-native short model name from the docs.
         """
         # Fully-qualified publisher / model resource: do not rewrite.
         if model.startswith(("projects/", "publishers/")) or "/publishers/" in model:
@@ -194,6 +198,10 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         enabled, project_id, location = self._vertex_cfg()
         # Developer API path: return the short model id unchanged.
         if not (enabled and project_id and location):
+            return model
+
+        normalized = model.strip().lower()
+        if normalized.startswith(_GOOGLE_VERTEX_PARTNER_MODEL_PREFIXES):
             return model
 
         # Vertex path: strip any '-preview-…' suffix to fall back to the base model id.
