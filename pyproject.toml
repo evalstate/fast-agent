@@ -45,6 +45,7 @@ dependencies = [
     "uvloop>=0.22.1; platform_system != 'Windows'",
     "multilspy>=0.0.15",
     "ruamel.yaml>=0.18.16",
+    "mslex>=1.3.0",
 ]
 
 [project.optional-dependencies]
