@@ -42,6 +42,10 @@ class AgentKeyBindings(KeyBindings):
     current_agent_name: str | None = None
 
 
+class PromptInputInterrupt(Exception):
+    """Internal prompt-toolkit interrupt used instead of raw KeyboardInterrupt."""
+
+
 def _cycle_completion(buffer: Buffer, *, backwards: bool) -> bool:
     """Cycle through current completion menu items.
 
@@ -243,7 +247,7 @@ def create_keybindings(
     @kb.add("c-c")
     def _(event) -> None:
         """Ctrl+C: interrupt prompt input (handled by caller policy)."""
-        event.app.exit(exception=KeyboardInterrupt())
+        event.app.exit(exception=PromptInputInterrupt())
 
     @kb.add("c-d")
     def _(event) -> None:

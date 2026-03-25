@@ -8,7 +8,7 @@ import threading
 import time
 import traceback
 from collections import deque
-from contextlib import AbstractAsyncContextManager, suppress
+from contextlib import AbstractAsyncContextManager, asynccontextmanager, suppress
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Union, cast
@@ -35,6 +35,7 @@ from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.exceptions import ServerInitializationError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
+from fast_agent.mcp.interfaces import ClientSessionFactory
 from fast_agent.mcp.logger_textio import get_stderr_handler
 from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 from fast_agent.mcp.oauth_client import (
@@ -76,6 +77,17 @@ class StreamingContextAdapter:
 def _add_none_to_context(context_manager):
     """Helper to add a None value to context managers that return 2 values instead of 3"""
     return StreamingContextAdapter(context_manager)
+
+
+@asynccontextmanager
+async def _managed_http_transport_context(
+    http_client: httpx.AsyncClient,
+    transport_context: AbstractAsyncContextManager,
+):
+    """Own an HTTP client for a transport context built from that client."""
+    async with http_client:
+        async with transport_context as streams:
+            yield streams
 
 
 def _prepare_headers_and_auth(
@@ -147,6 +159,78 @@ def _build_transport_metrics_hook(
     return channel_hook
 
 
+def create_transport_context(
+    server_name: str,
+    config: MCPServerSettings,
+) -> AbstractAsyncContextManager:
+    """
+    Create a transport context manager for the given server configuration.
+
+    Handles stdio/sse/http transport creation and header preparation, but NOT
+    lifecycle management, task groups, or connection persistence. Used by
+    ServerRegistry.initialize_server() for non-persistent connections.
+
+    Note: OAuth event handlers (oauth_event_handler, oauth_abort_event) and
+    transport_metrics (channel_hook) are intentionally omitted. This function
+    creates short-lived probe connections where full lifecycle tracking is
+    unnecessary. The persistent path in MCPConnectionManager.launch_server()
+    uses its own transport_context_factory closure with those features.
+    """
+    headers, oauth_auth, user_auth_keys = _prepare_headers_and_auth(config)
+    if user_auth_keys:
+        logger.debug(
+            f"{server_name}: Using user-specified auth header(s); skipping OAuth provider.",
+            user_auth_headers=sorted(user_auth_keys),
+        )
+
+    if config.transport == "stdio":
+        if not config.command:
+            raise ValueError(
+                f"Server '{server_name}' uses stdio transport but no command is specified"
+            )
+        server_params = StdioServerParameters(
+            command=config.command,
+            args=config.args if config.args is not None else [],
+            env={**get_default_environment(), **(config.env or {})},
+            cwd=config.cwd,
+        )
+        error_handler = get_stderr_handler(server_name)
+        logger.debug(f"{server_name}: Creating stdio client with custom error handler")
+        return _add_none_to_context(tracking_stdio_client(server_params, errlog=error_handler))
+    elif config.transport == "sse":
+        if not config.url:
+            raise ValueError(f"Server '{server_name}' uses sse transport but no url is specified")
+        return tracking_sse_client(
+            config.url,
+            headers,
+            sse_read_timeout=config.read_transport_sse_timeout_seconds,
+            auth=oauth_auth,
+        )
+    elif config.transport == "http":
+        if not config.url:
+            raise ValueError(f"Server '{server_name}' uses http transport but no url is specified")
+        timeout = None
+        if config.http_timeout_seconds is not None or config.http_read_timeout_seconds is not None:
+            timeout = httpx.Timeout(
+                config.http_timeout_seconds or MCP_DEFAULT_TIMEOUT,
+                read=config.http_read_timeout_seconds or MCP_DEFAULT_SSE_READ_TIMEOUT,
+            )
+        http_client = create_mcp_http_client(
+            headers=headers,
+            auth=oauth_auth,
+            timeout=timeout,
+        )
+        return _managed_http_transport_context(
+            http_client,
+            tracking_streamablehttp_client(
+                config.url,
+                http_client=http_client,
+            ),
+        )
+    else:
+        raise ValueError(f"Unsupported transport: {config.transport}")
+
+
 class ServerConnection:
     """
     Represents a long-lived MCP server connection, including:
@@ -168,7 +252,7 @@ class ServerConnection:
                 ]
             ],
         ],
-        client_session_factory: Callable[..., ClientSession],
+        client_session_factory: ClientSessionFactory,
     ) -> None:
         self.server_name = server_name
         self.server_config = server_config
@@ -856,10 +940,7 @@ class MCPConnectionManager(ContextDependent):
     async def launch_server(
         self,
         server_name: str,
-        client_session_factory: Callable[
-            [MemoryObjectReceiveStream, MemoryObjectSendStream, timedelta | None],
-            ClientSession,
-        ],
+        client_session_factory: ClientSessionFactory,
         *,
         startup_timeout_seconds: float | None = None,
         trigger_oauth: bool = True,
@@ -998,10 +1079,13 @@ class MCPConnectionManager(ContextDependent):
                     auth=oauth_auth,
                     timeout=timeout,
                 )
-                return tracking_streamablehttp_client(
-                    config.url,
-                    http_client=http_client,
-                    channel_hook=channel_hook,
+                return _managed_http_transport_context(
+                    http_client,
+                    tracking_streamablehttp_client(
+                        config.url,
+                        http_client=http_client,
+                        channel_hook=channel_hook,
+                    ),
                 )
             else:
                 raise ValueError(f"Unsupported transport: {config.transport}")
@@ -1034,7 +1118,7 @@ class MCPConnectionManager(ContextDependent):
         self,
         *,
         server_name: str,
-        client_session_factory: Callable,
+        client_session_factory: ClientSessionFactory,
         startup_timeout_seconds: float | None,
         trigger_oauth: bool,
         oauth_event_handler: OAuthEventHandler | None,
@@ -1079,7 +1163,7 @@ class MCPConnectionManager(ContextDependent):
     async def get_server(
         self,
         server_name: str,
-        client_session_factory: Callable,
+        client_session_factory: ClientSessionFactory,
         *,
         startup_timeout_seconds: float | None = None,
         trigger_oauth: bool = True,
@@ -1176,7 +1260,7 @@ class MCPConnectionManager(ContextDependent):
     async def reconnect_server(
         self,
         server_name: str,
-        client_session_factory: Callable,
+        client_session_factory: ClientSessionFactory,
         *,
         startup_timeout_seconds: float | None = None,
         trigger_oauth: bool = True,

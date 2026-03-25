@@ -1,12 +1,14 @@
 from contextlib import asynccontextmanager
-from datetime import timedelta
-from typing import AsyncGenerator, Callable
+from typing import AsyncIterator
 
-from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from mcp import ClientSession
 
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.mcp.interfaces import ServerRegistryProtocol
+from fast_agent.mcp.interfaces import (
+    ClientSessionFactory,
+    ServerInitializerProtocol,
+    ServerRegistryProtocol,
+)
 from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 
 logger = get_logger(__name__)
@@ -15,12 +17,9 @@ logger = get_logger(__name__)
 @asynccontextmanager
 async def gen_client(
     server_name: str,
-    server_registry: ServerRegistryProtocol,
-    client_session_factory: Callable[
-        [MemoryObjectReceiveStream, MemoryObjectSendStream, timedelta | None],
-        ClientSession,
-    ] = MCPAgentClientSession,
-) -> AsyncGenerator[ClientSession, None]:
+    server_registry: ServerInitializerProtocol,
+    client_session_factory: ClientSessionFactory = MCPAgentClientSession,
+) -> AsyncIterator[ClientSession]:
     """
     Create a client session to the specified server.
     Handles server startup, initialization, and message receive loop setup.
@@ -42,10 +41,7 @@ async def gen_client(
 async def connect(
     server_name: str,
     server_registry: ServerRegistryProtocol,
-    client_session_factory: Callable[
-        [MemoryObjectReceiveStream, MemoryObjectSendStream, timedelta | None],
-        ClientSession,
-    ] = MCPAgentClientSession,
+    client_session_factory: ClientSessionFactory = MCPAgentClientSession,
 ) -> ClientSession:
     """
     Create a persistent client session to the specified server.

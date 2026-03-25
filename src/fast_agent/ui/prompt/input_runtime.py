@@ -14,6 +14,7 @@ from prompt_toolkit.styles import Style
 from rich import print as rich_print
 
 from fast_agent.ui.command_payloads import CommandPayload, InterruptCommand
+from fast_agent.ui.prompt.keybindings import PromptInputInterrupt
 from fast_agent.ui.prompt_marks import emit_prompt_mark
 from fast_agent.utils.async_utils import suppress_known_runtime_warnings
 
@@ -156,7 +157,7 @@ async def run_prompt_once(
             rich_print(f"[dim]{prompt_prefix} {stripped.splitlines()[0]}[/dim]")
 
         return parse_special_input(result)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, PromptInputInterrupt):
         if prompt_mark_started:
             emit_prompt_mark("B")
         return InterruptCommand()

@@ -85,6 +85,16 @@ def test_should_not_prompt_for_model_picker_when_message_mode() -> None:
     )
 
 
+def test_should_not_prompt_for_model_picker_when_prompt_file_mode() -> None:
+    request = _make_request(prompt_file="prompt.txt")
+
+    assert not _should_prompt_for_model_picker(
+        request,
+        stdin_is_tty=True,
+        stdout_is_tty=True,
+    )
+
+
 def test_should_prompt_for_model_picker_when_cards_present() -> None:
     request = _make_request(agent_cards=["cards/"])
 

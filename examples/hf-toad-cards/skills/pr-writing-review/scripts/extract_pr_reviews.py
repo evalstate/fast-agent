@@ -28,7 +28,8 @@ from dataclasses import asdict, dataclass, field
 from typing import Optional
 from urllib.parse import quote, urlparse
 
-JsonDict = dict[str, object]
+JsonValue = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
+JsonDict = dict[str, JsonValue]
 
 # -----------------
 # Data structures
@@ -696,7 +697,7 @@ def main() -> None:
         sys.exit(1)
 
     if args.json:
-        output = {
+        output: JsonDict = {
             "owner": data.owner,
             "repo": data.repo,
             "pr_number": data.pr_number,

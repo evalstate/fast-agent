@@ -125,7 +125,10 @@ def main():
             # Auto-route to go command
             sys.argv.insert(insert_pos, "go")
 
-    app()
+    try:
+        app()
+    except KeyboardInterrupt:
+        raise SystemExit(130) from None
 
 
 if __name__ == "__main__":

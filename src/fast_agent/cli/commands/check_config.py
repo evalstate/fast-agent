@@ -30,6 +30,7 @@ from fast_agent.paths import EnvironmentPaths, default_skill_paths, resolve_envi
 from fast_agent.skills import SkillManifest, SkillRegistry
 from fast_agent.ui.a3_headers import build_a3_section_header
 from fast_agent.ui.console import console
+from fast_agent.utils.huggingface_hub import get_huggingface_hub_token
 
 app = typer.Typer(
     help="Check and diagnose FastAgent configuration",
@@ -340,12 +341,7 @@ def _resolve_huggingface_login_label(provider_name: str) -> str | None:
     if provider_name not in {Provider.HUGGINGFACE.config_name, "huggingface"}:
         return None
 
-    try:
-        from huggingface_hub import get_token  # ty: ignore[unresolved-import]
-
-        hub_token = get_token()
-    except Exception:
-        hub_token = None
+    hub_token = get_huggingface_hub_token()
 
     return "Hub login" if hub_token else None
 

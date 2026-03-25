@@ -6,6 +6,7 @@ import sys
 import pytest
 from click.utils import strip_ansi
 
+from fast_agent.cli import __main__ as cli_main
 from fast_agent.cli.__main__ import _first_positional_argument
 
 
@@ -78,3 +79,12 @@ def test_demo_subcommand_still_detected_after_env_option_value() -> None:
     assert result.returncode == 0, result.stderr
     assert "demo [OPTIONS] COMMAND" in output
     assert "Demo commands for UI features." in output
+
+
+def test_main_converts_keyboard_interrupt_to_clean_exit(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cli_main, "app", lambda: (_ for _ in ()).throw(KeyboardInterrupt()))
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli_main.main()
+
+    assert exc_info.value.code == 130

@@ -53,7 +53,7 @@ def _find_last_assistant_text(history: list[Any]) -> str | None:
 
 
 def _is_interactive_startup_notice_context(request: AgentRunRequest) -> bool:
-    return request.mode == "interactive" and request.message is None and request.prompt_file is None
+    return request.mode == "interactive" and request.is_repl
 
 
 def _should_prompt_for_model_picker(
@@ -390,8 +390,7 @@ def _apply_shell_cwd_policy_preflight(fast: Any, request: AgentRunRequest) -> No
     interactive_startup_context = _is_interactive_startup_notice_context(request)
     can_prompt = can_prompt_for_missing_cwd(
         mode=request.mode,
-        message=request.message,
-        prompt_file=request.prompt_file,
+        execution_mode=request.execution_mode or "repl",
         stdin_is_tty=sys.stdin.isatty(),
         tty_device_available=False,
     )
@@ -478,7 +477,7 @@ async def _resume_session_if_requested(agent_app, request: AgentRunRequest) -> N
         session_id,
         fallback_agent_name=fallback_agent_name,
     )
-    interactive_notice = request.message is None and request.prompt_file is None
+    interactive_notice = request.is_repl
     if not result:
         if session_id:
             notice = f"[yellow]Session not found:[/yellow] {session_id}"
@@ -788,7 +787,8 @@ async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -
 
     await _resume_session_if_requested(agent_app, request)
     transient_messages_by_agent: dict[str, list[PromptMessageExtended]] | None = None
-    if request.message:
+    if request.execution_mode == "one_shot_message":
+        assert request.message is not None
         agent_obj = agent_app._agent(request.target_agent_name)
         history_before = [message.model_copy(deep=True) for message in agent_obj.message_history]
         response = await agent_obj.generate(request.message)
@@ -801,15 +801,21 @@ async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -
             transient_messages_by_agent = {
                 agent_obj.name: _build_transient_result_messages(request.message, response)
             }
-    elif request.prompt_file:
+    elif request.execution_mode == "one_shot_prompt_file":
+        assert request.prompt_file is not None
         prompt = load_prompt(Path(request.prompt_file))
         agent_obj = agent_app._agent(request.target_agent_name)
-        await agent_obj.generate(prompt)
-        print(
-            "\nLoaded "
-            f"{len(prompt)} messages from prompt file '{request.prompt_file}'"
-        )
-        await _run_interactive_with_interrupt_recovery()
+        history_before = [message.model_copy(deep=True) for message in agent_obj.message_history]
+        response = await agent_obj.generate(prompt)
+        print(response.last_text() or "")
+        if request.result_file and not _response_was_persisted(
+            history_before,
+            agent_obj.message_history,
+            response,
+        ):
+            transient_messages_by_agent = {
+                agent_obj.name: _build_transient_result_messages(prompt, response)
+            }
     else:
         await _run_interactive_with_interrupt_recovery()
 
@@ -1054,28 +1060,51 @@ async def run_agent_request(request: AgentRunRequest) -> None:
         async def cli_agent() -> None:
             async with fast.run() as agent:
                 await _resume_session_if_requested(agent, request)
-                if request.message:
+                transient_messages_by_agent: dict[str, list[PromptMessageExtended]] | None = None
+                if request.execution_mode == "one_shot_message":
+                    assert request.message is not None
                     if request.target_agent_name:
-                        response = await agent.send(
-                            request.message,
-                            agent_name=request.target_agent_name,
-                        )
-                        print(response)
+                        agent_obj = agent._agent(request.target_agent_name)
+                        history_before = [
+                            message.model_copy(deep=True) for message in agent_obj.message_history
+                        ]
+                        response = await agent_obj.generate(request.message)
+                        print(response.last_text() or "")
+                        if request.result_file and not _response_was_persisted(
+                            history_before,
+                            agent_obj.message_history,
+                            response,
+                        ):
+                            transient_messages_by_agent = {
+                                agent_obj.name: _build_transient_result_messages(
+                                    request.message,
+                                    response,
+                                )
+                            }
                     else:
                         await agent.parallel.send(request.message)
                         display = ConsoleDisplay(config=None)
                         display.show_parallel_results(agent.parallel)
-                elif request.prompt_file:
+                elif request.execution_mode == "one_shot_prompt_file":
+                    assert request.prompt_file is not None
                     from fast_agent.mcp.prompts.prompt_load import load_prompt
 
                     prompt = load_prompt(Path(request.prompt_file))
                     if request.target_agent_name:
                         agent_obj = agent._agent(request.target_agent_name)
-                        await agent_obj.generate(prompt)
-                        print(
-                            "\nLoaded "
-                            f"{len(prompt)} messages from prompt file '{request.prompt_file}'"
-                        )
+                        history_before = [
+                            message.model_copy(deep=True) for message in agent_obj.message_history
+                        ]
+                        response = await agent_obj.generate(prompt)
+                        print(response.last_text() or "")
+                        if request.result_file and not _response_was_persisted(
+                            history_before,
+                            agent_obj.message_history,
+                            response,
+                        ):
+                            transient_messages_by_agent = {
+                                agent_obj.name: _build_transient_result_messages(prompt, response)
+                            }
                     else:
                         await agent.parallel.generate(prompt)
                         display = ConsoleDisplay(config=None)
@@ -1090,6 +1119,7 @@ async def run_agent_request(request: AgentRunRequest) -> None:
                     agent,
                     request,
                     fan_out_agent_names=fan_out_agents,
+                    transient_messages_by_agent=transient_messages_by_agent,
                 )
 
     else:

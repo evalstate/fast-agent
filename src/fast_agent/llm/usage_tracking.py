@@ -23,8 +23,9 @@ try:
     from openai.types.completion_usage import CompletionUsage as OpenAIUsage
 except Exception:  # pragma: no cover - optional dependency
     OpenAIUsage = object  # type: ignore
-from pydantic import BaseModel, Field, PrivateAttr, computed_field
+from pydantic import BaseModel, Field, PrivateAttr, computed_field, field_validator
 
+from fast_agent.core.logging.json_serializer import JsonValue, snapshot_json_value
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider_types import Provider
 
@@ -38,10 +39,6 @@ class FastAgentUsage(BaseModel):
     model_type: str = Field(description="Type of fast-agent model (passthrough/playbook/slow)")
     tool_calls: int = Field(default=0, description="Number of tool calls made")
     delay_seconds: float = Field(default=0.0, description="Artificial delays added")
-
-
-# Union type for raw usage data from any provider
-ProviderUsage = Union[AnthropicUsage, OpenAIUsage, GoogleUsage, FastAgentUsage]
 
 
 class CacheUsage(BaseModel):
@@ -84,8 +81,13 @@ class TurnUsage(BaseModel):
     # Tool call count for this turn
     tool_calls: int = Field(default=0, description="Number of tool calls made in this turn")
 
-    # Raw usage data from provider (preserves all original data)
-    raw_usage: ProviderUsage
+    # JSON-safe raw usage telemetry snapshot captured at ingestion time.
+    raw_usage: JsonValue = None
+
+    @field_validator("raw_usage", mode="before")
+    @classmethod
+    def _snapshot_raw_usage(cls, value: object | None) -> JsonValue:
+        return snapshot_json_value(value)
 
     @computed_field
     @property
@@ -153,7 +155,7 @@ class TurnUsage(BaseModel):
             total_tokens=usage.input_tokens + usage.output_tokens,
             cache_usage=cache_usage,
             reasoning_tokens=thinking_tokens,
-            raw_usage=usage,  # Store the original Anthropic usage object
+            raw_usage=snapshot_json_value(usage),
         )
 
     @classmethod
@@ -174,7 +176,7 @@ class TurnUsage(BaseModel):
             output_tokens=usage.completion_tokens,
             total_tokens=usage.total_tokens,
             cache_usage=cache_usage,
-            raw_usage=usage,  # Store the original OpenAI usage object
+            raw_usage=snapshot_json_value(usage),
         )
 
     @classmethod
@@ -201,7 +203,7 @@ class TurnUsage(BaseModel):
             cache_usage=cache_usage,
             tool_use_tokens=tool_use_tokens,
             reasoning_tokens=thinking_tokens,
-            raw_usage=usage,  # Store the original Google usage object
+            raw_usage=snapshot_json_value(usage),
         )
 
     @classmethod
@@ -222,7 +224,7 @@ class TurnUsage(BaseModel):
             output_tokens=output_tokens,
             total_tokens=total_tokens,
             cache_usage=cache_usage,
-            raw_usage=usage,  # Store the original FastAgentUsage object
+            raw_usage=snapshot_json_value(usage),
         )
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from contextlib import suppress
 from typing import TYPE_CHECKING
 
 from fast_agent.cli.asyncio_utils import set_asyncio_exception_handler
@@ -25,7 +26,7 @@ def _should_convert_keyboard_interrupt_to_task_cancel(request: "AgentRunRequest"
     so the interactive stack can handle it as an in-flight turn cancellation
     instead of immediately tearing down the entire loop.
     """
-    return request.mode == "interactive" and request.message is None
+    return request.mode == "interactive" and request.is_repl
 
 
 def run_request(request: AgentRunRequest) -> None:
@@ -63,21 +64,27 @@ def run_request(request: AgentRunRequest) -> None:
         write_interactive_trace("cli.runner.system_exit", code=exc.code)
         exit_code = exc.code if isinstance(exc.code, int) else None
     finally:
-        try:
+        with suppress(BaseException):
             if not main_task.done():
                 loop.run_until_complete(asyncio.gather(main_task, return_exceptions=True))
 
+        tasks = set()
+        with suppress(BaseException):
             tasks = {task for task in asyncio.all_tasks(loop) if task is not main_task}
-            write_interactive_trace("cli.runner.finally", task_count=len(tasks))
-            for task in tasks:
+        write_interactive_trace("cli.runner.finally", task_count=len(tasks))
+
+        for task in tasks:
+            with suppress(BaseException):
                 task.cancel()
 
-            if sys.version_info >= (3, 7):
+        if sys.version_info >= (3, 7) and tasks:
+            with suppress(BaseException):
                 loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
+
+        with suppress(BaseException):
             loop.run_until_complete(loop.shutdown_asyncgens())
+        with suppress(BaseException):
             loop.close()
-        except Exception:
-            pass
 
     if exit_code not in (None, 0):
         raise SystemExit(exit_code)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+from functools import lru_cache
 from typing import Any, Iterable, Iterator
 
 HTML_ESCAPE_CHARS: dict[str, str] = {
@@ -9,6 +11,7 @@ HTML_ESCAPE_CHARS: dict[str, str] = {
     '"': "&quot;",
     "'": "&#39;",
 }
+_FENCE_PATTERN = re.compile(r"^```", re.MULTILINE)
 
 
 def _flatten_tokens(tokens: Iterable[Any]) -> Iterator[Any]:
@@ -19,14 +22,16 @@ def _flatten_tokens(tokens: Iterable[Any]) -> Iterator[Any]:
             yield from _flatten_tokens(token.children)
 
 
-def prepare_markdown_content(content: str, escape_xml: bool = True) -> str:
-    """Prepare content for markdown rendering, escaping HTML/XML outside code blocks."""
-    if not escape_xml or not isinstance(content, str):
-        return content
-
+@lru_cache(maxsize=1)
+def _get_markdown_parser() -> Any:
     from markdown_it import MarkdownIt
 
-    parser = MarkdownIt()
+    return MarkdownIt()
+
+
+@lru_cache(maxsize=32)
+def _prepare_markdown_content_cached(content: str) -> str:
+    parser = _get_markdown_parser()
     try:
         tokens = parser.parse(content)
     except Exception:
@@ -61,10 +66,7 @@ def prepare_markdown_content(content: str, escape_xml: bool = True) -> str:
                         protected_ranges.append((pos, pos + len(pattern)))
                     start = pos + len(pattern)
 
-    import re
-
-    fence_pattern = r"^```"
-    fences = list(re.finditer(fence_pattern, content, re.MULTILINE))
+    fences = list(_FENCE_PATTERN.finditer(content))
 
     if len(fences) % 2 == 1:
         last_fence_pos = fences[-1].start()
@@ -99,6 +101,13 @@ def prepare_markdown_content(content: str, escape_xml: bool = True) -> str:
     result_segments.append(remainder_text)
 
     return "".join(result_segments)
+
+
+def prepare_markdown_content(content: str, escape_xml: bool = True) -> str:
+    """Prepare content for markdown rendering, escaping HTML/XML outside code blocks."""
+    if not escape_xml or not isinstance(content, str):
+        return content
+    return _prepare_markdown_content_cached(content)
 
 
 __all__ = ["HTML_ESCAPE_CHARS", "prepare_markdown_content"]

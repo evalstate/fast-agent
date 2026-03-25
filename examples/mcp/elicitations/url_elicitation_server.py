@@ -12,9 +12,11 @@ browser, not through the MCP protocol.
 import logging
 import sys
 import uuid
+from typing import Protocol, cast
 
 from fastmcp import FastMCP
 from fastmcp.server.dependencies import get_context
+from mcp.types import ElicitResult
 
 # Configure logging
 logging.basicConfig(
@@ -31,6 +33,16 @@ mcp = FastMCP("URL Elicitation Demo Server")
 _authorized_sessions: set[str] = set()
 
 
+class URLCapableContext(Protocol):
+    async def elicit_url(
+        self,
+        *,
+        message: str,
+        url: str,
+        elicitation_id: str,
+    ) -> ElicitResult: ...
+
+
 @mcp.tool()
 async def authorize_api_access(service_name: str) -> str:
     """
@@ -42,7 +54,7 @@ async def authorize_api_access(service_name: str) -> str:
     Args:
         service_name: The name of the service to authorize access for
     """
-    ctx = get_context()
+    ctx = cast("URLCapableContext", get_context())
 
     # Generate a unique elicitation ID for tracking
     elicitation_id = str(uuid.uuid4())
@@ -86,7 +98,7 @@ async def enter_api_key(api_name: str) -> str:
     Args:
         api_name: The name of the API requiring a key
     """
-    ctx = get_context()
+    ctx = cast("URLCapableContext", get_context())
 
     elicitation_id = str(uuid.uuid4())
 
@@ -124,7 +136,7 @@ async def initiate_payment(amount: float, currency: str, description: str) -> st
         currency: The currency code (e.g., USD, EUR)
         description: Description of what the payment is for
     """
-    ctx = get_context()
+    ctx = cast("URLCapableContext", get_context())
 
     elicitation_id = str(uuid.uuid4())
 
@@ -160,7 +172,7 @@ async def url_demo_resource() -> str:
     This resource shows how URL elicitation can be triggered from
     a resource read operation.
     """
-    ctx = get_context()
+    ctx = cast("URLCapableContext", get_context())
 
     elicitation_id = str(uuid.uuid4())
 

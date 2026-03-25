@@ -8,10 +8,12 @@ from openai.types.completion_usage import (
     CompletionUsage as OpenAIUsage,
 )
 
+from fast_agent.core.logging.json_serializer import snapshot_json_value
+from fast_agent.llm.provider.openai.responses_websocket import _AttrObjectView
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.response_telemetry import build_usage_payload
 from fast_agent.llm.usage_tracking import (
     CacheUsage,
-    FastAgentUsage,
     TurnUsage,
     UsageAccumulator,
     create_turn_usage_from_messages,
@@ -47,7 +49,11 @@ def test_anthropic_usage_calculation():
 
     # Provider and raw data
     assert turn.provider == Provider.ANTHROPIC
-    assert turn.raw_usage == anthropic_usage
+    assert isinstance(turn.raw_usage, dict)
+    assert turn.raw_usage["input_tokens"] == 1000
+    assert turn.raw_usage["output_tokens"] == 500
+    assert turn.raw_usage["cache_creation_input_tokens"] == 200
+    assert turn.raw_usage["cache_read_input_tokens"] == 300
 
 
 def test_openai_usage_calculation():
@@ -82,7 +88,16 @@ def test_openai_usage_calculation():
 
     # Provider and raw data
     assert turn.provider == Provider.OPENAI
-    assert turn.raw_usage == openai_usage
+    assert isinstance(turn.raw_usage, dict)
+    assert turn.raw_usage["prompt_tokens"] == 1200
+    assert turn.raw_usage["completion_tokens"] == 600
+    assert turn.raw_usage["total_tokens"] == 1800
+    prompt_details_snapshot = turn.raw_usage["prompt_tokens_details"]
+    assert isinstance(prompt_details_snapshot, dict)
+    assert prompt_details_snapshot["cached_tokens"] == 400
+    completion_details_snapshot = turn.raw_usage["completion_tokens_details"]
+    assert isinstance(completion_details_snapshot, dict)
+    assert completion_details_snapshot["reasoning_tokens"] == 100
 
 
 def test_google_usage_calculation():
@@ -113,7 +128,11 @@ def test_google_usage_calculation():
 
     # Provider and raw data
     assert turn.provider == Provider.GOOGLE
-    assert turn.raw_usage == google_usage
+    assert isinstance(turn.raw_usage, dict)
+    assert turn.raw_usage["prompt_token_count"] == 1500
+    assert turn.raw_usage["candidates_token_count"] == 750
+    assert turn.raw_usage["total_token_count"] == 2250
+    assert turn.raw_usage["cached_content_token_count"] == 500
 
 
 def test_fast_agent_usage_calculation():
@@ -145,9 +164,67 @@ def test_fast_agent_usage_calculation():
 
     # Provider and raw data
     assert turn.provider == Provider.FAST_AGENT
-    assert isinstance(turn.raw_usage, FastAgentUsage)
-    assert turn.raw_usage.tool_calls == 2
-    assert turn.raw_usage.model_type == "passthrough"
+    assert turn.raw_usage == {
+        "input_chars": len(input_content),
+        "output_chars": len(output_content),
+        "model_type": "passthrough",
+        "tool_calls": 2,
+        "delay_seconds": 0.0,
+    }
+
+
+def test_responses_websocket_raw_usage_snapshot_is_preserved_without_coercion():
+    """Websocket Responses usage should persist as a JSON-safe snapshot."""
+    websocket_usage = _AttrObjectView(
+        {
+            "input_tokens": 102,
+            "input_tokens_details": {"cached_tokens": 5},
+            "output_tokens": 108,
+            "output_tokens_details": {"reasoning_tokens": 64},
+            "total_tokens": 210,
+        }
+    )
+
+    turn = TurnUsage(
+        provider=Provider.CODEX_RESPONSES,
+        model="gpt-5.4",
+        input_tokens=102,
+        output_tokens=108,
+        total_tokens=210,
+        cache_usage=CacheUsage(cache_hit_tokens=5),
+        reasoning_tokens=64,
+        raw_usage=snapshot_json_value(websocket_usage),
+    )
+
+    assert turn.raw_usage == {
+        "input_tokens": 102,
+        "input_tokens_details": {"cached_tokens": 5},
+        "output_tokens": 108,
+        "output_tokens_details": {"reasoning_tokens": 64},
+        "total_tokens": 210,
+    }
+
+    accumulator = UsageAccumulator(turns=[turn], model="gpt-5.4")
+    payload = build_usage_payload(accumulator)
+
+    assert payload is not None
+    assert payload["raw_usage"] == turn.raw_usage
+
+
+def test_snapshot_json_value_falls_back_to_strings_for_unknown_nested_objects():
+    class UnknownLeaf:
+        def __str__(self) -> str:
+            return "unknown-leaf"
+
+    class UnknownUsage:
+        def __init__(self) -> None:
+            self.input_tokens = 11
+            self.details = UnknownLeaf()
+
+    assert snapshot_json_value(UnknownUsage()) == {
+        "input_tokens": 11,
+        "details": "unknown-leaf",
+    }
 
 
 def test_usage_accumulator():

@@ -8,6 +8,7 @@ from prompt_toolkit.completion import Completion
 from prompt_toolkit.keys import Keys
 
 from fast_agent.ui.prompt.keybindings import (
+    PromptInputInterrupt,
     _accept_completion,
     _cycle_completion,
     create_keybindings,
@@ -137,3 +138,20 @@ def test_function_key_callbacks_fire_when_configured() -> None:
         binding = _binding_for(kb, key)
         binding.handler(SimpleNamespace(current_buffer=Buffer(), app=_App()))
         assert label in events
+
+
+def test_ctrl_c_binding_exits_with_prompt_input_interrupt() -> None:
+    class _App:
+        def __init__(self) -> None:
+            self.exception: BaseException | None = None
+
+        def exit(self, *, exception: BaseException | None = None) -> None:
+            self.exception = exception
+
+    app = _App()
+    kb = create_keybindings()
+    binding = _binding_for(kb, Keys.ControlC)
+
+    binding.handler(SimpleNamespace(current_buffer=Buffer(), app=app))
+
+    assert isinstance(app.exception, PromptInputInterrupt)

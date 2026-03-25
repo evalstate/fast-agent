@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -19,6 +20,8 @@ if TYPE_CHECKING:
 
 SegmentKind = Literal["markdown", "plain", "reasoning", "tool"]
 _JSON_PARSE_FAILED = object()
+_FENCE_OPEN_LINE_RE = re.compile(r"^\s{0,3}(?P<delim>`{3,}|~{3,})(?P<info>.*)$")
+_CONTAINER_BLOCK_LINE_RE = re.compile(r"^\s{0,3}(?:>|\d+[.)][ \t]+|[*+-][ \t]+)")
 
 
 @dataclass
@@ -29,6 +32,7 @@ class StreamSegment:
     text: str
     tool_name: str | None = None
     tool_use_id: str | None = None
+    frozen: bool = False
 
     def append(self, text: str) -> None:
         self.text += text
@@ -39,6 +43,7 @@ class StreamSegment:
             text=text,
             tool_name=self.tool_name,
             tool_use_id=self.tool_use_id,
+            frozen=self.frozen,
         )
 
 
@@ -195,6 +200,7 @@ class StreamSegmentBuffer:
             self._pending_table_row = ""
 
         self._append_to_segment("markdown", text)
+        self._freeze_completed_markdown_tail()
         return True
 
     def _consume_reasoning_gap(self) -> str:
@@ -240,9 +246,93 @@ class StreamSegmentBuffer:
         if not self._segments:
             return None
         last_segment = self._segments[-1]
-        if last_segment.kind != kind:
+        if last_segment.kind != kind or last_segment.frozen:
             return None
         return last_segment
+
+    def _freeze_completed_markdown_tail(self) -> None:
+        segment = self._last_segment(kind="markdown")
+        if segment is None or not segment.text:
+            return
+        # Freeze only stable block prefixes so cached measurement/rendering can
+        # reuse earlier markdown while the active tail keeps growing.
+        split_at = self._stable_markdown_prefix_length(segment.text)
+        if split_at <= 0:
+            return
+
+        frozen_text = segment.text[:split_at]
+        if not frozen_text.strip():
+            return
+        tail_text = segment.text[split_at:]
+        frozen_segment = StreamSegment(kind="markdown", text=frozen_text, frozen=True)
+        last_index = len(self._segments) - 1
+        if tail_text:
+            segment.text = tail_text
+            self._segments.insert(last_index, frozen_segment)
+            return
+        self._segments[last_index] = frozen_segment
+
+    def _stable_markdown_prefix_length(self, text: str) -> int:
+        if not text:
+            return 0
+
+        boundary = 0
+        current_block_safe: bool | None = None
+        in_fence = False
+        fence_char = ""
+        fence_len = 0
+        offset = 0
+
+        for raw_line in text.splitlines(keepends=True):
+            line = raw_line[:-1] if raw_line.endswith("\n") else raw_line
+            stripped = line.lstrip(" ")
+
+            if in_fence:
+                if stripped and stripped[0] == fence_char:
+                    index = 0
+                    while index < len(stripped) and stripped[index] == fence_char:
+                        index += 1
+                    if index >= fence_len and stripped[index:].strip() == "":
+                        in_fence = False
+                        if current_block_safe and raw_line.endswith("\n"):
+                            boundary = offset + len(raw_line)
+                        # A closed fence is a complete block; the next line starts fresh.
+                        current_block_safe = None
+                offset += len(raw_line)
+                continue
+
+            if not line.strip():
+                if current_block_safe:
+                    boundary = offset + len(raw_line)
+                current_block_safe = None
+                offset += len(raw_line)
+                continue
+
+            line_safe = self._is_freeze_safe_markdown_line(line)
+            if current_block_safe is None:
+                current_block_safe = line_safe
+            else:
+                current_block_safe = current_block_safe and line_safe
+
+            opening = _FENCE_OPEN_LINE_RE.match(line)
+            if opening:
+                delimiter = opening.group("delim")
+                info = opening.group("info")
+                if delimiter[0] != "`" or "`" not in info:
+                    in_fence = True
+                    fence_char = delimiter[0]
+                    fence_len = len(delimiter)
+
+            offset += len(raw_line)
+
+        return boundary
+
+    def _is_freeze_safe_markdown_line(self, line: str) -> bool:
+        stripped = line.lstrip(" ")
+        indent = len(line) - len(stripped)
+        if indent != 0:
+            return False
+        return _CONTAINER_BLOCK_LINE_RE.match(line) is None
 
 
 @dataclass

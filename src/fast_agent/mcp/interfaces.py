@@ -3,11 +3,10 @@ Interface definitions to prevent circular imports.
 This module defines protocols (interfaces) that can be used to break circular dependencies.
 """
 
+from contextlib import AbstractAsyncContextManager
 from datetime import timedelta
 from typing import (
     TYPE_CHECKING,
-    AsyncContextManager,
-    Callable,
     Protocol,
     runtime_checkable,
 )
@@ -25,10 +24,15 @@ from fast_agent.interfaces import (
 )
 
 if TYPE_CHECKING:
+    from mcp.types import ServerCapabilities
+
     from fast_agent.config import MCPServerSettings
+    from fast_agent.mcp.transport_tracking import TransportChannelMetrics
 
 __all__ = [
+    "ClientSessionFactory",
     "MCPConnectionManagerProtocol",
+    "ServerInitializerProtocol",
     "ServerRegistryProtocol",
     "ServerConnection",
     "FastAgentLLMProtocol",
@@ -41,22 +45,28 @@ __all__ = [
 
 
 @runtime_checkable
+class ClientSessionFactory(Protocol):
+    """Protocol for creating client sessions across persistent and temporary connections."""
+
+    def __call__(
+        self,
+        read_stream: MemoryObjectReceiveStream,
+        write_stream: MemoryObjectSendStream,
+        read_timeout: timedelta | None,
+        *,
+        server_config: "MCPServerSettings | None" = None,
+        transport_metrics: "TransportChannelMetrics | None" = None,
+    ) -> ClientSession: ...
+
+
+@runtime_checkable
 class MCPConnectionManagerProtocol(Protocol):
     """Protocol for MCPConnectionManager functionality needed by ServerRegistry."""
 
     async def get_server(
         self,
         server_name: str,
-        client_session_factory: 
-            Callable[
-                [
-                    MemoryObjectReceiveStream,
-                    MemoryObjectSendStream,
-                    timedelta | None,
-                ],
-                ClientSession,
-            ]
-         | None = None,
+        client_session_factory: ClientSessionFactory | None = None,
     ) -> "ServerConnection": ...
 
     async def disconnect_server(self, server_name: str) -> None: ...
@@ -65,7 +75,24 @@ class MCPConnectionManagerProtocol(Protocol):
 
 
 @runtime_checkable
-class ServerRegistryProtocol(Protocol):
+class ServerInitializerProtocol(Protocol):
+    """Protocol for temporary (non-persistent) server connections used by gen_client."""
+
+    def initialize_server(
+        self,
+        server_name: str,
+        client_session_factory: ClientSessionFactory | None = None,
+    ) -> AbstractAsyncContextManager[ClientSession]:
+        """Initialize a server and yield a client session."""
+        ...
+
+    def get_server_capabilities(self, server_name: str) -> "ServerCapabilities | None":
+        """Return cached capabilities for a server, or None if not yet initialized."""
+        ...
+
+
+@runtime_checkable
+class ServerRegistryProtocol(ServerInitializerProtocol, Protocol):
     """Protocol defining the minimal interface of ServerRegistry needed by gen_client."""
 
     @property
@@ -73,23 +100,6 @@ class ServerRegistryProtocol(Protocol):
 
     @property
     def connection_manager(self) -> MCPConnectionManagerProtocol: ...
-
-    def initialize_server(
-        self,
-        server_name: str,
-        client_session_factory: 
-            Callable[
-                [
-                    MemoryObjectReceiveStream,
-                    MemoryObjectSendStream,
-                    timedelta | None,
-                ],
-                ClientSession,
-            ]
-         | None = None,
-    ) -> AsyncContextManager[ClientSession]:
-        """Initialize a server and yield a client session."""
-        ...
 
     def get_server_config(self, server_name: str) -> "MCPServerSettings | None": ...
 

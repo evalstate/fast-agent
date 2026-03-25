@@ -141,5 +141,6 @@ async def test_tool_call_usage_tracking():
 
     # Check that the usage was tracked with tool call data
     last_turn = llm.usage_accumulator.turns[-1]
-    assert last_turn.raw_usage.tool_calls == 1
-    assert last_turn.raw_usage.model_type == "passthrough"
+    assert isinstance(last_turn.raw_usage, dict)
+    assert last_turn.raw_usage["tool_calls"] == 1
+    assert last_turn.raw_usage["model_type"] == "passthrough"

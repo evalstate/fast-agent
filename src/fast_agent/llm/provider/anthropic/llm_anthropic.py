@@ -1252,8 +1252,6 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                     "type": "tool",
                     "name": STRUCTURED_OUTPUT_TOOL_NAME,
                 }
-            if structured_mode == "json" and structured_model:
-                base_args["output_format"] = self._build_output_format(structured_model)
 
         thinking_args, thinking_enabled = self._resolve_thinking_arguments(
             model=model,
@@ -1261,6 +1259,10 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             structured_mode=structured_mode,
         )
         base_args.update(thinking_args)
+        if structured_mode == "json" and structured_model:
+            output_config = dict(base_args.get("output_config") or {})
+            output_config["format"] = self._build_output_format(structured_model)
+            base_args["output_config"] = output_config
         return base_args, thinking_enabled
 
     def _resolve_anthropic_beta_flags(

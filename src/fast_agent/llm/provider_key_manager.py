@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from fast_agent.core.exceptions import ProviderKeyError
+from fast_agent.utils.huggingface_hub import get_huggingface_hub_token
 
 PROVIDER_ENVIRONMENT_MAP: dict[str, str] = {
     # default behaviour in _get_env_key_name is to capitalize the
@@ -129,12 +130,7 @@ class ProviderKeyManager:
         # HuggingFace: also support tokens managed by huggingface_hub (e.g. `hf auth login`)
         # even when HF_TOKEN isn't explicitly set in the environment or config.
         if not api_key and provider_name in {"hf", "huggingface"}:
-            try:
-                from huggingface_hub import get_token  # ty: ignore[unresolved-import]
-
-                api_key = get_token()
-            except Exception:
-                pass
+            api_key = get_huggingface_hub_token()
 
         if not api_key and provider_name == "generic":
             api_key = "ollama"  # Default for generic provider
