@@ -7,10 +7,65 @@
 <a href="https://github.com/evalstate/fast-agent-mcp/blob/main/LICENSE"><img src="https://img.shields.io/pypi/l/fast-agent-mcp" /></a>
 </p>
 
-## Overview
+## Start Here
 
 > [!TIP]
-> Please see : https://fast-agent.ai for latest documentation. There is also an LLMs.txt [here](https://fast-agent.ai/llms.txt)
+> Please see https://fast-agent.ai for latest documentation.
+
+**`fast-agent`** is a flexible way to interact with LLMs, excellent for use as a Coding Agent, Development Toolkit, Evaluation or Workflow platform.
+
+To start an interactive session with shell support, install [uv](https://astral.sh/uv) and run
+
+```bash
+uvx fast-agent-mcp@latest -x
+```
+
+To start coding with Hugging Face inference providers or use your OpenAI Codex plan:
+
+```bash
+# Code with Hugging Face Inference Providers
+uvx fast-agent-mcp@latest --pack hf-dev
+
+# Code with Codex (agents optimized for OpenAI)
+uvx fast-agent-mcp@latest --pack codex
+```
+
+Enter a shell with `!`, or run shell commands e.g. `! cd web && npm run build`.
+
+Manage skills with the `/skills` command, and connect to MCP Servers with `/connect`. The default **`fast-agent`** registry contains skills to let you set up LSP, Agent and Tool Hooks, Compaction strategies, Automation and more.
+
+```bash
+# /connect supports stdio or streamable http (with OAuth)
+
+# Start a STDIO server
+/connect @modelcontextprotocol/server-everything
+
+# Connect to a Streamable HTTP Server
+/connect https://huggingface.co/mcp
+```
+
+It's recommended to install **`fast-agent`** to set up the shell aliases and other tooling.
+
+```bash
+# Install fast-agent
+uv tool install -U fast-agent-mcp
+
+# Run fast-agent with opus, shell support and subagent/smart mode
+fast-agent --model opus -x --smart
+```
+
+Use local models with the generic provider, or automatically create the correct configuration for `llama.cpp`:
+
+```bash
+fast-agent model llamacpp
+```
+
+Any **`fast-agent`** setup or program can be used with any ACP client - the simplest way is to use `fast-agent-acp`:
+
+```bash
+# Run fast-agent inside Toad
+toad acp "fast-agent-acp -x --model sonnet"
+```
 
 **`fast-agent`** enables you to create and interact with sophisticated multimodal Agents and Workflows in minutes. It is the first framework with complete, end-to-end tested MCP Feature support including Sampling and Elicitations.
 
@@ -23,32 +78,32 @@ The simple declarative syntax lets you concentrate on composing your Prompts and
 Model support is comprehensive with native support for Anthropic, OpenAI and Google providers as well as Azure, Ollama, Deepseek and dozens of others via TensorZero. Structured Outputs, PDF and Vision support is simple to use and well tested. Passthrough and Playback LLMs enable rapid development and test of Python glue-code for your applications.
 
 Recent features include:
- - Agent Skills (SKILL.md)
- - MCP-UI Support |
- - OpenAI Apps SDK (Skybridge)
- - Shell Mode
- - Advanced MCP Transport Diagnsotics
- - MCP Elicitations
+
+- Agent Skills (SKILL.md)
+- MCP-UI Support |
+- OpenAI Apps SDK (Skybridge)
+- Shell Mode
+- Advanced MCP Transport Diagnsotics
+- MCP Elicitations
 
 <img width="800"  alt="MCP Transport Diagnostics" src="https://github.com/user-attachments/assets/e26472de-58d9-4726-8bdd-01eb407414cf" />
 
-
 `fast-agent` is the only tool that allows you to inspect Streamable HTTP Transport usage - a critical feature for ensuring reliable, compliant deployments. OAuth is supported with KeyRing storage for secrets. Use the `fast-agent auth` command to manage.
-
-
-
-
 
 > [!IMPORTANT]
 >
 > Documentation is included as a submodule. When cloning, use `--recurse-submodules` to get everything:
+>
 > ```bash
 > git clone --recurse-submodules https://github.com/evalstate/fast-agent.git
 > ```
+>
 > Or if you've already cloned:
+>
 > ```bash
 > git submodule update --init --recursive
 > ```
+>
 > The documentation source is also available at: https://github.com/evalstate/fast-agent-docs
 
 ### Agent Application Development
