@@ -7,6 +7,7 @@ for creating agents in the DirectFastAgent framework.
 from collections.abc import Coroutine
 from pathlib import Path
 from typing import (
+    TYPE_CHECKING,
     Any,
     Awaitable,
     Callable,
@@ -14,10 +15,14 @@ from typing import (
     ParamSpec,
     Protocol,
     TypeVar,
+    overload,
 )
 
 from mcp.client.session import ElicitationFnT
 from pydantic import AnyUrl
+
+if TYPE_CHECKING:
+    from fastmcp.tools import FunctionTool
 
 from fast_agent.agents.agent_types import (
     AgentConfig,
@@ -280,8 +285,52 @@ class DecoratorMixin:
     agent configurations.
     """
 
-    # Type hint for the agents dict (provided by host class)
+    # Type hints for attributes provided by host class
     agents: dict[str, Any]
+    _registered_tools: "list[FunctionTool]"
+
+    @overload
+    def tool(self, func: Callable[..., Any], /) -> Callable[..., Any]: ...
+
+    @overload
+    def tool(
+        self,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]: ...
+
+    def tool(
+        self,
+        func: Callable[..., Any] | None = None,
+        /,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> Callable[..., Any] | Callable[[Callable[..., Any]], Callable[..., Any]]:
+        """Register a Python function as a tool available to agents.
+
+        Supports both bare and parameterized usage::
+
+            @fast.tool
+            def greet(name: str) -> str: ...
+
+            @fast.tool(name="add", description="Add two numbers")
+            def add_numbers(a: int, b: int) -> int: ...
+
+        Tools registered this way are available to all agents that do not
+        declare an explicit ``function_tools`` list.
+        """
+        from fast_agent.tools.function_tool_loader import build_default_function_tool
+
+        def _register(fn: Callable[..., Any]) -> Callable[..., Any]:
+            tool = build_default_function_tool(fn, name=name, description=description)
+            self._registered_tools.append(tool)
+            return fn
+
+        if func is not None:
+            return _register(func)
+        return _register
 
     def agent(
         self,

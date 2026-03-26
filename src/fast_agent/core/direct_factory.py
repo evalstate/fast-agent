@@ -121,6 +121,27 @@ def _load_configured_function_tools(
     return load_function_tools(tools_config, base_path)
 
 
+def _resolve_function_tools_with_globals(
+    config: AgentConfig,
+    agent_data: Mapping[str, Any],
+    build_ctx: "AgentBuildContext",
+) -> list[FunctionTool]:
+    """Load per-agent function tools, falling back to global @fast.tool tools.
+
+    If the agent has explicit function_tools configured, only those are used.
+    Otherwise, globally registered tools from ``@fast.tool`` are provided.
+    """
+    explicit_tools = _load_configured_function_tools(config, agent_data)
+    if explicit_tools:
+        return explicit_tools
+
+    global_tools = getattr(build_ctx.app_instance, "_registered_tools", None)
+    if global_tools:
+        return list(global_tools)
+
+    return []
+
+
 def _register_loaded_agent(
     result_agents: AgentDict,
     name: str,
@@ -226,7 +247,7 @@ def _build_agents_as_tools_inputs(
     options = _build_agents_as_tools_options(agent_data)
     return AgentsAsToolsBuildInputs(
         config=config,
-        function_tools=_load_configured_function_tools(config, agent_data),
+        function_tools=_resolve_function_tools_with_globals(config, agent_data, build_ctx),
         child_agents=_resolve_child_agents(
             name,
             child_names,
@@ -603,7 +624,7 @@ async def _create_basic_agent(
             child_message_files=inputs.child_message_files,
         )
     else:
-        function_tools = _load_configured_function_tools(config, agent_data)
+        function_tools = _resolve_function_tools_with_globals(config, agent_data, build_ctx)
         agent = _create_agent_with_ui_if_needed(
             McpAgent,
             config,
@@ -644,7 +665,7 @@ async def _create_smart_agent(
             child_message_files=inputs.child_message_files,
         )
     else:
-        function_tools = _load_configured_function_tools(config, agent_data)
+        function_tools = _resolve_function_tools_with_globals(config, agent_data, build_ctx)
 
         from fast_agent.agents.smart_agent import SmartAgent, SmartAgentWithUI
 

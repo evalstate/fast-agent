@@ -67,6 +67,8 @@ from fast_agent.ui.console import configure_console_stream
 from fast_agent.ui.usage_display import display_usage_report
 
 if TYPE_CHECKING:
+    from fastmcp.tools import FunctionTool
+
     from fast_agent.config import MCPServerSettings
     from fast_agent.context import Context
     from fast_agent.core.agent_card_loader import LoadedAgentCard
@@ -432,6 +434,8 @@ class FastAgent(DecoratorMixin):
 
         # Dictionary to store agent configurations from decorators
         self.agents: dict[str, AgentCardData] = {}
+        # Global tool registry populated by @fast.tool decorator
+        self._registered_tools: list[FunctionTool] = []
         # Tracking for AgentCard-loaded agents
         self._agent_card_sources: dict[str, Path] = {}
         self._agent_card_roots: dict[Path, set[str]] = {}
@@ -1491,6 +1495,7 @@ class FastAgent(DecoratorMixin):
         app_override: AgentApp | None = None,
     ) -> AgentInstance:
         async with runtime.instance_lock:
+            self.app._registered_tools = self._registered_tools  # type: ignore[attr-defined]
             agents_map = await create_agents_in_dependency_order(
                 self.app,
                 self.agents,
