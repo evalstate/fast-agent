@@ -603,6 +603,36 @@ agent["greeter"].send("Good Evening!")          # Dictionary access is supported
 )
 ```
 
+### Function Tools (`@fast.tool`)
+
+Register Python functions as tools directly in code using the `@fast.tool` decorator. These tools are available to all agents by default, without needing an MCP server or external file.
+
+```python
+@fast.tool
+def get_weather(city: str) -> str:
+    """Return the current weather for a city."""
+    return f"Sunny in {city}"
+
+@fast.tool(name="add", description="Add two numbers")
+def add_numbers(a: int, b: int) -> int:
+    return a + b
+```
+
+Both sync and async functions are supported. The function name and docstring are used as the tool name and description by default, or you can override them with `name=` and `description=`.
+
+**Scoping:** `@fast.tool` tools are global by default. If an agent declares an explicit `function_tools=` list, only those tools are available to that agent:
+
+```python
+def multiply(a: int, b: int) -> int:
+    return a * b
+
+@fast.agent(name="assistant", instruction="You are helpful.")
+# assistant gets get_weather and add (global @fast.tool tools)
+
+@fast.agent(name="calc", instruction="Math only.", function_tools=[multiply])
+# calc only gets multiply (explicit list overrides globals)
+```
+
 ### Multimodal Support
 
 Add Resources to prompts using either the inbuilt `prompt-server` or MCP Types directly. Convenience class are made available to do so simply, for example:
