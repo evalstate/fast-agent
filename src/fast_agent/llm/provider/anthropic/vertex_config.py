@@ -3,9 +3,7 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Literal
-
-AnthropicRoute = Literal["direct", "vertex"]
+from typing import Any
 
 _VERTEX_PROJECT_ENV_VARS: tuple[str, ...] = (
     "ANTHROPIC_VERTEX_PROJECT_ID",
@@ -127,18 +125,6 @@ def resolve_anthropic_vertex_location(config: Any) -> str | None:
             return value
 
     return "global"
-
-
-def resolve_anthropic_route(
-    config: Any,
-    *,
-    explicit_route: AnthropicRoute | None = None,
-) -> AnthropicRoute:
-    if explicit_route is not None:
-        return explicit_route
-    return "direct"
-
-
 def anthropic_vertex_ready(
     config: Any,
     *,

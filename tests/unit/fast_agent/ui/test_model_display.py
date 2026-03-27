@@ -52,15 +52,14 @@ def test_resolve_llm_display_name_uses_wire_model_name_for_anthropic_presets() -
 
 def test_resolve_llm_display_name_marks_anthropic_vertex_route() -> None:
     resolved_model = ResolvedModelSpec(
-        raw_input="sonnet?via=vertex",
-        selected_model_name="sonnet?via=vertex",
+        raw_input="anthropic-vertex.claude-sonnet-4-6",
+        selected_model_name="anthropic-vertex.claude-sonnet-4-6",
         source="preset",
         model_config=ModelConfig(
-            provider=Provider.ANTHROPIC,
+            provider=Provider.ANTHROPIC_VERTEX,
             model_name="claude-sonnet-4-6",
-            via="vertex",
         ),
-        provider=Provider.ANTHROPIC,
+        provider=Provider.ANTHROPIC_VERTEX,
         wire_model_name="claude-sonnet-4-6",
     )
 
@@ -109,7 +108,7 @@ def test_resolve_model_display_name_formats_raw_model_strings() -> None:
     )
     assert resolve_model_display_name("zai-org/GLM-5:novita") == "GLM-5"
     assert (
-        resolve_model_display_name("claude-sonnet-4-6?via=vertex")
+        resolve_model_display_name("anthropic-vertex.claude-sonnet-4-6")
         == "claude-sonnet-4-6 · Vertex"
     )
 

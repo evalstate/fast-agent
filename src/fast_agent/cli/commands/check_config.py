@@ -68,6 +68,10 @@ _PROVIDER_CATALOG_SCOPES_BY_KEY: dict[str, ProviderCatalogScope] = {
         display_name="Anthropic",
         providers=(Provider.ANTHROPIC,),
     ),
+    "anthropic-vertex": ProviderCatalogScope(
+        display_name="Anthropic (Vertex)",
+        providers=(Provider.ANTHROPIC_VERTEX,),
+    ),
     "google": ProviderCatalogScope(
         display_name="Google",
         providers=(Provider.GOOGLE,),
@@ -98,11 +102,13 @@ _PROVIDER_CATALOG_SCOPE_ALIASES: dict[str, str] = {
     "hf": "huggingface",
     "codex-responses": "codexresponses",
     "codex_responses": "codexresponses",
+    "anthropicvertex": "anthropic-vertex",
 }
 
 _PROVIDER_CATALOG_VISIBLE_CHOICES: tuple[str, ...] = (
     "openai",
     "anthropic",
+    "anthropic-vertex",
     "google",
     "deepseek",
     "aliyun",
@@ -266,7 +272,7 @@ def _empty_api_key_results() -> dict[str, dict[str, str]]:
     return {
         provider.config_name: {"env": "", "config": ""}
         for provider in Provider
-        if provider != Provider.FAST_AGENT
+        if provider not in {Provider.FAST_AGENT, Provider.ANTHROPIC_VERTEX}
     }
 
 
@@ -388,7 +394,7 @@ def check_api_keys(secrets_summary: dict, config_summary: dict) -> dict:
 
     for provider_name, status in results.items():
         env_key_name = ProviderKeyManager.get_env_key_name(provider_name)
-        env_key_value = os.environ.get(env_key_name)
+        env_key_value = os.environ.get(env_key_name) if env_key_name else None
         if env_key_value:
             status["env"] = _mask_configured_secret(env_key_value)
 
@@ -1785,6 +1791,8 @@ def _should_warn_for_provider(
         vertex_cfg = google_cfg.get("vertex_ai", {}) if isinstance(google_cfg, dict) else {}
         if isinstance(vertex_cfg, dict) and vertex_cfg.get("enabled") is True:
             return False
+    if provider == Provider.ANTHROPIC_VERTEX:
+        return False
     return True
 
 
@@ -2021,11 +2029,14 @@ def _render_check_summary_guidance(context: _CheckSummaryContext) -> None:
         )
         console.print("1. Add keys to fastagent.secrets.yaml")
         env_vars = ", ".join(
-            [
-                ProviderKeyManager.get_env_key_name(p.config_name)
-                for p in Provider
-                if p != Provider.FAST_AGENT
-            ]
+            filter(
+                None,
+                (
+                    ProviderKeyManager.get_env_key_name(p.config_name)
+                    for p in Provider
+                    if p != Provider.FAST_AGENT
+                ),
+            )
         )
         console.print(f"2. Or set environment variables ({env_vars})")
 

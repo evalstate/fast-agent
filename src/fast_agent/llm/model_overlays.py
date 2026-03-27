@@ -52,11 +52,7 @@ def _overlay_model_key(provider: Provider, model_name: str) -> str:
 
 
 def _existing_model_params(provider: Provider, model_name: str) -> ModelParameters | None:
-    normalized = _overlay_model_key(provider, model_name)
-    params = ModelDatabase.MODELS.get(normalized)
-    if params is not None:
-        return params
-    return ModelDatabase._RUNTIME_MODEL_PARAMS.get(normalized)
+    return ModelDatabase.get_model_params(model_name, provider=provider)
 
 
 class ModelOverlayConnection(BaseModel):

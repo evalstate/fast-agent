@@ -12,6 +12,7 @@ from mcp.types import (
     EmbeddedResource,
     ImageContent,
     PromptMessage,
+    ResourceLink,
     TextContent,
     TextResourceContents,
 )
@@ -23,6 +24,7 @@ from fast_agent.constants import (
     ANTHROPIC_THINKING_BLOCKS,
 )
 from fast_agent.llm.provider.anthropic.multipart_converter_anthropic import (
+    ANTHROPIC_FILE_ID_META_KEY,
     AnthropicConverter,
 )
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -172,6 +174,46 @@ class TestAnthropicUserConverter(unittest.TestCase):
             block_source(content_blocks(anthropic_msg)[0])["url"],
             "https://example.com/image.jpg",
         )
+
+    def test_resource_link_image_url_conversion(self):
+        """Test conversion of image ResourceLink to Anthropic image block."""
+        resource = ResourceLink(
+            type="resource_link",
+            uri=AnyUrl("https://example.com/image.jpg"),
+            mimeType="image/jpeg",
+            name="image.jpg",
+        )
+        multipart = PromptMessageExtended(role="user", content=[resource])
+
+        anthropic_msg = AnthropicConverter.convert_to_anthropic(multipart)
+
+        self.assertEqual(anthropic_msg["role"], "user")
+        self.assertEqual(len(content_blocks(anthropic_msg)), 1)
+        self.assertEqual(content_blocks(anthropic_msg)[0]["type"], "image")
+        self.assertEqual(block_source(content_blocks(anthropic_msg)[0])["type"], "url")
+        self.assertEqual(
+            block_source(content_blocks(anthropic_msg)[0])["url"],
+            "https://example.com/image.jpg",
+        )
+
+    def test_embedded_resource_office_document_uses_uploaded_file_source(self):
+        """Test office documents use Anthropic file document source when pre-uploaded."""
+        resource = BlobResourceContents(
+            uri=AnyUrl("file:///tmp/report.docx"),
+            mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            blob=PDF_BASE64,
+        )
+        resource.meta = {ANTHROPIC_FILE_ID_META_KEY: "file_abc123"}
+        embedded_resource = EmbeddedResource(type="resource", resource=resource)
+        multipart = PromptMessageExtended(role="user", content=[embedded_resource])
+
+        anthropic_msg = AnthropicConverter.convert_to_anthropic(multipart)
+
+        self.assertEqual(anthropic_msg["role"], "user")
+        self.assertEqual(len(content_blocks(anthropic_msg)), 1)
+        self.assertEqual(content_blocks(anthropic_msg)[0]["type"], "document")
+        self.assertEqual(block_source(content_blocks(anthropic_msg)[0])["type"], "file")
+        self.assertEqual(block_source(content_blocks(anthropic_msg)[0])["file_id"], "file_abc123")
 
     def test_assistant_role_restrictions(self):
         """Test that assistant messages can only contain text blocks."""

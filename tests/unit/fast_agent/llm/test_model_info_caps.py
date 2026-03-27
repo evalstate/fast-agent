@@ -106,3 +106,61 @@ def test_codexspark_alias_is_text_only() -> None:
     assert info is not None
     assert info.name == "codexresponses.gpt-5.3-codex-spark"
     assert info.tdv_flags == (True, False, False)
+
+
+def test_model_info_supports_overlay_tokenizes() -> None:
+    info = ModelInfo(
+        name="unsloth/Qwen3.5-9B-GGUF",
+        provider=Provider.OPENRESPONSES,
+        context_window=75264,
+        max_output_tokens=2048,
+        tokenizes=["text/plain", "image/jpeg", "image/png", "image/webp"],
+        json_mode=None,
+        reasoning=None,
+    )
+
+    assert info.supports_mime("image/png")
+    assert info.supports_vision
+
+
+def test_model_info_openai_chat_documents_remain_pdf_only() -> None:
+    info = ModelInfo.from_name("gpt-4o", provider=Provider.OPENAI)
+
+    assert info is not None
+    assert info.supports_mime("application/pdf")
+    assert not info.supports_mime(
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+
+
+def test_model_info_responses_models_support_office_documents() -> None:
+    info = ModelInfo.from_name("o4-mini", provider=Provider.RESPONSES)
+
+    assert info is not None
+    assert info.supports_mime(
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+
+
+def test_model_info_anthropic_models_support_office_documents() -> None:
+    info = ModelInfo.from_name("claude-sonnet-4-5", provider=Provider.ANTHROPIC)
+
+    assert info is not None
+    assert info.supports_mime(
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    assert not info.supports_mime(
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        resource_source="link",
+    )
+    assert info.supports_mime("image/png", resource_source="link")
+
+
+def test_model_info_anthropic_vertex_models_do_not_support_office_documents() -> None:
+    info = ModelInfo.from_name("claude-sonnet-4-5", provider=Provider.ANTHROPIC_VERTEX)
+
+    assert info is not None
+    assert info.supports_mime("application/pdf")
+    assert not info.supports_mime(
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )

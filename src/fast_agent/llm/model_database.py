@@ -16,6 +16,9 @@ from fast_agent.llm.reasoning_effort import (
     ReasoningEffortSpec,
 )
 from fast_agent.llm.text_verbosity import TextVerbositySpec
+from fast_agent.mcp.mime_utils import DOCUMENT_MIME_TYPES
+
+ResourceSource = Literal["embedded", "link"]
 
 
 class ModelParameters(BaseModel):
@@ -99,9 +102,22 @@ class ModelDatabase:
     _RUNTIME_MODEL_PARAMS: dict[str, ModelParameters] = {}
 
     # Common parameter sets
-    OPENAI_MULTIMODAL = ["text/plain", "image/jpeg", "image/png", "image/webp", "application/pdf"]
+    OPENAI_MULTIMODAL = [
+        "text/plain",
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        *DOCUMENT_MIME_TYPES,
+    ]
     OPENAI_VISION = ["text/plain", "image/jpeg", "image/png", "image/webp"]
     ANTHROPIC_MULTIMODAL = [
+        "text/plain",
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        *DOCUMENT_MIME_TYPES,
+    ]
+    ANTHROPIC_VERTEX_MULTIMODAL = [
         "text/plain",
         "image/jpeg",
         "image/png",
@@ -801,14 +817,26 @@ class ModelDatabase:
         # aliyun modern
         "qwen3-max": ALIYUN_QWEN3_MODERN,
     }
+    _PROVIDER_MODEL_OVERRIDES: dict[tuple[Provider, str], ModelParameters] = {}
+    _PROVIDER_WIRE_MODEL_NAMES: dict[tuple[Provider, str], str] = {}
 
     @classmethod
-    def get_model_params(cls, model: str) -> ModelParameters | None:
+    def get_model_params(
+        cls,
+        model: str,
+        *,
+        provider: Provider | None = None,
+    ) -> ModelParameters | None:
         """Get model parameters for a given model name"""
         if not model:
             return None
 
+        effective_provider = provider or cls.get_default_provider(model)
         normalized = cls.normalize_model_name(model)
+        if effective_provider is not None:
+            provider_override = cls._PROVIDER_MODEL_OVERRIDES.get((effective_provider, normalized))
+            if provider_override is not None:
+                return provider_override
         params = cls.MODELS.get(normalized)
         if params is not None:
             return params
@@ -869,25 +897,32 @@ class ModelDatabase:
         return model_spec.strip().lower()
 
     @classmethod
-    def get_context_window(cls, model: str) -> int | None:
+    def get_context_window(cls, model: str, *, provider: Provider | None = None) -> int | None:
         """Get context window size for a model"""
-        params = cls.get_model_params(model)
+        params = cls.get_model_params(model, provider=provider)
         return params.context_window if params else None
 
     @classmethod
-    def get_max_output_tokens(cls, model: str) -> int | None:
+    def get_max_output_tokens(cls, model: str, *, provider: Provider | None = None) -> int | None:
         """Get maximum output tokens for a model"""
-        params = cls.get_model_params(model)
+        params = cls.get_model_params(model, provider=provider)
         return params.max_output_tokens if params else None
 
     @classmethod
-    def get_tokenizes(cls, model: str) -> list[str] | None:
+    def get_tokenizes(cls, model: str, *, provider: Provider | None = None) -> list[str] | None:
         """Get supported tokenization types for a model"""
-        params = cls.get_model_params(model)
+        params = cls.get_model_params(model, provider=provider)
         return params.tokenizes if params else None
 
     @classmethod
-    def supports_mime(cls, model: str, mime_type: str) -> bool:
+    def supports_mime(
+        cls,
+        model: str,
+        mime_type: str,
+        *,
+        provider: Provider | None = None,
+        resource_source: ResourceSource | None = None,
+    ) -> bool:
         """
         Return True if the given model supports the provided MIME type.
 
@@ -896,7 +931,7 @@ class ModelDatabase:
         """
         from fast_agent.mcp.mime_utils import normalize_mime_type
 
-        tokenizes = cls.get_tokenizes(model) or []
+        tokenizes = cls.get_tokenizes(model, provider=provider) or []
 
         # Normalize the candidate and the database entries to lowercase
         normalized_supported = [t.lower() for t in tokenizes]
@@ -911,76 +946,129 @@ class ModelDatabase:
         if not normalized:
             return False
 
+        if (
+            resource_source == "link"
+            and provider in {Provider.ANTHROPIC, Provider.ANTHROPIC_VERTEX}
+            and normalized in DOCUMENT_MIME_TYPES
+            and normalized != "application/pdf"
+        ):
+            return False
+
         return normalized.lower() in normalized_supported
 
     @classmethod
-    def supports_any_mime(cls, model: str, mime_types: list[str]) -> bool:
+    def supports_any_mime(
+        cls,
+        model: str,
+        mime_types: list[str],
+        *,
+        provider: Provider | None = None,
+        resource_source: ResourceSource | None = None,
+    ) -> bool:
         """Return True if the model supports any of the provided MIME types."""
-        return any(cls.supports_mime(model, m) for m in mime_types)
+        return any(
+            cls.supports_mime(
+                model,
+                m,
+                provider=provider,
+                resource_source=resource_source,
+            )
+            for m in mime_types
+        )
 
     @classmethod
-    def get_json_mode(cls, model: str) -> str | None:
+    def get_json_mode(cls, model: str, *, provider: Provider | None = None) -> str | None:
         """Get supported json mode (structured output) for a model"""
-        params = cls.get_model_params(model)
+        params = cls.get_model_params(model, provider=provider)
         return params.json_mode if params else None
 
     @classmethod
-    def get_reasoning(cls, model: str) -> str | None:
+    def get_reasoning(cls, model: str, *, provider: Provider | None = None) -> str | None:
         """Get supported reasoning output style for a model"""
-        params = cls.get_model_params(model)
+        params = cls.get_model_params(model, provider=provider)
         return params.reasoning if params else None
 
     @classmethod
-    def get_reasoning_effort_spec(cls, model: str) -> ReasoningEffortSpec | None:
+    def get_reasoning_effort_spec(
+        cls,
+        model: str,
+        *,
+        provider: Provider | None = None,
+    ) -> ReasoningEffortSpec | None:
         """Get reasoning effort capabilities for a model, if defined."""
-        params = cls.get_model_params(model)
+        params = cls.get_model_params(model, provider=provider)
         return params.reasoning_effort_spec if params else None
 
     @classmethod
-    def get_text_verbosity_spec(cls, model: str) -> TextVerbositySpec | None:
+    def get_text_verbosity_spec(
+        cls,
+        model: str,
+        *,
+        provider: Provider | None = None,
+    ) -> TextVerbositySpec | None:
         """Get text verbosity capabilities for a model, if defined."""
-        params = cls.get_model_params(model)
+        params = cls.get_model_params(model, provider=provider)
         return params.text_verbosity_spec if params else None
 
     @classmethod
-    def get_stream_mode(cls, model: str | None) -> Literal["openai", "manual"]:
+    def get_stream_mode(
+        cls,
+        model: str | None,
+        *,
+        provider: Provider | None = None,
+    ) -> Literal["openai", "manual"]:
         """Return preferred streaming accumulation strategy for a model."""
         if not model:
             return "openai"
 
-        params = cls.get_model_params(model)
+        params = cls.get_model_params(model, provider=provider)
         return params.stream_mode if params else "openai"
 
     @classmethod
-    def get_default_max_tokens(cls, model: str) -> int:
+    def get_default_max_tokens(cls, model: str, *, provider: Provider | None = None) -> int:
         """Get default max_tokens for RequestParams based on model"""
         if not model:
             return 2048  # Fallback when no model specified
 
-        params = cls.get_model_params(model)
+        params = cls.get_model_params(model, provider=provider)
         if params:
             return params.max_output_tokens
         return 2048  # Fallback for unknown models
 
     @classmethod
-    def get_default_temperature(cls, model: str | None) -> float | None:
+    def get_default_temperature(
+        cls,
+        model: str | None,
+        *,
+        provider: Provider | None = None,
+    ) -> float | None:
         """Get default temperature for RequestParams based on model metadata."""
         if not model:
             return None
 
-        params = cls.get_model_params(model)
+        params = cls.get_model_params(model, provider=provider)
         return params.default_temperature if params else None
 
     @classmethod
-    def get_cache_ttl(cls, model: str) -> Literal["5m", "1h"] | None:
+    def get_cache_ttl(
+        cls,
+        model: str,
+        *,
+        provider: Provider | None = None,
+    ) -> Literal["5m", "1h"] | None:
         """Get cache TTL for a model, or None if not supported"""
-        params = cls.get_model_params(model)
+        params = cls.get_model_params(model, provider=provider)
         return params.cache_ttl if params else None
 
     @classmethod
-    def get_long_context_window(cls, model: str) -> int | None:
+    def get_long_context_window(
+        cls,
+        model: str,
+        *,
+        provider: Provider | None = None,
+    ) -> int | None:
         """Get optional long-context override window for a model."""
-        params = cls.get_model_params(model)
+        params = cls.get_model_params(model, provider=provider)
         return params.long_context_window if params else None
 
     @classmethod
@@ -1036,22 +1124,42 @@ class ModelDatabase:
         return provider in providers
 
     @classmethod
-    def get_anthropic_web_search_version(cls, model: str) -> str | None:
+    def get_anthropic_web_search_version(
+        cls,
+        model: str,
+        *,
+        provider: Provider | None = None,
+    ) -> str | None:
         """Get Anthropic web_search tool version for a model, if available."""
-        params = cls.get_model_params(model)
+        params = cls.get_model_params(model, provider=provider)
         return params.anthropic_web_search_version if params else None
 
     @classmethod
-    def get_anthropic_web_fetch_version(cls, model: str) -> str | None:
+    def get_anthropic_web_fetch_version(
+        cls,
+        model: str,
+        *,
+        provider: Provider | None = None,
+    ) -> str | None:
         """Get Anthropic web_fetch tool version for a model, if available."""
-        params = cls.get_model_params(model)
+        params = cls.get_model_params(model, provider=provider)
         return params.anthropic_web_fetch_version if params else None
 
     @classmethod
-    def get_anthropic_required_betas(cls, model: str) -> tuple[str, ...] | None:
+    def get_anthropic_required_betas(
+        cls,
+        model: str,
+        *,
+        provider: Provider | None = None,
+    ) -> tuple[str, ...] | None:
         """Get Anthropic beta headers required for model-specific capabilities."""
-        params = cls.get_model_params(model)
+        params = cls.get_model_params(model, provider=provider)
         return params.anthropic_required_betas if params else None
+
+    @classmethod
+    def resolve_wire_model_name(cls, *, provider: Provider, model_name: str) -> str:
+        normalized = cls.normalize_model_name(model_name)
+        return cls._PROVIDER_WIRE_MODEL_NAMES.get((provider, normalized), model_name.strip())
 
     @classmethod
     def list_long_context_models(cls) -> list[str]:
@@ -1172,3 +1280,17 @@ class ModelDatabase:
     def list_fast_models(cls) -> list[str]:
         """List model names marked as fast in metadata."""
         return sorted(name for name, params in cls.MODELS.items() if params.fast)
+
+
+ModelDatabase._PROVIDER_MODEL_OVERRIDES.update(
+    {
+        (Provider.ANTHROPIC_VERTEX, model_name): params.model_copy(
+            update={
+                "tokenizes": ModelDatabase.ANTHROPIC_VERTEX_MULTIMODAL,
+                "anthropic_web_fetch_version": None,
+            }
+        )
+        for model_name, params in ModelDatabase.MODELS.items()
+        if params.default_provider == Provider.ANTHROPIC
+    }
+)

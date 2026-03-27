@@ -29,6 +29,8 @@ from fast_agent.core.logging.json_serializer import JsonValue, snapshot_json_val
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider_types import Provider
 
+_ANTHROPIC_USAGE_PROVIDERS = {Provider.ANTHROPIC, Provider.ANTHROPIC_VERTEX}
+
 
 # Fast-agent specific usage type for synthetic providers
 class FastAgentUsage(BaseModel):
@@ -107,7 +109,7 @@ class TurnUsage(BaseModel):
         """Input tokens actually processed (new tokens, not from cache)"""
         # For Anthropic: input_tokens already excludes cached content
         # For other providers: subtract cache hits from input_tokens
-        if self.provider == Provider.ANTHROPIC:
+        if self.provider in _ANTHROPIC_USAGE_PROVIDERS:
             return self.input_tokens
         else:
             return max(0, self.input_tokens - self.cache_usage.cache_hit_tokens)
@@ -117,7 +119,7 @@ class TurnUsage(BaseModel):
     def display_input_tokens(self) -> int:
         """Input tokens to display for 'Last turn' (total submitted tokens)"""
         # For Anthropic: input_tokens excludes cache, so add cache tokens
-        if self.provider == Provider.ANTHROPIC:
+        if self.provider in _ANTHROPIC_USAGE_PROVIDERS:
             return (
                 self.input_tokens
                 + self.cache_usage.cache_read_tokens
@@ -133,7 +135,13 @@ class TurnUsage(BaseModel):
         object.__setattr__(self, "tool_calls", count)
 
     @classmethod
-    def from_anthropic(cls, usage: AnthropicUsage, model: str) -> "TurnUsage":
+    def from_anthropic(
+        cls,
+        usage: AnthropicUsage,
+        model: str,
+        *,
+        provider: Provider = Provider.ANTHROPIC,
+    ) -> "TurnUsage":
         # Extract cache tokens with proper null handling
         cache_creation_tokens = getattr(usage, "cache_creation_input_tokens", 0) or 0
         cache_read_tokens = getattr(usage, "cache_read_input_tokens", 0) or 0
@@ -148,7 +156,7 @@ class TurnUsage(BaseModel):
         thinking_tokens = getattr(usage, "thinking_tokens", 0) or 0
 
         return cls(
-            provider=Provider.ANTHROPIC,
+            provider=provider,
             model=model,
             input_tokens=usage.input_tokens,
             output_tokens=usage.output_tokens,

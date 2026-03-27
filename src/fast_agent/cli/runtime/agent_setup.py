@@ -25,6 +25,7 @@ from fast_agent.session.preview import find_last_assistant_preview_text
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 from fast_agent.ui.model_picker_common import (
     has_explicit_provider_prefix,
+    infer_initial_picker_provider,
     normalize_generic_model_spec,
 )
 from fast_agent.utils.async_utils import suppress_known_runtime_warnings
@@ -133,9 +134,8 @@ def _resolve_model_picker_initial_selection(
         return "overlays", initial_model_spec
 
     provider_name: str | None = None
-    identity = model_identity(initial_model_spec)
-    if identity is not None:
-        provider_name = identity[0].config_name
+    if model_identity(initial_model_spec) is not None:
+        provider_name = infer_initial_picker_provider(initial_model_spec)
         return provider_name, initial_model_spec
 
     try:
@@ -148,7 +148,7 @@ def _resolve_model_picker_initial_selection(
 
     resolved_identity = model_identity(resolved_model_spec)
     if resolved_identity is not None:
-        provider_name = resolved_identity[0].config_name
+        provider_name = infer_initial_picker_provider(resolved_model_spec)
         return provider_name, resolved_model_spec
 
     return None, initial_model_spec

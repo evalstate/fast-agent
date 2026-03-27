@@ -169,3 +169,25 @@ def test_parse_special_input_intent_contract(
         assert actual.error == expected["error"]
         return
     assert actual == expected
+
+
+def test_parse_attach_uses_windows_aware_tokenization(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("fast_agent.utils.commandline.os.name", "nt")
+
+    actual = parse_special_input(r'/attach C:\tmp\foo.txt "C:\Program Files\bar.txt"')
+
+    assert actual == AttachCommand(
+        paths=(r"C:\tmp\foo.txt", r"C:\Program Files\bar.txt"),
+        clear=False,
+        error=None,
+    )
+
+
+def test_parse_hash_agent_command_ignores_leading_whitespace() -> None:
+    actual = parse_special_input("  ##review please check this")
+
+    assert actual == HashAgentCommand(
+        agent_name="review",
+        message="please check this",
+        quiet=True,
+    )

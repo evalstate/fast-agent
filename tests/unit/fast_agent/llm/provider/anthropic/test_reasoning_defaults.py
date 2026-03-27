@@ -5,7 +5,11 @@ from pydantic import BaseModel
 from fast_agent.config import AnthropicSettings, Settings
 from fast_agent.context import Context
 from fast_agent.llm.model_database import ModelDatabase
-from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
+from fast_agent.llm.provider.anthropic.llm_anthropic import (
+    FINE_GRAINED_TOOL_STREAMING_BETA,
+    STRUCTURED_OUTPUT_BETA,
+    AnthropicLLM,
+)
 from fast_agent.llm.reasoning_effort import is_auto_reasoning
 from fast_agent.llm.request_params import RequestParams
 
@@ -210,6 +214,17 @@ def test_json_structured_output_uses_output_config_format():
     assert "schema" in args["output_config"]["format"]
 
 
+def test_auto_structured_output_mode_prefers_json_when_direct_beta_supported():
+    llm = _make_llm("claude-opus-4-6", reasoning=False)
+
+    structured_mode = llm._resolve_structured_output_mode(
+        "claude-opus-4-6",
+        _StructuredResponse,
+    )
+
+    assert structured_mode == "json"
+
+
 def test_json_structured_output_merges_with_adaptive_effort():
     llm = _make_llm("claude-opus-4-6", reasoning="max")
 
@@ -228,3 +243,47 @@ def test_json_structured_output_merges_with_adaptive_effort():
     assert args["thinking"] == {"type": "adaptive"}
     assert args["output_config"]["effort"] == "max"
     assert args["output_config"]["format"]["type"] == "json_schema"
+
+
+def test_structured_output_json_adds_structured_output_beta() -> None:
+    llm = _make_llm("claude-opus-4-6")
+
+    beta_flags = llm._resolve_anthropic_beta_flags(
+        model="claude-opus-4-6",
+        structured_mode="json",
+        thinking_enabled=False,
+        request_tools=[],
+        web_tool_betas=[],
+    )
+
+    assert beta_flags == [STRUCTURED_OUTPUT_BETA]
+
+
+def test_structured_output_tool_use_does_not_add_structured_output_beta() -> None:
+    llm = _make_llm("claude-opus-4-6")
+
+    beta_flags = llm._resolve_anthropic_beta_flags(
+        model="claude-opus-4-6",
+        structured_mode="tool_use",
+        thinking_enabled=False,
+        request_tools=[],
+        web_tool_betas=[],
+    )
+
+    assert beta_flags == []
+
+
+def test_structured_output_modes_still_preserve_other_beta_flags() -> None:
+    llm = _make_llm("claude-opus-4-6")
+
+    beta_flags = llm._resolve_anthropic_beta_flags(
+        model="claude-opus-4-6",
+        structured_mode="json",
+        thinking_enabled=False,
+        request_tools=[{"name": "demo", "description": "", "input_schema": {"type": "object"}}],
+        web_tool_betas=["web-beta"],
+    )
+
+    assert FINE_GRAINED_TOOL_STREAMING_BETA in beta_flags
+    assert STRUCTURED_OUTPUT_BETA in beta_flags
+    assert "web-beta" in beta_flags

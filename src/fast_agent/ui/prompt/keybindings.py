@@ -27,12 +27,16 @@ class ShellPrefixLexer(Lexer):
     """Lexer that highlights shell (!) and comment (#) commands."""
 
     def lex_document(self, document):
+        first_line = document.lines[0] if document.lines else ""
+        first_stripped = first_line.lstrip()
+        first_line_is_shell = first_stripped.startswith("!")
+        first_line_is_hash_command = try_parse_hash_agent_command(first_stripped) is not None
+
         def get_line_tokens(line_number):
             line = document.lines[line_number]
-            stripped = line.lstrip()
-            if stripped.startswith("!"):
+            if line_number == 0 and first_line_is_shell:
                 return [("class:shell-command", line)]
-            if try_parse_hash_agent_command(stripped) is not None:
+            if line_number == 0 and first_line_is_hash_command:
                 return [("class:comment-command", line)]
             return [("", line)]
 

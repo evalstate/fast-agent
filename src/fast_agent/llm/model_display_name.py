@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from urllib.parse import parse_qs, urlsplit
+
+from fast_agent.llm.provider_types import Provider
 
 if TYPE_CHECKING:
     from fast_agent.llm.resolved_model import ResolvedModelSpec
@@ -12,6 +13,15 @@ def format_model_display_name(model: str | None, *, max_len: int | None = None) 
         return model
 
     trimmed = model.rstrip("/").partition("?")[0]
+    for provider in Provider:
+        dotted_prefix = f"{provider.config_name}."
+        slash_prefix = f"{provider.config_name}/"
+        if trimmed.startswith(dotted_prefix):
+            trimmed = trimmed[len(dotted_prefix) :]
+            break
+        if trimmed.startswith(slash_prefix):
+            trimmed = trimmed[len(slash_prefix) :]
+            break
     if "/" in trimmed:
         display = trimmed.split("/")[-1] or trimmed
     else:
@@ -41,10 +51,7 @@ def resolve_resolved_model_display_name(
             or resolved_model.wire_model_name
         )
 
-    if (
-        resolved_model.provider.value == "anthropic"
-        and resolved_model.model_config.via == "vertex"
-    ):
+    if resolved_model.provider == Provider.ANTHROPIC_VERTEX:
         display = f"{display} · Vertex"
 
     if max_len is not None and len(display) > max_len:
@@ -78,9 +85,10 @@ def resolve_model_display_name(
     if display is None:
         return None
     if model:
-        query = parse_qs(urlsplit(model).query)
-        via_values = query.get("via") or query.get("source") or []
-        if via_values and via_values[-1].strip().lower() == "vertex":
+        trimmed = model.partition("?")[0].strip()
+        if trimmed.startswith(f"{Provider.ANTHROPIC_VERTEX.config_name}.") or trimmed.startswith(
+            f"{Provider.ANTHROPIC_VERTEX.config_name}/"
+        ):
             display = f"{display} · Vertex"
     if max_len is not None and len(display) > max_len:
         return display[: max_len - 1] + "…"

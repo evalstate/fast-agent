@@ -31,6 +31,7 @@ PICKER_PROVIDER_ORDER: tuple[Provider, ...] = (
     Provider.OPENRESPONSES,
     Provider.CODEX_RESPONSES,
     Provider.ANTHROPIC,
+    Provider.ANTHROPIC_VERTEX,
     Provider.HUGGINGFACE,
     Provider.OPENAI,
     Provider.GENERIC,
@@ -113,6 +114,10 @@ class ModelPickerSnapshot:
 
 
 def _provider_is_active(provider: Provider, config_payload: dict[str, Any]) -> bool:
+    if provider == Provider.ANTHROPIC_VERTEX:
+        ready, _ = anthropic_vertex_ready(config_payload)
+        return ready
+
     config_key = ProviderKeyManager.get_config_file_key(provider.config_name, config_payload)
     if config_key:
         return True
@@ -149,11 +154,6 @@ def _provider_is_active(provider: Provider, config_payload: dict[str, Any]) -> b
         return True
 
     return False
-
-
-def _force_anthropic_vertex_route(model_spec: str) -> str:
-    return _update_query_param(model_spec, key="via", value="vertex")
-
 
 def _catalog_options_from_entries(
     entries: tuple[CatalogModelEntry, ...],
@@ -227,47 +227,10 @@ def model_options_for_option(
 
     provider = option.provider
     assert provider is not None
-    spec_transform = (
-        _force_anthropic_vertex_route
-        if option.option_key == ANTHROPIC_VERTEX_PROVIDER_KEY
-        else None
-    )
     return _catalog_options_from_entries(
         option.curated_entries,
         provider=provider,
         source=source,
-        spec_transform=spec_transform,
-    )
-
-
-def _anthropic_vertex_provider_option(
-    *,
-    entries: tuple[CatalogModelEntry, ...],
-    config_payload: dict[str, Any],
-) -> ProviderOption | None:
-    if not anthropic_vertex_intent(config_payload):
-        return None
-
-    vertex_ready, disabled_reason = anthropic_vertex_ready(config_payload)
-    rewritten_entries = tuple(
-        CatalogModelEntry(
-            alias=entry.alias,
-            model=_force_anthropic_vertex_route(entry.model),
-            current=entry.current,
-            fast=entry.fast,
-            local=entry.local,
-            display_label=entry.display_label,
-            description=entry.description,
-        )
-        for entry in entries
-    )
-    return ProviderOption(
-        provider=Provider.ANTHROPIC,
-        active=vertex_ready,
-        curated_entries=rewritten_entries,
-        key=ANTHROPIC_VERTEX_PROVIDER_KEY,
-        display_name="Anthropic (Vertex)",
-        disabled_reason=disabled_reason,
     )
 
 
@@ -320,6 +283,8 @@ def build_snapshot(
     )
 
     for provider in PICKER_PROVIDER_ORDER:
+        if provider == Provider.ANTHROPIC_VERTEX and not anthropic_vertex_intent(config_payload):
+            continue
         entries = tuple(
             entry
             for entry in ModelSelectionCatalog.list_entries(
@@ -338,15 +303,13 @@ def build_snapshot(
                 provider=provider,
                 active=provider in active_providers,
                 curated_entries=entries,
+                disabled_reason=(
+                    anthropic_vertex_ready(config_payload)[1]
+                    if provider == Provider.ANTHROPIC_VERTEX and provider not in active_providers
+                    else None
+                ),
             )
         )
-        if provider == Provider.ANTHROPIC:
-            vertex_option = _anthropic_vertex_provider_option(
-                entries=entries,
-                config_payload=config_payload,
-            )
-            if vertex_option is not None:
-                providers.append(vertex_option)
 
     return ModelPickerSnapshot(providers=tuple(providers), config_payload=config_payload)
 
@@ -460,6 +423,26 @@ def normalize_generic_model_spec(raw_model: str) -> str | None:
     return f"generic.{candidate}"
 
 
+def infer_initial_picker_provider(model_spec: str | None) -> str | None:
+    if model_spec is None:
+        return None
+
+    normalized = model_spec.strip()
+    if not normalized:
+        return None
+
+    try:
+        parsed = ModelFactory.parse_model_string(
+            normalized,
+            presets=ModelFactory.MODEL_PRESETS,
+        )
+    except Exception:
+        return None
+
+    config_name = parsed.provider.config_name.strip()
+    return config_name or None
+
+
 def provider_activation_action(
     snapshot: ModelPickerSnapshot,
     provider: Provider,
@@ -481,7 +464,13 @@ def model_identity(model_spec: str) -> tuple[Provider, str] | None:
 def _static_provider_models(provider: Provider) -> list[str]:
     models: list[str] = []
     for model in ModelDatabase.list_models():
-        if ModelDatabase.get_default_provider(model) != provider:
+        default_provider = ModelDatabase.get_default_provider(model)
+        if provider == Provider.ANTHROPIC_VERTEX:
+            if default_provider != Provider.ANTHROPIC:
+                continue
+            models.append(f"{provider.config_name}.{model}")
+            continue
+        if default_provider != provider:
             continue
         models.append(f"{provider.config_name}.{model}")
     return models

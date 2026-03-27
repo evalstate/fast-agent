@@ -14,7 +14,6 @@ from fast_agent.llm.internal.silent import SilentLLM
 from fast_agent.llm.internal.slow import SlowLLM
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_overlays import load_model_overlay_registry
-from fast_agent.llm.provider.anthropic.vertex_config import AnthropicRoute
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, parse_reasoning_setting
 from fast_agent.llm.resolved_model import ResolvedModelSpec, resolve_base_model_params
@@ -36,7 +35,6 @@ class ModelConfig(BaseModel):
 
     provider: Provider
     model_name: str
-    via: AnthropicRoute | None = None
     reasoning_effort: ReasoningEffortSetting | None = None
     text_verbosity: TextVerbosityLevel | None = None
     structured_output_mode: StructuredOutputMode | None = None
@@ -57,7 +55,6 @@ class ModelConfig(BaseModel):
 class ModelQueryOverrides:
     """Typed query overrides parsed from a model spec query string."""
 
-    via: AnthropicRoute | None = None
     reasoning_effort: ReasoningEffortSetting | None = None
     instant: bool | None = None
     text_verbosity: TextVerbosityLevel | None = None
@@ -77,7 +74,6 @@ class ModelQueryOverrides:
     def with_defaults(self, defaults: Self) -> "ModelQueryOverrides":
         """Return a copy with unset values filled from defaults."""
         return ModelQueryOverrides(
-            via=self.via if self.via is not None else defaults.via,
             reasoning_effort=(
                 self.reasoning_effort
                 if self.reasoning_effort is not None
@@ -132,7 +128,6 @@ class ParsedModelSpec:
         return ModelConfig(
             provider=self.provider,
             model_name=self.model_name,
-            via=self.query_overrides.via,
             reasoning_effort=self.reasoning_effort,
             text_verbosity=self.query_overrides.text_verbosity,
             structured_output_mode=self.query_overrides.structured_output_mode,
@@ -225,8 +220,37 @@ def _parse_query_overrides(
     query_params: Mapping[str, list[str]],
     model_spec: str,
 ) -> ModelQueryOverrides:
+    supported_keys = {
+        "reasoning",
+        "verbosity",
+        "structured",
+        "instant",
+        "context",
+        "transport",
+        "service_tier",
+        "web_search",
+        "web_fetch",
+        "temperature",
+        "temp",
+        "top_p",
+        "topP",
+        "top_k",
+        "topK",
+        "min_p",
+        "minP",
+        "presence_penalty",
+        "presencePenalty",
+        "repetition_penalty",
+        "repetitionPenalty",
+    }
+    unsupported_keys = sorted(set(query_params) - supported_keys)
+    if unsupported_keys:
+        joined = ", ".join(f"'{key}'" for key in unsupported_keys)
+        raise ModelConfigError(
+            f"Unsupported model query parameter(s) {joined} in '{model_spec}'"
+        )
+
     reasoning_effort: ReasoningEffortSetting | None = None
-    via: AnthropicRoute | None = None
     text_verbosity: TextVerbosityLevel | None = None
     structured_output_mode: StructuredOutputMode | None = None
     instant: bool | None = None
@@ -244,13 +268,6 @@ def _parse_query_overrides(
                 f"Invalid reasoning query value: '{raw_value}' in '{model_spec}'"
             )
         reasoning_effort = parsed_reasoning
-
-    route_values = _collect_query_values(query_params, ("via", "source"))
-    if route_values:
-        raw_value = route_values[-1].strip().lower()
-        if raw_value not in {"direct", "vertex"}:
-            raise ModelConfigError(f"Invalid via query value: '{raw_value}' in '{model_spec}'")
-        via = "vertex" if raw_value == "vertex" else "direct"
 
     if "verbosity" in query_params:
         raw_value = _collect_query_values(query_params, ("verbosity",))[-1]
@@ -318,7 +335,6 @@ def _parse_query_overrides(
         web_fetch = _parse_on_off_query(raw_value, "web_fetch", model_spec)
 
     return ModelQueryOverrides(
-        via=via,
         reasoning_effort=reasoning_effort,
         instant=instant,
         text_verbosity=text_verbosity,
@@ -692,11 +708,6 @@ class ModelFactory:
 
         _validate_transport_constraints(provider, model_name, merged_overrides.transport)
         _validate_service_tier_constraints(provider, model_name, merged_overrides.service_tier)
-        if merged_overrides.via is not None and provider != Provider.ANTHROPIC:
-            raise ModelConfigError(
-                f"Query parameter 'via' is only supported for Anthropic models, got '{expanded_model_spec}'."
-            )
-
         return ParsedModelSpec(
             raw_input=raw_input,
             expanded_input=expanded_model_spec,
@@ -758,6 +769,10 @@ class ModelFactory:
                 provider=parsed.provider,
                 model_name=parsed.model_name,
             )
+        wire_model_name = ModelDatabase.resolve_wire_model_name(
+            provider=parsed.provider,
+            model_name=parsed.model_name,
+        )
 
         return ResolvedModelSpec(
             raw_input=model_string,
@@ -765,7 +780,7 @@ class ModelFactory:
             source=source,
             model_config=model_config,
             provider=model_config.provider,
-            wire_model_name=model_config.model_name,
+            wire_model_name=wire_model_name,
             overlay=selected_overlay,
             model_params=model_params,
         )
@@ -832,6 +847,12 @@ class ModelFactory:
                 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
 
                 return AnthropicLLM
+            if provider == Provider.ANTHROPIC_VERTEX:
+                from fast_agent.llm.provider.anthropic.llm_anthropic_vertex import (
+                    AnthropicVertexLLM,
+                )
+
+                return AnthropicVertexLLM
             if provider == Provider.OPENAI:
                 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 

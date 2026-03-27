@@ -206,6 +206,25 @@ class TestOpenAIUserConverter(unittest.TestCase):
         self.assertIn("text/plain", text_part(openai_msg))
         self.assertIn("test://example.com/document.txt", text_part(openai_msg))
 
+    def test_image_resource_link_conversion(self):
+        """Test conversion of image ResourceLink to OpenAI image_url content."""
+        resource_link = ResourceLink(
+            uri=AnyUrl("https://example.com/image.jpg"),
+            type="resource_link",
+            mimeType="image/jpeg",
+            name="image.jpg",
+        )
+        multipart = PromptMessageExtended(role="user", content=[resource_link])
+
+        openai_msgs = OpenAIConverter.convert_to_openai(multipart)
+        self.assertEqual(len(openai_msgs), 1)
+        openai_msg = openai_msgs[0]
+
+        self.assertEqual(openai_msg["role"], "user")
+        self.assertEqual(len(content_parts(openai_msg)), 1)
+        self.assertEqual(content_parts(openai_msg)[0]["type"], "image_url")
+        self.assertEqual(image_url_part(openai_msg)["url"], "https://example.com/image.jpg")
+
     def test_multiple_content_blocks(self):
         """Test conversion of messages with multiple content blocks."""
         # Create multiple content blocks

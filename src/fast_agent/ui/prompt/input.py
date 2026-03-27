@@ -710,7 +710,7 @@ def _show_input_help_banner(
     rich_print(
         """[dim]Use '/' for commands, '!' for shell. '#' to query, '@' to switch agents\n"""
         """CTRL+T multiline, CTRL+Y copy last message, CTRL+E external editor.\n"""
-        """CTRL+Space or Tab for path completion. Use /attach, `^file:`, or F10 for attachments.[/dim]"""
+        """CTRL+Space or Tab for path completion. Use /attach, `^file:`, or `^url:` for attachments. F10 to clear.[/dim]"""
     )
 
 

@@ -295,6 +295,41 @@ async def test_show_assistant_message_places_websocket_indicator_before_context_
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_show_assistant_message_uses_compact_context_format_for_low_usage() -> None:
+    agent = LlmAgent(AgentConfig("websocket-indicator-low-context"))
+    capture_display = _CaptureDisplay()
+    agent.display = capture_display
+    llm = ResponsesLLM(provider=Provider.RESPONSES, model="gpt-5.3-codex")
+    llm._record_ws_turn_outcome("reused")
+    llm.usage_accumulator.set_context_window_size(1000)
+    llm.usage_accumulator.add_turn(
+        TurnUsage.from_fast_agent(
+            FastAgentUsage(input_chars=9, output_chars=1, model_type="test"),
+            model="gpt-5.3-codex",
+        )
+    )
+    agent._llm = llm
+
+    tool_call = CallToolRequest(
+        method="tools/call",
+        params=CallToolRequestParams(name="demo-tool", arguments={}),
+    )
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="need tool")],
+        tool_calls={"call_1": tool_call},
+        stop_reason=LlmStopReason.TOOL_USE,
+    )
+
+    await agent.show_assistant_message(message)
+
+    assert len(capture_display.calls) == 1
+    call = capture_display.calls[0]
+    assert call.get("model") == "gpt-5.3-codex ↔ (1.00%)"
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_generate_impl_hides_summary_for_tool_use_turn() -> None:
     summary = RemovedContentSummary(
         model_name="gpt-test",

@@ -38,6 +38,7 @@ from fast_agent.ui.citation_display import (
     web_tool_badges,
 )
 from fast_agent.ui.console_display import ConsoleDisplay
+from fast_agent.ui.context_usage_display import format_compact_context_usage_percent
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 from fast_agent.ui.message_display_helpers import (
     build_tool_use_additional_message,
@@ -370,8 +371,9 @@ class LlmAgent(LlmDecorator):
             context_percentage = (
                 usage_accumulator.context_usage_percentage if usage_accumulator else None
             )
-            if context_percentage is not None:
-                display_model = f"{display_model} ({context_percentage:.1f}%)"
+            context_label = format_compact_context_usage_percent(context_percentage)
+            if context_label is not None:
+                display_model = f"{display_model} ({context_label})"
 
         return display_model
 

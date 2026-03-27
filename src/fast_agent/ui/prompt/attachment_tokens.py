@@ -1,4 +1,4 @@
-"""Helpers for inline local attachment tokens."""
+"""Helpers for inline attachment tokens."""
 
 from __future__ import annotations
 
@@ -9,8 +9,9 @@ from urllib.parse import quote, unquote, urlparse
 from urllib.request import url2pathname
 
 FILE_MENTION_SERVER = "file"
-_LOCAL_ATTACHMENT_TOKEN_RE = re.compile(r"(?P<prefix>^|\s)(?P<token>\^file:[^\s]+)")
-_LOCAL_ATTACHMENT_BODY_RE = r"\^file:[^\s]+"
+URL_MENTION_SERVER = "url"
+_ATTACHMENT_TOKEN_RE = re.compile(r"(?P<prefix>^|\s)(?P<token>\^(?:file|url):[^\s]+)")
+_ATTACHMENT_BODY_RE = r"\^(?:file|url):[^\s]+"
 
 
 def normalize_local_attachment_reference(
@@ -45,6 +46,21 @@ def normalize_local_attachment_reference(
     return resolved_path.resolve(strict=False)
 
 
+def normalize_remote_attachment_reference(reference: str) -> str:
+    """Normalize an HTTP(S) attachment reference into a remote URL."""
+    raw_value = reference.strip()
+    if not raw_value:
+        raise ValueError("Attachment URL is empty")
+
+    parsed = urlparse(raw_value)
+    scheme = parsed.scheme.lower()
+    if scheme not in ("http", "https"):
+        raise ValueError(f"Unsupported attachment URI scheme: {parsed.scheme or '<missing>'}")
+    if not parsed.netloc:
+        raise ValueError("Attachment URL is missing host")
+    return raw_value
+
+
 def encode_local_attachment_reference(path_text: str) -> str:
     """Percent-encode a token path while keeping it compact and path-like."""
     normalized = path_text.replace("\\", "/")
@@ -59,32 +75,38 @@ def build_local_attachment_token(path: str | Path) -> str:
     return f"^{FILE_MENTION_SERVER}:{encode_local_attachment_reference(normalized.as_posix())}"
 
 
+def build_remote_attachment_token(url: str) -> str:
+    """Build a canonical ``^url:...`` token for a remote URL."""
+    normalized = normalize_remote_attachment_reference(url)
+    return f"^{URL_MENTION_SERVER}:{quote(normalized, safe='/._~-:?&=#%')}"
+
+
 def strip_local_attachment_tokens(text: str) -> str:
-    """Remove inline local attachment tokens while preserving other text."""
+    """Remove inline attachment tokens while preserving other text."""
     stripped = re.sub(
-        rf"(^|\n)[ \t]*{_LOCAL_ATTACHMENT_BODY_RE}[ \t]*(?:\n|$)",
+        rf"(^|\n)[ \t]*{_ATTACHMENT_BODY_RE}[ \t]*(?:\n|$)",
         lambda match: match.group(1),
         text,
         flags=re.MULTILINE,
     )
     stripped = re.sub(
-        rf"(?P<lead>[ \t]){_LOCAL_ATTACHMENT_BODY_RE}(?P<trail>[ \t])",
+        rf"(?P<lead>[ \t]){_ATTACHMENT_BODY_RE}(?P<trail>[ \t])",
         r"\g<lead>",
         stripped,
     )
     stripped = re.sub(
-        rf"(?P<lead>[ \t]+){_LOCAL_ATTACHMENT_BODY_RE}(?=$|\n)",
+        rf"(?P<lead>[ \t]+){_ATTACHMENT_BODY_RE}(?=$|\n)",
         "",
         stripped,
     )
     stripped = re.sub(
-        rf"(?:(?<=^)|(?<=\s)){_LOCAL_ATTACHMENT_BODY_RE}(?P<trail>[ \t]+)",
+        rf"(?:(?<=^)|(?<=\s)){_ATTACHMENT_BODY_RE}(?P<trail>[ \t]+)",
         "",
         stripped,
         flags=re.MULTILINE,
     )
     stripped = re.sub(
-        rf"(?:(?<=^)|(?<=\s)){_LOCAL_ATTACHMENT_BODY_RE}",
+        rf"(?:(?<=^)|(?<=\s)){_ATTACHMENT_BODY_RE}",
         "",
         stripped,
         flags=re.MULTILINE,

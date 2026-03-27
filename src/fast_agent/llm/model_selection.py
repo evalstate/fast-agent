@@ -78,6 +78,15 @@ class ModelSelectionCatalog:
             CatalogModelEntry(alias="haiku", model="claude-haiku-4-5", fast=True),
             CatalogModelEntry(alias="opus", model="claude-opus-4-6"),
         ),
+        Provider.ANTHROPIC_VERTEX: (
+            CatalogModelEntry(alias="sonnet", model="anthropic-vertex.claude-sonnet-4-6"),
+            CatalogModelEntry(
+                alias="haiku",
+                model="anthropic-vertex.claude-haiku-4-5",
+                fast=True,
+            ),
+            CatalogModelEntry(alias="opus", model="anthropic-vertex.claude-opus-4-6"),
+        ),
         Provider.GOOGLE: (
             CatalogModelEntry(
                 alias="gemini3-flash",
@@ -593,6 +602,14 @@ class ModelSelectionCatalog:
         ):
             provider_name = provider.config_name
 
+            if provider == Provider.ANTHROPIC_VERTEX:
+                from fast_agent.llm.provider.anthropic.vertex_config import anthropic_vertex_ready
+
+                ready, _ = anthropic_vertex_ready(config_payload)
+                if ready:
+                    providers.append(provider)
+                continue
+
             # Google Vertex can run without an API key.
             if provider == Provider.GOOGLE and cls._google_vertex_enabled(config_payload):
                 providers.append(provider)
@@ -647,6 +664,13 @@ class ModelSelectionCatalog:
             ).entries_for_provider(provider)
         ]
         models = ModelDatabase.list_models()
+        if provider == Provider.ANTHROPIC_VERTEX:
+            static_models = [
+                f"{provider.config_name}.{model}"
+                for model in models
+                if ModelDatabase.get_default_provider(model) == Provider.ANTHROPIC
+            ]
+            return ModelSelectionCatalog._dedupe_preserve_order([*overlay_models, *static_models])
         static_models = [
             model for model in models if ModelDatabase.get_default_provider(model) == provider
         ]

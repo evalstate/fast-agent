@@ -65,6 +65,7 @@ from fast_agent.ui.command_payloads import (
     TitleSessionCommand,
     UnknownCommand,
 )
+from fast_agent.utils.commandline import split_commandline
 from fast_agent.utils.slash_commands import split_subcommand_and_remainder
 
 
@@ -165,7 +166,7 @@ def _parse_attach_command(remainder: str) -> AttachCommand:
         return AttachCommand(paths=())
 
     try:
-        tokens = shlex.split(remainder)
+        tokens = split_commandline(remainder)
     except ValueError as exc:
         return AttachCommand(paths=(), error=str(exc))
 
@@ -631,7 +632,7 @@ def parse_special_input(text: str) -> str | CommandPayload:
     if cmd_line and cmd_line.startswith("@"):
         return SwitchAgentCommand(agent_name=cmd_line[1:].strip())
 
-    parsed_hash_command = try_parse_hash_agent_command(text)
+    parsed_hash_command = try_parse_hash_agent_command(cmd_line.lstrip())
     if parsed_hash_command is not None:
         return parsed_hash_command
 

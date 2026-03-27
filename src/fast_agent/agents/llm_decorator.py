@@ -65,7 +65,6 @@ from fast_agent.interfaces import (
     StreamingAgentProtocol,
     ToolRunnerHookCapable,
 )
-from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.usage_tracking import UsageAccumulator
@@ -958,7 +957,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
         for block in blocks or []:
             mime_type, category = self._extract_block_metadata(block)
-            if self._block_supported(mime_type, category):
+            if self._block_supported(block, mime_type, category):
                 kept.append(block)
             else:
                 removed_block = _RemovedBlock(
@@ -985,25 +984,30 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
         return kept
 
-    def _block_supported(self, mime_type: str | None, category: str) -> bool:
+    def _block_supported(
+        self,
+        block: ContentBlock,
+        mime_type: str | None,
+        category: str,
+    ) -> bool:
         """Determine if the current model can process a content block."""
         if category == "text":
             return True
 
-        model_name = self.llm.model_name if self.llm else None
-        if not model_name:
+        model_info = self.llm.model_info if self.llm else None
+        if not model_info:
             return False
 
+        resource_source = "link" if isinstance(block, ResourceLink) else "embedded"
+
         if mime_type:
-            return ModelDatabase.supports_mime(model_name, mime_type)
+            return model_info.supports_mime(mime_type, resource_source=resource_source)
 
         if category == "vision":
-            return ModelDatabase.supports_any_mime(
-                model_name, ["image/jpeg", "image/png", "image/webp"]
-            )
+            return model_info.supports_vision
 
         if category == "document":
-            return ModelDatabase.supports_mime(model_name, "application/pdf")
+            return model_info.supports_document
 
         return False
 

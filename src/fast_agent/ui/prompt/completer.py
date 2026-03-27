@@ -24,6 +24,7 @@ from fast_agent.llm.reasoning_effort import available_reasoning_values
 from fast_agent.llm.text_verbosity import available_text_verbosity_values
 from fast_agent.ui.prompt.attachment_tokens import (
     FILE_MENTION_SERVER,
+    URL_MENTION_SERVER,
     encode_local_attachment_reference,
 )
 from fast_agent.ui.prompt.resource_mentions import template_argument_names
@@ -95,7 +96,7 @@ class AgentCompleter(Completer):
                 "(/cards, /cards add, /cards remove, /cards update, /cards publish, /cards registry)"
             ),
             "prompt": "Load a Prompt File or use MCP Prompt",
-            "attach": "Stage local file attachment token(s) for the next prompt",
+            "attach": "Stage file path or remote URL attachment token(s) for the next prompt",
             "system": "Show the current system prompt",
             "usage": "Show current usage statistics",
             "markdown": "Show last assistant message without markdown formatting",
@@ -1316,14 +1317,24 @@ class AgentCompleter(Completer):
                 return list(cached)
 
             server_names = self._run_async_completion(self._list_connected_resource_servers()) or []
-            server_names = list(dict.fromkeys([*server_names, FILE_MENTION_SERVER]))
+            server_names = list(
+                dict.fromkeys([*server_names, FILE_MENTION_SERVER, URL_MENTION_SERVER])
+            )
             partial = context.partial.lower()
             completions = [
                 Completion(
                     f"{server_name}:",
                     start_position=-len(context.partial),
                     display=server_name,
-                    display_meta="connected mcp server (resources)",
+                    display_meta=(
+                        "local file attachment"
+                        if server_name == FILE_MENTION_SERVER
+                        else (
+                            "remote URL attachment"
+                            if server_name == URL_MENTION_SERVER
+                            else "connected mcp server (resources)"
+                        )
+                    ),
                 )
                 for server_name in server_names
                 if not partial or server_name.lower().startswith(partial)
@@ -1337,6 +1348,18 @@ class AgentCompleter(Completer):
         if context.kind == "resource":
             if context.server_name == FILE_MENTION_SERVER:
                 return self._complete_local_attachment_paths(context.partial)
+            if context.server_name == URL_MENTION_SERVER:
+                prefix = context.partial.lower()
+                return [
+                    Completion(
+                        scheme,
+                        start_position=-len(context.partial),
+                        display=scheme,
+                        display_meta="remote URL attachment",
+                    )
+                    for scheme in ("https://", "http://")
+                    if not prefix or scheme.startswith(prefix)
+                ]
 
             cache_key = (
                 "resource",

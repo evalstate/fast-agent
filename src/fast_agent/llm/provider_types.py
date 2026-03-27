@@ -22,6 +22,7 @@ class Provider(Enum):
         return self._value_
 
     ANTHROPIC = ("anthropic", "Anthropic")
+    ANTHROPIC_VERTEX = ("anthropic-vertex", "Anthropic (Vertex)")
     DEEPSEEK = ("deepseek", "Deepseek")
     FAST_AGENT = ("fast-agent", "fast-agent-internal")
     GENERIC = ("generic", "Generic")

@@ -195,9 +195,16 @@ class OpenAIConverter:
                         content_blocks.append(block)
 
                 elif is_resource_link(item):
-                    text = get_text(item)
-                    if text:
-                        content_blocks.append({"type": "text", "text": text})
+                    uri = getattr(item, "uri", None)
+                    mime_type = getattr(item, "mimeType", None)
+                    if uri and mime_type and OpenAIConverter._is_supported_image_type(mime_type):
+                        content_blocks.append(
+                            {"type": "image_url", "image_url": {"url": str(uri)}}
+                        )
+                    else:
+                        text = get_text(item)
+                        if text:
+                            content_blocks.append({"type": "text", "text": text})
 
                 else:
                     _logger.warning(f"Unsupported content type: {type(item)}")

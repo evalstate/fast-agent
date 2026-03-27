@@ -1,4 +1,6 @@
 import asyncio
+import base64
+import hashlib
 import inspect
 import json
 import os
@@ -11,17 +13,18 @@ from typing import Any, Mapping, Sequence, Type, Union, cast
 from anthropic import (
     APIError,
     AsyncAnthropic,
-    AsyncAnthropicVertex,
     AuthenticationError,
     transform_schema,
 )
 from anthropic.lib.streaming import BetaAsyncMessageStream
 from mcp import Tool
 from mcp.types import (
+    BlobResourceContents,
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
     ContentBlock,
+    EmbeddedResource,
     TextContent,
 )
 from opentelemetry import trace
@@ -71,15 +74,8 @@ from fast_agent.llm.provider.anthropic.beta_types import (
 )
 from fast_agent.llm.provider.anthropic.cache_planner import AnthropicCachePlanner
 from fast_agent.llm.provider.anthropic.multipart_converter_anthropic import (
+    ANTHROPIC_FILE_ID_META_KEY,
     AnthropicConverter,
-)
-from fast_agent.llm.provider.anthropic.vertex_config import (
-    AnthropicRoute,
-    anthropic_vertex_config,
-    detect_google_adc,
-    resolve_anthropic_route,
-    resolve_anthropic_vertex_location,
-    resolve_anthropic_vertex_project_id,
 )
 from fast_agent.llm.provider.anthropic.web_tools import (
     build_web_tool_params,
@@ -102,6 +98,7 @@ from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.structured_output_mode import StructuredOutputMode
 from fast_agent.llm.tool_tracking import ToolCallTracker
 from fast_agent.llm.usage_tracking import TurnUsage
+from fast_agent.mcp.mime_utils import DOCUMENT_MIME_TYPES, guess_mime_type, normalize_mime_type
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.utils.type_narrowing import is_str_object_dict
@@ -368,17 +365,11 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
     def __init__(self, **kwargs) -> None:
         # Initialize logger - keep it simple without name reference
         kwargs.pop("provider", None)
-        route_override = kwargs.pop("via", None)
         structured_override = kwargs.pop("structured_output_mode", None)
         long_context_requested = kwargs.pop("long_context", False)
         web_search_override = kwargs.pop("web_search", None)
         web_fetch_override = kwargs.pop("web_fetch", None)
-        super().__init__(provider=Provider.ANTHROPIC, **kwargs)
-        self._route_override: AnthropicRoute | None = (
-            cast("AnthropicRoute | None", route_override)
-            if route_override in {"direct", "vertex"}
-            else None
-        )
+        super().__init__(provider=self.provider_identity(), **kwargs)
         self._structured_output_mode_override: StructuredOutputMode | None = structured_override
         self._web_search_override: bool | None = (
             bool(web_search_override) if isinstance(web_search_override, bool) else None
@@ -386,6 +377,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         self._web_fetch_override: bool | None = (
             bool(web_fetch_override) if isinstance(web_fetch_override, bool) else None
         )
+        self._file_id_cache: dict[str, str] = {}
 
         raw_setting = kwargs.get("reasoning_effort", None)
         reasoning_source: str | None = None
@@ -498,6 +490,10 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         """Initialize Anthropic-specific default parameters"""
         return self._initialize_default_params_with_model_fallback(kwargs, DEFAULT_ANTHROPIC_MODEL)
 
+    @classmethod
+    def provider_identity(cls) -> Provider:
+        return Provider.ANTHROPIC
+
     def _list_supported_long_context_models(self) -> list[str]:
         """Return models that support explicit long-context overrides."""
         from fast_agent.llm.model_database import ModelDatabase
@@ -506,8 +502,6 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     def _provider_base_url(self) -> str | None:
         assert self.context.config
-        if self._anthropic_route() == "vertex":
-            return self._vertex_cfg().base_url
         return self.context.config.anthropic.base_url if self.context.config.anthropic else None
 
     def _provider_default_headers(self) -> dict[str, str] | None:
@@ -523,64 +517,11 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         return ProviderKeyManager.get_api_key(
             self.provider.config_name,
             self.context.config,
-            route_hint=self._anthropic_route(),
         )
 
-    def _vertex_cfg(self):
-        return anthropic_vertex_config(getattr(self.context, "config", None))
-
-    def _anthropic_route(self) -> AnthropicRoute:
-        explicit_route = self._route_override
-        if explicit_route is None:
-            resolved = self._resolved_model_spec
-            if resolved is not None:
-                explicit_route = resolved.model_config.via
-        return resolve_anthropic_route(
-            getattr(self.context, "config", None),
-            explicit_route=explicit_route,
-        )
-
-    def _vertex_project_id(self) -> str:
-        project_id = resolve_anthropic_vertex_project_id(getattr(self.context, "config", None))
-        if project_id is None:
-            raise ProviderKeyError(
-                "Google Cloud project not configured",
-                "Set anthropic.vertex_ai.project_id or configure "
-                "GOOGLE_CLOUD_PROJECT before using Anthropic via Vertex.",
-            )
-        return project_id
-
-    def _vertex_location(self) -> str:
-        location = resolve_anthropic_vertex_location(getattr(self.context, "config", None))
-        if location is None:
-            raise ProviderKeyError(
-                "Google Cloud location not configured",
-                "Set anthropic.vertex_ai.location before using Anthropic via Vertex.",
-            )
-        return location
-
-    def _vertex_credentials(self) -> object:
-        adc_status = detect_google_adc()
-        if not adc_status.available or adc_status.credentials is None:
-            raise ProviderKeyError(
-                "Google ADC not found",
-                "Anthropic via Vertex uses Google Application Default Credentials.\n"
-                "Run `gcloud auth application-default login` or configure a service account.",
-            )
-        return adc_status.credentials
-
-    def _initialize_anthropic_client(self) -> AsyncAnthropic | AsyncAnthropicVertex:
+    def _initialize_anthropic_client(self) -> Any:
         base_url = self._base_url()
         default_headers = self._default_headers()
-
-        if self._anthropic_route() == "vertex":
-            return AsyncAnthropicVertex(
-                project_id=self._vertex_project_id(),
-                region=self._vertex_location(),
-                credentials=cast("Any", self._vertex_credentials()),
-                base_url=base_url,
-                default_headers=default_headers,
-            )
 
         api_key = self._api_key()
         if base_url and base_url.endswith("/v1"):
@@ -591,12 +532,110 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             default_headers=default_headers,
         )
 
+    def supports_files_api(self) -> bool:
+        return True
+
+    def supports_document_uploads(self) -> bool:
+        return self.supports_files_api()
+
+    def supports_web_tools(self) -> bool:
+        return True
+
+    def supports_direct_anthropic_beta(self, feature: str) -> bool:
+        del feature
+        return True
+
     def _get_cache_mode(self) -> str:
         """Get the cache mode configuration."""
         cache_mode = "auto"  # Default to auto
         if self.context.config and self.context.config.anthropic:
             cache_mode = self.context.config.anthropic.cache_mode
         return cache_mode
+
+    @staticmethod
+    def _anthropic_file_cache_key(data: bytes, filename: str, mime_type: str) -> str:
+        digest = hashlib.sha256(data).hexdigest()
+        return f"{mime_type}:{filename}:{digest}"
+
+    async def _upload_anthropic_file_bytes(
+        self,
+        anthropic: Any,
+        *,
+        data: bytes,
+        filename: str,
+        mime_type: str,
+    ) -> str | None:
+        files_api = getattr(getattr(anthropic, "beta", None), "files", None)
+        upload = getattr(files_api, "upload", None)
+        if not callable(upload):
+            return None
+
+        cache_key = self._anthropic_file_cache_key(data, filename, mime_type)
+        cached = self._file_id_cache.get(cache_key)
+        if cached:
+            return cached
+
+        file_metadata = await upload(file=(filename, data, mime_type))
+        file_id = getattr(file_metadata, "id", None)
+        if not isinstance(file_id, str) or not file_id:
+            return None
+
+        self._file_id_cache[cache_key] = file_id
+        return file_id
+
+    async def _prepare_anthropic_file_resources(
+        self,
+        anthropic: Any,
+        messages: Sequence[PromptMessageExtended],
+    ) -> None:
+        if not self.supports_document_uploads():
+            return
+
+        from fast_agent.mcp.resource_utils import extract_title_from_uri
+
+        for message in messages:
+            for content in message.content:
+                if not isinstance(content, EmbeddedResource):
+                    continue
+
+                resource = content.resource
+                if not isinstance(resource, BlobResourceContents):
+                    continue
+
+                mime_type = normalize_mime_type(resource.mimeType)
+                if not mime_type and getattr(resource, "uri", None):
+                    mime_type = guess_mime_type(str(resource.uri))
+                if mime_type not in DOCUMENT_MIME_TYPES or mime_type == "application/pdf":
+                    continue
+
+                meta = dict(getattr(resource, "meta", None) or {})
+                existing = meta.get(ANTHROPIC_FILE_ID_META_KEY)
+                if isinstance(existing, str) and existing:
+                    continue
+
+                try:
+                    data = base64.b64decode(resource.blob)
+                except Exception:
+                    logger.warning(
+                        "Unable to decode Anthropic document upload bytes",
+                        data={"mime_type": mime_type, "uri": str(getattr(resource, "uri", ""))},
+                    )
+                    continue
+
+                filename = (
+                    extract_title_from_uri(resource.uri) if getattr(resource, "uri", None) else None
+                ) or "document"
+                file_id = await self._upload_anthropic_file_bytes(
+                    anthropic,
+                    data=data,
+                    filename=filename,
+                    mime_type=mime_type,
+                )
+                if not file_id:
+                    continue
+
+                meta[ANTHROPIC_FILE_ID_META_KEY] = file_id
+                resource.meta = meta
 
     def _get_cache_ttl(self) -> str:
         """Get the cache TTL configuration ('5m' or '1h')."""
@@ -708,7 +747,9 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
         json_mode = self._get_model_json_mode(model)
         if json_mode == "schema":
-            return "json"
+            if self.supports_direct_anthropic_beta("structured_output"):
+                return "json"
+            return "tool_use"
         return "tool_use"
 
     def _build_output_format(self, structured_model: Type[ModelT]) -> dict[str, Any]:
@@ -748,6 +789,9 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         ]
 
     def _prepare_web_tools(self, model: str) -> tuple[list[ToolParam], tuple[str, ...]]:
+        if not self.supports_web_tools():
+            return [], ()
+
         anthropic_settings = self.context.config.anthropic if self.context.config else None
         resolved = resolve_web_tools(
             anthropic_settings,
@@ -764,6 +808,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
     @property
     def web_tools_enabled(self) -> tuple[bool, bool]:
         """Return (search_enabled, fetch_enabled) for toolbar display."""
+        if not self.supports_web_tools():
+            return False, False
         anthropic_settings = self.context.config.anthropic if self.context.config else None
         resolved = resolve_web_tools(
             anthropic_settings,
@@ -774,6 +820,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     @property
     def web_search_supported(self) -> bool:
+        if not self.supports_web_tools():
+            return False
         model_name = self.model_name
         if not model_name:
             return False
@@ -789,6 +837,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     @property
     def web_fetch_supported(self) -> bool:
+        if not self.supports_web_tools():
+            return False
         model_name = self.model_name
         if not model_name:
             return False
@@ -1372,15 +1422,21 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
     ) -> list[str]:
         beta_flags: list[str] = []
         adaptive_thinking = self._supports_adaptive_thinking(model)
-        if structured_mode:
+        if structured_mode == "json" and self.supports_direct_anthropic_beta("structured_output"):
             beta_flags.append(STRUCTURED_OUTPUT_BETA)
-        if thinking_enabled and request_tools and not adaptive_thinking:
+        if (
+            thinking_enabled
+            and request_tools
+            and not adaptive_thinking
+            and self.supports_direct_anthropic_beta("interleaved_thinking")
+        ):
             beta_flags.append(INTERLEAVED_THINKING_BETA)
-        if self._long_context:
+        if self._long_context and self.supports_direct_anthropic_beta("long_context"):
             beta_flags.append(LONG_CONTEXT_BETA)
-        if request_tools:
+        if request_tools and self.supports_direct_anthropic_beta("fine_grained_tool_streaming"):
             beta_flags.append(FINE_GRAINED_TOOL_STREAMING_BETA)
-        beta_flags.extend(web_tool_betas)
+        if self.supports_direct_anthropic_beta("web_tools"):
+            beta_flags.extend(web_tool_betas)
         return dedupe_preserve_order(beta_flags)
 
     def _apply_anthropic_cache_plan(
@@ -1416,7 +1472,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
     async def _execute_anthropic_stream(
         self,
         *,
-        anthropic: AsyncAnthropic | AsyncAnthropicVertex,
+        anthropic: Any,
         arguments: dict[str, Any],
         model: str,
         capture_filename: Path | None,
@@ -1665,6 +1721,15 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         try:
             anthropic = self._initialize_anthropic_client()
             params = self.get_request_params(request_params)
+            messages_to_prepare: list[PromptMessageExtended] = []
+            if history:
+                messages_to_prepare.extend(history)
+            if current_extended is not None:
+                messages_to_prepare.append(current_extended)
+            if messages_to_prepare:
+                await self._prepare_anthropic_file_resources(anthropic, messages_to_prepare)
+            if current_extended is not None:
+                message_param = AnthropicConverter.convert_to_anthropic(current_extended)
             messages = self._build_request_messages(
                 params, message_param, pre_messages, history=history
             )
@@ -1754,7 +1819,9 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         ):
             try:
                 turn_usage = TurnUsage.from_anthropic(
-                    response.usage, model or DEFAULT_ANTHROPIC_MODEL
+                    response.usage,
+                    model or DEFAULT_ANTHROPIC_MODEL,
+                    provider=self.provider,
                 )
                 self._finalize_turn_usage(turn_usage)
             except Exception as e:

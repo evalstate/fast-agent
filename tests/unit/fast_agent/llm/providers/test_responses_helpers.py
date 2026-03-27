@@ -5,10 +5,19 @@ from types import SimpleNamespace
 from typing import Any, Literal
 
 import pytest
-from mcp.types import CallToolRequest, CallToolRequestParams, ImageContent, TextContent
+from mcp.types import (
+    BlobResourceContents,
+    CallToolRequest,
+    CallToolRequestParams,
+    EmbeddedResource,
+    ImageContent,
+    ResourceLink,
+    TextContent,
+    TextResourceContents,
+)
 from openai import AsyncOpenAI
 from openai.types.responses import ResponseFunctionToolCall
-from pydantic import ValidationError
+from pydantic import AnyUrl, ValidationError
 
 from fast_agent.config import (
     CodexResponsesSettings,
@@ -628,6 +637,73 @@ def test_convert_content_parts_text_and_image():
     assert parts[0] == {"type": "input_text", "text": "Hello"}
     assert parts[1]["type"] == "input_image"
     assert parts[1]["image_url"].startswith("data:image/png;base64,")
+
+
+def test_convert_content_parts_embedded_text_resource_inlines_as_input_text():
+    harness = _ContentHarness()
+    resource = EmbeddedResource(
+        type="resource",
+        resource=TextResourceContents(
+            uri=AnyUrl("file:///tmp/example.py"),
+            mimeType="text/x-python",
+            text="print('hello')",
+        ),
+    )
+
+    parts = harness._convert_content_parts([resource], role="user")
+
+    assert parts == [
+        {
+            "type": "input_text",
+            "text": (
+                '<fastagent:file title="example.py" mimetype="text/x-python">\n'
+                "print('hello')\n"
+                "</fastagent:file>"
+            ),
+        }
+    ]
+
+
+def test_convert_content_parts_office_resource_stays_as_input_file():
+    harness = _ContentHarness()
+    docx_data = base64.b64encode(b"PK\x03\x04docx-bytes").decode("ascii")
+    resource = EmbeddedResource(
+        type="resource",
+        resource=BlobResourceContents(
+            uri=AnyUrl("file:///tmp/example.docx"),
+            mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            blob=docx_data,
+        ),
+    )
+
+    parts = harness._convert_content_parts([resource], role="user")
+
+    assert parts == [
+        {
+            "type": "input_file",
+            "file_data": docx_data,
+            "filename": "example.docx",
+        }
+    ]
+
+
+def test_convert_content_parts_image_resource_link_uses_remote_input_image():
+    harness = _ContentHarness()
+    resource = ResourceLink(
+        type="resource_link",
+        uri=AnyUrl("https://example.com/image.png"),
+        mimeType="image/png",
+        name="image.png",
+    )
+
+    parts = harness._convert_content_parts([resource], role="user")
+
+    assert parts == [
+        {
+            "type": "input_image",
+            "image_url": "https://example.com/image.png",
+        }
+    ]
 
 
 @pytest.mark.asyncio

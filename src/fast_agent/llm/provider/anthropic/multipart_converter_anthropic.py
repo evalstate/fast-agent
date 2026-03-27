@@ -14,6 +14,9 @@ from anthropic.types.beta import (
     BetaContentBlockParam as ContentBlockParam,
 )
 from anthropic.types.beta import (
+    BetaFileDocumentSourceParam as FileDocumentSourceParam,
+)
+from anthropic.types.beta import (
     BetaImageBlockParam as ImageBlockParam,
 )
 from anthropic.types.beta import (
@@ -59,6 +62,7 @@ from mcp.types import (
     EmbeddedResource,
     ImageContent,
     PromptMessage,
+    ResourceLink,
     TextContent,
     TextResourceContents,
 )
@@ -77,9 +81,11 @@ from fast_agent.mcp.helpers.content_helpers import (
     get_text,
     is_image_content,
     is_resource_content,
+    is_resource_link,
     is_text_content,
 )
 from fast_agent.mcp.mime_utils import (
+    DOCUMENT_MIME_TYPES,
     guess_mime_type,
     is_image_mime_type,
     is_text_mime_type,
@@ -87,6 +93,7 @@ from fast_agent.mcp.mime_utils import (
 from fast_agent.types import PromptMessageExtended
 
 _logger = get_logger("multipart_converter_anthropic")
+ANTHROPIC_FILE_ID_META_KEY = "fast_agent_anthropic_file_id"
 
 # Validate and normalize replay blocks against *input* content block params.
 # Using output block schemas preserves output-only fields (for example
@@ -482,6 +489,10 @@ class AnthropicConverter:
                 # Handle embedded resource
                 block = AnthropicConverter._convert_embedded_resource(content_item, document_mode)
                 anthropic_blocks.append(block)
+            elif is_resource_link(content_item):
+                anthropic_blocks.append(
+                    AnthropicConverter._convert_resource_link(content_item, document_mode)
+                )
 
         return anthropic_blocks
 
@@ -513,6 +524,20 @@ class AnthropicConverter:
         from fast_agent.mcp.resource_utils import extract_title_from_uri
 
         title = extract_title_from_uri(uri) if uri else "resource"
+        meta = getattr(resource_content, "meta", None)
+        file_id = meta.get(ANTHROPIC_FILE_ID_META_KEY) if isinstance(meta, dict) else None
+
+        if (
+            isinstance(file_id, str)
+            and file_id
+            and mime_type in DOCUMENT_MIME_TYPES
+            and mime_type != "application/pdf"
+        ):
+            return DocumentBlockParam(
+                type="document",
+                title=title,
+                source=FileDocumentSourceParam(type="file", file_id=file_id),
+            )
 
         # Convert based on MIME type
         if mime_type == "image/svg+xml":
@@ -607,6 +632,52 @@ class AnthropicConverter:
         return AnthropicConverter._create_fallback_text(
             f"Unsupported resource ({mime_type})", resource
         )
+
+    @staticmethod
+    def _convert_resource_link(
+        resource: ResourceLink,
+        document_mode: bool = True,
+    ) -> ContentBlockParam:
+        """Convert ResourceLink to an Anthropic block when URL sources are supported."""
+        del document_mode
+        uri_str = str(resource.uri) if resource.uri else None
+        parsed_uri = urlparse(uri_str) if uri_str else None
+        is_url: bool = bool(parsed_uri and parsed_uri.scheme in ("http", "https"))
+        mime_type = resource.mimeType or (guess_mime_type(uri_str) if uri_str else None) or ""
+
+        from fast_agent.mcp.resource_utils import extract_title_from_uri
+
+        title = (
+            extract_title_from_uri(resource.uri)
+            if resource.uri
+            else (resource.name or "resource")
+        )
+
+        if is_url and is_image_mime_type(mime_type):
+            assert uri_str is not None
+            if not AnthropicConverter._is_supported_image_type(mime_type):
+                return TextBlockParam(
+                    type="text",
+                    text=f"Image with unsupported format '{mime_type}'",
+                )
+            return ImageBlockParam(
+                type="image",
+                source=URLImageSourceParam(type="url", url=uri_str),
+            )
+
+        if is_url and mime_type == "application/pdf":
+            assert uri_str is not None
+            return DocumentBlockParam(
+                type="document",
+                title=title,
+                source=URLPDFSourceParam(type="url", url=uri_str),
+            )
+
+        text = get_text(resource)
+        if text:
+            return TextBlockParam(type="text", text=text)
+
+        return TextBlockParam(type="text", text=f"[Resource link: {title}]")
 
     @staticmethod
     def _determine_mime_type(

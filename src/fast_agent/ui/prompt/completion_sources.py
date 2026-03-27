@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import shlex
 from typing import TYPE_CHECKING
 
 from prompt_toolkit.completion import Completion
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.llm.model_selection import ModelSelectionCatalog
+from fast_agent.utils.commandline import join_commandline, split_commandline
 
 if TYPE_CHECKING:
     from fast_agent.ui.prompt.completer import AgentCompleter
@@ -200,14 +200,20 @@ def _attach_command_completions(
                 "clear",
                 start_position=0,
                 display="clear",
-                display_meta="remove staged local attachments from the next draft buffer",
+                display_meta="remove staged file or URL attachments from the next draft buffer",
+            ),
+            Completion(
+                "https://",
+                start_position=0,
+                display="https://",
+                display_meta="stage a remote URL attachment for the next prompt",
             )
         ]
         results.extend(list(completer._complete_shell_paths("", 0)))
         return results
 
     try:
-        parts = shlex.split(remainder)
+        parts = split_commandline(remainder)
     except ValueError:
         return []
 
@@ -225,13 +231,20 @@ def _attach_command_completions(
                 "clear",
                 start_position=-len(partial),
                 display="clear",
-                display_meta="remove staged local attachments from the next draft buffer",
+                display_meta="remove staged file or URL attachments from the next draft buffer",
+            )
+        )
+    if token_count <= 1 and "https://".startswith(partial.lower()):
+        results.append(
+            Completion(
+                "https://",
+                start_position=-len(partial),
+                display="https://",
+                display_meta="stage a remote URL attachment for the next prompt",
             )
         )
     for completion in completer._complete_shell_paths(partial, len(partial)):
-        completion_text = completion.text
-        if any(char.isspace() for char in completion_text):
-            completion_text = shlex.quote(completion_text)
+        completion_text = join_commandline([completion.text])
         results.append(
             Completion(
                 completion_text,

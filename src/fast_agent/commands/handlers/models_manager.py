@@ -25,6 +25,7 @@ from fast_agent.llm.model_reference_config import (
 from fast_agent.llm.model_selection import ModelSelectionCatalog
 from fast_agent.llm.provider_types import Provider
 from fast_agent.ui.a3_headers import build_a3_section_header
+from fast_agent.ui.model_picker_common import infer_initial_picker_provider
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -905,22 +906,7 @@ def _normalize_interactive_reference_token(token: str) -> str:
 
 
 def _infer_initial_provider_name(model_spec: str | None) -> str | None:
-    if model_spec is None:
-        return None
-
-    normalized = model_spec.strip()
-    if not normalized:
-        return None
-
-    try:
-        parsed = ModelFactory.parse_model_string(
-            normalized,
-            presets=ModelFactory.MODEL_PRESETS,
-        )
-    except Exception:
-        return None
-
-    return parsed.provider.config_name
+    return infer_initial_picker_provider(model_spec)
 
 
 async def _prompt_for_reference_token(

@@ -10,11 +10,14 @@ from urllib.parse import quote
 
 from mcp.types import ContentBlock, EmbeddedResource, ReadResourceResult, TextContent
 
+from fast_agent.mcp.helpers.content_helpers import image_link, resource_link
 from fast_agent.mcp.mcp_content import MCPFile, MCPImage
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.ui.prompt.attachment_tokens import (
     FILE_MENTION_SERVER,
+    URL_MENTION_SERVER,
     normalize_local_attachment_reference,
+    normalize_remote_attachment_reference,
 )
 
 if TYPE_CHECKING:
@@ -243,6 +246,8 @@ def _parse_token(token: str, *, start: int, end: int) -> ParsedMention | None:
 
     if server_name == FILE_MENTION_SERVER:
         resource_uri = str(normalize_local_attachment_reference(resource_expr))
+    elif server_name == URL_MENTION_SERVER:
+        resource_uri = normalize_remote_attachment_reference(resource_expr)
     else:
         template_uri, args = _parse_template_args(resource_expr)
         resource_uri = _render_template_uri(template_uri, args)
@@ -316,7 +321,11 @@ async def resolve_mentions(agent: Any, parsed: ParsedMentions) -> ResolvedMentio
             resources=[],
         )
 
-    remote_mentions = [mention for mention in parsed.mentions if mention.server_name != FILE_MENTION_SERVER]
+    remote_mentions = [
+        mention
+        for mention in parsed.mentions
+        if mention.server_name not in {FILE_MENTION_SERVER, URL_MENTION_SERVER}
+    ]
     get_resource = getattr(agent, "get_resource", None)
     if remote_mentions and not callable(get_resource):
         raise ResourceMentionError("Current agent does not support MCP resources")
@@ -327,6 +336,9 @@ async def resolve_mentions(agent: Any, parsed: ParsedMentions) -> ResolvedMentio
         try:
             if mention.server_name == FILE_MENTION_SERVER:
                 resources.append(_resolve_local_content_block(mention.resource_uri))
+                continue
+            if mention.server_name == URL_MENTION_SERVER:
+                resources.append(_resolve_remote_content_block(mention.resource_uri))
                 continue
             if not callable(get_resource):
                 raise ResourceMentionError("Current agent does not support MCP resources")
@@ -383,6 +395,14 @@ def _resolve_local_content_block(path_text: str) -> ContentBlock:
     meta["fast_agent_source_uri"] = path.as_uri()
     content.meta = meta
     return content
+
+
+def _resolve_remote_content_block(url: str) -> ContentBlock:
+    inferred = resource_link(url)
+    mime_type = inferred.mimeType or "application/octet-stream"
+    if mime_type.startswith("image/"):
+        return image_link(url, mime_type=mime_type)
+    return inferred
 
 
 def _is_image_path(path: Path) -> bool:

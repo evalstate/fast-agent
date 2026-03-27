@@ -73,7 +73,9 @@ from fast_agent.ui.history_display import display_history_show
 from fast_agent.ui.prompt.attachment_tokens import (
     append_attachment_tokens,
     build_local_attachment_token,
+    build_remote_attachment_token,
     normalize_local_attachment_reference,
+    normalize_remote_attachment_reference,
     strip_local_attachment_tokens,
 )
 
@@ -181,7 +183,7 @@ async def _dispatch_local_ui_payload(
             if not resolved_paths:
                 context = build_command_context(prompt_provider, agent_name)
                 prompted_path = await context.io.prompt_text(
-                    "Attach file path:",
+                    "Attach file path or URL:",
                     allow_empty=False,
                 )
                 if not prompted_path:
@@ -192,12 +194,17 @@ async def _dispatch_local_ui_payload(
             tokens: list[str] = []
             for raw_path in resolved_paths:
                 try:
-                    attachment_path = normalize_local_attachment_reference(raw_path)
-                    if not attachment_path.exists():
-                        raise FileNotFoundError(raw_path)
-                    if not attachment_path.is_file():
-                        raise IsADirectoryError(raw_path)
-                    token = build_local_attachment_token(attachment_path)
+                    if raw_path.strip().lower().startswith(("http://", "https://")):
+                        token = build_remote_attachment_token(
+                            normalize_remote_attachment_reference(raw_path)
+                        )
+                    else:
+                        attachment_path = normalize_local_attachment_reference(raw_path)
+                        if not attachment_path.exists():
+                            raise FileNotFoundError(raw_path)
+                        if not attachment_path.is_file():
+                            raise IsADirectoryError(raw_path)
+                        token = build_local_attachment_token(attachment_path)
                 except Exception as exc:
                     rich_print(f"[red]Unable to attach '{raw_path}': {exc}[/red]")
                     continue

@@ -18,6 +18,7 @@ from fast_agent.ui.attachment_indicator import (
     render_attachment_indicator,
     summarize_draft_attachments,
 )
+from fast_agent.ui.context_usage_display import resolve_context_usage_percent
 from fast_agent.ui.model_chip_display import render_model_chip
 from fast_agent.ui.prompt.alert_flags import _resolve_alert_flags_from_history
 from fast_agent.ui.prompt.toolbar import (
@@ -108,6 +109,7 @@ def render_input_toolbar(
     mode_style, mode_text = _resolve_toolbar_mode(multiline_mode)
     shortcut_text = ""
     agent_state = _resolve_toolbar_agent_state(agent_name, agent_provider)
+    active_llm = resolve_active_llm(agent_provider, agent_name)
     agent_identity_segment = _format_toolbar_agent_identity(
         agent_name,
         toolbar_color,
@@ -116,6 +118,7 @@ def render_input_toolbar(
     attachment_summary = summarize_draft_attachments(
         current_input_text,
         model_name=agent_state.model_name,
+        provider=getattr(active_llm, "provider", None),
     )
     middle = _build_middle_segment(agent_state, shortcut_text, attachment_summary=attachment_summary)
     notification_segment = _build_notification_segment()
@@ -331,17 +334,12 @@ def _resolve_context_pct(
         return context_pct
 
     info = _resolve_model_info(model_name, llm)
-    try:
-        window_size = getattr(usage_accumulator, "context_window_size", None)
-        if (not window_size or window_size <= 0) and info:
-            window_size = info.context_window
-        if window_size and window_size > 0:
-            current_context_tokens = getattr(usage_accumulator, "current_context_tokens", None)
-            if isinstance(current_context_tokens, int | float):
-                return (current_context_tokens / window_size) * 100
-    except Exception:
-        return None
-    return None
+    fallback_window_size = info.context_window if info else None
+    return resolve_context_usage_percent(
+        context_pct=context_pct,
+        usage_accumulator=usage_accumulator,
+        fallback_window_size=fallback_window_size,
+    )
 
 
 def _resolve_tdv_segment(

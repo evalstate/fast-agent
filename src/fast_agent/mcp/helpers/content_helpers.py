@@ -133,9 +133,9 @@ def text_content(text: str) -> TextContent:
 
 def _infer_mime_type(url: str, default: str = "application/octet-stream") -> str:
     """Infer MIME type from URL using the mimetypes database."""
-    from urllib.parse import urlparse
+    from urllib.parse import parse_qs, urlparse
 
-    from fast_agent.mcp.mime_utils import guess_mime_type
+    from fast_agent.mcp.mime_utils import guess_mime_type, normalize_mime_type
 
     # Special case: YouTube URLs (Google has native support)
     parsed = urlparse(url.lower())
@@ -145,8 +145,18 @@ def _infer_mime_type(url: str, default: str = "application/octet-stream") -> str
 
     mime = guess_mime_type(url)
     # guess_mime_type returns "application/octet-stream" for unknown types
-    if mime == "application/octet-stream":
-        return default
+    if mime != "application/octet-stream":
+        return mime
+
+    query_args = parse_qs(parsed.query)
+    for key in ("format", "fm", "ext", "mime"):
+        values = query_args.get(key)
+        if not values:
+            continue
+        normalized = normalize_mime_type(values[0])
+        if normalized:
+            return normalized
+
     return mime
 
 

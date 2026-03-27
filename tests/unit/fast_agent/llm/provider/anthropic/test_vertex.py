@@ -1,20 +1,31 @@
 import types
 
 import pytest
+from pydantic import BaseModel
 
 from fast_agent.config import AnthropicSettings, Settings
 from fast_agent.context import Context
 from fast_agent.core.exceptions import ProviderKeyError
+from fast_agent.llm.provider.anthropic.beta_types import ToolParam
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
-from fast_agent.llm.provider.anthropic.vertex_config import GoogleAdcStatus
+from fast_agent.llm.provider.anthropic.llm_anthropic_vertex import AnthropicVertexLLM
+from fast_agent.llm.provider.anthropic.vertex_config import (
+    GoogleAdcStatus,
+    anthropic_vertex_config,
+)
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
 
 
-def _build_llm(config: Settings, *, via: str | None = None) -> AnthropicLLM:
-    kwargs = {"context": Context(config=config), "model": "claude-sonnet-4-6"}
-    if via is not None:
-        kwargs["via"] = via
-    return AnthropicLLM(**kwargs)
+class _StructuredResponse(BaseModel):
+    answer: str
+
+
+def _build_direct_llm(config: Settings) -> AnthropicLLM:
+    return AnthropicLLM(context=Context(config=config), model="claude-sonnet-4-6")
+
+
+def _build_vertex_llm(config: Settings) -> AnthropicVertexLLM:
+    return AnthropicVertexLLM(context=Context(config=config), model="claude-sonnet-4-6")
 
 
 def test_vertex_cfg_accepts_model_object() -> None:
@@ -31,8 +42,7 @@ def test_vertex_cfg_accepts_model_object() -> None:
     )
     config = Settings(anthropic=anthropic)
 
-    llm = _build_llm(config)
-    vertex_cfg = llm._vertex_cfg()
+    vertex_cfg = anthropic_vertex_config(config)
 
     assert vertex_cfg.enabled is True
     assert vertex_cfg.project_id == "proj"
@@ -53,11 +63,9 @@ def test_provider_key_manager_allows_vertex_route_without_api_key() -> None:
         }
     )
 
-    assert ProviderKeyManager.get_api_key("anthropic", config, route_hint="vertex") == ""
+    assert ProviderKeyManager.get_api_key("anthropic-vertex", config) == ""
     with pytest.raises(ProviderKeyError):
         ProviderKeyManager.get_api_key("anthropic", config)
-    with pytest.raises(ProviderKeyError):
-        ProviderKeyManager.get_api_key("anthropic", config, route_hint="direct")
 
 
 def test_initialize_anthropic_client_uses_vertex(monkeypatch) -> None:
@@ -73,7 +81,7 @@ def test_initialize_anthropic_client_uses_vertex(monkeypatch) -> None:
             }
         }
     )
-    llm = _build_llm(config, via="vertex")
+    llm = _build_vertex_llm(config)
 
     called: dict[str, object] = {}
 
@@ -82,11 +90,11 @@ def test_initialize_anthropic_client_uses_vertex(monkeypatch) -> None:
             called.update(kwargs)
 
     monkeypatch.setattr(
-        "fast_agent.llm.provider.anthropic.llm_anthropic.AsyncAnthropicVertex",
+        "fast_agent.llm.provider.anthropic.llm_anthropic_vertex.AsyncAnthropicVertex",
         FakeVertexClient,
     )
     monkeypatch.setattr(
-        "fast_agent.llm.provider.anthropic.llm_anthropic.detect_google_adc",
+        "fast_agent.llm.provider.anthropic.llm_anthropic_vertex.detect_google_adc",
         lambda: GoogleAdcStatus(available=True, project_id="proj", credentials=object()),
     )
 
@@ -110,7 +118,7 @@ def test_initialize_anthropic_client_uses_direct_sdk(monkeypatch) -> None:
             }
         }
     )
-    llm = _build_llm(config)
+    llm = _build_direct_llm(config)
 
     called: dict[str, object] = {}
 
@@ -142,12 +150,85 @@ def test_vertex_client_requires_google_adc(monkeypatch) -> None:
             }
         }
     )
-    llm = _build_llm(config, via="vertex")
+    llm = _build_vertex_llm(config)
 
     monkeypatch.setattr(
-        "fast_agent.llm.provider.anthropic.llm_anthropic.detect_google_adc",
+        "fast_agent.llm.provider.anthropic.llm_anthropic_vertex.detect_google_adc",
         lambda: GoogleAdcStatus(available=False, error=RuntimeError("missing")),
     )
 
     with pytest.raises(ProviderKeyError, match="Google ADC not found"):
         llm._initialize_anthropic_client()
+
+
+def test_vertex_beta_support_is_selective() -> None:
+    llm = AnthropicVertexLLM(
+        context=Context(
+            config=Settings.model_validate(
+                {
+                    "anthropic": {
+                        "vertex_ai": {
+                            "project_id": "proj",
+                            "location": "global",
+                        }
+                    }
+                }
+            )
+        ),
+        model="claude-sonnet-4-5",
+        long_context=True,
+    )
+    request_tools = [ToolParam(name="demo", description="", input_schema={})]
+
+    beta_flags = llm._resolve_anthropic_beta_flags(
+        model="claude-sonnet-4-5",
+        structured_mode="json",
+        thinking_enabled=False,
+        request_tools=request_tools,
+        web_tool_betas=("code-execution-web-tools-2026-02-09",),
+    )
+
+    assert "structured-outputs-2025-11-13" not in beta_flags
+    assert "context-1m-2025-08-07" in beta_flags
+    assert "fine-grained-tool-streaming-2025-05-14" in beta_flags
+    assert "code-execution-web-tools-2026-02-09" in beta_flags
+
+
+def test_vertex_supports_web_search_but_not_web_fetch() -> None:
+    llm = _build_vertex_llm(
+        Settings.model_validate(
+            {
+                "anthropic": {
+                    "vertex_ai": {
+                        "project_id": "proj",
+                        "location": "global",
+                    }
+                }
+            }
+        )
+    )
+
+    assert llm.web_search_supported is True
+    assert llm.web_fetch_supported is False
+
+
+def test_vertex_auto_structured_output_mode_falls_back_to_tool_use() -> None:
+    llm = _build_vertex_llm(
+        Settings.model_validate(
+            {
+                "anthropic": {
+                    "vertex_ai": {
+                        "project_id": "proj",
+                        "location": "global",
+                    }
+                }
+            }
+        )
+    )
+
+    structured_mode = llm._resolve_structured_output_mode(
+        "claude-sonnet-4-6",
+        _StructuredResponse,
+    )
+
+    assert structured_mode == "tool_use"

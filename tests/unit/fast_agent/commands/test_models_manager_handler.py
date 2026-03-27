@@ -63,6 +63,8 @@ class _StubCommandIO:
         self._selection_responses = list(selection_responses or [])
         self._model_selection_responses = list(model_selection_responses or [])
         self.emitted_messages: list[_HasText] = []
+        self.last_initial_provider: str | None = None
+        self.last_default_model: str | None = None
 
     async def emit(self, message: object) -> None:
         assert hasattr(message, "text")
@@ -99,7 +101,8 @@ class _StubCommandIO:
         initial_provider: str | None = None,
         default_model: str | None = None,
     ) -> str | None:
-        del initial_provider, default_model
+        self.last_initial_provider = initial_provider
+        self.last_default_model = default_model
         if self._model_selection_responses:
             return self._model_selection_responses.pop(0)
         return None
@@ -547,6 +550,41 @@ async def test_models_aliases_set_uses_model_selector_for_existing_alias(tmp_pat
     assert "model_references.system.fast:" in rendered
     assert "old: claude-sonnet-4-5" in rendered
     assert "new: claude-haiku-4-5" in rendered
+
+
+@pytest.mark.asyncio
+async def test_models_aliases_set_reopens_vertex_selection_for_vertex_model(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    env_dir = workspace / ".fast-agent"
+    workspace.mkdir(parents=True)
+    _write_yaml(
+        env_dir / "fastagent.config.yaml",
+        {
+            "model_references": {
+                "system": {
+                    "fast": "anthropic-vertex.claude-sonnet-4-6",
+                }
+            }
+        },
+    )
+
+    io = _StubCommandIO(model_selection_responses=["anthropic-vertex.claude-sonnet-4-6"])
+
+    previous_cwd = Path.cwd()
+    try:
+        os.chdir(workspace)
+        outcome = await models_manager.handle_models_command(
+            _context_with_io(Settings(environment_dir=str(env_dir)), io),
+            agent_name="main",
+            action="references",
+            argument="set $system.fast",
+        )
+    finally:
+        os.chdir(previous_cwd)
+
+    assert io.last_initial_provider == "anthropic-vertex"
+    assert io.last_default_model == "anthropic-vertex.claude-sonnet-4-6"
+    assert "no changes" in str(outcome.messages[0].text)
 
 
 @pytest.mark.asyncio

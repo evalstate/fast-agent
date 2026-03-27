@@ -272,6 +272,21 @@ def test_resolve_model_picker_initial_selection_uses_last_used_alias() -> None:
     assert model_spec == "claude-haiku-4-5"
 
 
+def test_resolve_model_picker_initial_selection_uses_vertex_group_for_anthropic_vertex() -> None:
+    provider, model_spec = _resolve_model_picker_initial_selection(
+        settings=Settings(
+            model_references={
+                "system": {
+                    "last_used": "anthropic-vertex.claude-sonnet-4-6",
+                }
+            }
+        )
+    )
+
+    assert provider == "anthropic-vertex"
+    assert model_spec == "anthropic-vertex.claude-sonnet-4-6"
+
+
 def test_resolve_model_picker_initial_selection_preserves_overlay_alias(tmp_path: Path) -> None:
     env_dir = tmp_path / ".fast-agent"
     overlays_dir = env_dir / "model-overlays"

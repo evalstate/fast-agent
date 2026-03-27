@@ -324,7 +324,7 @@ def test_snapshot_adds_anthropic_vertex_group_when_ready(monkeypatch) -> None:
 
     assert option.active is True
     assert option.option_display_name == "Anthropic (Vertex)"
-    assert all("?via=vertex" in entry.model for entry in option.curated_entries)
+    assert all(entry.model.startswith("anthropic-vertex.") for entry in option.curated_entries)
 
 
 def test_snapshot_disables_anthropic_vertex_group_when_adc_missing(monkeypatch) -> None:

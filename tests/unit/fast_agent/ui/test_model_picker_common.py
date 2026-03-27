@@ -8,6 +8,7 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.ui.model_picker_common import (
     ModelOption,
     build_snapshot,
+    infer_initial_picker_provider,
     model_capabilities,
     model_options_for_provider,
 )
@@ -43,6 +44,12 @@ def test_46_models_do_not_report_optional_long_context() -> None:
     assert capabilities.supports_long_context is False
     assert capabilities.current_long_context is False
     assert capabilities.long_context_window is None
+
+
+def test_infer_initial_picker_provider_uses_vertex_group_for_anthropic_vertex() -> None:
+    assert (
+        infer_initial_picker_provider("anthropic-vertex.claude-sonnet-4-6") == "anthropic-vertex"
+    )
 
 
 def test_build_snapshot_surfaces_overlays_as_a_separate_group(tmp_path: Path) -> None:

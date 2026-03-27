@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from fast_agent.llm.provider_types import Provider
 from fast_agent.ui.attachment_indicator import (
     ATTACHMENT_GLYPH,
     ATTACHMENT_IDLE_COLOR,
@@ -35,6 +36,57 @@ def test_summarize_draft_attachments_marks_missing_file_questionable() -> None:
     assert summary is not None
     assert summary.count == 1
     assert summary.any_questionable is True
+
+
+def test_summarize_draft_attachments_includes_remote_url() -> None:
+    summary = summarize_draft_attachments(
+        "describe ^url:https://example.com/image.png",
+        model_name="gpt-4.1",
+    )
+
+    assert summary is not None
+    assert summary.count == 1
+    assert summary.any_questionable is False
+    assert summary.mime_types == ("image/png",)
+
+
+def test_summarize_draft_attachments_infers_remote_query_image_type() -> None:
+    summary = summarize_draft_attachments(
+        "describe ^url:https://pbs.twimg.com/media/HCaWzdDWYAArgCf?format=jpg&name=4096x4096",
+        model_name="gpt-4.1",
+    )
+
+    assert summary is not None
+    assert summary.count == 1
+    assert summary.any_questionable is False
+    assert summary.mime_types == ("image/jpeg",)
+
+
+def test_summarize_draft_attachments_marks_remote_office_doc_questionable_for_anthropic() -> None:
+    summary = summarize_draft_attachments(
+        "describe ^url:https://example.com/report.docx",
+        model_name="claude-sonnet-4-5",
+        provider=Provider.ANTHROPIC,
+    )
+
+    assert summary is not None
+    assert summary.count == 1
+    assert summary.any_questionable is True
+    assert summary.mime_types == (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+
+
+def test_summarize_draft_attachments_marks_unknown_remote_url_questionable() -> None:
+    summary = summarize_draft_attachments(
+        "describe ^url:https://example.com/download",
+        model_name="gpt-4.1",
+    )
+
+    assert summary is not None
+    assert summary.count == 1
+    assert summary.any_questionable is True
+    assert summary.mime_types == ("application/octet-stream",)
 
 
 def test_render_attachment_indicator_uses_red_count_for_questionable_summary() -> None:

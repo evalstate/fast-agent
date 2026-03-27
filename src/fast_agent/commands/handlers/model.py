@@ -44,6 +44,7 @@ from fast_agent.llm.text_verbosity import (
     format_text_verbosity,
     parse_text_verbosity,
 )
+from fast_agent.ui.model_picker_common import infer_initial_picker_provider
 
 if TYPE_CHECKING:
     from fast_agent.commands.context import CommandContext
@@ -182,8 +183,7 @@ def _resolve_toggle_to_default(
 def _resolve_model_switch_initial_provider(llm: "FastAgentLLMProtocol") -> str | None:
     if llm.resolved_model.overlay is not None:
         return "overlays"
-    config_name = llm.provider.config_name
-    return config_name.strip() if config_name.strip() else None
+    return infer_initial_picker_provider(llm.resolved_model.selected_model_name)
 
 
 async def handle_model_switch(

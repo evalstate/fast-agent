@@ -10,6 +10,7 @@ from prompt_toolkit.formatted_text import HTML, to_formatted_text
 from prompt_toolkit.formatted_text.utils import fragment_list_width
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.ui.context_usage_display import format_compact_context_usage_percent
 from fast_agent.ui.gauge_glyph_palette import (
     PAIRED_REASONING_GAUGE_GLYPHS,
     PAIRED_VERBOSITY_GAUGE_GLYPHS,
@@ -28,15 +29,7 @@ _ELLIPSIS = "…"
 
 def _format_context_usage_percent_for_toolbar(pct: float | None) -> str | None:
     """Format context usage for toolbar display with stable width."""
-    if pct is None:
-        return None
-
-    safe_pct = max(pct, 0.0)
-    if safe_pct >= 100.0:
-        return "100%+"
-    if safe_pct < 10.0:
-        return f"{min(safe_pct, 9.99):.2f}%"
-    return f"{min(safe_pct, 99.9):.1f}%"
+    return format_compact_context_usage_percent(pct)
 
 
 def _left_truncate_with_ellipsis(text: str, max_length: int) -> str:

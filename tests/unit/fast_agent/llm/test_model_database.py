@@ -104,6 +104,59 @@ def test_model_database_anthropic_web_tool_versions_unknown_model():
     assert ModelDatabase.get_anthropic_required_betas("unknown-model") is None
 
 
+def test_model_database_anthropic_vertex_caps_are_provider_aware() -> None:
+    assert (
+        ModelDatabase.get_anthropic_web_search_version(
+            "claude-sonnet-4-6",
+            provider=Provider.ANTHROPIC_VERTEX,
+        )
+        == "web_search_20260209"
+    )
+    assert (
+        ModelDatabase.get_anthropic_web_fetch_version(
+            "claude-sonnet-4-6",
+            provider=Provider.ANTHROPIC_VERTEX,
+        )
+        is None
+    )
+    assert ModelDatabase.get_anthropic_required_betas(
+        "claude-sonnet-4-6",
+        provider=Provider.ANTHROPIC_VERTEX,
+    ) == ("code-execution-web-tools-2026-02-09",)
+    assert (
+        ModelDatabase.get_long_context_window(
+            "claude-sonnet-4-5",
+            provider=Provider.ANTHROPIC_VERTEX,
+        )
+        == 1_000_000
+    )
+    assert not ModelDatabase.supports_mime(
+        "claude-sonnet-4-6",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        provider=Provider.ANTHROPIC_VERTEX,
+    )
+    assert ModelDatabase.supports_mime(
+        "claude-sonnet-4-6",
+        "application/pdf",
+        provider=Provider.ANTHROPIC_VERTEX,
+    )
+
+
+def test_model_database_anthropic_linked_office_docs_are_not_supported() -> None:
+    assert not ModelDatabase.supports_mime(
+        "claude-sonnet-4-5",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        provider=Provider.ANTHROPIC,
+        resource_source="link",
+    )
+    assert ModelDatabase.supports_mime(
+        "claude-sonnet-4-5",
+        "image/png",
+        provider=Provider.ANTHROPIC,
+        resource_source="link",
+    )
+
+
 def test_model_database_max_tokens():
     """Test that ModelDatabase returns expected max tokens"""
     # Test known models with different max_output_tokens (no cap)
@@ -147,10 +200,22 @@ def test_model_database_supports_mime_basic():
     assert ModelDatabase.supports_mime(
         "claude-sonnet-4-0", "document/pdf"
     )  # alias -> application/pdf
+    assert ModelDatabase.supports_mime(
+        "claude-sonnet-4-0",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+    assert ModelDatabase.supports_mime(
+        "gpt-4o",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    )
 
     # Text-only models should not support images
     assert not ModelDatabase.supports_mime("deepseek-chat", "image/png")
     assert not ModelDatabase.supports_mime("deepseek-chat", "pdf")
+    assert not ModelDatabase.supports_mime(
+        "deepseek-chat",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
     # Wildcard checks
     assert ModelDatabase.supports_mime("gpt-4o", "image/*")

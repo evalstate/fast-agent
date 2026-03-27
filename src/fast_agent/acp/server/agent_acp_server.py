@@ -452,10 +452,11 @@ class AgentACPServer(ACPAgent):
             from fast_agent.llm.provider_key_manager import ProviderKeyManager
 
             env_var = ProviderKeyManager.get_env_key_name(provider_name)
-            data["envVars"] = [env_var]
+            if env_var:
+                data["envVars"] = [env_var]
             if isinstance(provider_display_name, str) and provider_display_name:
                 data["provider"] = provider_display_name
-                if not data["details"]:
+                if not data["details"] and env_var:
                     data["details"] = (
                         f"Add the {provider_display_name} credentials to "
                         f"{ACP_AUTH_CONFIG_FILE} or set {env_var}."

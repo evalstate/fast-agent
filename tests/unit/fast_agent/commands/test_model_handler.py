@@ -734,6 +734,31 @@ async def test_model_switch_reopens_overlay_selection_on_overlay_provider() -> N
 
 
 @pytest.mark.asyncio
+async def test_model_switch_reopens_vertex_selection_for_anthropic_vertex_model() -> None:
+    llm = _StubLLM(
+        "claude-sonnet-4-6",
+        provider=Provider.ANTHROPIC_VERTEX,
+        selected_model_name="anthropic-vertex.claude-sonnet-4-6",
+    )
+    agent = _StubAgent(llm)
+    provider = _StubAgentProvider(agent)
+    io = _StubIO(model_selection_response="anthropic-vertex.claude-sonnet-4-6")
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=io,
+        settings=Settings(),
+    )
+
+    outcome = await handle_model_switch(ctx, agent_name="test", value=None)
+
+    assert io.last_initial_provider == "anthropic-vertex"
+    assert io.last_default_model == "anthropic-vertex.claude-sonnet-4-6"
+    assert outcome.reset_session is False
+    assert any("already active" in str(message.text) for message in outcome.messages)
+
+
+@pytest.mark.asyncio
 async def test_model_switch_does_not_reset_session_when_model_is_already_active() -> None:
     llm = _StubLLM("gpt-5-mini")
     agent = _StubAgent(llm)
