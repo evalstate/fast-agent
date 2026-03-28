@@ -36,9 +36,10 @@ from acp.schema import (
     AgentCapabilities,
     AgentMessageChunk,
     AuthenticateResponse,
-    AuthMethod,
+    AuthMethodAgent,
     AvailableCommandsUpdate,
     ClientCapabilities,
+    EnvVarAuthMethod,
     HttpMcpServer,
     Implementation,
     ListSessionsResponse,
@@ -54,6 +55,7 @@ from acp.schema import (
     SessionResumeCapabilities,
     SseMcpServer,
     StopReason,
+    TerminalAuthMethod,
     UserMessageChunk,
 )
 from acp.schema import (
@@ -569,11 +571,10 @@ class AgentACPServer(ACPAgent):
 
             # Minimal "agent auth" hint for ACP clients.
             #
-            # Per ACP RFD auth-methods, the default type is "agent" when no type is provided.
-            # We keep this strictly within the current AuthMethod schema (id/name/description)
-            # to avoid requiring client/SDK support for typed auth metadata yet.
-            auth_methods = [
-                AuthMethod(
+            # In ACP 0.9.x this uses the explicit agent auth schema, but we still
+            # keep it to the minimal id/name/description shape.
+            auth_methods: list[EnvVarAuthMethod | TerminalAuthMethod | AuthMethodAgent] = [
+                AuthMethodAgent(
                     id=ACP_AUTH_METHOD_ID,
                     name="Configure fast-agent",
                     description=(
@@ -2099,6 +2100,7 @@ class AgentACPServer(ACPAgent):
         self,
         prompt: list[ACPContentBlock],
         session_id: str,
+        message_id: str | None = None,
         **kwargs: Any,
     ) -> PromptResponse:
         """Handle prompt request.
@@ -2111,7 +2113,12 @@ class AgentACPServer(ACPAgent):
         """
         prompt_lock = await self._get_prompt_lock(session_id)
         async with prompt_lock:
-            return await self._prompt_locked(prompt=prompt, session_id=session_id, **kwargs)
+            return await self._prompt_locked(
+                prompt=prompt,
+                session_id=session_id,
+                message_id=message_id,
+                **kwargs,
+            )
 
     async def _get_prompt_lock(self, session_id: str) -> asyncio.Lock:
         """Get/create the lock used to serialize prompts for a session."""
@@ -2126,6 +2133,7 @@ class AgentACPServer(ACPAgent):
         self,
         prompt: list[ACPContentBlock],
         session_id: str,
+        message_id: str | None = None,
         **kwargs: Any,
     ) -> PromptResponse:
         """

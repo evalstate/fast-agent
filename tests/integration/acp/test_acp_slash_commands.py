@@ -808,15 +808,21 @@ async def test_slash_command_history_detail_turn() -> None:
 async def test_slash_command_session_list_no_sessions(tmp_path, monkeypatch) -> None:
     """Test /session list output when no sessions exist."""
     monkeypatch.chdir(tmp_path)
+    old_settings = get_settings()
+    env_dir = tmp_path / "env"
+    monkeypatch.setenv("ENVIRONMENT_DIR", str(env_dir))
+    override = old_settings.model_copy(update={"environment_dir": str(env_dir)})
+    update_global_settings(override)
+    reset_session_manager()
 
-    import fast_agent.session.session_manager as session_module
+    try:
+        handler = _handler(StubAgentInstance())
+        response = await handler.execute_command("session", "list")
 
-    monkeypatch.setattr(session_module, "_session_manager", None)
-
-    handler = _handler(StubAgentInstance())
-    response = await handler.execute_command("session", "list")
-
-    assert "no sessions" in response.lower()
+        assert "no sessions" in response.lower()
+    finally:
+        update_global_settings(old_settings)
+        reset_session_manager()
 
 
 @pytest.mark.integration

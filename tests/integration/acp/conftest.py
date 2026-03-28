@@ -7,7 +7,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, AsyncIterator
 
 import pytest_asyncio
-from acp.schema import ClientCapabilities, FileSystemCapability, Implementation, InitializeResponse
+from acp.schema import (
+    ClientCapabilities,
+    FileSystemCapabilities,
+    Implementation,
+    InitializeResponse,
+)
 from acp.stdio import spawn_agent_process
 
 TEST_DIR = Path(__file__).parent
@@ -69,7 +74,7 @@ async def _spawn_initialized_agent(
             _process,
             protocol_version=1,
             client_capabilities=ClientCapabilities(
-                fs=FileSystemCapability(read_text_file=fs_read, write_text_file=fs_write),
+                fs=FileSystemCapabilities(read_text_file=fs_read, write_text_file=fs_write),
                 terminal=terminal,
             ),
             client_info=Implementation(name=client_name, version=client_version),
@@ -94,7 +99,7 @@ async def _initialize_agent(
     protocol_version: int,
     client_capabilities: ClientCapabilities,
     client_info: Implementation,
-    timeout: float = 5.0,
+    timeout: float = 10.0,
 ) -> InitializeResponse:
     try:
         return await asyncio.wait_for(

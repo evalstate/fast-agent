@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from acp.exceptions import RequestError
 from acp.helpers import text_block
-from acp.schema import ClientCapabilities, FileSystemCapability, Implementation
+from acp.schema import ClientCapabilities, FileSystemCapabilities, Implementation
 from acp.stdio import spawn_agent_process
 
 TEST_DIR = Path(__file__).parent
@@ -69,7 +69,7 @@ async def test_acp_initialize_survives_missing_provider_keys_and_prompts_fail_la
             process,
             protocol_version=1,
             client_capabilities=ClientCapabilities(
-                fs=FileSystemCapability(read_text_file=True, write_text_file=True),
+                fs=FileSystemCapabilities(read_text_file=True, write_text_file=True),
                 terminal=False,
             ),
             client_info=Implementation(name="pytest-auth-client", version="0.0.1"),

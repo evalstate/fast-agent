@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 from acp.exceptions import RequestError
 from acp.helpers import text_block
-from acp.schema import ClientCapabilities, FileSystemCapability, Implementation
+from acp.schema import ClientCapabilities, FileSystemCapabilities, Implementation
 from acp.stdio import spawn_agent_process
 from mcp.types import TextContent
 
@@ -512,7 +512,7 @@ async def _initialize_connection(connection: "ClientSideConnection") -> None:
     await connection.initialize(
         protocol_version=1,
         client_capabilities=ClientCapabilities(
-            fs=FileSystemCapability(read_text_file=True, write_text_file=True),
+            fs=FileSystemCapabilities(read_text_file=True, write_text_file=True),
             terminal=False,
         ),
         client_info=Implementation(name="pytest-client", version="0.0.1"),

@@ -9,7 +9,7 @@ from acp.schema import (
     CreateTerminalResponse,
     DeniedOutcome,
     EnvVariable,
-    KillTerminalCommandResponse,
+    KillTerminalResponse,
     PermissionOption,
     ReadTextFileResponse,
     ReleaseTerminalResponse,
@@ -215,12 +215,12 @@ class TestClient(Client):
         session_id: str,
         terminal_id: str,
         **kwargs: Any,
-    ) -> KillTerminalCommandResponse | None:
+    ) -> KillTerminalResponse | None:
         """Kill a running terminal."""
         if terminal_id in self.terminals:
             self.terminals[terminal_id]["exit_code"] = -1
             self.terminals[terminal_id]["completed"] = True
-        return KillTerminalCommandResponse()
+        return KillTerminalResponse()
 
     async def ext_method(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         self.ext_calls.append((method, params))
