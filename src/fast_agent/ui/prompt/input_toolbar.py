@@ -119,6 +119,7 @@ def render_input_toolbar(
         current_input_text,
         model_name=agent_state.model_name,
         provider=getattr(active_llm, "provider", None),
+        cwd=shell_state.working_dir,
     )
     middle = _build_middle_segment(agent_state, shortcut_text, attachment_summary=attachment_summary)
     notification_segment = _build_notification_segment()

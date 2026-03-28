@@ -1489,6 +1489,27 @@ def test_resource_mention_local_file_completion_encodes_spaces() -> None:
     assert any(completion.text == "./two%20words.txt" for completion in completions)
 
 
+def test_resource_mention_local_file_completion_uses_completer_cwd() -> None:
+    with tempfile.TemporaryDirectory() as shell_dir, tempfile.TemporaryDirectory() as process_dir:
+        shell_base = Path(shell_dir)
+        process_base = Path(process_dir)
+        (shell_base / "shell note.txt").write_text("shell", encoding="utf-8")
+        (process_base / "process note.txt").write_text("process", encoding="utf-8")
+
+        completer = AgentCompleter(agents=["agent1"], cwd=shell_base)
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(process_base)
+            doc = Document("^file:./shell", cursor_position=len("^file:./shell"))
+            completions = list(completer.get_completions(doc, None))
+        finally:
+            os.chdir(original_cwd)
+
+    names = [completion.text for completion in completions]
+    assert "./shell%20note.txt" in names
+    assert "./process%20note.txt" not in names
+
+
 def test_resource_mention_url_completion_offers_http_schemes() -> None:
     completer = AgentCompleter(agents=["agent1"])
 
@@ -1517,6 +1538,27 @@ def test_attach_command_completion_offers_clear_and_paths() -> None:
 
     names = [completion.text for completion in completions]
     assert "'two words.pdf'" in names
+
+
+def test_attach_command_completion_uses_completer_cwd() -> None:
+    with tempfile.TemporaryDirectory() as shell_dir, tempfile.TemporaryDirectory() as process_dir:
+        shell_base = Path(shell_dir)
+        process_base = Path(process_dir)
+        (shell_base / "two words.pdf").write_bytes(b"%PDF-1.4")
+        (process_base / "temp.pdf").write_bytes(b"%PDF-1.4")
+
+        completer = AgentCompleter(agents=["agent1"], cwd=shell_base)
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(process_base)
+            doc = Document("/attach t", cursor_position=len("/attach t"))
+            completions = list(completer.get_completions(doc, None))
+        finally:
+            os.chdir(original_cwd)
+
+    names = [completion.text for completion in completions]
+    assert "'two words.pdf'" in names
+    assert "temp.pdf" not in names
 
 
 def test_attach_command_completion_offers_https_hint() -> None:

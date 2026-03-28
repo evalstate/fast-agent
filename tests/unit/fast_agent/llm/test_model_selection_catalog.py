@@ -136,6 +136,7 @@ def test_configured_providers_reads_config_keys() -> None:
 def test_configured_providers_does_not_treat_anthropic_vertex_as_base_provider(
     monkeypatch,
 ) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.setattr(
         "fast_agent.llm.provider.anthropic.vertex_config.detect_google_adc",
         lambda: GoogleAdcStatus(available=True, project_id="proj", credentials=object()),
@@ -154,6 +155,20 @@ def test_configured_providers_does_not_treat_anthropic_vertex_as_base_provider(
     )
 
     assert Provider.ANTHROPIC not in providers
+
+
+def test_configured_providers_reads_anthropic_vertex_env_only_setup(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "fast_agent.llm.provider.anthropic.vertex_config.detect_google_adc",
+        lambda: GoogleAdcStatus(available=True, project_id="proj", credentials=object()),
+    )
+    monkeypatch.setenv("ANTHROPIC_VERTEX_PROJECT_ID", "proj")
+
+    providers = ModelSelectionCatalog.configured_providers({})
+
+    assert Provider.ANTHROPIC_VERTEX in providers
 
 
 def test_configured_providers_reads_environment_keys() -> None:

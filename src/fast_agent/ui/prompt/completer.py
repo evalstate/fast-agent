@@ -68,11 +68,13 @@ class AgentCompleter(Completer):
         current_agent: str | None = None,
         agent_provider: "AgentApp | None" = None,
         noenv_mode: bool = False,
+        cwd: Path | None = None,
     ) -> None:
         self.agents = agents
         self.current_agent = current_agent
         self.agent_provider = agent_provider
         self.noenv_mode = noenv_mode
+        self.cwd = cwd
         # Map commands to their descriptions for better completion hints
         self.commands = {
             "mcp": "Manage MCP runtime servers (/mcp list|connect|disconnect|reconnect|session)",
@@ -157,6 +159,9 @@ class AgentCompleter(Completer):
 
         raw_dir = raw_dir or "."
         expanded_dir = Path(os.path.expandvars(os.path.expanduser(raw_dir)))
+        if not expanded_dir.is_absolute():
+            expanded_dir = (self.cwd or Path.cwd()) / expanded_dir
+        expanded_dir = expanded_dir.resolve(strict=False)
         if not expanded_dir.exists() or not expanded_dir.is_dir():
             return None
 
@@ -666,7 +671,9 @@ class AgentCompleter(Completer):
             from fast_agent.ui.prompt.attachment_tokens import normalize_local_attachment_reference
 
             try:
-                decoded_partial = str(normalize_local_attachment_reference(decoded_partial))
+                decoded_partial = str(
+                    normalize_local_attachment_reference(decoded_partial, cwd=self.cwd)
+                )
             except ValueError:
                 return []
 

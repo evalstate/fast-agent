@@ -3,6 +3,7 @@ import unittest
 from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, cast
 
+import pytest
 from mcp.types import (
     BlobResourceContents,
     CallToolResult,
@@ -13,6 +14,7 @@ from mcp.types import (
     TextContent,
     TextResourceContents,
 )
+from openai import AsyncOpenAI
 from pydantic import AnyUrl
 
 from fast_agent.llm.provider.openai import llm_openai
@@ -23,7 +25,11 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 if TYPE_CHECKING:
-    from openai.types.chat import ChatCompletionToolMessageParam, ChatCompletionUserMessageParam
+    from openai.types.chat import (
+        ChatCompletionMessageParam,
+        ChatCompletionToolMessageParam,
+        ChatCompletionUserMessageParam,
+    )
 
 
 def content_parts(message: Mapping[str, object]) -> list[dict[str, object]]:
@@ -224,6 +230,26 @@ class TestOpenAIUserConverter(unittest.TestCase):
         self.assertEqual(len(content_parts(openai_msg)), 1)
         self.assertEqual(content_parts(openai_msg)[0]["type"], "image_url")
         self.assertEqual(image_url_part(openai_msg)["url"], "https://example.com/image.jpg")
+
+    def test_document_resource_link_conversion(self):
+        """Test conversion of document ResourceLink to OpenAI file content."""
+        resource_link = ResourceLink(
+            uri=AnyUrl("https://example.com/report.pdf"),
+            type="resource_link",
+            mimeType="application/pdf",
+            name="report.pdf",
+        )
+        multipart = PromptMessageExtended(role="user", content=[resource_link])
+
+        openai_msgs = OpenAIConverter.convert_to_openai(multipart)
+        self.assertEqual(len(openai_msgs), 1)
+        openai_msg = openai_msgs[0]
+
+        self.assertEqual(openai_msg["role"], "user")
+        self.assertEqual(len(content_parts(openai_msg)), 1)
+        self.assertEqual(content_parts(openai_msg)[0]["type"], "file")
+        self.assertEqual(file_part(openai_msg)["filename"], "report.pdf")
+        self.assertEqual(file_part(openai_msg)["file_url"], "https://example.com/report.pdf")
 
     def test_multiple_content_blocks(self):
         """Test conversion of messages with multiple content blocks."""
@@ -660,3 +686,62 @@ class TestTextConcatenation(unittest.TestCase):
         self.assertEqual(content_parts(openai_msg)[0]["type"], "text")
         self.assertIn("Binary resource", text_part(openai_msg))
         self.assertIn("data.bin", text_part(openai_msg))
+
+
+@pytest.mark.asyncio
+async def test_normalize_chat_completion_files_uploads_remote_document(monkeypatch):
+    llm = llm_openai.OpenAILLM(Provider.OPENAI, model="gpt-4.1")
+    client = AsyncOpenAI(api_key="test")
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "file",
+                    "file": {
+                        "filename": "report.pdf",
+                        "file_url": "https://example.com/report.pdf",
+                    },
+                }
+            ],
+        }
+    ]
+
+    async def fake_download_remote_file(
+        file_url: str,
+    ) -> tuple[bytes | None, str | None]:
+        assert file_url == "https://example.com/report.pdf"
+        return b"%PDF-1.4 remote", "application/pdf"
+
+    async def fake_upload_file_bytes(
+        _client,
+        data: bytes,
+        filename: str | None,
+        mime_type: str | None,
+    ) -> str:
+        assert data == b"%PDF-1.4 remote"
+        assert filename == "report.pdf"
+        assert mime_type == "application/pdf"
+        return "file_remote_pdf"
+
+    monkeypatch.setattr(llm, "_download_remote_file", fake_download_remote_file)
+    monkeypatch.setattr(llm, "_upload_file_bytes", fake_upload_file_bytes)
+
+    normalized = await llm._normalize_chat_completion_files(
+        client,
+        cast("list[ChatCompletionMessageParam]", messages),
+    )
+
+    assert normalized == [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "file",
+                    "file": {
+                        "file_id": "file_remote_pdf",
+                    },
+                }
+            ],
+        }
+    ]

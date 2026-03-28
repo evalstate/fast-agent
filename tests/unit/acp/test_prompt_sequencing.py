@@ -51,6 +51,20 @@ class DummyApp:
     """Placeholder for AgentInstance.app (unused by AgentACPServer.prompt path)."""
 
 
+class CapturingConnection:
+    def __init__(self) -> None:
+        self.notifications: list[dict[str, Any]] = []
+
+    async def session_update(self, session_id: str, update: Any, **kwargs: Any) -> None:
+        self.notifications.append(
+            {
+                "session_id": session_id,
+                "update": update,
+                "kwargs": kwargs,
+            }
+        )
+
+
 @pytest.mark.asyncio
 async def test_overlapping_prompts_are_serialized() -> None:
     started1 = asyncio.Event()
@@ -170,3 +184,55 @@ async def test_cancelled_prompt_does_not_poison_next_acp_turn() -> None:
     proceed2.set()
     next_response = await asyncio.wait_for(next_task, timeout=1.0)
     assert next_response.stop_reason == "end_turn"
+
+
+@pytest.mark.asyncio
+async def test_prompt_message_id_is_acknowledged_in_response_and_updates() -> None:
+    started = asyncio.Event()
+    proceed = asyncio.Event()
+    proceed.set()
+
+    agent = DummyAgent(started_evt=started, proceed_evt=proceed, text="first")
+    agents: dict[str, "AgentProtocol"] = {"default": cast("AgentProtocol", agent)}
+    instance = AgentInstance(app=AgentApp(agents), agents=agents, registry_version=0)
+
+    async def create_instance() -> AgentInstance:
+        return instance
+
+    async def dispose_instance(_instance: AgentInstance) -> None:
+        return None
+
+    server = AgentACPServer(
+        primary_instance=instance,
+        create_instance=create_instance,
+        dispose_instance=dispose_instance,
+        instance_scope="shared",
+        server_name="test",
+        permissions_enabled=False,
+    )
+    connection = CapturingConnection()
+    server.on_connect(cast("Any", connection))
+
+    session_id = "s-3"
+    message_id = "0f7c7a2c-7db0-4b16-a4df-b8f4a98055a8"
+    server.sessions[session_id] = instance
+    server._session_state[session_id] = ACPSessionState(session_id=session_id, instance=instance)
+
+    response = await server.prompt(
+        prompt=[TextContentBlock(type="text", text="p1")],
+        session_id=session_id,
+        message_id=message_id,
+    )
+
+    assert response.stop_reason == "end_turn"
+    assert response.user_message_id == message_id
+
+    assert len(connection.notifications) == 2
+    user_update = connection.notifications[0]["update"]
+    assert user_update.session_update == "user_message_chunk"
+    assert user_update.message_id == message_id
+    assert user_update.content.text == "p1"
+
+    agent_update = connection.notifications[1]["update"]
+    assert agent_update.session_update == "agent_message_chunk"
+    assert agent_update.content.text == "first"

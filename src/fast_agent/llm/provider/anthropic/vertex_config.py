@@ -53,6 +53,14 @@ def _clean_str(value: Any) -> str | None:
     return stripped or None
 
 
+def _env_value(env_vars: tuple[str, ...]) -> str | None:
+    for env_var in env_vars:
+        value = _clean_str(os.getenv(env_var))
+        if value is not None:
+            return value
+    return None
+
+
 def anthropic_vertex_source(config: Any) -> Any:
     anthropic_cfg = _get_value(config, "anthropic")
     return _get_value(anthropic_cfg, "vertex_ai")
@@ -73,7 +81,14 @@ def anthropic_vertex_config(config: Any) -> AnthropicVertexConfig:
 
 def anthropic_vertex_intent(config: Any) -> bool:
     cfg = anthropic_vertex_config(config)
-    return bool(cfg.enabled or cfg.project_id or cfg.location or cfg.base_url)
+    return bool(
+        cfg.enabled
+        or cfg.project_id
+        or cfg.location
+        or cfg.base_url
+        or _env_value(_VERTEX_PROJECT_ENV_VARS)
+        or _env_value(_VERTEX_LOCATION_ENV_VARS)
+    )
 
 
 def anthropic_vertex_enabled(config: Any) -> bool:
@@ -104,10 +119,9 @@ def resolve_anthropic_vertex_project_id(
     if cfg.project_id is not None:
         return cfg.project_id
 
-    for env_var in _VERTEX_PROJECT_ENV_VARS:
-        value = _clean_str(os.getenv(env_var))
-        if value is not None:
-            return value
+    env_project = _env_value(_VERTEX_PROJECT_ENV_VARS)
+    if env_project is not None:
+        return env_project
 
     if adc_status is None:
         adc_status = detect_google_adc()
@@ -119,10 +133,9 @@ def resolve_anthropic_vertex_location(config: Any) -> str | None:
     if cfg.location is not None:
         return cfg.location
 
-    for env_var in _VERTEX_LOCATION_ENV_VARS:
-        value = _clean_str(os.getenv(env_var))
-        if value is not None:
-            return value
+    env_location = _env_value(_VERTEX_LOCATION_ENV_VARS)
+    if env_location is not None:
+        return env_location
 
     return "global"
 def anthropic_vertex_ready(

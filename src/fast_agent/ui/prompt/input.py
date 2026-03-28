@@ -642,6 +642,15 @@ def _resolve_shell_context(
     return shell_context, shell_agent
 
 
+def resolve_shell_working_dir(
+    *,
+    agent_name: str,
+    agent_provider: "AgentApp | None",
+) -> Path | None:
+    shell_context, _ = _resolve_shell_context(agent_name=agent_name, agent_provider=agent_provider)
+    return shell_context.working_dir
+
+
 def _build_prompt_text_resolver(
     *,
     session_factory: "Callable[[], PromptSession]",
@@ -936,6 +945,10 @@ async def get_enhanced_input(
             current_agent=agent_name,
             agent_provider=agent_provider,
             noenv_mode=noenv_mode,
+            cwd=resolve_shell_working_dir(
+                agent_name=agent_name,
+                agent_provider=agent_provider,
+            ),
         ),
         lexer=ShellPrefixLexer(),
         multiline_filter=Condition(lambda: in_multiline_mode),

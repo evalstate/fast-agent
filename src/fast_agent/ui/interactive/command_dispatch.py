@@ -83,6 +83,8 @@ from .command_context import build_command_context, emit_command_outcome
 from .mcp_connect_flow import handle_mcp_connect
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.ui.interactive_prompt import InteractivePrompt
 
@@ -142,6 +144,7 @@ async def _dispatch_local_ui_payload(
     available_agents_set: set[str],
     agent_name: str,
     buffer_prefill: str,
+    shell_working_dir: Path | None = None,
 ) -> DispatchResult | None:
     result = DispatchResult(handled=True)
     match payload:
@@ -199,7 +202,10 @@ async def _dispatch_local_ui_payload(
                             normalize_remote_attachment_reference(raw_path)
                         )
                     else:
-                        attachment_path = normalize_local_attachment_reference(raw_path)
+                        attachment_path = normalize_local_attachment_reference(
+                            raw_path,
+                            cwd=shell_working_dir,
+                        )
                         if not attachment_path.exists():
                             raise FileNotFoundError(raw_path)
                         if not attachment_path.is_file():
@@ -782,6 +788,7 @@ async def dispatch_command_payload(
     available_agents_set: set[str],
     merge_pinned_agents: Callable[[list[str]], list[str]],
     buffer_prefill: str = "",
+    shell_working_dir: Path | None = None,
 ) -> DispatchResult:
     del available_agents
 
@@ -791,6 +798,7 @@ async def dispatch_command_payload(
         available_agents_set=available_agents_set,
         agent_name=agent,
         buffer_prefill=buffer_prefill,
+        shell_working_dir=shell_working_dir,
     )
     if local_result is not None:
         return local_result

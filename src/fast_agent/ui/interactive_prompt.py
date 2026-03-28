@@ -61,6 +61,7 @@ from fast_agent.ui.enhanced_prompt import (
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 from fast_agent.ui.interactive_shell import ShellExecutionResult, run_interactive_shell_command
 from fast_agent.ui.progress_display import progress_display
+from fast_agent.ui.prompt.input import resolve_shell_working_dir
 from fast_agent.ui.prompt.resource_mentions import (
     build_prompt_with_resources,
     parse_mentions,
@@ -737,6 +738,10 @@ class InteractivePrompt:
                         pinned_agent=pinned_agent,
                     ),
                     buffer_prefill=buffer_prefill,
+                    shell_working_dir=resolve_shell_working_dir(
+                        agent_name=agent_state.current_agent,
+                        agent_provider=prompt_provider,
+                    ),
                 )
             except KeyboardInterrupt:
                 self._handle_ctrl_c_interrupt(
@@ -871,7 +876,10 @@ class InteractivePrompt:
         user_input: str,
     ) -> str | PromptMessageExtended | None:
         prompt_payload: str | PromptMessageExtended = user_input
-        parsed_mentions = parse_mentions(user_input)
+        parsed_mentions = parse_mentions(
+            user_input,
+            cwd=resolve_shell_working_dir(agent_name=agent_name, agent_provider=prompt_provider),
+        )
         for warning in parsed_mentions.warnings:
             rich_print(f"[yellow]{warning}[/yellow]")
 

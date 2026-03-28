@@ -2129,6 +2129,23 @@ class AgentACPServer(ACPAgent):
                 self._prompt_locks[session_id] = lock
             return lock
 
+    async def _send_prompt_user_updates(
+        self,
+        *,
+        session_id: str,
+        prompt: Sequence[ACPContentBlock],
+        message_id: str | None,
+    ) -> None:
+        """Acknowledge the accepted user turn through session updates."""
+        if not self._connection:
+            return
+
+        for block in prompt:
+            update = update_user_message(block)
+            if message_id:
+                update.message_id = message_id
+            await self._connection.session_update(session_id=session_id, update=update)
+
     async def _prompt_locked(
         self,
         prompt: list[ACPContentBlock],
@@ -2183,6 +2200,20 @@ class AgentACPServer(ACPAgent):
 
             # Inline resource URIs for slash commands (e.g., /card @file.txt)
             processed_prompt = inline_resources_for_slash_command(prompt)
+
+            if self._connection and processed_prompt:
+                try:
+                    await self._send_prompt_user_updates(
+                        session_id=session_id,
+                        prompt=processed_prompt,
+                        message_id=message_id,
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Error sending prompt acknowledgement update: {e}",
+                        name="acp_prompt_ack_update_error",
+                        exc_info=True,
+                    )
 
             # Convert ACP content blocks to MCP format
             mcp_content_blocks = convert_acp_prompt_to_mcp_content_blocks(processed_prompt)
@@ -2252,7 +2283,10 @@ class AgentACPServer(ACPAgent):
                         )
 
                 # Return success
-                return PromptResponse(stop_reason=END_TURN)
+                return PromptResponse(
+                    stop_reason=END_TURN,
+                    user_message_id=message_id,
+                )
 
             logger.info(
                 "Sending prompt to fast-agent",
@@ -2512,6 +2546,7 @@ class AgentACPServer(ACPAgent):
             return PromptResponse(
                 stop_reason=acp_stop_reason,
                 field_meta=status_line_meta,
+                user_message_id=message_id,
             )
         except asyncio.CancelledError:
             # Task was cancelled - return appropriate response
@@ -2522,7 +2557,10 @@ class AgentACPServer(ACPAgent):
                 name="acp_prompt_cancelled",
                 session_id=session_id,
             )
-            return PromptResponse(stop_reason="cancelled")
+            return PromptResponse(
+                stop_reason="cancelled",
+                user_message_id=message_id,
+            )
         finally:
             # Always remove session from active prompts and cleanup task
             write_interactive_trace("acp.prompt.finally", session_id=session_id)

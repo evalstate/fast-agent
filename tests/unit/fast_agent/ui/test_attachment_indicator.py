@@ -77,6 +77,21 @@ def test_summarize_draft_attachments_marks_remote_office_doc_questionable_for_an
     )
 
 
+def test_summarize_draft_attachments_marks_remote_office_doc_questionable_for_openai_chat() -> None:
+    summary = summarize_draft_attachments(
+        "describe ^url:https://example.com/report.docx",
+        model_name="gpt-4.1",
+        provider=Provider.OPENAI,
+    )
+
+    assert summary is not None
+    assert summary.count == 1
+    assert summary.any_questionable is True
+    assert summary.mime_types == (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+
+
 def test_summarize_draft_attachments_marks_unknown_remote_url_questionable() -> None:
     summary = summarize_draft_attachments(
         "describe ^url:https://example.com/download",

@@ -358,3 +358,26 @@ def test_snapshot_disables_anthropic_vertex_group_when_adc_missing(monkeypatch) 
 
     assert option.active is False
     assert option.disabled_reason == "Google ADC not found"
+
+
+def test_snapshot_adds_anthropic_vertex_group_for_env_only_setup(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "fast_agent.llm.provider.anthropic.vertex_config.detect_google_adc",
+        lambda: types.SimpleNamespace(
+            available=True,
+            project_id="proj",
+            credentials=object(),
+        ),
+    )
+    monkeypatch.setenv("ANTHROPIC_VERTEX_PROJECT_ID", "proj")
+
+    snapshot = build_snapshot(config_payload={})
+
+    option = next(
+        provider
+        for provider in snapshot.providers
+        if provider.option_key == ANTHROPIC_VERTEX_PROVIDER_KEY
+    )
+
+    assert option.active is True
+    assert all(entry.model.startswith("anthropic-vertex.") for entry in option.curated_entries)

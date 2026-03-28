@@ -230,7 +230,13 @@ def _render_template_uri(template_uri: str, args: dict[str, str]) -> str:
     return _PLACEHOLDER_RE.sub(_replace, template_uri)
 
 
-def _parse_token(token: str, *, start: int, end: int) -> ParsedMention | None:
+def _parse_token(
+    token: str,
+    *,
+    start: int,
+    end: int,
+    cwd: Path | None = None,
+) -> ParsedMention | None:
     if not token.startswith("^"):
         return None
 
@@ -245,7 +251,7 @@ def _parse_token(token: str, *, start: int, end: int) -> ParsedMention | None:
         return None
 
     if server_name == FILE_MENTION_SERVER:
-        resource_uri = str(normalize_local_attachment_reference(resource_expr))
+        resource_uri = str(normalize_local_attachment_reference(resource_expr, cwd=cwd))
     elif server_name == URL_MENTION_SERVER:
         resource_uri = normalize_remote_attachment_reference(resource_expr)
     else:
@@ -261,7 +267,7 @@ def _parse_token(token: str, *, start: int, end: int) -> ParsedMention | None:
     )
 
 
-def parse_mentions(text: str) -> ParsedMentions:
+def parse_mentions(text: str, *, cwd: Path | None = None) -> ParsedMentions:
     """Parse supported resource mentions from text and strip them from the sent message body."""
     mentions: list[ParsedMention] = []
     warnings: list[str] = []
@@ -277,7 +283,7 @@ def parse_mentions(text: str) -> ParsedMentions:
 
         parsed: ParsedMention | None
         try:
-            parsed = _parse_token(token, start=token_start, end=token_end)
+            parsed = _parse_token(token, start=token_start, end=token_end, cwd=cwd)
         except (ResourceMentionError, ValueError) as exc:
             parsed = None
             warnings.append(f"Malformed resource mention '{token}': {exc}")
@@ -377,9 +383,9 @@ def build_prompt_with_resources(
     return PromptMessageExtended(role="user", content=content)
 
 
-def mentions_in_text(text: str) -> Sequence[ParsedMention]:
+def mentions_in_text(text: str, *, cwd: Path | None = None) -> Sequence[ParsedMention]:
     """Convenience helper primarily for tests."""
-    return parse_mentions(text).mentions
+    return parse_mentions(text, cwd=cwd).mentions
 
 
 def _resolve_local_content_block(path_text: str) -> ContentBlock:

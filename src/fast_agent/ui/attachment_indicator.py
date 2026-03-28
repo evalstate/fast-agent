@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from fast_agent.llm.model_database import ModelDatabase
+from fast_agent.llm.model_info import ModelInfo
 from fast_agent.mcp.helpers.content_helpers import resource_link
 from fast_agent.mcp.mime_utils import guess_mime_type
 
@@ -31,11 +31,12 @@ def summarize_draft_attachments(
     *,
     model_name: str | None,
     provider: Provider | None = None,
+    cwd: Path | None = None,
 ) -> DraftAttachmentSummary | None:
     from fast_agent.ui.prompt.attachment_tokens import FILE_MENTION_SERVER, URL_MENTION_SERVER
     from fast_agent.ui.prompt.resource_mentions import parse_mentions
 
-    parsed = parse_mentions(text)
+    parsed = parse_mentions(text, cwd=cwd)
     attachment_mentions = [
         mention
         for mention in parsed.mentions
@@ -44,6 +45,7 @@ def summarize_draft_attachments(
     if not attachment_mentions:
         return None
 
+    model_info = ModelInfo.from_name(model_name, provider=provider) if model_name else None
     mime_types: list[str] = []
     any_questionable = False
     for mention in attachment_mentions:
@@ -53,10 +55,8 @@ def summarize_draft_attachments(
             if mime_type == "application/octet-stream":
                 any_questionable = True
                 continue
-            if model_name and not ModelDatabase.supports_mime(
-                model_name,
+            if model_info and not model_info.supports_mime(
                 mime_type,
-                provider=provider,
                 resource_source="link",
             ):
                 any_questionable = True
@@ -77,10 +77,8 @@ def summarize_draft_attachments(
         if mime_type == "application/octet-stream":
             any_questionable = True
             continue
-        if model_name and not ModelDatabase.supports_mime(
-            model_name,
+        if model_info and not model_info.supports_mime(
             mime_type,
-            provider=provider,
             resource_source="embedded",
         ):
             any_questionable = True

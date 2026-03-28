@@ -98,6 +98,19 @@ def test_parse_mentions_normalizes_local_file_paths(
     assert parsed.mentions[0].resource_uri == str(report.resolve())
 
 
+def test_parse_mentions_normalizes_local_file_paths_from_explicit_cwd(tmp_path) -> None:
+    working_dir = tmp_path / "shell-cwd"
+    working_dir.mkdir()
+    report = working_dir / "report.pdf"
+    report.write_bytes(b"%PDF-1.4")
+
+    parsed = parse_mentions("Summarize ^file:./report.pdf", cwd=working_dir)
+
+    assert len(parsed.mentions) == 1
+    assert parsed.mentions[0].server_name == "file"
+    assert parsed.mentions[0].resource_uri == str(report.resolve())
+
+
 def test_parse_mentions_normalizes_remote_urls() -> None:
     parsed = parse_mentions("Describe ^url:https://example.com/image.png?size=full")
 
