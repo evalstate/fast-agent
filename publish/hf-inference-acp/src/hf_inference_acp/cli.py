@@ -28,6 +28,7 @@ from fast_agent.cli.commands.go import (
 from fast_agent.cli.commands.server_helpers import add_servers_to_config, generate_server_name
 from fast_agent.cli.commands.url_parser import generate_server_configs, parse_server_urls
 from fast_agent.core.agent_card_validation import collect_agent_card_names, find_loaded_agent_issues
+from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
@@ -43,8 +44,26 @@ from hf_inference_acp.hf_config import (
 )
 from hf_inference_acp.wizard import WizardSetupLLM
 
-# Register wizard-setup model locally
-ModelFactory.register_runtime_model("wizard-setup", provider=Provider.FAST_AGENT, llm_class=WizardSetupLLM)
+
+def _register_wizard_setup_model() -> None:
+    """Register the local wizard model across fast-agent versions."""
+    register_runtime_model = getattr(ModelFactory, "register_runtime_model", None)
+    if callable(register_runtime_model):
+        register_runtime_model(
+            "wizard-setup",
+            provider=Provider.FAST_AGENT,
+            llm_class=WizardSetupLLM,
+        )
+        return
+
+    ModelFactory.MODEL_SPECIFIC_CLASSES["wizard-setup"] = WizardSetupLLM
+    ModelDatabase.register_runtime_model_params(
+        "wizard-setup",
+        ModelDatabase.FAST_AGENT_STANDARD.model_copy(),
+    )
+
+
+_register_wizard_setup_model()
 
 app = typer.Typer(
     help="Run the Hugging Face Inference ACP agent over stdio.",

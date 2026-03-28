@@ -25,7 +25,7 @@ import re
 import subprocess
 import sys
 from dataclasses import asdict, dataclass, field
-from typing import Optional
+from typing import Optional, cast
 from urllib.parse import quote, urlparse
 
 JsonValue = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
@@ -120,12 +120,25 @@ def run_gh_jsonlines(args: list[str], check: bool = True) -> list[dict]:
     return out
 
 
+def _ensure_json_value(value: object, label: str) -> JsonValue:
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    if isinstance(value, list):
+        return [_ensure_json_value(item, f"{label}[]") for item in value]
+    if isinstance(value, dict):
+        return _ensure_json_dict(value, label)
+    raise ValueError(f"Expected JSON-compatible value for {label}")
+
+
 def _ensure_json_dict(value: object, label: str) -> JsonDict:
     if not isinstance(value, dict):
         raise ValueError(f"Expected object for {label}")
     if not all(isinstance(key, str) for key in value.keys()):
         raise ValueError(f"Expected string keys for {label}")
-    return {str(key): val for key, val in value.items()}
+    return cast(
+        "JsonDict",
+        {str(key): _ensure_json_value(val, f"{label}.{key}") for key, val in value.items()},
+    )
 
 
 def _get_required_str(data: JsonDict, key: str) -> str:
