@@ -268,6 +268,48 @@ def _decorator_impl(
         for key, value in extra_kwargs.items():
             setattr(func, f"_{key}", value)
 
+        @overload
+        def _agent_tool(fn: Callable[..., Any], /) -> Callable[..., Any]: ...
+
+        @overload
+        def _agent_tool(
+            *, name: str | None = None, description: str | None = None
+        ) -> Callable[[Callable[..., Any]], Callable[..., Any]]: ...
+
+        def _agent_tool(
+            fn: Callable[..., Any] | None = None,
+            /,
+            *,
+            name: str | None = None,
+            description: str | None = None,
+        ) -> Callable[..., Any] | Callable[[Callable[..., Any]], Callable[..., Any]]:
+            """Register a tool scoped to this agent.
+
+            Supports bare and parameterized usage::
+
+                @my_agent.tool
+                def helper() -> str: ...
+
+                @my_agent.tool(name="add", description="Add two numbers")
+                def add(a: int, b: int) -> int: ...
+            """
+
+            def _register(f: Callable[..., Any]) -> Callable[..., Any]:
+                if name is not None:
+                    f._fast_tool_name = name  # type: ignore[attr-defined]
+                if description is not None:
+                    f._fast_tool_description = description  # type: ignore[attr-defined]
+                if config.function_tools is None:
+                    config.function_tools = []
+                config.function_tools.append(f)
+                return f
+
+            if fn is not None:
+                return _register(fn)
+            return _register
+
+        func.tool = _agent_tool  # type: ignore[attr-defined]
+
         return func
 
     return decorator

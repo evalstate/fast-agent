@@ -603,9 +603,27 @@ agent["greeter"].send("Good Evening!")          # Dictionary access is supported
 )
 ```
 
-### Function Tools (`@fast.tool`)
+### Function Tools
 
-Register Python functions as tools directly in code using the `@fast.tool` decorator. These tools are available to all agents by default, without needing an MCP server or external file.
+Register Python functions as tools directly in code — no MCP server or external file needed. Both sync and async functions are supported. The function name and docstring are used as the tool name and description by default, or you can override them with `name=` and `description=`.
+
+**Per-agent tools (`@agent.tool`)** — scope a tool to a specific agent:
+
+```python
+@fast.agent(name="writer", instruction="You write things.")
+async def writer(): ...
+
+@writer.tool
+def translate(text: str, language: str) -> str:
+    """Translate text to the given language."""
+    return f"[{language}] {text}"
+
+@writer.tool(name="summarize", description="Produce a one-line summary")
+def summarize(text: str) -> str:
+    return f"Summary: {text[:80]}..."
+```
+
+**Global tools (`@fast.tool`)** — available to all agents that don't declare their own tools:
 
 ```python
 @fast.tool
@@ -613,25 +631,11 @@ def get_weather(city: str) -> str:
     """Return the current weather for a city."""
     return f"Sunny in {city}"
 
-@fast.tool(name="add", description="Add two numbers")
-def add_numbers(a: int, b: int) -> int:
-    return a + b
-```
-
-Both sync and async functions are supported. The function name and docstring are used as the tool name and description by default, or you can override them with `name=` and `description=`.
-
-**Scoping:** `@fast.tool` tools are global by default. If an agent declares an explicit `function_tools=` list, only those tools are available to that agent:
-
-```python
-def multiply(a: int, b: int) -> int:
-    return a * b
-
 @fast.agent(name="assistant", instruction="You are helpful.")
-# assistant gets get_weather and add (global @fast.tool tools)
-
-@fast.agent(name="calc", instruction="Math only.", function_tools=[multiply])
-# calc only gets multiply (explicit list overrides globals)
+# assistant gets get_weather (global @fast.tool)
 ```
+
+Agents with `@agent.tool` or `function_tools=` only see their own tools — globals are not injected. Use `function_tools=[]` to explicitly opt out of globals with no tools.
 
 ### Multimodal Support
 

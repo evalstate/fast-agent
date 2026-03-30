@@ -128,12 +128,12 @@ def _resolve_function_tools_with_globals(
 ) -> list[FunctionTool]:
     """Load per-agent function tools, falling back to global @fast.tool tools.
 
-    If the agent has explicit function_tools configured, only those are used.
-    Otherwise, globally registered tools from ``@fast.tool`` are provided.
+    If the agent has explicit function_tools configured (including an empty list),
+    only those are used.  Otherwise, globally registered tools from ``@fast.tool``
+    are provided.
     """
-    explicit_tools = _load_configured_function_tools(config, agent_data)
-    if explicit_tools:
-        return explicit_tools
+    if config.function_tools is not None or agent_data.get("function_tools") is not None:
+        return _load_configured_function_tools(config, agent_data)
 
     global_tools = getattr(build_ctx.app_instance, "_registered_tools", None)
     if global_tools:

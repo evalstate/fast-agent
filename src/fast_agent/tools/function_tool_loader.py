@@ -167,7 +167,11 @@ def load_function_tools(
     for tool_spec in tools_config:
         try:
             if callable(tool_spec):
-                result.append(build_default_function_tool(tool_spec))
+                tool_name = getattr(tool_spec, "_fast_tool_name", None)
+                tool_desc = getattr(tool_spec, "_fast_tool_description", None)
+                result.append(
+                    build_default_function_tool(tool_spec, name=tool_name, description=tool_desc)
+                )
             elif isinstance(tool_spec, str):
                 result.append(
                     build_default_function_tool(load_function_from_spec(tool_spec, base_path))
