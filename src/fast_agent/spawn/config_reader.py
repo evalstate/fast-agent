@@ -191,6 +191,24 @@ def get_skills(skills_dir: str | Path, *names: str):
 
 
 def get_default_model(project_dir: str | Path) -> str:
-    """Get default model from config."""
+    """Get default model from config.
+
+    Checks the given project_dir first, then SPAWN_PROJECT_DIR (parent config),
+    then falls back to gpt-5-mini.
+    """
+    import os
+
     config = _load_config(project_dir)
-    return config.get("default_model", "gpt-4o-mini")
+    model = config.get("default_model")
+    if model:
+        return model
+
+    # If running as a spawned process, check parent project config
+    spawn_dir = os.environ.get("SPAWN_PROJECT_DIR")
+    if spawn_dir and str(Path(spawn_dir).resolve()) != str(Path(project_dir).resolve()):
+        parent_config = _load_config(spawn_dir)
+        model = parent_config.get("default_model")
+        if model:
+            return model
+
+    return "gpt-5-mini"

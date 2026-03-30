@@ -5,7 +5,11 @@ Therefore all state is FILE-BASED (shared workspace directory). Turn
 coordination uses file polling instead of ``asyncio.Event``, since agents
 run as separate processes.
 
-Storage layout::
+Storage & hooks are **pluggable** via ``configure_meeting_room()``.  By
+default the library uses ``JsonFileMeetingStorage`` and no-op hooks so it
+works standalone without any configuration.
+
+Storage layout (default JSON backend)::
 
     workspace/meetings/{meeting_id}/
         config.json       — meeting configuration
@@ -20,19 +24,23 @@ Turn wait: polling ``state.json`` every 2 s (acceptable for LLM interactions).
 from __future__ import annotations
 
 import asyncio
-import fcntl
 import json
 import logging
 import os
 import re
 import time
 import uuid
-from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
+
+from fast_agent.spawn.servers.meeting_hooks import MeetingHooks
+from fast_agent.spawn.servers.meeting_storage import (
+    JsonFileMeetingStorage,
+    MeetingStorage,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -40,54 +48,53 @@ mcp = FastMCP("meeting-room")
 
 
 # ───────────────────────────────────────────────────────────────────
-# File-based state helpers
+# Pluggable storage + hooks — module-level singletons
 # ───────────────────────────────────────────────────────────────────
 
-
-def _get_meeting_dir(meeting_id: str) -> Path:
-    """Get meeting directory from env-based workspace."""
-    workspace = os.environ.get("TEAM_WORKSPACE", "")
-    if not workspace:
-        # Fallback: use .runtime/ under current working directory
-        workspace = str(Path.cwd() / ".runtime" / "cache" / "tmp" / "meeting-workspace")
-    return Path(workspace) / "meetings" / meeting_id
+_storage: MeetingStorage = JsonFileMeetingStorage()
+_hooks: MeetingHooks = MeetingHooks()  # NoOp by default
 
 
-@contextmanager
-def _file_lock(meeting_dir: Path):  # type: ignore[no-untyped-def]
-    """Acquire exclusive file lock on the meeting directory."""
-    lock_path = meeting_dir / ".lock"
-    lock_path.touch(exist_ok=True)
-    fd = open(lock_path, "w")  # noqa: SIM115
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        yield
-    finally:
-        fcntl.flock(fd, fcntl.LOCK_UN)
-        fd.close()
+def configure_meeting_room(
+    storage: MeetingStorage | None = None,
+    hooks: MeetingHooks | None = None,
+) -> None:
+    """Override the storage backend and/or lifecycle hooks.
+
+    This is **optional** — the library works without calling this.
+    Host applications call this during startup to inject custom
+    implementations (e.g. SQLite storage, SSE broadcast hooks).
+    """
+    global _storage, _hooks
+    if storage is not None:
+        _storage = storage
+    if hooks is not None:
+        _hooks = hooks
 
 
-def _read_json(path: Path) -> dict[str, Any] | list[Any]:
-    """Read a JSON file, return empty dict if not found."""
-    if not path.exists():
-        return {}
-    return json.loads(path.read_text(encoding="utf-8"))
+def _fire_hook(hook_name: str, *args: Any) -> None:
+    """Safely invoke a hook callback if it is set."""
+    fn = getattr(_hooks, hook_name, None)
+    if fn is not None:
+        try:
+            fn(*args)
+        except Exception as e:
+            logger.warning("Meeting hook %s failed: %s", hook_name, e)
 
 
-def _write_json(path: Path, data: Any) -> None:
-    """Write data as JSON."""
-    path.write_text(
-        json.dumps(data, indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
-
-
-def _audit(meeting_dir: Path, message: str) -> None:
-    """Append to the audit log."""
-    audit_path = meeting_dir / "audit.log"
-    ts = datetime.now().isoformat(timespec="seconds")
-    with open(audit_path, "a", encoding="utf-8") as f:
-        f.write(f"[{ts}] {message}\n")
+def _audit(meeting_id: str, message: str) -> None:
+    """Append to the audit log (file-based, kept for backward compat)."""
+    # For JsonFileMeetingStorage, also write the audit.log file
+    if isinstance(_storage, JsonFileMeetingStorage):
+        d = _storage._meeting_dir(meeting_id)
+        audit_path = d / "audit.log"
+        ts = datetime.now().isoformat(timespec="seconds")
+        try:
+            with open(audit_path, "a", encoding="utf-8") as f:
+                f.write(f"[{ts}] {message}\n")
+        except OSError:
+            pass
+    _fire_hook("on_audit", meeting_id, message)
 
 
 def _notify_turn_agent(
@@ -105,8 +112,8 @@ def _notify_turn_agent(
             f"Meeting: {meeting_id}\n"
             f"Agenda: {agenda}\n"
             f"Round: {round_num}\n\n"
-            f"→ get_transcript(meeting_id=\"{meeting_id}\")\n"
-            f"→ speak(meeting_id=\"{meeting_id}\", message=\"...\")"
+            f'→ get_transcript(meeting_id="{meeting_id}")\n'
+            f'→ speak(meeting_id="{meeting_id}", message="...")'
         )
         bus.send(
             from_name="Meeting Room",
@@ -161,8 +168,6 @@ async def create_meeting(
         return json.dumps({"error": "Need at least 2 participants"})
 
     meeting_id = f"mtg_{uuid.uuid4().hex[:8]}"
-    meeting_dir = Path(workspace_dir) / "meetings" / meeting_id
-    meeting_dir.mkdir(parents=True, exist_ok=True)
 
     config = {
         "meeting_id": meeting_id,
@@ -172,7 +177,6 @@ async def create_meeting(
         "created_by": my_name,
         "created_at": datetime.now().isoformat(),
     }
-    _write_json(meeting_dir / "config.json", config)
 
     state: dict[str, Any] = {
         "current_turn": 0,
@@ -182,14 +186,17 @@ async def create_meeting(
         "outcome": None,
         "started": False,
     }
-    _write_json(meeting_dir / "state.json", state)
-    _write_json(meeting_dir / "transcript.json", [])
+
+    _storage.create_meeting(meeting_id, config, state)
 
     _audit(
-        meeting_dir,
+        meeting_id,
         f"Meeting created by {my_name}: agenda='{agenda}', "
         f"participants={participant_list}, max_rounds={max_rounds}",
     )
+
+    _fire_hook("on_meeting_created", meeting_id, config)
+    _fire_hook("on_state_changed", meeting_id, state)
 
     # ── Auto-invite all participants ──────────────────────────────
     bus = _get_bus()
@@ -205,8 +212,8 @@ async def create_meeting(
                 f"Meeting ID: {meeting_id}\n"
                 f"Participants: {participant_names}\n"
                 f"Created by: {my_name}\n\n"
-                f"→ To join: join_meeting(meeting_id=\"{meeting_id}\", "
-                f"agent_name=\"{participant}\")\n"
+                f'→ To join: join_meeting(meeting_id="{meeting_id}", '
+                f'agent_name="{participant}")\n'
                 f"You will receive a 🎙️ YOUR TURN notification when it's your turn to speak."
             )
             bus.send(
@@ -246,19 +253,14 @@ async def join_meeting(meeting_id: str, agent_name: str = "") -> str:
         JSON with meeting config and join status.
     """
     agent_name = agent_name or _get_my_name()
-    meeting_dir = _get_meeting_dir(meeting_id)
 
-    if not meeting_dir.exists():
+    if not _storage.meeting_exists(meeting_id):
         return json.dumps({"error": f"Meeting '{meeting_id}' not found"})
 
-    config = _read_json(meeting_dir / "config.json")
-    if not isinstance(config, dict):
-        config = {}
+    config = _storage.get_config(meeting_id) or {}
 
-    with _file_lock(meeting_dir):
-        state = _read_json(meeting_dir / "state.json")
-        if not isinstance(state, dict):
-            state = {}
+    with _storage.acquire_lock(meeting_id):
+        state = _storage.get_state(meeting_id) or {}
 
         if state.get("ended"):
             return json.dumps(
@@ -277,22 +279,26 @@ async def join_meeting(meeting_id: str, agent_name: str = "") -> str:
         if agent_name not in participants:
             participants.append(agent_name)
             config["participants"] = participants
-            _write_json(meeting_dir / "config.json", config)
+            _storage.update_config(meeting_id, config)
 
         all_joined = all(p in joined for p in participants)
         if all_joined:
             state["started"] = True
             state["turn_started_at"] = time.time()
 
-        _write_json(meeting_dir / "state.json", state)
+        _storage.update_state(meeting_id, state)
 
-    _audit(meeting_dir, f"{agent_name} joined the meeting")
+    _audit(meeting_id, f"{agent_name} joined the meeting")
+    _fire_hook("on_participant_joined", meeting_id, agent_name, all_joined)
+    _fire_hook("on_state_changed", meeting_id, state)
+
     if all_joined:
         first_speaker = participants[0]
         _audit(
-            meeting_dir,
+            meeting_id,
             f"All participants joined. Meeting started. First turn: {first_speaker}",
         )
+        _fire_hook("on_meeting_started", meeting_id)
         # Wake first speaker — even if their wait_for_my_turn already timed out
         _notify_turn_agent(
             meeting_id, first_speaker, config.get("agenda", ""), 1
@@ -329,28 +335,22 @@ async def wait_for_my_turn(meeting_id: str, agent_name: str = "") -> str:
         JSON with status: "your_turn", "not_your_turn", or "meeting_ended".
     """
     agent_name = agent_name or _get_my_name()
-    meeting_dir = _get_meeting_dir(meeting_id)
-    if not meeting_dir.exists():
+
+    if not _storage.meeting_exists(meeting_id):
         return json.dumps({"error": f"Meeting '{meeting_id}' not found"})
 
-    config = _read_json(meeting_dir / "config.json")
-    if not isinstance(config, dict):
-        config = {}
+    config = _storage.get_config(meeting_id) or {}
     participants: list[str] = config.get("participants", [])
 
     if agent_name not in participants:
         return json.dumps({"error": (f"'{agent_name}' not in meeting participants: {participants}")})
 
     my_index = participants.index(agent_name)
-    state = _read_json(meeting_dir / "state.json")
-    if not isinstance(state, dict):
-        state = {}
+    state = _storage.get_state(meeting_id) or {}
 
     # Meeting ended?
     if state.get("ended"):
-        transcript = _read_json(meeting_dir / "transcript.json")
-        if not isinstance(transcript, list):
-            transcript = []
+        transcript = _storage.get_transcript(meeting_id)
         cursors: dict[str, int] = state.get("read_cursors", {})
         last_read = cursors.get(agent_name, 0)
         unread = transcript[last_read:]
@@ -424,21 +424,15 @@ async def get_transcript(meeting_id: str, agent_name: str = "") -> str:
         JSON with new_messages (unread) and total_count.
     """
     agent_name = agent_name or _get_my_name()
-    meeting_dir = _get_meeting_dir(meeting_id)
-    if not meeting_dir.exists():
+
+    if not _storage.meeting_exists(meeting_id):
         return json.dumps({"error": f"Meeting '{meeting_id}' not found"})
 
-    config = _read_json(meeting_dir / "config.json")
-    if not isinstance(config, dict):
-        config = {}
-    transcript = _read_json(meeting_dir / "transcript.json")
-    if not isinstance(transcript, list):
-        transcript = []
+    config = _storage.get_config(meeting_id) or {}
+    transcript = _storage.get_transcript(meeting_id)
 
-    with _file_lock(meeting_dir):
-        state = _read_json(meeting_dir / "state.json")
-        if not isinstance(state, dict):
-            state = {}
+    with _storage.acquire_lock(meeting_id):
+        state = _storage.get_state(meeting_id) or {}
 
         cursors: dict[str, int] = state.get("read_cursors", {})
         last_read = cursors.get(agent_name, 0)
@@ -447,7 +441,7 @@ async def get_transcript(meeting_id: str, agent_name: str = "") -> str:
         # Advance cursor — agent has now "seen" everything up to this point
         cursors[agent_name] = len(transcript)
         state["read_cursors"] = cursors
-        _write_json(meeting_dir / "state.json", state)
+        _storage.update_state(meeting_id, state)
 
     return json.dumps(
         {
@@ -487,20 +481,16 @@ async def speak(meeting_id: str, message: str, agent_name: str = "") -> str:
         JSON with confirmation and next turn info.
     """
     agent_name = agent_name or _get_my_name()
-    meeting_dir = _get_meeting_dir(meeting_id)
-    if not meeting_dir.exists():
+
+    if not _storage.meeting_exists(meeting_id):
         return json.dumps({"error": f"Meeting '{meeting_id}' not found"})
 
-    config = _read_json(meeting_dir / "config.json")
-    if not isinstance(config, dict):
-        config = {}
+    config = _storage.get_config(meeting_id) or {}
     participants: list[str] = config.get("participants", [])
     max_rounds = config.get("max_rounds", 3)
 
-    with _file_lock(meeting_dir):
-        state = _read_json(meeting_dir / "state.json")
-        if not isinstance(state, dict):
-            state = {}
+    with _storage.acquire_lock(meeting_id):
+        state = _storage.get_state(meeting_id) or {}
 
         if state.get("ended"):
             return json.dumps({"error": "Meeting already ended"})
@@ -515,9 +505,7 @@ async def speak(meeting_id: str, message: str, agent_name: str = "") -> str:
                 }
             )
 
-        transcript = _read_json(meeting_dir / "transcript.json")
-        if not isinstance(transcript, list):
-            transcript = []
+        transcript = _storage.get_transcript(meeting_id)
 
         turn_entry = {
             "turn": len(transcript) + 1,
@@ -527,8 +515,10 @@ async def speak(meeting_id: str, message: str, agent_name: str = "") -> str:
             "message": message,
             "type": "speak",
         }
-        transcript.append(turn_entry)
-        _write_json(meeting_dir / "transcript.json", transcript)
+        _storage.append_transcript(meeting_id, turn_entry)
+
+        # Fire transcript hook
+        _fire_hook("on_transcript_entry", meeting_id, turn_entry)
 
         # Check for verdict — requires [DECISION] prefix to avoid
         # false positives when agents mention verdicts in discussion.
@@ -548,16 +538,16 @@ async def speak(meeting_id: str, message: str, agent_name: str = "") -> str:
                 if remaining < 3:
                     new_max = max_rounds + 3
                     config["max_rounds"] = new_max
-                    _write_json(meeting_dir / "config.json", config)
+                    _storage.update_config(meeting_id, config)
                     max_rounds = new_max
                     _audit(
-                        meeting_dir,
+                        meeting_id,
                         f"Extended max_rounds to {new_max} after FAIL verdict",
                     )
 
                 action_items: list[dict[str, Any]] = state.get("action_items", [])
                 reason_match = re.search(
-                    r"\[DECISION\]\s*VERDICT:\s*FAIL\s*[-—:.]?\s*(.+)",
+                    r"\[DECISION\]\s*VERDICT:\s*FAIL\s*[-—:.]\s*(.+)",
                     message,
                     re.IGNORECASE,
                 )
@@ -580,15 +570,19 @@ async def speak(meeting_id: str, message: str, agent_name: str = "") -> str:
                     current_round += 1
                 state["current_turn"] = next_turn
                 state["current_round"] = current_round
-                _write_json(meeting_dir / "state.json", state)
+                _storage.update_state(meeting_id, state)
 
                 next_speaker = (
                     participants[next_turn] if next_turn < len(participants) else "unknown"
                 )
                 _audit(
-                    meeting_dir,
+                    meeting_id,
                     f"{agent_name} [round {turn_entry['round']}]: VERDICT FAIL — meeting continues",
                 )
+
+                _fire_hook("on_verdict", meeting_id, verdict, agent_name)
+                _fire_hook("on_turn_advanced", meeting_id, next_speaker, current_round)
+                _fire_hook("on_state_changed", meeting_id, state)
 
                 return json.dumps(
                     {
@@ -605,15 +599,20 @@ async def speak(meeting_id: str, message: str, agent_name: str = "") -> str:
             # PASS, RESOLVED, ESCALATE, ESCALATE_TO_USER → end
             state["ended"] = True
             state["outcome"] = f"verdict_{verdict}"
-            _write_json(meeting_dir / "state.json", state)
+            _storage.update_state(meeting_id, state)
             _audit(
-                meeting_dir,
+                meeting_id,
                 f"{agent_name} [round {state.get('current_round', 1)}]: {message[:200]}",
             )
             _audit(
-                meeting_dir,
+                meeting_id,
                 f"Meeting ended: verdict_{verdict}",
             )
+
+            _fire_hook("on_verdict", meeting_id, verdict, agent_name)
+            _fire_hook("on_meeting_ended", meeting_id, f"verdict_{verdict}")
+            _fire_hook("on_state_changed", meeting_id, state)
+
             return json.dumps(
                 {
                     "status": "spoken",
@@ -635,12 +634,16 @@ async def speak(meeting_id: str, message: str, agent_name: str = "") -> str:
                 state["outcome"] = "max_rounds_reached"
                 state["current_turn"] = next_turn
                 state["current_round"] = current_round
-                _write_json(meeting_dir / "state.json", state)
-                _audit(meeting_dir, f"{agent_name}: {message[:200]}")
+                _storage.update_state(meeting_id, state)
+                _audit(meeting_id, f"{agent_name}: {message[:200]}")
                 _audit(
-                    meeting_dir,
+                    meeting_id,
                     "Meeting ended: max_rounds_reached",
                 )
+
+                _fire_hook("on_meeting_ended", meeting_id, "max_rounds_reached")
+                _fire_hook("on_state_changed", meeting_id, state)
+
                 return json.dumps(
                     {
                         "status": "spoken",
@@ -653,18 +656,21 @@ async def speak(meeting_id: str, message: str, agent_name: str = "") -> str:
         state["current_turn"] = next_turn
         state["current_round"] = current_round
         state["turn_started_at"] = time.time()
-        _write_json(meeting_dir / "state.json", state)
+        _storage.update_state(meeting_id, state)
 
         next_speaker = participants[next_turn]
 
     _audit(
-        meeting_dir,
+        meeting_id,
         f"{agent_name} [round {turn_entry['round']}]: {message[:200]}",
     )
     _audit(
-        meeting_dir,
+        meeting_id,
         f"Turn advanced → {next_speaker} (round {current_round})",
     )
+
+    _fire_hook("on_turn_advanced", meeting_id, next_speaker, current_round)
+    _fire_hook("on_state_changed", meeting_id, state)
 
     # Wake next speaker — ensures they know it's their turn
     _notify_turn_agent(
@@ -694,20 +700,16 @@ async def skip_turn(meeting_id: str, agent_name: str = "", reason: str = "") -> 
         JSON with confirmation.
     """
     agent_name = agent_name or _get_my_name()
-    meeting_dir = _get_meeting_dir(meeting_id)
-    if not meeting_dir.exists():
+
+    if not _storage.meeting_exists(meeting_id):
         return json.dumps({"error": f"Meeting '{meeting_id}' not found"})
 
-    config = _read_json(meeting_dir / "config.json")
-    if not isinstance(config, dict):
-        config = {}
+    config = _storage.get_config(meeting_id) or {}
     participants: list[str] = config.get("participants", [])
     max_rounds = config.get("max_rounds", 3)
 
-    with _file_lock(meeting_dir):
-        state = _read_json(meeting_dir / "state.json")
-        if not isinstance(state, dict):
-            state = {}
+    with _storage.acquire_lock(meeting_id):
+        state = _storage.get_state(meeting_id) or {}
 
         if state.get("ended"):
             return json.dumps({"error": "Meeting already ended"})
@@ -722,20 +724,17 @@ async def skip_turn(meeting_id: str, agent_name: str = "", reason: str = "") -> 
                 }
             )
 
-        transcript = _read_json(meeting_dir / "transcript.json")
-        if not isinstance(transcript, list):
-            transcript = []
-
         turn_entry = {
-            "turn": len(transcript) + 1,
+            "turn": len(_storage.get_transcript(meeting_id)) + 1,
             "round": state.get("current_round", 1),
             "agent": agent_name,
             "timestamp": datetime.now().isoformat(timespec="seconds"),
             "message": reason or "(skipped)",
             "type": "skip",
         }
-        transcript.append(turn_entry)
-        _write_json(meeting_dir / "transcript.json", transcript)
+        _storage.append_transcript(meeting_id, turn_entry)
+
+        _fire_hook("on_transcript_entry", meeting_id, turn_entry)
 
         next_turn = current_turn + 1
         current_round = state.get("current_round", 1)
@@ -748,15 +747,19 @@ async def skip_turn(meeting_id: str, agent_name: str = "", reason: str = "") -> 
                 state["outcome"] = "max_rounds_reached"
                 state["current_turn"] = next_turn
                 state["current_round"] = current_round
-                _write_json(meeting_dir / "state.json", state)
+                _storage.update_state(meeting_id, state)
                 _audit(
-                    meeting_dir,
+                    meeting_id,
                     f"{agent_name} skipped: {reason}",
                 )
                 _audit(
-                    meeting_dir,
+                    meeting_id,
                     "Meeting ended: max_rounds_reached",
                 )
+
+                _fire_hook("on_meeting_ended", meeting_id, "max_rounds_reached")
+                _fire_hook("on_state_changed", meeting_id, state)
+
                 return json.dumps(
                     {
                         "status": "skipped",
@@ -769,14 +772,17 @@ async def skip_turn(meeting_id: str, agent_name: str = "", reason: str = "") -> 
         state["current_turn"] = next_turn
         state["current_round"] = current_round
         state["turn_started_at"] = time.time()
-        _write_json(meeting_dir / "state.json", state)
+        _storage.update_state(meeting_id, state)
 
         next_speaker = participants[next_turn]
 
     _audit(
-        meeting_dir,
+        meeting_id,
         f"{agent_name} skipped turn: {reason or 'no reason'}",
     )
+
+    _fire_hook("on_turn_advanced", meeting_id, next_speaker, current_round)
+    _fire_hook("on_state_changed", meeting_id, state)
 
     # Wake next speaker
     _notify_turn_agent(
@@ -803,22 +809,14 @@ async def get_meeting_status(meeting_id: str) -> str:
     Returns:
         JSON with round, turn, participants, ended flag.
     """
-    meeting_dir = _get_meeting_dir(meeting_id)
-    if not meeting_dir.exists():
+    if not _storage.meeting_exists(meeting_id):
         return json.dumps({"error": f"Meeting '{meeting_id}' not found"})
 
-    config = _read_json(meeting_dir / "config.json")
-    if not isinstance(config, dict):
-        config = {}
-    state = _read_json(meeting_dir / "state.json")
-    if not isinstance(state, dict):
-        state = {}
+    config = _storage.get_config(meeting_id) or {}
+    state = _storage.get_state(meeting_id) or {}
     participants: list[str] = config.get("participants", [])
     current_turn = state.get("current_turn", 0)
-
-    transcript = _read_json(meeting_dir / "transcript.json")
-    if not isinstance(transcript, list):
-        transcript = []
+    transcript = _storage.get_transcript(meeting_id)
 
     current_speaker = None
     if not state.get("ended") and current_turn < len(participants):
@@ -854,17 +852,12 @@ async def add_participant(meeting_id: str, agent_name: str) -> str:
     Returns:
         JSON with updated participant list.
     """
-    meeting_dir = _get_meeting_dir(meeting_id)
-    if not meeting_dir.exists():
+    if not _storage.meeting_exists(meeting_id):
         return json.dumps({"error": f"Meeting '{meeting_id}' not found"})
 
-    with _file_lock(meeting_dir):
-        config = _read_json(meeting_dir / "config.json")
-        if not isinstance(config, dict):
-            config = {}
-        state = _read_json(meeting_dir / "state.json")
-        if not isinstance(state, dict):
-            state = {}
+    with _storage.acquire_lock(meeting_id):
+        config = _storage.get_config(meeting_id) or {}
+        state = _storage.get_state(meeting_id) or {}
 
         if state.get("ended"):
             return json.dumps({"error": ("Cannot add participant — meeting already ended")})
@@ -875,7 +868,7 @@ async def add_participant(meeting_id: str, agent_name: str) -> str:
 
         participants.append(agent_name)
         config["participants"] = participants
-        _write_json(meeting_dir / "config.json", config)
+        _storage.update_config(meeting_id, config)
 
     # Auto-invite the new participant
     bus = _get_bus()
@@ -886,10 +879,10 @@ async def add_participant(meeting_id: str, agent_name: str) -> str:
             f"Agenda: {agenda}\n"
             f"Meeting ID: {meeting_id}\n"
             f"You were added to an ongoing meeting.\n\n"
-            f"→ join_meeting(meeting_id=\"{meeting_id}\", "
-            f"agent_name=\"{agent_name}\")\n"
-            f"→ wait_for_my_turn(meeting_id=\"{meeting_id}\", "
-            f"agent_name=\"{agent_name}\")"
+            f'→ join_meeting(meeting_id="{meeting_id}", '
+            f'agent_name="{agent_name}")\n'
+            f'→ wait_for_my_turn(meeting_id="{meeting_id}", '
+            f'agent_name="{agent_name}")'
         )
         bus.send(
             from_name=_get_my_name(),
@@ -900,9 +893,11 @@ async def add_participant(meeting_id: str, agent_name: str) -> str:
         _auto_wake_if_idle(agent_name)
 
     _audit(
-        meeting_dir,
+        meeting_id,
         f"Participant added mid-meeting: {agent_name}",
     )
+
+    _fire_hook("on_participant_added", meeting_id, agent_name)
 
     return json.dumps(
         {
@@ -926,19 +921,15 @@ async def leave_meeting(meeting_id: str, agent_name: str = "", reason: str = "")
         JSON confirming you've left.
     """
     agent_name = agent_name or _get_my_name()
-    meeting_dir = _get_meeting_dir(meeting_id)
-    if not meeting_dir.exists():
+
+    if not _storage.meeting_exists(meeting_id):
         return json.dumps({"error": f"Meeting '{meeting_id}' not found"})
 
-    config = _read_json(meeting_dir / "config.json")
-    if not isinstance(config, dict):
-        config = {}
+    config = _storage.get_config(meeting_id) or {}
     participants: list[str] = config.get("participants", [])
 
-    with _file_lock(meeting_dir):
-        state = _read_json(meeting_dir / "state.json")
-        if not isinstance(state, dict):
-            state = {}
+    with _storage.acquire_lock(meeting_id):
+        state = _storage.get_state(meeting_id) or {}
 
         if state.get("ended"):
             return json.dumps({"error": "Meeting already ended"})
@@ -950,7 +941,7 @@ async def leave_meeting(meeting_id: str, agent_name: str = "", reason: str = "")
         my_index = participants.index(agent_name)
         participants.remove(agent_name)
         config["participants"] = participants
-        _write_json(meeting_dir / "config.json", config)
+        _storage.update_config(meeting_id, config)
 
         if my_index < current_turn:
             state["current_turn"] = current_turn - 1
@@ -961,26 +952,28 @@ async def leave_meeting(meeting_id: str, agent_name: str = "", reason: str = "")
                 state["ended"] = True
                 state["outcome"] = "all_left"
 
-        transcript = _read_json(meeting_dir / "transcript.json")
-        if not isinstance(transcript, list):
-            transcript = []
-        transcript.append(
-            {
-                "turn": len(transcript) + 1,
-                "round": state.get("current_round", 1),
-                "agent": agent_name,
-                "timestamp": datetime.now().isoformat(timespec="seconds"),
-                "message": (f"Left the meeting: {reason}" if reason else "Left the meeting"),
-                "type": "leave",
-            }
-        )
-        _write_json(meeting_dir / "transcript.json", transcript)
-        _write_json(meeting_dir / "state.json", state)
+        leave_entry = {
+            "turn": len(_storage.get_transcript(meeting_id)) + 1,
+            "round": state.get("current_round", 1),
+            "agent": agent_name,
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "message": (f"Left the meeting: {reason}" if reason else "Left the meeting"),
+            "type": "leave",
+        }
+        _storage.append_transcript(meeting_id, leave_entry)
+        _storage.update_state(meeting_id, state)
 
     _audit(
-        meeting_dir,
+        meeting_id,
         f"{agent_name} left the meeting: {reason or 'no reason given'}",
     )
+
+    _fire_hook("on_transcript_entry", meeting_id, leave_entry)
+    _fire_hook("on_participant_left", meeting_id, agent_name)
+    _fire_hook("on_state_changed", meeting_id, state)
+
+    if state.get("ended"):
+        _fire_hook("on_meeting_ended", meeting_id, "all_left")
 
     return json.dumps(
         {

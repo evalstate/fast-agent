@@ -898,10 +898,17 @@ class MCPConnectionManager(ContextDependent):
                     raise ValueError(
                         f"Server '{server_name}' uses stdio transport but no command is specified"
                     )
+                # Inherit SPAWN_* and VIRTUAL_ENV from parent process
+                # (get_default_environment() only passes HOME/PATH/SHELL etc.)
+                import os as _os
+                _parent_extras = {
+                    k: v for k, v in _os.environ.items()
+                    if k.startswith("SPAWN_") or k in ("VIRTUAL_ENV",)
+                }
                 server_params = StdioServerParameters(
                     command=config.command,
                     args=config.args if config.args is not None else [],
-                    env={**get_default_environment(), **(config.env or {})},
+                    env={**get_default_environment(), **_parent_extras, **(config.env or {})},
                     cwd=config.cwd,
                 )
                 # Create custom error handler to ensure all output is captured

@@ -1,18 +1,22 @@
 """Spawn Registry — track lifecycle and status of spawned agents.
 
-File-based JSON persistence for cross-process visibility.
+Pluggable storage via RegistryBackend abstraction:
+  - JsonFileBackend  (default for standalone fast-agent)
+  - SqliteBackend    (when SPAWN_REGISTRY_DB env var is set)
+
 Three lifecycle models: persistent, resumable, oneshot.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import time
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
+
+from .registry_backends import RegistryBackend, create_backend
 
 logger = logging.getLogger(__name__)
 
@@ -98,33 +102,55 @@ class SpawnRecord:
 
 
 class SpawnRegistry:
-    """File-based registry for spawned agents.
+    """Registry for spawned agents with pluggable storage backend.
 
-    Stores to ``<project_dir>/.runtime/state/spawn_registry.json``
-    for cross-process visibility.
+    Storage is determined by the ``registry_backends.create_backend()``
+    factory.  When ``SPAWN_REGISTRY_DB`` env var is set, data is stored
+    in SQLite (shared across processes).  Otherwise, a JSON file is used.
+
+    An optional ``on_change`` callback can be set to receive
+    notifications on every write (register/update/remove).  Signature:
+    ``(action: str, run_id: str, data: dict) -> None`` where *action*
+    is one of ``"register"``, ``"update"``, ``"remove"``.
     """
 
-    def __init__(self, registry_file: str | Path) -> None:
-        self._file = Path(registry_file)
-        self._file.parent.mkdir(parents=True, exist_ok=True)
+    def __init__(
+        self,
+        registry_file: str | Path,
+        on_change: Callable[[str, str, dict[str, Any]], None] | None = None,
+    ) -> None:
+        self._backend: RegistryBackend = create_backend(registry_file)
         self._data: dict[str, dict[str, Any]] = {}
+        self._on_change = on_change
         self._load()
 
-    def _load(self) -> None:
-        if self._file.exists():
+    def _notify(self, action: str, run_id: str, data: dict[str, Any]) -> None:
+        """Call on_change callback if set.  Never raises."""
+        if self._on_change:
             try:
-                self._data = json.loads(self._file.read_text("utf-8"))
-            except (json.JSONDecodeError, OSError):
-                self._data = {}
+                self._on_change(action, run_id, data)
+            except Exception:
+                logger.warning(
+                    "on_change callback failed: action=%s run_id=%s",
+                    action, run_id, exc_info=True,
+                )
+
+    def _load(self) -> None:
+        self._data = self._backend.load()
 
     def _save(self) -> None:
-        tmp = self._file.with_suffix(".tmp")
-        tmp.write_text(json.dumps(self._data, indent=2, ensure_ascii=False), "utf-8")
-        tmp.rename(self._file)
+        self._backend.save(self._data)
 
     def register(self, record: SpawnRecord) -> None:
-        self._data[record.run_id] = record.to_dict()
+        data = record.to_dict()
+        logger.warning(
+            "[REGISTRY_DEBUG] register run_id=%s agent=%s lifecycle=%s team=%s backend=%s",
+            record.run_id, record.agent_name, data.get("lifecycle"), data.get("team_name"),
+            type(self._backend).__name__,
+        )
+        self._data[record.run_id] = data
         self._save()
+        self._notify("register", record.run_id, self._data[record.run_id])
 
     def get(self, run_id: str) -> SpawnRecord | None:
         self._load()
@@ -189,6 +215,7 @@ class SpawnRegistry:
         if status_val in _TERMINAL_STATES:
             self._data[run_id]["completed_at"] = time.time()
         self._save()
+        self._notify("update", run_id, self._data[run_id])
         return SpawnRecord.from_dict(self._data[run_id])
 
     def find_by_role(self, role: str) -> list[SpawnRecord]:
@@ -230,8 +257,9 @@ class SpawnRegistry:
     def remove(self, run_id: str) -> bool:
         self._load()
         if run_id in self._data:
-            del self._data[run_id]
+            removed = self._data.pop(run_id)
             self._save()
+            self._notify("remove", run_id, removed)
             return True
         return False
 
@@ -253,7 +281,8 @@ class SpawnRegistry:
             if d.get("team_name") == team_name
         ]
         for rid in to_remove:
-            del self._data[rid]
+            removed = self._data.pop(rid)
+            self._notify("remove", rid, removed)
         if to_remove:
             self._save()
         return len(to_remove)
@@ -266,7 +295,8 @@ class SpawnRegistry:
             if rec.should_auto_cleanup:
                 to_remove.append(run_id)
         for run_id in to_remove:
-            del self._data[run_id]
+            removed = self._data.pop(run_id)
+            self._notify("remove", run_id, removed)
         if to_remove:
             self._save()
         return to_remove

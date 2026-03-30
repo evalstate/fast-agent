@@ -101,39 +101,74 @@ _bus = MessageBus(messages_dir=str(_PROJECT_DIR / ".runtime" / "state" / "messag
 
 _display = get_display_manager()
 
-# ── Wire file-based event forwarding ──
+# ── Wire socket-based event forwarding ──
 # The MCP server runs in a subprocess — in-memory callbacks cannot
-# reach the main backend process. Instead, write events as JSON lines
-# to a shared file that the main process can tail-follow.
-_SPAWN_EVENTS_FILE = _PROJECT_DIR / ".runtime" / "state" / "spawn_events.jsonl"
+# reach the main backend process. Events are sent as JSON lines over
+# a Unix domain socket (path from SPAWN_EVENT_SOCKET env var).
+import socket as _socket
+
+_event_socket: _socket.socket | None = None
 
 
-def _write_spawn_event_to_file(event: Any) -> None:
-    """Append a SpawnEvent as JSON line to the shared events file."""
+def _connect_event_socket() -> _socket.socket | None:
+    """Connect to the main process event socket."""
+    socket_path = os.environ.get("SPAWN_EVENT_SOCKET")
+    if not socket_path:
+        logger.debug("SPAWN_EVENT_SOCKET not set, event forwarding disabled")
+        return None
+    try:
+        sock = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+        sock.connect(socket_path)
+        logger.info("Connected to event socket: %s", socket_path)
+        return sock
+    except Exception as e:
+        logger.warning("Cannot connect to event socket %s: %s", socket_path, e)
+        return None
+
+
+def _send_event_line(line: str) -> None:
+    """Send a JSON line to the main process via socket."""
+    global _event_socket  # noqa: PLW0603
+    if _event_socket is None:
+        _event_socket = _connect_event_socket()
+    if _event_socket is None:
+        return
+    try:
+        _event_socket.sendall((line + "\n").encode("utf-8"))
+    except (BrokenPipeError, OSError, ConnectionResetError):
+        # Socket broken — try reconnect once
+        _event_socket = _connect_event_socket()
+        if _event_socket:
+            try:
+                _event_socket.sendall((line + "\n").encode("utf-8"))
+            except Exception:
+                _event_socket = None
+
+
+def _write_spawn_event_to_socket(event: Any) -> None:
+    """Forward a SpawnEvent to the main process via socket."""
     try:
         import time as _time
 
         line = json.dumps(
             {
                 "timestamp": _time.time(),
-                "role": getattr(event, "role", ""),
+                "agent_name": getattr(event, "agent_name", "") or getattr(event, "role", ""),
                 "event_type": getattr(event, "event", ""),
                 "run_id": getattr(event, "run_id", ""),
                 "data": getattr(event, "data", {}),
             }
         )
-        _SPAWN_EVENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with open(_SPAWN_EVENTS_FILE, "a") as f:
-            f.write(line + "\n")
+        _send_event_line(line)
     except Exception:
         pass  # Never crash the MCP server for a display event
 
 
-_display.set_event_callback(_write_spawn_event_to_file)
+_display.set_event_callback(_write_spawn_event_to_socket)
 
 
 def _emit_removal_event(agent_names: list[str], run_ids: list[str]) -> None:
-    """Write a removal event so the backend bridge can clean DB records."""
+    """Send a removal event so the backend bridge can clean DB records."""
     try:
         import time as _time
 
@@ -147,12 +182,69 @@ def _emit_removal_event(agent_names: list[str], run_ids: list[str]) -> None:
                 "run_ids": run_ids,
             },
         })
-        _SPAWN_EVENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with open(_SPAWN_EVENTS_FILE, "a") as f:
-            f.write(line + "\n")
+        _send_event_line(line)
     except Exception:
         pass
 
+
+# ── Lifecycle hooks — send lifecycle events via socket ──
+class _SocketSpawnLifecycleHooks:
+    """SpawnLifecycleHooks that sends lifecycle events via socket for bridge consumption."""
+
+    def _emit(self, event_type: str, run_id: str, agent_name: str, data: dict | None = None) -> None:
+        try:
+            import time as _time
+
+            line = json.dumps({
+                "timestamp": _time.time(),
+                "agent_name": agent_name or "system",
+                "event_type": event_type,
+                "run_id": run_id,
+                "data": data or {},
+            })
+            _send_event_line(line)
+        except Exception:
+            pass
+
+    async def on_pre_spawn(self, run_id: str, agent_name: str, config: dict) -> None:
+        self._emit("lifecycle_pre_spawn", run_id, agent_name, {"config_keys": list(config.keys())})
+
+    async def on_registered(self, run_id: str, agent_name: str, record: Any) -> None:
+        self._emit("lifecycle_registered", run_id, agent_name, {
+            "lifecycle": getattr(record, "lifecycle", ""),
+            "role": getattr(record, "role", ""),
+            "team_name": getattr(record, "team_name", ""),
+        })
+
+    async def on_process_started(self, run_id: str, agent_name: str, pid: int) -> None:
+        self._emit("lifecycle_process_started", run_id, agent_name, {"pid": pid})
+
+    async def on_agent_ready(self, run_id: str, agent_name: str) -> None:
+        self._emit("lifecycle_agent_ready", run_id, agent_name)
+
+    async def on_completed(self, run_id: str, agent_name: str, result: str) -> None:
+        self._emit("lifecycle_completed", run_id, agent_name, {"result_preview": result[:200]})
+
+    async def on_error(self, run_id: str, agent_name: str, error: str) -> None:
+        self._emit("lifecycle_error", run_id, agent_name, {"error": error[:500]})
+
+    async def on_idle(self, run_id: str, agent_name: str) -> None:
+        self._emit("lifecycle_idle", run_id, agent_name)
+
+    async def on_pre_cleanup(self, run_id: str, agent_name: str) -> None:
+        self._emit("lifecycle_pre_cleanup", run_id, agent_name)
+
+    async def on_after_cleanup(self, run_id: str, agent_name: str) -> None:
+        self._emit("lifecycle_after_cleanup", run_id, agent_name)
+
+    async def on_auto_resume(self, run_id: str, agent_name: str, new_run_id: str, reason: str) -> None:
+        self._emit("lifecycle_auto_resume", run_id, agent_name, {"new_run_id": new_run_id, "reason": reason})
+
+    async def on_cancelled(self, run_id: str, agent_name: str) -> None:
+        self._emit("lifecycle_cancelled", run_id, agent_name)
+
+
+_spawn_hooks = _SocketSpawnLifecycleHooks()
 
 
 def _resolve_skills_for_spawn(
@@ -300,6 +392,7 @@ async def spawn_and_run_background(
         registry=_registry,
         display_manager=_display,
         skills=skill_paths,
+        spawn_lifecycle_hooks=_spawn_hooks,
     )
 
     return json.dumps(
@@ -366,7 +459,7 @@ async def cancel_spawn_tool(run_id: str, cleanup: bool = False) -> str:
         run_id: The run_id to cancel.
         cleanup: If True, also remove the spawn record from registry.
     """
-    cancelled = await cancel_spawn(run_id, registry=_registry)
+    cancelled = await cancel_spawn(run_id, registry=_registry, spawn_lifecycle_hooks=_spawn_hooks)
     if cancelled:
         if cleanup:
             _registry.remove(run_id)
@@ -425,6 +518,7 @@ async def restart_spawn(run_id: str) -> str:
         lifecycle=record.lifecycle,
         registry=_registry,
         display_manager=_display,
+        spawn_lifecycle_hooks=_spawn_hooks,
     )
 
     _registry._load()
@@ -501,6 +595,7 @@ async def resume_spawn(run_id: str, follow_up_task: str) -> str:
         registry=_registry,
         display_manager=_display,
         env_vars=cfg.get("env_vars") or None,
+        spawn_lifecycle_hooks=_spawn_hooks,
     )
 
     _registry._load()
@@ -739,6 +834,7 @@ async def spawn_team_tool(
             project_dir=str(_PROJECT_DIR),
             mode=mode,
             team_name=team_name,
+            spawn_lifecycle_hooks=_spawn_hooks,
         )
 
         if mode == "blocking":
@@ -879,6 +975,7 @@ async def spawn_team_members(
             registry=_registry,
             display_manager=_display,
             project_dir=str(_PROJECT_DIR),
+            spawn_lifecycle_hooks=_spawn_hooks,
         )
 
         return json.dumps({
@@ -1141,6 +1238,7 @@ async def resume_team_tool(
         display_manager=_display,
         parent_session_id=session_id,
         mode="background",
+        spawn_lifecycle_hooks=_spawn_hooks,
     )
 
     return json.dumps({

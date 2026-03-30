@@ -26,6 +26,11 @@ from typing import Any
 from fast_agent.spawn.config_reader import get_available_servers
 from fast_agent.spawn.runtime_paths import get_runtime_paths
 from fast_agent.spawn.spawn_events import SpawnEvent
+from fast_agent.spawn.spawn_hooks import (
+    NoOpSpawnLifecycleHooks,
+    SpawnLifecycleHooks,
+    _safe_hook,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +86,9 @@ def _build_handoff_config(
     role: str = "agent",
     skills: list[str] | None = None,
     history_file: str | None = None,
+    server_overrides: dict[str, dict] | None = None,
+    lifecycle: str = "oneshot",
+    team_name: str = "",
 ) -> dict[str, Any]:
     """Build Layer 1 handoff config for the child agent."""
     servers = servers or []
@@ -109,9 +117,13 @@ def _build_handoff_config(
         "workspace_dir": ws_dir,
         "result_file": result_file,
         "role": role,
+        "lifecycle": lifecycle,
+        "team_name": team_name,
     }
     if history_file:
         cfg["history_file"] = history_file
+    if server_overrides:
+        cfg["server_overrides"] = server_overrides
     return cfg
 
 
@@ -206,14 +218,12 @@ async def _run_subprocess(
     # Store PID in registry for cross-process cleanup
     try:
         from fast_agent.spawn.spawn_registry import SpawnRegistry
-        project_dir_str = str(project_path)
-        pid_registry_path = Path(project_dir_str) / ".runtime" / "state" / "spawn_registry.json"
-        if pid_registry_path.exists():
-            pid_reg = SpawnRegistry(registry_file=str(pid_registry_path))
-            pid_reg._load()
-            if run_id in pid_reg._data:
-                pid_reg._data[run_id]["pid"] = process.pid
-                pid_reg._save()
+        pid_registry_path = Path(str(project_path)) / ".runtime" / "state" / "spawn_registry.json"
+        pid_reg = SpawnRegistry(registry_file=str(pid_registry_path))
+        pid_reg._load()
+        if run_id in pid_reg._data:
+            pid_reg._data[run_id]["pid"] = process.pid
+            pid_reg._save()
     except Exception:
         pass  # Best-effort PID tracking
 
@@ -238,10 +248,9 @@ async def _run_subprocess(
                         SpawnStatus,
                     )
                     reg_path = Path(project_dir).resolve() / ".runtime" / "state" / "spawn_registry.json"
-                    if reg_path.exists():
-                        _rt_reg = SpawnRegistry(registry_file=str(reg_path))
-                        _new_status = SpawnStatus.IDLE if evt.event == "idle" else SpawnStatus.RUNNING
-                        _rt_reg.update_status(run_id, _new_status)
+                    _rt_reg = SpawnRegistry(registry_file=str(reg_path))
+                    _new_status = SpawnStatus.IDLE if evt.event == "idle" else SpawnStatus.RUNNING
+                    _rt_reg.update_status(run_id, _new_status)
                 except Exception:
                     pass  # Best-effort
             elif not evt:
@@ -345,6 +354,8 @@ async def run_isolated_agent(
     env_vars: dict[str, str] | None = None,
     skills: list[str] | None = None,
     history_file: str | None = None,
+    spawn_lifecycle_hooks: SpawnLifecycleHooks | None = None,
+    server_overrides: dict[str, dict] | None = None,
 ) -> dict[str, Any]:
     """Spawn and run an isolated FastAgent child process (BLOCKING).
 
@@ -388,10 +399,21 @@ async def run_isolated_agent(
         role=role or "agent",
         skills=skills,
         history_file=history_file,
+        server_overrides=server_overrides,
+        lifecycle=lifecycle,
+        team_name=team_name,
     )
 
     config_file = str(paths["runs"] / f"run_{run_id}.json")
     result_file = config["result_file"]
+
+    hooks = spawn_lifecycle_hooks or NoOpSpawnLifecycleHooks()
+
+    # Hook: on_pre_spawn — config built, before registry/subprocess
+    await _safe_hook(
+        hooks.on_pre_spawn(run_id, agent_name or role or "agent", config),
+        "on_pre_spawn", run_id,
+    )
 
     # Register with registry if provided
     if registry:
@@ -410,6 +432,7 @@ async def run_isolated_agent(
                 "instruction": instruction,
                 "context": context,
                 "servers": servers or [],
+                "skills": skills or [],
                 "model": model,
                 "timeout_seconds": timeout_seconds,
                 "role": role or "agent",
@@ -426,6 +449,11 @@ async def run_isolated_agent(
             original_config=orig_cfg,
         )
         registry.register(record)
+        # Hook: on_registered — agent is now in registry
+        await _safe_hook(
+            hooks.on_registered(run_id, agent_name or role or "agent", record),
+            "on_registered", run_id,
+        )
 
     if display_manager:
         display_manager.add_spawn(run_id, agent_name or role or "agent", task[:80], lifecycle)
@@ -460,6 +488,32 @@ async def run_isolated_agent(
             result["status"],
         )
 
+        # Emit a synthetic result/error event so the dashboard always
+        # receives a status transition — even when the child process
+        # crashes before it can emit its own event via stderr.
+        if display_manager:
+            duration = result.get("metadata", {}).get("duration_seconds", 0)
+            if result["status"] in ("error", "timeout"):
+                error_msg = result.get("error", "Unknown error")
+                synthetic_evt = SpawnEvent(
+                    event="error",
+                    run_id=run_id,
+                    role=role or "agent",
+                    data={"message": str(error_msg)[:500]},
+                )
+                display_manager.handle_event(synthetic_evt)
+            elif result["status"] == "completed":
+                synthetic_evt = SpawnEvent(
+                    event="result",
+                    run_id=run_id,
+                    role=role or "agent",
+                    data={
+                        "summary": result.get("summary", "")[:200],
+                        "duration_seconds": round(duration, 1),
+                    },
+                )
+                display_manager.handle_event(synthetic_evt)
+
         if registry:
             from fast_agent.spawn.spawn_registry import (
                 Lifecycle,
@@ -480,8 +534,32 @@ async def run_isolated_agent(
                 result=result.get("result", ""),
                 error=result.get("error", ""),
             )
+
+            # Hooks: on_completed / on_error
+            _agent = agent_name or role or "agent"
+            if status_enum == SpawnStatus.ERROR:
+                await _safe_hook(
+                    hooks.on_error(run_id, _agent, result.get("error", "")),
+                    "on_error", run_id,
+                )
+            else:
+                await _safe_hook(
+                    hooks.on_completed(run_id, _agent, result),
+                    "on_completed", run_id,
+                )
+
             if lifecycle == Lifecycle.ONESHOT.value:
+                # Hook: on_pre_cleanup — agent still in registry
+                await _safe_hook(
+                    hooks.on_pre_cleanup(run_id, _agent, lifecycle),
+                    "on_pre_cleanup", run_id,
+                )
                 registry.remove(run_id)
+                # Hook: on_after_cleanup — agent removed from registry
+                await _safe_hook(
+                    hooks.on_after_cleanup(run_id, _agent, lifecycle),
+                    "on_after_cleanup", run_id,
+                )
 
         if display_manager:
 
@@ -508,6 +586,7 @@ async def _check_and_resume_on_inbox(
     registry: Any | None = None,
     display_manager: Any | None = None,
     env_vars: dict[str, str] | None = None,
+    spawn_lifecycle_hooks: SpawnLifecycleHooks | None = None,
 ) -> None:
     """Check inbox for unread messages and auto-resume agent if any.
 
@@ -668,6 +747,7 @@ async def _check_and_resume_on_inbox(
         display_manager=display_manager,
         env_vars=env_vars,
         history_file=history_file,
+        spawn_lifecycle_hooks=spawn_lifecycle_hooks,
     )
 
     # Track the resume chain
@@ -678,6 +758,15 @@ async def _check_and_resume_on_inbox(
         registry._data[run_id].setdefault("metadata", {})["latest_resume_run_id"] = new_run_id
         registry._data[run_id].setdefault("metadata", {})["resume_reason"] = "inbox_messages"
         registry._save()
+
+    # Hook: on_auto_resume — notifies that agent was auto-resumed
+    if spawn_lifecycle_hooks:
+        await _safe_hook(
+            spawn_lifecycle_hooks.on_auto_resume(
+                run_id, agent_name, new_run_id, "inbox_messages",
+            ),
+            "on_auto_resume", run_id,
+        )
 
     logger.info(
         "📬 %s auto-resumed as %s to process %d message(s)",
@@ -705,6 +794,8 @@ async def run_isolated_agent_background(
     env_vars: dict[str, str] | None = None,
     skills: list[str] | None = None,
     history_file: str | None = None,
+    spawn_lifecycle_hooks: SpawnLifecycleHooks | None = None,
+    server_overrides: dict[str, dict] | None = None,
 ) -> str:
     """Spawn an isolated agent in the BACKGROUND (fire-and-forget).
 
@@ -728,6 +819,7 @@ async def run_isolated_agent_background(
                 "instruction": instruction,
                 "context": context,
                 "servers": servers or [],
+                "skills": skills or [],
                 "model": model,
                 "timeout_seconds": timeout_seconds,
                 "role": role or "agent",
@@ -748,6 +840,14 @@ async def run_isolated_agent_background(
             original_config=orig_cfg,
         )
         registry.register(record)
+        # Hook: on_registered — agent is now in registry (background path)
+        if spawn_lifecycle_hooks:
+            await _safe_hook(
+                spawn_lifecycle_hooks.on_registered(
+                    run_id, agent_name or role or "agent", record,
+                ),
+                "on_registered", run_id,
+            )
 
     async def _bg_task() -> None:
         try:
@@ -764,6 +864,7 @@ async def run_isolated_agent_background(
                 workspace_dir=workspace_dir,
                 role=role,
                 agent_name=agent_name,
+                team_name=team_name,
                 lifecycle=lifecycle,
                 registry=None,
                 display_manager=display_manager,
@@ -771,6 +872,8 @@ async def run_isolated_agent_background(
                 env_vars=env_vars,
                 skills=skills,
                 history_file=history_file,
+                spawn_lifecycle_hooks=spawn_lifecycle_hooks,
+                server_overrides=server_overrides,
             )
             if registry:
                 from fast_agent.spawn.spawn_registry import (
@@ -800,6 +903,7 @@ async def run_isolated_agent_background(
                 registry=registry,
                 display_manager=display_manager,
                 env_vars=env_vars,
+                spawn_lifecycle_hooks=spawn_lifecycle_hooks,
             )
 
             # ── Emit agent_completed event for PM/bridge notification ──
@@ -841,9 +945,20 @@ async def run_isolated_agent_background(
     return run_id
 
 
-async def cancel_spawn(run_id: str, registry: Any | None = None) -> bool:
+async def cancel_spawn(
+    run_id: str,
+    registry: Any | None = None,
+    spawn_lifecycle_hooks: SpawnLifecycleHooks | None = None,
+) -> bool:
     """Cancel a background spawn by run_id."""
     cancelled = False
+    agent_name = ""
+
+    # Resolve agent_name from registry before cancelling
+    if registry:
+        record = registry.get(run_id)
+        if record:
+            agent_name = getattr(record, "agent_name", "") or ""
 
     proc = _background_processes.pop(run_id, None)
     if proc and proc.returncode is None:
@@ -868,6 +983,13 @@ async def cancel_spawn(run_id: str, registry: Any | None = None) -> bool:
         from fast_agent.spawn.spawn_registry import SpawnStatus
 
         registry.update_status(run_id, SpawnStatus.CANCELLED)
+
+    # Hook: on_cancelled
+    if cancelled and spawn_lifecycle_hooks:
+        await _safe_hook(
+            spawn_lifecycle_hooks.on_cancelled(run_id, agent_name),
+            "on_cancelled", run_id,
+        )
 
     return cancelled
 

@@ -16,7 +16,6 @@ import asyncio
 import json
 import logging
 import os
-import shlex
 import shutil
 import sys
 import tempfile
@@ -28,7 +27,6 @@ from typing import Any
 from fast_agent.spawn.config_reader import (
     _load_config,
     get_default_model,
-    get_server_commands,
     get_server_env,
 )
 from fast_agent.spawn.runtime_paths import get_runtime_paths
@@ -156,6 +154,7 @@ def create_child_config(
     depth: int = 1,
     run_id: str = "",
     agent_name: str = "",
+    server_overrides: dict[str, dict] | None = None,
 ) -> str:
     """Create a temporary fastagent.config.yaml for the child.
 
@@ -193,27 +192,73 @@ def create_child_config(
     )
 
     if servers:
-        # Read parent config to get non-command fields (url, env)
+        # Read parent config to get server definitions directly
         parent_config = _load_config(project_dir)
         parent_servers = parent_config.get("mcp", {}).get("servers", {})
-        # server_commands has workspace-substituted command strings
-        server_commands = get_server_commands(project_dir, workspace_dir)
 
         config_lines.extend(["", "mcp:", "  servers:"])
         for srv in servers:
-            if srv not in server_commands:
+            parent_srv = parent_servers.get(srv, {}) if isinstance(parent_servers, dict) else {}
+            if not isinstance(parent_srv, dict):
+                continue
+
+            # Read command and args DIRECTLY from parent config to preserve
+            # argument integrity (avoid shlex.split which breaks quoted args
+            # like '--header "Authorization: Bearer ${KEY}"')
+            cmd = parent_srv.get("command", "")
+            raw_args = parent_srv.get("args", [])
+            srv_url = parent_srv.get("url", "")
+
+            if not cmd and not srv_url:
                 continue
 
             config_lines.append(f"    {srv}:")
-            parent_srv = parent_servers.get(srv, {}) if isinstance(parent_servers, dict) else {}
 
-            # Parse command/args from server_commands string (has correct paths)
-            cmd_str = server_commands[srv]
-            parts = shlex.split(cmd_str)
-            if parts:
-                config_lines.append(f'      command: "{parts[0]}"')
-                if len(parts) > 1:
-                    args_str = ", ".join(f'"{a}"' for a in parts[1:])
+            if cmd:
+                config_lines.append(f'      command: "{cmd}"')
+
+                # Apply workspace path substitutions on each arg individually
+                project = str(Path(project_dir).resolve())
+                is_team_workspace = workspace_dir and "/workspaces/" in workspace_dir
+
+                # For team workspaces, filesystem server should serve just
+                # the workspace root — not project-specific subdirs
+                if is_team_workspace and srv == "filesystem":
+                    resolved_args: list[str] = [str(a) for a in raw_args
+                                     if not (str(a).startswith(".") or str(a).startswith("/"))]
+                    resolved_args.append(workspace_dir)
+                else:
+                    # Check if template provides an override for this server's args
+                    srv_override = (server_overrides or {}).get(srv, {})
+                    override_args = srv_override.get("args") if isinstance(srv_override, dict) else None
+
+                    # Use override args if provided, otherwise use parent args
+                    source_args = override_args if override_args is not None else raw_args
+
+                    resolved_args: list[str] = []
+                    for a in source_args:
+                        a_str = str(a)
+                        # Substitute placeholders
+                        a_str = a_str.replace("{workspace_dir}", workspace_dir)
+                        a_str = a_str.replace("{project_dir}", project)
+                        # Replace relative "." with workspace dir
+                        if a_str == ".":
+                            a_str = workspace_dir
+                        elif a_str.startswith("./"):
+                            a_str = f"{workspace_dir}{a_str[1:]}"
+                        # Replace relative "servers/" paths with absolute project paths
+                        if a_str.startswith("servers/"):
+                            a_str = f"{project}/{a_str}"
+                        resolved_args.append(a_str)
+
+                # Add --directory for uv run commands
+                if cmd == "uv" and "run" in resolved_args and "--directory" not in resolved_args:
+                    run_idx = resolved_args.index("run")
+                    resolved_args.insert(run_idx + 1, "--directory")
+                    resolved_args.insert(run_idx + 2, project)
+
+                if resolved_args:
+                    args_str = ", ".join(f'"{a}"' for a in resolved_args)
                     config_lines.append(f"      args: [{args_str}]")
 
             # URL from parent config (not in command string)
@@ -272,6 +317,7 @@ async def run_child_agent(
     max_depth = config.get("max_depth", 3)
     parent_run_id = config.get("parent_run_id", "")
     role = config.get("role", "agent")
+    agent_name = os.environ.get("TEAM_MY_NAME", "") or role
     skill_names = config.get("skills", [])
 
     # Build system prompt with workspace awareness
@@ -299,16 +345,21 @@ async def run_child_agent(
         depth=depth,
         run_id=run_id,
         agent_name=os.environ.get("TEAM_MY_NAME", ""),
+        server_overrides=config.get("server_overrides"),
     )
 
     # Emit started event for TUI
     event_run_id = parent_run_id or run_id
+    lifecycle = config.get("lifecycle", "oneshot")
+    team_name = config.get("team_name", "")
     emit_event(
         "started",
         event_run_id,
-        role,
+        agent_name,
         model=model or get_default_model(project_dir),
         servers=servers,
+        lifecycle=lifecycle,
+        team_name=team_name,
     )
 
     start_time = time.time()
@@ -355,10 +406,13 @@ async def run_child_agent(
             os.chdir(workspace_dir)
 
             async with fast.run() as agent:
-                _install_tool_hooks(agent, event_run_id, role)
+                _install_tool_hooks(agent, event_run_id, agent_name)
 
                 # Signal that agent is ready (MCP servers loaded, hooks installed)
-                emit_event("agent_ready", event_run_id, role, agent_name=role)
+                emit_event("agent_ready", event_run_id, agent_name)
+
+                # Emit runtime config for monitoring dashboard
+                _emit_runtime_config(agent, event_run_id, agent_name)
                 # If resuming, load previous session history into agent
                 # This uses FastAgent's native API — no LLM call, just
                 # restores message_history so the next send() has full context
@@ -382,8 +436,7 @@ async def run_child_agent(
                 response = await agent.send(task)
 
                 # ── Keep-alive: wait for inbox messages via AgentChannel ──
-                agent_name = os.environ.get("TEAM_MY_NAME", "")
-                is_team_agent = bool(agent_name and os.environ.get("TEAM_WORKSPACE"))
+                is_team_agent = bool(os.environ.get("TEAM_MY_NAME") and os.environ.get("TEAM_WORKSPACE"))
 
                 if is_team_agent:
                     from fast_agent.spawn.agent_channel import AgentChannel
@@ -405,7 +458,7 @@ async def run_child_agent(
                                     break
                                 _cur = _cur.parent
 
-                    emit_event("idle", event_run_id, role, agent_name=agent_name)
+                    emit_event("idle", event_run_id, agent_name)
                     logger.info(
                         "📡 %s entering keep-alive mode (timeout=%ds)",
                         agent_name,
@@ -459,16 +512,14 @@ async def run_child_agent(
                             emit_event(
                                 "resumed",
                                 event_run_id,
-                                role,
-                                agent_name=agent_name,
+                                agent_name,
                                 message_count=len(unread),
                             )
                             response = await agent.send(follow_up)
                             emit_event(
                                 "idle",
                                 event_run_id,
-                                role,
-                                agent_name=agent_name,
+                                agent_name,
                             )
                     finally:
                         await channel.stop()
@@ -481,7 +532,7 @@ async def run_child_agent(
         emit_event(
             "result",
             event_run_id,
-            role,
+            agent_name,
             summary=f"Task completed in {duration:.1f}s",
             duration_seconds=round(duration, 1),
         )
@@ -500,7 +551,7 @@ async def run_child_agent(
     except Exception as e:
         duration = time.time() - start_time
         logger.error("Child agent failed: %s", e, exc_info=True)
-        emit_event("error", event_run_id, role, message=str(e))
+        emit_event("error", event_run_id, agent_name, message=str(e))
         result = {
             "status": "error",
             "result": "",
@@ -518,6 +569,59 @@ async def run_child_agent(
             pass
 
     return result
+
+# ── Runtime config emission ────────────────────────────────────────
+
+
+def _emit_runtime_config(agent_app: Any, run_id: str, role: str) -> None:
+    """Emit resolved runtime config from the live agent for dashboard monitoring.
+
+    Reads the fully-initialized agent to extract:
+    - resolved instruction (with skills + server instructions injected)
+    - skill manifests (name + description)
+    - per-server tool lists (name + description)
+    """
+    try:
+        child_agent = agent_app["child"]
+    except (KeyError, TypeError):
+        return
+
+    try:
+        # Resolved instruction (after _apply_instruction_templates)
+        resolved_instruction = getattr(child_agent, "_instruction", "") or ""
+
+        # Skill manifests
+        skills_data = []
+        for m in getattr(child_agent, "_skill_manifests", []):
+            skills_data.append({
+                "name": m.name,
+                "description": getattr(m, "description", "") or "",
+            })
+
+        # Per-server tool map
+        tools_data = {}
+        aggregator = getattr(child_agent, "_aggregator", None)
+        if aggregator:
+            server_tool_map = getattr(aggregator, "_server_to_tool_map", {})
+            for server_name, namespaced_tools in server_tool_map.items():
+                tools_data[server_name] = [
+                    {
+                        "name": nt.tool.name,
+                        "description": getattr(nt.tool, "description", "") or "",
+                    }
+                    for nt in namespaced_tools
+                ]
+
+        emit_event(
+            "runtime_config",
+            run_id,
+            role,
+            resolved_instruction=resolved_instruction,
+            skills=skills_data,
+            tools=tools_data,
+        )
+    except Exception:
+        pass  # Never crash the child for monitoring
 
 
 # ── Tool-call event hooks ──────────────────────────────────────────
@@ -671,14 +775,35 @@ def _install_tool_hooks(agent_app: Any, run_id: str, role: str) -> None:
         # Skip emitting response for pure TOOL_USE with no text
         # (tool_call events already cover this use case)
         if "TOOL_USE" in stop_reason and not text:
-            return
+            pass  # still emit token_usage below
+        else:
+            emit_event(
+                "response", run_id, role,
+                text=text,
+                reasoning=reasoning_text,
+                stop_reason=stop_reason,
+            )
 
-        emit_event(
-            "response", run_id, role,
-            text=text,
-            reasoning=reasoning_text,
-            stop_reason=stop_reason,
-        )
+        # ── Emit token_usage event for cost tracking ──
+        try:
+            _agent = getattr(runner, "_agent", None)
+            _acc = getattr(_agent, "usage_accumulator", None) if _agent else None
+            if _acc and _acc.turns:
+                _last = _acc.turns[-1]
+                _cache = getattr(_last, "cache_usage", None)
+                emit_event(
+                    "token_usage", run_id, role,
+                    model=getattr(_last, "model", "") or "",
+                    input_tokens=getattr(_last, "input_tokens", 0),
+                    output_tokens=getattr(_last, "output_tokens", 0),
+                    total_tokens=getattr(_last, "total_tokens", 0),
+                    cache_hit_tokens=getattr(_cache, "cache_hit_tokens", 0) if _cache else 0,
+                    cache_read_tokens=getattr(_cache, "cache_read_tokens", 0) if _cache else 0,
+                    cache_write_tokens=getattr(_cache, "cache_write_tokens", 0) if _cache else 0,
+                    reasoning_tokens=getattr(_last, "reasoning_tokens", 0),
+                )
+        except Exception:
+            pass  # never crash child for token tracking
 
     # RTAC: Real-time Agent Communication — inbox watcher hook
     rtac_before_llm: Any = None
@@ -690,6 +815,14 @@ def _install_tool_hooks(agent_app: Any, run_id: str, role: str) -> None:
             rtac_before_llm = watcher.before_llm_call
     except Exception:
         pass  # RTAC is optional — don't break spawn if it fails
+
+    # Pause/Resume: signal-based pause checkpoint hook
+    pause_before_llm: Any = None
+    try:
+        from fast_agent.spawn.pause_signal_handler import pause_checkpoint
+        pause_before_llm = pause_checkpoint
+    except Exception:
+        pass  # Pause is optional — don't break spawn if it fails
 
     # ── Merge all hooks: spawn events + RTAC + card-defined hooks ──
 
@@ -716,6 +849,8 @@ def _install_tool_hooks(agent_app: Any, run_id: str, role: str) -> None:
                 await orig_before_llm(runner, messages)
             if rtac_before_llm:
                 await rtac_before_llm(runner, messages)
+            if pause_before_llm:
+                await pause_before_llm(runner, messages)
 
         async def merged_after_llm(runner: Any, message: Any) -> None:
             await spawn_after_llm(runner, message)
@@ -730,9 +865,19 @@ def _install_tool_hooks(agent_app: Any, run_id: str, role: str) -> None:
             after_turn_complete=existing.after_turn_complete,
         )
     else:
+        # Build before_llm chain: spawn → rtac → pause
+        _blm_fns = [spawn_before_llm]
+        if rtac_before_llm:
+            _blm_fns.append(rtac_before_llm)
+        if pause_before_llm:
+            _blm_fns.append(pause_before_llm)
+
+        async def _chained_before_llm(r: Any, m: Any) -> None:
+            for fn in _blm_fns:
+                await fn(r, m)
+
         child_agent.tool_runner_hooks = ToolRunnerHooks(
-            before_llm_call=spawn_before_llm if not rtac_before_llm else
-                (lambda r, m: _chain_before_llm(spawn_before_llm, rtac_before_llm, r, m)),
+            before_llm_call=_chained_before_llm,
             after_llm_call=spawn_after_llm,
             before_tool_call=before_tool_call,
             after_tool_call=after_tool_call,
@@ -747,6 +892,13 @@ async def _chain_before_llm(spawn_fn: Any, rtac_fn: Any, runner: Any, messages: 
 
 async def main() -> None:
     """CLI entrypoint for running as a subprocess."""
+    # Install pause signal handlers before anything else
+    try:
+        from fast_agent.spawn.pause_signal_handler import install_pause_signal_handlers
+        install_pause_signal_handlers(asyncio.get_event_loop())
+    except Exception:
+        pass  # Pause is optional
+
     parser = argparse.ArgumentParser(description="Isolated Agent Runner")
     parser.add_argument(
         "--config",

@@ -306,83 +306,47 @@ async def read_email(
 
 
 def _get_recent_activities(run_id: str, limit: int = 3) -> list[dict]:
-    """Read last N tool activities from spawn_events.jsonl for a given run_id."""
+    """Read last N tool activities from agent_activities DB for a given run_id."""
     import os
+    import sqlite3
     import time as _time
-    from pathlib import Path
 
-    workspace = os.environ.get("TEAM_WORKSPACE", "")
-    if not workspace:
-        return []
-
-    # Find .runtime root → spawn_events.jsonl
-    cur = Path(workspace)
-    events_file = None
-    while cur != cur.parent:
-        if cur.name == ".runtime":
-            events_file = cur / "state" / "spawn_events.jsonl"
-            break
-        cur = cur.parent
-
-    if not events_file or not events_file.exists():
+    db_path = os.environ.get("SPAWN_REGISTRY_DB")
+    if not db_path:
         return []
 
     try:
-        # Read last ~100 lines efficiently
-        with open(events_file, "rb") as f:
-            # Seek to near end of file
-            f.seek(0, 2)  # End of file
-            file_size = f.tell()
-            read_size = min(file_size, 32768)  # Last 32KB
-            f.seek(max(0, file_size - read_size))
-            tail_bytes = f.read()
+        conn = sqlite3.connect(db_path, timeout=5)
+        rows = conn.execute(
+            """SELECT event_type, data_json, created_at
+               FROM agent_activities
+               WHERE run_id = ? AND event_type IN ('tool_call', 'tool_result')
+               ORDER BY created_at DESC LIMIT ?""",
+            (run_id, limit),
+        ).fetchall()
+        conn.close()
 
-        lines = tail_bytes.decode("utf-8", errors="replace").strip().split("\n")
-
-        # Filter for this run_id's tool events
         now = _time.time()
         activities: list[dict] = []
-        for line in reversed(lines):
-            if not line.strip():
-                continue
-            try:
-                evt = json.loads(line)
-            except (json.JSONDecodeError, ValueError):
-                continue
-
-            evt_run_id = evt.get("run_id") or evt.get("data", {}).get("run_id")
-            if evt_run_id != run_id:
-                continue
-
-            evt_type = evt.get("event_type", "")
-            if evt_type not in ("tool_call", "tool_result", "thinking"):
-                continue
-
-            data = evt.get("data", {})
-            ts = evt.get("timestamp") or data.get("timestamp")
-            ago = ""
-            if ts:
+        for event_type, data_json, created_at in rows:
+            activity: dict = {"event": event_type}
+            if data_json:
                 try:
-                    diff = int(now - float(ts))
-                    if diff < 60:
-                        ago = f"{diff}s ago"
-                    elif diff < 3600:
-                        ago = f"{diff // 60}m ago"
-                    else:
-                        ago = f"{diff // 3600}h ago"
-                except (ValueError, TypeError):
+                    data = json.loads(data_json)
+                    activity["tool"] = data.get("tool_name", "unknown")
+                except (json.JSONDecodeError, ValueError):
                     pass
-
-            activity = {"event": evt_type}
-            if evt_type in ("tool_call", "tool_result"):
-                activity["tool"] = data.get("tool_name", "unknown")
-            if ago:
-                activity["ago"] = ago
-
+            try:
+                diff = int(now - float(created_at))
+                if diff < 60:
+                    activity["ago"] = f"{diff}s ago"
+                elif diff < 3600:
+                    activity["ago"] = f"{diff // 60}m ago"
+                else:
+                    activity["ago"] = f"{diff // 3600}h ago"
+            except (ValueError, TypeError):
+                pass
             activities.append(activity)
-            if len(activities) >= limit:
-                break
-
         return activities
     except Exception:
         return []

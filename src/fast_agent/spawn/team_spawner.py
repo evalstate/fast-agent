@@ -20,6 +20,7 @@ from fast_agent.spawn.isolated_spawner import (
     run_isolated_agent,
     run_isolated_agent_background,
 )
+from fast_agent.spawn.spawn_hooks import SpawnLifecycleHooks
 from fast_agent.spawn.runtime_paths import get_runtime_paths
 from fast_agent.spawn.workspace_manager import (
     create_workspace,
@@ -309,6 +310,7 @@ async def spawn_team(
     display_manager: Any | None = None,
     parent_session_id: str = "",
     mode: str = "background",
+    spawn_lifecycle_hooks: SpawnLifecycleHooks | None = None,
 ) -> TeamSession:
     """Spawn a team — only the orchestrator starts immediately.
 
@@ -417,6 +419,7 @@ async def spawn_team(
         skills_dir=sdir,
         display_manager=display_manager,
         team_name=team_name,
+        spawn_lifecycle_hooks=spawn_lifecycle_hooks,
     )
 
     logger.info(
@@ -446,6 +449,7 @@ async def _spawn_single_agent(
     team_name: str,
     display_manager: Any | None = None,
     first_task: str = "",
+    spawn_lifecycle_hooks: SpawnLifecycleHooks | None = None,
 ) -> str:
     """Spawn a single team agent. Returns run_id."""
     agent_name = role_config.get("agent_name", f"Agent - {role_name.upper()}")
@@ -522,6 +526,8 @@ async def _spawn_single_agent(
         skills=_resolve_role_skills(role_config, skills_dir),
         env_vars=team_env,
         workspace_dir=str(workspace),
+        spawn_lifecycle_hooks=spawn_lifecycle_hooks,
+        server_overrides=role_config.get("server_overrides"),
     )
 
     session.agents[agent_name]["run_id"] = run_id
@@ -536,6 +542,7 @@ async def spawn_team_members_for_session(
     display_manager: Any | None = None,
     project_dir: str | Path = "",
     first_task: str = "",
+    spawn_lifecycle_hooks: SpawnLifecycleHooks | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Spawn specific team members from an active team session.
 
@@ -560,7 +567,9 @@ async def spawn_team_members_for_session(
 
     template_roles = session.template.get("roles", {})
     pdir = Path(project_dir).resolve() if project_dir else Path.cwd()
-    sdir = pdir / "skills"
+    sdir = Path(
+        os.environ.get("SPAWN_SKILLS_DIR", str(pdir / ".fast-agent" / "skills"))
+    )
     paths = get_runtime_paths(str(pdir))
 
     results: dict[str, dict[str, Any]] = {}
@@ -604,6 +613,7 @@ async def spawn_team_members_for_session(
             display_manager=display_manager,
             team_name=session.team_name,
             first_task=first_task,
+            spawn_lifecycle_hooks=spawn_lifecycle_hooks,
         )
 
         results[role_name] = {
