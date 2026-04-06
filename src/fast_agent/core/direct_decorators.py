@@ -255,8 +255,9 @@ def _decorator_impl(
     def decorator(func: Callable[P, Coroutine[Any, Any, R]]) -> Callable[P, Coroutine[Any, Any, R]]:
         if agent_type == AgentType.CUSTOM:
             custom_cls = extra_kwargs.get("agent_class") or extra_kwargs.get("cls")
+            explicit_function_tools = extra_kwargs.get("function_tools")
             if (
-                extra_kwargs.get("function_tools") is not None
+                explicit_function_tools
                 and not custom_class_supports_function_tools(custom_cls)
             ):
                 raise AgentConfigError(

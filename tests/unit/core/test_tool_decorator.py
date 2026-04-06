@@ -418,3 +418,23 @@ class TestAgentToolExposure:
             )
             async def bad_custom():
                 pass
+
+    def test_unsupported_custom_agent_allows_empty_function_tools_opt_out(self):
+        class UnsupportedCustomAgent:
+            def __init__(self, config, context=None):
+                self.config = config
+                self.context = context
+
+        fast = _FakeFastAgent()
+
+        @fast.custom(
+            UnsupportedCustomAgent,
+            name="isolated_custom",
+            instruction="test",
+            function_tools=[],
+        )
+        async def isolated_custom():
+            pass
+
+        config = fast.agents["isolated_custom"]["config"]
+        assert config.function_tools == []
