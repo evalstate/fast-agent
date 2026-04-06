@@ -530,7 +530,7 @@ async def _spawn_single_agent(
         context=context,
         servers=servers,
         model=model,
-        timeout_seconds=role_config.get("timeout_seconds", 600),
+        timeout_seconds=role_config.get("timeout_seconds", 0),  # 0 = no timeout for resumable agents
         role=role_name,
         agent_name=agent_name,
         team_name=team_name,

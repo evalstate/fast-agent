@@ -413,6 +413,16 @@ async def spawn_and_run_background(
     server_list = [s.strip() for s in servers.split(",") if s.strip()] if servers else []
     skill_paths = _resolve_skills_for_spawn(skills)
 
+    # Non-oneshot agents should not be killed by outer timeout
+    effective_timeout = timeout_seconds
+    if lifecycle in ("persistent", "resumable") and timeout_seconds > 0:
+        logger.info(
+            "Overriding timeout_seconds=%d → 0 for lifecycle=%s agent",
+            timeout_seconds,
+            lifecycle,
+        )
+        effective_timeout = 0
+
     run_id = await run_isolated_agent_background(
         task=task,
         project_dir=str(_PROJECT_DIR),
@@ -420,7 +430,7 @@ async def spawn_and_run_background(
         context=context,
         servers=server_list,
         model=model,
-        timeout_seconds=timeout_seconds,
+        timeout_seconds=effective_timeout,
         role=role,
         agent_name=role,
         lifecycle=lifecycle,
