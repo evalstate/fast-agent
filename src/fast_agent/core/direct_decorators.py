@@ -475,6 +475,11 @@ class DecoratorMixin:
 
         Returns:
             A decorator that registers the agent with proper type annotations
+
+        Naming note:
+        ``tools`` here is the MCP filter map, while ``function_tools`` is the
+        local Python tool configuration. Custom agent constructors still use a
+        runtime kwarg named ``tools=`` for the resolved function-tool objects.
         """
         final_instruction_raw = (
             instruction_or_kwarg if instruction_or_kwarg is not None else instruction
@@ -625,6 +630,11 @@ class DecoratorMixin:
 
         Returns:
             A decorator that registers the agent with proper type annotations
+
+        Naming note:
+        ``tools`` here is the MCP filter map. If ``function_tools`` are
+        configured for a custom class, the resolved tool objects are passed to
+        the class constructor as ``tools=`` for compatibility.
         """
         final_instruction_raw = (
             instruction_or_kwarg if instruction_or_kwarg is not None else instruction

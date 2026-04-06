@@ -28,7 +28,12 @@ def _callable_accepts_keyword_arg(callable_obj: Any, arg_name: str) -> bool:
 
 
 def custom_class_supports_function_tools(cls: Any) -> bool:
-    """Return whether a custom agent class accepts ``tools=`` during construction."""
+    """Return whether a custom agent class accepts ``tools=`` during construction.
+
+    ``function_tools`` is the user-facing configuration name, but custom agent
+    classes receive the resolved tool objects via a constructor kwarg named
+    ``tools`` for compatibility with existing ``ToolAgent``/``McpAgent`` APIs.
+    """
     init = getattr(cls, "__init__", None)
     return _callable_accepts_keyword_arg(init, "tools")
 

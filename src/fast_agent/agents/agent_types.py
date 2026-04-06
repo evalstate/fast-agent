@@ -78,7 +78,14 @@ class MCPConnectTarget:
 
 @dataclass
 class AgentConfig:
-    """Configuration for an Agent instance"""
+    """Configuration for an Agent instance.
+
+    Naming note:
+    - ``tools`` filters MCP-discovered tools by server name.
+    - ``function_tools`` configures local Python function tools.
+    - Runtime constructors such as ``ToolAgent(..., tools=...)`` use ``tools``
+      for the resolved executable function-tool objects, not these MCP filters.
+    """
 
     name: str
     instruction: str = DEFAULT_AGENT_INSTRUCTION

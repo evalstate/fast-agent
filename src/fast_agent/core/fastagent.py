@@ -434,7 +434,8 @@ class FastAgent(DecoratorMixin):
 
         # Dictionary to store agent configurations from decorators
         self.agents: dict[str, AgentCardData] = {}
-        # Global tool registry populated by @fast.tool decorator
+        # Global function-tool registry populated by @fast.tool.
+        # These are local Python tools, not AgentConfig.tools MCP filter maps.
         self._registered_tools: list[FunctionTool] = []
         # Tracking for AgentCard-loaded agents
         self._agent_card_sources: dict[str, Path] = {}

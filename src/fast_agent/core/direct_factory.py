@@ -130,8 +130,13 @@ def _resolve_function_tools_with_globals(
     """Load per-agent function tools, falling back to global @fast.tool tools.
 
     If the agent has explicit function_tools configured (including an empty list),
-    only those are used.  Otherwise, globally registered tools from ``@fast.tool``
+    only those are used. Otherwise, globally registered tools from ``@fast.tool``
     are provided.
+
+    Naming note:
+    the returned value is a list of resolved executable function tools. In the
+    custom-agent path, these are later passed to the constructor as ``tools=``,
+    which is distinct from ``AgentConfig.tools`` MCP filter settings.
     """
     if config.function_tools is not None or agent_data.get("function_tools") is not None:
         return _load_configured_function_tools(config, agent_data)
@@ -726,6 +731,8 @@ async def _create_custom_agent(
 
     create_kwargs: dict[str, Any] = {}
     if function_tools and custom_supports_function_tools:
+        # Custom agent constructors follow the existing ToolAgent/McpAgent
+        # convention: resolved function tools are passed as ``tools=``.
         create_kwargs["tools"] = function_tools
 
     agent = _create_agent_with_ui_if_needed(

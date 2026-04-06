@@ -92,6 +92,11 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
     Pass either:
     - native FastMCP FunctionTool objects
     - regular Python functions (wrapped as FunctionTools)
+
+    Naming note:
+    ``tools`` here means executable local/function tools available to the
+    agent. It does not refer to ``AgentConfig.tools``, which is the MCP
+    filter map used by ``McpAgent``.
     """
 
     def __init__(
@@ -100,6 +105,14 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         tools: Sequence[FunctionTool | Callable[..., Any]] = (),
         context: Context | None = None,
     ) -> None:
+        """Create a tool-capable agent.
+
+        Args:
+            config: Agent configuration. ``config.tools`` remains the MCP
+                filter map; it is separate from this ``tools`` argument.
+            tools: Executable local/function tools to expose on the agent.
+            context: Optional runtime context.
+        """
         super().__init__(config=config, context=context)
 
         self._execution_tools: dict[str, FunctionTool] = {}
