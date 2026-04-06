@@ -102,12 +102,14 @@ class TeamSession:
         workspace: Path,
         parent_session_id: str = "",
         team_name: str = "",
+        conversation_id: str = "",
     ) -> None:
         self.session_id = session_id
         self.template = template
         self.workspace = workspace
         self.parent_session_id = parent_session_id
         self.team_name = team_name or template.get("name", "team")
+        self.conversation_id = conversation_id  # originating chat session
         self.agents: dict[str, dict[str, Any]] = {}  # agent_name → {run_id, role, status, ...}
         self.sprint_status = "pending"
 
@@ -118,6 +120,7 @@ class TeamSession:
             "workspace": str(self.workspace),
             "parent_session_id": self.parent_session_id,
             "team_name": self.team_name,
+            "conversation_id": self.conversation_id,
             "agents": self.agents,
             "sprint_status": self.sprint_status,
         }
@@ -216,6 +219,7 @@ class TeamSession:
             workspace=Path(data["workspace"]),
             parent_session_id=data.get("parent_session_id", ""),
             team_name=data.get("team_name", ""),
+            conversation_id=data.get("conversation_id", ""),
         )
         session.agents = data.get("agents", {})
         session.sprint_status = data.get("sprint_status", "unknown")
@@ -311,6 +315,7 @@ async def spawn_team(
     parent_session_id: str = "",
     mode: str = "background",
     spawn_lifecycle_hooks: SpawnLifecycleHooks | None = None,
+    conversation_id: str = "",
 ) -> TeamSession:
     """Spawn a team — only the orchestrator starts immediately.
 
@@ -366,12 +371,21 @@ async def spawn_team(
         root=workspace_root,
     )
 
+    # Auto-capture conversation_id from shared_state if not provided
+    if not conversation_id:
+        try:
+            import services.shared_state as _sstate
+            conversation_id = _sstate.current_conversation_id or ""
+        except ImportError:
+            pass
+
     session = TeamSession(
         session_id=session_id,
         template=template,
         workspace=workspace,
         parent_session_id=parent_session_id,
         team_name=team_name,
+        conversation_id=conversation_id,
     )
     _team_sessions[session_id] = session
 
@@ -528,6 +542,7 @@ async def _spawn_single_agent(
         workspace_dir=str(workspace),
         spawn_lifecycle_hooks=spawn_lifecycle_hooks,
         server_overrides=role_config.get("server_overrides"),
+        session_id=session.session_id,
     )
 
     session.agents[agent_name]["run_id"] = run_id
@@ -664,5 +679,39 @@ def get_team_session(session_id: str) -> TeamSession | None:
 
 
 def list_team_sessions() -> list[dict[str, Any]]:
-    """List all team sessions."""
-    return [s.to_dict() for s in _team_sessions.values()]
+    """List all team sessions (in-memory + disk-persisted).
+
+    After server restart, in-memory cache is empty. This scans the
+    disk-persisted session files so Jarvis can discover and resume
+    old team sessions.
+    """
+    import os
+
+    # Start with in-memory sessions
+    seen_ids = set(_team_sessions.keys())
+    results = [s.to_dict() for s in _team_sessions.values()]
+
+    # Also scan disk for persisted sessions not yet in memory
+    for project_dir in [
+        os.environ.get("SPAWN_PROJECT_DIR", ""),
+        os.getcwd(),
+    ]:
+        if not project_dir:
+            continue
+        sessions_dir = Path(project_dir) / ".runtime" / "data" / "workspaces" / "team_sessions"
+        if not sessions_dir.exists():
+            continue
+        for session_file in sessions_dir.glob("*.json"):
+            sid = session_file.stem
+            if sid in seen_ids:
+                continue
+            try:
+                loaded = TeamSession.load(sid, sessions_dir)
+                if loaded:
+                    _team_sessions[sid] = loaded  # Cache for future calls
+                    results.append(loaded.to_dict())
+                    seen_ids.add(sid)
+            except Exception:
+                continue
+
+    return results

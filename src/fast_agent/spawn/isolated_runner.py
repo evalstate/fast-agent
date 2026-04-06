@@ -20,6 +20,7 @@ import shutil
 import sys
 import tempfile
 import time
+import yaml
 from pathlib import Path
 from typing import Any
 
@@ -77,11 +78,12 @@ def build_child_system_prompt(
                 [
                     "## Workspace & File Access",
                     f"Your workspace root is: `{workspace_dir}`",
-                    "The filesystem server is scoped to this directory.",
+                    "The filesystem server is scoped to this workspace and allowed project directories (e.g. skills).",
                     "",
                     "### Rules",
-                    "- Write ALL output files inside this workspace (use relative paths like `src/`, `docs/`, `tests/`)",
-                    "- You CANNOT access files outside this workspace",
+                    "- Write ALL output files inside your workspace (use relative paths like `src/`, `docs/`, `tests/`)",
+                    "- You can read skill files from the shared skills directory",
+                    "- You CANNOT write files outside your workspace",
                     "- Read `team_roster.json` to see your team members",
                     "",
                 ]
@@ -158,9 +160,13 @@ def create_child_config(
 ) -> str:
     """Create a temporary fastagent.config.yaml for the child.
 
+    Strategy: load parent config as dict → resolve all relative paths to
+    absolute → filter to requested servers → apply overrides → yaml.dump().
+
     Returns the path to the temp directory containing the config.
     """
     paths = get_runtime_paths(project_dir)
+    project = str(Path(project_dir).resolve())
 
     # Use project-local .runtime/cache/tmp/ dir instead of system /tmp
     project_tmp = paths["tmp"] / "child_configs"
@@ -172,118 +178,139 @@ def create_child_config(
     os.makedirs(logs_dir, exist_ok=True)
     log_filename = f"child_d{depth}_{run_id or 'unknown'}.jsonl"
 
-    # Build config YAML
-    config_lines: list[str] = []
+    # ── Step 1: Load parent config ──
+    parent_config = _load_config(project_dir)
+    parent_servers = parent_config.get("mcp", {}).get("servers", {})
 
-    if model:
-        config_lines.append(f"default_model: {model}")
-    else:
-        config_lines.append(f"default_model: {get_default_model(project_dir)}")
-
-    config_lines.extend(
-        [
-            "",
-            "logger:",
-            "  type: file",
-            f"  path: {logs_dir}/{log_filename}",
-            "  level: info",
-            "  truncate_tools: true",
-        ]
-    )
+    # ── Step 2: Build child config dict ──
+    child_config: dict[str, Any] = {
+        "default_model": model if model else get_default_model(project_dir),
+        "logger": {
+            "type": "file",
+            "path": f"{logs_dir}/{log_filename}",
+            "level": "info",
+            "truncate_tools": True,
+        },
+    }
 
     if servers:
-        # Read parent config to get server definitions directly
-        parent_config = _load_config(project_dir)
-        parent_servers = parent_config.get("mcp", {}).get("servers", {})
+        child_servers: dict[str, Any] = {}
+        is_team_workspace = workspace_dir and "/workspaces/" in workspace_dir
 
-        config_lines.extend(["", "mcp:", "  servers:"])
         for srv in servers:
-            parent_srv = parent_servers.get(srv, {}) if isinstance(parent_servers, dict) else {}
+            parent_srv = parent_servers.get(srv, {})
             if not isinstance(parent_srv, dict):
                 continue
 
-            # Read command and args DIRECTLY from parent config to preserve
-            # argument integrity (avoid shlex.split which breaks quoted args
-            # like '--header "Authorization: Bearer ${KEY}"')
-            cmd = parent_srv.get("command", "")
-            raw_args = parent_srv.get("args", [])
-            srv_url = parent_srv.get("url", "")
+            # Deep copy to avoid mutating parent config
+            srv_cfg = dict(parent_srv)
 
-            if not cmd and not srv_url:
+            # Apply server_overrides on top of parent config
+            srv_override = (server_overrides or {}).get(srv, {})
+            if isinstance(srv_override, dict):
+                for key, val in srv_override.items():
+                    srv_cfg[key] = val
+
+            cmd = srv_cfg.get("command", "")
+            if not cmd and not srv_cfg.get("url"):
                 continue
 
-            config_lines.append(f"    {srv}:")
+            # ── Resolve args: placeholders + relative paths → absolute ──
+            raw_args = srv_cfg.get("args", [])
+            if raw_args:
+                resolved_args: list[str] = []
+                for a in raw_args:
+                    a_str = str(a)
+                    # Substitute placeholders
+                    a_str = a_str.replace("{workspace_dir}", workspace_dir or "")
+                    a_str = a_str.replace("{project_dir}", project)
+                    # "." → workspace dir
+                    if a_str == ".":
+                        a_str = workspace_dir
+                    elif a_str.startswith("./"):
+                        a_str = f"{workspace_dir}{a_str[1:]}"
+                    # Resolve relative paths that exist under project_dir
+                    if (
+                        not a_str.startswith("/")
+                        and not a_str.startswith("-")
+                        and not a_str.startswith("$")
+                        and not a_str.startswith("{")
+                        and not a_str.startswith("@")
+                        and ("/" in a_str or a_str.endswith(".py"))
+                    ):
+                        candidate = os.path.join(project, a_str)
+                        if os.path.exists(candidate):
+                            a_str = candidate
+                    resolved_args.append(a_str)
 
-            if cmd:
-                config_lines.append(f'      command: "{cmd}"')
+                # For uv run: ensure --directory points to project
+                if cmd == "uv" and "run" in resolved_args:
+                    if "--directory" in resolved_args:
+                        dir_idx = resolved_args.index("--directory")
+                        if dir_idx + 1 < len(resolved_args):
+                            dir_val = resolved_args[dir_idx + 1]
+                            if not dir_val.startswith("/"):
+                                abs_dir = os.path.join(project, dir_val)
+                                if os.path.isdir(abs_dir):
+                                    resolved_args[dir_idx + 1] = abs_dir
+                    else:
+                        run_idx = resolved_args.index("run")
+                        resolved_args.insert(run_idx + 1, "--directory")
+                        resolved_args.insert(run_idx + 2, project)
 
-                # Apply workspace path substitutions on each arg individually
-                project = str(Path(project_dir).resolve())
-                is_team_workspace = workspace_dir and "/workspaces/" in workspace_dir
+                srv_cfg["args"] = resolved_args
 
-                # For team workspaces, filesystem server should serve just
-                # the workspace root — not project-specific subdirs
-                if is_team_workspace and srv == "filesystem":
-                    resolved_args: list[str] = [str(a) for a in raw_args
-                                     if not (str(a).startswith(".") or str(a).startswith("/"))]
-                    resolved_args.append(workspace_dir)
-                else:
-                    # Check if template provides an override for this server's args
-                    srv_override = (server_overrides or {}).get(srv, {})
-                    override_args = srv_override.get("args") if isinstance(srv_override, dict) else None
+            # ── Resolve env values: ${VAR} + relative paths → absolute ──
+            parent_env = parent_srv.get("env", {}) or {}
+            override_env = (srv_override if isinstance(srv_override, dict) else {}).get("env", {}) or {}
+            team_env = get_server_env(srv, workspace_dir, agent_name=agent_name) or {}
+            merged_env = {**parent_env, **override_env, **team_env}
 
-                    # Use override args if provided, otherwise use parent args
-                    source_args = override_args if override_args is not None else raw_args
-
-                    resolved_args: list[str] = []
-                    for a in source_args:
-                        a_str = str(a)
-                        # Substitute placeholders
-                        a_str = a_str.replace("{workspace_dir}", workspace_dir)
-                        a_str = a_str.replace("{project_dir}", project)
-                        # Replace relative "." with workspace dir
-                        if a_str == ".":
-                            a_str = workspace_dir
-                        elif a_str.startswith("./"):
-                            a_str = f"{workspace_dir}{a_str[1:]}"
-                        # Replace relative "servers/" paths with absolute project paths
-                        if a_str.startswith("servers/"):
-                            a_str = f"{project}/{a_str}"
-                        resolved_args.append(a_str)
-
-                # Add --directory for uv run commands
-                if cmd == "uv" and "run" in resolved_args and "--directory" not in resolved_args:
-                    run_idx = resolved_args.index("run")
-                    resolved_args.insert(run_idx + 1, "--directory")
-                    resolved_args.insert(run_idx + 2, project)
-
-                if resolved_args:
-                    args_str = ", ".join(f'"{a}"' for a in resolved_args)
-                    config_lines.append(f"      args: [{args_str}]")
-
-            # URL from parent config (not in command string)
-            if isinstance(parent_srv, dict):
-                url = parent_srv.get("url", "")
-                if url:
-                    config_lines.append(f'      url: "{url}"')
-
-            # Merge env: parent config env + team-aware env
-            parent_env = (parent_srv.get("env", {}) or {}) if isinstance(parent_srv, dict) else {}
-            srv_env = get_server_env(srv, workspace_dir, agent_name=agent_name) or {}
-            merged_env = {**parent_env, **srv_env}
             if merged_env:
-                config_lines.append("      env:")
+                import re
+                resolved_env: dict[str, str] = {}
                 for k, v in merged_env.items():
-                    config_lines.append(f'        {k}: "{v}"')
+                    v_str = str(v)
+                    # Resolve ${VAR} from current process env
+                    if "${" in v_str:
+                        v_str = re.sub(
+                            r'\$\{(\w+)\}',
+                            lambda m: os.environ.get(m.group(1), m.group(0)),
+                            v_str,
+                        )
+                    # Resolve relative file/dir paths to absolute
+                    if (
+                        not v_str.startswith("/")
+                        and not v_str.startswith("$")
+                        and not v_str.startswith("http")
+                        and ("/" in v_str or v_str.endswith(".db") or v_str.endswith(".py"))
+                    ):
+                        candidate = os.path.join(project, v_str)
+                        if os.path.exists(candidate):
+                            v_str = candidate
+                    resolved_env[k] = v_str
+                    # Detect unresolved ${VAR} — indicates missing env or secrets
+                    if "${" in v_str:
+                        logger.warning(
+                            "[SPAWN-CONFIG] Unresolved env var %s=%s for "
+                            "server '%s'. Ensure the value is provided in "
+                            "fastagent.secrets.yaml or os.environ.",
+                            k, v_str, srv,
+                        )
+                srv_cfg["env"] = resolved_env
 
-    config_content = "\n".join(config_lines) + "\n"
+            child_servers[srv] = srv_cfg
+
+
+        if child_servers:
+            child_config["mcp"] = {"servers": child_servers}
+
+    # ── Step 3: Write config YAML ──
     config_path = os.path.join(temp_dir, "fastagent.config.yaml")
     with open(config_path, "w") as f:
-        f.write(config_content)
+        yaml.dump(child_config, f, default_flow_style=False, allow_unicode=True)
 
-    # Copy secrets as-is. Since child now uses mcp.servers format (same as
-    # parent), deep_merge correctly merges secrets' env into server entries
-    # without losing command/args.
+    # Copy secrets as-is — FastAgent's deep_merge will overlay secret env values
     project_root = str(Path(project_dir).resolve())
     secrets_src = os.path.join(workspace_dir, "fastagent.secrets.yaml")
     if not os.path.exists(secrets_src):
@@ -292,7 +319,38 @@ def create_child_config(
     if os.path.exists(secrets_src):
         shutil.copy2(secrets_src, secrets_dst)
 
+        # ── Validation: detect secrets overriding resolved paths ──
+        # When deep_merge(child_config, secrets) runs at FastAgent startup,
+        # secrets that re-declare 'command' or 'args' will REPLACE the
+        # absolute paths we resolved above (e.g. --directory), causing
+        # MCP server startup failures in temp dir context.
+        try:
+            with open(secrets_src) as _sf:
+                secrets_data = yaml.safe_load(_sf) or {}
+            secrets_servers = secrets_data.get("mcp", {}).get("servers", {})
+            for srv_name, srv_cfg in (secrets_servers or {}).items():
+                if not isinstance(srv_cfg, dict):
+                    continue
+                overrides = []
+                if "command" in srv_cfg:
+                    overrides.append("command")
+                if "args" in srv_cfg:
+                    overrides.append("args")
+                if overrides and srv_name in (child_servers if servers else {}):
+                    logger.warning(
+                        "[SPAWN-CONFIG] fastagent.secrets.yaml re-declares %s "
+                        "for server '%s'. This will OVERRIDE resolved absolute "
+                        "paths in child config via deep_merge, potentially "
+                        "breaking the MCP server in spawn context. "
+                        "Fix: only declare 'env' in secrets, not command/args.",
+                        overrides,
+                        srv_name,
+                    )
+        except Exception:
+            pass  # best-effort validation, don't block spawn
+
     return temp_dir
+
 
 
 async def run_child_agent(
@@ -413,6 +471,7 @@ async def run_child_agent(
 
                 # Emit runtime config for monitoring dashboard
                 _emit_runtime_config(agent, event_run_id, agent_name)
+                await _emit_mcp_status(agent, event_run_id, agent_name)
                 # If resuming, load previous session history into agent
                 # This uses FastAgent's native API — no LLM call, just
                 # restores message_history so the next send() has full context
@@ -433,10 +492,33 @@ async def run_child_agent(
                             exc,
                         )
 
-                response = await agent.send(task)
+                try:
+                    response = await agent.send(task)
+                except Exception as _send_exc:
+                    import sys, traceback
+                    logger.error(
+                        "[AGENT.SEND CRASH] agent=%s error=%s",
+                        agent_name, _send_exc,
+                    )
+                    traceback.print_exc(file=sys.stderr)
+                    sys.stderr.flush()
+                    raise
 
                 # ── Keep-alive: wait for inbox messages via AgentChannel ──
-                is_team_agent = bool(os.environ.get("TEAM_MY_NAME") and os.environ.get("TEAM_WORKSPACE"))
+                import sys as _sys
+                _team_name_env = os.environ.get("TEAM_MY_NAME", "")
+                _team_ws_env = os.environ.get("TEAM_WORKSPACE", "")
+                is_team_agent = bool(_team_name_env and _team_ws_env)
+                logger.info(
+                    "[KEEP-ALIVE CHECK] agent=%s TEAM_MY_NAME=%r TEAM_WORKSPACE=%r is_team_agent=%s",
+                    agent_name, _team_name_env, _team_ws_env, is_team_agent,
+                )
+                # Force flush to stderr so subprocess output is captured
+                print(
+                    f"[KEEP-ALIVE CHECK] TEAM_MY_NAME={_team_name_env!r} "
+                    f"TEAM_WORKSPACE={_team_ws_env!r} is_team={is_team_agent}",
+                    file=_sys.stderr, flush=True,
+                )
 
                 if is_team_agent:
                     from fast_agent.spawn.agent_channel import AgentChannel
@@ -620,6 +702,72 @@ def _emit_runtime_config(agent_app: Any, run_id: str, role: str) -> None:
             skills=skills_data,
             tools=tools_data,
         )
+
+    except Exception:
+        pass  # Never crash the child for monitoring
+
+
+async def _emit_mcp_status(agent_app: Any, run_id: str, role: str) -> None:
+    """Emit MCP health status using real runtime data from MCPAggregator.
+
+    Calls collect_server_status() on the live aggregator to get actual
+    connection state, error messages, and implementation info — not
+    set subtraction.
+    """
+    try:
+        child_agent = agent_app["child"]
+    except (KeyError, TypeError):
+        return
+
+    try:
+        aggregator = getattr(child_agent, "_aggregator", None)
+        if not aggregator:
+            return
+
+        # Real runtime status from live server connections
+        status_map = await aggregator.collect_server_status()
+
+        mcp_health: dict[str, Any] = {}
+        total_connected = 0
+        total_failed = 0
+
+        for server_name, server_status in status_map.items():
+            is_connected = getattr(server_status, "is_connected", None)
+            error_msg = getattr(server_status, "error_message", None)
+            impl_name = getattr(server_status, "implementation_name", None)
+            transport = getattr(server_status, "transport", None)
+
+            # Tool count from _server_to_tool_map
+            server_tool_map = getattr(aggregator, "_server_to_tool_map", {})
+            tool_count = len(server_tool_map.get(server_name, []))
+
+            if is_connected:
+                total_connected += 1
+                status_str = "connected"
+            else:
+                total_failed += 1
+                status_str = "failed"
+
+            mcp_health[server_name] = {
+                "status": status_str,
+                "is_connected": is_connected,
+                "tools": tool_count,
+                "error": error_msg,
+                "implementation": impl_name,
+                "transport": transport,
+            }
+
+        total_configured = len(status_map)
+
+        emit_event(
+            "mcp_status",
+            run_id,
+            role,
+            total_configured=total_configured,
+            total_connected=total_connected,
+            total_failed=total_failed,
+            servers=mcp_health,
+        )
     except Exception:
         pass  # Never crash the child for monitoring
 
@@ -645,6 +793,15 @@ def _install_tool_hooks(agent_app: Any, run_id: str, role: str) -> None:
     _tool_start_times: dict[str, float] = {}
 
     async def before_tool_call(runner: Any, request: Any) -> None:
+        # File-based debug — does this hook fire?
+        try:
+            import pathlib as _pl2
+            _hp = _pl2.Path(os.environ.get("PROJECT_DIR", ".")) / ".runtime" / "cache" / "logs" / "hooks_debug.log"
+            _hp.parent.mkdir(parents=True, exist_ok=True)
+            with open(_hp, "a") as _hf:
+                _hf.write(f"{time.strftime('%H:%M:%S')} HOOK:before_tool_call FIRED\n")
+        except Exception:
+            pass
         tool_calls = getattr(request, "tool_calls", None) or {}
         cwd = os.getcwd()
         for _corr_id, tool_request in tool_calls.items():
@@ -717,6 +874,15 @@ def _install_tool_hooks(agent_app: Any, run_id: str, role: str) -> None:
 
     async def spawn_before_llm(runner: Any, messages: Any) -> None:
         """Emit 'thinking' event before each LLM call."""
+        # File-based debug — does this hook fire?
+        try:
+            import pathlib as _pl3
+            _hp = _pl3.Path(os.environ.get("PROJECT_DIR", ".")) / ".runtime" / "cache" / "logs" / "hooks_debug.log"
+            _hp.parent.mkdir(parents=True, exist_ok=True)
+            with open(_hp, "a") as _hf:
+                _hf.write(f"{time.strftime('%H:%M:%S')} HOOK:spawn_before_llm FIRED\n")
+        except Exception:
+            pass
         model = ""
         rp = getattr(runner, "request_params", None)
         if rp:

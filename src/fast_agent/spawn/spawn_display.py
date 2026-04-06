@@ -234,8 +234,25 @@ class SpawnDisplayManager:
         if self._event_callback:
             try:
                 self._event_callback(event)
-            except Exception:
-                pass  # Never crash display for callback errors
+            except Exception as e:
+                import logging as _logging
+                _logging.getLogger("spawn_display").warning(
+                    "Event callback failed for event=%s: %s",
+                    event.event, e,
+                )
+
+        # File-based debug — trace every event through display
+        try:
+            import os, pathlib, time
+            prj = os.environ.get("SPAWN_PROJECT_DIR", ".")
+            dbg = pathlib.Path(prj) / ".runtime" / "cache" / "logs" / "display_handle_debug.log"
+            dbg.parent.mkdir(parents=True, exist_ok=True)
+            has_cb = "CB_YES" if self._event_callback else "CB_NO"
+            with open(dbg, "a") as f:
+                f.write(f"{time.strftime('%H:%M:%S')} DISPLAY: {event.role}/{event.event} run={event.run_id[:8]} {has_cb}\n")
+        except Exception as e:
+            import logging as _log_dbg
+            _log_dbg.getLogger("spawn_display").warning("Debug write failed: %s", e)
 
         panel = self._panels.get(event.run_id)
         if not panel:

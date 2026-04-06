@@ -259,8 +259,8 @@ async def join_meeting(meeting_id: str, agent_name: str = "") -> str:
 
     config = _storage.get_config(meeting_id) or {}
 
-    with _storage.acquire_lock(meeting_id):
-        state = _storage.get_state(meeting_id) or {}
+    with _storage.acquire_lock(meeting_id) as conn:
+        state = _storage.get_state(meeting_id, _conn=conn) or {}
 
         if state.get("ended"):
             return json.dumps(
@@ -286,7 +286,7 @@ async def join_meeting(meeting_id: str, agent_name: str = "") -> str:
             state["started"] = True
             state["turn_started_at"] = time.time()
 
-        _storage.update_state(meeting_id, state)
+        _storage.update_state(meeting_id, state, _conn=conn)
 
     _audit(meeting_id, f"{agent_name} joined the meeting")
     _fire_hook("on_participant_joined", meeting_id, agent_name, all_joined)
@@ -431,8 +431,8 @@ async def get_transcript(meeting_id: str, agent_name: str = "") -> str:
     config = _storage.get_config(meeting_id) or {}
     transcript = _storage.get_transcript(meeting_id)
 
-    with _storage.acquire_lock(meeting_id):
-        state = _storage.get_state(meeting_id) or {}
+    with _storage.acquire_lock(meeting_id) as conn:
+        state = _storage.get_state(meeting_id, _conn=conn) or {}
 
         cursors: dict[str, int] = state.get("read_cursors", {})
         last_read = cursors.get(agent_name, 0)
@@ -441,7 +441,7 @@ async def get_transcript(meeting_id: str, agent_name: str = "") -> str:
         # Advance cursor — agent has now "seen" everything up to this point
         cursors[agent_name] = len(transcript)
         state["read_cursors"] = cursors
-        _storage.update_state(meeting_id, state)
+        _storage.update_state(meeting_id, state, _conn=conn)
 
     return json.dumps(
         {
@@ -489,8 +489,16 @@ async def speak(meeting_id: str, message: str, agent_name: str = "") -> str:
     participants: list[str] = config.get("participants", [])
     max_rounds = config.get("max_rounds", 3)
 
-    with _storage.acquire_lock(meeting_id):
-        state = _storage.get_state(meeting_id) or {}
+    # Collect hooks to fire AFTER releasing the lock (emit_event opens a
+    # new connection which would deadlock against BEGIN IMMEDIATE).
+    deferred_hooks: list[tuple] = []
+    result_json: str | None = None
+    turn_entry: dict = {}
+    next_speaker: str = ""
+    current_round: int = 1
+
+    with _storage.acquire_lock(meeting_id) as conn:
+        state = _storage.get_state(meeting_id, _conn=conn) or {}
 
         if state.get("ended"):
             return json.dumps({"error": "Meeting already ended"})
@@ -505,7 +513,7 @@ async def speak(meeting_id: str, message: str, agent_name: str = "") -> str:
                 }
             )
 
-        transcript = _storage.get_transcript(meeting_id)
+        transcript = _storage.get_transcript(meeting_id, _conn=conn)
 
         turn_entry = {
             "turn": len(transcript) + 1,
@@ -515,10 +523,10 @@ async def speak(meeting_id: str, message: str, agent_name: str = "") -> str:
             "message": message,
             "type": "speak",
         }
-        _storage.append_transcript(meeting_id, turn_entry)
+        _storage.append_transcript(meeting_id, turn_entry, _conn=conn)
 
-        # Fire transcript hook
-        _fire_hook("on_transcript_entry", meeting_id, turn_entry)
+        # Defer transcript hook
+        deferred_hooks.append(("on_transcript_entry", meeting_id, turn_entry))
 
         # Check for verdict — requires [DECISION] prefix to avoid
         # false positives when agents mention verdicts in discussion.
@@ -570,7 +578,7 @@ async def speak(meeting_id: str, message: str, agent_name: str = "") -> str:
                     current_round += 1
                 state["current_turn"] = next_turn
                 state["current_round"] = current_round
-                _storage.update_state(meeting_id, state)
+                _storage.update_state(meeting_id, state, _conn=conn)
 
                 next_speaker = (
                     participants[next_turn] if next_turn < len(participants) else "unknown"
@@ -580,11 +588,11 @@ async def speak(meeting_id: str, message: str, agent_name: str = "") -> str:
                     f"{agent_name} [round {turn_entry['round']}]: VERDICT FAIL — meeting continues",
                 )
 
-                _fire_hook("on_verdict", meeting_id, verdict, agent_name)
-                _fire_hook("on_turn_advanced", meeting_id, next_speaker, current_round)
-                _fire_hook("on_state_changed", meeting_id, state)
+                deferred_hooks.append(("on_verdict", meeting_id, verdict, agent_name))
+                deferred_hooks.append(("on_turn_advanced", meeting_id, next_speaker, current_round))
+                deferred_hooks.append(("on_state_changed", meeting_id, state))
 
-                return json.dumps(
+                result_json = json.dumps(
                     {
                         "status": "spoken",
                         "meeting_ended": False,
@@ -595,70 +603,79 @@ async def speak(meeting_id: str, message: str, agent_name: str = "") -> str:
                         "next_speaker": next_speaker,
                     }
                 )
-
-            # PASS, RESOLVED, ESCALATE, ESCALATE_TO_USER → end
-            state["ended"] = True
-            state["outcome"] = f"verdict_{verdict}"
-            _storage.update_state(meeting_id, state)
-            _audit(
-                meeting_id,
-                f"{agent_name} [round {state.get('current_round', 1)}]: {message[:200]}",
-            )
-            _audit(
-                meeting_id,
-                f"Meeting ended: verdict_{verdict}",
-            )
-
-            _fire_hook("on_verdict", meeting_id, verdict, agent_name)
-            _fire_hook("on_meeting_ended", meeting_id, f"verdict_{verdict}")
-            _fire_hook("on_state_changed", meeting_id, state)
-
-            return json.dumps(
-                {
-                    "status": "spoken",
-                    "meeting_ended": True,
-                    "verdict": verdict,
-                    "turn": turn_entry["turn"],
-                }
-            )
-
-        # Advance turn normally
-        next_turn = current_turn + 1
-        current_round = state.get("current_round", 1)
-
-        if next_turn >= len(participants):
-            next_turn = 0
-            current_round += 1
-            if current_round > max_rounds:
+            else:
+                # PASS, RESOLVED, ESCALATE, ESCALATE_TO_USER → end
                 state["ended"] = True
-                state["outcome"] = "max_rounds_reached"
-                state["current_turn"] = next_turn
-                state["current_round"] = current_round
-                _storage.update_state(meeting_id, state)
-                _audit(meeting_id, f"{agent_name}: {message[:200]}")
+                state["outcome"] = f"verdict_{verdict}"
+                _storage.update_state(meeting_id, state, _conn=conn)
                 _audit(
                     meeting_id,
-                    "Meeting ended: max_rounds_reached",
+                    f"{agent_name} [round {state.get('current_round', 1)}]: {message[:200]}",
+                )
+                _audit(
+                    meeting_id,
+                    f"Meeting ended: verdict_{verdict}",
                 )
 
-                _fire_hook("on_meeting_ended", meeting_id, "max_rounds_reached")
-                _fire_hook("on_state_changed", meeting_id, state)
+                deferred_hooks.append(("on_verdict", meeting_id, verdict, agent_name))
+                deferred_hooks.append(("on_meeting_ended", meeting_id, f"verdict_{verdict}"))
+                deferred_hooks.append(("on_state_changed", meeting_id, state))
 
-                return json.dumps(
+                result_json = json.dumps(
                     {
                         "status": "spoken",
                         "meeting_ended": True,
-                        "reason": "max_rounds_reached",
+                        "verdict": verdict,
                         "turn": turn_entry["turn"],
                     }
                 )
+        else:
+            # Advance turn normally
+            next_turn = current_turn + 1
+            current_round = state.get("current_round", 1)
 
-        state["current_turn"] = next_turn
-        state["current_round"] = current_round
-        state["turn_started_at"] = time.time()
-        _storage.update_state(meeting_id, state)
+            if next_turn >= len(participants):
+                next_turn = 0
+                current_round += 1
+                if current_round > max_rounds:
+                    state["ended"] = True
+                    state["outcome"] = "max_rounds_reached"
+                    state["current_turn"] = next_turn
+                    state["current_round"] = current_round
+                    _storage.update_state(meeting_id, state, _conn=conn)
+                    _audit(meeting_id, f"{agent_name}: {message[:200]}")
+                    _audit(
+                        meeting_id,
+                        "Meeting ended: max_rounds_reached",
+                    )
 
-        next_speaker = participants[next_turn]
+                    deferred_hooks.append(("on_meeting_ended", meeting_id, "max_rounds_reached"))
+                    deferred_hooks.append(("on_state_changed", meeting_id, state))
+
+                    result_json = json.dumps(
+                        {
+                            "status": "spoken",
+                            "meeting_ended": True,
+                            "reason": "max_rounds_reached",
+                            "turn": turn_entry["turn"],
+                        }
+                    )
+
+            if result_json is None:
+                state["current_turn"] = next_turn
+                state["current_round"] = current_round
+                state["turn_started_at"] = time.time()
+                _storage.update_state(meeting_id, state, _conn=conn)
+
+                next_speaker = participants[next_turn]
+
+    # ── Fire deferred hooks OUTSIDE the lock ──
+    for hook_args in deferred_hooks:
+        _fire_hook(*hook_args)
+
+    # Early-return results (verdict / max_rounds)
+    if result_json is not None:
+        return result_json
 
     _audit(
         meeting_id,
@@ -708,8 +725,14 @@ async def skip_turn(meeting_id: str, agent_name: str = "", reason: str = "") -> 
     participants: list[str] = config.get("participants", [])
     max_rounds = config.get("max_rounds", 3)
 
-    with _storage.acquire_lock(meeting_id):
-        state = _storage.get_state(meeting_id) or {}
+    deferred_hooks: list[tuple] = []
+    result_json: str | None = None
+    turn_entry: dict = {}
+    next_speaker: str = ""
+    current_round: int = 1
+
+    with _storage.acquire_lock(meeting_id) as conn:
+        state = _storage.get_state(meeting_id, _conn=conn) or {}
 
         if state.get("ended"):
             return json.dumps({"error": "Meeting already ended"})
@@ -725,16 +748,16 @@ async def skip_turn(meeting_id: str, agent_name: str = "", reason: str = "") -> 
             )
 
         turn_entry = {
-            "turn": len(_storage.get_transcript(meeting_id)) + 1,
+            "turn": len(_storage.get_transcript(meeting_id, _conn=conn)) + 1,
             "round": state.get("current_round", 1),
             "agent": agent_name,
             "timestamp": datetime.now().isoformat(timespec="seconds"),
             "message": reason or "(skipped)",
             "type": "skip",
         }
-        _storage.append_transcript(meeting_id, turn_entry)
+        _storage.append_transcript(meeting_id, turn_entry, _conn=conn)
 
-        _fire_hook("on_transcript_entry", meeting_id, turn_entry)
+        deferred_hooks.append(("on_transcript_entry", meeting_id, turn_entry))
 
         next_turn = current_turn + 1
         current_round = state.get("current_round", 1)
@@ -747,7 +770,7 @@ async def skip_turn(meeting_id: str, agent_name: str = "", reason: str = "") -> 
                 state["outcome"] = "max_rounds_reached"
                 state["current_turn"] = next_turn
                 state["current_round"] = current_round
-                _storage.update_state(meeting_id, state)
+                _storage.update_state(meeting_id, state, _conn=conn)
                 _audit(
                     meeting_id,
                     f"{agent_name} skipped: {reason}",
@@ -757,10 +780,10 @@ async def skip_turn(meeting_id: str, agent_name: str = "", reason: str = "") -> 
                     "Meeting ended: max_rounds_reached",
                 )
 
-                _fire_hook("on_meeting_ended", meeting_id, "max_rounds_reached")
-                _fire_hook("on_state_changed", meeting_id, state)
+                deferred_hooks.append(("on_meeting_ended", meeting_id, "max_rounds_reached"))
+                deferred_hooks.append(("on_state_changed", meeting_id, state))
 
-                return json.dumps(
+                result_json = json.dumps(
                     {
                         "status": "skipped",
                         "meeting_ended": True,
@@ -769,12 +792,20 @@ async def skip_turn(meeting_id: str, agent_name: str = "", reason: str = "") -> 
                     }
                 )
 
-        state["current_turn"] = next_turn
-        state["current_round"] = current_round
-        state["turn_started_at"] = time.time()
-        _storage.update_state(meeting_id, state)
+        if result_json is None:
+            state["current_turn"] = next_turn
+            state["current_round"] = current_round
+            state["turn_started_at"] = time.time()
+            _storage.update_state(meeting_id, state, _conn=conn)
 
-        next_speaker = participants[next_turn]
+            next_speaker = participants[next_turn]
+
+    # ── Fire deferred hooks OUTSIDE the lock ──
+    for hook_args in deferred_hooks:
+        _fire_hook(*hook_args)
+
+    if result_json is not None:
+        return result_json
 
     _audit(
         meeting_id,
@@ -855,9 +886,9 @@ async def add_participant(meeting_id: str, agent_name: str) -> str:
     if not _storage.meeting_exists(meeting_id):
         return json.dumps({"error": f"Meeting '{meeting_id}' not found"})
 
-    with _storage.acquire_lock(meeting_id):
+    with _storage.acquire_lock(meeting_id) as conn:
         config = _storage.get_config(meeting_id) or {}
-        state = _storage.get_state(meeting_id) or {}
+        state = _storage.get_state(meeting_id, _conn=conn) or {}
 
         if state.get("ended"):
             return json.dumps({"error": ("Cannot add participant — meeting already ended")})
@@ -928,8 +959,8 @@ async def leave_meeting(meeting_id: str, agent_name: str = "", reason: str = "")
     config = _storage.get_config(meeting_id) or {}
     participants: list[str] = config.get("participants", [])
 
-    with _storage.acquire_lock(meeting_id):
-        state = _storage.get_state(meeting_id) or {}
+    with _storage.acquire_lock(meeting_id) as conn:
+        state = _storage.get_state(meeting_id, _conn=conn) or {}
 
         if state.get("ended"):
             return json.dumps({"error": "Meeting already ended"})
@@ -953,15 +984,15 @@ async def leave_meeting(meeting_id: str, agent_name: str = "", reason: str = "")
                 state["outcome"] = "all_left"
 
         leave_entry = {
-            "turn": len(_storage.get_transcript(meeting_id)) + 1,
+            "turn": len(_storage.get_transcript(meeting_id, _conn=conn)) + 1,
             "round": state.get("current_round", 1),
             "agent": agent_name,
             "timestamp": datetime.now().isoformat(timespec="seconds"),
             "message": (f"Left the meeting: {reason}" if reason else "Left the meeting"),
             "type": "leave",
         }
-        _storage.append_transcript(meeting_id, leave_entry)
-        _storage.update_state(meeting_id, state)
+        _storage.append_transcript(meeting_id, leave_entry, _conn=conn)
+        _storage.update_state(meeting_id, state, _conn=conn)
 
     _audit(
         meeting_id,
@@ -998,4 +1029,49 @@ from fast_agent.spawn.servers._team_helpers import (
 
 
 if __name__ == "__main__":
+    import os
+
+    db_path = os.environ.get("JARVIS_DB_PATH", "")
+    if db_path:
+        from fast_agent.spawn.servers.meeting_storage import SqliteMeetingStorage
+        from fast_agent.spawn.servers.meeting_hooks import MeetingHooks
+
+        storage = SqliteMeetingStorage(db_path=db_path)
+
+        def _emit(event_type, meeting_id, data):
+            try:
+                storage.emit_event(event_type, meeting_id, data)
+            except Exception:
+                pass  # Never let hook errors crash the MCP server
+
+        hooks = MeetingHooks(
+            on_meeting_created=lambda mid, cfg: _emit(
+                "meeting_created", mid, {"config": cfg}
+            ),
+            on_participant_joined=lambda mid, name, all_j: _emit(
+                "participant_joined", mid,
+                {"agent_name": name, "all_joined": all_j},
+            ),
+            on_meeting_started=lambda mid: _emit(
+                "meeting_started", mid, {}
+            ),
+            on_transcript_entry=lambda mid, entry: _emit(
+                "transcript_entry", mid, {"entry": entry}
+            ),
+            on_turn_advanced=lambda mid, spk, rnd: _emit(
+                "turn_advanced", mid,
+                {"next_speaker": spk, "round": rnd},
+            ),
+            on_verdict=lambda mid, v, agent: _emit(
+                "verdict", mid, {"verdict": v, "by_agent": agent}
+            ),
+            on_meeting_ended=lambda mid, outcome: _emit(
+                "meeting_ended", mid, {"outcome": outcome}
+            ),
+            on_state_changed=lambda mid, state: _emit(
+                "state_changed", mid, {"state": state}
+            ),
+        )
+        configure_meeting_room(storage=storage, hooks=hooks)
+
     mcp.run()

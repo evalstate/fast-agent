@@ -61,6 +61,7 @@ from fast_agent.spawn.spawn_display import get_display_manager
 from fast_agent.spawn.spawn_registry import SpawnRegistry
 from fast_agent.spawn.team_spawner import (
     get_team_session,
+    list_team_sessions,
 )
 from fast_agent.spawn.team_spawner import (
     list_team_templates as _list_templates,
@@ -109,20 +110,40 @@ import socket as _socket
 
 _event_socket: _socket.socket | None = None
 
+# ── File-based diagnostic logger (MCP stderr is consumed by protocol) ──
+_dbg_file = None
+_event_counters = {"sent": 0, "dropped": 0, "callback": 0}
+
+
+def _dbg(msg: str) -> None:
+    """Write diagnostic line to file (MCP stderr is consumed by protocol)."""
+    global _dbg_file  # noqa: PLW0603
+    try:
+        if _dbg_file is None:
+            log_dir = _PROJECT_DIR / ".runtime" / "cache" / "logs"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            _dbg_file = open(log_dir / "event_socket_debug.log", "a", buffering=1)  # line-buffered
+
+        import time as _t
+        _dbg_file.write(f"{_t.strftime('%H:%M:%S')} {msg}\n")
+    except Exception as e:
+        import sys
+        sys.stderr.write(f"[_dbg WARN] Cannot write debug: {e}\n")
+
 
 def _connect_event_socket() -> _socket.socket | None:
     """Connect to the main process event socket."""
     socket_path = os.environ.get("SPAWN_EVENT_SOCKET")
     if not socket_path:
-        logger.debug("SPAWN_EVENT_SOCKET not set, event forwarding disabled")
+        _dbg("CONNECT: SPAWN_EVENT_SOCKET not set")
         return None
     try:
         sock = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
         sock.connect(socket_path)
-        logger.info("Connected to event socket: %s", socket_path)
+        _dbg(f"CONNECT: OK → {socket_path}")
         return sock
     except Exception as e:
-        logger.warning("Cannot connect to event socket %s: %s", socket_path, e)
+        _dbg(f"CONNECT: FAILED {socket_path} → {e}")
         return None
 
 
@@ -132,36 +153,50 @@ def _send_event_line(line: str) -> None:
     if _event_socket is None:
         _event_socket = _connect_event_socket()
     if _event_socket is None:
+        _event_counters["dropped"] += 1
+        _dbg(f"SEND: NO SOCKET — dropped (total={_event_counters['dropped']})")
         return
     try:
         _event_socket.sendall((line + "\n").encode("utf-8"))
-    except (BrokenPipeError, OSError, ConnectionResetError):
-        # Socket broken — try reconnect once
+        _event_counters["sent"] += 1
+    except (BrokenPipeError, OSError, ConnectionResetError) as e:
+        _dbg(f"SEND: FAILED ({e}), reconnecting...")
         _event_socket = _connect_event_socket()
         if _event_socket:
             try:
                 _event_socket.sendall((line + "\n").encode("utf-8"))
-            except Exception:
+                _event_counters["sent"] += 1
+                _dbg("SEND: RETRY OK")
+            except Exception as e2:
+                _dbg(f"SEND: RETRY FAILED ({e2})")
+                _event_counters["dropped"] += 1
                 _event_socket = None
+        else:
+            _event_counters["dropped"] += 1
+            _dbg("SEND: RECONNECT FAILED — events lost!")
 
 
 def _write_spawn_event_to_socket(event: Any) -> None:
     """Forward a SpawnEvent to the main process via socket."""
+    _event_counters["callback"] += 1
+    evt_type = getattr(event, "event", "?")
+    agent = getattr(event, "agent_name", "") or getattr(event, "role", "")
+    _dbg(f"CALLBACK #{_event_counters['callback']}: {agent}/{evt_type}")
     try:
         import time as _time
 
         line = json.dumps(
             {
                 "timestamp": _time.time(),
-                "agent_name": getattr(event, "agent_name", "") or getattr(event, "role", ""),
-                "event_type": getattr(event, "event", ""),
+                "agent_name": agent,
+                "event_type": evt_type,
                 "run_id": getattr(event, "run_id", ""),
                 "data": getattr(event, "data", {}),
             }
         )
         _send_event_line(line)
-    except Exception:
-        pass  # Never crash the MCP server for a display event
+    except Exception as e:
+        _dbg(f"CALLBACK ERROR: {evt_type} → {e}")
 
 
 _display.set_event_callback(_write_spawn_event_to_socket)
@@ -183,8 +218,8 @@ def _emit_removal_event(agent_names: list[str], run_ids: list[str]) -> None:
             },
         })
         _send_event_line(line)
-    except Exception:
-        pass
+    except Exception as e:
+        _dbg(f"REMOVAL EVENT FAILED: {e}")
 
 
 # ── Lifecycle hooks — send lifecycle events via socket ──
@@ -203,8 +238,8 @@ class _SocketSpawnLifecycleHooks:
                 "data": data or {},
             })
             _send_event_line(line)
-        except Exception:
-            pass
+        except Exception as e:
+            _dbg(f"LIFECYCLE EMIT FAILED: {event_type} → {e}")
 
     async def on_pre_spawn(self, run_id: str, agent_name: str, config: dict) -> None:
         self._emit("lifecycle_pre_spawn", run_id, agent_name, {"config_keys": list(config.keys())})
@@ -994,14 +1029,36 @@ async def spawn_team_members(
 
 
 @mcp.tool()
-def get_team_status(session_id: str) -> str:
-    """Get the status of a team session.
+def get_team_status(session_id: str = "") -> str:
+    """Get team session status. If session_id is empty, lists ALL sessions (including past ones from disk).
 
-    Returns agent roster with run_ids and statuses.
+    Use without session_id to discover old sessions after a server restart,
+    then use the returned session_id with resume_team_tool or send_team_message.
 
     Args:
-        session_id: The session_id from spawn_team_tool.
+        session_id: The session_id from spawn_team_tool. If empty, lists all sessions.
     """
+    # --- List all sessions mode ---
+    if not session_id:
+        sessions = list_team_sessions()
+        sessions.sort(key=lambda s: s.get("session_id", ""), reverse=True)
+        return json.dumps({
+            "count": len(sessions),
+            "sessions": [
+                {
+                    "session_id": s.get("session_id"),
+                    "team_name": s.get("team_name"),
+                    "sprint_status": s.get("sprint_status"),
+                    "agents": {
+                        name: info.get("status")
+                        for name, info in s.get("agents", {}).items()
+                    },
+                }
+                for s in sessions
+            ],
+        })
+
+    # --- Single session mode ---
     session = get_team_session(session_id)
     if not session:
         return json.dumps({"error": f"Team session '{session_id}' not found."})
@@ -1065,6 +1122,16 @@ def get_team_result(session_id: str) -> str:
     if not session:
         return json.dumps({"error": f"Team session '{session_id}' not found."})
 
+    # Sync agent statuses/results from registry (same pattern as get_team_status)
+    for role, info in session.agents.items():
+        run_id = info.get("run_id", "")
+        if run_id and _registry:
+            record = _registry.get_latest(run_id)
+            if record:
+                info["status"] = record.status
+                if record.result:
+                    info["result"] = record.result
+
     agents_results: dict[str, dict[str, Any]] = {}
     for role, info in session.agents.items():
         agents_results[role] = {
@@ -1092,6 +1159,8 @@ def list_team_templates_tool() -> str:
     """List all available team templates."""
     templates = _list_templates(template_dir=str(_PROJECT_DIR / "team_templates"))
     return json.dumps({"count": len(templates), "templates": templates})
+
+
 
 
 # ───────────────────────────────────────────────────────────

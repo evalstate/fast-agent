@@ -531,12 +531,35 @@ class MCPAggregator(ContextDependent):
                     skipped_servers.append(server_name)
                     continue
 
-            attached_results.append(
-                await self.attach_server(
+            import time as _time
+            _t0 = _time.monotonic()
+            logger.info(
+                f"Connecting to MCP server '{server_name}' for agent '{self.agent_name}'...",
+                data={
+                    "progress_action": ProgressAction.CONNECTING,
+                    "server_name": server_name,
+                    "agent_name": self.agent_name,
+                },
+            )
+            try:
+                result = await self.attach_server(
                     server_name=server_name,
                     options=MCPAttachOptions(),
                 )
-            )
+                _elapsed = _time.monotonic() - _t0
+                logger.info(
+                    f"Connected to MCP server '{server_name}' in {_elapsed:.1f}s "
+                    f"({len(result.tools_added)} tools)",
+                )
+                attached_results.append(result)
+            except Exception as exc:
+                _elapsed = _time.monotonic() - _t0
+                logger.error(
+                    f"Failed to connect to MCP server '{server_name}' after {_elapsed:.1f}s: {exc}",
+                    exc_info=True,
+                )
+                # Continue with remaining servers instead of blocking all
+                continue
 
         if skipped_servers:
             logger.debug(
