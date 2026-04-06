@@ -28,6 +28,7 @@ from fast_agent.agents.agent_types import (
     AgentConfig,
     AgentType,
     FunctionToolsConfig,
+    ScopedFunctionToolConfig,
     SkillConfig,
 )
 from fast_agent.agents.workflow.iterative_planner import ITERATIVE_PLAN_SYSTEM_PROMPT_TEMPLATE
@@ -333,13 +334,18 @@ def _decorator_impl(
             """
 
             def _register(f: Callable[..., Any]) -> Callable[..., Any]:
-                if name is not None:
-                    f._fast_tool_name = name  # type: ignore[attr-defined]
-                if description is not None:
-                    f._fast_tool_description = description  # type: ignore[attr-defined]
                 if config.function_tools is None:
                     config.function_tools = []
-                config.function_tools.append(f)
+                if name is not None or description is not None:
+                    config.function_tools.append(
+                        ScopedFunctionToolConfig(
+                            function=f,
+                            name=name,
+                            description=description,
+                        )
+                    )
+                else:
+                    config.function_tools.append(f)
                 return f
 
             if fn is not None:

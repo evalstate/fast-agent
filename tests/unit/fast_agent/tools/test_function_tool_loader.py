@@ -4,6 +4,7 @@ import time
 import pytest
 from fastmcp.tools import FunctionTool, ToolResult
 
+from fast_agent.agents.agent_types import ScopedFunctionToolConfig
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.tools.function_tool_loader import build_default_function_tool, load_function_tools
 
@@ -41,6 +42,29 @@ async def test_loader_returns_text_only_function_tool_for_dict_result() -> None:
     result = await tool.run({"value": "hello"})
 
     assert isinstance(tool, FunctionTool)
+    assert get_text(result.content[0]) == '{"value":"HELLO"}'
+    assert result.structured_content is None
+
+
+@pytest.mark.asyncio
+async def test_loader_uses_scoped_function_tool_metadata() -> None:
+    def shout(value: str) -> dict[str, str]:
+        return {"value": value.upper()}
+
+    tool = load_function_tools(
+        [
+            ScopedFunctionToolConfig(
+                function=shout,
+                name="custom_shout",
+                description="Uppercase a value",
+            )
+        ]
+    )[0]
+
+    result = await tool.run({"value": "hello"})
+
+    assert tool.name == "custom_shout"
+    assert tool.description == "Uppercase a value"
     assert get_text(result.content[0]) == '{"value":"HELLO"}'
     assert result.structured_content is None
 

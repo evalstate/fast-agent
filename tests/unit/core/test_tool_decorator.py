@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from fast_agent.agents.agent_types import ScopedFunctionToolConfig
 from fast_agent.core.direct_decorators import DecoratorMixin
 from fast_agent.core.exceptions import AgentConfigError
 
@@ -207,7 +208,7 @@ class TestAgentToolBare:
 
 
 class TestAgentToolParameterized:
-    def test_custom_name_stored_on_function(self):
+    def test_custom_name_stored_on_scoped_registration(self):
         fast = _FakeFastAgent()
         writer = _make_agent(fast, "writer")
 
@@ -215,9 +216,12 @@ class TestAgentToolParameterized:
         def helper() -> str:
             return "ok"
 
-        assert helper._fast_tool_name == "custom_name"
+        config = fast.agents["writer"]["config"]
+        assert isinstance(config.function_tools[0], ScopedFunctionToolConfig)
+        assert config.function_tools[0].function is helper
+        assert config.function_tools[0].name == "custom_name"
 
-    def test_custom_description_stored_on_function(self):
+    def test_custom_description_stored_on_scoped_registration(self):
         fast = _FakeFastAgent()
         writer = _make_agent(fast, "writer")
 
@@ -225,7 +229,10 @@ class TestAgentToolParameterized:
         def helper() -> str:
             return "ok"
 
-        assert helper._fast_tool_description == "A custom description"
+        config = fast.agents["writer"]["config"]
+        assert isinstance(config.function_tools[0], ScopedFunctionToolConfig)
+        assert config.function_tools[0].function is helper
+        assert config.function_tools[0].description == "A custom description"
 
     def test_parameterized_agent_tool_returns_original_function(self):
         fast = _FakeFastAgent()
@@ -315,6 +322,31 @@ class TestAgentToolMetadataPassthrough:
         assert len(tools) == 1
         assert tools[0].name == "plain_fn"
         assert tools[0].description == "Plain doc."
+
+    def test_scoped_metadata_does_not_bleed_across_shared_helpers(self):
+        from fast_agent.tools.function_tool_loader import load_function_tools
+
+        fast = _FakeFastAgent()
+        writer = _make_agent(fast, "writer")
+        analyst = _make_agent(fast, "analyst")
+
+        def shared_helper() -> str:
+            """Shared helper doc."""
+            return "ok"
+
+        writer.tool(name="writer_helper", description="Writer helper")(shared_helper)
+        analyst.tool(name="analyst_helper", description="Analyst helper")(shared_helper)
+
+        writer_config = fast.agents["writer"]["config"]
+        analyst_config = fast.agents["analyst"]["config"]
+
+        writer_tools = load_function_tools(writer_config.function_tools)
+        analyst_tools = load_function_tools(analyst_config.function_tools)
+
+        assert writer_tools[0].name == "writer_helper"
+        assert writer_tools[0].description == "Writer helper"
+        assert analyst_tools[0].name == "analyst_helper"
+        assert analyst_tools[0].description == "Analyst helper"
 
 
 class TestAgentToolExposure:

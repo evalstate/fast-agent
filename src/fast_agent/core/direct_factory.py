@@ -11,7 +11,7 @@ from typing import Any, Awaitable, Callable, Mapping, Protocol, Sequence, TypeVa
 from fastmcp.tools import FunctionTool
 
 from fast_agent.agents import McpAgent
-from fast_agent.agents.agent_types import AgentConfig, AgentType
+from fast_agent.agents.agent_types import AgentConfig, AgentType, FunctionToolConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.agents.workflow.evaluator_optimizer import (
     EvaluatorOptimizerAgent,
@@ -108,11 +108,11 @@ def _load_configured_function_tools(
     if tools_config_raw is None:
         tools_config_raw = agent_data.get("function_tools")
 
-    tools_config: list[Callable[..., Any] | str] | None = None
+    tools_config: list[FunctionToolConfig] | None = None
     if isinstance(tools_config_raw, str):
         tools_config = [tools_config_raw]
     elif isinstance(tools_config_raw, list):
-        tools_config = cast("list[Callable[..., Any] | str]", tools_config_raw)
+        tools_config = cast("list[FunctionToolConfig]", tools_config_raw)
 
     if not tools_config:
         return []

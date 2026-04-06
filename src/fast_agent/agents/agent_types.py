@@ -46,7 +46,16 @@ SkillConfig: TypeAlias = (
 # Function tools can be:
 # - A callable (Python function)
 # - A string spec like "module.py:function_name" (for dynamic loading)
-FunctionToolConfig: TypeAlias = Callable[..., Any] | str
+@dataclass(frozen=True)
+class ScopedFunctionToolConfig:
+    """A single local Python tool registration with scoped metadata."""
+
+    function: Callable[..., Any]
+    name: str | None = None
+    description: str | None = None
+
+
+FunctionToolConfig: TypeAlias = Callable[..., Any] | str | ScopedFunctionToolConfig
 
 FunctionToolsConfig: TypeAlias = list[FunctionToolConfig] | None
 

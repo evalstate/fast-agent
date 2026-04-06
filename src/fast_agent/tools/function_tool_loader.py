@@ -14,6 +14,7 @@ from typing import Any
 
 from fastmcp.tools import FunctionTool, ToolResult
 
+from fast_agent.agents.agent_types import ScopedFunctionToolConfig
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
 
@@ -145,7 +146,7 @@ def load_function_from_spec(spec: str, base_path: Path | None = None) -> Callabl
 
 
 def load_function_tools(
-    tools_config: list[Callable[..., Any] | str] | None,
+    tools_config: list[Callable[..., Any] | str | ScopedFunctionToolConfig] | None,
     base_path: Path | None = None,
 ) -> list[FunctionTool]:
     """
@@ -166,7 +167,15 @@ def load_function_tools(
     result: list[FunctionTool] = []
     for tool_spec in tools_config:
         try:
-            if callable(tool_spec):
+            if isinstance(tool_spec, ScopedFunctionToolConfig):
+                result.append(
+                    build_default_function_tool(
+                        tool_spec.function,
+                        name=tool_spec.name,
+                        description=tool_spec.description,
+                    )
+                )
+            elif callable(tool_spec):
                 tool_name = getattr(tool_spec, "_fast_tool_name", None)
                 tool_desc = getattr(tool_spec, "_fast_tool_description", None)
                 result.append(
