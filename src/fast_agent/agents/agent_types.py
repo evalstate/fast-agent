@@ -76,9 +76,9 @@ class AgentConfig:
     description: str | None = None
     tool_input_schema: dict[str, Any] | None = None
     servers: list[str] = field(default_factory=list)
-    tools: dict[str, list[str]] = field(default_factory=dict)  # filters for tools
-    resources: dict[str, list[str]] = field(default_factory=dict)  # filters for resources
-    prompts: dict[str, list[str]] = field(default_factory=dict)  # filters for prompts
+    tools: dict[str, list[str]] = field(default_factory=dict)  # MCP tool filters by server
+    resources: dict[str, list[str]] = field(default_factory=dict)  # MCP resource filters by server
+    prompts: dict[str, list[str]] = field(default_factory=dict)  # MCP prompt filters by server
     skills: SkillConfig = SKILLS_DEFAULT
     skill_manifests: list[SkillManifest] = field(default_factory=list, repr=False)
     model: str | None = None
@@ -90,7 +90,7 @@ class AgentConfig:
     tool_only: bool = False
     elicitation_handler: ElicitationFnT | None = None
     api_key: str | None = None
-    function_tools: FunctionToolsConfig = None
+    function_tools: FunctionToolsConfig = None  # Local Python function tools
     shell: bool = False
     cwd: Path | None = None
     tool_hooks: ToolHooksConfig = None

@@ -24,6 +24,7 @@ from fast_agent.context import Context
 from fast_agent.core import Core
 from fast_agent.core.agent_card_types import AgentCardData
 from fast_agent.core.exceptions import AgentConfigError, ModelConfigError
+from fast_agent.core.function_tool_support import custom_class_supports_function_tools
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.model_resolution import (
     HARDCODED_DEFAULT_MODEL,
@@ -711,10 +712,27 @@ async def _create_custom_agent(
             f"Custom agent '{name}' missing class reference ('agent_class' or 'cls')"
         )
 
+    explicit_function_tools = (
+        config.function_tools is not None or agent_data.get("function_tools") is not None
+    )
+    function_tools = _resolve_function_tools_with_globals(config, agent_data, build_ctx)
+    custom_supports_function_tools = custom_class_supports_function_tools(cls)
+    if function_tools and explicit_function_tools and not custom_supports_function_tools:
+        raise AgentConfigError(
+            "Custom agent does not accept function tools",
+            f"Custom agent '{name}' cannot use function_tools because "
+            f"{getattr(cls, '__name__', cls)!r} does not accept tools=.",
+        )
+
+    create_kwargs: dict[str, Any] = {}
+    if function_tools and custom_supports_function_tools:
+        create_kwargs["tools"] = function_tools
+
     agent = _create_agent_with_ui_if_needed(
         cls,
         config,
         build_ctx.app_instance.context,
+        **create_kwargs,
     )
     await _initialize_agent_with_llm(agent, config, build_ctx.model_factory_func)
 

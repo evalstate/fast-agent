@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from fast_agent.core.direct_decorators import DecoratorMixin
+from fast_agent.core.exceptions import AgentConfigError
 
 if TYPE_CHECKING:
     from fastmcp.tools import FunctionTool
@@ -27,6 +28,16 @@ def _make_agent(fast: _FakeFastAgent, name: str = "test_agent"):
     """Return the decorated async function from ``@fast.agent(name=...)``."""
 
     @fast.agent(name=name, instruction="test")
+    async def _agent_fn():
+        pass
+
+    return _agent_fn
+
+
+def _make_custom(fast: _FakeFastAgent, cls, name: str = "custom_agent"):
+    """Return the decorated async function from ``@fast.custom(...)``."""
+
+    @fast.custom(cls, name=name, instruction="test")
     async def _agent_fn():
         pass
 
@@ -304,3 +315,74 @@ class TestAgentToolMetadataPassthrough:
         assert len(tools) == 1
         assert tools[0].name == "plain_fn"
         assert tools[0].description == "Plain doc."
+
+
+class TestAgentToolExposure:
+    def test_supported_custom_agent_exposes_tool(self):
+        class SupportedCustomAgent:
+            def __init__(self, config, context=None, tools=()):
+                self.config = config
+                self.context = context
+                self.tools = tools
+
+        fast = _FakeFastAgent()
+        custom = _make_custom(fast, SupportedCustomAgent, "supported_custom")
+
+        @custom.tool
+        def helper() -> str:
+            return "ok"
+
+        config = fast.agents["supported_custom"]["config"]
+        assert config.function_tools is not None
+        assert helper in config.function_tools
+
+    def test_unsupported_custom_agent_does_not_expose_tool(self):
+        class UnsupportedCustomAgent:
+            def __init__(self, config, context=None):
+                self.config = config
+                self.context = context
+
+        fast = _FakeFastAgent()
+        custom = _make_custom(fast, UnsupportedCustomAgent, "unsupported_custom")
+
+        assert "tool" not in vars(custom)
+
+    def test_router_does_not_expose_tool(self):
+        fast = _FakeFastAgent()
+
+        @fast.router(name="router", agents=["writer"], instruction="route")
+        async def router():
+            pass
+
+        assert "tool" not in vars(router)
+
+    def test_parallel_does_not_expose_tool(self):
+        fast = _FakeFastAgent()
+
+        @fast.parallel(name="parallel", fan_out=["writer"], fan_in="aggregator")
+        async def parallel():
+            pass
+
+        assert "tool" not in vars(parallel)
+
+    def test_unsupported_custom_agent_rejects_explicit_function_tools(self):
+        class UnsupportedCustomAgent:
+            def __init__(self, config, context=None):
+                self.config = config
+                self.context = context
+
+        fast = _FakeFastAgent()
+
+        def helper() -> str:
+            return "ok"
+
+        with pytest.raises(AgentConfigError, match="does not accept function tools"):
+
+            @fast.custom(
+                UnsupportedCustomAgent,
+                name="bad_custom",
+                instruction="test",
+                function_tools=[helper],
+            )
+            async def bad_custom():
+                pass
