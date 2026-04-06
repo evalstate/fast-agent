@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 # Recursion limits
 DEFAULT_MAX_DEPTH = 6
-DEFAULT_TIMEOUT_SECONDS = 3600
+DEFAULT_TIMEOUT_SECONDS = 0  # 0 = no timeout (agents run forever, cleaned up on restart)
 
 # Track background tasks and their subprocesses
 _background_tasks: dict[str, asyncio.Task[None]] = {}
@@ -231,37 +231,83 @@ async def _run_subprocess(
 
     async def _read_stderr() -> None:
         assert process.stderr is not None
-        while True:
-            raw = await process.stderr.readline()
-            if not raw:
-                break
-            line = raw.decode("utf-8", errors="replace").rstrip()
-            evt = SpawnEvent.from_line(line)
-            if evt and display_manager:
-                display_manager.handle_event(evt)
-            if evt and evt.event in ("idle", "resumed"):
-                # Update registry in real-time for keep-alive agents
-                # so the UI reflects idle/running status immediately
+        try:
+            while True:
+                raw = await process.stderr.readline()
+                if not raw:
+                    break
+                line = raw.decode("utf-8", errors="replace").rstrip()
+                evt = SpawnEvent.from_line(line)
+
+                if evt and display_manager:
+                    display_manager.handle_event(evt)
+                if evt and evt.event in ("idle", "resumed"):
+                    # Update registry in real-time for keep-alive agents
+                    # so the UI reflects idle/running status immediately
+                    try:
+                        from fast_agent.spawn.spawn_registry import (
+                            SpawnRegistry,
+                            SpawnStatus,
+                        )
+                        reg_path = Path(project_dir).resolve() / ".runtime" / "state" / "spawn_registry.json"
+                        _rt_reg = SpawnRegistry(registry_file=str(reg_path))
+                        _new_status = SpawnStatus.IDLE if evt.event == "idle" else SpawnStatus.RUNNING
+                        _rt_reg.update_status(run_id, _new_status)
+                    except Exception as e:
+                        logger.warning("Failed to update JSON registry on %s: %s", evt.event, e)
+
+                    # Also update SQLite AgentRegistryDB directly — the socket
+                    # pipeline (stderr→display→socket→bridge) can silently fail,
+                    # so this is the authoritative backup for UI status.
+                    try:
+                        db_path = os.environ.get("SPAWN_REGISTRY_DB")
+                        if db_path:
+                            import sqlite3 as _sqlite3
+                            _db_status = "idle" if evt.event == "idle" else "running"
+                            _conn = _sqlite3.connect(db_path, timeout=5)
+                            _row = _conn.execute(
+                                "SELECT data_json FROM spawn_registry WHERE run_id = ?",
+                                (run_id,),
+                            ).fetchone()
+                            if _row:
+                                import json as _json
+                                _rec = _json.loads(_row[0])
+                                _rec["status"] = _db_status
+                                _conn.execute(
+                                    "INSERT OR REPLACE INTO spawn_registry (run_id, data_json) VALUES (?, ?)",
+                                    (run_id, _json.dumps(_rec, ensure_ascii=False)),
+                                )
+                                _conn.commit()
+                                logger.info(
+                                    "Updated AgentRegistryDB: run_id=%s → %s",
+                                    run_id, _db_status,
+                                )
+                            _conn.close()
+                    except Exception as e:
+                        logger.warning("Failed to update AgentRegistryDB on %s: %s", evt.event, e)
+                elif not evt:
+                    stderr_lines.append(line)
+        except Exception as _crash_exc:
+            # CRITICAL: Log the crash that kills _read_stderr silently
+            logger.error("[_read_stderr] CRASHED after %d lines: %s", _stderr_count, _crash_exc, exc_info=True)
+            if _dbg_path:
                 try:
-                    from fast_agent.spawn.spawn_registry import (
-                        SpawnRegistry,
-                        SpawnStatus,
-                    )
-                    reg_path = Path(project_dir).resolve() / ".runtime" / "state" / "spawn_registry.json"
-                    _rt_reg = SpawnRegistry(registry_file=str(reg_path))
-                    _new_status = SpawnStatus.IDLE if evt.event == "idle" else SpawnStatus.RUNNING
-                    _rt_reg.update_status(run_id, _new_status)
+                    import time as _tc, traceback as _tb
+                    with open(_dbg_path, "a") as _fc:
+                        _fc.write(f"{_tc.strftime('%H:%M:%S')} !!! CRASH after {_stderr_count} lines: {_crash_exc}\n")
+                        _fc.write(f"{_tc.strftime('%H:%M:%S')} Traceback:\n{''.join(_tb.format_exception(type(_crash_exc), _crash_exc, _crash_exc.__traceback__))}\n")
                 except Exception:
-                    pass  # Best-effort
-            elif not evt:
-                stderr_lines.append(line)
+                    pass
+
 
     try:
         stderr_task = asyncio.create_task(_read_stderr())
         assert process.stdout is not None
+        # timeout_seconds=0 means no timeout — agent runs forever
+        effective_timeout = timeout_seconds if timeout_seconds > 0 else None
         stdout = await asyncio.wait_for(
             process.stdout.read(),
-            timeout=timeout_seconds,
+            timeout=effective_timeout,
         )
         await asyncio.wait_for(stderr_task, timeout=5)
         await process.wait()
@@ -739,7 +785,7 @@ async def _check_and_resume_on_inbox(
         context=enriched_context,
         servers=cfg.get("servers", []),
         model=cfg.get("model", ""),
-        timeout_seconds=cfg.get("timeout_seconds", 600),
+        timeout_seconds=cfg.get("timeout_seconds", DEFAULT_TIMEOUT_SECONDS),
         role=cfg.get("role", ""),
         agent_name=agent_name,
         lifecycle="resumable",
@@ -781,7 +827,7 @@ async def run_isolated_agent_background(
     context: str = "",
     servers: list[str] | None = None,
     model: str = "",
-    timeout_seconds: int = 600,
+    timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     depth: int = 1,
     max_depth: int = DEFAULT_MAX_DEPTH,
     workspace_dir: str | None = None,
@@ -796,6 +842,7 @@ async def run_isolated_agent_background(
     history_file: str | None = None,
     spawn_lifecycle_hooks: SpawnLifecycleHooks | None = None,
     server_overrides: dict[str, dict] | None = None,
+    session_id: str = "",
 ) -> str:
     """Spawn an isolated agent in the BACKGROUND (fire-and-forget).
 
@@ -838,6 +885,7 @@ async def run_isolated_agent_background(
             lifecycle=lifecycle,
             status="running",
             original_config=orig_cfg,
+            session_id=session_id,
         )
         registry.register(record)
         # Hook: on_registered — agent is now in registry (background path)
@@ -924,12 +972,74 @@ async def run_isolated_agent_background(
                 )
                 display_manager.handle_event(completed_evt)
 
+            # ── Push team_report when a team PM/agent completes ──
+            if team_name and session_id:
+                try:
+                    import time as _time
+                    from fast_agent.spawn.team_spawner import get_team_session
+
+                    team_session = get_team_session(session_id)
+                    if team_session:
+                        # Use PM's natural result — PM decides report content
+                        report_content = result.get("result", "")
+                        cid = team_session.conversation_id
+
+                        # Broadcast via activity_stream (SSE push to Dashboard)
+                        try:
+                            from services.activity_stream import activity_stream_manager
+                            activity_stream_manager.broadcast({
+                                "agent_name": agent_name or "Team PM",
+                                "event_type": "team_report",
+                                "team_name": team_name,
+                                "session_id": session_id,
+                                "conversation_id": cid,
+                                "result": report_content,
+                                "message": f"📋 Team {team_name} completed",
+                                "timestamp": _time.time(),
+                            })
+                        except ImportError:
+                            pass
+
+                        # Persist to SQLite
+                        try:
+                            from services.sse_progress import _persist_activity
+                            _persist_activity(
+                                agent_name=agent_name or "Team PM",
+                                event_type="team_report",
+                                message=f"📋 Team {team_name} completed",
+                                run_id=run_id,
+                                session_id=cid,
+                                data={
+                                    "team_name": team_name,
+                                    "team_session_id": session_id,
+                                    "result": report_content,
+                                },
+                            )
+                        except ImportError:
+                            pass
+
+                        logger.info(
+                            "📋 Team report pushed: team=%s session=%s cid=%s",
+                            team_name, session_id, cid,
+                        )
+                except Exception as e:
+                    logger.warning("Failed to push team report: %s", e)
+
         except asyncio.CancelledError:
             if registry:
                 from fast_agent.spawn.spawn_registry import SpawnStatus
 
-                registry.update_status(run_id, SpawnStatus.CANCELLED)
-            logger.info("Background spawn %s was cancelled", run_id)
+                if lifecycle == "resumable":
+                    # Resumable agents go IDLE on server shutdown — process
+                    # stays alive and can be adopted on next startup.
+                    # Context is preserved via session history files.
+                    registry.update_status(run_id, SpawnStatus.IDLE)
+                    logger.info(
+                        "Background spawn %s detached (resumable → idle)", run_id,
+                    )
+                else:
+                    registry.update_status(run_id, SpawnStatus.CANCELLED)
+                    logger.info("Background spawn %s was cancelled", run_id)
         except BaseException as e:
             if registry:
                 from fast_agent.spawn.spawn_registry import SpawnStatus

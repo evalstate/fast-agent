@@ -43,14 +43,67 @@ class SpawnEvent:
             return None
 
 
-def emit_event(event: str, run_id: str, role: str, **data: Any) -> None:
-    """Emit a spawn event to stderr (called from child process)."""
-    evt = SpawnEvent(event=event, run_id=run_id, role=role, data=data)
+# ── Direct UDS socket for bypassing broken stderr pipe ──
+import os as _os
+import socket as _socket
+
+_direct_socket: _socket.socket | None = None
+
+
+def _get_direct_socket() -> _socket.socket | None:
+    """Connect to the backend event socket. Always retries on failure."""
+    global _direct_socket  # noqa: PLW0603
+    if _direct_socket is not None:
+        return _direct_socket
+    sock_path = _os.environ.get("SPAWN_EVENT_SOCKET")
+    if not sock_path:
+        return None
     try:
-        sys.stderr.write(evt.to_json_line() + "\n")
+        sock = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+        sock.settimeout(5.0)  # Don't hang on connect
+        sock.connect(sock_path)
+        sock.settimeout(None)  # Back to blocking for sendall
+        _direct_socket = sock
+        return sock
+    except Exception as e:
+        sys.stderr.write(f"[emit_event] Socket connect failed ({sock_path}): {e}\n")
         sys.stderr.flush()
-    except Exception:
-        pass  # Never crash the child for a display event
+        return None
+
+
+def emit_event(event: str, run_id: str, role: str, **data: Any) -> None:
+    """Emit a spawn event via UDS socket to the backend bridge.
+
+    No stderr fallback — if the socket fails, it logs a warning.
+    """
+    evt = SpawnEvent(event=event, run_id=run_id, role=role, data=data)
+
+    # Send directly via UDS socket to backend
+    socket_ok = False
+    socket_err = None
+    try:
+        sock = _get_direct_socket()
+        if sock:
+            bridge_msg = json.dumps({
+                "timestamp": evt.timestamp,
+                "agent_name": role,
+                "event_type": event,
+                "run_id": run_id,
+                "data": data,
+            })
+            sock.sendall((bridge_msg + "\n").encode("utf-8"))
+            socket_ok = True
+        else:
+            socket_err = "no socket (SPAWN_EVENT_SOCKET not set or connect failed)"
+    except (BrokenPipeError, OSError, ConnectionResetError) as e:
+        socket_err = str(e)
+        global _direct_socket  # noqa: PLW0603
+        _direct_socket = None  # Force reconnect on next emit
+
+    if not socket_ok:
+        # Log warning to stderr — don't swallow failures
+        sys.stderr.write(f"[emit_event] FAILED {role}/{event}: {socket_err}\n")
+        sys.stderr.flush()
 
 
 # ─── Event constructors ───
