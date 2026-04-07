@@ -524,7 +524,6 @@ async def run_child_agent(
                     from fast_agent.spawn.agent_channel import AgentChannel
                     from fast_agent.spawn.message_bus import MessageBus
 
-                    idle_timeout = int(os.environ.get("AGENT_IDLE_TIMEOUT", "7200"))
                     channel = AgentChannel(agent_name)
                     await channel.start_server()
 
@@ -541,21 +540,14 @@ async def run_child_agent(
                                 _cur = _cur.parent
 
                     emit_event("idle", event_run_id, agent_name)
-                    logger.info(
-                        "📡 %s entering keep-alive mode (timeout=%ds)",
-                        agent_name,
-                        idle_timeout,
-                    )
+                    logger.info("📡 %s entering keep-alive mode (no timeout)", agent_name)
 
                     try:
                         while True:
-                            signal = await channel.listen(timeout=idle_timeout)
+                            signal = await channel.listen(timeout=None)
                             if signal is None:
-                                logger.info(
-                                    "⏰ %s idle timeout (%ds) — exiting",
-                                    agent_name,
-                                    idle_timeout,
-                                )
+                                # channel closed externally
+                                logger.info("📡 %s channel closed — exiting", agent_name)
                                 break
 
                             logger.info(

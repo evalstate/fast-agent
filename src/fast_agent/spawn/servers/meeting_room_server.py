@@ -147,7 +147,10 @@ async def create_meeting(
     Use post_message for: task assignments, status updates, async notifications.
 
     Args:
-        agenda: What this meeting is about.
+        agenda: Short title for this meeting (max 120 chars). Displayed as the
+                meeting title in the dashboard. Keep it concise, e.g.
+                "Sprint 1 kickoff" or "Blocker review cho SCRUM-5".
+                Do NOT put detailed discussion points here.
         participants: Comma-separated AGENT NAMES in speaking order.
                       E.g. "Linh - PM, Hoa - BA, Khang - SA"
         max_rounds: Maximum conversation rounds (default 3).

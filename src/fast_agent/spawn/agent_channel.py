@@ -7,7 +7,7 @@ wake signals.
 Server side (agent subprocess):
     channel = AgentChannel("Dev", channel_dir)
     await channel.start_server()
-    signal = await channel.listen(timeout=7200)  # blocks, zero CPU
+    signal = await channel.listen()  # blocks indefinitely, zero CPU
 
 Client side (any process):
     AgentChannel.send_signal("Dev", "wake", channel_dir)
@@ -86,9 +86,9 @@ class AgentChannel:
         await channel.start_server()
         try:
             while True:
-                signal = await channel.listen(timeout=7200)
+                signal = await channel.listen()
                 if signal is None:
-                    break  # idle timeout
+                    break  # channel closed
                 # handle signal...
         finally:
             await channel.stop()
@@ -151,10 +151,11 @@ class AgentChannel:
             except Exception:
                 pass
 
-    async def listen(self, timeout: float = 7200) -> str | None:
-        """Block until a signal arrives or timeout.
+    async def listen(self, timeout: float | None = None) -> str | None:
+        """Block until a signal arrives.
 
-        Returns the signal string, or None on timeout.
+        Returns the signal string, or None if timeout expires.
+        Pass timeout=None (default) for indefinite wait.
         Zero CPU while waiting.
         """
         # If a signal arrived before listen() was called, return it
