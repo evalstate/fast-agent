@@ -1,3 +1,16 @@
+"""
+Testing notes:
+
+- This module owns catalog-level invariants: current vs non-current aliases,
+  fast-model flags, provider suggestions, and overlay/discovery interactions.
+- Prefer invariant and sentinel tests over reproducing the full curated catalog
+  as exact string-for-string assertions.
+- A few promoted/legacy smoke tests are useful here when they validate the
+  migration state users see in pickers and suggestions.
+- Alias parsing semantics belong in test_model_factory.py; model capability
+  lookups belong in test_model_database.py.
+"""
+
 from __future__ import annotations
 
 import os
@@ -52,16 +65,12 @@ def test_list_curated_aliases_for_provider() -> None:
 
 def test_legacy_aliases_are_listed_but_not_curated() -> None:
     curated_aliases = ModelSelectionCatalog.list_curated_aliases(Provider.HUGGINGFACE)
-    curated_models = ModelSelectionCatalog.list_curated_models(Provider.HUGGINGFACE)
     legacy_aliases = ModelSelectionCatalog.list_non_current_aliases(Provider.HUGGINGFACE)
 
-    assert "minimax25" in curated_aliases
-    assert (
-        "hf.MiniMaxAI/MiniMax-M2.5:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40"
-        in curated_models
-    )
-    assert "qwen35" in curated_aliases
-    assert "qwen35instruct" in curated_aliases
+    assert set(curated_aliases).isdisjoint(legacy_aliases)
+    assert "glm51" in curated_aliases
+    assert "glm5" not in curated_aliases
+    assert "glm5" in legacy_aliases
     assert "glm47" in legacy_aliases
     assert "glm47" not in curated_aliases
 
@@ -241,6 +250,8 @@ def test_suggestions_include_legacy_aliases_when_configured() -> None:
 
     assert len(suggestions) == 1
     suggestion = suggestions[0]
+    assert "glm51" in suggestion.current_aliases
+    assert "glm5" in suggestion.non_current_aliases
     assert "glm47" in suggestion.non_current_aliases
     assert "glm47" not in suggestion.current_aliases
 
@@ -380,5 +391,5 @@ def test_overlay_catalog_uses_explicit_environment_context(
 
     assert "openresponses.overlay-tests/project" in models
     assert "openresponses.overlay-tests/ambient" not in models
-    assert suggestions[0].current_aliases[0] == "projectoverlay"
+    assert "projectoverlay" in suggestions[0].current_aliases
     assert "ambientoverlay" not in suggestions[0].current_aliases

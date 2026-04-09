@@ -11,6 +11,7 @@ import yaml
 from fast_agent.commands.context import CommandContext
 from fast_agent.commands.handlers import models_manager
 from fast_agent.config import Settings
+from fast_agent.ui.model_picker_common import ANTHROPIC_VERTEX_PROVIDER_KEY
 
 
 class _StubAgentProvider:
@@ -582,7 +583,7 @@ async def test_models_aliases_set_reopens_vertex_selection_for_vertex_model(tmp_
     finally:
         os.chdir(previous_cwd)
 
-    assert io.last_initial_provider == "anthropic-vertex"
+    assert io.last_initial_provider == ANTHROPIC_VERTEX_PROVIDER_KEY
     assert io.last_default_model == "anthropic-vertex.claude-sonnet-4-6"
     assert "no changes" in str(outcome.messages[0].text)
 

@@ -807,6 +807,7 @@ class ModelDatabase:
         "zai-org/glm-4.6": GLM_46,
         "zai-org/glm-4.7": GLM_47,
         "zai-org/glm-5": _with_fast(GLM_5),
+        "zai-org/glm-5.1": _with_fast(GLM_5),
         "minimaxai/minimax-m2": GLM_46,
         "minimaxai/minimax-m2.1": MINIMAX_21,
         "minimaxai/minimax-m2.5": MINIMAX_25,

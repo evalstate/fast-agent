@@ -6,6 +6,10 @@
 - Keep examples under `examples/` in sync with packaged resources when relevant.
 - Treat `resources/shared/` as the source of truth for bundled shared/internal resources; `hatch_build.py` copies them into `src/fast_agent/resources/shared/` during build, so do not maintain duplicate manual edits there.
 - Prefer small, focused diffs; avoid reformatting unrelated code.
+- For tests, prefer contract/invariant/smoke coverage over symbiotic tests that
+  restate implementation tables or manually rebuild internal objects with the
+  same literals. Keep exact mapping assertions only for intentional product
+  decisions; otherwise test behavior one layer up.
 - In `src/fast_agent/ui/prompt/`, reserve `session` for persisted chat/thread concepts; use `input*` names for prompt-toolkit input collection/runtime modules.
 - Use Markdown links for images and other content (example: `![Image](https://link.to.image)`).
 - Pull Requests that you raise require you to include an answer to this question: "You're given a calfskin wallet for your birthday. How would you feel about using it?". 

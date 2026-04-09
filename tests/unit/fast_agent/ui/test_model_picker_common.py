@@ -1,3 +1,14 @@
+"""
+Testing notes:
+
+- This module owns picker snapshot/model-option contracts and provider-group
+  availability behavior.
+- Prefer asserting the presence and properties of provider groups/options rather
+  than depending on incidental list ordering.
+- Curated catalog membership rules belong in llm/test_model_selection_catalog.py;
+  low-level display rendering belongs in ui/test_model_picker.py.
+"""
+
 from __future__ import annotations
 
 import os
@@ -6,7 +17,10 @@ from typing import TYPE_CHECKING
 from fast_agent.llm.model_overlays import load_model_overlay_registry
 from fast_agent.llm.provider_types import Provider
 from fast_agent.ui.model_picker_common import (
+    ANTHROPIC_VERTEX_PROVIDER_KEY,
+    GENERIC_CUSTOM_MODEL_SENTINEL,
     ModelOption,
+    ModelPickerSnapshot,
     build_snapshot,
     infer_initial_picker_provider,
     model_capabilities,
@@ -17,6 +31,10 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+def _overlay_group(snapshot: ModelPickerSnapshot):
+    return next(option for option in snapshot.providers if option.overlay_group)
+
+
 def test_generic_provider_uses_custom_local_model_option() -> None:
     snapshot = build_snapshot()
 
@@ -24,7 +42,7 @@ def test_generic_provider_uses_custom_local_model_option() -> None:
 
     assert options == [
         ModelOption(
-            spec="generic.__custom__",
+            spec=GENERIC_CUSTOM_MODEL_SENTINEL,
             label="Enter local model string (e.g. llama3.2)",
         )
     ]
@@ -47,9 +65,7 @@ def test_46_models_do_not_report_optional_long_context() -> None:
 
 
 def test_infer_initial_picker_provider_uses_vertex_group_for_anthropic_vertex() -> None:
-    assert (
-        infer_initial_picker_provider("anthropic-vertex.claude-sonnet-4-6") == "anthropic-vertex"
-    )
+    assert infer_initial_picker_provider("anthropic-vertex.claude-sonnet-4-6") == ANTHROPIC_VERTEX_PROVIDER_KEY
 
 
 def test_build_snapshot_surfaces_overlays_as_a_separate_group(tmp_path: Path) -> None:
@@ -73,9 +89,10 @@ def test_build_snapshot_surfaces_overlays_as_a_separate_group(tmp_path: Path) ->
     os.environ["ENVIRONMENT_DIR"] = str(env_dir)
     try:
         snapshot = build_snapshot(config_payload={})
-        assert snapshot.providers[0].option_key == "overlays"
-        assert snapshot.providers[0].option_display_name == "Overlays"
-        assert snapshot.providers[0].overlay_group is True
+        overlay_group = _overlay_group(snapshot)
+        assert overlay_group.option_key == "overlays"
+        assert overlay_group.option_display_name == "Overlays"
+        assert overlay_group.overlay_group is True
         assert all(option.option_key != "openresponses" for option in snapshot.providers)
         assert any(option.option_key == "openrouter" for option in snapshot.providers)
         assert any(option.option_key == "azure" for option in snapshot.providers)
@@ -97,9 +114,10 @@ def test_build_snapshot_shows_empty_overlay_group_even_without_overlays(tmp_path
     os.environ["ENVIRONMENT_DIR"] = str(empty_env_dir)
     try:
         snapshot = build_snapshot(config_payload={})
-        assert snapshot.providers[0].option_key == "overlays"
-        assert snapshot.providers[0].overlay_group is True
-        assert snapshot.providers[0].curated_entries == ()
+        overlay_group = _overlay_group(snapshot)
+        assert overlay_group.option_key == "overlays"
+        assert overlay_group.overlay_group is True
+        assert overlay_group.curated_entries == ()
         assert any(option.option_key == "fast-agent" for option in snapshot.providers)
     finally:
         reset_env_dir = tmp_path / ".empty-fast-agent-reset"
@@ -139,8 +157,9 @@ def test_build_snapshot_loads_overlays_relative_to_config_path(tmp_path: Path) -
     try:
         os.chdir(nested_cwd)
         snapshot = build_snapshot(config_path=config_path, config_payload={})
-        assert snapshot.providers[0].option_key == "overlays"
-        assert any(entry.alias == "haikutiny" for entry in snapshot.providers[0].curated_entries)
+        overlay_group = _overlay_group(snapshot)
+        assert overlay_group.option_key == "overlays"
+        assert any(entry.alias == "haikutiny" for entry in overlay_group.curated_entries)
     finally:
         os.chdir(cwd)
         reset_env_dir = tmp_path / ".empty-fast-agent-config-path"
@@ -181,8 +200,9 @@ def test_build_snapshot_loads_overlays_relative_to_explicit_start_path(tmp_path:
             config_payload={"environment_dir": ".fast-agent"},
             start_path=project_root,
         )
-        assert snapshot.providers[0].option_key == "overlays"
-        assert any(entry.alias == "haikutiny" for entry in snapshot.providers[0].curated_entries)
+        overlay_group = _overlay_group(snapshot)
+        assert overlay_group.option_key == "overlays"
+        assert any(entry.alias == "haikutiny" for entry in overlay_group.curated_entries)
     finally:
         os.chdir(cwd)
         reset_env_dir = tmp_path / ".empty-fast-agent-start-path"
@@ -222,8 +242,9 @@ def test_build_snapshot_with_explicit_config_stays_scoped_to_config_project(tmp_
         os.chdir(cwd_workspace)
         snapshot = build_snapshot(config_path=config_path, config_payload={})
 
-        assert snapshot.providers[0].option_key == "overlays"
-        assert snapshot.providers[0].curated_entries == ()
+        overlay_group = _overlay_group(snapshot)
+        assert overlay_group.option_key == "overlays"
+        assert overlay_group.curated_entries == ()
 
         anthropic_option = next(
             option for option in snapshot.providers if option.option_key == Provider.ANTHROPIC.config_name
@@ -263,8 +284,9 @@ def test_build_snapshot_with_explicit_project_config_ignores_parent_overlays(tmp
     previous_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
     try:
         snapshot = build_snapshot(config_path=config_path, config_payload={})
-        assert snapshot.providers[0].option_key == "overlays"
-        assert snapshot.providers[0].curated_entries == ()
+        overlay_group = _overlay_group(snapshot)
+        assert overlay_group.option_key == "overlays"
+        assert overlay_group.curated_entries == ()
     finally:
         reset_env_dir = tmp_path / ".empty-fast-agent-parent-scope"
         reset_env_dir.mkdir(parents=True, exist_ok=True)
@@ -295,8 +317,9 @@ def test_build_snapshot_loads_overlays_for_explicit_env_config_path(tmp_path: Pa
     previous_env_dir = os.environ.pop("ENVIRONMENT_DIR", None)
     try:
         snapshot = build_snapshot(config_path=config_path, config_payload={})
-        assert snapshot.providers[0].option_key == "overlays"
-        assert any(entry.alias == "haikutiny" for entry in snapshot.providers[0].curated_entries)
+        overlay_group = _overlay_group(snapshot)
+        assert overlay_group.option_key == "overlays"
+        assert any(entry.alias == "haikutiny" for entry in overlay_group.curated_entries)
     finally:
         reset_env_dir = tmp_path / ".empty-fast-agent-explicit-env-config"
         reset_env_dir.mkdir(parents=True, exist_ok=True)

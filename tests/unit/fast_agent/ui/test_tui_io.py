@@ -9,6 +9,7 @@ from fast_agent.config import Settings
 from fast_agent.ui.adapters.tui_io import TuiCommandIO
 from fast_agent.ui.message_primitives import MessageType
 from fast_agent.ui.model_picker import ModelPickerResult
+from fast_agent.ui.model_picker_common import GENERIC_CUSTOM_MODEL_SENTINEL
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -96,7 +97,7 @@ async def test_prompt_model_selection_normalizes_generic_custom_model(monkeypatc
     picker_result = ModelPickerResult(
         provider="generic",
         provider_available=True,
-        selected_model="generic.__custom__",
+        selected_model=GENERIC_CUSTOM_MODEL_SENTINEL,
         resolved_model=None,
         source="curated",
         refer_to_docs=False,
@@ -133,7 +134,7 @@ async def test_prompt_model_selection_preserves_explicit_provider_prefix_for_gen
     picker_result = ModelPickerResult(
         provider="generic",
         provider_available=True,
-        selected_model="generic.__custom__",
+        selected_model=GENERIC_CUSTOM_MODEL_SENTINEL,
         resolved_model=None,
         source="curated",
         refer_to_docs=False,

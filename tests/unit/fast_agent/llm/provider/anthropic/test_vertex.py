@@ -14,6 +14,7 @@ from fast_agent.llm.provider.anthropic.vertex_config import (
     anthropic_vertex_config,
 )
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
+from fast_agent.llm.provider_types import Provider
 
 
 class _StructuredResponse(BaseModel):
@@ -63,7 +64,7 @@ def test_provider_key_manager_allows_vertex_route_without_api_key() -> None:
         }
     )
 
-    assert ProviderKeyManager.get_api_key("anthropic-vertex", config) == ""
+    assert ProviderKeyManager.get_api_key(Provider.ANTHROPIC_VERTEX.config_name, config) == ""
     with pytest.raises(ProviderKeyError):
         ProviderKeyManager.get_api_key("anthropic", config)
 

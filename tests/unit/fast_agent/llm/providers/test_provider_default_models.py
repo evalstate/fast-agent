@@ -1,3 +1,15 @@
+"""
+Testing notes:
+
+- This module owns provider-level fallback behavior when a caller selects a
+  provider but omits an explicit model.
+- Keep these tests focused on config/env precedence and the request model that
+  results from provider defaults.
+- Avoid duplicating alias parsing, catalog curation, or capability-table
+  assertions here; those belong in the dedicated model_factory,
+  model_selection_catalog, and model_database test modules.
+"""
+
 import os
 
 from fast_agent.config import (

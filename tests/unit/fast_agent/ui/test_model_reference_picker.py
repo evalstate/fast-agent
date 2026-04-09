@@ -1,3 +1,12 @@
+"""
+Testing notes:
+
+- This module owns the lightweight prompt-toolkit behavior of the model
+  reference picker.
+- Small synthetic picker items are appropriate here because the contract under
+  test is window focus/scrolling, not model-reference discovery.
+"""
+
 from __future__ import annotations
 
 from fast_agent.ui.model_reference_picker import (

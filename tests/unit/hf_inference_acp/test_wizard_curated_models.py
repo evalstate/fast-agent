@@ -1,3 +1,13 @@
+"""
+Testing notes:
+
+- This module owns the HuggingFace ACP wizard's curated-model smoke tests.
+- Exact option ordering is only asserted where numbered wizard selection depends
+  on that ordering as a user-visible contract.
+- Prefer membership and flow-transition checks over duplicating the full
+  curated model list.
+"""
+
 from __future__ import annotations
 
 import sys
@@ -27,7 +37,8 @@ async def test_wizard_model_selection_uses_curated_ids() -> None:
     llm._state.first_message = False  # skip welcome
     llm._state.stage = WizardStage.MODEL_SELECT
 
-    # Pick the first curated model by number.
+    # Pick the first curated model by number. In this wizard, numeric ordering
+    # is part of the user-visible selection contract.
     response = await llm._handle_model_select("1")
     assert llm._state.selected_model == CURATED_MODELS[0].id
     assert llm._state.stage == WizardStage.MCP_CONNECT

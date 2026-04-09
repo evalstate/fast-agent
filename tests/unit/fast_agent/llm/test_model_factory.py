@@ -1,3 +1,18 @@
+"""
+Testing notes:
+
+- This module owns parser/factory contracts: model strings, alias resolution,
+  query-string overrides, and basic provider-specific factory wiring.
+- Prefer stable local aliases (TEST_ALIASES) when the behavior under test is
+  generic suffix/query handling; this keeps tests from mirroring the full
+  production preset table.
+- Keep only a small number of production-alias smoke tests for intentional
+  product decisions such as promoted defaults or compatibility aliases.
+- Detailed capability assertions belong in test_model_database.py; catalog
+  current/legacy bookkeeping belongs in test_model_selection_catalog.py; pure
+  user-visible formatting belongs in ui/test_model_display.py.
+"""
+
 import pytest
 
 from fast_agent.agents.agent_types import AgentConfig
@@ -267,6 +282,7 @@ def test_invalid_service_tier_query():
     with pytest.raises(ModelConfigError):
         ModelFactory.parse_model_string("responses.gpt-5-mini?service_tier=turbo")
 
+
 def test_codexresponses_fast_service_tier_query() -> None:
     config = ModelFactory.parse_model_string("codexresponses.gpt-5.4?service_tier=fast")
 
@@ -278,6 +294,7 @@ def test_codexresponses_fast_service_tier_query() -> None:
 def test_codexresponses_flex_service_tier_query_rejected() -> None:
     with pytest.raises(ModelConfigError, match="does not support service_tier=flex"):
         ModelFactory.parse_model_string("codexresponses.gpt-5.4?service_tier=flex")
+
 
 def test_responses_chatgpt_flex_service_tier_query_rejected() -> None:
     with pytest.raises(ModelConfigError, match="gpt-5.3-chat-latest"):
@@ -424,6 +441,7 @@ def test_factory_service_tier_query_respects_explicit_none_request_params() -> N
 
     assert llm.default_request_params.service_tier is None
 
+
 def test_factory_codexresponses_explicit_flex_request_params_rejected() -> None:
     factory = ModelFactory.create_factory("codexresponses.gpt-5.4")
 
@@ -524,6 +542,20 @@ def test_huggingface_alias_without_provider():
     assert config.model_name == "moonshotai/Kimi-K2-Instruct-0905"
 
 
+def test_builtin_glm_alias_uses_glm_51_default() -> None:
+    config = ModelFactory.parse_model_string("glm")
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == "zai-org/GLM-5.1:together"
+
+    explicit = ModelFactory.parse_model_string("glm51")
+    assert explicit.provider == Provider.HUGGINGFACE
+    assert explicit.model_name == "zai-org/GLM-5.1:together"
+
+    legacy = ModelFactory.parse_model_string("glm5")
+    assert legacy.provider == Provider.HUGGINGFACE
+    assert legacy.model_name == "zai-org/GLM-5:novita"
+
+
 def test_opus_aliases_resolve_to_opus_46():
     config = ModelFactory.parse_model_string("opus")
     assert config.provider == Provider.ANTHROPIC
@@ -557,9 +589,9 @@ def test_curated_catalog_aliases_are_parseable():
         model_config = ModelFactory.parse_model_string(entry.model)
 
         assert alias_config.provider == model_config.provider
-        assert ModelDatabase.normalize_model_name(alias_config.model_name) == ModelDatabase.normalize_model_name(
-            model_config.model_name
-        )
+        assert ModelDatabase.normalize_model_name(
+            alias_config.model_name
+        ) == ModelDatabase.normalize_model_name(model_config.model_name)
 
 
 def test_codexplan_aliases_use_codex_oauth_provider():
@@ -580,81 +612,40 @@ def test_codexplan_aliases_use_codex_oauth_provider():
     assert config.model_name == "gpt-5.3-codex-spark"
 
 
-def test_huggingface_alias_with_default_provider():
-    """Test HuggingFace alias that includes a default provider in the alias"""
-    # glm alias has :cerebras as default provider
-    config = ModelFactory.parse_model_string("glm", presets=TEST_ALIASES)
+@pytest.mark.parametrize(
+    ("model", "expected_model_name"),
+    [
+        ("glm", "zai-org/GLM-4.6:cerebras"),
+        ("glm:groq", "zai-org/GLM-4.6:groq"),
+        ("kimi:groq", "moonshotai/Kimi-K2-Instruct-0905:groq"),
+        ("qwen3:nebius", "Qwen/Qwen3-Next-80B-A3B-Instruct:nebius"),
+    ],
+)
+def test_huggingface_alias_provider_routing_contracts(
+    model: str, expected_model_name: str
+) -> None:
+    """Test HuggingFace alias/provider suffix behavior with stable test aliases."""
+    config = ModelFactory.parse_model_string(model, presets=TEST_ALIASES)
     assert config.provider == Provider.HUGGINGFACE
-    assert config.model_name == "zai-org/GLM-4.6:cerebras"
+    assert config.model_name == expected_model_name
 
 
-def test_huggingface_alias_provider_override():
-    """Test that user-specified provider overrides the alias default"""
-    # glm alias is "hf.zai-org/GLM-4.6:cerebras" - user specifies :groq
-    config = ModelFactory.parse_model_string("glm:groq", presets=TEST_ALIASES)
-    assert config.provider == Provider.HUGGINGFACE
-    # User's :groq should replace the alias's :cerebras
-    assert config.model_name == "zai-org/GLM-4.6:groq"
-
-
-def test_huggingface_alias_without_default_provider_gets_user_provider():
-    """Test that an alias without a default provider can receive a user provider"""
-    # kimi alias is "hf.moonshotai/Kimi-K2-Instruct-0905" (no default provider)
-    config = ModelFactory.parse_model_string("kimi:groq", presets=TEST_ALIASES)
-    assert config.provider == Provider.HUGGINGFACE
-    assert config.model_name == "moonshotai/Kimi-K2-Instruct-0905:groq"
-
-
-def test_huggingface_alias_provider_override_together():
-    """Test provider override with together"""
-    # qwen3 alias is "hf.Qwen/Qwen3-Next-80B-A3B-Instruct:together"
-    config = ModelFactory.parse_model_string("qwen3:nebius", presets=TEST_ALIASES)
-    assert config.provider == Provider.HUGGINGFACE
-    # User's :nebius should replace the alias's :together
-    assert config.model_name == "Qwen/Qwen3-Next-80B-A3B-Instruct:nebius"
-
-
-def test_huggingface_display_info_with_provider():
-    """Test HuggingFaceLLM displays correct model and provider info"""
-    # Create HuggingFace LLM with explicit provider
-    factory = ModelFactory.create_factory("glm", presets=TEST_ALIASES)  # glm has :cerebras default
-    agent = LlmAgent(AgentConfig(name="test"))
-    llm = factory(agent)
+@pytest.mark.parametrize(
+    ("model", "expected_info"),
+    [
+        ("glm", {"model": "zai-org/GLM-4.6", "provider": "cerebras"}),
+        ("minimax", {"model": "MiniMaxAI/MiniMax-M2", "provider": "auto-routing"}),
+        ("glm:groq", {"model": "zai-org/GLM-4.6", "provider": "groq"}),
+    ],
+)
+def test_huggingface_display_info_reflects_effective_routing(
+    model: str, expected_info: dict[str, str]
+) -> None:
+    factory = ModelFactory.create_factory(model, presets=TEST_ALIASES)
+    llm = factory(LlmAgent(AgentConfig(name="test")))
 
     assert isinstance(llm, HuggingFaceLLM)
-    assert hasattr(llm, "get_hf_display_info")
-
-    info = llm.get_hf_display_info()
-    assert info["model"] == "zai-org/GLM-4.6"
-    assert info["provider"] == "cerebras"
-
-
-def test_huggingface_display_info_auto_routing():
-    """Test HuggingFaceLLM displays auto-routing when no provider specified"""
-    # Create HuggingFace LLM without provider suffix
-    factory = ModelFactory.create_factory(
-        "minimax", presets=TEST_ALIASES
-    )  # minimax has no default provider
-    agent = LlmAgent(AgentConfig(name="test"))
-    llm = factory(agent)
-
-    assert isinstance(llm, HuggingFaceLLM)
-    info = llm.get_hf_display_info()
-    assert info["model"] == "MiniMaxAI/MiniMax-M2"
-    assert info["provider"] == "auto-routing"
-
-
-def test_huggingface_display_info_user_override():
-    """Test HuggingFaceLLM displays user-specified provider correctly"""
-    # User overrides glm's :cerebras with :groq
-    factory = ModelFactory.create_factory("glm:groq", presets=TEST_ALIASES)
-    agent = LlmAgent(AgentConfig(name="test"))
-    llm = factory(agent)
-
-    assert isinstance(llm, HuggingFaceLLM)
-    info = llm.get_hf_display_info()
-    assert info["model"] == "zai-org/GLM-4.6"
-    assert info["provider"] == "groq"
+    assert llm.get_hf_display_info() == expected_info
 
 
 # --- Long context (context=1m) tests ---

@@ -1,3 +1,14 @@
+"""
+Testing notes:
+
+- This module owns overlay loading/resolution behavior, overlay-scoped metadata,
+  and overlay precedence over ambient presets.
+- Prefer real overlay files and real factory/selection flows rather than
+  rebuilding overlay-derived objects by hand.
+- Avoid depending on incidental picker/provider ordering; assert against the
+  overlay group by identity instead.
+"""
+
 from __future__ import annotations
 
 import os
@@ -31,6 +42,10 @@ def _cleanup_overlay_runtime_state(base_dir: Path) -> None:
     empty_env_dir = base_dir / "empty-fast-agent"
     empty_env_dir.mkdir(parents=True, exist_ok=True)
     load_model_overlay_registry(start_path=base_dir, env_dir=empty_env_dir)
+
+
+def _overlay_group(snapshot):
+    return next(option for option in snapshot.providers if option.overlay_group)
 
 
 def test_same_provider_overlays_create_distinct_openresponses_clients(tmp_path: Path) -> None:
@@ -155,10 +170,11 @@ metadata:
 
         assert "picker-local" in ModelSelectionCatalog.list_current_aliases(Provider.OPENRESPONSES)
         snapshot = build_snapshot(config_payload={})
-        assert snapshot.providers[0].option_key == "overlays"
-        assert snapshot.providers[0].option_display_name == "Overlays"
+        overlay_group = _overlay_group(snapshot)
+        assert overlay_group.option_key == "overlays"
+        assert overlay_group.option_display_name == "Overlays"
         picker_entry = next(
-            entry for entry in snapshot.providers[0].curated_entries if entry.alias == "picker-local"
+            entry for entry in overlay_group.curated_entries if entry.alias == "picker-local"
         )
         assert picker_entry.local is True
         assert picker_entry.description == "Local picker entry"

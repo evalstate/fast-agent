@@ -1,6 +1,18 @@
+"""
+Testing notes:
+
+- This module owns ModelInfo normalization and capability projection.
+- Use minimal stubs when the contract under test is "ModelInfo from llm/resolved
+  model" rather than full factory resolution.
+- Capability-table assertions should stay focused on user-visible capabilities
+  (text/document/vision support, canonical names), not duplicate broader model
+  database coverage.
+"""
+
 import pathlib
 import sys
 import types
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[4] / "src"))
@@ -38,19 +50,13 @@ class DummyLLM:
             provider=provider,
             wire_model_name=model,
         )
-        self.default_request_params = type("Params", (), {"model": model})()
+        self.default_request_params = SimpleNamespace(model=model)
 
     @property
     def model_info(self) -> "ModelInfo | None":
         if not self.model_name:
             return None
         return ModelInfo.from_name(self.model_name, self.provider)
-
-
-class DummyAgent:
-    def __init__(self, model: str, provider: Provider = Provider.GOOGLE) -> None:
-        self.llm = DummyLLM(model, provider=provider)
-
 
 def test_model_alias_capabilities_match_canonical() -> None:
     alias = ModelInfo.from_name("gemini25")
@@ -71,8 +77,8 @@ def test_model_info_from_llm_uses_canonical_name() -> None:
 
 
 def test_model_info_from_agent_llm_capabilities() -> None:
-    agent = DummyAgent("gemini-2.5-pro", provider=Provider.GOOGLE)
-    info = ModelInfo.from_llm(cast("FastAgentLLMProtocol", agent.llm))
+    llm = DummyLLM("gemini-2.5-pro", provider=Provider.GOOGLE)
+    info = ModelInfo.from_llm(cast("FastAgentLLMProtocol", llm))
     assert info is not None
     assert info.name == "gemini-2.5-pro"
     assert info.tdv_flags == (True, True, True)

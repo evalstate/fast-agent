@@ -1,3 +1,14 @@
+"""
+Testing notes:
+
+- This module owns runtime bootstrap behavior around when the model picker is
+  shown, how initial model selection is resolved, and how last-used model state
+  is persisted.
+- Prefer seam tests through the bootstrap helpers over rebuilding picker or
+  settings internals by hand.
+- Exact picker option construction belongs in ui/test_model_picker*.py.
+"""
+
 from __future__ import annotations
 
 import os
@@ -21,6 +32,24 @@ from fast_agent.cli.runtime.agent_setup import (
 from fast_agent.cli.runtime.run_request import AgentRunRequest
 from fast_agent.config import Settings
 from fast_agent.ui.model_picker import ModelPickerResult
+from fast_agent.ui.model_picker_common import ANTHROPIC_VERTEX_PROVIDER_KEY
+
+
+def _picker_result(
+    *,
+    provider: str = "overlays",
+    selected_model: str = "haikutiny",
+    resolved_model: str = "haikutiny",
+) -> ModelPickerResult:
+    return ModelPickerResult(
+        provider=provider,
+        provider_available=True,
+        selected_model=selected_model,
+        resolved_model=resolved_model,
+        source="curated",
+        refer_to_docs=False,
+        activation_action=None,
+    )
 
 
 def _make_request(
@@ -185,15 +214,7 @@ async def test_select_model_from_picker_preserves_overlay_token_when_resolved_mo
 
     async def fake_run_model_picker_async(**kwargs):
         del kwargs
-        return ModelPickerResult(
-            provider="overlays",
-            provider_available=True,
-            selected_model="haikutiny",
-            resolved_model="haikutiny",
-            source="curated",
-            refer_to_docs=False,
-            activation_action=None,
-        )
+        return _picker_result()
 
     monkeypatch.setattr(
         "fast_agent.ui.model_picker.run_model_picker_async",
@@ -215,15 +236,7 @@ async def test_select_model_from_picker_passes_config_start_path(monkeypatch, tm
 
     async def fake_run_model_picker_async(**kwargs):
         captured_kwargs.update(kwargs)
-        return ModelPickerResult(
-            provider="overlays",
-            provider_available=True,
-            selected_model="haikutiny",
-            resolved_model="haikutiny",
-            source="curated",
-            refer_to_docs=False,
-            activation_action=None,
-        )
+        return _picker_result()
 
     monkeypatch.setattr(
         "fast_agent.ui.model_picker.run_model_picker_async",
@@ -283,7 +296,7 @@ def test_resolve_model_picker_initial_selection_uses_vertex_group_for_anthropic_
         )
     )
 
-    assert provider == "anthropic-vertex"
+    assert provider == ANTHROPIC_VERTEX_PROVIDER_KEY
     assert model_spec == "anthropic-vertex.claude-sonnet-4-6"
 
 

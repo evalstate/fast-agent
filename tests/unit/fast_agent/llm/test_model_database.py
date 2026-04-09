@@ -1,3 +1,17 @@
+"""
+Testing notes:
+
+- This module owns capability lookup and request-shaping contracts that flow
+  from ModelDatabase metadata into runtime behavior.
+- Prefer behavior and parity assertions (for example, replacement models sharing
+  capabilities with prior models) over repeating raw table entries.
+- HuggingFace tests here should focus on provider-aware lookups, reasoning
+  toggles, stream mode, and request shaping that depends on ModelDatabase data.
+- Provider-config fallback when the user omits a model belongs in
+  providers/test_provider_default_models.py; ACP max-token regressions belong in
+  test_max_tokens_acp_regression.py.
+"""
+
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.config import HuggingFaceSettings, Settings
@@ -374,6 +388,15 @@ def test_model_database_reasoning_modes():
     assert ModelDatabase.get_reasoning("zai-org/glm-4.6") == "reasoning_content"
     assert ModelDatabase.get_reasoning("Qwen/Qwen3.5-397B-A17B") == "reasoning_content"
     assert ModelDatabase.get_reasoning("gpt-4o") is None
+
+
+def test_glm_51_matches_glm_5_capabilities() -> None:
+    old = ModelDatabase.get_model_params("zai-org/glm-5")
+    new = ModelDatabase.get_model_params("zai-org/glm-5.1")
+
+    assert old is not None
+    assert new is not None
+    assert new.model_dump() == old.model_dump()
 
 
 def test_model_database_codex_spark_is_text_only() -> None:

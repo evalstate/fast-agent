@@ -1,3 +1,12 @@
+"""
+Testing notes:
+
+- This module owns the keyboard-rotation and shortcut-hint contracts shown to
+  users in the UI.
+- Exact hint ordering is intentional here because these hints are rendered to
+  users in a fixed order.
+"""
+
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, ReasoningEffortSpec
 from fast_agent.llm.text_verbosity import TextVerbositySpec
 from fast_agent.ui.model_shortcuts import (
@@ -81,7 +90,12 @@ def test_build_model_shortcut_hints_codexresponses_omit_flex() -> None:
 
     hints = build_model_shortcut_hints(_CodexShortcutStub())
 
-    assert hints[0] == ModelShortcutHint("Shift+Tab", "Service tier", "standard, fast")
+    assert hints == [
+        ModelShortcutHint("Shift+Tab", "Service tier", "standard, fast"),
+        ModelShortcutHint("F6", "Reasoning", "low, medium, high, off"),
+        ModelShortcutHint("F7", "Verbosity", "low, medium, high"),
+        ModelShortcutHint("F8", "Web search", "on, off"),
+    ]
 
 
 def test_build_model_shortcut_hints_omit_auto_from_f6_reasoning_values() -> None:
