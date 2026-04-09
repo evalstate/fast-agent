@@ -815,7 +815,7 @@ def _show_streaming_mode_notice(agent_provider: "AgentApp", logger_settings: obj
     streaming_enabled = getattr(logger_settings, "streaming_display", True)
     streaming_mode = getattr(logger_settings, "streaming", "markdown")
     if streaming_enabled and streaming_mode != "none":
-        rich_print(f"[dim]Experimental: Streaming Enabled - {streaming_mode} mode[/dim]")
+        rich_print(f"[dim]Streaming Enabled - {streaming_mode} mode[/dim]")
 
 
 def _render_startup_notices(

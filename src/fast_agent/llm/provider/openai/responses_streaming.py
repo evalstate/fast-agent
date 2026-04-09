@@ -413,6 +413,7 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                     "tool_name": tool_name,
                     "tool_use_id": tool_use_id,
                     "index": index,
+                    "tool_display_name": None,
                 }
                 if item_type == "web_search_call":
                     stop_payload["tool_display_name"] = _WEB_SEARCH_PROGRESS_LABEL
