@@ -12,7 +12,7 @@ from fast_agent.llm.fastagent_llm import (
 )
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import create_turn_usage_from_messages
-from fast_agent.mcp.helpers.content_helpers import get_text
+from fast_agent.mcp.helpers.content_helpers import tool_result_text_for_llm
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
@@ -105,7 +105,7 @@ class PassthroughLLM(FastAgentLLM):
             assert last_message.tool_results
             concatenated_content = " ".join(
                 [
-                    (get_text(tool_result.content[0]) or "<empty>")
+                    (tool_result_text_for_llm(tool_result, logger=self.logger, source="passthrough") or "<empty>")
                     for tool_result in last_message.tool_results.values()
                 ]
             )

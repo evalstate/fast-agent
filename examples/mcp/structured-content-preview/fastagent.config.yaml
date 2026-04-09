@@ -1,0 +1,13 @@
+default_model: "passthrough"
+
+logger:
+  level: "error"
+  type: "console"
+  show_chat: false
+  show_tools: true
+  truncate_tools: false
+
+mcp:
+  targets:
+    - name: structured_preview
+      target: "uv run preview_server.py"

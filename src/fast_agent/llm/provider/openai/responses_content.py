@@ -11,6 +11,7 @@ from fast_agent.constants import (
     REASONING,
 )
 from fast_agent.mcp.helpers.content_helpers import (
+    canonicalize_tool_result_content_for_llm,
     get_image_data,
     get_resource_uri,
     get_text,
@@ -449,7 +450,12 @@ class ResponsesContentMixin:
             call_id = self._tool_call_id_map.get(tool_use_id)
             if not call_id:
                 call_id = normalized_call_id
-            output = self._tool_result_to_text(result)
+            canonical_content = canonicalize_tool_result_content_for_llm(
+                result,
+                logger=self.logger,
+                source="openai.responses",
+            )
+            output = self._tool_result_content_to_text(canonical_content)
             tool_kind = self._resolve_tool_call_kind(
                 tool_use_id=tool_use_id,
                 fc_id=fc_id,
@@ -471,7 +477,7 @@ class ResponsesContentMixin:
                     "output": output,
                 }
             )
-            attachment_parts = self._tool_result_to_input_parts(result)
+            attachment_parts = self._tool_result_content_to_input_parts(canonical_content)
             if attachment_parts:
                 items.append(
                     {
@@ -482,8 +488,7 @@ class ResponsesContentMixin:
                 )
         return items
 
-    def _tool_result_to_text(self, result: Any) -> str:
-        contents = getattr(result, "content", None) or []
+    def _tool_result_content_to_text(self, contents: list[ContentBlock]) -> str:
         chunks: list[str] = []
         for item in contents:
             text = get_text(item)
@@ -513,8 +518,9 @@ class ResponsesContentMixin:
             chunks.append(f"[Unsupported content: {type(item).__name__}]")
         return "\n".join(chunk for chunk in chunks if chunk)
 
-    def _tool_result_to_input_parts(self, result: Any) -> list[dict[str, Any]]:
-        contents = getattr(result, "content", None) or []
+    def _tool_result_content_to_input_parts(
+        self, contents: list[ContentBlock]
+    ) -> list[dict[str, Any]]:
         parts: list[dict[str, Any]] = []
         for item in contents:
             if is_image_content(item) or is_resource_content(item) or is_resource_link(item):

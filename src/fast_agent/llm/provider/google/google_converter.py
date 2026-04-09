@@ -19,6 +19,7 @@ from mcp.types import (
 from pydantic import AnyUrl
 
 from fast_agent.mcp.helpers.content_helpers import (
+    canonicalize_tool_result_content_for_llm,
     get_image_data,
     get_text,
     is_image_content,
@@ -315,7 +316,11 @@ class GoogleConverter:
             textual_outputs: list[str] = []
             media_parts: list[types.Part] = []
 
-            for item in tool_result.content:
+            canonical_content = canonicalize_tool_result_content_for_llm(
+                tool_result,
+                source="google",
+            )
+            for item in canonical_content:
                 if is_text_content(item):
                     textual_outputs.append(get_text(item) or "")  # Ensure no None is added
                 elif is_image_content(item):

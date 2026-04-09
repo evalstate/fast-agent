@@ -76,6 +76,7 @@ from fast_agent.constants import (
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.llm.provider.anthropic.web_tools import is_server_tool_trace_payload
 from fast_agent.mcp.helpers.content_helpers import (
+    canonicalize_tool_result_content_for_llm,
     get_image_data,
     get_resource_uri,
     get_text,
@@ -764,7 +765,11 @@ class AnthropicConverter:
             tool_result_blocks = []
 
             # Process each content item in the result
-            for item in result.content:
+            for item in canonicalize_tool_result_content_for_llm(
+                result,
+                logger=_logger,
+                source="anthropic",
+            ):
                 if isinstance(item, (TextContent, ImageContent)):
                     blocks = AnthropicConverter._convert_content_items([item], document_mode=False)
                     tool_result_blocks.extend(blocks)

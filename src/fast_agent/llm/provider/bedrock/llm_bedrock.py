@@ -28,6 +28,10 @@ from fast_agent.llm.reasoning_effort import (
     validate_reasoning_setting,
 )
 from fast_agent.llm.usage_tracking import TurnUsage
+from fast_agent.mcp.helpers.content_helpers import (
+    canonicalize_tool_result_content_for_llm,
+    tool_result_text_for_llm,
+)
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.utils.type_narrowing import is_str_object_dict
@@ -981,8 +985,10 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                 # For system prompt models: format as human-readable text
                 tool_result_parts = []
                 for tool_id, tool_result in msg.tool_results.items():
-                    result_text = "".join(
-                        part.text for part in tool_result.content if isinstance(part, TextContent)
+                    result_text = tool_result_text_for_llm(
+                        tool_result,
+                        logger=self.logger,
+                        source="bedrock",
                     )
                     result_payload = {
                         "tool_name": tool_id,  # Use tool_id as name for system prompt
@@ -998,10 +1004,13 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                 # For Nova/Anthropic models: use structured tool_result format
                 for tool_id, tool_result in msg.tool_results.items():
                     result_content_blocks = []
-                    if tool_result.content:
-                        for part in tool_result.content:
-                            if isinstance(part, TextContent):
-                                result_content_blocks.append({"text": part.text})
+                    for part in canonicalize_tool_result_content_for_llm(
+                        tool_result,
+                        logger=self.logger,
+                        source="bedrock",
+                    ):
+                        if isinstance(part, TextContent):
+                            result_content_blocks.append({"text": part.text})
 
                     if not result_content_blocks:
                         result_content_blocks.append({"text": "[No content in tool result]"})
