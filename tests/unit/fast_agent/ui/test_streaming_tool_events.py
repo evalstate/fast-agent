@@ -145,7 +145,7 @@ def test_tool_stream_remote_labels_are_explicit() -> None:
         "start",
         {
             "tool_name": "huggingface_mcp/hf_whoami",
-            "tool_display_name": "remote tool call: huggingface_mcp/hf_whoami",
+            "tool_display_name": "remote tool: hf_whoami",
             "tool_use_id": "mcp-1",
             "chunk": "{}",
         },
@@ -154,7 +154,7 @@ def test_tool_stream_remote_labels_are_explicit() -> None:
         "replace",
         {
             "tool_name": "huggingface_mcp/hf_whoami",
-            "tool_display_name": "remote tool result: huggingface_mcp/hf_whoami",
+            "tool_display_name": "remote tool: hf_whoami",
             "tool_use_id": "mcp-1:result",
             "chunk": "evalstate",
         },
@@ -163,14 +163,13 @@ def test_tool_stream_remote_labels_are_explicit() -> None:
         "stop",
         {
             "tool_name": "huggingface_mcp/hf_whoami",
-            "tool_display_name": "remote tool result: huggingface_mcp/hf_whoami",
+            "tool_display_name": "remote tool: hf_whoami",
             "tool_use_id": "mcp-1:result",
         },
     )
 
     text = "\n".join(segment.text for segment in assembler.segments)
-    assert "remote tool call: huggingface_mcp/hf_whoami" in text
-    assert "remote tool result: huggingface_mcp/hf_whoami" in text
+    assert "remote tool: hf_whoami" in text
 
 
 def test_tool_stream_apply_patch_preview_keeps_other_args() -> None:
@@ -410,7 +409,7 @@ def test_tool_stream_code_preview_uses_namespaced_tool_metadata() -> None:
         "delta",
         {
             "tool_name": "huggingface_mcp/hf_hub_query_raw",
-            "tool_display_name": "remote tool call: huggingface_mcp/hf_hub_query_raw",
+            "tool_display_name": "remote tool: hf_hub_query_raw",
             "tool_use_id": "tool-code-2",
             "chunk": '{"query":"count","code":"resp = await hf_trending()\\nprin',
         },

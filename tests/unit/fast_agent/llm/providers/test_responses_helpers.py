@@ -1750,3 +1750,66 @@ async def test_stream_process_emits_mcp_status_events_with_mcp_copy() -> None:
     assert status_payloads[0]["tool_display_name"] == "Loading MCP tools"
     assert status_payloads[0]["chunk"] == "loading remote tool definitions..."
     assert status_payloads[-1]["chunk"] == "remote tool definitions loaded"
+
+
+@pytest.mark.asyncio
+async def test_stream_process_emits_named_mcp_call_result_events() -> None:
+    harness = _StreamingHarness()
+    final_item = SimpleNamespace(
+        type="mcp_call",
+        id="mcp_call_123",
+        server_label="stripe",
+        name="create_payment_link",
+        status="completed",
+        output='{"url":"https://pay.stripe.com/test"}',
+    )
+    final_response = SimpleNamespace(output=[final_item], usage=None)
+    stream = _FakeResponsesStream(
+        events=[
+            SimpleNamespace(
+                type="response.output_item.added",
+                output_index=0,
+                item=SimpleNamespace(
+                    type="mcp_call",
+                    id="mcp_call_123",
+                    server_label="stripe",
+                    name="create_payment_link",
+                ),
+                item_id="mcp_call_123",
+            ),
+            SimpleNamespace(
+                type="response.mcp_call_arguments.delta",
+                output_index=0,
+                item_id="mcp_call_123",
+                delta='{"amount":42}',
+            ),
+            SimpleNamespace(
+                type="response.mcp_call.completed",
+                output_index=0,
+                item_id="mcp_call_123",
+            ),
+            SimpleNamespace(
+                type="response.output_item.done",
+                output_index=0,
+                item=final_item,
+                item_id="mcp_call_123",
+            ),
+            SimpleNamespace(type="response.completed", response=final_response),
+        ],
+        final_response=final_response,
+    )
+
+    await harness._process_stream(stream, model="gpt-test", capture_filename=None)
+
+    start_payload = next(payload for event, payload in harness.events if event == "start")
+    assert start_payload["tool_name"] == "stripe/create_payment_link"
+    assert start_payload["tool_display_name"] == "remote tool: create_payment_link"
+
+    replace_payloads = [payload for event, payload in harness.events if event == "replace"]
+    assert replace_payloads[0]["chunk"] == '{"amount":42}'
+    assert replace_payloads[-1]["tool_display_name"] == "remote tool: create_payment_link"
+    assert "https://pay.stripe.com/test" in replace_payloads[-1]["chunk"]
+
+    stop_payload = next(payload for event, payload in reversed(harness.events) if event == "stop")
+    assert stop_payload["tool_name"] == "stripe/create_payment_link"
+    assert stop_payload["tool_display_name"] == "remote tool: create_payment_link"

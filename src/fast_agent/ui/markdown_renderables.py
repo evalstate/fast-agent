@@ -2,14 +2,30 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 
+from pygments.lexers import get_lexer_by_name
+from pygments.util import ClassNotFound
 from rich.markdown import Markdown
 from rich.syntax import Syntax
 from rich.text import Text
 
+from fast_agent.ui.apply_patch_preview import style_apply_patch_preview_text
 from fast_agent.ui.markdown_helpers import prepare_markdown_content
 
 _FENCE_OPEN_LINE_RE = re.compile(r"^\s{0,3}(?P<delim>`{3,}|~{3,})(?P<info>.*)$")
+_FENCE_INFO_LINE_RE = re.compile(
+    r"^(?P<indent>\s{0,3})(?P<delim>`{3,}|~{3,})(?P<spacing>[ \t]*)(?P<lang>\S+)(?P<rest>.*)$",
+    re.MULTILINE,
+)
+_FENCE_LANGUAGE_ALIASES = {
+    "apply_patch": "diff",
+    "patch": "diff",
+    "cmd": "batch",
+    "shellscript": "bash",
+    "terminal": "console",
+}
+_APPLY_PATCH_LANGUAGES = frozenset({"apply_patch", "patch"})
 
 
 @dataclass(frozen=True)
@@ -17,6 +33,49 @@ class FencedCodeBlock:
     language: str
     code: str
     complete: bool
+
+
+@lru_cache(maxsize=64)
+def _has_lexer(language: str) -> bool:
+    try:
+        get_lexer_by_name(language)
+    except ClassNotFound:
+        return False
+    return True
+
+
+def _normalize_code_language(language: str) -> str:
+    normalized = language.strip().lower()
+    if not normalized:
+        return "text"
+
+    alias = _FENCE_LANGUAGE_ALIASES.get(normalized)
+    if alias is not None and _has_lexer(alias):
+        return alias
+    if _has_lexer(normalized):
+        return normalized
+    return normalized
+
+
+def _is_apply_patch_language(language: str) -> bool:
+    return language.strip().lower() in _APPLY_PATCH_LANGUAGES
+
+
+def _rewrite_fence_languages(text: str) -> str:
+    if "```" not in text and "~~~" not in text:
+        return text
+
+    def _replace(match: re.Match[str]) -> str:
+        language = match.group("lang")
+        rewritten = _normalize_code_language(language)
+        if rewritten == language:
+            return match.group(0)
+        return (
+            f"{match.group('indent')}{match.group('delim')}{match.group('spacing')}"
+            f"{rewritten}{match.group('rest')}"
+        )
+
+    return _FENCE_INFO_LINE_RE.sub(_replace, text)
 
 
 def extract_single_fenced_code_block(text: str) -> FencedCodeBlock | None:
@@ -145,15 +204,18 @@ def build_markdown_renderable(
         code = code_block.code
         if cursor_suffix:
             code += cursor_suffix
+        if _is_apply_patch_language(code_block.language):
+            return style_apply_patch_preview_text(code, default_style="white")
         return Syntax(
             code,
-            code_block.language,
+            _normalize_code_language(code_block.language),
             theme=code_theme,
             line_numbers=False,
             word_wrap=False,
         )
 
     prepared = prepare_markdown_content(text, escape_xml)
+    prepared = _rewrite_fence_languages(prepared)
     if close_incomplete_fences:
         prepared = close_incomplete_code_blocks(prepared)
     if cursor_suffix:

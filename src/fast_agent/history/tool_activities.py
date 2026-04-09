@@ -45,6 +45,8 @@ def tool_activity_type_label(*, kind: ToolActivityKind, is_remote: bool) -> str:
 
 
 def tool_activity_display_title(*, kind: ToolActivityKind, tool_name: str, is_remote: bool) -> str:
+    if is_remote:
+        return f"remote tool: {tool_name}"
     return f"{tool_activity_type_label(kind=kind, is_remote=is_remote)}: {tool_name}"
 
 

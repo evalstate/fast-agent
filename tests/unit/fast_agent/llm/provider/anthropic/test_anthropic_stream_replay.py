@@ -262,7 +262,7 @@ async def test_anthropic_mcp_tool_start_stop_without_delta() -> None:
             "payload": {
                 "tool_name": "huggingface_mcp/hf_hub_query",
                 "server_name": "huggingface_mcp",
-                "tool_display_name": "remote tool call: huggingface_mcp/hf_hub_query",
+                "tool_display_name": "remote tool: hf_hub_query",
                 "chunk": "{}",
                 "tool_use_id": "mcptoolu_1",
                 "index": 2,
@@ -283,7 +283,7 @@ async def test_anthropic_mcp_tool_start_stop_without_delta() -> None:
             "payload": {
                 "tool_name": "huggingface_mcp/hf_hub_query",
                 "server_name": "huggingface_mcp",
-                "tool_display_name": "remote tool call: huggingface_mcp/hf_hub_query",
+                "tool_display_name": "remote tool: hf_hub_query",
                 "tool_use_id": "mcptoolu_1",
                 "index": 2,
             },

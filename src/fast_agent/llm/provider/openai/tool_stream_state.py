@@ -11,6 +11,7 @@ class OpenAIToolStreamEntry:
     item_id: str | None = None
     item_type: str | None = None
     stop_notified: bool = False
+    argument_delta_received: bool = False
 
     @property
     def tool_name(self) -> str:

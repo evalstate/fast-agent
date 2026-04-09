@@ -9,6 +9,7 @@ from openai.types.responses import (
 
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
+from fast_agent.history.tool_activities import tool_activity_display_title
 from fast_agent.llm.provider.openai._stream_capture import (
     save_stream_chunk as _save_stream_chunk,
 )
@@ -36,7 +37,6 @@ _TOOL_STOP_EVENT_TYPES = {
 }
 _WEB_SEARCH_PROGRESS_LABEL = "Searching the web"
 _MCP_LIST_TOOLS_PROGRESS_LABEL = "Loading MCP tools"
-_MCP_CALL_PROGRESS_LABEL = "Calling MCP tool"
 
 
 def _web_search_status_chunk(status: str) -> str:
@@ -71,6 +71,31 @@ def _mcp_status_chunk(item_type: str, status: str) -> str:
     return status
 
 
+def _mcp_call_display_title(tool_name: str, *, status: str | None = None) -> str:
+    display_name = tool_name.split("/", 1)[-1]
+    kind = "result" if status in {"completed", "failed", "cancelled", "incomplete"} else "call"
+    return tool_activity_display_title(kind=kind, tool_name=display_name, is_remote=True)
+
+
+def _mcp_call_output_chunk(output: Any) -> str | None:
+    if output is None:
+        return None
+    if isinstance(output, str):
+        preview = output.strip()
+    else:
+        try:
+            import json
+
+            preview = json.dumps(output)
+        except Exception:
+            preview = str(output).strip()
+    if not preview:
+        return None
+    if len(preview) > 120:
+        return f"{preview[:117]}..."
+    return preview
+
+
 def _item_is_responses_tool(item: Any) -> bool:
     return getattr(item, "type", None) in {
         "function_call",
@@ -86,6 +111,9 @@ def _responses_tool_name(item: Any) -> str:
     if item_type == "web_search_call":
         return "web_search"
     if item_type == "mcp_list_tools":
+        server_label = getattr(item, "server_label", None)
+        if isinstance(server_label, str) and server_label:
+            return f"{server_label}/mcp_list_tools"
         return "mcp_list_tools"
     if item_type == "mcp_call":
         tool_name = getattr(item, "name", None) or getattr(item, "tool_name", None)
@@ -105,13 +133,17 @@ def _responses_tool_use_id(item: Any, index: int | None, item_id: str | None = N
     return f"{item_type}-{suffix}"
 
 
-def _tool_progress_display(item_type: str | None) -> tuple[str | None, str | None]:
+def _tool_progress_display(item: Any) -> tuple[str | None, str | None]:
+    item_type = getattr(item, "type", None)
     if item_type == "web_search_call":
         return _WEB_SEARCH_PROGRESS_LABEL, _web_search_status_chunk("in_progress")
     if item_type == "mcp_list_tools":
         return _MCP_LIST_TOOLS_PROGRESS_LABEL, "loading remote tool definitions..."
     if item_type == "mcp_call":
-        return _MCP_CALL_PROGRESS_LABEL, "calling remote MCP tool..."
+        arguments = getattr(item, "arguments", None)
+        return _mcp_call_display_title(_responses_tool_name(item)), (
+            arguments if isinstance(arguments, str) and arguments else None
+        )
     return None, None
 
 
@@ -224,7 +256,7 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                         "tool_use_id": tool_info.tool_use_id,
                         "index": index,
                     }
-                    display_name, display_chunk = _tool_progress_display(item_type)
+                    display_name, display_chunk = _tool_progress_display(item)
                     if display_name is not None:
                         payload["tool_display_name"] = display_name
                     if display_chunk is not None:
@@ -251,13 +283,19 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
             if event_type in {
                 "response.function_call_arguments.delta",
                 "response.custom_tool_call_input.delta",
+                "response.mcp_call_arguments.delta",
             }:
                 index = getattr(event, "output_index", None)
                 if index is None:
                     continue
                 tool_info = tool_state.resolve_open(index=index)
+                if tool_info is not None and tool_info.item_type == "mcp_call":
+                    event_name = "replace" if not tool_info.argument_delta_received else "delta"
+                    tool_info.argument_delta_received = True
+                else:
+                    event_name = "delta"
                 self._notify_tool_stream_listeners(
-                    "delta",
+                    event_name,
                     {
                         "tool_name": tool_info.tool_name if tool_info else None,
                         "tool_use_id": tool_info.tool_use_id if tool_info else None,
@@ -322,8 +360,12 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                     payload["tool_display_name"] = _MCP_LIST_TOOLS_PROGRESS_LABEL
                     payload["chunk"] = _mcp_status_chunk("mcp_list_tools", str(status))
                 elif tool_info.item_type == "mcp_call":
-                    payload["tool_display_name"] = _MCP_CALL_PROGRESS_LABEL
-                    payload["chunk"] = _mcp_status_chunk("mcp_call", str(status))
+                    payload["tool_display_name"] = _mcp_call_display_title(
+                        tool_info.tool_name,
+                        status=str(status),
+                    )
+                    if status == "failed":
+                        payload["chunk"] = _mcp_status_chunk("mcp_call", str(status))
                 self._notify_tool_stream_listeners("status", payload)
 
                 if event_type in _TOOL_START_EVENT_TYPES and not tool_info.start_notified:
@@ -333,6 +375,8 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                         notified_tool_indices.add(index)
 
                 if event_type in _TOOL_STOP_EVENT_TYPES:
+                    if tool_info.item_type == "mcp_call":
+                        continue
                     self._notify_tool_stream_listeners("stop", payload)
                     self.logger.info(
                         "Model finished streaming tool call",
@@ -364,19 +408,31 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                 )
                 if index is None:
                     index = tool_info.index if tool_info and tool_info.index is not None else -1
+                item_type = tool_info.item_type if tool_info else getattr(item, "type", None)
+                stop_payload = {
+                    "tool_name": tool_name,
+                    "tool_use_id": tool_use_id,
+                    "index": index,
+                }
+                if item_type == "web_search_call":
+                    stop_payload["tool_display_name"] = _WEB_SEARCH_PROGRESS_LABEL
+                elif item_type == "mcp_call":
+                    stop_payload["tool_display_name"] = _mcp_call_display_title(
+                        tool_name,
+                        status=getattr(item, "status", "completed"),
+                    )
+                    result_chunk = _mcp_call_output_chunk(getattr(item, "output", None))
+                    if result_chunk is not None:
+                        self._notify_tool_stream_listeners(
+                            "replace",
+                            {
+                                **stop_payload,
+                                "chunk": result_chunk,
+                            },
+                        )
                 self._notify_tool_stream_listeners(
                     "stop",
-                    {
-                        "tool_name": tool_name,
-                        "tool_use_id": tool_use_id,
-                        "index": index,
-                        "tool_display_name": (
-                            _WEB_SEARCH_PROGRESS_LABEL
-                            if (tool_info.item_type if tool_info else getattr(item, "type", None))
-                            == "web_search_call"
-                            else None
-                        ),
-                    },
+                    stop_payload,
                 )
                 self.logger.info(
                     "Model finished streaming tool call",

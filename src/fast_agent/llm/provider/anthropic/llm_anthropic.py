@@ -199,21 +199,13 @@ def _mcp_tool_result_preview_chunk(result_content: object) -> str:
 
 def _provider_tool_progress_label(*, tool_name: str, server_name: str | None = None) -> str:
     if server_name:
-        return tool_activity_display_title(
-            kind="call",
-            tool_name=f"{server_name}/{tool_name}",
-            is_remote=True,
-        )
+        return tool_activity_display_title(kind="call", tool_name=tool_name, is_remote=True)
     return web_tool_progress_label(tool_name)
 
 
 def _provider_tool_result_label(*, tool_name: str, server_name: str | None = None) -> str:
     if server_name:
-        return tool_activity_display_title(
-            kind="result",
-            tool_name=f"{server_name}/{tool_name}",
-            is_remote=True,
-        )
+        return tool_activity_display_title(kind="result", tool_name=tool_name, is_remote=True)
     return tool_activity_display_title(kind="result", tool_name=tool_name, is_remote=True)
 
 
