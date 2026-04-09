@@ -283,7 +283,7 @@ def build_llamacpp_overlay_manifest(
     overlay_name: str,
     discovered_model: LlamaCppDiscoveredModel,
     base_url: str,
-    auth: LlamaCppAuthMode,
+    auth: LlamaCppAuthMode | None,
     api_key_env: str | None,
     secret_ref: str | None,
     current: bool,

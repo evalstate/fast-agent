@@ -120,6 +120,28 @@ class TestRenderItemsWithJump:
 class TestA3MessageStyle:
     """Tests for A3MessageStyle."""
 
+    def test_header_line_rule_fill_without_right_info(self) -> None:
+        """User headers can extend to the edge with a dim rule."""
+        style = A3MessageStyle()
+        result = style.header_line("[blue]▎[/blue][dim blue]▶[/dim blue] [blue]dev[/blue]", "", 40, rule_fill=True)
+        assert result.plain.startswith("▎▶ dev ")
+        assert "─" in result.plain
+        assert result.cell_len == 40
+
+    def test_header_line_rule_fill_with_right_info(self) -> None:
+        """Rule-fill leaves room for right-aligned turn metadata."""
+        style = A3MessageStyle()
+        result = style.header_line(
+            "[blue]▎[/blue][dim blue]▶[/dim blue] [blue]dev[/blue]",
+            "[dim]turn 3 (12)[/dim]",
+            40,
+            rule_fill=True,
+        )
+        assert result.plain.startswith("▎▶ dev ")
+        assert " ─" in result.plain
+        assert result.plain.endswith(" turn 3 (12)")
+        assert result.cell_len == 40
+
     def test_bottom_metadata_with_jump(self) -> None:
         """A3 style integrates the jump functionality."""
         style = A3MessageStyle()

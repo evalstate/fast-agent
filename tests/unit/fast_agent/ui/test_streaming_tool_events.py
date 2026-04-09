@@ -224,6 +224,27 @@ def test_tool_stream_apply_patch_preview_supports_shell_aliases() -> None:
     assert "*** Delete File: a.txt" in text
 
 
+def test_tool_stream_direct_apply_patch_preview_appears_before_stop() -> None:
+    assembler = _make_assembler()
+    partial_chunk = "*** Begin Patch\n*** Update File: a.txt\n@@\n-old\n+new"
+
+    assembler.handle_tool_event(
+        "delta",
+        {
+            "tool_name": "apply_patch",
+            "tool_use_id": "tool-apply-direct-1",
+            "chunk": partial_chunk,
+        },
+    )
+
+    segment = assembler.segments[0]
+    assert segment.code_preview is None
+    assert "apply_patch preview: streaming patch" in segment.text
+    assert "*** Update File: a.txt" in segment.text
+    assert "-old" in segment.text
+    assert "+new" in segment.text
+
+
 def test_extract_partial_json_string_field_decodes_incomplete_code_value() -> None:
     extracted = extract_partial_json_string_field(
         '{"query":"count","code":"resp = await hf_trending()\\nprin',

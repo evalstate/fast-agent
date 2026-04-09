@@ -241,9 +241,15 @@ class ConsoleDisplay:
         for _ in range(self._style.shell_exit_spacing_after):
             console.console.print()
 
-    def _format_header_line(self, left_content: str, right_info: str = "") -> Text:
+    def _format_header_line(
+        self,
+        left_content: str,
+        right_info: str = "",
+        *,
+        rule_fill: bool = False,
+    ) -> Text:
         width = console.console.size.width
-        return self._style.header_line(left_content, right_info, width)
+        return self._style.header_line(left_content, right_info, width, rule_fill=rule_fill)
 
     @staticmethod
     def build_header_left(
@@ -293,6 +299,7 @@ class ConsoleDisplay:
         pre_content: Text | Group | None = None,
         render_markdown: bool | None = None,
         show_hook_indicator: bool = False,
+        header_rule_fill: bool = False,
     ) -> None:
         """
         Unified method to display formatted messages to the console.
@@ -311,6 +318,7 @@ class ConsoleDisplay:
             pre_content: Optional Rich Text shown before the main content
             render_markdown: Force markdown rendering (True) or plain rendering (False)
             show_hook_indicator: Whether to show the hook indicator glyph (◆)
+            header_rule_fill: Whether to extend the header with a dim rule to the right edge
         """
         # Ensure Rich writes to a blocking TTY when stdout/stderr was
         # flipped to non-blocking by the event loop (e.g. uvloop).
@@ -338,8 +346,7 @@ class ConsoleDisplay:
         )
 
         # Create combined separator and status line
-        self._create_combined_separator_status(left, right_info)
-
+        self._create_combined_separator_status(left, right_info, rule_fill=header_rule_fill)
         is_empty_content = False
         if isinstance(content, str):
             is_empty_content = content == ""
@@ -685,15 +692,22 @@ class ConsoleDisplay:
             return
         await self._tool_display.show_tool_update(updated_server, agent_name=agent_name)
 
-    def _create_combined_separator_status(self, left_content: str, right_info: str = "") -> None:
+    def _create_combined_separator_status(
+        self,
+        left_content: str,
+        right_info: str = "",
+        *,
+        rule_fill: bool = False,
+    ) -> None:
         """
         Create a combined separator and status line.
 
         Args:
             left_content: The main content (block, arrow, name) - left justified with color
             right_info: Supplementary information to show in brackets - right aligned
+            rule_fill: Whether to fill remaining header space with a dim rule
         """
-        combined = self._format_header_line(left_content, right_info)
+        combined = self._format_header_line(left_content, right_info, rule_fill=rule_fill)
 
         console.console.print()
         console.console.print(combined, markup=self._markup)
@@ -1202,6 +1216,7 @@ class ConsoleDisplay:
             truncate_content=False,  # User messages typically shouldn't be truncated
             pre_content=pre_content,
             show_hook_indicator=show_hook_indicator,
+            header_rule_fill=True,
         )
 
     def show_system_message(

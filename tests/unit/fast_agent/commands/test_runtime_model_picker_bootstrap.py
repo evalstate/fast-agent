@@ -32,14 +32,14 @@ from fast_agent.cli.runtime.agent_setup import (
 from fast_agent.cli.runtime.run_request import AgentRunRequest
 from fast_agent.config import Settings
 from fast_agent.ui.model_picker import ModelPickerResult
-from fast_agent.ui.model_picker_common import ANTHROPIC_VERTEX_PROVIDER_KEY
+from fast_agent.ui.model_picker_common import ANTHROPIC_VERTEX_PROVIDER_KEY, LLAMACPP_PROVIDER_KEY
 
 
 def _picker_result(
     *,
     provider: str = "overlays",
     selected_model: str = "haikutiny",
-    resolved_model: str = "haikutiny",
+    resolved_model: str | None = "haikutiny",
 ) -> ModelPickerResult:
     return ModelPickerResult(
         provider=provider,
@@ -247,6 +247,39 @@ async def test_select_model_from_picker_passes_config_start_path(monkeypatch, tm
 
     assert selected == "haikutiny"
     assert captured_kwargs["start_path"] == config_path.parent
+
+
+@pytest.mark.asyncio
+async def test_select_model_from_picker_can_import_llamacpp_overlay(monkeypatch) -> None:
+    request = _make_request()
+    captured_import_kwargs: dict[str, object] = {}
+
+    async def fake_run_model_picker_async(**kwargs):
+        del kwargs
+        return _picker_result(
+            provider=LLAMACPP_PROVIDER_KEY,
+            selected_model="llamacpp.__import__",
+            resolved_model=None,
+        )
+
+    async def fake_import_llamacpp_overlay_from_default_url(**kwargs):
+        captured_import_kwargs.update(kwargs)
+        return "llamacpp-qwen"
+
+    monkeypatch.setattr(
+        "fast_agent.ui.model_picker.run_model_picker_async",
+        fake_run_model_picker_async,
+    )
+    monkeypatch.setattr(
+        "fast_agent.cli.commands.model.import_llamacpp_overlay_from_default_url",
+        fake_import_llamacpp_overlay_from_default_url,
+    )
+
+    selected = await _select_model_from_picker(request, config_payload={})
+
+    assert selected == "llamacpp-qwen"
+    assert isinstance(captured_import_kwargs["start_path"], Path)
+    assert captured_import_kwargs["env_dir"] is not None
 
 
 def test_normalize_generic_model_spec_adds_generic_prefix_when_missing() -> None:

@@ -8,11 +8,14 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
+from fast_agent.tools.apply_patch_tool import is_apply_patch_tool_name
 from fast_agent.ui.apply_patch_preview import (
     build_apply_patch_preview,
+    build_apply_patch_preview_from_input,
     build_partial_apply_patch_preview,
     extract_non_command_args,
     format_apply_patch_preview,
+    format_partial_apply_patch_preview,
     is_shell_execution_tool,
     shell_syntax_language,
 )
@@ -382,6 +385,15 @@ class ToolStreamState:
             header = f"{tool_name}\n"
 
         args_text = self.display_text
+        if is_apply_patch_tool_name(tool_name):
+            stripped_text = self.raw_text.strip()
+            if stripped_text:
+                preview = build_apply_patch_preview_from_input(stripped_text)
+                if preview is not None:
+                    args_text = format_apply_patch_preview(preview)
+                elif stripped_text.lstrip().startswith("*** Begin Patch"):
+                    args_text = format_partial_apply_patch_preview(stripped_text)
+
         if self.raw_text.strip():
             parsed_args = _parse_json_value(self.raw_text)
             if parsed_args is not _JSON_PARSE_FAILED:

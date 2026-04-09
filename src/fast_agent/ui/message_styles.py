@@ -214,9 +214,19 @@ class A3MessageStyle:
     header_spacing_after = 0
     shell_exit_spacing_after = 1
 
-    def header_line(self, left: str, right: str, width: int) -> Text:  # noqa: ARG002
+    def header_line(
+        self,
+        left: str,
+        right: str,
+        width: int,
+        *,
+        rule_fill: bool = False,
+    ) -> Text:
         left_text = Text.from_markup(left)
         right_content = right.strip()
+        if rule_fill:
+            return self._header_line_with_rule_fill(left_text, right_content, width)
+
         combined = Text()
         combined.append_text(left_text)
         if right_content:
@@ -224,6 +234,33 @@ class A3MessageStyle:
             right_text.stylize("dim")
             combined.append(" ", style="default")
             combined.append_text(right_text)
+        return combined
+
+    def _header_line_with_rule_fill(self, left_text: Text, right_content: str, width: int) -> Text:
+        combined = Text()
+        combined.append_text(left_text)
+
+        if right_content:
+            right_text = Text.from_markup(right_content)
+            right_text.stylize("dim")
+            remaining = width - left_text.cell_len - right_text.cell_len
+            if remaining >= 3:
+                combined.append(" ", style="default")
+                combined.append("─" * (remaining - 2), style="dim")
+                combined.append(" ", style="default")
+                combined.append_text(right_text)
+                return combined
+            if remaining >= 1:
+                combined.append(" ", style="default")
+            combined.append_text(right_text)
+            return combined
+
+        remaining = width - left_text.cell_len
+        if remaining >= 2:
+            combined.append(" ", style="default")
+            combined.append("─" * (remaining - 1), style="dim")
+        elif remaining == 1:
+            combined.append(" ", style="default")
         return combined
 
     def metadata_line(self, content: Text, width: int) -> Text:  # noqa: ARG002

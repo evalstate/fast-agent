@@ -19,11 +19,14 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.ui.model_picker_common import (
     ANTHROPIC_VERTEX_PROVIDER_KEY,
     GENERIC_CUSTOM_MODEL_SENTINEL,
+    LLAMACPP_IMPORT_SENTINEL,
+    LLAMACPP_PROVIDER_KEY,
     ModelOption,
     ModelPickerSnapshot,
     build_snapshot,
     infer_initial_picker_provider,
     model_capabilities,
+    model_options_for_option,
     model_options_for_provider,
 )
 
@@ -127,6 +130,37 @@ def test_build_snapshot_shows_empty_overlay_group_even_without_overlays(tmp_path
             os.environ.pop("ENVIRONMENT_DIR", None)
         else:
             os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+
+
+def test_build_snapshot_includes_llamacpp_import_flow(tmp_path: Path) -> None:
+    empty_env_dir = tmp_path / ".fast-agent"
+    empty_env_dir.mkdir(parents=True, exist_ok=True)
+    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
+    os.environ["ENVIRONMENT_DIR"] = str(empty_env_dir)
+    try:
+        snapshot = build_snapshot(config_payload={})
+    finally:
+        reset_env_dir = tmp_path / ".empty-fast-agent-llamacpp"
+        reset_env_dir.mkdir(parents=True, exist_ok=True)
+        load_model_overlay_registry(start_path=tmp_path, env_dir=reset_env_dir)
+        if previous_env_dir is None:
+            os.environ.pop("ENVIRONMENT_DIR", None)
+        else:
+            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+
+    option = next(provider for provider in snapshot.providers if provider.option_key == LLAMACPP_PROVIDER_KEY)
+
+    assert option.option_display_name == "llama.cpp"
+    assert option.active is False
+    assert model_options_for_option(snapshot, option, source="curated") == [
+        ModelOption(
+            spec=LLAMACPP_IMPORT_SENTINEL,
+            label="Discover local llama.cpp models and write overlay",
+        )
+    ]
+
+    option_keys = [provider.option_key for provider in snapshot.providers]
+    assert option_keys.index(LLAMACPP_PROVIDER_KEY) == option_keys.index(Provider.GENERIC.config_name) + 1
 
 
 def test_build_snapshot_loads_overlays_relative_to_config_path(tmp_path: Path) -> None:

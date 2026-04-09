@@ -65,17 +65,59 @@ def _rewrite_fence_languages(text: str) -> str:
     if "```" not in text and "~~~" not in text:
         return text
 
-    def _replace(match: re.Match[str]) -> str:
-        language = match.group("lang")
-        rewritten = _normalize_code_language(language)
-        if rewritten == language:
-            return match.group(0)
-        return (
-            f"{match.group('indent')}{match.group('delim')}{match.group('spacing')}"
-            f"{rewritten}{match.group('rest')}"
-        )
+    rewritten_lines: list[str] = []
+    in_fence = False
+    fence_char = "`"
+    fence_len = 3
 
-    return _FENCE_INFO_LINE_RE.sub(_replace, text)
+    for raw_line in text.splitlines(keepends=True):
+        line = raw_line.rstrip("\r\n")
+        newline = raw_line[len(line) :]
+        stripped = line.lstrip(" ")
+        if len(line) - len(stripped) > 3:
+            rewritten_lines.append(raw_line)
+            continue
+
+        if not in_fence:
+            opening = _FENCE_OPEN_LINE_RE.match(line)
+            if opening is None:
+                rewritten_lines.append(raw_line)
+                continue
+
+            delimiter = opening.group("delim")
+            info = opening.group("info")
+            if delimiter[0] == "`" and "`" in info:
+                rewritten_lines.append(raw_line)
+                continue
+
+            info_match = _FENCE_INFO_LINE_RE.match(line)
+            if info_match is not None:
+                language = info_match.group("lang")
+                rewritten = _normalize_code_language(language)
+                if rewritten != language:
+                    raw_line = (
+                        f"{info_match.group('indent')}{info_match.group('delim')}"
+                        f"{info_match.group('spacing')}{rewritten}"
+                        f"{info_match.group('rest')}{newline}"
+                    )
+
+            rewritten_lines.append(raw_line)
+            in_fence = True
+            fence_char = delimiter[0]
+            fence_len = len(delimiter)
+            continue
+
+        rewritten_lines.append(raw_line)
+        if not stripped or stripped[0] != fence_char:
+            continue
+
+        marker_len = 0
+        while marker_len < len(stripped) and stripped[marker_len] == fence_char:
+            marker_len += 1
+        if marker_len >= fence_len and stripped[marker_len:].strip() == "":
+            in_fence = False
+
+    return "".join(rewritten_lines)
 
 
 def extract_single_fenced_code_block(text: str) -> FencedCodeBlock | None:

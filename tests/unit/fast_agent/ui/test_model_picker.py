@@ -27,6 +27,8 @@ from fast_agent.ui.model_picker_common import (
     ANTHROPIC_VERTEX_PROVIDER_KEY,
     CODEX_LOGIN_SENTINEL,
     GENERIC_CUSTOM_MODEL_SENTINEL,
+    LLAMACPP_IMPORT_SENTINEL,
+    LLAMACPP_PROVIDER_KEY,
     ModelOption,
     ModelPickerSnapshot,
     ProviderOption,
@@ -164,6 +166,21 @@ def test_provider_display_name_uses_overlays_label_for_overlay_group() -> None:
 
     assert _SplitListPicker._provider_display_name_for_option(option) == "Overlays"
     assert _SplitListPicker._provider_entry_count_label(option) == "1 overlay"
+
+
+def test_provider_display_name_uses_llamacpp_import_label() -> None:
+    picker = _SplitListPicker(config_path=None)
+    option = ProviderOption(
+        provider=None,
+        active=False,
+        curated_entries=(),
+        key=LLAMACPP_PROVIDER_KEY,
+        display_name="llama.cpp",
+    )
+
+    assert _SplitListPicker._provider_display_name_for_option(option) == "llama.cpp"
+    assert _SplitListPicker._provider_entry_count_label(option) == "import flow"
+    assert picker._provider_availability_label(option) == "available"
 
 
 def test_overlay_group_without_entries_renders_empty_message() -> None:
@@ -305,6 +322,45 @@ def test_picker_returns_overlay_token_as_resolved_model() -> None:
     assert app.result is not None
     assert app.result.selected_model == "haikutiny"
     assert app.result.resolved_model == "haikutiny"
+
+
+def test_picker_routes_llamacpp_selection_to_follow_up_flow() -> None:
+    class _FakeApp:
+        def __init__(self) -> None:
+            self.result = None
+
+        def exit(self, *, result) -> None:
+            self.result = result
+
+    class _FakeEvent:
+        def __init__(self, app: _FakeApp) -> None:
+            self.app = app
+
+    picker = _SplitListPicker(config_path=None)
+    picker.snapshot = _snapshot_with_single_provider(
+        provider=None,
+        active=False,
+        curated_entries=(),
+        key=LLAMACPP_PROVIDER_KEY,
+        display_name="llama.cpp",
+    )
+    picker.state.provider_index = 0
+    picker.state.model_index = 0
+
+    enter_binding = next(
+        binding
+        for binding in picker._create_key_bindings().bindings
+        if getattr(binding.handler, "__name__", "") == "_accept"
+    )
+
+    app = _FakeApp()
+    cast("Any", enter_binding.handler)(_FakeEvent(app))
+
+    assert app.result is not None
+    assert app.result.provider == LLAMACPP_PROVIDER_KEY
+    assert app.result.provider_available is True
+    assert app.result.selected_model == LLAMACPP_IMPORT_SENTINEL
+    assert app.result.resolved_model is None
 
 
 def test_snapshot_adds_anthropic_vertex_group_when_ready(monkeypatch) -> None:

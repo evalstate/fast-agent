@@ -24,6 +24,7 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.session.preview import find_last_assistant_preview_text
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 from fast_agent.ui.model_picker_common import (
+    LLAMACPP_PROVIDER_KEY,
     has_explicit_provider_prefix,
     infer_initial_picker_provider,
     normalize_generic_model_spec,
@@ -254,6 +255,28 @@ async def _prompt_for_generic_model_spec(*, default_model: str = "llama3.2") -> 
         typer.echo("Please enter a non-empty model string.", err=True)
 
 
+async def _import_llamacpp_overlay_from_picker(
+    *,
+    request: AgentRunRequest,
+    start_path: Path,
+) -> str | None:
+    from fast_agent.cli.commands.model import import_llamacpp_overlay_from_default_url
+
+    settings = _load_request_settings(request)
+    env_dir = request.environment_dir or getattr(settings, "environment_dir", None)
+
+    try:
+        return await import_llamacpp_overlay_from_default_url(
+            start_path=start_path,
+            env_dir=env_dir,
+        )
+    except (EOFError, KeyboardInterrupt):
+        return None
+    except Exception as exc:
+        typer.echo(f"llama.cpp import failed: {exc}", err=True)
+        return None
+
+
 def _activate_model_picker_provider(action: str) -> bool:
     if action != "codex-login":
         typer.echo(f"Unsupported provider activation action: {action}", err=True)
@@ -310,6 +333,16 @@ async def _select_model_from_picker(
 
         if picker_result.activation_action is not None:
             _activate_model_picker_provider(picker_result.activation_action)
+            continue
+
+        if picker_result.provider == LLAMACPP_PROVIDER_KEY:
+            imported_overlay = await _import_llamacpp_overlay_from_picker(
+                request=request,
+                start_path=picker_start_path,
+            )
+            if imported_overlay is not None:
+                typer.echo(f"Imported llama.cpp overlay '{imported_overlay}'.", err=True)
+                return imported_overlay
             continue
 
         if (

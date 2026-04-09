@@ -721,10 +721,17 @@ class _LlamaCppCommandContext:
 
 @dataclass(frozen=True, slots=True)
 class _LlamaCppPersistedAuth:
-    auth: LlamaCppAuthMode
+    auth: LlamaCppAuthMode | None
     api_key_env: str | None
     secret_ref: str | None
     default_headers: dict[str, str]
+
+
+@dataclass(frozen=True, slots=True)
+class _LlamaCppPickerImportDefaults:
+    url: str
+    auth: LlamaCppAuthMode | None
+    interrogation_api_key: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1008,7 +1015,7 @@ def _build_llamacpp_overlay_name(
 
 def _resolve_llamacpp_persisted_auth(
     *,
-    auth: LlamaCppAuthMode,
+    auth: LlamaCppAuthMode | None,
     api_key_env: str | None,
     secret_ref: str | None,
     reused_overlay: LoadedModelOverlay | None,
@@ -1027,9 +1034,8 @@ def _resolve_llamacpp_persisted_auth(
 
     connection = reused_overlay.manifest.connection
     existing_auth = connection.auth_mode()
-    resolved_auth: LlamaCppAuthMode = existing_auth if existing_auth is not None else auth
     return _LlamaCppPersistedAuth(
-        auth=resolved_auth,
+        auth=existing_auth if existing_auth is not None else auth,
         api_key_env=connection.api_key_env,
         secret_ref=connection.secret_ref,
         default_headers=dict(connection.default_headers),
@@ -1084,13 +1090,14 @@ async def _run_llamacpp_import(
     start_path: Path,
     env_dir: str | Path | None,
     url: str,
-    auth: LlamaCppAuthMode,
+    auth: LlamaCppAuthMode | None,
     api_key_env: str | None,
     secret_ref: str | None,
     selected_model: str | None,
     requested_name: str | None,
     dry_run: bool,
     interactive: bool,
+    interrogation_api_key: str | None = None,
     include_sampling_defaults: bool = False,
     preserve_existing_auth: bool = False,
     requested_action: Literal[
@@ -1101,12 +1108,13 @@ async def _run_llamacpp_import(
     ]
     | None = None,
 ) -> _LlamaCppImportResult | None:
-    interrogation_api_key = _resolve_llamacpp_interrogation_api_key(
-        start_path=start_path,
-        env_dir=env_dir,
-        api_key_env=api_key_env,
-        secret_ref=secret_ref,
-    )
+    if interrogation_api_key is None:
+        interrogation_api_key = _resolve_llamacpp_interrogation_api_key(
+            start_path=start_path,
+            env_dir=env_dir,
+            api_key_env=api_key_env,
+            secret_ref=secret_ref,
+        )
     catalog = await discover_llamacpp_models(
         url=url,
         api_key=interrogation_api_key,
@@ -1211,6 +1219,47 @@ def _emit_llamacpp_import_summary(
     if print_overlay_yaml:
         typer.echo()
         typer.echo(result.overlay_yaml.rstrip())
+
+
+def _resolve_llamacpp_picker_import_defaults(
+    *,
+    start_path: Path,
+    env_dir: str | Path | None,
+) -> _LlamaCppPickerImportDefaults:
+    return _LlamaCppPickerImportDefaults(
+        url=DEFAULT_LLAMA_CPP_URL,
+        auth="none",
+        interrogation_api_key=None,
+    )
+
+
+async def import_llamacpp_overlay_from_default_url(
+    *,
+    start_path: Path,
+    env_dir: str | Path | None,
+) -> str | None:
+    picker_defaults = _resolve_llamacpp_picker_import_defaults(
+        start_path=start_path,
+        env_dir=env_dir,
+    )
+    result = await _run_llamacpp_import(
+        start_path=start_path,
+        env_dir=env_dir,
+        url=picker_defaults.url,
+        auth=picker_defaults.auth,
+        api_key_env=None,
+        secret_ref=None,
+        selected_model=None,
+        requested_name=None,
+        dry_run=False,
+        interactive=True,
+        interrogation_api_key=picker_defaults.interrogation_api_key,
+        preserve_existing_auth=True,
+        requested_action="generate_overlay",
+    )
+    if result is None:
+        return None
+    return result.overlay_name
 
 
 def _finalize_llamacpp_import(

@@ -229,3 +229,16 @@ def test_openai_phase_blocks_use_renderable_group_for_dim_labels() -> None:
     extracted = ConsoleDisplay._extract_openai_phase_content(message)
 
     assert isinstance(extracted, Group)
+
+
+def test_user_message_header_uses_rule_fill_for_turn_info() -> None:
+    display = ConsoleDisplay(config=None)
+
+    with console.console.capture() as capture:
+        display.show_user_message("Hello", name="dev", chat_turn=3, total_turns=12)
+
+    rendered = capture.get()
+    header = rendered.splitlines()[1]
+    assert header.startswith("▎▶ dev ")
+    assert "─" in header
+    assert header.endswith(" turn 3 (12)")

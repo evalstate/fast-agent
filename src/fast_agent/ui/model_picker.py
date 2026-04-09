@@ -20,6 +20,8 @@ if TYPE_CHECKING:
 from fast_agent.llm.provider_types import Provider
 from fast_agent.ui.model_picker_common import (
     GENERIC_CUSTOM_MODEL_SENTINEL,
+    LLAMACPP_IMPORT_SENTINEL,
+    LLAMACPP_PROVIDER_KEY,
     REFER_TO_DOCS_PROVIDERS,
     ModelOption,
     ModelSource,
@@ -150,6 +152,10 @@ class _SplitListPicker:
     @property
     def current_provider(self) -> ProviderOption:
         return self.snapshot.providers[self.state.provider_index]
+
+    @staticmethod
+    def _provider_is_available(option: ProviderOption) -> bool:
+        return option.active or option.option_key == LLAMACPP_PROVIDER_KEY
 
     def _provider_requires_docs_only(self) -> bool:
         provider = self.current_provider.provider
@@ -286,6 +292,8 @@ class _SplitListPicker:
         return " ".join(parts)
 
     def _provider_availability_label(self, option: ProviderOption) -> str:
+        if option.option_key == LLAMACPP_PROVIDER_KEY:
+            return "available"
         if option.overlay_group and not option.curated_entries:
             return "none yet"
         if option.active:
@@ -300,6 +308,8 @@ class _SplitListPicker:
         self,
         option: ProviderOption,
     ) -> Literal["active", "attention", "inactive"]:
+        if option.option_key == LLAMACPP_PROVIDER_KEY:
+            return "active"
         if option.overlay_group and not option.curated_entries:
             return "inactive"
         if option.active:
@@ -338,6 +348,8 @@ class _SplitListPicker:
 
     @staticmethod
     def _provider_entry_count_label(option: ProviderOption) -> str:
+        if option.option_key == LLAMACPP_PROVIDER_KEY:
+            return "import flow"
         if option.overlay_group:
             entry_count = len(option.curated_entries)
             suffix = "overlay" if entry_count == 1 else "overlays"
@@ -421,7 +433,7 @@ class _SplitListPicker:
         models = self.current_models
         self._clamp_model_index()
 
-        provider_available = self.current_provider.active
+        provider_available = self._provider_is_available(self.current_provider)
         if not models:
             empty_message = (
                 "  No local overlays found.\n"
@@ -547,7 +559,7 @@ class _SplitListPicker:
                 event.app.exit(
                     result=ModelPickerResult(
                         provider=provider.option_key,
-                        provider_available=provider.active,
+                        provider_available=self._provider_is_available(provider),
                         selected_model=selected_value,
                         resolved_model=None,
                         source=self.state.source,
@@ -564,8 +576,25 @@ class _SplitListPicker:
                 event.app.exit(
                     result=ModelPickerResult(
                         provider=provider.option_key,
-                        provider_available=provider.active,
+                        provider_available=self._provider_is_available(provider),
                         selected_model=selected_value,
+                        resolved_model=None,
+                        source=self.state.source,
+                        refer_to_docs=False,
+                        activation_action=None,
+                    )
+                )
+                return
+
+            if (
+                provider.option_key == LLAMACPP_PROVIDER_KEY
+                and selected_model.spec == LLAMACPP_IMPORT_SENTINEL
+            ):
+                event.app.exit(
+                    result=ModelPickerResult(
+                        provider=provider.option_key,
+                        provider_available=self._provider_is_available(provider),
+                        selected_model=selected_model.spec,
                         resolved_model=None,
                         source=self.state.source,
                         refer_to_docs=False,
@@ -578,7 +607,7 @@ class _SplitListPicker:
                 event.app.exit(
                     result=ModelPickerResult(
                         provider=provider.option_key,
-                        provider_available=provider.active,
+                        provider_available=self._provider_is_available(provider),
                         selected_model=None,
                         resolved_model=None,
                         source=self.state.source,
@@ -591,7 +620,7 @@ class _SplitListPicker:
             event.app.exit(
                 result=ModelPickerResult(
                     provider=provider.option_key,
-                    provider_available=provider.active,
+                    provider_available=self._provider_is_available(provider),
                     selected_model=selected_value,
                     resolved_model=selected_value,
                     source=self.state.source,

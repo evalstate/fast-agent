@@ -251,6 +251,11 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                         item_type=item_type,
                         kind="web_search" if item_type == "web_search_call" else "tool",
                     )
+                    tool_info.argument_snapshot_present = (
+                        item_type == "mcp_call"
+                        and isinstance(getattr(item, "arguments", None), str)
+                        and bool(getattr(item, "arguments", None))
+                    )
                     payload = {
                         "tool_name": tool_info.tool_name,
                         "tool_use_id": tool_info.tool_use_id,
@@ -290,7 +295,14 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                     continue
                 tool_info = tool_state.resolve_open(index=index)
                 if tool_info is not None and tool_info.item_type == "mcp_call":
-                    event_name = "replace" if not tool_info.argument_delta_received else "delta"
+                    event_name = (
+                        "replace"
+                        if (
+                            not tool_info.argument_delta_received
+                            and not tool_info.argument_snapshot_present
+                        )
+                        else "delta"
+                    )
                     tool_info.argument_delta_received = True
                 else:
                     event_name = "delta"
@@ -376,6 +388,12 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
 
                 if event_type in _TOOL_STOP_EVENT_TYPES:
                     if tool_info.item_type == "mcp_call":
+                        tool_info.awaiting_output_item_done = True
+                        tool_state.close(
+                            index=index,
+                            tool_use_id=tool_use_id,
+                            item_id=event_item_id,
+                        )
                         continue
                     self._notify_tool_stream_listeners("stop", payload)
                     self.logger.info(
@@ -389,6 +407,7 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                             "tool_event": "stop",
                         },
                     )
+                    tool_info.stop_notified = True
                     tool_state.close(index=index, tool_use_id=tool_use_id, item_id=event_item_id)
                 continue
 
@@ -397,9 +416,28 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                 if not _item_is_responses_tool(item):
                     continue
                 index = getattr(event, "output_index", None)
+                item_id = getattr(event, "item_id", None) or getattr(item, "id", None)
                 tool_use_id = getattr(item, "call_id", None) or getattr(item, "id", None)
-                tool_info = tool_state.close(index=index, tool_use_id=tool_use_id)
-                if tool_info is None and tool_state.is_completed(index=index, tool_use_id=tool_use_id):
+                tool_info = tool_state.resolve(
+                    index=index,
+                    tool_use_id=tool_use_id,
+                    item_id=item_id,
+                )
+                was_already_completed = tool_info is not None and tool_state.is_completed(
+                    index=index,
+                    tool_use_id=tool_use_id,
+                    item_id=item_id,
+                )
+                tool_info = tool_state.close(
+                    index=index,
+                    tool_use_id=tool_use_id,
+                    item_id=item_id,
+                ) or tool_info
+                if tool_info is None and tool_state.is_completed(
+                    index=index,
+                    tool_use_id=tool_use_id,
+                    item_id=item_id,
+                ):
                     continue
                 tool_name = _responses_tool_name(item)
                 tool_use_id = (
@@ -418,6 +456,8 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                 if item_type == "web_search_call":
                     stop_payload["tool_display_name"] = _WEB_SEARCH_PROGRESS_LABEL
                 elif item_type == "mcp_call":
+                    if tool_info is not None:
+                        tool_info.awaiting_output_item_done = False
                     stop_payload["tool_display_name"] = _mcp_call_display_title(
                         tool_name,
                         status=getattr(item, "status", "completed"),
@@ -431,21 +471,24 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
                                 "chunk": result_chunk,
                             },
                         )
-                self._notify_tool_stream_listeners(
-                    "stop",
-                    stop_payload,
-                )
-                self.logger.info(
-                    "Model finished streaming tool call",
-                    data={
-                        "progress_action": ProgressAction.CALLING_TOOL,
-                        "agent_name": self.name,
-                        "model": model,
-                        "tool_name": tool_name,
-                        "tool_use_id": tool_use_id,
-                        "tool_event": "stop",
-                    },
-                )
+                if not (was_already_completed and tool_info and tool_info.stop_notified):
+                    self._notify_tool_stream_listeners(
+                        "stop",
+                        stop_payload,
+                    )
+                    self.logger.info(
+                        "Model finished streaming tool call",
+                        data={
+                            "progress_action": ProgressAction.CALLING_TOOL,
+                            "agent_name": self.name,
+                            "model": model,
+                            "tool_name": tool_name,
+                            "tool_use_id": tool_use_id,
+                            "tool_event": "stop",
+                        },
+                    )
+                    if tool_info is not None:
+                        tool_info.stop_notified = True
                 if index >= 0:
                     notified_tool_indices.add(index)
                 continue
@@ -463,7 +506,65 @@ class ResponsesStreamingMixin(OpenAIToolNotificationMixin):
             notified_tool_indices=notified_tool_indices,
             emit_tool_fallback=self._emit_tool_notification_fallback,
         )
+        self._emit_deferred_mcp_result_notifications(
+            final_response=final_response,
+            tool_state=tool_state,
+            model=model,
+        )
         return final_response, reasoning_segments
+
+    def _emit_deferred_mcp_result_notifications(
+        self,
+        *,
+        final_response: Any,
+        tool_state: OpenAIToolStreamState,
+        model: str,
+    ) -> None:
+        for index, item in enumerate(getattr(final_response, "output", []) or []):
+            if getattr(item, "type", None) != "mcp_call":
+                continue
+            tool_use_id = getattr(item, "call_id", None) or getattr(item, "id", None)
+            item_id = getattr(item, "id", None)
+            tool_info = tool_state.resolve(
+                index=index,
+                tool_use_id=tool_use_id,
+                item_id=item_id,
+            )
+            if tool_info is None or not tool_info.awaiting_output_item_done or tool_info.stop_notified:
+                continue
+            tool_name = _responses_tool_name(item)
+            stop_payload = {
+                "tool_name": tool_name,
+                "tool_use_id": tool_use_id,
+                "index": index,
+                "tool_display_name": _mcp_call_display_title(
+                    tool_name,
+                    status=getattr(item, "status", "completed"),
+                ),
+            }
+            result_chunk = _mcp_call_output_chunk(getattr(item, "output", None))
+            if result_chunk is not None:
+                self._notify_tool_stream_listeners(
+                    "replace",
+                    {
+                        **stop_payload,
+                        "chunk": result_chunk,
+                    },
+                )
+            self._notify_tool_stream_listeners("stop", stop_payload)
+            self.logger.info(
+                "Model finished streaming tool call",
+                data={
+                    "progress_action": ProgressAction.CALLING_TOOL,
+                    "agent_name": self.name,
+                    "model": model,
+                    "tool_name": tool_name,
+                    "tool_use_id": tool_use_id,
+                    "tool_event": "stop",
+                },
+            )
+            tool_info.awaiting_output_item_done = False
+            tool_info.stop_notified = True
 
     def _emit_tool_notification_fallback(
         self,

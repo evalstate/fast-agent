@@ -1837,6 +1837,123 @@ async def test_stream_process_emits_named_mcp_call_result_events() -> None:
     assert replace_payloads[-1]["tool_display_name"] == "remote tool: create_payment_link"
     assert "https://pay.stripe.com/test" in replace_payloads[-1]["chunk"]
 
-    stop_payload = next(payload for event, payload in reversed(harness.events) if event == "stop")
+    stop_indices = [index for index, (event, _payload) in enumerate(harness.events) if event == "stop"]
+    assert len(stop_indices) == 1
+    last_replace_index = max(
+        index for index, (event, _payload) in enumerate(harness.events) if event == "replace"
+    )
+    assert stop_indices[0] > last_replace_index
+
+    stop_payload = harness.events[stop_indices[0]][1]
     assert stop_payload["tool_name"] == "stripe/create_payment_link"
     assert stop_payload["tool_display_name"] == "remote tool: create_payment_link"
+
+
+@pytest.mark.asyncio
+async def test_stream_process_preserves_initial_mcp_call_arguments_before_deltas() -> None:
+    harness = _StreamingHarness()
+    final_item = SimpleNamespace(
+        type="mcp_call",
+        id="mcp_call_123",
+        server_label="stripe",
+        name="create_payment_link",
+        status="completed",
+        output='{"url":"https://pay.stripe.com/test"}',
+    )
+    final_response = SimpleNamespace(output=[final_item], usage=None)
+    stream = _FakeResponsesStream(
+        events=[
+            SimpleNamespace(
+                type="response.output_item.added",
+                output_index=0,
+                item=SimpleNamespace(
+                    type="mcp_call",
+                    id="mcp_call_123",
+                    server_label="stripe",
+                    name="create_payment_link",
+                    arguments='{"amount":',
+                ),
+                item_id="mcp_call_123",
+            ),
+            SimpleNamespace(
+                type="response.mcp_call_arguments.delta",
+                output_index=0,
+                item_id="mcp_call_123",
+                delta="42}",
+            ),
+            SimpleNamespace(
+                type="response.mcp_call.completed",
+                output_index=0,
+                item_id="mcp_call_123",
+            ),
+            SimpleNamespace(
+                type="response.output_item.done",
+                output_index=0,
+                item=final_item,
+                item_id="mcp_call_123",
+            ),
+            SimpleNamespace(type="response.completed", response=final_response),
+        ],
+        final_response=final_response,
+    )
+
+    await harness._process_stream(stream, model="gpt-test", capture_filename=None)
+
+    start_payload = next(payload for event, payload in harness.events if event == "start")
+    assert start_payload["chunk"] == '{"amount":'
+
+    delta_payloads = [payload for event, payload in harness.events if event == "delta"]
+    assert delta_payloads[0]["chunk"] == "42}"
+
+    replace_payloads = [payload for event, payload in harness.events if event == "replace"]
+    assert replace_payloads[-1]["chunk"] == '{"url":"https://pay.stripe.com/test"}'
+
+
+@pytest.mark.asyncio
+async def test_stream_process_finalizes_mcp_call_when_done_event_is_missing() -> None:
+    harness = _StreamingHarness()
+    final_item = SimpleNamespace(
+        type="mcp_call",
+        id="mcp_call_123",
+        server_label="stripe",
+        name="create_payment_link",
+        status="completed",
+        output='{"url":"https://pay.stripe.com/test"}',
+    )
+    final_response = SimpleNamespace(output=[final_item], usage=None, status="completed")
+    stream = _FakeResponsesStream(
+        events=[
+            SimpleNamespace(
+                type="response.output_item.added",
+                output_index=0,
+                item=SimpleNamespace(
+                    type="mcp_call",
+                    id="mcp_call_123",
+                    server_label="stripe",
+                    name="create_payment_link",
+                ),
+                item_id="mcp_call_123",
+            ),
+            SimpleNamespace(
+                type="response.mcp_call.completed",
+                output_index=0,
+                item_id="mcp_call_123",
+            ),
+            SimpleNamespace(type="response.completed", response=final_response),
+        ],
+        final_response=final_response,
+    )
+
+    result, reasoning = await harness._process_stream(
+        stream,
+        model="gpt-test",
+        capture_filename=None,
+    )
+
+    assert result is final_response
+    assert reasoning == []
+    replace_payloads = [payload for event, payload in harness.events if event == "replace"]
+    assert replace_payloads[-1]["chunk"] == '{"url":"https://pay.stripe.com/test"}'
+    stop_payloads = [payload for event, payload in harness.events if event == "stop"]
+    assert len(stop_payloads) == 1
+    assert stop_payloads[0]["tool_name"] == "stripe/create_payment_link"

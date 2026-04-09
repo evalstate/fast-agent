@@ -7,6 +7,7 @@ import threading
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
 
 import yaml
@@ -221,6 +222,43 @@ def test_model_llamacpp_command_imports_overlay_from_models_endpoint(tmp_path: P
     loaded = registry.resolve_model_string("qwen-local")
     assert loaded is not None
     assert loaded.manifest.connection.base_url == f"{server.base_url}/v1"
+
+
+def test_resolve_llamacpp_picker_import_defaults_ignores_openresponses_settings(
+    tmp_path: Path, monkeypatch
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True)
+    previous_base_url = os.environ.get("OPENRESPONSES_BASE_URL")
+    previous_api_key = os.environ.get("OPENRESPONSES_API_KEY")
+    try:
+        os.environ["OPENRESPONSES_BASE_URL"] = "http://example.invalid:9999/v1"
+        os.environ["OPENRESPONSES_API_KEY"] = "test-token"
+        monkeypatch.setattr(
+            model_command,
+            "_load_cli_settings",
+            lambda **kwargs: SimpleNamespace(
+                openresponses=SimpleNamespace(base_url="http://ignored.example/v1")
+            ),
+        )
+
+        defaults = model_command._resolve_llamacpp_picker_import_defaults(
+            start_path=workspace,
+            env_dir=None,
+        )
+    finally:
+        if previous_base_url is None:
+            os.environ.pop("OPENRESPONSES_BASE_URL", None)
+        else:
+            os.environ["OPENRESPONSES_BASE_URL"] = previous_base_url
+        if previous_api_key is None:
+            os.environ.pop("OPENRESPONSES_API_KEY", None)
+        else:
+            os.environ["OPENRESPONSES_API_KEY"] = previous_api_key
+
+    assert defaults.url == model_command.DEFAULT_LLAMA_CPP_URL
+    assert defaults.auth == "none"
+    assert defaults.interrogation_api_key is None
 
 
 def test_model_llamacpp_group_options_apply_before_subcommand(tmp_path: Path) -> None:

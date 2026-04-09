@@ -61,6 +61,12 @@ def test_rewrite_fence_languages_normalizes_apply_patch_for_markdown() -> None:
     assert rewritten == "Patch:\n\n```diff\n*** Begin Patch\n@@\n-old\n+new\n```"
 
 
+def test_rewrite_fence_languages_does_not_touch_literal_nested_fences() -> None:
+    markdown = "Example:\n\n````markdown\n```cmd\ndir\n```\n````"
+
+    assert _rewrite_fence_languages(markdown) == markdown
+
+
 def test_build_markdown_renderable_keeps_mixed_markdown_as_markdown() -> None:
     renderable = build_markdown_renderable(
         "Run this:\n\n```python\nprint(1)\n```",

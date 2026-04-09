@@ -55,6 +55,8 @@ REFER_TO_DOCS_PROVIDERS: tuple[Provider, ...] = (
 GENERIC_CUSTOM_MODEL_SENTINEL = "generic.__custom__"
 CODEX_LOGIN_SENTINEL = "codexresponses.__login__"
 ANTHROPIC_VERTEX_PROVIDER_KEY = "anthropic-vertex"
+LLAMACPP_PROVIDER_KEY = "llamacpp"
+LLAMACPP_IMPORT_SENTINEL = "llamacpp.__import__"
 
 
 @dataclass(frozen=True)
@@ -218,6 +220,14 @@ def model_options_for_option(
     *,
     source: ModelSource,
 ) -> list[ModelOption]:
+    if option.option_key == LLAMACPP_PROVIDER_KEY:
+        return [
+            ModelOption(
+                spec=LLAMACPP_IMPORT_SENTINEL,
+                label="Discover local llama.cpp models and write overlay",
+            )
+        ]
+
     if option.overlay_group:
         return _catalog_options_from_entries(
             option.curated_entries,
@@ -281,7 +291,6 @@ def build_snapshot(
             overlay_group=True,
         )
     )
-
     for provider in PICKER_PROVIDER_ORDER:
         if provider == Provider.ANTHROPIC_VERTEX and not anthropic_vertex_intent(config_payload):
             continue
@@ -310,6 +319,16 @@ def build_snapshot(
                 ),
             )
         )
+        if provider == Provider.GENERIC:
+            providers.append(
+                ProviderOption(
+                    provider=None,
+                    active=False,
+                    curated_entries=(),
+                    key=LLAMACPP_PROVIDER_KEY,
+                    display_name="llama.cpp",
+                )
+            )
 
     return ModelPickerSnapshot(providers=tuple(providers), config_payload=config_payload)
 
@@ -382,6 +401,11 @@ def find_provider(snapshot: ModelPickerSnapshot, provider_name: str) -> Provider
 
 
 def build_provider_label(option: ProviderOption) -> str:
+    if option.option_key == LLAMACPP_PROVIDER_KEY:
+        status = "active"
+        count_text = "import flow"
+        return f"{option.option_display_name:<16} [{status}] · {count_text}"
+
     status = "active" if option.active else "disabled" if option.disabled_reason else "inactive"
     curated_count = len(option.curated_entries)
     if option.overlay_group:
