@@ -15,6 +15,7 @@ from fast_agent.llm.model_info import ModelInfo
 from fast_agent.llm.provider_types import Provider
 from fast_agent.ui import notification_tracker
 from fast_agent.ui.attachment_indicator import (
+    DraftAttachmentSummary,
     render_attachment_indicator,
     summarize_draft_attachments,
 )
@@ -41,6 +42,14 @@ if TYPE_CHECKING:
 
 
 @dataclass(slots=True)
+class ToolbarRenderCache:
+    agent_state_key: tuple[object, ...] | None = None
+    agent_state: ToolbarAgentState | None = None
+    attachment_summary_key: tuple[object, ...] | None = None
+    attachment_summary: DraftAttachmentSummary | None = None
+
+
+@dataclass(slots=True)
 class ShellToolbarState:
     enabled: bool = False
     working_dir: Path | None = None
@@ -53,6 +62,9 @@ class ToolbarRenderResult:
     html: HTML
     show_shell_path_segment: bool
     clear_copy_notice: bool = False
+    agent_state_cache_hit: bool = False
+    attachment_summary_cache_hit: bool = False
+    attachment_summary_skipped: bool = False
 
 
 @dataclass(slots=True)
@@ -105,21 +117,26 @@ def render_input_toolbar(
     copy_notice_until: float,
     shell_path_switch_delay_seconds: float,
     current_input_text: str = "",
+    cache: ToolbarRenderCache | None = None,
 ) -> ToolbarRenderResult:
     mode_style, mode_text = _resolve_toolbar_mode(multiline_mode)
     shortcut_text = ""
-    agent_state = _resolve_toolbar_agent_state(agent_name, agent_provider)
-    active_llm = resolve_active_llm(agent_provider, agent_name)
+    agent_state, active_llm, agent_state_cache_hit = _resolve_toolbar_agent_state_cached(
+        agent_name, agent_provider, cache=cache
+    )
     agent_identity_segment = _format_toolbar_agent_identity(
         agent_name,
         toolbar_color,
         agent_state.agent,
     )
-    attachment_summary = summarize_draft_attachments(
-        current_input_text,
-        model_name=agent_state.model_name,
-        provider=getattr(active_llm, "provider", None),
-        cwd=shell_state.working_dir,
+    attachment_summary, attachment_summary_cache_hit, attachment_summary_skipped = (
+        _resolve_attachment_summary(
+            current_input_text=current_input_text,
+            model_name=agent_state.model_name,
+            provider=getattr(active_llm, "provider", None),
+            cwd=shell_state.working_dir,
+            cache=cache,
+        )
     )
     middle = _build_middle_segment(agent_state, shortcut_text, attachment_summary=attachment_summary)
     notification_segment = _build_notification_segment()
@@ -152,7 +169,96 @@ def render_input_toolbar(
         html=html,
         show_shell_path_segment=show_shell_path_segment,
         clear_copy_notice=clear_copy_notice,
+        agent_state_cache_hit=agent_state_cache_hit,
+        attachment_summary_cache_hit=attachment_summary_cache_hit,
+        attachment_summary_skipped=attachment_summary_skipped,
     )
+
+
+def _resolve_attachment_summary(
+    *,
+    current_input_text: str,
+    model_name: str | None,
+    provider: Provider | None,
+    cwd: Path | None,
+    cache: ToolbarRenderCache | None,
+) -> tuple[DraftAttachmentSummary | None, bool, bool]:
+    if not _should_resolve_attachment_summary(current_input_text):
+        return None, False, True
+
+    cache_key = _build_attachment_summary_cache_key(
+        current_input_text=current_input_text,
+        model_name=model_name,
+        provider=provider,
+        cwd=cwd,
+    )
+    if cache is not None and cache.attachment_summary_key == cache_key:
+        return cache.attachment_summary, True, False
+
+    attachment_summary = summarize_draft_attachments(
+        current_input_text,
+        model_name=model_name,
+        provider=provider,
+        cwd=cwd,
+    )
+    if cache is not None:
+        cache.attachment_summary_key = cache_key
+        cache.attachment_summary = attachment_summary
+    return attachment_summary, False, False
+
+
+def _build_attachment_summary_cache_key(
+    *,
+    current_input_text: str,
+    model_name: str | None,
+    provider: Provider | None,
+    cwd: Path | None,
+) -> tuple[object, ...]:
+    return (
+        current_input_text,
+        model_name,
+        provider,
+        cwd,
+        _attachment_resource_cache_snapshot(current_input_text, cwd=cwd),
+    )
+
+
+def _attachment_resource_cache_snapshot(
+    current_input_text: str,
+    *,
+    cwd: Path | None,
+) -> tuple[object, ...]:
+    from fast_agent.ui.prompt.attachment_tokens import FILE_MENTION_SERVER, URL_MENTION_SERVER
+    from fast_agent.ui.prompt.resource_mentions import parse_mentions
+
+    parsed = parse_mentions(current_input_text, cwd=cwd)
+    snapshots: list[object] = []
+    for mention in parsed.mentions:
+        if mention.server_name == FILE_MENTION_SERVER:
+            snapshots.append(_snapshot_local_attachment_path(Path(mention.resource_uri)))
+        elif mention.server_name == URL_MENTION_SERVER:
+            snapshots.append((URL_MENTION_SERVER, mention.resource_uri))
+    return tuple(snapshots)
+
+
+def _snapshot_local_attachment_path(path: Path) -> tuple[object, ...]:
+    try:
+        stat_result = path.stat()
+    except OSError:
+        return ("file", str(path), False, False, None, None)
+
+    return (
+        "file",
+        str(path),
+        True,
+        path.is_file(),
+        stat_result.st_mtime_ns,
+        stat_result.st_size,
+    )
+
+
+def _should_resolve_attachment_summary(current_input_text: str) -> bool:
+    return "^file:" in current_input_text or "^url:" in current_input_text
 
 
 def _resolve_toolbar_mode(multiline_mode: bool) -> tuple[str, str]:
@@ -166,14 +272,39 @@ def _resolve_toolbar_agent_state(
     agent_provider: "AgentApp | None",
 ) -> ToolbarAgentState:
     agent = _resolve_current_agent(agent_provider, agent_name)
+    llm = _resolve_agent_llm(agent) if agent is not None else None
+    return _build_toolbar_agent_state(agent, llm=llm)
+
+
+def _resolve_toolbar_agent_state_cached(
+    agent_name: str,
+    agent_provider: "AgentApp | None",
+    *,
+    cache: ToolbarRenderCache | None,
+) -> tuple[ToolbarAgentState, "FastAgentLLMProtocol | None", bool]:
+    agent = _resolve_current_agent(agent_provider, agent_name)
+    llm = _resolve_agent_llm(agent) if agent is not None else None
+    cache_key = _build_toolbar_agent_state_cache_key(agent, llm=llm)
+    if cache is not None and cache.agent_state_key == cache_key and cache.agent_state is not None:
+        return cache.agent_state, llm, True
+
+    state = _build_toolbar_agent_state(agent, llm=llm)
+    if cache is not None:
+        cache.agent_state_key = cache_key
+        cache.agent_state = state
+    return state, llm, False
+
+
+def _build_toolbar_agent_state(
+    agent: object | None, *, llm: "FastAgentLLMProtocol | None"
+) -> ToolbarAgentState:
     if agent is None:
         return ToolbarAgentState()
 
     turn_count = _turn_count_for_agent(agent)
     context_pct, usage_accumulator = _usage_context_for_agent(agent)
-    llm = _resolve_agent_llm(agent)
     model_name = _resolve_model_name(agent, llm)
-    model_display = _resolve_model_display(agent, model_name)
+    model_display = _resolve_model_display(agent, model_name, llm=llm)
     model_visuals = _resolve_model_visuals(model_name, llm)
     context_pct = _resolve_context_pct(context_pct, usage_accumulator, model_name, llm)
     tdv_segment = _resolve_tdv_segment(agent, model_name, llm)
@@ -190,6 +321,66 @@ def _resolve_toolbar_agent_state(
         service_tier_indicator=model_visuals.service_tier_indicator,
         web_search_indicator=model_visuals.web_search_indicator,
         web_fetch_indicator=model_visuals.web_fetch_indicator,
+    )
+
+
+def _build_toolbar_agent_state_cache_key(
+    agent: object | None,
+    *,
+    llm: "FastAgentLLMProtocol | None",
+) -> tuple[object, ...] | None:
+    if agent is None:
+        return None
+
+    model_name = _resolve_model_name(agent, llm)
+    message_history = getattr(agent, "message_history", None)
+    if isinstance(message_history, list):
+        history_len = len(message_history)
+        last_message_id = id(message_history[-1]) if message_history else None
+    else:
+        history_len = None
+        last_message_id = None
+
+    usage_accumulator = getattr(agent, "usage_accumulator", None)
+    return (
+        id(agent),
+        id(llm) if llm is not None else None,
+        model_name,
+        history_len,
+        last_message_id,
+        _safe_cache_value(getattr(usage_accumulator, "turn_count", None)),
+        _safe_cache_value(getattr(usage_accumulator, "current_context_tokens", None)),
+        _safe_cache_value(getattr(usage_accumulator, "context_window_size", None)),
+        _safe_cache_value(getattr(llm, "reasoning_effort", None)),
+        _safe_cache_value(getattr(llm, "text_verbosity", None)),
+        _safe_cache_value(getattr(llm, "service_tier", None)),
+        _safe_cache_value(getattr(llm, "web_search_enabled", None)),
+        _safe_cache_value(getattr(llm, "web_fetch_enabled", None)),
+        _parallel_fan_out_model_cache_key(agent),
+    )
+
+
+def _safe_cache_value(value: object) -> object:
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    return repr(value)
+
+
+def _parallel_fan_out_model_cache_key(agent: object) -> tuple[object, ...] | None:
+    if not isinstance(agent, ParallelAgent):
+        return None
+
+    return tuple(_fan_out_agent_model_cache_key(fan_out_agent) for fan_out_agent in agent.fan_out_agents)
+
+
+def _fan_out_agent_model_cache_key(agent: object) -> tuple[object, ...]:
+    llm = _resolve_agent_llm(agent)
+    model_name = _resolve_model_name(agent, llm)
+    return (
+        id(agent),
+        id(llm) if llm is not None else None,
+        model_name,
+        _safe_cache_value(resolve_model_display_name(model_name, llm=llm)),
     )
 
 
@@ -258,8 +449,13 @@ def _resolve_model_name(agent: object, llm: object | None) -> str | None:
     return getattr(config, "default_model", None)
 
 
-def _resolve_model_display(agent: object, model_name: str | None) -> str | None:
-    llm = _resolve_agent_llm(agent)
+def _resolve_model_display(
+    agent: object,
+    model_name: str | None,
+    *,
+    llm: "FastAgentLLMProtocol | None" = None,
+) -> str | None:
+    llm = llm or _resolve_agent_llm(agent)
     resolved_display = resolve_model_display_name(model_name, llm=llm)
     if resolved_display:
         return _truncate_model_display(resolved_display)

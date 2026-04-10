@@ -23,6 +23,7 @@ from rich import print as rich_print
 from rich.text import Text
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.connect_targets import parse_connect_command_text
 from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.ui.command_payloads import (
@@ -80,6 +81,7 @@ from fast_agent.ui.prompt.input_runtime import (
 )
 from fast_agent.ui.prompt.input_toolbar import (
     ShellToolbarState,
+    ToolbarRenderCache,
     render_input_toolbar,
     resolve_active_llm,
 )
@@ -118,6 +120,27 @@ _copy_notice_until: float = 0.0
 
 _SHELL_PATH_SWITCH_DELAY_SECONDS = 8.0
 _ELLIPSIS = "…"
+logger = get_logger(__name__)
+
+
+def _env_flag(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+_TOOLBAR_DIAGNOSTICS_ENABLED = _env_flag("FAST_AGENT_TOOLBAR_DIAGNOSTICS")
+_TOOLBAR_DIAGNOSTICS_THRESHOLD_MS = _env_float(
+    "FAST_AGENT_TOOLBAR_DIAGNOSTICS_THRESHOLD_MS", 50.0
+)
 
 
 def set_last_copyable_output(output: str) -> None:
@@ -489,9 +512,11 @@ def _build_toolbar(
         working_dir=shell_context.working_dir,
         started_at=time.monotonic(),
     )
+    toolbar_cache = ToolbarRenderCache()
 
     def get_toolbar() -> HTML:
         global _copy_notice
+        started_at = time.perf_counter() if _TOOLBAR_DIAGNOSTICS_ENABLED else 0.0
         try:
             current_input_text = session_factory().default_buffer.text
         except Exception:
@@ -507,10 +532,25 @@ def _build_toolbar(
             copy_notice_until=_copy_notice_until,
             shell_path_switch_delay_seconds=_SHELL_PATH_SWITCH_DELAY_SECONDS,
             current_input_text=current_input_text,
+            cache=toolbar_cache,
         )
         shell_state.show_path_segment = result.show_shell_path_segment
         if result.clear_copy_notice:
             _copy_notice = None
+        if _TOOLBAR_DIAGNOSTICS_ENABLED:
+            elapsed_ms = (time.perf_counter() - started_at) * 1000
+            if elapsed_ms >= _TOOLBAR_DIAGNOSTICS_THRESHOLD_MS:
+                logger.warning(
+                    "Slow prompt toolbar render",
+                    data={
+                        "elapsed_ms": round(elapsed_ms, 2),
+                        "agent_name": agent_name,
+                        "input_length": len(current_input_text),
+                        "agent_state_cache_hit": result.agent_state_cache_hit,
+                        "attachment_summary_cache_hit": result.attachment_summary_cache_hit,
+                        "attachment_summary_skipped": result.attachment_summary_skipped,
+                    },
+                )
         return result.html
 
     return get_toolbar
