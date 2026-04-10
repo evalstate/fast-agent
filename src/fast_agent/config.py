@@ -1210,6 +1210,10 @@ class LoggerSettings(BaseModel):
     """Emit OSC 133 prompt marks for terminals that support scrollbar markers."""
     streaming: Literal["markdown", "plain", "none"] = "markdown"
     """Streaming renderer for assistant responses"""
+    render_fences_with_syntax: bool = True
+    """Render assistant markdown code fences with Rich Syntax instead of markdown fence blocks"""
+    code_word_wrap: bool = False
+    """Wrap Syntax-rendered code blocks instead of cropping at the viewport edge"""
 
 
 def find_fastagent_config_files(start_path: Path) -> tuple[Path | None, Path | None]:

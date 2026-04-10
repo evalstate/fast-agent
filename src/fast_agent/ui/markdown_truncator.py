@@ -21,10 +21,18 @@ if TYPE_CHECKING:
 class MarkdownTruncator:
     """Handles lightweight markdown truncation for streaming output."""
 
-    def __init__(self, target_height_ratio: float = 0.8) -> None:
+    def __init__(
+        self,
+        target_height_ratio: float = 0.8,
+        *,
+        code_word_wrap: bool = False,
+        render_fences_with_syntax: bool = True,
+    ) -> None:
         if not 0 < target_height_ratio <= 1:
             raise ValueError("target_height_ratio must be between 0 and 1")
         self.target_height_ratio = target_height_ratio
+        self.code_word_wrap = code_word_wrap
+        self.render_fences_with_syntax = render_fences_with_syntax
         self._buffer = StreamBuffer(target_height_ratio=target_height_ratio)
         self._height_cache: OrderedDict[tuple[int, int, str, int, str], int] = OrderedDict()
         self._height_cache_limit = 128
@@ -84,6 +92,8 @@ class MarkdownTruncator:
                     code_theme=code_theme,
                     escape_xml=False,
                     close_incomplete_fences=True,
+                    render_fences_with_syntax=self.render_fences_with_syntax,
+                    code_word_wrap=self.code_word_wrap,
                 ),
                 options=options,
                 pad=False,

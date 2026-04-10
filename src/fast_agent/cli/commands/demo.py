@@ -24,9 +24,14 @@ if TYPE_CHECKING:
 def _build_demo_stream_handle(
     *,
     plain: bool,
+    code_word_wrap: bool,
+    render_fences_with_syntax: bool,
     metrics_writer: "MetricsWriter | None",
 ) -> StreamingMessageHandle:
-    display = ConsoleDisplay()
+    display = ConsoleDisplay(
+        code_word_wrap=code_word_wrap,
+        render_fences_with_syntax=render_fences_with_syntax,
+    )
     config = MESSAGE_CONFIGS[MessageType.ASSISTANT]
     block_color = config["block_color"]
     arrow = config["arrow"]
@@ -157,6 +162,7 @@ class MetricsWriter:
 
 class DemoScenario(str, Enum):
     mixed = "mixed"
+    fence_focus = "fence-focus"
     large_code = "large-code"
     many_code = "many-code"
     code_growth = "code-growth"
@@ -169,6 +175,7 @@ class DemoScenario(str, Enum):
 
 
 _SCENARIO_ORDER = [
+    DemoScenario.fence_focus,
     DemoScenario.large_code,
     DemoScenario.many_code,
     DemoScenario.code_growth,
@@ -182,6 +189,9 @@ _SCENARIO_ORDER = [
 
 _SCENARIO_DESCRIPTIONS = {
     DemoScenario.mixed: "A blended workload with lists, tables, code, and paragraphs.",
+    DemoScenario.fence_focus: (
+        "Focused fence cases for comparing live streaming updates against the final render."
+    ),
     DemoScenario.large_code: "One oversized code block to stress markdown height measurement.",
     DemoScenario.many_code: "Many small code blocks to stress fence detection and padding.",
     DemoScenario.code_growth: "Code blocks that grow in size to stress progressive truncation.",
@@ -258,6 +268,79 @@ def _build_large_codeblock(scale: int) -> str:
             f"line_{idx:03d} = ({idx} * {idx})  # synthetic workload for scrolling"
         )
     content.extend(["```", ""])
+    return "\n".join(content)
+
+
+def _build_fence_focus(scale: int) -> str:
+    growth_lines = max(18, 14 * scale)
+    content = [
+        "### Fence Focus",
+        "",
+        "Use this scenario to compare the live stream against the final post-stream render.",
+        "Smaller chunks make fence transitions easier to inspect.",
+        "",
+        "#### Case 1 — prose before and after a fence",
+        "Before fence marker: the next block should sit flush like Syntax, not with markdown code-block padding.",
+        "",
+        "```python",
+        "def greet(name: str) -> str:",
+        "    return f\"hello, {name}\"",
+        "```",
+        "",
+        "After fence marker: reflow here should stay stable when the block above closes.",
+        "",
+        "#### Case 2 — adjacent fences with different languages",
+        "```json",
+        '{"alpha": 1, "beta": [2, 3, 4]}',
+        "```",
+        "```bash",
+        "printf 'adjacent fence check\\n'",
+        "echo done",
+        "```",
+        "",
+        "#### Case 3 — longer block for repeated repaint pressure",
+        "```python",
+    ]
+    for idx in range(growth_lines):
+        content.append(
+            f"sample_{idx:02d} = ('visible marker {idx:02d}', {idx} * {idx})"
+        )
+    content.extend(
+        [
+            "```",
+            "",
+            "Trailing prose marker: this paragraph makes it easy to spot whether the final render matches the streamed layout.",
+            "",
+            "#### Case 4 — fenced patch preview should keep its custom styling",
+            "```apply_patch",
+            "*** Begin Patch",
+            "*** Update File: demo.txt",
+            "@@",
+            "-old line",
+            "+new line",
+            "*** End Patch",
+            "```",
+            "",
+            "#### Case 5 — reference definitions around a fenced block",
+            "See [renderer notes][render-docs] before the block; the prose above should still resolve the link.",
+            "",
+            "```python",
+            "config = {\"padding\": True, \"reference_defs\": \"preserved\"}",
+            "print(config[\"padding\"])",
+            "```",
+            "",
+            "The block above should keep its visual separation without stray blank chunks before this paragraph.",
+            "",
+            "[render-docs]: https://example.com/rendering \"Renderer notes\"",
+            "",
+            "Recommended runs:",
+            "- `uv run fast-agent demo streaming --scenario fence-focus --chunk-size 7 --delay 0.03`",
+            "- `uv run fast-agent demo streaming --scenario fence-focus --chunk-size 3 --delay 0.05`",
+            "- `uv run fast-agent demo streaming --scenario fence-focus --wrap-code`",
+            "- `uv run fast-agent demo streaming --scenario fence-focus --plain`",
+            "",
+        ]
+    )
     return "\n".join(content)
 
 
@@ -479,6 +562,7 @@ def _build_random_mix(scale: int, seed: int | None) -> str:
 
 _SCENARIO_BUILDERS = {
     DemoScenario.mixed: _build_mixed,
+    DemoScenario.fence_focus: _build_fence_focus,
     DemoScenario.large_code: _build_large_codeblock,
     DemoScenario.many_code: _build_many_small_codeblocks,
     DemoScenario.code_growth: _build_code_growth,
@@ -586,6 +670,8 @@ async def _run_stream(
     sections: list[StreamSection],
     content: str,
     plain: bool,
+    code_word_wrap: bool,
+    render_fences_with_syntax: bool,
     metrics_writer: MetricsWriter | None,
     cache_stats: bool,
     cache_snapshots: list[tuple[str, dict[str, int]]],
@@ -594,7 +680,12 @@ async def _run_stream(
     section_pause: float,
     pause: Callable[[float], Awaitable[None]],
 ) -> None:
-    handle = _build_demo_stream_handle(plain=plain, metrics_writer=metrics_writer)
+    handle = _build_demo_stream_handle(
+        plain=plain,
+        code_word_wrap=code_word_wrap,
+        render_fences_with_syntax=render_fences_with_syntax,
+        metrics_writer=metrics_writer,
+    )
     try:
         for idx, section in enumerate(sections):
             if metrics_writer:
@@ -696,6 +787,16 @@ def streaming(
         0.01, "--delay", "-d", help="Delay (seconds) between streamed chunks."
     ),
     plain: bool = typer.Option(False, "--plain", help="Render using plain text streaming."),
+    wrap_code: bool = typer.Option(
+        False,
+        "--wrap-code/--crop-code",
+        help="Wrap Syntax-rendered code blocks instead of cropping at the viewport edge.",
+    ),
+    syntax_fences: bool = typer.Option(
+        True,
+        "--syntax-fences/--markdown-fences",
+        help="Render markdown code fences with Rich Syntax instead of markdown fence blocks.",
+    ),
     cache_stats: bool = typer.Option(
         False,
         "--cache-stats",
@@ -731,6 +832,8 @@ def streaming(
             sections=sections,
             content=content,
             plain=plain,
+            code_word_wrap=wrap_code,
+            render_fences_with_syntax=syntax_fences,
             metrics_writer=metrics_writer,
             cache_stats=cache_stats,
             cache_snapshots=cache_snapshots,

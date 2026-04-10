@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import io
 import re
 
 from rich.console import Console
 
+from fast_agent.ui.markdown_renderables import build_markdown_renderable
 from fast_agent.ui.markdown_truncator import MarkdownTruncator
 
 
@@ -43,6 +45,27 @@ def test_streaming_truncation_handles_untyped_code_block() -> None:
 
     assert truncated.startswith("```\n")
     assert truncated.count("```") >= 2
+
+
+def test_measure_rendered_height_matches_padded_code_block_rendering() -> None:
+    truncator = MarkdownTruncator(target_height_ratio=0.5)
+    test_console = Console(file=io.StringIO(), force_terminal=False, width=80)
+    text = "```bash\necho hi\n```\n\n```python\nprint(1)\n```"
+
+    measured = truncator.measure_rendered_height(text, test_console, code_theme="native")
+    rendered = test_console.render_lines(
+        build_markdown_renderable(
+            text,
+            code_theme="native",
+            escape_xml=False,
+            close_incomplete_fences=True,
+            render_fences_with_syntax=True,
+        ),
+        options=test_console.options.update(width=test_console.size.width),
+        pad=False,
+    )
+
+    assert measured == len(rendered)
 
 
 def test_streaming_truncation_tracks_latest_code_block_language() -> None:

@@ -142,7 +142,11 @@ def test_get_settings_loads_default_env_config_for_full_settings(tmp_path: Path)
     _write_yaml(
         env_dir / "fastagent.config.yaml",
         {
-            "logger": {"show_tools": False},
+            "logger": {
+                "show_tools": False,
+                "render_fences_with_syntax": False,
+                "code_word_wrap": True,
+            },
             "mcp": {
                 "servers": {
                     "env_fetch": {
@@ -166,6 +170,8 @@ def test_get_settings_loads_default_env_config_for_full_settings(tmp_path: Path)
         settings = get_settings()
 
         assert settings.logger.show_tools is False
+        assert settings.logger.render_fences_with_syntax is False
+        assert settings.logger.code_word_wrap is True
         assert settings.mcp is not None
         assert settings.mcp.servers is not None
         assert "env_fetch" in settings.mcp.servers
@@ -210,7 +216,7 @@ def test_get_settings_layers_project_and_env_for_full_settings(tmp_path: Path) -
                     }
                 }
             },
-            "logger": {"show_chat": False},
+            "logger": {"show_chat": False, "code_word_wrap": True},
         },
     )
 
@@ -225,6 +231,7 @@ def test_get_settings_layers_project_and_env_for_full_settings(tmp_path: Path) -
         settings = get_settings()
 
         assert settings.logger.show_chat is False
+        assert settings.logger.code_word_wrap is True
         assert settings.mcp is not None
         assert settings.mcp.servers is not None
         assert "project_fetch" in settings.mcp.servers

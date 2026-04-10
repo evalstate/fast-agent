@@ -66,7 +66,13 @@ class ConsoleDisplay:
 
     CODE_STYLE = CODE_STYLE
 
-    def __init__(self, config: Settings | None = None) -> None:
+    def __init__(
+        self,
+        config: Settings | None = None,
+        *,
+        code_word_wrap: bool | None = None,
+        render_fences_with_syntax: bool | None = None,
+    ) -> None:
         """
         Initialize the console display handler.
 
@@ -83,6 +89,16 @@ class ConsoleDisplay:
                 pass
         self._markup = getattr(self._logger_settings, "enable_markup", True)
         self._escape_xml = True
+        self._code_word_wrap = (
+            getattr(self._logger_settings, "code_word_wrap", False)
+            if code_word_wrap is None
+            else code_word_wrap
+        )
+        self._render_fences_with_syntax = (
+            getattr(self._logger_settings, "render_fences_with_syntax", True)
+            if render_fences_with_syntax is None
+            else render_fences_with_syntax
+        )
         self._style = A3MessageStyle()
         self._tool_display = ToolDisplay(self)
 
@@ -121,6 +137,14 @@ class ConsoleDisplay:
     @property
     def code_style(self) -> str:
         return CODE_STYLE
+
+    @property
+    def code_word_wrap(self) -> bool:
+        return self._code_word_wrap
+
+    @property
+    def render_fences_with_syntax(self) -> bool:
+        return self._render_fences_with_syntax
 
     @property
     def style(self) -> A3MessageStyle:
@@ -440,6 +464,8 @@ class ConsoleDisplay:
                                 content,
                                 code_theme=CODE_STYLE,
                                 escape_xml=self._escape_xml,
+                                render_fences_with_syntax=self.render_fences_with_syntax,
+                                code_word_wrap=self.code_word_wrap,
                             ),
                             markup=self._markup,
                         )
@@ -460,7 +486,13 @@ class ConsoleDisplay:
 
                 if is_xml_content:
                     # Display XML content with syntax highlighting for better readability
-                    syntax = Syntax(content, "xml", theme=CODE_STYLE, line_numbers=False)
+                    syntax = Syntax(
+                        content,
+                        "xml",
+                        theme=CODE_STYLE,
+                        line_numbers=False,
+                        word_wrap=self.code_word_wrap,
+                    )
                     console.console.print(syntax, markup=self._markup)
                 elif check_markdown_markers:
                     # Check for markdown markers before deciding to use markdown rendering
@@ -471,6 +503,8 @@ class ConsoleDisplay:
                                 content,
                                 code_theme=CODE_STYLE,
                                 escape_xml=self._escape_xml,
+                                render_fences_with_syntax=self.render_fences_with_syntax,
+                                code_word_wrap=self.code_word_wrap,
                             ),
                             markup=self._markup,
                         )
@@ -492,6 +526,8 @@ class ConsoleDisplay:
                                 content,
                                 code_theme=CODE_STYLE,
                                 escape_xml=self._escape_xml,
+                                render_fences_with_syntax=self.render_fences_with_syntax,
+                                code_word_wrap=self.code_word_wrap,
                             ),
                             markup=self._markup,
                         )
@@ -541,6 +577,8 @@ class ConsoleDisplay:
                                 markdown_part,
                                 code_theme=CODE_STYLE,
                                 escape_xml=self._escape_xml,
+                                render_fences_with_syntax=self.render_fences_with_syntax,
+                                code_word_wrap=self.code_word_wrap,
                             ),
                             markup=self._markup,
                         )
@@ -564,6 +602,8 @@ class ConsoleDisplay:
                             plain_text,
                             code_theme=CODE_STYLE,
                             escape_xml=self._escape_xml,
+                            render_fences_with_syntax=self.render_fences_with_syntax,
+                            code_word_wrap=self.code_word_wrap,
                         ),
                         markup=self._markup,
                     )
@@ -910,6 +950,8 @@ class ConsoleDisplay:
         else:
             display_text = message_text
 
+        display_text = self._normalize_assistant_display_text(display_text)
+
         # Build right info
         display_model = resolve_model_display_name(model)
         right_info = f"[dim]{display_model}[/dim]" if display_model else ""
@@ -932,6 +974,16 @@ class ConsoleDisplay:
 
         # Handle mermaid diagrams separately (after the main message)
         self.show_mermaid_diagrams_from_message_text(message_text)
+
+    @staticmethod
+    def _normalize_assistant_display_text(content: object) -> object:
+        if isinstance(content, str):
+            return content.rstrip()
+        if isinstance(content, Text):
+            normalized = content.copy()
+            normalized.rstrip()
+            return normalized
+        return content
 
     @staticmethod
     def _merge_pre_content(

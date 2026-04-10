@@ -5,6 +5,7 @@ from mcp.types import CallToolResult, TextContent
 from rich.console import Group
 from rich.text import Text
 
+from fast_agent.config import LoggerSettings, Settings
 from fast_agent.constants import OPENAI_ASSISTANT_MESSAGE_ITEMS
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
@@ -28,6 +29,30 @@ class _CaptureContentDisplay(ConsoleDisplay):
         render_markdown: bool | None = None,
     ) -> None:
         self.displayed_content.append(content)
+
+
+def test_console_display_uses_logger_render_settings_by_default() -> None:
+    display = ConsoleDisplay(
+        config=Settings(
+            logger=LoggerSettings(
+                render_fences_with_syntax=False,
+                code_word_wrap=True,
+            )
+        )
+    )
+
+    assert display.render_fences_with_syntax is False
+    assert display.code_word_wrap is True
+
+
+def test_normalize_assistant_display_text_trims_trailing_blank_lines() -> None:
+    assert ConsoleDisplay._normalize_assistant_display_text("hello\n\n") == "hello"
+
+    text = Text("hello\n\n", style="green")
+    normalized = ConsoleDisplay._normalize_assistant_display_text(text)
+
+    assert isinstance(normalized, Text)
+    assert normalized.plain == "hello"
 
 
 def test_display_message_skips_empty_string_when_additional_message_present() -> None:

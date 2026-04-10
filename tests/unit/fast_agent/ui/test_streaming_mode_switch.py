@@ -307,6 +307,26 @@ def test_diff_live_reprints_frame_after_console_print() -> None:
     assert "frame" in rendered
 
 
+def test_diff_live_stop_does_not_add_extra_newline_when_cursor_below_frame() -> None:
+    output = io.StringIO()
+    local_console = Console(file=output, force_terminal=True, color_system=None, width=40)
+    live = streaming_module._DiffLive(
+        console=local_console,
+        transient=False,
+    )
+
+    live.__enter__()
+    live.update(Text("frame"), refresh=True)
+    local_console.print("notice")
+
+    output.truncate(0)
+    output.seek(0)
+    live.stop()
+
+    rendered = output.getvalue()
+    assert "\n" not in rendered
+
+
 def test_diff_live_resyncs_cursor_after_console_print_before_next_update() -> None:
     output = io.StringIO()
     local_console = Console(file=output, force_terminal=True, color_system=None, width=40)
@@ -687,6 +707,43 @@ def test_preserve_final_frame_finalize_keeps_padding_stable(monkeypatch) -> None
     handle.finalize("short response")
 
     assert captured == [(99, 3)]
+
+
+def test_preserve_final_frame_finalize_omits_tail_padding_from_last_frame(monkeypatch) -> None:
+    class _FakeLive:
+        def __init__(self) -> None:
+            self.renderable: Any | None = None
+            self.transient = True
+
+        def update(self, renderable: Any, *, refresh: bool = False) -> None:
+            del refresh
+            self.renderable = renderable
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    handle = _make_handle("markdown")
+    handle._preserve_final_frame = True
+    handle._max_render_height = 6
+    handle._handle_chunk("short response")
+    monkeypatch.setattr(handle._segment_assembler, "flush", lambda: False)
+
+    fake_live = _FakeLive()
+    handle._live = cast("Any", fake_live)
+    handle._live_started = True
+
+    original_width, original_height = _set_console_size(width=40, height=12)
+    try:
+        handle.finalize("short response")
+        assert fake_live.renderable is not None
+
+        options = console.console.options.update(width=40)
+        rendered_lines = console.console.render_lines(fake_live.renderable, options=options, pad=False)
+        rendered_text = [console.console._render_buffer(line).rstrip() for line in rendered_lines]
+
+        assert rendered_text[-1] == "short response"
+    finally:
+        _restore_console_size(original_width, original_height)
 
 
 def test_scrolling_indicator_is_debounced_and_sticky() -> None:

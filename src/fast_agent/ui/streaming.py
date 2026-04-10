@@ -212,7 +212,7 @@ class _DiffLive(RenderHook):
                         self.console.print(renderable)
                     else:
                         self._write("\n")
-                else:
+                elif not self._cursor_below_frame:
                     self._write("\n")
         finally:
             if self._is_interactive and self._console_state_active:
@@ -480,7 +480,11 @@ class StreamingMessageHandle:
             tool_prefix=self._tool_header_prefix_plain,
             tool_metadata_resolver=tool_metadata_resolver,
         )
-        self._markdown_truncator = MarkdownTruncator(target_height_ratio=1.0)
+        self._markdown_truncator = MarkdownTruncator(
+            target_height_ratio=1.0,
+            code_word_wrap=self._display.code_word_wrap,
+            render_fences_with_syntax=self._display.render_fences_with_syntax,
+        )
         self._plain_truncator = PlainTextTruncator(target_height_ratio=1.0)
         self._viewport = StreamViewport(
             markdown_truncator=self._markdown_truncator,
@@ -549,6 +553,7 @@ class StreamingMessageHandle:
         self._show_stream_cursor = True
         self._max_render_height = 0
         self._preserve_final_frame = False
+        self._suppress_tail_padding_for_final_frame = False
 
         if self._async_mode and self._loop and self._queue is not None:
             self._worker_task = self._loop.create_task(self._render_worker())
@@ -704,8 +709,10 @@ class StreamingMessageHandle:
 
         # Flush any buffered reasoning content before closing the live view
         if self._segment_assembler.flush():
+            self._suppress_tail_padding_for_final_frame = self._preserve_final_frame
             self._render_current_buffer()
         elif self._segment_assembler.segments:
+            self._suppress_tail_padding_for_final_frame = self._preserve_final_frame
             self._render_current_buffer()
 
         self._finalized = True
@@ -988,6 +995,8 @@ class StreamingMessageHandle:
                             escape_xml=self._display._escape_xml,
                             cursor_suffix=cursor_suffix,
                             close_incomplete_fences=True,
+                            render_fences_with_syntax=self._display.render_fences_with_syntax,
+                            code_word_wrap=self._display.code_word_wrap,
                         )
                     )
                 elif segment.kind == "reasoning":
@@ -1020,7 +1029,11 @@ class StreamingMessageHandle:
             if budget_height > self._max_render_height:
                 self._max_render_height = budget_height
 
-            padding_lines = max(0, self._max_render_height - content_height)
+            padding_lines = (
+                0
+                if self._suppress_tail_padding_for_final_frame
+                else max(0, self._max_render_height - content_height)
+            )
             # Ensure content + padding cannot exceed the content budget so the
             # total frame (header + content + padding) stays within the terminal.
             if content_height + padding_lines > max_allowed_height:
@@ -1100,6 +1113,7 @@ class StreamingMessageHandle:
                         pass
                     self._pending_batch_meta = None
         finally:
+            self._suppress_tail_padding_for_final_frame = False
             if width_override is not None:
                 if width_attr_present:
                     console.console._width = original_width_attr
@@ -1152,7 +1166,7 @@ class StreamingMessageHandle:
                     preview.language,
                     theme=self._display.code_style,
                     line_numbers=False,
-                    word_wrap=False,
+                    word_wrap=self._display.code_word_wrap,
                 ),
             )
 

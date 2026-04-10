@@ -445,6 +445,8 @@ def _default_logger_summary(default_settings: Any) -> dict[str, Any]:
         "level": default_settings.logger.level,
         "type": default_settings.logger.type,
         "streaming": default_settings.logger.streaming,
+        "render_fences_with_syntax": default_settings.logger.render_fences_with_syntax,
+        "code_word_wrap": default_settings.logger.code_word_wrap,
         "progress_display": default_settings.logger.progress_display,
         "show_chat": default_settings.logger.show_chat,
         "show_tools": default_settings.logger.show_tools,
@@ -479,6 +481,14 @@ def _build_logger_summary(
         "level": logger_config.get("level", default_settings.logger.level),
         "type": logger_config.get("type", default_settings.logger.type),
         "streaming": logger_config.get("streaming", default_settings.logger.streaming),
+        "render_fences_with_syntax": logger_config.get(
+            "render_fences_with_syntax",
+            default_settings.logger.render_fences_with_syntax,
+        ),
+        "code_word_wrap": logger_config.get(
+            "code_word_wrap",
+            default_settings.logger.code_word_wrap,
+        ),
         "progress_display": logger_config.get(
             "progress_display",
             default_settings.logger.progress_display,
@@ -1378,6 +1388,8 @@ def _build_application_settings_rows(
         ("MCP-UI", mcp_ui_display),
         ("Streaming Mode", f"[green]{logger.get('streaming', 'markdown')}[/green]"),
         ("Streaming Display", _bool_to_symbol(logger.get("streaming_display", True))),
+        ("Syntax Fences", _bool_to_symbol(logger.get("render_fences_with_syntax", True))),
+        ("Wrap Code", _bool_to_symbol(logger.get("code_word_wrap", False))),
         ("Progress Display", _bool_to_symbol(logger.get("progress_display", True))),
         ("Show Chat", _bool_to_symbol(logger.get("show_chat", True))),
         ("Show Tools", _bool_to_symbol(logger.get("show_tools", True))),

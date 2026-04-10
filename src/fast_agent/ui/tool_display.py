@@ -177,7 +177,7 @@ class ToolDisplay:
                 language,
                 theme=self._display.code_style,
                 line_numbers=False,
-                word_wrap=False,
+                word_wrap=self._display.code_word_wrap,
             ),
             footer_items,
         )
@@ -821,6 +821,7 @@ class ToolDisplay:
             "json",
             theme=self._display.code_style,
             background_color="default",
+            word_wrap=self._display.code_word_wrap,
         )
         console.console.print(syntax_obj, markup=self._markup)
 
@@ -1053,7 +1054,7 @@ class ToolDisplay:
                             shell_language,
                             theme=self._display.code_style,
                             line_numbers=False,
-                            word_wrap=False,
+                            word_wrap=self._display.code_word_wrap,
                         )
                         render_markdown = False
                 else:

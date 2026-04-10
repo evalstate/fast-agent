@@ -3,9 +3,11 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from functools import lru_cache
+from typing import Literal
 
 from pygments.lexers import get_lexer_by_name
 from pygments.util import ClassNotFound
+from rich.console import Group
 from rich.markdown import Markdown
 from rich.syntax import Syntax
 from rich.text import Text
@@ -33,6 +35,37 @@ class FencedCodeBlock:
     language: str
     code: str
     complete: bool
+
+
+@dataclass(frozen=True)
+class _ReferenceDefinition:
+    label: str
+    url: str
+    title: str
+
+
+@dataclass(frozen=True)
+class _ParsedMarkdownSpan:
+    kind: Literal["code", "definition"]
+    start: int
+    end: int
+    raw_text: str = ""
+    code: str = ""
+    language: str = "text"
+
+
+@dataclass(frozen=True)
+class _ParsedMarkdownDocument:
+    spans: tuple[_ParsedMarkdownSpan, ...]
+    reference_definitions: tuple[_ReferenceDefinition, ...]
+
+
+@dataclass(frozen=True)
+class _RenderableChunk:
+    kind: Literal["markdown", "code"]
+    text: str
+    language: str = "text"
+    reference_definitions: str = ""
 
 
 @lru_cache(maxsize=64)
@@ -230,6 +263,199 @@ def close_incomplete_code_blocks(text: str) -> str:
     return f"{text}\n{closing_fence}\n"
 
 
+@lru_cache(maxsize=1)
+def _get_markdown_parser():
+    from markdown_it import MarkdownIt
+
+    return MarkdownIt(options_update={"inline_definitions": True}).enable("table")
+
+
+def _line_start_offsets(text: str) -> list[int]:
+    offsets = [0]
+    running = 0
+    for line in text.split("\n"):
+        running += len(line) + 1
+        offsets.append(running)
+    return offsets
+
+
+def _format_reference_definition_block(
+    definitions: tuple[_ReferenceDefinition, ...],
+) -> str:
+    if not definitions:
+        return ""
+
+    lines: list[str] = []
+    for definition in definitions:
+        title = (
+            definition.title.replace("\\", "\\\\")
+            .replace('"', '\\"')
+            .replace("\n", " ")
+        )
+        if title:
+            lines.append(f'[{definition.label}]: {definition.url} "{title}"')
+        else:
+            lines.append(f"[{definition.label}]: {definition.url}")
+    return "\n".join(lines)
+
+
+def _parse_markdown_document(text: str) -> _ParsedMarkdownDocument | None:
+    parser = _get_markdown_parser()
+    env: dict[str, object] = {}
+    try:
+        tokens = parser.parse(text, env)
+    except Exception:
+        return None
+
+    offsets = _line_start_offsets(text)
+    spans: list[_ParsedMarkdownSpan] = []
+    reference_definitions: list[_ReferenceDefinition] = []
+    seen_reference_ids: set[str] = set()
+
+    for token in tokens:
+        if token.type not in ("fence", "code_block", "definition") or token.map is None:
+            continue
+        if getattr(token, "level", 0) != 0:
+            continue
+
+        start_line, end_line = token.map
+        start = offsets[start_line]
+        end = min(offsets[end_line], len(text))
+
+        if token.type == "definition":
+            meta = getattr(token, "meta", {}) or {}
+            identifier = str(meta.get("id", "") or "")
+            if identifier and identifier not in seen_reference_ids:
+                seen_reference_ids.add(identifier)
+                reference_definitions.append(
+                    _ReferenceDefinition(
+                        label=str(meta.get("label", "") or identifier),
+                        url=str(meta.get("url", "") or ""),
+                        title=str(meta.get("title", "") or ""),
+                    )
+                )
+            spans.append(_ParsedMarkdownSpan(kind="definition", start=start, end=end))
+            continue
+
+        raw_text = text[start:end]
+        info = (getattr(token, "info", "") or "").strip()
+        language = info.split(" ", 1)[0] or "text"
+        code = getattr(token, "content", "") or ""
+
+        if token.type == "fence":
+            fenced = extract_single_fenced_code_block(raw_text)
+            if fenced is not None:
+                code = fenced.code
+                language = fenced.language or language
+
+        spans.append(
+            _ParsedMarkdownSpan(
+                kind="code",
+                start=start,
+                end=end,
+                raw_text=raw_text,
+                code=code,
+                language=language,
+            )
+        )
+
+    return _ParsedMarkdownDocument(
+        spans=tuple(spans),
+        reference_definitions=tuple(reference_definitions),
+    )
+
+
+def _build_renderable_chunks(text: str) -> tuple[_RenderableChunk, ...] | None:
+    document = _parse_markdown_document(text)
+    if document is None:
+        return None
+    if not document.spans:
+        return ()
+
+    chunks: list[_RenderableChunk] = []
+    reference_definitions = _format_reference_definition_block(document.reference_definitions)
+    cursor = 0
+    previous_span_kind: Literal["code", "definition"] | None = None
+    for span in document.spans:
+        if span.start > cursor:
+            gap_text = text[cursor : span.start]
+            if not (
+                not gap_text.strip()
+                and (span.kind == "definition" or previous_span_kind == "definition")
+            ):
+                chunks.append(
+                    _RenderableChunk(
+                        kind="markdown",
+                        text=gap_text,
+                        reference_definitions=reference_definitions,
+                    )
+                )
+        if span.kind == "code":
+            chunks.append(
+                _RenderableChunk(
+                    kind="code",
+                    text=span.code,
+                    language=span.language,
+                )
+            )
+        cursor = span.end
+        previous_span_kind = span.kind
+
+    if cursor < len(text):
+        tail_text = text[cursor:]
+        if not (not tail_text.strip() and previous_span_kind == "definition"):
+            chunks.append(
+                _RenderableChunk(
+                    kind="markdown",
+                    text=tail_text,
+                    reference_definitions=reference_definitions,
+                )
+            )
+
+    return tuple(chunk for chunk in chunks if chunk.kind == "code" or chunk.text)
+
+
+def _render_markdown_chunk(
+    text: str,
+    *,
+    code_theme: str,
+    escape_xml: bool,
+    reference_definitions: str = "",
+):
+    if not text:
+        return Text("")
+    if not text.strip():
+        return Text(text)
+
+    prepared = prepare_markdown_content(text, escape_xml)
+    prepared = _rewrite_fence_languages(prepared)
+    if reference_definitions:
+        prepared = f"{prepared}\n\n{reference_definitions}"
+    if not prepared:
+        return Text("")
+    return Markdown(prepared, code_theme=code_theme)
+
+
+def _render_code_chunk(
+    text: str,
+    *,
+    language: str,
+    code_theme: str,
+    code_word_wrap: bool,
+    pad_code_blocks: bool = True,
+):
+    render_text = f"\n{text}\n" if pad_code_blocks else text
+    if _is_apply_patch_language(language):
+        return style_apply_patch_preview_text(render_text, default_style="white")
+    return Syntax(
+        render_text,
+        _normalize_code_language(language),
+        theme=code_theme,
+        line_numbers=False,
+        word_wrap=code_word_wrap,
+    )
+
+
 def build_markdown_renderable(
     text: str,
     *,
@@ -237,29 +463,65 @@ def build_markdown_renderable(
     escape_xml: bool,
     cursor_suffix: str = "",
     close_incomplete_fences: bool = False,
+    render_fences_with_syntax: bool = True,
+    code_word_wrap: bool = False,
+    pad_code_blocks: bool = True,
 ):
     if not text and not cursor_suffix:
         return Text("")
 
-    code_block = extract_single_fenced_code_block(text)
-    if code_block is not None:
-        code = code_block.code
-        if cursor_suffix:
-            code += cursor_suffix
-        if _is_apply_patch_language(code_block.language):
-            return style_apply_patch_preview_text(code, default_style="white")
-        return Syntax(
-            code,
-            _normalize_code_language(code_block.language),
-            theme=code_theme,
-            line_numbers=False,
-            word_wrap=False,
-        )
+    if close_incomplete_fences:
+        text = close_incomplete_code_blocks(text)
+
+    if render_fences_with_syntax:
+        code_block = extract_single_fenced_code_block(text)
+        if code_block is not None:
+            code = code_block.code
+            if cursor_suffix:
+                code += cursor_suffix
+            return _render_code_chunk(
+                code,
+                language=code_block.language,
+                code_theme=code_theme,
+                code_word_wrap=code_word_wrap,
+                pad_code_blocks=pad_code_blocks,
+            )
+
+        chunks = _build_renderable_chunks(text)
+        if chunks:
+            render_chunks = list(chunks)
+            if cursor_suffix:
+                last = render_chunks[-1]
+                render_chunks[-1] = _RenderableChunk(
+                    kind=last.kind,
+                    text=last.text + cursor_suffix,
+                    language=last.language,
+                    reference_definitions=last.reference_definitions,
+                )
+
+            renderables = [
+                _render_markdown_chunk(
+                    chunk.text,
+                    code_theme=code_theme,
+                    escape_xml=escape_xml,
+                    reference_definitions=chunk.reference_definitions,
+                )
+                if chunk.kind == "markdown"
+                else _render_code_chunk(
+                    chunk.text,
+                    language=chunk.language,
+                    code_theme=code_theme,
+                    code_word_wrap=code_word_wrap,
+                    pad_code_blocks=pad_code_blocks,
+                )
+                for chunk in render_chunks
+            ]
+            if len(renderables) == 1:
+                return renderables[0]
+            return Group(*renderables)
 
     prepared = prepare_markdown_content(text, escape_xml)
     prepared = _rewrite_fence_languages(prepared)
-    if close_incomplete_fences:
-        prepared = close_incomplete_code_blocks(prepared)
     if cursor_suffix:
         prepared += cursor_suffix
     if not prepared:
