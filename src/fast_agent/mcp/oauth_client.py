@@ -1459,6 +1459,7 @@ def _oauth_client_metadata(
 ) -> OAuthClientMetadata:
     metadata_kwargs: dict[str, Any] = {
         "client_name": "fast-agent",
+        "logo_uri": "https://fast-agent.ai/logo.png",
         "redirect_uris": _oauth_redirect_uris(
             selected_redirect_port=selected_redirect_port,
             configured_redirect_port=settings.redirect_port,
