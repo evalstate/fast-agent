@@ -159,6 +159,16 @@ class TestRequestParamsInLLM:
         assert "max_iterations" not in result  # Should be excluded
         assert "parallel_tool_calls" not in result  # Should be excluded
 
+    def test_openai_azure_uses_max_completion_tokens(self):
+        """Azure OpenAI should use max_completion_tokens instead of max_tokens."""
+        llm = OpenAILLM(provider=Provider.AZURE)
+        params = RequestParams(model="gpt-4.1", maxTokens=123)
+
+        result = llm._prepare_api_request(messages=[], tools=None, request_params=params)
+
+        assert result["max_completion_tokens"] == 123
+        assert "max_tokens" not in result
+
     def test_anthropic_provider_arguments(self):
         """Test prepare_provider_arguments with Anthropic provider"""
         # Create an Anthropic LLM instance without initializing provider connections

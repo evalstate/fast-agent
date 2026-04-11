@@ -1208,7 +1208,10 @@ class OpenAILLM(
                 }
             )
         else:
-            base_args["max_tokens"] = request_params.maxTokens
+            if self.provider is Provider.AZURE:
+                base_args["max_completion_tokens"] = request_params.maxTokens
+            else:
+                base_args["max_tokens"] = request_params.maxTokens
             if tools:
                 base_args["parallel_tool_calls"] = request_params.parallel_tool_calls
 
