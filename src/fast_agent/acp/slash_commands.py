@@ -505,15 +505,18 @@ class SlashCommandHandler:
     def _build_card_manager(self) -> _ACPAgentCardManager:
         return _ACPAgentCardManager(self)
 
+    def _agent_provider(self) -> "AgentProvider":
+        app = getattr(self.instance, "app", None)
+        if app is not None:
+            return cast("AgentProvider", app)
+        return StaticAgentProvider(self.instance.agents)
+
     def _build_command_context(self) -> CommandContext:
         settings = get_settings()
-        provider = self.instance.app
-        if provider is None:
-            provider = StaticAgentProvider(self.instance.agents)
         raw_session_cwd = getattr(self._acp_context, "session_cwd", None)
         raw_session_store_cwd = getattr(self._acp_context, "session_store_cwd", None)
         return CommandContext(
-            agent_provider=cast("AgentProvider", provider),
+            agent_provider=self._agent_provider(),
             current_agent_name=self.current_agent_name,
             io=ACPCommandIO(),
             settings=settings,

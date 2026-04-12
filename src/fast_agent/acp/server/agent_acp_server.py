@@ -63,6 +63,7 @@ from fast_agent.acp.server.session_store import ACPServerSessionStore, SessionSt
 from fast_agent.acp.server.slash_runtime import ACPServerSlashRuntime, SlashRuntimeHost
 from fast_agent.agents.tool_runner import ToolRunnerHooks
 from fast_agent.config import MCPServerSettings
+from fast_agent.core.default_agent import agent_is_default, resolve_default_agent_name
 from fast_agent.constants import DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.fastagent import AgentInstance
@@ -840,14 +841,10 @@ class AgentACPServer(ACPAgent):
         except Exception:
             pass
 
-        if not instance.agents:
-            return None
-
-        for agent_name, agent in instance.agents.items():
-            if agent.config.default:
-                return agent_name
-
-        return next(iter(instance.agents.keys()))
+        return resolve_default_agent_name(
+            instance.agents,
+            is_default=lambda _name, agent: agent_is_default(agent),
+        )
 
     def _resolve_primary_agent_name(self, instance: AgentInstance) -> str | None:
         """Recompute and cache the ACP primary agent for a specific instance."""

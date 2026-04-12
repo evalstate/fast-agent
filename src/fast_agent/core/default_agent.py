@@ -13,6 +13,11 @@ def _never_tool_only(name: str, agent: T) -> bool:
     return False
 
 
+def agent_is_default(agent: object) -> bool:
+    config = getattr(agent, "config", None)
+    return bool(getattr(config, "default", False))
+
+
 def resolve_default_agent_name(
     agents: Mapping[str, T],
     *,

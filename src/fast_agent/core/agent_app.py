@@ -13,7 +13,7 @@ from rich.markup import escape
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
-from fast_agent.core.default_agent import resolve_default_agent_name
+from fast_agent.core.default_agent import agent_is_default, resolve_default_agent_name
 from fast_agent.core.exceptions import AgentConfigError, ServerConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import AgentProtocol
@@ -187,7 +187,7 @@ class AgentApp:
     def get_default_agent_name(self) -> str | None:
         return resolve_default_agent_name(
             self._agents,
-            is_default=lambda _name, agent: bool(getattr(agent.config, "default", False)),
+            is_default=lambda _name, agent: agent_is_default(agent),
             is_tool_only=lambda name, _agent: name in self._tool_only_agents,
         )
 
