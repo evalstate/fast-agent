@@ -124,6 +124,10 @@ class CommandSurfaceAgent:
     def load_message_history(self, history: list[PromptMessageExtended] | None) -> None:
         self.message_history = list(history or [])
 
+    @property
+    def experimental_sessions(self) -> SessionClient:
+        return self.aggregator.experimental_sessions
+
 
 class CommandSurfaceProvider(StaticAgentProvider):
     def __init__(
@@ -138,6 +142,11 @@ class CommandSurfaceProvider(StaticAgentProvider):
         self._attached_mcp_servers = list(attached_mcp_servers or [])
         self._detached_mcp_servers = list(detached_mcp_servers or ["docs"])
         self._noenv_mode = noenv_mode
+        self.missing_shell_cwd_policy_override = None
+
+    @property
+    def noenv_mode(self) -> bool:
+        return self._noenv_mode
 
     def _agent(self, name: str) -> CommandSurfaceAgent:
         return cast("CommandSurfaceAgent", super()._agent(name))
