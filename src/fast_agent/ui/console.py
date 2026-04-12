@@ -18,7 +18,7 @@ from typing import IO, Literal
 from rich.console import Console
 from rich.theme import Theme
 
-_DEFAULT_THEME_RELATIVE_PATH = Path("examples") / "markdown" / "my-theme.ini"
+_DEFAULT_THEME_RELATIVE_PATH = Path("examples") / "markdown" / "fast-agent-theme.ini"
 
 
 def _env_truthy(value: str | None) -> bool:
@@ -37,7 +37,7 @@ def _load_default_theme() -> Theme:
         .joinpath("resources")
         .joinpath("examples")
         .joinpath("markdown")
-        .joinpath("my-theme.ini")
+        .joinpath("fast-agent-theme.ini")
     )
     if packaged_theme.is_file():
         return Theme.from_file(
