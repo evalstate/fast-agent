@@ -23,7 +23,7 @@ Tools:
 20. list_team_templates_tool — list available templates
 21. trigger_retrospective — run team retrospective
 22. send_team_message — send directive to team PM
-23. resume_team_tool — resume completed team with follow-up sprint
+23. resume_team_tool — resume completed/idle team (restarts same agents)
 
 All paths are resolved from environment variables set by the host
 process, not from module-level globals.
@@ -51,6 +51,7 @@ from fast_agent.spawn.config_reader import get_available_servers
 from fast_agent.spawn.runtime_paths import get_runtime_paths
 from fast_agent.spawn.isolated_spawner import (
     _check_and_resume_on_inbox,
+    _find_latest_history,
     cancel_spawn,
     run_isolated_agent,
     run_isolated_agent_background,
@@ -587,7 +588,8 @@ async def restart_spawn(run_id: str) -> str:
 async def resume_spawn(run_id: str, follow_up_task: str) -> str:
     """Continue a completed resumable spawn with follow-up.
 
-    The new agent receives the previous result as context.
+    The agent restarts with full conversation history from its previous
+    session. Agent name, workspace, and context are preserved.
 
     Args:
         run_id: The run_id of the completed resumable spawn.
@@ -615,32 +617,73 @@ async def resume_spawn(run_id: str, follow_up_task: str) -> str:
     if not cfg:
         return json.dumps({"error": (f"No saved config for spawn '{run_id}'. Cannot resume.")})
 
-    prev_context = cfg.get("context", "")
-    prev_result = record.result or ""
-    enriched_context = ""
-    if prev_context:
-        enriched_context += f"## Original Context\n{prev_context}\n\n"
-    if prev_result:
-        enriched_context += f"## Previous Agent Result\n{prev_result}\n\n"
-    enriched_context += f"## Follow-Up Task\n{follow_up_task}"
+    # Find previous session history for native FastAgent resume
+    # (same pattern as auto-resume in _check_and_resume_on_inbox)
+    workspace_dir = cfg.get("workspace_dir", "")
+    history_file = _find_latest_history(workspace_dir) if workspace_dir else None
+
+    agent_name = cfg.get("agent_name", record.agent_name)
+    if history_file:
+        # History file found — agent gets full conversation via
+        # load_history_into_agent(). Only pass follow-up as task.
+        enriched_context = follow_up_task
+        logger.info(
+            "📂 resume_spawn: found history for %s: %s", agent_name, history_file,
+        )
+    else:
+        # No history file — fall back to text-based context
+        prev_context = cfg.get("context", "")
+        prev_result = record.result or ""
+        enriched_context = ""
+        if prev_context:
+            enriched_context += f"## Original Context\n{prev_context}\n\n"
+        if prev_result:
+            enriched_context += f"## Previous Agent Result\n{prev_result}\n\n"
+        enriched_context += f"## Follow-Up Task\n{follow_up_task}"
+        logger.info(
+            "⚠️ resume_spawn: no history for %s — using text-based context", agent_name,
+        )
+
+    # Determine correct project_dir from original_config
+    project_dir = cfg.get("project_dir", str(_PROJECT_DIR))
+
+    # Re-inject team context if this is a team agent
+    env_vars = cfg.get("env_vars") or None
+    team_session_id = (env_vars or {}).get("TEAM_SESSION_ID", "")
+    if team_session_id:
+        try:
+            session = get_team_session(team_session_id)
+            if session:
+                role = cfg.get("role", "")
+                roster_ctx = session.roster_context(for_role=role)
+                enriched_context = roster_ctx + "\n\n" + enriched_context
+                logger.info(
+                    "📋 Re-injected team context for %s (session %s)",
+                    agent_name, team_session_id,
+                )
+        except Exception as e:
+            logger.warning("Failed to re-inject team context: %s", e)
 
     new_run_id = await run_isolated_agent_background(
         task=follow_up_task,
-        project_dir=str(_PROJECT_DIR),
+        project_dir=project_dir,
         instruction=cfg.get("instruction", ""),
         context=enriched_context,
         servers=cfg.get("servers", []),
         model=cfg.get("model", ""),
-        timeout_seconds=cfg.get("timeout_seconds", 600),
+        timeout_seconds=cfg.get("timeout_seconds", 0),
         role=cfg.get("role", record.role),
-        agent_name=cfg.get("agent_name", record.agent_name),
+        agent_name=agent_name,
         team_name=cfg.get("team_name", record.team_name),
         workspace_dir=cfg.get("workspace_dir") or None,
         lifecycle="resumable",
         registry=_registry,
         display_manager=_display,
-        env_vars=cfg.get("env_vars") or None,
+        env_vars=env_vars,
+        skills=cfg.get("skills", []),
+        history_file=history_file,
         spawn_lifecycle_hooks=_spawn_hooks,
+        session_id=team_session_id,
     )
 
     _registry._load()
@@ -654,8 +697,9 @@ async def resume_spawn(run_id: str, follow_up_task: str) -> str:
             "status": "resumed",
             "original_run_id": run_id,
             "new_run_id": new_run_id,
+            "agent_name": agent_name,
             "message": (
-                f"Resumable spawn continued. Use check_spawn_status(run_id='{new_run_id}') to poll."
+                f"Agent '{agent_name}' resumed. Use check_spawn_status(run_id='{new_run_id}') to poll."
             ),
         }
     )
@@ -1256,81 +1300,116 @@ async def send_team_message(
 # ───────────────────────────────────────────────────────────
 
 
+def _resolve_latest_run_id(run_id: str) -> str:
+    """Follow the resume chain to find the latest run_id.
+
+    When an agent is resumed (via inbox messages or manual resume),
+    each resume creates a new run_id. The original run_id stored in
+    the team session may be stale. This follows the chain:
+        original → resume_1 → resume_2 → ... → latest
+
+    DB (registry) is the single source of truth.
+    """
+    record = _registry.get(run_id)
+    if not record:
+        return run_id
+
+    metadata = getattr(record, "metadata", None) or {}
+    latest = metadata.get("latest_resume_run_id")
+    if latest:
+        return _resolve_latest_run_id(latest)
+    return run_id
+
+
 @mcp.tool()
 async def resume_team_tool(
     session_id: str,
     follow_up_task: str,
-    template_name: str = "",
-    team_name: str = "",
 ) -> str:
-    """Resume a completed team with a follow-up sprint.
+    """Resume a completed/idle team with a follow-up task.
 
-    Collects results from the previous sprint and spawns a new team
-    session with enriched context. The new PM receives the previous
-    sprint's results as context for the follow-up task.
+    Restarts the SAME agents from the previous session — same agent
+    names, workspace, and full conversation history. Does NOT create
+    a new team.
+
+    Each agent is resumed individually via resume_spawn(), which loads
+    their previous conversation history and restores context.
 
     Args:
-        session_id: The session_id of the completed team to resume.
-        follow_up_task: New task/brief for the next sprint.
-        template_name: Override template (default: same as previous).
-        team_name: Override team name (default: same as previous).
+        session_id: The session_id of the team to resume.
+        follow_up_task: New task/brief for the team.
     """
     session = get_team_session(session_id)
     if not session:
         return json.dumps({"error": f"Team session '{session_id}' not found."})
 
-    # Collect previous sprint results
-    prev_results: list[str] = []
-    for role, info in session.agents.items():
-        run_id = info.get("run_id", "")
-        status = info.get("status", "unknown")
-        result = info.get("result", "")
-        if run_id:
-            record = _registry.get_latest(run_id)
-            if record and record.result:
-                result = record.result
-                status = record.status
-        if result:
-            prev_results.append(
-                f"### {role} ({status})\n{result[:2000]}"
-            )
+    results: dict[str, Any] = {}
+    resumed_count = 0
+    skipped_count = 0
 
-    prev_context = "\n\n".join(prev_results) if prev_results else "(no results from previous sprint)"
+    for agent_name, info in session.agents.items():
+        original_run_id = info.get("run_id", "")
+        if not original_run_id:
+            results[agent_name] = {"status": "skipped", "reason": "no run_id"}
+            skipped_count += 1
+            continue
 
-    enriched_brief = (
-        f"## Follow-Up Sprint\n\n"
-        f"### Previous Sprint Results (session: {session_id})\n\n"
-        f"{prev_context}\n\n"
-        f"### New Task\n\n"
-        f"{follow_up_task}"
-    )
+        # Follow resume chain to find the latest run_id (DB is source of truth)
+        latest_run_id = _resolve_latest_run_id(original_run_id)
 
-    tpl = template_name or session.template.get("name", "agile_team")
-    tname = team_name or session.team_name
+        record = _registry.get(latest_run_id)
+        if not record:
+            results[agent_name] = {"status": "skipped", "reason": f"run_id '{latest_run_id}' not found in registry"}
+            skipped_count += 1
+            continue
 
-    new_session = await _spawn_team(
-        template_name=tpl,
-        project_brief=enriched_brief,
-        registry=_registry,
-        project_dir=str(_PROJECT_DIR),
-        team_name=tname,
-        display_manager=_display,
-        parent_session_id=session_id,
-        mode="background",
-        spawn_lifecycle_hooks=_spawn_hooks,
+        if not record.is_terminal:
+            results[agent_name] = {"status": "skipped", "reason": f"still running (status={record.status})"}
+            skipped_count += 1
+            continue
+
+        # Resume this agent — keeps same name, workspace, loads history
+        try:
+            result_json = await resume_spawn(latest_run_id, follow_up_task)
+            result = json.loads(result_json)
+
+            if result.get("status") == "resumed":
+                new_run_id = result.get("new_run_id", "")
+                # Update session with new run_id so future queries find it
+                session.update_agent_run_id(agent_name, new_run_id)
+                results[agent_name] = {
+                    "status": "resumed",
+                    "new_run_id": new_run_id,
+                }
+                resumed_count += 1
+            else:
+                results[agent_name] = result
+                skipped_count += 1
+        except Exception as e:
+            logger.error("Failed to resume agent %s: %s", agent_name, e, exc_info=True)
+            results[agent_name] = {"status": "error", "reason": str(e)}
+            skipped_count += 1
+
+    # Update session status
+    session.sprint_status = "running"
+    paths = get_runtime_paths(str(_PROJECT_DIR))
+    session.save(sessions_dir=paths["workspaces"] / "team_sessions")
+
+    logger.info(
+        "Team %s resumed: %d agents restarted, %d skipped",
+        session_id, resumed_count, skipped_count,
     )
 
     return json.dumps({
         "status": "resumed",
-        "previous_session_id": session_id,
-        "new_session_id": new_session.session_id,
-        "template": tpl,
-        "team_name": tname,
-        "agents_with_results": len(prev_results),
+        "session_id": session_id,
+        "team_name": session.team_name,
+        "resumed_agents": resumed_count,
+        "skipped_agents": skipped_count,
+        "agents": results,
         "message": (
-            f"Team resumed with new sprint. "
-            f"New session: {new_session.session_id}. "
-            f"Use get_team_status(session_id='{new_session.session_id}') to monitor."
+            f"Team '{session.team_name}' resumed with {resumed_count} agents. "
+            f"Use get_team_status(session_id='{session_id}') to monitor."
         ),
     })
 

@@ -200,6 +200,15 @@ class TeamSession:
         path.write_text(json.dumps(self.get_roster(), indent=2))
         return path
 
+    def update_agent_run_id(self, agent_name: str, new_run_id: str) -> None:
+        """Update run_id for an agent after resume.
+
+        Keeps session in sync with the latest run_id from registry (DB).
+        """
+        if agent_name in self.agents:
+            self.agents[agent_name]["run_id"] = new_run_id
+            self.agents[agent_name]["status"] = "running"
+
     def roster_context(self, for_role: str = "") -> str:
         """Build roster context string for agent injection.
 
