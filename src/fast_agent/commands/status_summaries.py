@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.commands.protocols import (
     HfDisplayInfoProvider,
-    InstructionAwareAgent,
     ParallelAgentProtocol,
     WarningAwareAgent,
 )
@@ -421,6 +420,16 @@ def build_warning_summary(
     return trimmed
 
 
+def _resolve_model_source(agent: "AgentProtocol | None") -> str | None:
+    if agent is None or agent.context is None:
+        return None
+
+    source = getattr(agent.context.config, "model_source", None)
+    if isinstance(source, str) and source.strip():
+        return source.strip()
+    return None
+
+
 def build_status_summary(
     *,
     fast_agent_version: str,
@@ -431,19 +440,6 @@ def build_status_summary(
     uptime_seconds: float,
     instance: "AgentInstance | None",
 ) -> StatusSummary:
-    model_source = None
-    candidate_configs: list[object] = []
-    if agent is not None:
-        agent_context = agent.context
-        if agent_context is not None:
-            candidate_configs.append(agent_context.config)
-
-    for config in candidate_configs:
-        source = getattr(config, "model_source", None) if config is not None else None
-        if isinstance(source, str) and source.strip():
-            model_source = source.strip()
-            break
-
     client_summary = _collect_client_info(
         client_info=client_info,
         client_capabilities=client_capabilities,
@@ -470,7 +466,7 @@ def build_status_summary(
         client_info=client_summary,
         model_summary=model_summary,
         parallel_summary=parallel_summary,
-        model_source=model_source,
+        model_source=_resolve_model_source(agent),
         conversation_stats=conversation_stats,
         uptime_seconds=uptime_seconds,
         error_report=error_report,
@@ -487,12 +483,12 @@ def build_system_prompt_summary(
     agent_name = current_agent_name
     system_prompt = None
 
-    if agent and isinstance(agent, InstructionAwareAgent):
+    if agent:
         agent_name = agent.name
 
     if agent_name in session_instructions:
         system_prompt = session_instructions[agent_name]
-    elif agent and isinstance(agent, InstructionAwareAgent):
+    elif agent:
         system_prompt = agent.instruction
 
     return SystemPromptSummary(agent_name=agent_name, system_prompt=system_prompt or None)

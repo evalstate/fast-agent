@@ -20,7 +20,7 @@ from fast_agent.constants import (
     CONTROL_MESSAGE_SAVE_HISTORY,
 )
 from fast_agent.history.history_exporter import HistoryExporter
-from fast_agent.interfaces import AgentProtocol, LlmCapableProtocol
+from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol, LlmCapableProtocol
 from fast_agent.types import LlmStopReason, PromptMessageExtended
 
 if TYPE_CHECKING:
@@ -31,6 +31,10 @@ if TYPE_CHECKING:
 class _WebToolsTupleCapable(Protocol):
     @property
     def web_tools_enabled(self) -> tuple[bool, bool]: ...
+
+
+class WebToolHistoryAgent(HistoryEditableAgent, LlmCapableProtocol, Protocol):
+    pass
 
 
 def _trim_history_for_rewind(
@@ -118,9 +122,14 @@ def _strip_web_metadata_channels(
     return message.model_copy(update={"channels": retained or None}), removed_blocks
 
 
-def web_tools_enabled_for_agent(agent_obj: object) -> bool:
+def web_tools_enabled_for_agent(agent_obj: LlmCapableProtocol | None) -> bool:
     """Return True when the agent's active LLM has web tools enabled."""
-    llm = agent_obj.llm if isinstance(agent_obj, LlmCapableProtocol) else None
+    llm = agent_obj.llm if agent_obj is not None else None
+    return web_tools_enabled_for_llm(llm)
+
+
+def web_tools_enabled_for_llm(llm: FastAgentLLMProtocol | None) -> bool:
+    """Return True when the active LLM has web tools enabled."""
     if llm is None:
         return False
     if isinstance(llm, _WebToolsTupleCapable):
@@ -327,7 +336,7 @@ async def handle_history_webclear(
     outcome = CommandOutcome()
     target = target_agent or agent_name
 
-    agent_obj = ctx.agent_provider._agent(target)
+    agent_obj = cast("WebToolHistoryAgent", ctx.agent_provider._agent(target))
     if not web_tools_enabled_for_agent(agent_obj):
         outcome.add_message(
             "Web metadata cleanup is only available when Anthropic web tools are enabled.",

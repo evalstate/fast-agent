@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
 import pytest
 
 from fast_agent.commands.results import CommandMessage
 from fast_agent.config import Settings
+from fast_agent.llm.model_reference_diagnostics import ModelReferenceSetupItem
 from fast_agent.ui.adapters.tui_io import TuiCommandIO
 from fast_agent.ui.message_primitives import MessageType
 from fast_agent.ui.model_picker import ModelPickerResult
@@ -23,12 +25,32 @@ class _FakeDisplay:
     def __init__(self) -> None:
         self.status_messages: list[Text] = []
         self.display_calls: list[dict[str, object]] = []
+        self.system_calls: list[dict[str, object]] = []
+
+    @property
+    def markup_enabled(self) -> bool:
+        return True
 
     def show_status_message(self, content: Text) -> None:
         self.status_messages.append(content)
 
     def display_message(self, **kwargs: object) -> None:
         self.display_calls.append(kwargs)
+
+    def show_system_message(
+        self,
+        system_prompt: str,
+        *,
+        agent_name: str,
+        server_count: int = 0,
+    ) -> None:
+        self.system_calls.append(
+            {
+                "system_prompt": system_prompt,
+                "agent_name": agent_name,
+                "server_count": server_count,
+            }
+        )
 
 
 class _FakeAgent:
@@ -222,3 +244,91 @@ async def test_prompt_model_selection_passes_resolved_start_path(monkeypatch, tm
 
     assert selected == "haikutiny"
     assert captured_kwargs["start_path"] == project_root
+
+
+@pytest.mark.asyncio
+async def test_pick_model_reference_token_returns_picker_token(monkeypatch) -> None:
+    display = _FakeDisplay()
+    provider = cast("AgentProvider", _FakeProvider(display))
+    io = TuiCommandIO(prompt_provider=provider, agent_name="alpha")
+
+    async def fake_run_model_reference_picker_async(items):
+        del items
+        return SimpleNamespace(action="select", token="$system.fast")
+
+    monkeypatch.setattr(
+        "fast_agent.ui.adapters.tui_io.run_model_reference_picker_async",
+        fake_run_model_reference_picker_async,
+    )
+
+    selected = await io.pick_model_reference_token(
+        items=(
+            ModelReferenceSetupItem(
+                token="$system.fast",
+                priority="recommended",
+                status="missing",
+                current_value=None,
+                summary="Fast alias",
+                references=("main",),
+            ),
+        )
+    )
+
+    assert selected == "$system.fast"
+
+
+@pytest.mark.asyncio
+async def test_pick_model_reference_token_normalizes_custom_entry(monkeypatch) -> None:
+    display = _FakeDisplay()
+    provider = cast("AgentProvider", _FakeProvider(display))
+    io = TuiCommandIO(prompt_provider=provider, agent_name="alpha")
+
+    async def fake_run_model_reference_picker_async(items):
+        del items
+        return SimpleNamespace(action="custom", token=None)
+
+    async def fake_prompt_text(prompt: str, *, default=None, allow_empty=True):
+        del prompt, default, allow_empty
+        return "system.fast"
+
+    monkeypatch.setattr(
+        "fast_agent.ui.adapters.tui_io.run_model_reference_picker_async",
+        fake_run_model_reference_picker_async,
+    )
+    monkeypatch.setattr(io, "prompt_text", fake_prompt_text)
+
+    selected = await io.pick_model_reference_token(
+        items=(
+            ModelReferenceSetupItem(
+                token="$system.fast",
+                priority="recommended",
+                status="missing",
+                current_value=None,
+                summary="Fast alias",
+                references=("main",),
+            ),
+        )
+    )
+
+    assert selected == "$system.fast"
+
+
+@pytest.mark.asyncio
+async def test_display_system_prompt_uses_display_protocol() -> None:
+    display = _FakeDisplay()
+    provider = cast("AgentProvider", _FakeProvider(display))
+    io = TuiCommandIO(prompt_provider=provider, agent_name="alpha")
+
+    await io.display_system_prompt(
+        "alpha",
+        "You are concise.",
+        server_count=2,
+    )
+
+    assert display.system_calls == [
+        {
+            "system_prompt": "You are concise.",
+            "agent_name": "alpha",
+            "server_count": 2,
+        }
+    ]

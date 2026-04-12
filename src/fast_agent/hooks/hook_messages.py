@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
 from rich.text import Text
 
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.ui.console_display import ConsoleDisplay
+
+if TYPE_CHECKING:
+    from fast_agent.config import Settings
 
 logger = get_logger(__name__)
 
@@ -27,16 +30,43 @@ HOOK_KIND_LABELS: dict[HookKind, str] = {
     "agent_shutdown": "agent shutdown",
 }
 
+@runtime_checkable
+class HookDisplayAgent(Protocol):
+    @property
+    def display(self) -> ConsoleDisplay: ...
+
+
+@runtime_checkable
+class HookContextCarrier(Protocol):
+    @property
+    def config(self) -> "Settings | None": ...
+
+
+@runtime_checkable
+class HookContextAgent(Protocol):
+    @property
+    def context(self) -> HookContextCarrier | None: ...
+
+
+@runtime_checkable
+class HookTargetCarrier(Protocol):
+    @property
+    def agent(self) -> object: ...
+
+
+def _resolve_hook_agent(target: object) -> object:
+    if isinstance(target, HookTargetCarrier):
+        return target.agent
+    return target
+
 
 def _resolve_display(agent: object) -> ConsoleDisplay:
-    display = getattr(agent, "display", None)
-    if isinstance(display, ConsoleDisplay):
-        return display
+    if isinstance(agent, HookDisplayAgent):
+        return agent.display
 
     config = None
-    agent_context = getattr(agent, "context", None)
-    if agent_context is not None:
-        config = getattr(agent_context, "config", None)
+    if isinstance(agent, HookContextAgent) and agent.context is not None:
+        config = agent.context.config
 
     return ConsoleDisplay(config=config)
 
@@ -83,7 +113,7 @@ def show_hook_message(
 ) -> None:
     """Render a hook status line using the active message style (A3 by default)."""
     try:
-        agent = getattr(target, "agent", target)
+        agent = _resolve_hook_agent(target)
         display = _resolve_display(agent)
         prefix_style = f"bold {style}"
         prefix_text = "  "

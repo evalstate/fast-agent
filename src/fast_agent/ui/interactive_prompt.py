@@ -20,7 +20,7 @@ import time
 from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Protocol, Union, runtime_checkable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Protocol, Union, cast, runtime_checkable
 
 from mcp.types import PromptMessage
 from rich import print as rich_print
@@ -40,6 +40,7 @@ from fast_agent.cli.runtime.shell_cwd_policy import (
 )
 from fast_agent.commands.handlers import mcp_runtime as mcp_runtime_handlers  # noqa: F401
 from fast_agent.commands.handlers import prompts as prompt_handlers
+from fast_agent.commands.protocols import HistoryEditableAgent
 from fast_agent.config import get_settings
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.interfaces import AgentProtocol, TurnCancellationStateCapable
@@ -204,6 +205,16 @@ class InteractivePrompt:
         except Exception:
             rich_print(f"[red]Unable to load agent '{agent_name}'[/red]")
             return None
+
+    def _get_history_agent_or_warn(
+        self,
+        prompt_provider: "AgentApp",
+        agent_name: str,
+    ) -> HistoryEditableAgent | None:
+        agent = self._get_agent_or_warn(prompt_provider, agent_name)
+        if agent is None:
+            return None
+        return cast("HistoryEditableAgent", agent)
 
     async def _get_all_prompts(
         self,

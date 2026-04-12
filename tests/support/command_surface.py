@@ -13,6 +13,7 @@ from fast_agent.ui.interactive.command_dispatch import DispatchResult, dispatch_
 from fast_agent.ui.prompt import parse_special_input
 
 if TYPE_CHECKING:
+    from fast_agent.commands.protocols import HistoryEditableAgent
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 
@@ -220,6 +221,16 @@ class CommandSurfaceOwner:
             return prompt_provider._agent(agent_name)
         except KeyError:
             return None
+
+    def _get_history_agent_or_warn(
+        self,
+        prompt_provider: CommandSurfaceProvider,
+        agent_name: str,
+    ) -> HistoryEditableAgent | None:
+        agent = self._get_agent_or_warn(prompt_provider, agent_name)
+        if agent is None:
+            return None
+        return cast("HistoryEditableAgent", agent)
 
 
 def merge_pinned_agents(agent_names: list[str]) -> list[str]:

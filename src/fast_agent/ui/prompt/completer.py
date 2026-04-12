@@ -10,7 +10,7 @@ import time
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar, cast
 from urllib.parse import unquote
 
 from mcp.types import ResourceTemplate
@@ -20,7 +20,6 @@ from fast_agent.agents.agent_types import AgentType
 from fast_agent.commands.handlers import history as history_handlers
 from fast_agent.commands.handlers import model as model_handlers
 from fast_agent.config import get_settings
-from fast_agent.interfaces import LlmCapableProtocol
 from fast_agent.llm.reasoning_effort import available_reasoning_values
 from fast_agent.llm.text_verbosity import available_text_verbosity_values
 from fast_agent.mcp.provider_management import provider_managed_base_url
@@ -35,10 +34,21 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine, Iterable, Iterator, Sequence
 
     from fast_agent.core.agent_app import AgentApp
+    from fast_agent.interfaces import FastAgentLLMProtocol
     from fast_agent.types import PromptMessageExtended
 
 
 CompletionResultT = TypeVar("CompletionResultT")
+
+
+class CompleterHistoryAgent(Protocol):
+    @property
+    def message_history(self) -> list["PromptMessageExtended"]: ...
+
+
+class CompleterLlmAgent(Protocol):
+    @property
+    def llm(self) -> FastAgentLLMProtocol | None: ...
 
 
 class AgentCompleter(Completer):
@@ -127,13 +137,7 @@ class AgentCompleter(Completer):
             self._owner_loop = None
 
     def _current_agent_has_web_tools_enabled(self) -> bool:
-        if self.agent_provider is None or not self.current_agent:
-            return False
-        try:
-            agent_obj = self.agent_provider._agent(self.current_agent)
-        except Exception:
-            return False
-        return history_handlers.web_tools_enabled_for_agent(agent_obj)
+        return history_handlers.web_tools_enabled_for_agent(self._current_llm_agent())
 
     @dataclass(frozen=True)
     class _CompletionSearch:
@@ -256,13 +260,10 @@ class AgentCompleter(Completer):
         return normalized[: limit - 1] + "…"
 
     def _iter_user_turns(self):
-        if not self.agent_provider or not self.current_agent:
+        agent_obj = self._current_history_agent()
+        if agent_obj is None:
             return []
-        try:
-            agent_obj = self.agent_provider._agent(self.current_agent)
-        except Exception:
-            return []
-        history = getattr(agent_obj, "message_history", [])
+        history = agent_obj.message_history
         turns: list[list[PromptMessageExtended]] = []
         current: list[PromptMessageExtended] = []
         saw_assistant = False
@@ -299,14 +300,29 @@ class AgentCompleter(Completer):
             user_turns.append(first)
         return user_turns
 
-    def _current_agent_llm(self) -> object | None:
+    def _current_history_agent(self) -> CompleterHistoryAgent | None:
         if not self.agent_provider or not self.current_agent:
             return None
         try:
             agent_obj = self.agent_provider._agent(self.current_agent)
         except Exception:
             return None
-        return agent_obj.llm if isinstance(agent_obj, LlmCapableProtocol) else None
+        return cast("CompleterHistoryAgent", agent_obj)
+
+    def _current_llm_agent(self) -> CompleterLlmAgent | None:
+        if not self.agent_provider or not self.current_agent:
+            return None
+        try:
+            agent_obj = self.agent_provider._agent(self.current_agent)
+        except Exception:
+            return None
+        return cast("CompleterLlmAgent", agent_obj)
+
+    def _current_agent_llm(self) -> FastAgentLLMProtocol | None:
+        agent_obj = self._current_llm_agent()
+        if agent_obj is None:
+            return None
+        return agent_obj.llm
 
     def _resolve_reasoning_values(self) -> list[str]:
         llm = self._current_agent_llm()

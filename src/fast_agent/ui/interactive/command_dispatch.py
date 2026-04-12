@@ -19,7 +19,6 @@ from fast_agent.commands.handlers import sessions as sessions_handlers
 from fast_agent.commands.handlers import skills as skills_handlers
 from fast_agent.commands.handlers import tools as tools_handlers
 from fast_agent.commands.handlers.shared import clear_agent_histories
-from fast_agent.commands.protocols import HistoryEditableAgent
 from fast_agent.ui import enhanced_prompt
 from fast_agent.ui.command_payloads import (
     AgentCommand,
@@ -371,8 +370,8 @@ async def _dispatch_history_payload(
             return result
         case HistoryShowCommand(agent=target_agent):
             target_name = target_agent or agent
-            target = owner._get_agent_or_warn(prompt_provider, target_name)
-            if target is None or not isinstance(target, HistoryEditableAgent):
+            target = owner._get_history_agent_or_warn(prompt_provider, target_name)
+            if target is None:
                 return result
             history = list(target.message_history)
             usage = target.usage_accumulator

@@ -170,6 +170,10 @@ class ConsoleDisplay:
         return self._code_style
 
     @property
+    def markup_enabled(self) -> bool:
+        return self._markup
+
+    @property
     def code_word_wrap(self) -> bool:
         return self._code_word_wrap
 

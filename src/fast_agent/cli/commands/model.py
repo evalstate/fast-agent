@@ -9,7 +9,7 @@ import shlex
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Literal, cast
+from typing import Callable, Literal, Protocol, cast, runtime_checkable
 
 import typer
 from pydantic import ValidationError
@@ -62,6 +62,15 @@ from fast_agent.ui.model_reference_picker import (
 
 type WriteTarget = Literal["env", "project"]
 type LlamaCppAuthMode = Literal["none", "env", "secret_ref"]
+
+
+@runtime_checkable
+class ModelReferencePickerIO(Protocol):
+    async def pick_model_reference_token(
+        self,
+        *,
+        items: tuple[ModelReferenceSetupItem, ...],
+    ) -> str | None: ...
 
 app = typer.Typer(help="Interactive model reference setup.")
 llamacpp_app = typer.Typer(
@@ -218,13 +227,14 @@ async def run_model_setup(
             cwd=start_path,
             env_dir=getattr(settings, "environment_dir", None),
         )
+        common_items = _build_common_setup_items(diagnostics.valid_references)
         has_guided_choices = bool(diagnostics.items) or (
-            isinstance(io, TuiCommandIO)
-            and bool(_build_common_setup_items(diagnostics.valid_references))
+            bool(common_items) and isinstance(io, ModelReferencePickerIO)
         )
         resolved_token = await _select_model_setup_token(
             io,
             diagnostics=diagnostics,
+            common_items=common_items,
         )
         if has_guided_choices and resolved_token is None:
             outcome = CommandOutcome()
@@ -288,21 +298,26 @@ async def _select_model_setup_token(
     io: CommandIO,
     *,
     diagnostics: ModelReferenceSetupDiagnostics,
+    common_items: tuple[ModelReferenceSetupItem, ...] | None = None,
 ) -> str | None:
     items = diagnostics.items
-    common_items = _build_common_setup_items(diagnostics.valid_references)
+    resolved_common_items = (
+        common_items
+        if common_items is not None
+        else _build_common_setup_items(diagnostics.valid_references)
+    )
     if not items:
-        if isinstance(io, TuiCommandIO) and common_items:
+        if isinstance(io, ModelReferencePickerIO) and resolved_common_items:
             return await _pick_or_prompt_reference_token(
                 io,
-                items=common_items,
+                items=resolved_common_items,
             )
         return None
 
-    if isinstance(io, TuiCommandIO):
+    if isinstance(io, ModelReferencePickerIO):
         return await _pick_or_prompt_reference_token(
             io,
-            items=_merge_setup_items(items, common_items),
+            items=_merge_setup_items(items, resolved_common_items),
         )
 
     if len(items) == 1:
@@ -343,28 +358,11 @@ async def _select_model_setup_token(
 
 
 async def _pick_or_prompt_reference_token(
-    io: TuiCommandIO,
+    io: ModelReferencePickerIO,
     *,
     items: tuple[ModelReferenceSetupItem, ...],
 ) -> str | None:
-    picker_items = tuple(
-        ModelReferencePickerItem(
-            token=item.token,
-            priority=item.priority,
-            status=f"{item.priority}/{item.status}",
-            summary=item.summary,
-            current_value=item.current_value,
-            references=item.references,
-            removable=False,
-        )
-        for item in items
-    )
-    result = await run_model_reference_picker_async(picker_items)
-    if result is None:
-        return None
-    if result.action == "custom":
-        return await _prompt_manual_reference_token(io)
-    return result.token
+    return await io.pick_model_reference_token(items=items)
 
 
 def _render_setup_item_summary(item: ModelReferenceSetupItem, *, title: str) -> Text:
