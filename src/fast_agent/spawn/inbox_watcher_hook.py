@@ -3,7 +3,7 @@
 Injects unread inbox messages into the agent's LLM context between tool loops
 using ToolRunnerHooks.before_llm_call + runner.append_messages().
 
-This converts the MessageBus from a pull model (agent calls read_email)
+This replaces the old pull model (manual inbox polling)
 to a push model where messages are delivered automatically.
 """
 

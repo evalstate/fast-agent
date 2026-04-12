@@ -87,6 +87,11 @@ def get_server_env(
     if messages_dir:
         env["TEAM_MESSAGES_DIR"] = messages_dir
 
+    # SPAWN_REGISTRY_DB — SQLite registry path (critical for check_teammate_status)
+    registry_db = os.environ.get("SPAWN_REGISTRY_DB", "")
+    if registry_db:
+        env["SPAWN_REGISTRY_DB"] = registry_db
+
     # NOTE: TEAM_ROLES_CONFIG is NOT propagated here because it's a large
     # JSON blob that breaks YAML string concatenation in isolated_runner.
     # MCP servers inherit it from process environment instead.

@@ -425,7 +425,7 @@ async def run_isolated_agent(
             "You are a helpful sub-agent. Complete the given task thoroughly and concisely."
         )
 
-    run_id = run_id or str(uuid.uuid4())
+    run_id = run_id or uuid.uuid4().hex[:8]
     start_time = time.time()
     paths = get_runtime_paths(project_dir)
     paths["runs"].mkdir(parents=True, exist_ok=True)
@@ -848,7 +848,7 @@ async def run_isolated_agent_background(
 
     Returns the run_id immediately. Use check_spawn_status to poll.
     """
-    run_id = str(uuid.uuid4())
+    run_id = uuid.uuid4().hex[:8]
 
     if registry:
         from fast_agent.spawn.spawn_registry import (

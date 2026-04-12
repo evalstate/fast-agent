@@ -100,29 +100,105 @@ def _audit(meeting_id: str, message: str) -> None:
 def _notify_turn_agent(
     meeting_id: str, agent_name: str, agenda: str, round_num: int
 ) -> None:
-    """Send YOUR_TURN inbox notification + wake signal to the current speaker.
+    """Send YOUR_TURN notification with embedded unread transcript.
 
-    This ensures agents are notified even if their wait_for_my_turn poll
-    has already timed out.
+    Transcript is auto-pushed — agents never need to call get_transcript.
+    Each notification clearly labels the meeting ID for multi-meeting support.
     """
     bus = _get_bus()
-    if bus:
-        msg = (
-            f"🎙️ YOUR TURN TO SPEAK\n"
-            f"Meeting: {meeting_id}\n"
-            f"Agenda: {agenda}\n"
-            f"Round: {round_num}\n\n"
-            f'→ get_transcript(meeting_id="{meeting_id}")\n'
-            f'→ speak(meeting_id="{meeting_id}", message="...")'
+    if not bus:
+        _auto_wake_if_idle(agent_name)
+        return
+
+    # Fetch and advance read cursor for this agent
+    transcript = _storage.get_transcript(meeting_id)
+    with _storage.acquire_lock(meeting_id) as conn:
+        state = _storage.get_state(meeting_id, _conn=conn) or {}
+        cursors: dict[str, int] = state.get("read_cursors", {})
+        last_read = cursors.get(agent_name, 0)
+        unread = transcript[last_read:]
+        cursors[agent_name] = len(transcript)
+        state["read_cursors"] = cursors
+        _storage.update_state(meeting_id, state, _conn=conn)
+
+    # Format unread transcript lines
+    transcript_lines = []
+    for entry in unread:
+        transcript_lines.append(
+            f"  [{entry['agent']}] (round {entry.get('round', '?')}): "
+            f"{entry['message']}"
         )
-        bus.send(
-            from_name="Meeting Room",
-            to_name=agent_name,
-            content=msg,
-            message_type="meeting_turn",
-        )
+    transcript_text = (
+        "\n".join(transcript_lines) if transcript_lines else "(no new messages)"
+    )
+
+    msg = (
+        f"🎙️ YOUR TURN TO SPEAK — Meeting [{meeting_id}]\n"
+        f"Agenda: {agenda}\n"
+        f"Round: {round_num}\n\n"
+        f"📋 Transcript ({len(unread)} new messages):\n"
+        f"{transcript_text}\n\n"
+        f'→ speak(meeting_id="{meeting_id}", message="...")'
+    )
+    bus.send(
+        from_name=f"Meeting [{meeting_id}]",
+        to_name=agent_name,
+        content=msg,
+        message_type="meeting_turn",
+    )
     _auto_wake_if_idle(agent_name)
-    logger.info("🎙️ Notified %s: your turn in %s (round %d)", agent_name, meeting_id, round_num)
+    logger.info("🎙️ Notified %s: your turn in %s (round %d, %d unread)",
+                agent_name, meeting_id, round_num, len(unread))
+
+
+def _notify_meeting_started(
+    meeting_id: str, agent_name: str, agenda: str, participants: list[str]
+) -> None:
+    """Inform non-first-speaker agents that the meeting has started."""
+    bus = _get_bus()
+    if not bus:
+        return
+    participant_names = ", ".join(participants)
+    msg = (
+        f"📋 Meeting [{meeting_id}] started.\n"
+        f"Agenda: {agenda}\n"
+        f"Participants: {participant_names}\n\n"
+        f"You will receive a 🎙️ YOUR TURN notification when it's your turn to speak."
+    )
+    bus.send(
+        from_name=f"Meeting [{meeting_id}]",
+        to_name=agent_name,
+        content=msg,
+        message_type="meeting_started",
+    )
+    _auto_wake_if_idle(agent_name)
+
+
+def _notify_meeting_ended(
+    meeting_id: str, agent_name: str, agenda: str
+) -> None:
+    """Send meeting-ended notification with full transcript."""
+    bus = _get_bus()
+    if not bus:
+        return
+    transcript = _storage.get_transcript(meeting_id)
+    transcript_lines = [
+        f"  [{e['agent']}] (round {e.get('round', '?')}): {e['message']}"
+        for e in transcript
+    ]
+    msg = (
+        f"📋 Meeting [{meeting_id}] has ended.\n"
+        f"Agenda: {agenda}\n\n"
+        f"Full transcript ({len(transcript)} messages):\n"
+        + "\n".join(transcript_lines)
+    )
+    bus.send(
+        from_name=f"Meeting [{meeting_id}]",
+        to_name=agent_name,
+        content=msg,
+        message_type="meeting_ended",
+    )
+    _auto_wake_if_idle(agent_name)
 
 
 # ───────────────────────────────────────────────────────────────────
@@ -138,10 +214,11 @@ async def create_meeting(
     my_name: str = "",
     workspace_dir: str = "",
 ) -> str:
-    """Create a meeting room and auto-invite all participants.
+    """Create a meeting room — all participants are auto-joined immediately.
 
     🎙️ Meetings are for REAL-TIME discussion — faster than post_message.
-    All participants receive a 🔔 MEETING INVITE and are auto-woken if idle.
+    All participants are auto-joined and the first speaker is notified immediately.
+    No need for participants to call join_meeting.
 
     Use meetings for: kickoff, design review, code review, blocker resolution.
     Use post_message for: task assignments, status updates, async notifications.
@@ -170,7 +247,8 @@ async def create_meeting(
     if len(participant_list) < 2:
         return json.dumps({"error": "Need at least 2 participants"})
 
-    meeting_id = f"mtg_{uuid.uuid4().hex[:8]}"
+    # Short 8-char meeting ID for easy identification
+    meeting_id = uuid.uuid4().hex[:8]
 
     config = {
         "meeting_id": meeting_id,
@@ -181,13 +259,16 @@ async def create_meeting(
         "created_at": datetime.now().isoformat(),
     }
 
+    # Auto-join ALL participants immediately — no join_meeting step
     state: dict[str, Any] = {
         "current_turn": 0,
         "current_round": 1,
-        "joined": [my_name],  # Auto-join the creator
+        "joined": list(participant_list),  # Everyone auto-joined
         "ended": False,
         "outcome": None,
-        "started": False,
+        "started": True,  # Meeting starts immediately
+        "read_cursors": {},  # Per-agent transcript read cursors
+        "turn_started_at": time.time(),
     }
 
     _storage.create_meeting(meeting_id, config, state)
@@ -197,266 +278,39 @@ async def create_meeting(
         f"Meeting created by {my_name}: agenda='{agenda}', "
         f"participants={participant_list}, max_rounds={max_rounds}",
     )
+    _audit(meeting_id, "All participants auto-joined. Meeting started.")
 
     _fire_hook("on_meeting_created", meeting_id, config)
+    _fire_hook("on_meeting_started", meeting_id)
     _fire_hook("on_state_changed", meeting_id, state)
 
-    # ── Auto-invite all participants ──────────────────────────────
-    bus = _get_bus()
-    invited: list[str] = []
-    if bus:
-        participant_names = ", ".join(participant_list)
-        for participant in participant_list:
-            if participant == my_name:
-                continue  # Don't invite self
-            invite_content = (
-                f"🔔 MEETING INVITE\n"
-                f"Agenda: {agenda}\n"
-                f"Meeting ID: {meeting_id}\n"
-                f"Participants: {participant_names}\n"
-                f"Created by: {my_name}\n\n"
-                f'→ To join: join_meeting(meeting_id="{meeting_id}", '
-                f'agent_name="{participant}")\n'
-                f"You will receive a 🎙️ YOUR TURN notification when it's your turn to speak."
-            )
-            bus.send(
-                from_name=my_name,
-                to_name=participant,
-                content=invite_content,
-                message_type="meeting_invite",
-            )
-            _auto_wake_if_idle(participant)
-            invited.append(participant)
-            logger.info("📨 Sent meeting invite to %s for %s", participant, meeting_id)
+    # Notify first speaker with empty transcript
+    first_speaker = participant_list[0]
+    _notify_turn_agent(meeting_id, first_speaker, agenda, 1)
 
-    logger.info("Meeting created: %s — %s (invited %d)", meeting_id, agenda, len(invited))
+    # Inform other participants that meeting started
+    for participant in participant_list:
+        if participant != first_speaker:
+            _notify_meeting_started(meeting_id, participant, agenda, participant_list)
+
+    logger.info("Meeting created: %s — %s (auto-joined %d)",
+                meeting_id, agenda, len(participant_list))
     return json.dumps(
         {
             "meeting_id": meeting_id,
             "agenda": agenda,
             "participants": participant_list,
             "max_rounds": max_rounds,
-            "status": "invites_sent",
-            "invited": invited,
+            "status": "started",
+            "note": "All participants auto-joined. First speaker notified.",
         }
     )
 
 
-@mcp.tool()
-async def join_meeting(meeting_id: str, agent_name: str = "") -> str:
-    """Join an existing meeting. Call after receiving a 🔔 MEETING INVITE.
-
-    When all expected participants have joined, the meeting starts.
-
-    Args:
-        meeting_id: The meeting to join.
-        agent_name: YOUR agent name (e.g. "Hoa - BA"). Auto-detected if empty.
-
-    Returns:
-        JSON with meeting config and join status.
-    """
-    agent_name = agent_name or _get_my_name()
-
-    if not _storage.meeting_exists(meeting_id):
-        return json.dumps({"error": f"Meeting '{meeting_id}' not found"})
-
-    config = _storage.get_config(meeting_id) or {}
-
-    with _storage.acquire_lock(meeting_id) as conn:
-        state = _storage.get_state(meeting_id, _conn=conn) or {}
-
-        if state.get("ended"):
-            return json.dumps(
-                {
-                    "error": "Meeting already ended",
-                    "meeting_id": meeting_id,
-                }
-            )
-
-        joined: list[str] = state.get("joined", [])
-        if agent_name not in joined:
-            joined.append(agent_name)
-            state["joined"] = joined
-
-        participants: list[str] = config.get("participants", [])
-        if agent_name not in participants:
-            participants.append(agent_name)
-            config["participants"] = participants
-            _storage.update_config(meeting_id, config)
-
-        all_joined = all(p in joined for p in participants)
-        if all_joined:
-            state["started"] = True
-            state["turn_started_at"] = time.time()
-
-        _storage.update_state(meeting_id, state, _conn=conn)
-
-    _audit(meeting_id, f"{agent_name} joined the meeting")
-    _fire_hook("on_participant_joined", meeting_id, agent_name, all_joined)
-    _fire_hook("on_state_changed", meeting_id, state)
-
-    if all_joined:
-        first_speaker = participants[0]
-        _audit(
-            meeting_id,
-            f"All participants joined. Meeting started. First turn: {first_speaker}",
-        )
-        _fire_hook("on_meeting_started", meeting_id)
-        # Wake first speaker — even if their wait_for_my_turn already timed out
-        _notify_turn_agent(
-            meeting_id, first_speaker, config.get("agenda", ""), 1
-        )
-
-    return json.dumps(
-        {
-            "status": "joined",
-            "meeting_id": meeting_id,
-            "agenda": config.get("agenda", ""),
-            "participants": config.get("participants", []),
-            "max_rounds": config.get("max_rounds", 3),
-            "all_joined": all_joined,
-            "your_name": agent_name,
-            "note": "You will receive a 🎙️ YOUR TURN inbox notification when it's your turn. Continue other work.",
-        }
-    )
-
-
-@mcp.tool()
-async def wait_for_my_turn(meeting_id: str, agent_name: str = "") -> str:
-    """Check if it's your turn to speak in the meeting.
-
-    This is an INSTANT check — no blocking or polling.
-    You will also receive a 🎙️ YOUR TURN inbox notification
-    automatically when it's your turn, so you don't need to
-    call this repeatedly.
-
-    Args:
-        meeting_id: The meeting to check.
-        agent_name: YOUR agent name. Auto-detected if empty.
-
-    Returns:
-        JSON with status: "your_turn", "not_your_turn", or "meeting_ended".
-    """
-    agent_name = agent_name or _get_my_name()
-
-    if not _storage.meeting_exists(meeting_id):
-        return json.dumps({"error": f"Meeting '{meeting_id}' not found"})
-
-    config = _storage.get_config(meeting_id) or {}
-    participants: list[str] = config.get("participants", [])
-
-    if agent_name not in participants:
-        return json.dumps({"error": (f"'{agent_name}' not in meeting participants: {participants}")})
-
-    my_index = participants.index(agent_name)
-    state = _storage.get_state(meeting_id) or {}
-
-    # Meeting ended?
-    if state.get("ended"):
-        transcript = _storage.get_transcript(meeting_id)
-        cursors: dict[str, int] = state.get("read_cursors", {})
-        last_read = cursors.get(agent_name, 0)
-        unread = transcript[last_read:]
-        return json.dumps(
-            {
-                "status": "meeting_ended",
-                "outcome": state.get("outcome"),
-                "meeting_id": meeting_id,
-                "unread_messages": unread,
-                "unread_count": len(unread),
-            },
-            ensure_ascii=False,
-        )
-
-    # Not started yet?
-    if not state.get("started"):
-        joined = state.get("joined", [])
-        return json.dumps(
-            {
-                "status": "waiting_for_participants",
-                "meeting_id": meeting_id,
-                "joined": joined,
-                "joined_count": len(joined),
-                "total_participants": len(participants),
-                "note": "You will receive a 🎙️ YOUR TURN notification when meeting starts and it's your turn.",
-            }
-        )
-
-    # Is it my turn?
-    current_turn = state.get("current_turn", 0)
-    if current_turn == my_index:
-        return json.dumps(
-            {
-                "status": "your_turn",
-                "round": state.get("current_round", 1),
-                "turn": current_turn,
-                "meeting_id": meeting_id,
-            }
-        )
-
-    # Not my turn
-    current_speaker = (
-        participants[current_turn]
-        if current_turn < len(participants)
-        else "unknown"
-    )
-    return json.dumps(
-        {
-            "status": "not_your_turn",
-            "meeting_id": meeting_id,
-            "current_speaker": current_speaker,
-            "round": state.get("current_round", 1),
-            "note": "You will receive a 🎙️ YOUR TURN notification when it's your turn.",
-        }
-    )
-
-
-@mcp.tool()
-async def get_transcript(meeting_id: str, agent_name: str = "") -> str:
-    """Get NEW (unread) transcript messages since your last read.
-
-    Each agent has a read cursor. First call returns the full transcript;
-    subsequent calls return only messages you haven't seen yet.
-    No messages are ever skipped or missed.
-
-    Args:
-        meeting_id: The meeting to get transcript for.
-        agent_name: YOUR agent name. Auto-detected if empty.
-
-    Returns:
-        JSON with new_messages (unread) and total_count.
-    """
-    agent_name = agent_name or _get_my_name()
-
-    if not _storage.meeting_exists(meeting_id):
-        return json.dumps({"error": f"Meeting '{meeting_id}' not found"})
-
-    config = _storage.get_config(meeting_id) or {}
-    transcript = _storage.get_transcript(meeting_id)
-
-    with _storage.acquire_lock(meeting_id) as conn:
-        state = _storage.get_state(meeting_id, _conn=conn) or {}
-
-        cursors: dict[str, int] = state.get("read_cursors", {})
-        last_read = cursors.get(agent_name, 0)
-        new_messages = transcript[last_read:]
-
-        # Advance cursor — agent has now "seen" everything up to this point
-        cursors[agent_name] = len(transcript)
-        state["read_cursors"] = cursors
-        _storage.update_state(meeting_id, state, _conn=conn)
-
-    return json.dumps(
-        {
-            "meeting_id": meeting_id,
-            "agenda": config.get("agenda", ""),
-            "current_round": state.get("current_round", 1),
-            "new_messages": new_messages,
-            "new_count": len(new_messages),
-            "total_count": len(transcript),
-        },
-        ensure_ascii=False,
-    )
+# ── REMOVED TOOLS ──
+# join_meeting: Replaced by auto-join in create_meeting
+# wait_for_my_turn: Replaced by transcript auto-push via _notify_turn_agent
+# get_transcript: Replaced by transcript embedded in notifications
 
 
 @mcp.tool()
@@ -676,6 +530,12 @@ async def speak(meeting_id: str, message: str, agent_name: str = "") -> str:
     for hook_args in deferred_hooks:
         _fire_hook(*hook_args)
 
+    # ── Send meeting-ended notifications if meeting just ended ──
+    if result_json is not None and state.get("ended"):
+        agenda = config.get("agenda", "")
+        for participant in participants:
+            _notify_meeting_ended(meeting_id, participant, agenda)
+
     # Early-return results (verdict / max_rounds)
     if result_json is not None:
         return result_json
@@ -807,6 +667,12 @@ async def skip_turn(meeting_id: str, agent_name: str = "", reason: str = "") -> 
     for hook_args in deferred_hooks:
         _fire_hook(*hook_args)
 
+    # ── Send meeting-ended notifications if meeting just ended ──
+    if result_json is not None and state.get("ended"):
+        agenda = config.get("agenda", "")
+        for participant in participants:
+            _notify_meeting_ended(meeting_id, participant, agenda)
+
     if result_json is not None:
         return result_json
 
@@ -904,19 +770,23 @@ async def add_participant(meeting_id: str, agent_name: str) -> str:
         config["participants"] = participants
         _storage.update_config(meeting_id, config)
 
-    # Auto-invite the new participant
+    # Auto-join the new participant and notify
+    with _storage.acquire_lock(meeting_id) as conn:
+        state_join = _storage.get_state(meeting_id, _conn=conn) or {}
+        joined = state_join.get("joined", [])
+        if agent_name not in joined:
+            joined.append(agent_name)
+            state_join["joined"] = joined
+            _storage.update_state(meeting_id, state_join, _conn=conn)
+
     bus = _get_bus()
     if bus:
         agenda = config.get("agenda", "")
         invite_content = (
-            f"🔔 MEETING INVITE (mid-meeting)\n"
+            f"📋 You've been added to Meeting [{meeting_id}] (mid-meeting).\n"
             f"Agenda: {agenda}\n"
-            f"Meeting ID: {meeting_id}\n"
-            f"You were added to an ongoing meeting.\n\n"
-            f'→ join_meeting(meeting_id="{meeting_id}", '
-            f'agent_name="{agent_name}")\n'
-            f'→ wait_for_my_turn(meeting_id="{meeting_id}", '
-            f'agent_name="{agent_name}")'
+            f"Participants: {', '.join(participants)}\n\n"
+            f"You will receive a 🎙️ YOUR TURN notification when it's your turn to speak."
         )
         bus.send(
             from_name=_get_my_name(),

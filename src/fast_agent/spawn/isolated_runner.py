@@ -353,6 +353,56 @@ def create_child_config(
 
 
 
+async def _save_agent_context_snapshot(
+    agent: Any,
+    run_id: str,
+    agent_name: str,
+    trigger: str,
+) -> None:
+    """Save agent context window to SQLite — never raises.
+
+    Uses lazy imports so isolated_runner works standalone without
+    the Jarvis backend's core.database module.
+    Uses SPAWN_REGISTRY_DB env var (absolute path) for DB access —
+    safe even after os.chdir() to workspace.
+    """
+    try:
+        import os as _os
+        import sys as _sys
+        from services.context_persistence import save_agent_context
+
+        # Extract the actual child agent from AgentApp container.
+        # AgentApp supports __getitem__ but is NOT a dict — so the old
+        # isinstance(agent, dict) check always returned False, passing
+        # the AgentApp itself which has no message_history.
+        child_agent = agent
+        try:
+            child_agent = agent["child"]
+        except (KeyError, TypeError):
+            pass  # Already a raw agent or doesn't support __getitem__
+
+        _sys.stderr.write(
+            f"@@CONTEXT@@ Saving context for {agent_name} "
+            f"trigger={trigger} has_history={hasattr(child_agent, 'message_history')} "
+            f"msg_count={len(getattr(child_agent, 'message_history', []) or [])}\n"
+        )
+        _sys.stderr.flush()
+
+        await save_agent_context(
+            child_agent,
+            run_id,
+            trigger=trigger,
+            agent_name=agent_name,
+            session_id=_os.environ.get("TEAM_SESSION_ID"),
+            team_name=_os.environ.get("TEAM_MY_ROLE", ""),
+        )
+    except Exception as _ctx_exc:
+        import sys as _sys
+        _sys.stderr.write(f"@@CONTEXT@@ Save FAILED ({trigger}): {_ctx_exc}\n")
+        _sys.stderr.flush()
+        logger.warning("[CONTEXT] Save failed (%s): %s", trigger, _ctx_exc)
+
+
 async def run_child_agent(
     config: dict[str, Any],
     project_dir: str | Path,
@@ -504,6 +554,11 @@ async def run_child_agent(
                     sys.stderr.flush()
                     raise
 
+                # ── Save context window after task completion ──
+                await _save_agent_context_snapshot(
+                    agent, event_run_id, agent_name, "task_complete"
+                )
+
                 # ── Keep-alive: wait for inbox messages via AgentChannel ──
                 import sys as _sys
                 _team_name_env = os.environ.get("TEAM_MY_NAME", "")
@@ -590,6 +645,12 @@ async def run_child_agent(
                                 message_count=len(unread),
                             )
                             response = await agent.send(follow_up)
+
+                            # ── Save context window after keep-alive response ──
+                            await _save_agent_context_snapshot(
+                                agent, event_run_id, agent_name, "idle"
+                            )
+
                             emit_event(
                                 "idle",
                                 event_run_id,
@@ -664,12 +725,13 @@ def _emit_runtime_config(agent_app: Any, run_id: str, role: str) -> None:
         # Resolved instruction (after _apply_instruction_templates)
         resolved_instruction = getattr(child_agent, "_instruction", "") or ""
 
-        # Skill manifests
+        # Skill manifests (name + description + body content)
         skills_data = []
         for m in getattr(child_agent, "_skill_manifests", []):
             skills_data.append({
                 "name": m.name,
                 "description": getattr(m, "description", "") or "",
+                "content": getattr(m, "body", "") or "",
             })
 
         # Per-server tool map

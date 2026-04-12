@@ -79,42 +79,23 @@ def parse_recipients(value: str) -> list[str]:
 
 
 def get_project_registry() -> "SpawnRegistry | None":
-    """Get the PROJECT-level spawn registry (not workspace-level).
+    """Get the PROJECT-level spawn registry via SPAWN_REGISTRY_DB (SQLite).
 
-    Child processes (like PM) have TEAM_WORKSPACE pointing to their workspace
-    inside .runtime/data/workspaces/. Walking up from there finds the
-    workspace's own .runtime — which has an EMPTY registry.
-
-    The correct registry is at SPAWN_PROJECT_DIR/.runtime/state/spawn_registry.json.
+    Single source of truth: the SQLite database at SPAWN_REGISTRY_DB.
+    This env var is propagated to all MCP server subprocesses via config_reader.
     """
     from fast_agent.spawn.spawn_registry import SpawnRegistry
 
-    # Priority 1: SPAWN_PROJECT_DIR (always correct for spawned agents)
-    project_dir = os.environ.get("SPAWN_PROJECT_DIR", "")
-    if project_dir:
-        path = Path(project_dir) / ".runtime" / "state" / "spawn_registry.json"
-        if path.exists():
-            return SpawnRegistry(str(path))
-        logger.debug(
-            "Project registry not found at %s (SPAWN_PROJECT_DIR=%s)",
-            path, project_dir,
-        )
-
-    # Fallback: workspace-level registry (for non-team agents)
-    workspace = os.environ.get("TEAM_WORKSPACE", "")
-    if workspace:
-        path = Path(workspace) / ".runtime" / "state" / "spawn_registry.json"
-        if path.exists():
-            return SpawnRegistry(str(path))
-        logger.debug(
-            "Workspace registry not found at %s (TEAM_WORKSPACE=%s)",
-            path, workspace,
-        )
+    db_path = os.environ.get("SPAWN_REGISTRY_DB", "")
+    if db_path:
+        try:
+            return SpawnRegistry(db_path)
+        except Exception as e:
+            logger.warning("Failed to open SQLite registry at %s: %s", db_path, e)
 
     logger.warning(
-        "No spawn registry found. SPAWN_PROJECT_DIR=%s, TEAM_WORKSPACE=%s",
-        os.environ.get("SPAWN_PROJECT_DIR", "(unset)"),
-        os.environ.get("TEAM_WORKSPACE", "(unset)"),
+        "No spawn registry found. SPAWN_REGISTRY_DB=%s",
+        os.environ.get("SPAWN_REGISTRY_DB", "(unset)"),
     )
     return None
 

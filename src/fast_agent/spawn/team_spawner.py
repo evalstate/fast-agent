@@ -34,6 +34,61 @@ logger = logging.getLogger(__name__)
 # Global team sessions store
 _team_sessions: dict[str, TeamSession] = {}
 
+# ───────────────────────────────────────────────────────────
+# Random Agent Naming
+# ───────────────────────────────────────────────────────────
+
+# Pool of Vietnamese first names (no diacritics for compatibility)
+_AGENT_NAME_POOL = [
+    "An", "Bao", "Chi", "Dung", "Giang", "Hai", "Hung", "Khanh",
+    "Lam", "Long", "Mai", "Nam", "Ngoc", "Phong", "Phuc", "Quan",
+    "Son", "Tam", "Thao", "Thien", "Thinh", "Toan", "Trung", "Tuan",
+    "Vinh", "Vu", "Xuan", "Yen", "Dat", "Ha", "Hieu", "Hoang",
+    "Huong", "Khoa", "Lan", "Loc", "Minh", "Nhat", "Oanh", "Phuong",
+    "Quang", "Tai", "Thanh", "Thuy", "Tien", "Trang", "Tram", "Vy",
+    "Khoi", "Binh",
+]
+
+
+def _generate_unique_agent_name(
+    role_display: str,
+    registry: "SpawnRegistry",
+) -> str:
+    """Generate a unique agent name: '{RandomName} [{Role}]'.
+
+    Checks active agents in registry to avoid name collision.
+    Falls back to name+number if pool is exhausted.
+    """
+    import random
+
+    # Collect all active agent names from registry
+    try:
+        active_names = {r.agent_name for r in registry.list_active()}
+    except Exception:
+        active_names = set()
+
+    # Also check names already used in current in-memory team sessions
+    for session in _team_sessions.values():
+        for agent_info in session.agents.values():
+            active_names.add(agent_info.get("agent_name", ""))
+
+    available = [
+        n for n in _AGENT_NAME_POOL
+        if f"{n} [{role_display}]" not in active_names
+    ]
+    if available:
+        name = random.choice(available)
+        return f"{name} [{role_display}]"
+
+    # Fallback: append number
+    for i in range(1, 100):
+        candidate = f"{random.choice(_AGENT_NAME_POOL)}{i} [{role_display}]"
+        if candidate not in active_names:
+            return candidate
+
+    # Ultimate fallback
+    return f"Agent{uuid.uuid4().hex[:4]} [{role_display}]"
+
 
 # ───────────────────────────────────────────────────────────
 # Template I/O
@@ -171,10 +226,15 @@ class TeamSession:
 
         lines.append("")
         lines.append("## Communication Tools")
-        lines.append("Use `send_email(to=\"Agent Name\", body=\"...\", subject=\"...\")` to send async emails to any teammate.")
-        lines.append("Use `read_email()` to check your inbox for emails from teammates.")
+        lines.append("Use `send_email(to=\"Agent Name\", body=\"...\", subject=\"...\")` to contact teammates.")
+        lines.append("Emails from teammates are **auto-delivered** to your context — no need to poll.")
         lines.append("Use `check_teammate_status(agent_name=\"Agent Name\")` to check if a teammate is done.")
         lines.append("Use `create_meeting(participants=\"Agent Name 1, Agent Name 2\", agenda=\"...\")` for real-time discussions (use agent names, not role keys).")
+        lines.append("")
+        lines.append("## Waiting for Dependencies")
+        lines.append("If you need output from a teammate, send a request email specifying what you need:")
+        lines.append("`send_email(to=\"Agent Name\", body=\"Please send me [deliverable] when ready\", subject=\"[WAITING] ...\")`")
+        lines.append("Then continue other work. When they deliver, the email will arrive in your context automatically.")
 
         if is_orchestrator and available_roles:
             lines.append("")
@@ -237,6 +297,7 @@ def _build_team_env(
     my_role: str,
     my_name: str = "",
     session_id: str = "",
+    session: "TeamSession | None" = None,
 ) -> dict[str, str]:
     """Build environment variables for team agent."""
     env = {
@@ -259,15 +320,26 @@ def _build_team_env(
         messages_dir.mkdir(parents=True, exist_ok=True)
         env["TEAM_MESSAGES_DIR"] = str(messages_dir)
 
-    # Provide team config with agent_name -> role mapping for communication
+    # Provide team config with resolved agent_name → role mapping
     team_config: dict[str, Any] = {}
-    for rname, rcfg in roles.items():
-        if isinstance(rcfg, dict):
+    if session:
+        # Use session's resolved names (random unique names)
+        for agent_name, agent_info in session.agents.items():
+            rname = agent_info.get("role", "")
+            rcfg = roles.get(rname, {}) if isinstance(roles.get(rname), dict) else {}
             team_config[rname] = {
-                "agent_name": rcfg.get("agent_name", f"Agent - {rname.upper()}"),
+                "agent_name": agent_name,
                 "instruction": rcfg.get("instruction", ""),
                 "servers": rcfg.get("servers", []),
             }
+    else:
+        for rname, rcfg in roles.items():
+            if isinstance(rcfg, dict):
+                team_config[rname] = {
+                    "agent_name": rcfg.get("agent_name", f"Agent - {rname.upper()}"),
+                    "instruction": rcfg.get("instruction", ""),
+                    "servers": rcfg.get("servers", []),
+                }
     env["TEAM_ROLES_CONFIG"] = json.dumps(team_config)
     return env
 
@@ -398,13 +470,15 @@ async def spawn_team(
 
     # Pre-register all agents: orchestrator as 'pending', others as 'available'
     for role_name, role_config in roles.items():
-        agent_name = role_config.get("agent_name", f"Agent - {role_name.upper()}")
+        role_display = role_config.get("role_display", role_name.upper())
+        agent_name = _generate_unique_agent_name(role_display, registry)
         run_id = f"team_{session_id}_{role_name}_{uuid.uuid4().hex[:6]}"
         status = "pending" if role_name == orchestrator_role else "available"
         session.agents[agent_name] = {
             "run_id": run_id,
             "role": role_name,
             "agent_name": agent_name,
+            "role_display": role_display,
             "instruction": role_config.get("instruction", ""),
             "status": status,
         }
@@ -466,7 +540,17 @@ async def _spawn_single_agent(
     spawn_lifecycle_hooks: SpawnLifecycleHooks | None = None,
 ) -> str:
     """Spawn a single team agent. Returns run_id."""
-    agent_name = role_config.get("agent_name", f"Agent - {role_name.upper()}")
+    # Use the pre-generated unique name from the session
+    # (assigned during spawn_team pre-registration)
+    agent_name = None
+    for name, info in session.agents.items():
+        if info.get("role") == role_name:
+            agent_name = name
+            break
+    if not agent_name:
+        role_display = role_config.get("role_display", role_name.upper())
+        agent_name = _generate_unique_agent_name(role_display, registry)
+
     task = role_config.get("task", project_brief)
 
     # If first_task provided, prepend it as agents' #1 priority
@@ -474,21 +558,15 @@ async def _spawn_single_agent(
         task = (
             f"⚠️ FIRST TASK — Execute IMMEDIATELY before anything else:\n"
             f"{first_task}\n"
-            f"Do NOT explore the workspace or read_email before completing this task.\n\n"
+            f"Do NOT explore the workspace before completing this task.\n\n"
             f"--- MAIN TASK (after first task is done) ---\n"
             + task
         )
     else:
-        # Idle-first: agent starts by checking inbox for pending assignments
-        # New messages are pushed via RTAC (InboxWatcherHook) automatically
-        task = (
-            f"📋 STARTUP — Check for pending assignments before starting:\n"
-            f"1. Check your inbox for any pending tasks or meeting invites\n"
-            f"2. If you have urgent messages, handle them first\n"
-            f"3. Otherwise, proceed with your main task below\n\n"
-            f"--- MAIN TASK ---\n"
-            + task
-        )
+        # No first_task: just use the main task directly.
+        # Email notifications are pushed via RTAC (InboxWatcherHook) automatically,
+        # so agents don't need to poll their inbox on startup.
+        task = f"--- MAIN TASK ---\n" + task
     instruction = role_config.get("instruction", f"You are {agent_name}.")
     instruction = instruction.replace("{agent_name}", agent_name)
     servers = list(role_config.get("servers", ["filesystem"]))
@@ -511,7 +589,7 @@ async def _spawn_single_agent(
     roles = session.template.get("roles", {})
     team_env = _build_team_env(
         workspace, roles, role_name, my_name=agent_name,
-        session_id=session.session_id,
+        session_id=session.session_id, session=session,
     )
 
     logger.info(
@@ -596,9 +674,18 @@ async def spawn_team_members_for_session(
             }
             continue
 
-        # Check if already spawned
+        # Check if already spawned — find agent by role in session
         role_config = template_roles[role_name]
-        agent_name = role_config.get("agent_name", f"Agent - {role_name.upper()}")
+        agent_name = None
+        for name, info in session.agents.items():
+            if info.get("role") == role_name:
+                agent_name = name
+                break
+        if not agent_name:
+            # Agent for this role wasn't pre-registered — generate a new name
+            role_display = role_config.get("role_display", role_name.upper())
+            agent_name = _generate_unique_agent_name(role_display, registry)
+
         existing = session.agents.get(agent_name, {})
         if existing.get("status") not in ("available", None):
             results[role_name] = {
