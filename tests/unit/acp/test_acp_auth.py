@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
@@ -22,6 +23,9 @@ if TYPE_CHECKING:
 class _Agent:
     instruction = ""
     acp_commands: dict[str, object] = {}
+
+    def __init__(self) -> None:
+        self.config = SimpleNamespace(default=False, model=None)
 
 
 class _AuthAgent(_Agent):

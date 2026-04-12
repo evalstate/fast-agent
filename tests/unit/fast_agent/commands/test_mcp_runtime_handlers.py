@@ -299,7 +299,7 @@ class _UnsupportedSessionClientStub(_SessionClientStub):
 
 class _SessionAgent:
     def __init__(self) -> None:
-        self.aggregator = type("_Aggregator", (), {"experimental_sessions": _SessionClientStub()})()
+        self.experimental_sessions = _SessionClientStub()
 
 
 class _SessionProvider(_Provider):
@@ -310,11 +310,7 @@ class _SessionProvider(_Provider):
 
 class _MultiServerSessionAgent:
     def __init__(self) -> None:
-        self.aggregator = type(
-            "_Aggregator",
-            (),
-            {"experimental_sessions": _MultiServerSessionClientStub()},
-        )()
+        self.experimental_sessions = _MultiServerSessionClientStub()
 
 
 class _MultiServerSessionProvider(_Provider):
@@ -325,11 +321,7 @@ class _MultiServerSessionProvider(_Provider):
 
 class _UnsupportedSessionAgent:
     def __init__(self) -> None:
-        self.aggregator = type(
-            "_Aggregator",
-            (),
-            {"experimental_sessions": _UnsupportedSessionClientStub()},
-        )()
+        self.experimental_sessions = _UnsupportedSessionClientStub()
 
 
 class _UnsupportedSessionProvider(_Provider):
@@ -369,11 +361,7 @@ class _LongPathSessionClientStub(_SessionClientStub):
 
 class _LongPathSessionAgent:
     def __init__(self) -> None:
-        self.aggregator = type(
-            "_Aggregator",
-            (),
-            {"experimental_sessions": _LongPathSessionClientStub()},
-        )()
+        self.experimental_sessions = _LongPathSessionClientStub()
 
 
 class _LongPathSessionProvider(_Provider):
@@ -405,11 +393,7 @@ class _InvalidatedSessionClientStub(_SessionClientStub):
 
 class _InvalidatedSessionAgent:
     def __init__(self) -> None:
-        self.aggregator = type(
-            "_Aggregator",
-            (),
-            {"experimental_sessions": _InvalidatedSessionClientStub()},
-        )()
+        self.experimental_sessions = _InvalidatedSessionClientStub()
 
 
 class _InvalidatedSessionProvider(_Provider):

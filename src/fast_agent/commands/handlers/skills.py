@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from rich.text import Text
 
@@ -51,6 +51,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from fast_agent.commands.context import CommandContext
+    from fast_agent.interfaces import AgentProtocol
     from fast_agent.skills.models import SkillUpdateInfo
 
 
@@ -372,11 +373,12 @@ async def handle_list_skills(ctx: CommandContext, *, agent_name: str) -> Command
     )
 
     agent_obj = ctx.agent_provider._agent(agent_name)
-    config = getattr(agent_obj, "config", None)
-    if not config or getattr(config, "skills", SKILLS_DEFAULT) is SKILLS_DEFAULT:
+    agent_obj = cast("AgentProtocol", agent_obj)
+    config = agent_obj.config
+    if config.skills is SKILLS_DEFAULT:
         return outcome
 
-    manifests = list(getattr(config, "skill_manifests", []) or [])
+    manifests = list(config.skill_manifests or [])
     sources = _get_agent_skill_override_sources(manifests)
     outcome.add_message(
         _format_agent_skills_override(manifests, source_paths=sources),

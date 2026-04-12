@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
 import pytest
 
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.core.fastagent import AgentInstance
+from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.request_params import RequestParams
 
 if TYPE_CHECKING:
@@ -18,6 +20,10 @@ if TYPE_CHECKING:
 class _Agent:
     acp_commands = {}
 
+    def __init__(self) -> None:
+        self.config = SimpleNamespace(model=None)
+        self.llm = None
+
 
 class _FastModeLlm:
     service_tier_supported = True
@@ -27,11 +33,19 @@ class _FastModeLlm:
         self.service_tier: str | None = None
         self.reasoning_effort_spec = None
         self.text_verbosity_spec = None
+        self.text_verbosity = None
         self.web_search_supported = False
         self.web_fetch_supported = False
-        self.provider = "responses"
+        self.web_search_enabled = False
+        self.web_fetch_enabled = False
+        self.service_tier_supported = True
+        self.available_service_tiers = ("fast", "flex")
+        self.resolved_model = None
+        self.provider = Provider.RESPONSES
         self.model_name = "gpt-5"
         self.default_request_params = RequestParams()
+        self.configured_transport = None
+        self.active_transport = None
 
     def set_service_tier(self, value: str | None) -> None:
         self.service_tier = value

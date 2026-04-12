@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, TypeVar
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
+    from fast_agent.interfaces import AgentProtocol
+
 T = TypeVar("T")
 
 
@@ -13,9 +15,8 @@ def _never_tool_only(name: str, agent: T) -> bool:
     return False
 
 
-def agent_is_default(agent: object) -> bool:
-    config = getattr(agent, "config", None)
-    return bool(getattr(config, "default", False))
+def agent_is_default(agent: "AgentProtocol") -> bool:
+    return bool(agent.config.default)
 
 
 def resolve_default_agent_name(

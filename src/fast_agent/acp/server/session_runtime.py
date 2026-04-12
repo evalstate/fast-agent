@@ -55,6 +55,7 @@ if TYPE_CHECKING:
     from fast_agent.config import MCPServerSettings
     from fast_agent.core.agent_app import AgentApp
     from fast_agent.core.fastagent import AgentInstance
+    from fast_agent.core.instruction_refresh import ConfiguredMcpInstructionCapable
     from fast_agent.mcp.mcp_aggregator import MCPAttachResult, MCPDetachResult
 
 logger = get_logger(__name__)
@@ -484,9 +485,13 @@ class ACPServerSessionRuntime:
         skill_read_tool_name = "read_skill"
         effective_context = dict(context)
         if isinstance(agent, McpInstructionCapable):
+            configured_agent = cast("ConfiguredMcpInstructionCapable", agent)
             aggregator = agent.aggregator
-            skill_manifests = resolve_instruction_skill_manifests(agent, agent.skill_manifests)
-            skill_read_tool_name = agent.skill_read_tool_name
+            skill_manifests = resolve_instruction_skill_manifests(
+                configured_agent,
+                configured_agent.skill_manifests,
+            )
+            skill_read_tool_name = configured_agent.skill_read_tool_name
             if agent.instruction_context:
                 effective_context = dict(agent.instruction_context)
 

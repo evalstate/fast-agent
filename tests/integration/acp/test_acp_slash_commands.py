@@ -8,6 +8,7 @@ import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
@@ -15,6 +16,7 @@ from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, Te
 
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.commands.context import StaticAgentProvider
 from fast_agent.config import get_settings, update_global_settings
 from fast_agent.constants import (
     ANTHROPIC_ASSISTANT_RAW_CONTENT,
@@ -57,6 +59,9 @@ class StubAgent:
     popped: bool = False
     agent_type: AgentType = AgentType.BASIC
     name: str = "test-agent"
+    context: Any = None
+    usage_accumulator: Any = None
+    config: Any = field(default_factory=lambda: SimpleNamespace(model=None))
 
     def clear(self, clear_prompts: bool = False) -> None:
         self.cleared = True
@@ -68,10 +73,24 @@ class StubAgent:
             return None
         return self.message_history.pop()
 
+    def load_message_history(self, messages: list[Any]) -> None:
+        self.message_history = list(messages)
+
+
+class _StubAppProvider(StaticAgentProvider):
+    def __init__(self, agents: dict[str, object]) -> None:
+        super().__init__(agents)
+        self.card_collision_warnings: list[str] = []
+
 
 @dataclass
 class StubAgentInstance:
     agents: dict[str, Any] = field(default_factory=dict)
+    app: Any = None
+
+    def __post_init__(self) -> None:
+        if self.app is None:
+            self.app = _StubAppProvider(self.agents)
 
 
 def _handler(
@@ -143,9 +162,16 @@ async def test_slash_command_available_commands_model_hint_is_dynamic() -> None:
     class _LlmStub:
         model_name = "gpt-5"
         provider = Provider.RESPONSES
+        resolved_model = None
+        default_request_params = None
+        service_tier_supported = False
+        available_service_tiers: tuple[str, ...] = ()
         text_verbosity_spec = None
+        text_verbosity = None
         web_search_supported = True
         web_fetch_supported = False
+        web_search_enabled = False
+        web_fetch_enabled = False
 
     stub_agent = StubAgent(message_history=[], llm=_LlmStub())
     instance = StubAgentInstance(agents={"test-agent": stub_agent})
@@ -264,10 +290,14 @@ async def test_slash_command_model_web_search() -> None:
         def __init__(self) -> None:
             self.model_name = "gpt-5"
             self.provider = Provider.RESPONSES
+            self.resolved_model = None
             self.reasoning_effort_spec = None
             self.reasoning_effort = None
             self.text_verbosity_spec = None
             self.text_verbosity = None
+            self.default_request_params = None
+            self.service_tier_supported = False
+            self.available_service_tiers: tuple[str, ...] = ()
             self.configured_transport = "sse"
             self.active_transport = None
             self.web_search_supported = True
@@ -305,10 +335,14 @@ async def test_slash_command_model_web_fetch_unsupported() -> None:
         def __init__(self) -> None:
             self.model_name = "gpt-5"
             self.provider = Provider.RESPONSES
+            self.resolved_model = None
             self.reasoning_effort_spec = None
             self.reasoning_effort = None
             self.text_verbosity_spec = None
             self.text_verbosity = None
+            self.default_request_params = None
+            self.service_tier_supported = False
+            self.available_service_tiers: tuple[str, ...] = ()
             self.web_search_supported = True
             self.web_fetch_supported = False
 
@@ -625,6 +659,13 @@ async def test_slash_command_history_webclear() -> None:
     """Test that /history webclear strips web metadata channels."""
     class _LlmStub:
         web_tools_enabled = (True, False)
+        web_search_enabled = True
+        web_fetch_enabled = False
+        web_search_supported = True
+        web_fetch_supported = False
+        service_tier_supported = False
+        available_service_tiers: tuple[str, ...] = ()
+        text_verbosity_spec = None
 
     messages = [
         PromptMessageExtended(

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Mapping, Sequence, cast
+from typing import TYPE_CHECKING, Literal, Mapping, Protocol, Sequence, cast, runtime_checkable
 
 if TYPE_CHECKING:
+    from fast_agent.agents.agent_types import AgentConfig
     from fast_agent.cli.runtime.run_request import ExecutionMode
     from fast_agent.core.agent_card_types import AgentCardData
 
@@ -33,6 +34,16 @@ class ShellCwdCreationError:
 
     path: Path
     message: str
+
+
+@runtime_checkable
+class ShellRuntimeConfiguredAgent(Protocol):
+    """Runtime agent surface required for shell cwd validation."""
+
+    @property
+    def shell_runtime_enabled(self) -> bool: ...
+
+    config: "AgentConfig"
 
 
 def resolve_missing_shell_cwd_policy(
@@ -139,11 +150,10 @@ def collect_shell_cwd_issues_from_runtime_agents(
 
     for agent_name in sorted(agents):
         agent = agents[agent_name]
-        if not bool(getattr(agent, "shell_runtime_enabled", False)):
+        if not isinstance(agent, ShellRuntimeConfiguredAgent) or not agent.shell_runtime_enabled:
             continue
 
-        config = getattr(agent, "config", None)
-        configured_cwd = getattr(config, "cwd", None)
+        configured_cwd = agent.config.cwd
         if not isinstance(configured_cwd, Path):
             continue
 

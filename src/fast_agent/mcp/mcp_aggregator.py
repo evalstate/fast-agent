@@ -145,16 +145,6 @@ def _is_capability_probe_error(exc: Exception) -> bool:
     return False
 
 
-def _resolve_capability_value(
-    capabilities: ServerCapabilities | object,
-    feature: Literal["prompts", "resources", "tools", "completions", "tasks"],
-) -> object | None:
-    try:
-        return capabilities.__getattribute__(feature)
-    except AttributeError:
-        return None
-
-
 class NamespacedTool(BaseModel):
     """
     A tool that is namespaced by server name.
@@ -1159,7 +1149,13 @@ class MCPAggregator(ContextDependent):
         if not capabilities:
             return False
 
-        feature_value = _resolve_capability_value(capabilities, feature)
+        feature_value = {
+            "prompts": capabilities.prompts,
+            "resources": capabilities.resources,
+            "tools": capabilities.tools,
+            "completions": capabilities.completions,
+            "tasks": capabilities.tasks,
+        }[feature]
         if isinstance(feature_value, bool):
             return feature_value
         if feature_value is None:

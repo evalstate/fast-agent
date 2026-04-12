@@ -6,7 +6,7 @@ import os
 import shlex
 from collections import Counter
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from rich.text import Text
 
@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from fast_agent.commands.context import CommandContext
+    from fast_agent.interfaces import AgentProtocol
 
 _PROVIDER_NAME_ALIASES: dict[str, str] = {
     "hf": "huggingface",
@@ -182,9 +183,10 @@ def _build_agent_model_rows(
         except Exception:
             continue
 
-        config = getattr(agent, "config", None)
+        agent = cast("AgentProtocol", agent)
+        config = agent.config
 
-        specified = _safe_stripped(getattr(config, "model", None))
+        specified = _safe_stripped(config.model)
         effective_spec = specified or _safe_stripped(default_model)
         specified_display = specified or "<default>"
 

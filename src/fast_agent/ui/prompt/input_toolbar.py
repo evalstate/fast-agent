@@ -5,12 +5,11 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from prompt_toolkit.formatted_text import HTML
 
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
-from fast_agent.interfaces import LlmCapableProtocol
 from fast_agent.llm.model_display_name import resolve_model_display_name
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.llm.provider_types import Provider
@@ -39,7 +38,8 @@ from fast_agent.ui.web_search_display import render_web_search_indicator
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
-    from fast_agent.interfaces import FastAgentLLMProtocol
+    from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol
+    from fast_agent.llm.usage_tracking import UsageAccumulator
 
 
 @dataclass(slots=True)
@@ -134,7 +134,7 @@ def render_input_toolbar(
         _resolve_attachment_summary(
             current_input_text=current_input_text,
             model_name=agent_state.model_name,
-            provider=getattr(active_llm, "provider", None),
+            provider=active_llm.provider if active_llm is not None else None,
             cwd=shell_state.working_dir,
             cache=cache,
         )
@@ -297,7 +297,7 @@ def _resolve_toolbar_agent_state_cached(
 
 
 def _build_toolbar_agent_state(
-    agent: object | None, *, llm: "FastAgentLLMProtocol | None"
+    agent: AgentProtocol | None, *, llm: "FastAgentLLMProtocol | None"
 ) -> ToolbarAgentState:
     if agent is None:
         return ToolbarAgentState()
@@ -326,7 +326,7 @@ def _build_toolbar_agent_state(
 
 
 def _build_toolbar_agent_state_cache_key(
-    agent: object | None,
+    agent: AgentProtocol | None,
     *,
     llm: "FastAgentLLMProtocol | None",
 ) -> tuple[object, ...] | None:
@@ -334,29 +334,29 @@ def _build_toolbar_agent_state_cache_key(
         return None
 
     model_name = _resolve_model_name(agent, llm)
-    message_history = getattr(agent, "message_history", None)
-    if isinstance(message_history, list):
-        history_len = len(message_history)
-        last_message_id = id(message_history[-1]) if message_history else None
-    else:
-        history_len = None
-        last_message_id = None
+    message_history = agent.message_history
+    history_len = len(message_history)
+    last_message_id = id(message_history[-1]) if message_history else None
 
-    usage_accumulator = getattr(agent, "usage_accumulator", None)
+    usage_accumulator = agent.usage_accumulator
     return (
         id(agent),
         id(llm) if llm is not None else None,
         model_name,
         history_len,
         last_message_id,
-        _safe_cache_value(getattr(usage_accumulator, "turn_count", None)),
-        _safe_cache_value(getattr(usage_accumulator, "current_context_tokens", None)),
-        _safe_cache_value(getattr(usage_accumulator, "context_window_size", None)),
-        _safe_cache_value(getattr(llm, "reasoning_effort", None)),
-        _safe_cache_value(getattr(llm, "text_verbosity", None)),
-        _safe_cache_value(getattr(llm, "service_tier", None)),
-        _safe_cache_value(getattr(llm, "web_search_enabled", None)),
-        _safe_cache_value(getattr(llm, "web_fetch_enabled", None)),
+        _safe_cache_value(usage_accumulator.turn_count if usage_accumulator is not None else None),
+        _safe_cache_value(
+            usage_accumulator.current_context_tokens if usage_accumulator is not None else None
+        ),
+        _safe_cache_value(
+            usage_accumulator.context_window_size if usage_accumulator is not None else None
+        ),
+        _safe_cache_value(llm.reasoning_effort if llm is not None else None),
+        _safe_cache_value(llm.text_verbosity if llm is not None else None),
+        _safe_cache_value(llm.service_tier if llm is not None else None),
+        _safe_cache_value(llm.web_search_enabled if llm is not None else None),
+        _safe_cache_value(llm.web_fetch_enabled if llm is not None else None),
         _parallel_fan_out_model_cache_key(agent),
     )
 
@@ -367,14 +367,14 @@ def _safe_cache_value(value: object) -> object:
     return repr(value)
 
 
-def _parallel_fan_out_model_cache_key(agent: object) -> tuple[object, ...] | None:
+def _parallel_fan_out_model_cache_key(agent: AgentProtocol) -> tuple[object, ...] | None:
     if not isinstance(agent, ParallelAgent):
         return None
 
     return tuple(_fan_out_agent_model_cache_key(fan_out_agent) for fan_out_agent in agent.fan_out_agents)
 
 
-def _fan_out_agent_model_cache_key(agent: object) -> tuple[object, ...]:
+def _fan_out_agent_model_cache_key(agent: AgentProtocol) -> tuple[object, ...]:
     llm = _resolve_agent_llm(agent)
     model_name = _resolve_model_name(agent, llm)
     return (
@@ -388,66 +388,56 @@ def _fan_out_agent_model_cache_key(agent: object) -> tuple[object, ...]:
 def _resolve_current_agent(
     agent_provider: "AgentApp | None",
     agent_name: str,
-) -> object | None:
+) -> AgentProtocol | None:
     if agent_provider is None:
         return None
     try:
-        return agent_provider._agent(agent_name)
+        return cast("AgentProtocol", agent_provider._agent(agent_name))
     except Exception:
         return None
 
 
-def _turn_count_for_agent(agent: object) -> int:
-    message_history = getattr(agent, "message_history", [])
-    return sum(1 for message in message_history if getattr(message, "role", None) == "user")
+def _turn_count_for_agent(agent: AgentProtocol) -> int:
+    return sum(1 for message in agent.message_history if message.role == "user")
 
 
-def _usage_context_for_agent(agent: object) -> tuple[float | None, object | None]:
-    usage_accumulator = getattr(agent, "usage_accumulator", None)
+def _usage_context_for_agent(agent: AgentProtocol) -> tuple[float | None, "UsageAccumulator | None"]:
+    usage_accumulator = agent.usage_accumulator
     if usage_accumulator is None:
         return None, None
-    try:
-        return usage_accumulator.context_usage_percentage, usage_accumulator
-    except Exception:
-        return None, usage_accumulator
+    return usage_accumulator.context_usage_percentage, usage_accumulator
 
 
-def _resolve_agent_llm(agent: object) -> "FastAgentLLMProtocol | None":
-    if not isinstance(agent, LlmCapableProtocol):
-        return None
+def _resolve_agent_llm(agent: AgentProtocol) -> "FastAgentLLMProtocol | None":
     return agent.llm
 
 
-def _resolve_model_name(agent: object, llm: object | None) -> str | None:
+def _resolve_model_name(agent: AgentProtocol, llm: "FastAgentLLMProtocol | None") -> str | None:
     if llm is not None:
-        model_name = getattr(llm, "model_name", None)
+        model_name = llm.model_name
         if model_name:
             return model_name
-        default_request_params = getattr(llm, "default_request_params", None)
-        fallback_name = getattr(default_request_params, "model", None)
+        default_request_params = llm.default_request_params
+        fallback_name = default_request_params.model if default_request_params is not None else None
         if fallback_name:
             return fallback_name
 
-    config = getattr(agent, "config", None)
-    model_name = getattr(config, "model", None)
+    config = agent.config
+    model_name = config.model
     if model_name:
         return model_name
 
-    default_request_params = getattr(config, "default_request_params", None)
-    fallback_name = getattr(default_request_params, "model", None)
+    default_request_params = config.default_request_params
+    fallback_name = default_request_params.model if default_request_params is not None else None
     if fallback_name:
         return fallback_name
 
-    try:
-        context = getattr(agent, "context")
-    except Exception:
-        context = None
-    config = getattr(context, "config", None)
-    return getattr(config, "default_model", None)
+    context = agent.context
+    return context.config.default_model if context is not None and context.config is not None else None
 
 
 def _resolve_model_display(
-    agent: object,
+    agent: AgentProtocol,
     model_name: str | None,
     *,
     llm: "FastAgentLLMProtocol | None" = None,
@@ -489,32 +479,27 @@ def _resolve_model_visuals(
     if model_name is None or llm is None:
         return visuals
 
-    visuals.is_codex_responses_model = getattr(llm, "provider", None) == Provider.CODEX_RESPONSES
-    try:
-        visuals.is_overlay_model = getattr(getattr(llm, "resolved_model", None), "overlay", None) is not None
-    except Exception:
-        visuals.is_overlay_model = False
-    try:
-        visuals.model_gauges = _render_model_gauges(
-            llm.reasoning_effort,
-            llm.reasoning_effort_spec,
-            llm.text_verbosity,
-            llm.text_verbosity_spec,
-        )
-        visuals.service_tier_indicator = render_service_tier_indicator(
-            supported=llm.service_tier_supported,
-            service_tier=llm.service_tier,
-        )
-        visuals.web_search_indicator = render_web_search_indicator(
-            supported=llm.web_search_supported,
-            enabled=llm.web_search_enabled,
-        )
-        visuals.web_fetch_indicator = render_web_fetch_indicator(
-            supported=llm.web_fetch_supported,
-            enabled=llm.web_fetch_enabled,
-        )
-    except Exception:
-        return visuals
+    visuals.is_codex_responses_model = llm.provider == Provider.CODEX_RESPONSES
+    resolved_model = llm.resolved_model
+    visuals.is_overlay_model = resolved_model.overlay is not None if resolved_model is not None else False
+    visuals.model_gauges = _render_model_gauges(
+        llm.reasoning_effort,
+        llm.reasoning_effort_spec,
+        llm.text_verbosity,
+        llm.text_verbosity_spec,
+    )
+    visuals.service_tier_indicator = render_service_tier_indicator(
+        supported=llm.service_tier_supported,
+        service_tier=llm.service_tier,
+    )
+    visuals.web_search_indicator = render_web_search_indicator(
+        supported=llm.web_search_supported,
+        enabled=llm.web_search_enabled,
+    )
+    visuals.web_fetch_indicator = render_web_fetch_indicator(
+        supported=llm.web_fetch_supported,
+        enabled=llm.web_fetch_enabled,
+    )
     return visuals
 
 
@@ -537,13 +522,13 @@ def _resolve_context_pct(
 
 
 def _resolve_tdv_segment(
-    agent: object,
+    agent: AgentProtocol,
     model_name: str | None,
     llm: "FastAgentLLMProtocol | None",
 ) -> str | None:
     info = _resolve_model_info(model_name, llm)
     t, d, v = info.tdv_flags if info else (True, False, False)
-    alert_flags = _resolve_alert_flags_from_history(getattr(agent, "message_history", []))
+    alert_flags = _resolve_alert_flags_from_history(agent.message_history)
     return "".join(
         _style_tdv_flag(letter, supported, alert_flags)
         for letter, supported in (("T", t), ("V", v), ("D", d))

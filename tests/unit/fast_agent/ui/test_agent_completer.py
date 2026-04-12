@@ -484,6 +484,8 @@ def test_get_completions_for_model_subcommands_includes_web_fetch_when_supported
     class _LlmStub:
         reasoning_effort_spec = None
         text_verbosity_spec = None
+        service_tier_supported = False
+        available_service_tiers = ()
         web_search_supported = True
         web_fetch_supported = True
 
@@ -561,6 +563,8 @@ def test_get_completions_for_model_web_search_values() -> None:
     class _LlmStub:
         reasoning_effort_spec = None
         text_verbosity_spec = None
+        service_tier_supported = False
+        available_service_tiers = ()
         web_search_supported = True
         web_fetch_supported = False
 
@@ -586,6 +590,8 @@ def test_get_completions_for_model_web_fetch_values_omits_unsupported_setting() 
     class _LlmStub:
         reasoning_effort_spec = None
         text_verbosity_spec = None
+        service_tier_supported = False
+        available_service_tiers = ()
         web_search_supported = True
         web_fetch_supported = False
 

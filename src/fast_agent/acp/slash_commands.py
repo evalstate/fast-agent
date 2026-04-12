@@ -515,29 +515,16 @@ class SlashCommandHandler:
         if self._acp_context is None:
             return None, "workspace", None
 
-        session_cwd: object | None = None
-        try:
-            session_cwd = self._acp_context.session_cwd
-        except AttributeError:
-            session_cwd = None
+        session_cwd = self._acp_context.session_cwd
 
         session_store_scope: Literal["workspace", "app"] = "workspace"
-        try:
-            raw_session_store_scope = self._acp_context.session_store_scope
-        except AttributeError:
-            raw_session_store_scope = None
+        raw_session_store_scope = self._acp_context.session_store_scope
         if raw_session_store_scope == "workspace":
             session_store_scope = "workspace"
         elif raw_session_store_scope == "app":
             session_store_scope = "app"
 
-        session_store_cwd: object | None = None
-        try:
-            session_store_cwd = self._acp_context.session_store_cwd
-        except AttributeError:
-            session_store_cwd = None
-
-        return session_cwd, session_store_scope, session_store_cwd
+        return session_cwd, session_store_scope, self._acp_context.session_store_cwd
 
     def _build_command_context(self) -> CommandContext:
         settings = get_settings()

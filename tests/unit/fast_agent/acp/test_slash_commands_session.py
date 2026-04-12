@@ -80,7 +80,14 @@ async def test_render_session_list_uses_acp_session_cwd(
         instance=instance,
         primary_agent_name="main",
     )
-    handler._acp_context = cast("Any", SimpleNamespace(session_cwd=str(workspace.resolve())))
+    handler._acp_context = cast(
+        "Any",
+        SimpleNamespace(
+            session_cwd=str(workspace.resolve()),
+            session_store_scope="workspace",
+            session_store_cwd=None,
+        ),
+    )
 
     output = session_slash_handlers.render_session_list(handler)
 

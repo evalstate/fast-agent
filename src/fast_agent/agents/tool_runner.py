@@ -9,6 +9,7 @@ from typing import (
     Literal,
     Protocol,
     Union,
+    cast,
 )
 
 from mcp.types import CallToolResult, ContentBlock, ListToolsResult, TextContent
@@ -28,6 +29,8 @@ from fast_agent.types.llm_stop_reason import LlmStopReason
 
 if TYPE_CHECKING:
     from mcp import Tool
+
+    from fast_agent.hooks.hook_context import HookAgentProtocol
 
 
 class _AgentConfig(Protocol):
@@ -272,7 +275,7 @@ class ToolRunner:
             await save_session_history(
                 HookContext(
                     runner=self,
-                    agent=self._agent,
+                    agent=cast("HookAgentProtocol", self._agent),
                     message=message if message is not None else history[-1],
                     hook_type=hook_type,
                     message_history_override=history_override,

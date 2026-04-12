@@ -10,7 +10,16 @@ from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from shutil import get_terminal_size
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal, Protocol, cast
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Awaitable,
+    Callable,
+    Literal,
+    Protocol,
+    cast,
+    runtime_checkable,
+)
 
 from rich.text import Text
 
@@ -21,11 +30,14 @@ from fast_agent.mcp.connect_targets import (
     infer_server_name,
     render_normalized_target,
 )
-from fast_agent.mcp.experimental_session_client import ExperimentalSessionClient, SessionJarEntry
 from fast_agent.mcp.mcp_aggregator import MCPAttachOptions
 
 if TYPE_CHECKING:
     from fast_agent.config import MCPServerSettings
+    from fast_agent.mcp.experimental_session_client import (
+        ExperimentalSessionClient,
+        SessionJarEntry,
+    )
     from fast_agent.mcp.oauth_client import OAuthEvent
 
 
@@ -71,6 +83,12 @@ class SessionClientProtocol(Protocol):
     async def clear_cookie(self, server_identifier: str | None) -> str: ...
 
     async def clear_all_cookies(self) -> list[str]: ...
+
+
+@runtime_checkable
+class SessionClientAgentProtocol(Protocol):
+    @property
+    def experimental_sessions(self) -> ExperimentalSessionClient: ...
 
 
 _AUTH_ENV_BRACED_RE = re.compile(r"^\$\{(?P<name>[A-Za-z_][A-Za-z0-9_]*)(?::(?P<default>.*))?\}$")
@@ -318,33 +336,9 @@ McpSessionAction = Literal["jar", "new", "use", "clear", "list"]
 
 def _resolve_session_client(ctx, *, agent_name: str) -> SessionClientProtocol:
     agent = ctx.agent_provider._agent(agent_name)
-    aggregator = getattr(agent, "aggregator", None)
-    if aggregator is None:
+    if not isinstance(agent, SessionClientAgentProtocol):
         raise RuntimeError(f"Agent '{agent_name}' does not expose an MCP aggregator.")
-
-    client = getattr(aggregator, "experimental_sessions", None)
-    required_methods = (
-        "list_jar",
-        "resolve_server_name",
-        "list_server_cookies",
-        "create_session",
-        "resume_session",
-        "clear_cookie",
-        "clear_all_cookies",
-    )
-    if isinstance(client, ExperimentalSessionClient) or all(
-        hasattr(client, method) for method in required_methods
-    ):
-        return cast("SessionClientProtocol", client)
-
-    # Backward-compatible fallback for older aggregators exposing a different property name.
-    fallback = getattr(aggregator, "session_client", None)
-    if isinstance(fallback, ExperimentalSessionClient) or all(
-        hasattr(fallback, method) for method in required_methods
-    ):
-        return cast("SessionClientProtocol", fallback)
-
-    raise RuntimeError(f"Agent '{agent_name}' does not expose MCP session controls.")
+    return cast("SessionClientProtocol", agent.experimental_sessions)
 
 
 def _render_cookie(cookie: dict[str, Any] | None) -> str:

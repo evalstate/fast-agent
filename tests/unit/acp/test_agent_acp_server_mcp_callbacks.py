@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -16,6 +17,9 @@ if TYPE_CHECKING:
 class _Agent:
     acp_commands: dict[str, object] = {}
     instruction = ""
+
+    def __init__(self) -> None:
+        self.config = SimpleNamespace(default=False, model=None)
 
 
 class _App:

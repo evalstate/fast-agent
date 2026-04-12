@@ -1,4 +1,5 @@
 import os
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -18,6 +19,7 @@ if TYPE_CHECKING:
 
 class _Agent:
     acp_commands = {}
+    instruction = ""
 
     class _SessionClient:
         async def list_jar(self):
@@ -79,12 +81,9 @@ class _Agent:
         async def clear_all_cookies(self):
             return ["local"]
 
-    class _Aggregator:
-        def __init__(self) -> None:
-            self.experimental_sessions = _Agent._SessionClient()
-
     def __init__(self) -> None:
-        self.aggregator = _Agent._Aggregator()
+        self.experimental_sessions = _Agent._SessionClient()
+        self.config = SimpleNamespace(default=False, model=None)
 
 
 class _App:
@@ -171,6 +170,9 @@ class _App:
 class _FakeACPContext:
     def __init__(self) -> None:
         self.updates: list[object] = []
+        self.session_cwd = None
+        self.session_store_scope = "workspace"
+        self.session_store_cwd = None
 
     async def send_session_update(self, update: object) -> None:
         self.updates.append(update)

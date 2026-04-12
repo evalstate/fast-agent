@@ -6,11 +6,13 @@ import json
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
 
 from fast_agent.acp.slash_commands import SlashCommandHandler
+from fast_agent.commands.context import StaticAgentProvider
 from fast_agent.config import get_settings
 
 
@@ -19,11 +21,31 @@ class StubAgent:
     name: str
     message_history: list[Any] = field(default_factory=list)
     llm: Any = None
+    context: Any = None
+    usage_accumulator: Any = None
+    config: Any = field(default_factory=lambda: SimpleNamespace(model=None))
+
+    def clear(self, clear_prompts: bool = False) -> None:
+        self.message_history.clear()
+
+    def load_message_history(self, messages: list[Any]) -> None:
+        self.message_history = list(messages)
+
+
+class _StubAppProvider(StaticAgentProvider):
+    def __init__(self, agents: dict[str, object]) -> None:
+        super().__init__(agents)
+        self.card_collision_warnings: list[str] = []
 
 
 @dataclass
 class StubAgentInstance:
     agents: dict[str, Any] = field(default_factory=dict)
+    app: Any = None
+
+    def __post_init__(self) -> None:
+        if self.app is None:
+            self.app = _StubAppProvider(self.agents)
 
 
 def _handler(instance: StubAgentInstance, agent_name: str) -> SlashCommandHandler:

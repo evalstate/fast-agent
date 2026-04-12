@@ -36,12 +36,29 @@ class _StubAgent:
     message_history: list[_StubMessage]
     usage_accumulator: object | None = None
     _llm: object | None = None
+    context: object | None = None
+
+    @property
+    def llm(self) -> object | None:
+        return self._llm
 
 
 @dataclass
 class _StubLlm:
     model_name: str | None = None
     resolved_model: object | None = None
+    provider: object | None = None
+    default_request_params: object | None = None
+    reasoning_effort: object | None = None
+    reasoning_effort_spec: object | None = None
+    text_verbosity: object | None = None
+    text_verbosity_spec: object | None = None
+    service_tier: object | None = None
+    service_tier_supported: bool = False
+    web_search_supported: bool = False
+    web_search_enabled: bool = False
+    web_fetch_supported: bool = False
+    web_fetch_enabled: bool = False
 
 
 class _StubAgentProvider:
@@ -176,6 +193,7 @@ def test_toolbar_agent_state_cache_invalidates_when_parallel_child_model_changes
     setattr(parallel_agent, "config", _StubConfig(model=None))
     setattr(parallel_agent, "_message_history", [])
     setattr(parallel_agent, "_llm", None)
+    setattr(parallel_agent, "_context", None)
     setattr(parallel_agent, "fan_out_agents", [child])
 
     provider = cast("AgentApp", _StubAgentProvider(parallel_agent))

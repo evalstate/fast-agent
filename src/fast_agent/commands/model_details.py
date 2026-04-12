@@ -157,20 +157,11 @@ def _format_sampling_value(value: object) -> str:
 
 
 def _resolved_model_or_none(llm: FastAgentLLMProtocol) -> "ResolvedModelSpec | None":
-    try:
-        return llm.resolved_model
-    except AttributeError:
-        return None
+    return llm.resolved_model
 
 
 def _provider_value(llm: FastAgentLLMProtocol) -> str:
-    provider = llm.provider
-    if isinstance(provider, str):
-        return provider
-    try:
-        return provider.config_name
-    except AttributeError:
-        return str(provider)
+    return llm.provider.config_name
 
 
 def _iter_model_identity_lines(

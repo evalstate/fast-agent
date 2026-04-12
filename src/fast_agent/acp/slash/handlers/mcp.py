@@ -55,15 +55,9 @@ async def _refresh_acp_instruction_cache(handler: "SlashCommandHandler") -> None
     if not handler._acp_context:
         return
     agent = handler._get_current_agent()
-    instruction: str | None = None
-    if agent is not None:
-        try:
-            instruction = agent.instruction
-        except AttributeError:
-            instruction = None
     await handler._acp_context.invalidate_instruction_cache(
         handler.current_agent_name,
-        instruction,
+        agent.instruction if agent else None,
     )
     await handler._acp_context.send_available_commands_update()
 
@@ -350,15 +344,9 @@ async def _handle_mcp_connect_command(
 
     if handler._acp_context:
         agent = handler._get_current_agent()
-        instruction: str | None = None
-        if agent is not None:
-            try:
-                instruction = agent.instruction
-            except AttributeError:
-                instruction = None
         await handler._acp_context.invalidate_instruction_cache(
             handler.current_agent_name,
-            instruction,
+            agent.instruction if agent else None,
         )
         await handler._acp_context.send_available_commands_update()
     return handler._format_outcome_as_markdown(outcome, heading, io=io)

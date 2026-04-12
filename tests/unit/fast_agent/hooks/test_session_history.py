@@ -62,9 +62,15 @@ class _Agent:
         self.config = SimpleNamespace(tool_only=False, model="passthrough")
         self.context = SimpleNamespace(acp=acp_context)
         self.message_history = history
+        self.usage_accumulator = None
+        self.agent_registry = None
 
     def load_message_history(self, messages: list[PromptMessageExtended] | None) -> None:
         self.message_history = messages or []
+
+    def get_agent(self, name: str):
+        del name
+        return None
 
 
 @pytest.mark.asyncio

@@ -13,6 +13,7 @@ from fast_agent.ui.usage_display import collect_agents_from_provider
 if TYPE_CHECKING:
     from fast_agent.commands.context import CommandContext
     from fast_agent.core.agent_app import AgentApp
+    from fast_agent.interfaces import AgentProtocol
 
 
 async def handle_show_usage(ctx: CommandContext, *, agent_name: str) -> CommandOutcome:
@@ -28,8 +29,8 @@ async def handle_show_usage(ctx: CommandContext, *, agent_name: str) -> CommandO
 
 async def handle_show_system(ctx: CommandContext, *, agent_name: str) -> CommandOutcome:
     outcome = CommandOutcome()
-    agent = ctx.agent_provider._agent(agent_name)
-    system_prompt = getattr(agent, "instruction", None)
+    agent = cast("AgentProtocol", ctx.agent_provider._agent(agent_name))
+    system_prompt = agent.instruction
     if not system_prompt:
         outcome.add_message("No system prompt available", channel="warning", right_info="system")
         return outcome

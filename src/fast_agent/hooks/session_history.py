@@ -31,13 +31,13 @@ class _SessionHistoryAgentProxy:
 
 async def save_session_history(ctx: "HookContext") -> None:
     """Save the agent history into the active session after a turn completes."""
-    context = get_current_context()
-    config = context.config if context else None
-    if config is not None and not getattr(config, "session_history", True):
+    current_context = get_current_context()
+    config = current_context.config if current_context else None
+    if config is not None and not config.session_history:
         return
 
-    agent_config = getattr(ctx.agent, "config", None)
-    if agent_config and getattr(agent_config, "tool_only", False):
+    agent_config = ctx.agent.config
+    if agent_config.tool_only:
         return
 
     if not ctx.message_history:
@@ -51,17 +51,17 @@ async def save_session_history(ctx: "HookContext") -> None:
     session_cwd: Path | None = None
     session_store_scope = "workspace"
     session_store_cwd: Path | None = None
-    agent_context = getattr(ctx.agent, "context", None)
-    acp_context = getattr(agent_context, "acp", None) if agent_context else None
+    agent_context = ctx.context
+    acp_context = agent_context.acp if agent_context else None
     if acp_context is not None:
-        acp_session_id = getattr(acp_context, "session_id", None)
-        raw_session_cwd = getattr(acp_context, "session_cwd", None)
+        acp_session_id = acp_context.session_id
+        raw_session_cwd = acp_context.session_cwd
         if raw_session_cwd:
             session_cwd = Path(str(raw_session_cwd)).expanduser().resolve()
-        raw_session_store_scope = getattr(acp_context, "session_store_scope", None)
+        raw_session_store_scope = acp_context.session_store_scope
         if raw_session_store_scope in {"workspace", "app"}:
             session_store_scope = str(raw_session_store_scope)
-        raw_session_store_cwd = getattr(acp_context, "session_store_cwd", None)
+        raw_session_store_cwd = acp_context.session_store_cwd
         if raw_session_store_cwd:
             session_store_cwd = Path(str(raw_session_store_cwd)).expanduser().resolve()
 
@@ -79,7 +79,7 @@ async def save_session_history(ctx: "HookContext") -> None:
         )
     session = manager.current_session
     metadata: dict[str, object] = {"agent_name": ctx.agent_name}
-    model_name = getattr(agent_config, "model", None) if agent_config else None
+    model_name = agent_config.model
     if model_name:
         metadata["model"] = model_name
     if session_cwd is not None:

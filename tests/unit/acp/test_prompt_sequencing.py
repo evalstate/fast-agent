@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
@@ -40,6 +41,7 @@ class DummyAgent:
         self._proceed_evt = proceed_evt
         self._text = text
         self.usage_accumulator = None  # Avoid status line branch
+        self.config = SimpleNamespace(default=False, model=None)
 
     async def generate(self, prompt_message: Any, request_params: Any = None) -> DummyResult:
         self._started_evt.set()
@@ -55,6 +57,7 @@ class StatefulAgent:
         self.instruction = "Test agent."
         self.turn_count = 0
         self.usage_accumulator = None
+        self.config = SimpleNamespace(default=False, model=None)
 
     async def generate(self, prompt_message: Any, request_params: Any = None) -> DummyResult:
         self.turn_count += 1

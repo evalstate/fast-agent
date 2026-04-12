@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
 
 from fast_agent.core.instruction_refresh import (
     McpInstructionCapable,
@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
     from fast_agent.agents.agent_types import AgentConfig
+    from fast_agent.core.instruction_refresh import ConfiguredMcpInstructionCapable
 
 INTERNAL_AGENT_CARD_SENTINEL = "(internal)"
 
@@ -115,10 +116,14 @@ async def apply_instruction_context(
         skill_manifests = None
         skill_read_tool_name = "read_skill"
         if isinstance(agent, McpInstructionCapable):
+            configured_agent = cast("ConfiguredMcpInstructionCapable", agent)
             agent.set_instruction_context(dict(resolved_context))
             aggregator = agent.aggregator
-            skill_manifests = resolve_instruction_skill_manifests(agent, agent.skill_manifests)
-            skill_read_tool_name = agent.skill_read_tool_name
+            skill_manifests = resolve_instruction_skill_manifests(
+                configured_agent,
+                configured_agent.skill_manifests,
+            )
+            skill_read_tool_name = configured_agent.skill_read_tool_name
 
         resolved = await build_instruction(
             template,

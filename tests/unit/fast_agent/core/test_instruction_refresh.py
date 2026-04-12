@@ -1,6 +1,7 @@
 """Tests for instruction building and refresh utilities."""
 
 import asyncio
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
 from fast_agent.core.instruction_refresh import (
@@ -10,8 +11,10 @@ from fast_agent.core.instruction_refresh import (
     rebuild_agent_instruction,
     resolve_instruction_skill_manifests,
 )
+from fast_agent.skills import SKILLS_DEFAULT
 
 if TYPE_CHECKING:
+    from fast_agent.core.instruction_refresh import ConfiguredMcpInstructionCapable
     from fast_agent.mcp.mcp_aggregator import MCPAggregator
 
 
@@ -33,10 +36,12 @@ class StubAgent:
         template: str = "Test instruction",
         aggregator: StubAggregator | None = None,
     ) -> None:
+        self.name = "stub"
         self._instruction = template
         self._instruction_template = template
         self._instruction_context: dict[str, str] = {}
         self._skill_manifests: list = []
+        self.config = SimpleNamespace(skills=SKILLS_DEFAULT)
         self._skill_registry = None
         self._aggregator = aggregator or StubAggregator()
         self._has_filesystem_runtime = False
@@ -154,13 +159,16 @@ def test_resolve_instruction_skill_manifests_inherits_shared_context_for_default
     agent = StubAgent()
     agent.set_instruction_context({"agentSkills": "shared skills"})
 
-    assert resolve_instruction_skill_manifests(agent, []) is None
+    assert resolve_instruction_skill_manifests(cast("ConfiguredMcpInstructionCapable", agent), []) is None
 
 
 def test_resolve_instruction_skill_manifests_blanks_default_skills_without_shared_context() -> None:
     agent = StubAgent()
 
-    resolved_manifests = resolve_instruction_skill_manifests(agent, [])
+    resolved_manifests = resolve_instruction_skill_manifests(
+        cast("ConfiguredMcpInstructionCapable", agent),
+        [],
+    )
 
     assert resolved_manifests == []
     result = asyncio.run(build_instruction("Skills:\n{{agentSkills}}", skill_manifests=resolved_manifests))

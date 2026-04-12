@@ -196,7 +196,13 @@ async def test_attach_server_registers_runtime_server_before_prompt_discovery() 
     class _CapabilityAwareAggregator(MCPAggregator):
         async def get_capabilities(self, server_name: str):
             del server_name
-            return SimpleNamespace(tools=True, prompts=True, resources=False)
+            return SimpleNamespace(
+                tools=True,
+                prompts=True,
+                resources=False,
+                completions=None,
+                tasks=None,
+            )
 
         async def _execute_on_server(
             self,

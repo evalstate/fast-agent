@@ -41,6 +41,8 @@ class _LocalMentionAgent:
 class _MentionAgentApp:
     def __init__(self) -> None:
         self._agent_obj = _MentionAgent()
+        self.noenv_mode = False
+        self.missing_shell_cwd_policy_override = None
 
     async def refresh_if_needed(self) -> bool:
         return False

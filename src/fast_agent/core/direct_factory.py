@@ -6,7 +6,17 @@ Implements type-safe factories with improved error handling.
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Mapping, Protocol, Sequence, TypeVar, cast
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Awaitable,
+    Callable,
+    Mapping,
+    Protocol,
+    Sequence,
+    TypeVar,
+    cast,
+)
 
 from fastmcp.tools import FunctionTool
 
@@ -48,6 +58,9 @@ from fast_agent.mcp.ui_agent import McpAgentWithUI
 from fast_agent.tools.function_tool_loader import load_function_tools
 from fast_agent.tools.hook_loader import load_tool_runner_hooks
 from fast_agent.types import RequestParams
+
+if TYPE_CHECKING:
+    from fast_agent.hooks.hook_context import HookAgentProtocol
 
 # Type aliases for improved readability and IDE support
 AgentDict = dict[str, AgentProtocol]
@@ -417,7 +430,7 @@ def _apply_tool_hooks(
             async def _trimmer_wrapper(runner, message):
                 ctx = HookContext(
                     runner=runner,
-                    agent=agent,
+                    agent=cast("HookAgentProtocol", agent),
                     message=message,
                     hook_type="after_turn_complete",
                 )
@@ -475,7 +488,7 @@ def _apply_tool_hooks(
                 await existing_after_turn(runner, message)
             ctx = HookContext(
                 runner=runner,
-                agent=agent,
+                agent=cast("HookAgentProtocol", agent),
                 message=message,
                 hook_type="after_turn_complete",
             )

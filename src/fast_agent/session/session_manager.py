@@ -678,12 +678,11 @@ class SessionManager:
 
         if not self._current_session:
             # Auto-create a session if none exists
-            agent_name = getattr(agent, "name", None)
+            agent_name = agent.name
             metadata: dict[str, Any] = {}
             if agent_name:
                 metadata["agent_name"] = agent_name
-            agent_config = getattr(agent, "config", None)
-            model_name = getattr(agent_config, "model", None) if agent_config else None
+            model_name = agent.config.model
             if model_name:
                 metadata["model"] = model_name
             self.create_session(metadata=metadata or None)

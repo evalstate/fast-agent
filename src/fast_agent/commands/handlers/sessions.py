@@ -388,6 +388,7 @@ async def handle_resume_session(
                 right_info="session",
             )
 
+    agent_obj = cast("AgentProtocol", agent_obj)
     usage = agent_obj.usage_accumulator
     if usage and usage.model is None:
         llm = agent_obj.llm
