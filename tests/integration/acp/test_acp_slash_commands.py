@@ -59,6 +59,7 @@ class StubAgent:
     popped: bool = False
     agent_type: AgentType = AgentType.BASIC
     name: str = "test-agent"
+    instruction: str | None = None
     context: Any = None
     usage_accumulator: Any = None
     config: Any = field(default_factory=lambda: SimpleNamespace(model=None))
@@ -447,7 +448,7 @@ async def test_slash_command_status_system_prefers_session_instruction() -> None
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_slash_command_status_system_without_instruction() -> None:
-    """Test /status system when agent has no instruction attribute."""
+    """Test /status system when agent has no configured instruction."""
     stub_agent = StubAgent(message_history=[], llm=None)
     instance = StubAgentInstance(agents={"test-agent": stub_agent})
 
