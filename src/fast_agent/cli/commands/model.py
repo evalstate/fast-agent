@@ -23,10 +23,9 @@ from fast_agent.commands.results import CommandMessage, CommandOutcome
 from fast_agent.config import (
     Settings,
     deep_merge,
-    find_fastagent_config_files,
-    load_layered_settings,
+    load_implicit_settings,
     load_yaml_mapping,
-    resolve_config_search_root,
+    resolve_implicit_secrets_file,
 )
 from fast_agent.llm.llamacpp_discovery import (
     DEFAULT_LLAMA_CPP_URL,
@@ -655,9 +654,8 @@ def _load_cli_settings(
     cwd: Path,
     env_dir: str | Path | None,
 ) -> Settings:
-    merged_settings, config_file = load_layered_settings(start_path=cwd, env_dir=env_dir)
-    search_root = resolve_config_search_root(cwd, env_dir=env_dir)
-    _, secrets_path = find_fastagent_config_files(search_root)
+    merged_settings, config_file = load_implicit_settings(start_path=cwd, env_dir=env_dir)
+    secrets_path = resolve_implicit_secrets_file(cwd, env_dir=env_dir)
     if secrets_path and secrets_path.exists():
         merged_settings = deep_merge(merged_settings, load_yaml_mapping(secrets_path))
 
@@ -673,9 +671,8 @@ def _load_tolerant_config_payload(
     env_dir: str | Path | None,
 ) -> dict[str, object] | None:
     try:
-        merged_settings, _ = load_layered_settings(start_path=cwd, env_dir=env_dir)
-        search_root = resolve_config_search_root(cwd, env_dir=env_dir)
-        _, secrets_path = find_fastagent_config_files(search_root)
+        merged_settings, _ = load_implicit_settings(start_path=cwd, env_dir=env_dir)
+        secrets_path = resolve_implicit_secrets_file(cwd, env_dir=env_dir)
         if secrets_path and secrets_path.exists():
             merged_settings = deep_merge(merged_settings, load_yaml_mapping(secrets_path))
     except Exception:

@@ -1362,6 +1362,21 @@ def find_project_config_file(start_path: Path) -> Path | None:
     return None
 
 
+def _find_parent_file(start_path: Path, filename: str) -> Path | None:
+    current = start_path.resolve().parent
+    while current != current.parent:
+        candidate = current / filename
+        if candidate.exists():
+            return candidate
+        current = current.parent
+    return None
+
+
+def find_legacy_project_config_file(start_path: Path) -> Path | None:
+    """Find a parent-directory ``fastagent.config.yaml``, excluding ``start_path`` itself."""
+    return _find_parent_file(start_path, "fastagent.config.yaml")
+
+
 def resolve_environment_config_file(
     start_path: Path,
     *,
@@ -1381,23 +1396,61 @@ def resolve_environment_config_file(
     return env_root / "fastagent.config.yaml"
 
 
+def resolve_implicit_config_file(
+    start_path: Path,
+    *,
+    env_dir: str | Path | None = None,
+) -> Path | None:
+    """Resolve the active implicit config file using env, cwd, then legacy order."""
+    env_config = resolve_environment_config_file(start_path, env_dir=env_dir)
+    if env_config.exists():
+        return env_config
+
+    cwd_config = start_path.resolve() / "fastagent.config.yaml"
+    if cwd_config.exists():
+        return cwd_config
+
+    return find_legacy_project_config_file(start_path)
+
+
+def resolve_implicit_secrets_file(
+    start_path: Path,
+    *,
+    env_dir: str | Path | None = None,
+) -> Path | None:
+    """Resolve the active implicit secrets file using env, cwd, then legacy order."""
+    env_secrets = resolve_environment_config_file(start_path, env_dir=env_dir).with_name(
+        "fastagent.secrets.yaml"
+    )
+    if env_secrets.exists():
+        return env_secrets
+
+    cwd_secrets = start_path.resolve() / "fastagent.secrets.yaml"
+    if cwd_secrets.exists():
+        return cwd_secrets
+
+    return _find_parent_file(start_path, "fastagent.secrets.yaml")
+
+
+def load_implicit_settings(
+    *,
+    start_path: Path,
+    env_dir: str | Path | None = None,
+) -> tuple[dict[str, Any], Path | None]:
+    """Load settings from the first implicit config found: env, cwd, then legacy."""
+    config_path = resolve_implicit_config_file(start_path, env_dir=env_dir)
+    if config_path is None or not config_path.exists():
+        return {}, None
+    return load_yaml_mapping(config_path), config_path
+
+
 def resolve_layered_config_file(
     start_path: Path,
     *,
     env_dir: str | Path | None = None,
 ) -> Path | None:
-    """Return the effective config path using project + env precedence.
-
-    Precedence is project config first, then environment config overlay when
-    the env config file exists.
-    """
-
-    project_config = find_project_config_file(start_path)
-    env_config = resolve_environment_config_file(start_path, env_dir=env_dir)
-
-    if env_config.exists():
-        return env_config
-    return project_config
+    """Return the implicit config path using env, cwd, then legacy precedence."""
+    return resolve_implicit_config_file(start_path, env_dir=env_dir)
 
 
 def load_layered_settings(
@@ -1686,27 +1739,18 @@ def get_settings(config_path: str | os.PathLike[str] | None = None) -> Settings:
         elif config_file and not config_file.exists():
             print(f"Warning: Specified config file does not exist: {config_file}")
     else:
-        # Use standardized discovery for secrets and layered loading for config.
-        search_root = resolve_config_search_root(Path.cwd())
-        _, secrets_file = find_fastagent_config_files(search_root)
-        merged_settings = {}
-        config_file = None
-        project_config = find_project_config_file(Path.cwd())
-        if project_config and project_config.exists():
-            project_settings = load_yaml_mapping(project_config)
-            merged_settings = deep_merge(merged_settings, project_settings)
-            config_sources.append((project_config, project_settings))
-            config_file = project_config
-
-        env_config = resolve_environment_config_file(
-            Path.cwd(),
-            env_dir=os.getenv("ENVIRONMENT_DIR"),
+        # Implicit discovery prefers env-specific config, then cwd, then parent fallback.
+        env_override = os.getenv("ENVIRONMENT_DIR")
+        merged_settings, config_file = load_implicit_settings(
+            start_path=Path.cwd(),
+            env_dir=env_override,
         )
-        if env_config.exists():
-            env_settings = load_yaml_mapping(env_config)
-            merged_settings = deep_merge(merged_settings, env_settings)
-            config_sources.append((env_config, env_settings))
-            config_file = env_config
+        if config_file and config_file.exists():
+            config_sources.append((config_file, merged_settings))
+        secrets_file = resolve_implicit_secrets_file(
+            Path.cwd(),
+            env_dir=env_override,
+        )
 
     # Load secrets file if found (regardless of whether config file exists)
     if secrets_file and secrets_file.exists():

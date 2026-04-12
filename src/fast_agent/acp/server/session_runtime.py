@@ -44,7 +44,7 @@ from fast_agent.core.instruction_utils import (
 )
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt_templates import enrich_with_environment_context
-from fast_agent.interfaces import ACPAwareProtocol
+from fast_agent.interfaces import ACPAwareProtocol, LlmCapableProtocol
 from fast_agent.llm.usage_tracking import last_turn_usage
 from fast_agent.mcp.mcp_aggregator import MCPAttachOptions
 from fast_agent.mcp.tool_execution_handler import NoOpToolExecutionHandler
@@ -441,13 +441,14 @@ class ACPServerSessionRuntime:
         )
 
     async def build_session_request_params(
-        self, agent: Any, session_state: ACPSessionState | None
+        self, agent: object, session_state: ACPSessionState | None
     ) -> RequestParams | None:
-        if not getattr(agent, "_llm", None):
+        if not isinstance(agent, LlmCapableProtocol) or agent.llm is None:
             return None
 
         resolved_cache = session_state.resolved_instructions if session_state else {}
-        resolved = resolved_cache.get(getattr(agent, "name", ""), None)
+        agent_name = getattr(agent, "name", "")
+        resolved = resolved_cache.get(agent_name, None)
         if isinstance(agent, McpInstructionCapable) or resolved is None:
             context = session_state.prompt_context if session_state else None
             if not context:
@@ -456,7 +457,7 @@ class ACPServerSessionRuntime:
             if not resolved:
                 return None
             if session_state is not None:
-                session_state.resolved_instructions[getattr(agent, "name", "")] = resolved
+                session_state.resolved_instructions[agent_name] = resolved
         return RequestParams(systemPrompt=resolved)
 
     async def resolve_instruction_for_session(
@@ -572,8 +573,8 @@ class ACPServerSessionRuntime:
                         )
                         agent.plan_telemetry = plan_telemetry
 
-                llm = getattr(agent, "_llm", None)
-                if llm and hasattr(llm, "add_tool_stream_listener"):
+                llm = agent.llm if isinstance(agent, LlmCapableProtocol) else None
+                if llm is not None:
                     try:
                         llm.add_tool_stream_listener(tool_handler.handle_tool_stream_event)
                     except Exception:
@@ -710,8 +711,8 @@ class ACPServerSessionRuntime:
                             agent_name=agent_name,
                         )
 
-                    llm = getattr(agent, "_llm", None)
-                    if llm and hasattr(llm, "add_tool_stream_listener"):
+                    llm = agent.llm if isinstance(agent, LlmCapableProtocol) else None
+                    if llm is not None:
                         try:
                             llm.add_tool_stream_listener(tool_handler.handle_tool_stream_event)
                             logger.info(

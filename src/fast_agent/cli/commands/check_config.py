@@ -209,16 +209,14 @@ def _resolve_active_model_providers(
 
 
 def find_config_files(start_path: Path, env_dir: Path | None = None) -> dict[str, Path | None]:
-    """Find FastAgent configuration files, preferring secrets file next to config file."""
+    """Find FastAgent configuration files using env, cwd, then legacy discovery."""
     from fast_agent.config import (
-        find_fastagent_config_files,
-        resolve_config_search_root,
-        resolve_layered_config_file,
+        resolve_implicit_config_file,
+        resolve_implicit_secrets_file,
     )
 
-    search_root = resolve_config_search_root(start_path, env_dir=env_dir)
-    config_path = resolve_layered_config_file(start_path, env_dir=env_dir)
-    _, secrets_path = find_fastagent_config_files(search_root)
+    config_path = resolve_implicit_config_file(start_path, env_dir=env_dir)
+    secrets_path = resolve_implicit_secrets_file(start_path, env_dir=env_dir)
     return {
         "config": config_path,
         "secrets": secrets_path,
@@ -671,9 +669,9 @@ def get_config_summary(config_path: Path | None) -> dict:
 
 
 def _load_catalog_config(env_dir: Path | None) -> dict[str, Any] | None:
-    from fast_agent.config import load_layered_settings
+    from fast_agent.config import load_implicit_settings
 
-    config_payload, _ = load_layered_settings(start_path=Path.cwd(), env_dir=env_dir)
+    config_payload, _ = load_implicit_settings(start_path=Path.cwd(), env_dir=env_dir)
     return config_payload or None
 
 
@@ -1122,12 +1120,12 @@ def _validate_effective_settings(
     from fast_agent.config import (
         Settings,
         deep_merge,
-        load_layered_settings,
+        load_implicit_settings,
         load_yaml_mapping,
     )
 
     try:
-        merged_settings, _ = load_layered_settings(start_path=cwd, env_dir=env_override)
+        merged_settings, _ = load_implicit_settings(start_path=cwd, env_dir=env_override)
 
         secrets_path = config_files.get("secrets")
         if isinstance(secrets_path, Path):

@@ -20,6 +20,7 @@ from fast_agent.agents.agent_types import AgentType
 from fast_agent.commands.handlers import history as history_handlers
 from fast_agent.commands.handlers import model as model_handlers
 from fast_agent.config import get_settings
+from fast_agent.interfaces import LlmCapableProtocol
 from fast_agent.llm.reasoning_effort import available_reasoning_values
 from fast_agent.llm.text_verbosity import available_text_verbosity_values
 from fast_agent.mcp.provider_management import provider_managed_base_url
@@ -305,8 +306,7 @@ class AgentCompleter(Completer):
             agent_obj = self.agent_provider._agent(self.current_agent)
         except Exception:
             return None
-        llm = getattr(agent_obj, "llm", None) or getattr(agent_obj, "_llm", None)
-        return llm
+        return agent_obj.llm if isinstance(agent_obj, LlmCapableProtocol) else None
 
     def _resolve_reasoning_values(self) -> list[str]:
         llm = self._current_agent_llm()

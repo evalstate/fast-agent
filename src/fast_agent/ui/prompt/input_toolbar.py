@@ -5,11 +5,12 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from prompt_toolkit.formatted_text import HTML
 
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
+from fast_agent.interfaces import LlmCapableProtocol
 from fast_agent.llm.model_display_name import resolve_model_display_name
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.llm.provider_types import Provider
@@ -412,13 +413,9 @@ def _usage_context_for_agent(agent: object) -> tuple[float | None, object | None
 
 
 def _resolve_agent_llm(agent: object) -> "FastAgentLLMProtocol | None":
-    try:
-        llm = getattr(agent, "llm")
-    except AssertionError:
-        llm = getattr(agent, "_llm", None)
-    except Exception:
-        llm = getattr(agent, "_llm", None)
-    return cast("FastAgentLLMProtocol | None", llm)
+    if not isinstance(agent, LlmCapableProtocol):
+        return None
+    return agent.llm
 
 
 def _resolve_model_name(agent: object, llm: object | None) -> str | None:

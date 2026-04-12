@@ -4,6 +4,7 @@ from pathlib import Path
 
 from rich.style import Style
 
+import fast_agent.config as config_module
 from fast_agent.config import LoggerSettings, Settings, get_settings
 from fast_agent.ui import console
 from fast_agent.ui.console_display import ConsoleDisplay
@@ -31,7 +32,7 @@ def test_console_display_applies_theme_file_relative_to_config(tmp_path: Path) -
         console.configure_console_theme(None)
 
 
-def test_console_display_uses_theme_file_source_from_project_config(
+def test_console_display_ignores_legacy_theme_when_env_config_is_selected(
     tmp_path: Path, monkeypatch
 ) -> None:
     theme_dir = tmp_path / "themes"
@@ -54,16 +55,20 @@ def test_console_display_uses_theme_file_source_from_project_config(
         encoding="utf-8",
     )
     monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
 
-    settings = get_settings()
-
-    console.configure_console_theme(None)
+    previous_settings = config_module._settings
     try:
+        config_module._settings = None
+        settings = get_settings()
+        assert settings.logger.theme_file is None
+
+        console.configure_console_theme(None)
         ConsoleDisplay(config=settings)
 
         assert console.console.get_style("markdown.h2") == Style.parse("yellow underline")
-        assert console.console.get_style("markdown.link") == Style.parse("bright_cyan underline")
     finally:
+        config_module._settings = previous_settings
         console.configure_console_theme(None)
 
 

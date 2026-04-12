@@ -19,6 +19,7 @@ from fast_agent.constants import (
     CONTROL_MESSAGE_SAVE_HISTORY,
 )
 from fast_agent.history.history_exporter import HistoryExporter
+from fast_agent.interfaces import LlmCapableProtocol
 from fast_agent.types import LlmStopReason, PromptMessageExtended
 
 if TYPE_CHECKING:
@@ -110,7 +111,7 @@ def _strip_web_metadata_channels(
 
 def web_tools_enabled_for_agent(agent_obj: object) -> bool:
     """Return True when the agent's active LLM has web tools enabled."""
-    llm = getattr(agent_obj, "llm", None) or getattr(agent_obj, "_llm", None)
+    llm = agent_obj.llm if isinstance(agent_obj, LlmCapableProtocol) else None
     if llm is None:
         return False
 

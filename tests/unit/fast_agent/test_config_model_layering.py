@@ -15,56 +15,29 @@ def _write_yaml(path: Path, payload: dict) -> None:
         yaml.safe_dump(payload, handle, sort_keys=False)
 
 
-def test_get_settings_layers_model_settings_project_then_env(tmp_path: Path) -> None:
+def test_get_settings_prefers_env_config_over_cwd_and_legacy(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
+    nested = workspace / "child"
+    env_dir = nested / ".fast-agent"
     workspace.mkdir(parents=True)
+    nested.mkdir()
 
-    _write_yaml(
-        workspace / "fastagent.config.yaml",
-        {
-            "default_model": "project-default",
-            "model_references": {
-                "system": {
-                    "fast": "project-fast",
-                    "code": "project-code",
-                },
-                "project": {
-                    "only": "project-only",
-                },
-            },
-        },
-    )
-    _write_yaml(
-        env_dir / "fastagent.config.yaml",
-        {
-            "default_model": "env-default",
-            "model_references": {
-                "system": {
-                    "fast": "env-fast",
-                },
-                "env": {
-                    "only": "env-only",
-                },
-            },
-        },
-    )
+    _write_yaml(workspace / "fastagent.config.yaml", {"default_model": "legacy-default"})
+    _write_yaml(nested / "fastagent.config.yaml", {"default_model": "cwd-default"})
+    _write_yaml(env_dir / "fastagent.config.yaml", {"default_model": "env-default"})
 
     previous_cwd = Path.cwd()
     previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
     previous_settings = config_module._settings
     try:
-        os.chdir(workspace)
-        os.environ["ENVIRONMENT_DIR"] = str(env_dir)
+        os.chdir(nested)
+        os.environ.pop("ENVIRONMENT_DIR", None)
         config_module._settings = None
 
         settings = get_settings()
 
         assert settings.default_model == "env-default"
-        assert settings.model_references["system"]["fast"] == "env-fast"
-        assert settings.model_references["system"]["code"] == "project-code"
-        assert settings.model_references["project"]["only"] == "project-only"
-        assert settings.model_references["env"]["only"] == "env-only"
+        assert settings._config_file == str(env_dir / "fastagent.config.yaml")
     finally:
         os.chdir(previous_cwd)
         config_module._settings = previous_settings
@@ -74,172 +47,88 @@ def test_get_settings_layers_model_settings_project_then_env(tmp_path: Path) -> 
             os.environ["ENVIRONMENT_DIR"] = previous_env_dir
 
 
-def test_get_settings_keeps_secrets_last_for_model_settings(tmp_path: Path) -> None:
+def test_get_settings_prefers_cwd_config_when_env_missing(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
+    nested = workspace / "child"
     workspace.mkdir(parents=True)
+    nested.mkdir()
 
-    _write_yaml(
-        workspace / "fastagent.config.yaml",
-        {
-            "default_model": "project-default",
-            "model_references": {
-                "system": {
-                    "fast": "project-fast",
-                }
-            },
-        },
-    )
-    _write_yaml(
-        env_dir / "fastagent.config.yaml",
-        {
-            "default_model": "env-default",
-            "model_references": {
-                "system": {
-                    "fast": "env-fast",
-                }
-            },
-        },
-    )
-    _write_yaml(
-        env_dir / "fastagent.secrets.yaml",
-        {
-            "default_model": "secret-default",
-            "model_references": {
-                "system": {
-                    "fast": "secret-fast",
-                }
-            },
-        },
-    )
+    _write_yaml(workspace / "fastagent.config.yaml", {"default_model": "legacy-default"})
+    _write_yaml(nested / "fastagent.config.yaml", {"default_model": "cwd-default"})
 
     previous_cwd = Path.cwd()
     previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
     previous_settings = config_module._settings
     try:
-        os.chdir(workspace)
-        os.environ["ENVIRONMENT_DIR"] = str(env_dir)
+        os.chdir(nested)
+        os.environ.pop("ENVIRONMENT_DIR", None)
+        config_module._settings = None
+
+        settings = get_settings()
+
+        assert settings.default_model == "cwd-default"
+        assert settings._config_file == str(nested / "fastagent.config.yaml")
+    finally:
+        os.chdir(previous_cwd)
+        config_module._settings = previous_settings
+        if previous_env_dir is None:
+            os.environ.pop("ENVIRONMENT_DIR", None)
+        else:
+            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+
+
+def test_get_settings_falls_back_to_parent_config_as_legacy_lookup(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    nested = workspace / "child" / "grandchild"
+    workspace.mkdir(parents=True)
+    nested.mkdir(parents=True)
+
+    _write_yaml(workspace / "fastagent.config.yaml", {"default_model": "legacy-default"})
+
+    previous_cwd = Path.cwd()
+    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
+    previous_settings = config_module._settings
+    try:
+        os.chdir(nested)
+        os.environ.pop("ENVIRONMENT_DIR", None)
+        config_module._settings = None
+
+        settings = get_settings()
+
+        assert settings.default_model == "legacy-default"
+        assert settings._config_file == str(workspace / "fastagent.config.yaml")
+    finally:
+        os.chdir(previous_cwd)
+        config_module._settings = previous_settings
+        if previous_env_dir is None:
+            os.environ.pop("ENVIRONMENT_DIR", None)
+        else:
+            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
+
+
+def test_get_settings_keeps_secrets_last_with_env_cwd_legacy_discovery(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    nested = workspace / "child"
+    env_dir = nested / ".fast-agent"
+    workspace.mkdir(parents=True)
+    nested.mkdir()
+
+    _write_yaml(workspace / "fastagent.config.yaml", {"default_model": "legacy-default"})
+    _write_yaml(nested / "fastagent.config.yaml", {"default_model": "cwd-default"})
+    _write_yaml(env_dir / "fastagent.secrets.yaml", {"default_model": "secret-default"})
+
+    previous_cwd = Path.cwd()
+    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
+    previous_settings = config_module._settings
+    try:
+        os.chdir(nested)
+        os.environ.pop("ENVIRONMENT_DIR", None)
         config_module._settings = None
 
         settings = get_settings()
 
         assert settings.default_model == "secret-default"
-        assert settings.model_references["system"]["fast"] == "secret-fast"
-    finally:
-        os.chdir(previous_cwd)
-        config_module._settings = previous_settings
-        if previous_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
-        else:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
-
-
-def test_get_settings_loads_default_env_config_for_full_settings(tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
-    workspace.mkdir(parents=True)
-
-    _write_yaml(
-        env_dir / "fastagent.config.yaml",
-        {
-            "logger": {
-                "show_tools": False,
-                "code_theme": "monokai",
-                "render_fences_with_syntax": False,
-                "code_word_wrap": True,
-            },
-            "mcp": {
-                "servers": {
-                    "env_fetch": {
-                        "transport": "stdio",
-                        "command": "uvx",
-                        "args": ["mcp-server-fetch"],
-                    }
-                }
-            },
-        },
-    )
-
-    previous_cwd = Path.cwd()
-    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
-    previous_settings = config_module._settings
-    try:
-        os.chdir(workspace)
-        os.environ.pop("ENVIRONMENT_DIR", None)
-        config_module._settings = None
-
-        settings = get_settings()
-
-        assert settings.logger.show_tools is False
-        assert settings.logger.code_theme == "monokai"
-        assert settings.logger.render_fences_with_syntax is False
-        assert settings.logger.code_word_wrap is True
-        assert settings.mcp is not None
-        assert settings.mcp.servers is not None
-        assert "env_fetch" in settings.mcp.servers
-        assert settings._config_file == str(env_dir / "fastagent.config.yaml")
-    finally:
-        os.chdir(previous_cwd)
-        config_module._settings = previous_settings
-        if previous_env_dir is None:
-            os.environ.pop("ENVIRONMENT_DIR", None)
-        else:
-            os.environ["ENVIRONMENT_DIR"] = previous_env_dir
-
-
-def test_get_settings_layers_project_and_env_for_full_settings(tmp_path: Path) -> None:
-    workspace = tmp_path / "workspace"
-    env_dir = workspace / ".fast-agent"
-    workspace.mkdir(parents=True)
-
-    _write_yaml(
-        workspace / "fastagent.config.yaml",
-        {
-            "mcp": {
-                "servers": {
-                    "project_fetch": {
-                        "transport": "stdio",
-                        "command": "uvx",
-                        "args": ["mcp-server-fetch"],
-                    }
-                }
-            },
-            "logger": {"show_chat": True},
-        },
-    )
-    _write_yaml(
-        env_dir / "fastagent.config.yaml",
-        {
-            "mcp": {
-                "servers": {
-                    "env_remote": {
-                        "transport": "http",
-                        "url": "https://example.test/mcp",
-                    }
-                }
-            },
-            "logger": {"show_chat": False, "code_theme": "emacs", "code_word_wrap": True},
-        },
-    )
-
-    previous_cwd = Path.cwd()
-    previous_env_dir = os.environ.get("ENVIRONMENT_DIR")
-    previous_settings = config_module._settings
-    try:
-        os.chdir(workspace)
-        os.environ.pop("ENVIRONMENT_DIR", None)
-        config_module._settings = None
-
-        settings = get_settings()
-
-        assert settings.logger.show_chat is False
-        assert settings.logger.code_theme == "emacs"
-        assert settings.logger.code_word_wrap is True
-        assert settings.mcp is not None
-        assert settings.mcp.servers is not None
-        assert "project_fetch" in settings.mcp.servers
-        assert "env_remote" in settings.mcp.servers
-        assert settings._config_file == str(env_dir / "fastagent.config.yaml")
+        assert settings._secrets_file == str(env_dir / "fastagent.secrets.yaml")
     finally:
         os.chdir(previous_cwd)
         config_module._settings = previous_settings

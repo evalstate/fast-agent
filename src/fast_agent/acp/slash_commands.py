@@ -374,7 +374,7 @@ class SlashCommandHandler:
         if agent is None:
             return None
         try:
-            return getattr(agent, "llm", None) or getattr(agent, "_llm", None)
+            return agent.llm
         except Exception:
             return None
 

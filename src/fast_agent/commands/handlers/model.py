@@ -80,12 +80,11 @@ def _resolve_agent_llm(
     outcome: CommandOutcome,
 ) -> tuple["LlmAgentProtocol", FastAgentLLMProtocol] | None:
     agent = cast("LlmAgentProtocol", ctx.agent_provider._agent(agent_name))
-    llm_obj = getattr(agent, "llm", None) or getattr(agent, "_llm", None)
+    llm_obj = agent.llm
     if llm_obj is None:
         outcome.add_message("No LLM attached to agent.", channel="warning", right_info="model")
         return None
-    llm = cast("FastAgentLLMProtocol", llm_obj)
-    return agent, llm
+    return agent, llm_obj
 
 
 async def _handle_model_web_tool(

@@ -120,33 +120,61 @@ def test_load_config_defaults_to_environment_config_path(tmp_path: Path, monkeyp
     assert config_path == expected
 
 
-def test_load_config_does_not_prefill_env_overlay_from_layered_settings(
+def test_load_config_prefers_cwd_config_before_legacy(
     tmp_path: Path, monkeypatch
 ) -> None:
     workspace = tmp_path / "workspace"
+    nested = workspace / "child"
     workspace.mkdir()
-    monkeypatch.chdir(workspace)
+    nested.mkdir()
+    monkeypatch.chdir(nested)
     monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
     (workspace / "fastagent.config.yaml").write_text(
         "logger:\n"
-        "  show_tools: false\n"
-        "shell_execution:\n"
-        "  timeout_seconds: 42\n",
+        "  show_tools: false\n",
+        encoding="utf-8",
+    )
+    (nested / "fastagent.config.yaml").write_text(
+        "logger:\n"
+        "  show_tools: true\n",
         encoding="utf-8",
     )
 
     config_data, config_path = config_command._load_config()
 
-    assert config_path == workspace / ".fast-agent" / "fastagent.config.yaml"
-    assert config_data == {}
+    assert config_path == nested / "fastagent.config.yaml"
+    assert config_data == {"logger": {"show_tools": True}}
 
 
-def test_config_display_saves_only_overlay_delta_against_project_config(
+def test_load_config_falls_back_to_legacy_parent_config(
     tmp_path: Path, monkeypatch
 ) -> None:
     workspace = tmp_path / "workspace"
+    nested = workspace / "child"
     workspace.mkdir()
-    monkeypatch.chdir(workspace)
+    nested.mkdir()
+    monkeypatch.chdir(nested)
+    monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
+    (workspace / "fastagent.config.yaml").write_text(
+        "logger:\n"
+        "  show_tools: false\n",
+        encoding="utf-8",
+    )
+
+    config_data, config_path = config_command._load_config()
+
+    assert config_path == workspace / "fastagent.config.yaml"
+    assert config_data == {"logger": {"show_tools": False}}
+
+
+def test_config_display_updates_legacy_parent_config_when_run_from_nested_dir(
+    tmp_path: Path, monkeypatch
+) -> None:
+    workspace = tmp_path / "workspace"
+    nested = workspace / "child"
+    workspace.mkdir()
+    nested.mkdir()
+    monkeypatch.chdir(nested)
     monkeypatch.delenv("ENVIRONMENT_DIR", raising=False)
     (workspace / "fastagent.config.yaml").write_text(
         "logger:\n"
@@ -177,5 +205,8 @@ def test_config_display_saves_only_overlay_delta_against_project_config(
     assert result.exit_code == 0, result.output
 
     config_data, config_path = config_command._load_config()
-    assert config_path == workspace / ".fast-agent" / "fastagent.config.yaml"
-    assert config_data == {"logger": {"show_chat": False}}
+    assert config_path == workspace / "fastagent.config.yaml"
+    logger = config_data["logger"]
+    assert logger["show_tools"] is False
+    assert logger["show_chat"] is False
+    assert (nested / ".fast-agent" / "fastagent.config.yaml").exists() is False

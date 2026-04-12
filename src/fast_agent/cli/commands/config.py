@@ -11,9 +11,9 @@ from ruamel.yaml import YAML
 from fast_agent.config import (
     LoggerSettings,
     ShellSettings,
-    find_project_config_file,
-    load_layered_settings,
+    load_implicit_settings,
     resolve_environment_config_file,
+    resolve_implicit_config_file,
 )
 from fast_agent.human_input.form_fields import FormSchema, boolean, integer, string
 from fast_agent.human_input.simple_form import form_sync
@@ -37,7 +37,10 @@ ConfigOption = Annotated[
 
 
 def _default_config_file() -> Path:
-    """Return the environment config path used by interactive config commands."""
+    """Return the discovered implicit config path, or the default env path if none exist."""
+    discovered_path = resolve_implicit_config_file(Path.cwd())
+    if discovered_path is not None:
+        return discovered_path
     return resolve_environment_config_file(Path.cwd())
 
 
@@ -46,7 +49,8 @@ def _load_config(config_path: Path | None = None) -> tuple[dict[str, Any], Path]
 
     Args:
         config_path: Optional explicit path to config file. If not provided,
-                     edits the environment-dir fastagent.config.yaml.
+                     edits the discovered config (env, cwd, legacy), creating
+                     the environment-dir config if none exist.
     """
     if config_path is not None:
         # Use explicit path
@@ -77,27 +81,18 @@ def _load_effective_config(config_path: Path | None = None) -> dict[str, Any]:
                 return _yaml.load(f) or {}
         return {}
 
-    layered_config, _ = load_layered_settings(start_path=Path.cwd())
-    return layered_config
-
-
-def _load_project_config() -> dict[str, Any]:
-    """Load the project config layer beneath the environment overlay."""
-    project_config = find_project_config_file(Path.cwd())
-    if project_config is None or not project_config.exists():
-        return {}
-    with open(project_config) as f:
-        return _yaml.load(f) or {}
+    discovered_config, _ = load_implicit_settings(start_path=Path.cwd())
+    return discovered_config
 
 
 def _overlay_section_updates(
     *,
-    explicit_config: bool,
+    minimal_write: bool,
     updates: dict[str, Any],
     baseline: ShellSettings | LoggerSettings,
 ) -> dict[str, Any]:
     """Return the raw section contents to persist for the target file."""
-    if explicit_config:
+    if not minimal_write:
         return updates
 
     baseline_values = baseline.model_dump(mode="python")
@@ -377,7 +372,7 @@ def config_shell(config: ConfigOption = None) -> None:
 
     config_data, config_path = _load_config(config)
     effective_config = _load_effective_config(config)
-    explicit_config = config is not None
+    minimal_write = config is None and not config_path.exists()
 
     # Load current settings
     current = ShellSettings(**(effective_config.get("shell_execution", {}) or {}))
@@ -396,10 +391,9 @@ def config_shell(config: ConfigOption = None) -> None:
 
     # Process results - handle special cases
     shell_updates = _normalize_shell_updates(result)
-    baseline_source = _load_project_config() if not explicit_config else {}
-    baseline = ShellSettings(**(baseline_source.get("shell_execution", {}) or {}))
+    baseline = ShellSettings()
     persisted_updates = _overlay_section_updates(
-        explicit_config=explicit_config,
+        minimal_write=minimal_write,
         updates=shell_updates,
         baseline=baseline,
     )
@@ -422,7 +416,7 @@ def config_display(config: ConfigOption = None) -> None:
 
     config_data, config_path = _load_config(config)
     effective_config = _load_effective_config(config)
-    explicit_config = config is not None
+    minimal_write = config is None and not config_path.exists()
 
     current = LoggerSettings(**(effective_config.get("logger", {}) or {}))
 
@@ -438,10 +432,9 @@ def config_display(config: ConfigOption = None) -> None:
         raise typer.Exit(0)
 
     logger_updates = _normalize_display_updates(result)
-    baseline_source = _load_project_config() if not explicit_config else {}
-    baseline = LoggerSettings(**(baseline_source.get("logger", {}) or {}))
+    baseline = LoggerSettings()
     persisted_updates = _overlay_section_updates(
-        explicit_config=explicit_config,
+        minimal_write=minimal_write,
         updates=logger_updates,
         baseline=baseline,
     )

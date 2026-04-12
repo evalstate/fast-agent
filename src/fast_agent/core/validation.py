@@ -13,7 +13,7 @@ from fast_agent.core.exceptions import (
     CircularDependencyError,
     ServerConfigError,
 )
-from fast_agent.interfaces import LlmAgentProtocol
+from fast_agent.interfaces import LlmAgentProtocol, LlmCapableProtocol
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 
 _BASIC_LIKE_AGENT_TYPE_VALUES = frozenset(
@@ -552,7 +552,7 @@ def validate_provider_keys_post_creation(active_agents: dict[str, Any]) -> None:
         ProviderKeyError: If any required API key is missing
     """
     for agent_name, agent in active_agents.items():
-        llm = getattr(agent, "_llm", None)
+        llm = agent.llm if isinstance(agent, LlmCapableProtocol) else None
         if llm:
             # This throws a ProviderKeyError if the key is not present
             llm._api_key()

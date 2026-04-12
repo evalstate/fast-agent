@@ -28,7 +28,7 @@ class _AuthAgent(_Agent):
     class _Llm:
         provider = Provider.OPENAI
 
-    _llm = _Llm()
+    llm = _Llm()
 
 
 class _App:

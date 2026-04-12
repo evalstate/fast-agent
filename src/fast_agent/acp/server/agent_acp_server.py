@@ -63,12 +63,12 @@ from fast_agent.acp.server.session_store import ACPServerSessionStore, SessionSt
 from fast_agent.acp.server.slash_runtime import ACPServerSlashRuntime, SlashRuntimeHost
 from fast_agent.agents.tool_runner import ToolRunnerHooks
 from fast_agent.config import MCPServerSettings
-from fast_agent.core.default_agent import agent_is_default, resolve_default_agent_name
 from fast_agent.constants import DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+from fast_agent.core.default_agent import agent_is_default, resolve_default_agent_name
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.interfaces import AgentProtocol
+from fast_agent.interfaces import AgentProtocol, LlmCapableProtocol
 from fast_agent.llm.terminal_output_limits import (
     calculate_terminal_output_limit_for_model,
     calculate_terminal_output_limit_for_resolved_model,
@@ -217,7 +217,7 @@ class AgentACPServer(ACPAgent):
             agent: Agent instance that may expose an llm with model metadata.
         """
         # Some workflow agents (e.g., chain/parallel) don't attach an LLM directly.
-        llm = agent.llm if isinstance(agent, AgentProtocol) else None
+        llm = agent.llm if isinstance(agent, LlmCapableProtocol) else None
         resolved_model = llm.resolved_model if llm else None
         if resolved_model is not None:
             return calculate_terminal_output_limit_for_resolved_model(resolved_model)
@@ -257,7 +257,7 @@ class AgentACPServer(ACPAgent):
             **self._build_auth_meta(),
         }
 
-        llm = agent.llm if isinstance(agent, AgentProtocol) else None
+        llm = agent.llm if isinstance(agent, LlmCapableProtocol) else None
         provider = llm.provider if llm else None
         provider_name = provider.value if provider else None
         provider_display_name = provider.display_name if provider else None

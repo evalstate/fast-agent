@@ -43,6 +43,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "FastAgentLLMProtocol",
+    "LlmCapableProtocol",
     "StreamingAgentProtocol",
     "LlmAgentProtocol",
     "MessageHistoryAgentProtocol",
@@ -187,11 +188,16 @@ class FastAgentLLMProtocol(Protocol):
 
 
 @runtime_checkable
-class LlmAgentProtocol(Protocol):
-    """Protocol defining the minimal interface for LLM agents."""
+class LlmCapableProtocol(Protocol):
+    """Protocol for objects exposing a public attached LLM."""
 
     @property
     def llm(self) -> FastAgentLLMProtocol | None: ...
+
+
+@runtime_checkable
+class LlmAgentProtocol(LlmCapableProtocol, Protocol):
+    """Protocol defining the minimal interface for LLM agents."""
 
     @property
     def name(self) -> str: ...
