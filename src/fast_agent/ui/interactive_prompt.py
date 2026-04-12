@@ -647,7 +647,10 @@ class InteractivePrompt:
         runtime_state: PromptLoopRuntimeState,
         ctrl_c_exit_window_seconds: float,
     ) -> PromptInputPhase:
-        noenv_mode = prompt_provider.noenv_mode
+        try:
+            noenv_mode = prompt_provider.noenv_mode
+        except AttributeError:
+            noenv_mode = False
         try:
             user_input = await get_enhanced_input(
                 agent_name=agent_state.current_agent,
@@ -1003,8 +1006,12 @@ class InteractivePrompt:
         ctrl_c_exit_window_seconds = 2.0
         runtime_state = PromptLoopRuntimeState()
         configured_shell_cwd_policy = get_settings().shell_execution.missing_cwd_policy
+        try:
+            missing_shell_cwd_policy_override = prompt_provider.missing_shell_cwd_policy_override
+        except AttributeError:
+            missing_shell_cwd_policy_override = None
         resolved_shell_cwd_policy = resolve_missing_shell_cwd_policy(
-            cli_override=prompt_provider.missing_shell_cwd_policy_override,
+            cli_override=missing_shell_cwd_policy_override,
             configured_policy=configured_shell_cwd_policy,
         )
         shell_cwd_policy = effective_missing_shell_cwd_policy(

@@ -51,7 +51,11 @@ def test_vertex_cfg_accepts_model_object() -> None:
     assert vertex_cfg.base_url == "https://vertex.example"
 
 
-def test_provider_key_manager_allows_vertex_route_without_api_key() -> None:
+def test_provider_key_manager_allows_vertex_route_without_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
     config = Settings.model_validate(
         {
             "anthropic": {

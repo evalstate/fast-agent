@@ -8,32 +8,34 @@ if TYPE_CHECKING:
     from fast_agent.interfaces import FastAgentLLMProtocol
 
 
-def resolve_web_search_enabled(llm: FastAgentLLMProtocol | object | None) -> bool:
+def _resolve_bool_attribute(
+    llm: FastAgentLLMProtocol | object | None,
+    attribute_name: str,
+) -> bool:
     if llm is None:
         return False
     llm = cast("FastAgentLLMProtocol", llm)
-    return bool(llm.web_search_enabled)
+    try:
+        value = llm.__getattribute__(attribute_name)
+    except AttributeError:
+        return False
+    return bool(value)
+
+
+def resolve_web_search_enabled(llm: FastAgentLLMProtocol | object | None) -> bool:
+    return _resolve_bool_attribute(llm, "web_search_enabled")
 
 
 def resolve_web_fetch_enabled(llm: FastAgentLLMProtocol | object | None) -> bool:
-    if llm is None:
-        return False
-    llm = cast("FastAgentLLMProtocol", llm)
-    return bool(llm.web_fetch_enabled)
+    return _resolve_bool_attribute(llm, "web_fetch_enabled")
 
 
 def resolve_web_search_supported(llm: FastAgentLLMProtocol | object | None) -> bool:
-    if llm is None:
-        return False
-    llm = cast("FastAgentLLMProtocol", llm)
-    return bool(llm.web_search_supported)
+    return _resolve_bool_attribute(llm, "web_search_supported")
 
 
 def resolve_web_fetch_supported(llm: FastAgentLLMProtocol | object | None) -> bool:
-    if llm is None:
-        return False
-    llm = cast("FastAgentLLMProtocol", llm)
-    return bool(llm.web_fetch_supported)
+    return _resolve_bool_attribute(llm, "web_fetch_supported")
 
 
 def set_web_search_enabled(llm: FastAgentLLMProtocol | object, value: bool | None) -> None:
@@ -47,17 +49,18 @@ def set_web_fetch_enabled(llm: FastAgentLLMProtocol | object, value: bool | None
 
 
 def resolve_service_tier_supported(llm: FastAgentLLMProtocol | object | None) -> bool:
-    if llm is None:
-        return False
-    llm = cast("FastAgentLLMProtocol", llm)
-    return bool(llm.service_tier_supported)
+    return _resolve_bool_attribute(llm, "service_tier_supported")
 
 
 def available_service_tier_values(llm: FastAgentLLMProtocol | object | None) -> tuple[str, ...]:
     if llm is None:
         return ()
     llm = cast("FastAgentLLMProtocol", llm)
-    values = tuple(value for value in llm.available_service_tiers if value in {"fast", "flex"})
+    try:
+        available_service_tiers = llm.available_service_tiers
+    except AttributeError:
+        available_service_tiers = ()
+    values = tuple(value for value in available_service_tiers if value in {"fast", "flex"})
     if values:
         return values
     if resolve_service_tier_supported(llm):

@@ -6,7 +6,12 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from rich.text import Text
 
-from fast_agent.commands.model_capabilities import describe_service_tier_state
+from fast_agent.commands.model_capabilities import (
+    describe_service_tier_state,
+    resolve_service_tier_supported,
+    resolve_web_fetch_supported,
+    resolve_web_search_supported,
+)
 from fast_agent.constants import TERMINAL_BYTES_PER_TOKEN
 from fast_agent.llm.model_display_name import (
     resolve_llm_display_name,
@@ -152,11 +157,20 @@ def _format_sampling_value(value: object) -> str:
 
 
 def _resolved_model_or_none(llm: FastAgentLLMProtocol) -> "ResolvedModelSpec | None":
-    return llm.resolved_model
+    try:
+        return llm.resolved_model
+    except AttributeError:
+        return None
 
 
 def _provider_value(llm: FastAgentLLMProtocol) -> str:
-    return llm.provider.config_name
+    provider = llm.provider
+    if isinstance(provider, str):
+        return provider
+    try:
+        return provider.config_name
+    except AttributeError:
+        return str(provider)
 
 
 def _iter_model_identity_lines(
@@ -250,13 +264,13 @@ def _add_model_runtime_settings(
             format_text_verbosity(llm.text_verbosity or text_verbosity_spec.default),
         )
 
-    if llm.service_tier_supported:
+    if resolve_service_tier_supported(llm):
         _emit_model_line(outcome, "Service tier", describe_service_tier_state(llm))
 
-    if llm.web_search_supported:
+    if resolve_web_search_supported(llm):
         _emit_model_line(outcome, "Web search", _enabled_label(llm.web_search_enabled))
 
-    if llm.web_fetch_supported:
+    if resolve_web_fetch_supported(llm):
         _emit_model_line(outcome, "Web fetch", _enabled_label(llm.web_fetch_enabled))
 
 
