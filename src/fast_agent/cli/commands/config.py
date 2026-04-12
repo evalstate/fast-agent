@@ -8,10 +8,15 @@ from typing import Annotated, Any
 import typer
 from ruamel.yaml import YAML
 
-from fast_agent.config import Settings, ShellSettings
+from fast_agent.config import (
+    LoggerSettings,
+    ShellSettings,
+    find_project_config_file,
+    load_layered_settings,
+    resolve_environment_config_file,
+)
 from fast_agent.human_input.form_fields import FormSchema, boolean, integer, string
 from fast_agent.human_input.simple_form import form_sync
-from fast_agent.llm.model_selection import ModelSelectionCatalog
 
 app = typer.Typer(help="Configure fast-agent settings interactively.")
 
@@ -25,15 +30,15 @@ ConfigOption = Annotated[
     typer.Option(
         "--config",
         "-c",
-        help="Path to config file (default: auto-discover fastagent.config.yaml)",
+        help="Path to config file (default: environment-dir fastagent.config.yaml)",
         exists=False,  # Allow non-existent files (will be created)
     ),
 ]
 
 
-def _find_config_file() -> Path | None:
-    """Find the config file in the current directory or parent directories."""
-    return Settings.find_config()
+def _default_config_file() -> Path:
+    """Return the environment config path used by interactive config commands."""
+    return resolve_environment_config_file(Path.cwd())
 
 
 def _load_config(config_path: Path | None = None) -> tuple[dict[str, Any], Path]:
@@ -41,7 +46,7 @@ def _load_config(config_path: Path | None = None) -> tuple[dict[str, Any], Path]
 
     Args:
         config_path: Optional explicit path to config file. If not provided,
-                     auto-discovers fastagent.config.yaml in current or parent directories.
+                     edits the environment-dir fastagent.config.yaml.
     """
     if config_path is not None:
         # Use explicit path
@@ -53,13 +58,7 @@ def _load_config(config_path: Path | None = None) -> tuple[dict[str, Any], Path]
         # File doesn't exist yet - will be created
         return {}, resolved_path
 
-    # Auto-discover config file
-    found_path = _find_config_file()
-
-    if found_path is None:
-        # Create new config in current directory
-        found_path = Path.cwd() / "fastagent.config.yaml"
-        return {}, found_path
+    found_path = _default_config_file().resolve()
 
     if found_path.exists():
         with open(found_path) as f:
@@ -69,8 +68,74 @@ def _load_config(config_path: Path | None = None) -> tuple[dict[str, Any], Path]
     return {}, found_path
 
 
+def _load_effective_config(config_path: Path | None = None) -> dict[str, Any]:
+    """Load the effective settings used to prefill interactive forms."""
+    if config_path is not None:
+        resolved_path = config_path.resolve()
+        if resolved_path.exists():
+            with open(resolved_path) as f:
+                return _yaml.load(f) or {}
+        return {}
+
+    layered_config, _ = load_layered_settings(start_path=Path.cwd())
+    return layered_config
+
+
+def _load_project_config() -> dict[str, Any]:
+    """Load the project config layer beneath the environment overlay."""
+    project_config = find_project_config_file(Path.cwd())
+    if project_config is None or not project_config.exists():
+        return {}
+    with open(project_config) as f:
+        return _yaml.load(f) or {}
+
+
+def _overlay_section_updates(
+    *,
+    explicit_config: bool,
+    updates: dict[str, Any],
+    baseline: ShellSettings | LoggerSettings,
+) -> dict[str, Any]:
+    """Return the raw section contents to persist for the target file."""
+    if explicit_config:
+        return updates
+
+    baseline_values = baseline.model_dump(mode="python")
+    return {
+        key: value
+        for key, value in updates.items()
+        if baseline_values.get(key) != value
+    }
+
+
+def _replace_config_section(
+    config_data: dict[str, Any],
+    *,
+    section_name: str,
+    section_updates: dict[str, Any],
+) -> None:
+    """Replace a config section in-place, removing cleared keys and empty sections."""
+    current_section = config_data.get(section_name)
+    if current_section is None or not isinstance(current_section, dict):
+        current_section = {}
+        if section_updates:
+            config_data[section_name] = current_section
+
+    if not section_updates:
+        config_data.pop(section_name, None)
+        return
+
+    for key in list(current_section):
+        if key not in section_updates:
+            current_section.pop(key, None)
+
+    for key, value in section_updates.items():
+        current_section[key] = value
+
+
 def _save_config(config: dict[str, Any], config_path: Path) -> None:
     """Save config to file, preserving comments."""
+    config_path.parent.mkdir(parents=True, exist_ok=True)
     with open(config_path, "w") as f:
         _yaml.dump(config, f)
 
@@ -78,6 +143,12 @@ def _save_config(config: dict[str, Any], config_path: Path) -> None:
 def _get_field_description(field_name: str) -> str:
     """Get description from ShellSettings model field."""
     field_info = ShellSettings.model_fields.get(field_name)
+    return field_info.description if field_info and field_info.description else ""
+
+
+def _get_logger_field_description(field_name: str) -> str:
+    """Get description from LoggerSettings model field."""
+    field_info = LoggerSettings.model_fields.get(field_name)
     return field_info.description if field_info and field_info.description else ""
 
 
@@ -153,56 +224,69 @@ def _build_shell_form(current: ShellSettings) -> FormSchema:
     return FormSchema(**fields)
 
 
-def _build_model_description(
-    config_data: dict[str, Any],
-    *,
-    config_path: Path,
-) -> str:
-    env_dir = config_data.get("environment_dir")
-    configured_providers = ModelSelectionCatalog.configured_providers(
-        config_data,
-        start_path=config_path.parent,
-        env_dir=env_dir if isinstance(env_dir, (str, Path)) else None,
-    )
-    suggestions = ModelSelectionCatalog.suggestions_for_providers(
-        configured_providers,
-        config=config_data,
-        start_path=config_path.parent,
-        env_dir=env_dir if isinstance(env_dir, (str, Path)) else None,
-    )
-
-    if not suggestions:
-        return (
-            "Format: provider.model_name (e.g., anthropic.claude-sonnet-4-6). "
-            "Fast suggestions: responses.gpt-5-mini?reasoning=low, claude-haiku-4-5"
-        )
-
-    provider_suggestions: list[str] = []
-    for suggestion in suggestions[:4]:
-        if suggestion.current_models:
-            curated = ", ".join(suggestion.current_models[:2])
-            provider_suggestions.append(f"{suggestion.provider.display_name}: {curated}")
-
-    summary = " | ".join(provider_suggestions)
-    return (
-        "Format: provider.model_name. "
-        f"Detected provider suggestions: {summary}"
-    )
-
-
-def _build_model_form(
-    current_model: str | None,
-    config_data: dict[str, Any],
-    *,
-    config_path: Path,
-) -> FormSchema:
-    """Build form schema for model settings."""
+def _build_display_form(current: LoggerSettings) -> FormSchema:
+    """Build form schema for display-related logger settings."""
     return FormSchema(
-        default_model=string(
-            title="Default Model",
-            description=_build_model_description(config_data, config_path=config_path),
-            default=current_model or "",
-            max_length=100,
+        theme_file=string(
+            title="Theme File",
+            description=f"{_get_logger_field_description('theme_file')} (blank = default)",
+            default=current.theme_file or "",
+            max_length=240,
+        ),
+        code_theme=string(
+            title="Code Theme",
+            description=(
+                f"{_get_logger_field_description('code_theme')} "
+                "(examples: native, monokai, emacs, ansi_dark)"
+            ),
+            default=current.code_theme or "native",
+            max_length=80,
+        ),
+        streaming=string(
+            title="Streaming Mode",
+            description=f"{_get_logger_field_description('streaming')} (markdown|plain|none)",
+            default=current.streaming,
+            max_length=16,
+        ),
+        render_fences_with_syntax=boolean(
+            title="Syntax Fences",
+            description=_get_logger_field_description("render_fences_with_syntax"),
+            default=current.render_fences_with_syntax,
+        ),
+        code_word_wrap=boolean(
+            title="Wrap Code",
+            description=_get_logger_field_description("code_word_wrap"),
+            default=current.code_word_wrap,
+        ),
+        progress_display=boolean(
+            title="Progress Display",
+            description=_get_logger_field_description("progress_display"),
+            default=current.progress_display,
+        ),
+        show_chat=boolean(
+            title="Show Chat",
+            description=_get_logger_field_description("show_chat"),
+            default=current.show_chat,
+        ),
+        show_tools=boolean(
+            title="Show Tools",
+            description=_get_logger_field_description("show_tools"),
+            default=current.show_tools,
+        ),
+        truncate_tools=boolean(
+            title="Truncate Tools",
+            description=_get_logger_field_description("truncate_tools"),
+            default=current.truncate_tools,
+        ),
+        enable_markup=boolean(
+            title="Enable Markup",
+            description=_get_logger_field_description("enable_markup"),
+            default=current.enable_markup,
+        ),
+        enable_prompt_marks=boolean(
+            title="Prompt Marks",
+            description=_get_logger_field_description("enable_prompt_marks"),
+            default=current.enable_prompt_marks,
         ),
     )
 
@@ -246,22 +330,63 @@ def _normalize_shell_updates(result: dict[str, Any]) -> dict[str, Any]:
     return shell_updates
 
 
+def _normalize_display_updates(result: dict[str, Any]) -> dict[str, Any]:
+    """Normalize display form results into logger config values."""
+    logger_updates: dict[str, Any] = {}
+
+    theme_file = result.get("theme_file", "")
+    if isinstance(theme_file, str):
+        stripped_theme_file = theme_file.strip()
+        logger_updates["theme_file"] = stripped_theme_file or None
+
+    code_theme = result.get("code_theme", "")
+    if isinstance(code_theme, str):
+        stripped_code_theme = code_theme.strip()
+        logger_updates["code_theme"] = stripped_code_theme or "native"
+
+    streaming = result.get("streaming", "markdown")
+    if isinstance(streaming, str):
+        normalized_streaming = streaming.strip().lower()
+        if normalized_streaming not in {"markdown", "plain", "none"}:
+            normalized_streaming = "markdown"
+        logger_updates["streaming"] = normalized_streaming
+
+    for key in (
+        "render_fences_with_syntax",
+        "code_word_wrap",
+        "progress_display",
+        "show_chat",
+        "show_tools",
+        "truncate_tools",
+        "enable_markup",
+        "enable_prompt_marks",
+    ):
+        logger_updates[key] = bool(result.get(key, getattr(LoggerSettings(), key)))
+
+    return logger_updates
+
+
+def _form_message(action: str, config_path: Path) -> str:
+    return f"{action}\n\nEditing: {config_path}"
+
+
 @app.command("shell")
 def config_shell(config: ConfigOption = None) -> None:
     """Configure shell execution settings interactively."""
     from rich import print as rprint
 
     config_data, config_path = _load_config(config)
+    effective_config = _load_effective_config(config)
+    explicit_config = config is not None
 
     # Load current settings
-    shell_config = config_data.get("shell_execution", {}) or {}
-    current = ShellSettings(**shell_config)
+    current = ShellSettings(**(effective_config.get("shell_execution", {}) or {}))
 
     # Build and show form
     schema = _build_shell_form(current)
     result = form_sync(
         schema,
-        message="Configure shell execution behavior",
+        message=_form_message("Configure shell execution behavior", config_path),
         title="Shell Settings",
     )
 
@@ -271,50 +396,70 @@ def config_shell(config: ConfigOption = None) -> None:
 
     # Process results - handle special cases
     shell_updates = _normalize_shell_updates(result)
+    baseline_source = _load_project_config() if not explicit_config else {}
+    baseline = ShellSettings(**(baseline_source.get("shell_execution", {}) or {}))
+    persisted_updates = _overlay_section_updates(
+        explicit_config=explicit_config,
+        updates=shell_updates,
+        baseline=baseline,
+    )
 
-    # Update config
-    if "shell_execution" not in config_data or config_data["shell_execution"] is None:
-        config_data["shell_execution"] = {}
-    config_data["shell_execution"].update(shell_updates)
+    _replace_config_section(
+        config_data,
+        section_name="shell_execution",
+        section_updates=persisted_updates,
+    )
 
     # Save
     _save_config(config_data, config_path)
     rprint(f"[green]Shell settings saved to {config_path}[/green]")
 
 
-@app.command("model")
-def config_model(config: ConfigOption = None) -> None:
-    """Configure default model settings interactively."""
+@app.command("display")
+def config_display(config: ConfigOption = None) -> None:
+    """Configure display and markdown rendering settings interactively."""
     from rich import print as rprint
 
     config_data, config_path = _load_config(config)
+    effective_config = _load_effective_config(config)
+    explicit_config = config is not None
 
-    # Load current settings
-    current_model = config_data.get("default_model")
+    current = LoggerSettings(**(effective_config.get("logger", {}) or {}))
 
-    # Build and show form
-    schema = _build_model_form(current_model, config_data, config_path=config_path)
+    schema = _build_display_form(current)
     result = form_sync(
         schema,
-        message="Configure the default model for agents",
-        title="Model Settings",
+        message=_form_message("Configure display and markdown rendering behavior", config_path),
+        title="Display Settings",
     )
 
     if result is None:
         rprint("[yellow]Configuration cancelled.[/yellow]")
         raise typer.Exit(0)
 
-    # Update config
-    model_value = result.get("default_model", "").strip()
-    if model_value:
-        config_data["default_model"] = model_value
-    elif "default_model" in config_data:
-        # Clear if empty
-        del config_data["default_model"]
+    logger_updates = _normalize_display_updates(result)
+    baseline_source = _load_project_config() if not explicit_config else {}
+    baseline = LoggerSettings(**(baseline_source.get("logger", {}) or {}))
+    persisted_updates = _overlay_section_updates(
+        explicit_config=explicit_config,
+        updates=logger_updates,
+        baseline=baseline,
+    )
 
-    # Save
+    _replace_config_section(
+        config_data,
+        section_name="logger",
+        section_updates=persisted_updates,
+    )
+    logger_config = config_data.get("logger")
+    if isinstance(logger_config, dict):
+        if logger_config.get("theme_file") in ("", None):
+            logger_config.pop("theme_file", None)
+        if logger_config.get("code_theme") in ("", "native"):
+            logger_config.pop("code_theme", None)
+
     _save_config(config_data, config_path)
-    rprint(f"[green]Model settings saved to {config_path}[/green]")
+    rprint(f"[green]Display settings saved to {config_path}[/green]")
 
 
 @app.callback(invoke_without_command=True)
@@ -323,7 +468,7 @@ def config_main(ctx: typer.Context) -> None:
 
     Use subcommands to configure specific areas:
       - shell: Shell execution settings (timeout, output limits, etc.)
-      - model: Default model configuration
+      - display: Console display and markdown rendering
     """
     if ctx.invoked_subcommand is None:
         # Show help if no subcommand
@@ -337,7 +482,7 @@ def config_main(ctx: typer.Context) -> None:
         table.add_column("Description")
 
         table.add_row("shell", "Configure shell execution settings")
-        table.add_row("model", "Configure default model")
+        table.add_row("display", "Configure display and markdown rendering")
 
         rprint(table)
         rprint("\nExample: [cyan]fast-agent config shell[/cyan]")

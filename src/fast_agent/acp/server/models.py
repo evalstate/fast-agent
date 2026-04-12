@@ -10,7 +10,15 @@ if TYPE_CHECKING:
     from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
     from fast_agent.acp.tool_permission_adapter import ACPToolPermissionAdapter
     from fast_agent.acp.tool_progress import ACPToolProgressManager
+    from fast_agent.config import MCPServerSettings
     from fast_agent.core.fastagent import AgentInstance
+
+
+@dataclass
+class SessionMCPServerState:
+    server_name: str
+    server_config: MCPServerSettings | None = None
+    attached: bool = True
 
 
 @dataclass
@@ -31,3 +39,5 @@ class ACPSessionState:
     acp_context: ACPContext | None = None
     prompt_context: dict[str, str] = field(default_factory=dict)
     resolved_instructions: dict[str, str] = field(default_factory=dict)
+    session_mcp_servers: dict[str, SessionMCPServerState] = field(default_factory=dict)
+    agent_mcp_servers: dict[str, dict[str, SessionMCPServerState]] = field(default_factory=dict)

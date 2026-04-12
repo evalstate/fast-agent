@@ -122,7 +122,7 @@ def _convert_annotations(
     )
     return mcp_types.Annotations(
         audience=audience,
-        priority=getattr(acp_annotations, "priority", None),
+        priority=acp_annotations.priority,
     )
 
 

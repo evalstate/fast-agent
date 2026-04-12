@@ -35,12 +35,14 @@ def test_console_display_uses_logger_render_settings_by_default() -> None:
     display = ConsoleDisplay(
         config=Settings(
             logger=LoggerSettings(
+                code_theme="monokai",
                 render_fences_with_syntax=False,
                 code_word_wrap=True,
             )
         )
     )
 
+    assert display.code_style == "monokai"
     assert display.render_fences_with_syntax is False
     assert display.code_word_wrap is True
 

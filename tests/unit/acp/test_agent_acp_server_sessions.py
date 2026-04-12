@@ -38,18 +38,22 @@ def _build_instance(agent_names: list[str]) -> AgentInstance:
     )
 
 
-def _build_server(instance: AgentInstance) -> AgentACPServer:
+def _build_server(
+    instance: AgentInstance,
+    *,
+    created_instance: AgentInstance | None = None,
+) -> AgentACPServer:
     async def create_instance() -> AgentInstance:
-        return instance
+        return created_instance or instance
 
     async def dispose_instance(_instance: AgentInstance) -> None:
         return None
 
     return AgentACPServer(
-        primary_instance=instance,
+        bootstrap_instance=instance,
         create_instance=create_instance,
         dispose_instance=dispose_instance,
-        instance_scope="shared",
+        instance_scope="connection",
         server_name="test",
         permissions_enabled=False,
     )
@@ -128,6 +132,24 @@ async def test_load_session_falls_back_when_primary_agent_was_removed(
     assert resume_calls == ["renamed"]
     assert session_state.current_agent_name == "renamed"
     assert response.modes.current_mode_id == "renamed"
+
+
+@pytest.mark.asyncio
+async def test_new_session_recomputes_primary_agent_for_new_instances(tmp_path: Path) -> None:
+    primary_instance = _build_instance(["main"])
+    refreshed_instance = _build_instance(["renamed"])
+    server = _build_server(primary_instance, created_instance=refreshed_instance)
+
+    response = await server.new_session(
+        cwd=str(tmp_path.resolve()),
+        mcp_servers=[],
+    )
+
+    assert response.modes is not None
+    assert response.modes.current_mode_id == "renamed"
+    assert server.primary_agent_name == "renamed"
+    session_state = server._session_state[response.session_id]
+    assert session_state.current_agent_name == "renamed"
 
 
 @pytest.mark.asyncio

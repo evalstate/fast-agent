@@ -28,6 +28,7 @@ from fast_agent.cli.runtime.request_builders import (
     is_multi_model,
     merge_card_sources,
     resolve_default_instruction,
+    resolve_instance_scope,
     use_smart_agent,
 )
 from fast_agent.cli.runtime.request_builders import (
@@ -110,6 +111,11 @@ def _build_compat_run_request(**kwargs: Any) -> AgentRunRequest:
     dynamic call surface used by older integrations while converting into the
     strongly typed ``AgentRunRequest`` model at the boundary.
     """
+    transport = kwargs.get("transport", "http")
+    instance_scope = kwargs.get("instance_scope", "shared")
+    if transport == "acp" and instance_scope == "shared":
+        instance_scope = None
+
     return AgentRunRequest(
         name=kwargs.get("name", "fast-agent cli"),
         instruction=kwargs.get("instruction"),
@@ -137,7 +143,10 @@ def _build_compat_run_request(**kwargs: Any) -> AgentRunRequest:
         port=kwargs.get("port", 8000),
         tool_description=kwargs.get("tool_description"),
         tool_name_template=kwargs.get("tool_name_template"),
-        instance_scope=kwargs.get("instance_scope", "shared"),
+        instance_scope=resolve_instance_scope(
+            transport=transport,
+            instance_scope=instance_scope,
+        ),
         permissions_enabled=kwargs.get("permissions_enabled", True),
         reload=kwargs.get("reload", False),
         watch=kwargs.get("watch", False),
@@ -196,6 +205,10 @@ def run_async_agent(
 ) -> None:
     """Run the async agent function with proper loop handling."""
     try:
+        resolved_instance_scope = instance_scope
+        if transport == "acp" and resolved_instance_scope == "shared":
+            resolved_instance_scope = None
+
         run_kwargs = _build_run_agent_kwargs(
             name=name,
             mode=mode,
@@ -221,7 +234,10 @@ def run_async_agent(
             stdio_commands=stdio_commands,
             shell_enabled=shell_enabled,
             transport=transport,
-            instance_scope=instance_scope,
+            instance_scope=resolve_instance_scope(
+                transport=transport,
+                instance_scope=resolved_instance_scope,
+            ),
             host=host,
             port=port,
             tool_description=tool_description,

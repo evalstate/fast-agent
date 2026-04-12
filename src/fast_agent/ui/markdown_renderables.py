@@ -446,7 +446,7 @@ def _render_code_chunk(
 ):
     render_text = f"\n{text}\n" if pad_code_blocks else text
     if _is_apply_patch_language(language):
-        return style_apply_patch_preview_text(render_text, default_style="white")
+        return style_apply_patch_preview_text(render_text, default_style="dim")
     return Syntax(
         render_text,
         _normalize_code_language(language),

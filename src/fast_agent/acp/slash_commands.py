@@ -507,7 +507,7 @@ class SlashCommandHandler:
 
     def _build_command_context(self) -> CommandContext:
         settings = get_settings()
-        provider = getattr(self.instance, "app", None)
+        provider = self.instance.app
         if provider is None:
             provider = StaticAgentProvider(self.instance.agents)
         raw_session_cwd = getattr(self._acp_context, "session_cwd", None)

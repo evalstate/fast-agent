@@ -208,13 +208,15 @@ def _preview_line_style(line: str) -> str | None:
         return "red"
     if stripped.startswith("(+") and stripped.endswith("more lines)"):
         return "dim"
+    if raw.startswith(" "):
+        return "dim"
     return None
 
 
 def style_apply_patch_preview_text(
     text: str,
     *,
-    default_style: str | None = None,
+    default_style: str | None = "dim",
 ) -> Text:
     styled = Text()
     for line in text.splitlines(keepends=True):

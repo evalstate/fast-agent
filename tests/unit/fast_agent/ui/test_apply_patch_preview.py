@@ -161,15 +161,17 @@ def test_style_apply_patch_preview_text_applies_diff_line_styles() -> None:
         "*** Begin Patch\n"
         "*** Update File: a.txt\n"
         "@@\n"
+        " context\n"
         "-old\n"
         "+new\n"
         "*** End Patch\n"
     )
 
-    styled = style_apply_patch_preview_text(text, default_style="white")
+    styled = style_apply_patch_preview_text(text, default_style="dim")
     span_styles = {str(span.style) for span in styled.spans}
 
     assert styled.plain == text
+    assert "dim" in span_styles
     assert "cyan" in span_styles
     assert "yellow" in span_styles
     assert "red" in span_styles
@@ -185,7 +187,7 @@ def test_style_apply_patch_preview_text_handles_leading_spaces() -> None:
         "  +new\n"
     )
 
-    styled = style_apply_patch_preview_text(text, default_style="white")
+    styled = style_apply_patch_preview_text(text, default_style="dim")
     span_styles = {str(span.style) for span in styled.spans}
 
     assert "bold white" in span_styles
@@ -193,3 +195,22 @@ def test_style_apply_patch_preview_text_handles_leading_spaces() -> None:
     assert "yellow" in span_styles
     assert "red" in span_styles
     assert "green" in span_styles
+
+
+def test_style_apply_patch_preview_text_dims_context_lines_by_default() -> None:
+    text = (
+        "apply_patch preview: 1 file (1 update)\n"
+        "*** Begin Patch\n"
+        "@@\n"
+        " context\n"
+        "*** End Patch\n"
+    )
+
+    styled = style_apply_patch_preview_text(text)
+    context_start = text.index(" context")
+    context_end = context_start + len(" context")
+
+    assert any(
+        span.start <= context_start and span.end >= context_end and str(span.style) == "dim"
+        for span in styled.spans
+    )

@@ -59,10 +59,10 @@ def _build_server(agent: AgentProtocol | None = None) -> AgentACPServer:
         return None
 
     return AgentACPServer(
-        primary_instance=instance,
+        bootstrap_instance=instance,
         create_instance=create_instance,
         dispose_instance=dispose_instance,
-        instance_scope="shared",
+        instance_scope="connection",
         server_name="test",
         permissions_enabled=False,
     )

@@ -249,10 +249,31 @@ def test_render_tool_segment_styles_apply_patch_preview_lines() -> None:
             "*** Begin Patch\n"
             "*** Update File: a.txt\n"
             "@@\n"
+            " context\n"
             "-old\n"
             "+new\n"
         ),
         tool_name="execute",
+    )
+
+    renderable = handle._render_tool_segment(segment, cursor_suffix="")
+
+    assert isinstance(renderable, Text)
+    span_styles = {str(span.style) for span in renderable.spans}
+    assert "dim" in span_styles
+    assert "cyan" in span_styles
+    assert "yellow" in span_styles
+    assert "red" in span_styles
+    assert "green" in span_styles
+
+
+def test_render_tool_segment_keeps_apply_patch_styling_after_truncation() -> None:
+    handle = _make_handle("markdown")
+    segment = StreamSegment(
+        kind="tool",
+        text="execute\n*** Update File: a.txt\n@@\n-old\n+new\n",
+        tool_name="execute",
+        apply_patch_preview=True,
     )
 
     renderable = handle._render_tool_segment(segment, cursor_suffix="")
@@ -285,6 +306,43 @@ def test_diff_live_stop_reprints_full_truncated_frame_when_preserved() -> None:
     assert "one" in rendered
     assert "two" in rendered
     assert "three" in rendered
+
+
+def test_diff_live_stop_reprint_preserves_dim_apply_patch_context() -> None:
+    handle = _make_handle("markdown")
+    output = io.StringIO()
+    local_console = Console(file=output, force_terminal=True, color_system="standard", width=40)
+    local_console._height = 2
+    live = streaming_module._DiffLive(
+        console=local_console,
+        transient=False,
+    )
+    renderable = handle._render_tool_segment(
+        StreamSegment(
+            kind="tool",
+            text=(
+                "execute\n"
+                "apply_patch preview: streaming patch (partial)\n"
+                "*** Begin Patch\n"
+                "@@\n"
+                " context\n"
+                "*** End Patch\n"
+            ),
+            tool_name="execute",
+            apply_patch_preview=True,
+        ),
+        cursor_suffix="",
+    )
+
+    live.__enter__()
+    live.update(renderable, refresh=True)
+
+    output.truncate(0)
+    output.seek(0)
+    live.stop()
+
+    rendered = output.getvalue()
+    assert "\x1b[2m context" in rendered
 
 
 def test_diff_live_reprints_frame_after_console_print() -> None:

@@ -177,14 +177,16 @@ class ElicitationForm:
         self._build_form()
 
     def _build_fastagent_header(self) -> Window:
-        fastagent_info = FormattedText(
-            [
-                ("class:agent-name", self.agent_name),
-                ("class:label", " ("),
-                ("class:server-name", self.server_name),
-                ("class:label", ")"),
-            ]
-        )
+        parts: list[tuple[str, str]] = [("class:agent-name", self.agent_name)]
+        if self.server_name:
+            parts.extend(
+                [
+                    ("class:label", " ("),
+                    ("class:server-name", self.server_name),
+                    ("class:label", ")"),
+                ]
+            )
+        fastagent_info = FormattedText(parts)
         return Window(FormattedTextControl(fastagent_info), height=1)
 
     def _build_message_header(self) -> Window:
@@ -298,29 +300,15 @@ class ElicitationForm:
 
         mode_label = "TEXT MODE" if text_navigation_mode else "FIELD MODE"
         mode_color = "ansired" if text_navigation_mode else "ansigreen"
-        navigation_tail = (
-            " | <CTRL+T> toggle text mode. <TAB> navigate. <ENTER> insert new line."
-            if text_navigation_mode
-            else (
-                " | <CTRL+T> toggle text mode. "
-                "<TAB>/↑↓→← navigate. <Ctrl+J> insert new line."
-            )
-        )
         actions_line = (
-            "  <ESC> cancel. <Cancel All> Auto-Cancel further elicitations from this Server."
+            " Esc cancel • Tab move • Enter newline • Ctrl+T field mode"
             if text_navigation_mode
-            else (
-                "  <ENTER> submit. <ESC> cancel. <Cancel All> Auto-Cancel further "
-                "elicitations from this Server."
-            )
+            else " Enter submit • Esc cancel • Tab move • Ctrl+J newline • Ctrl+T text mode"
         )
         return FormattedText(
             [
-                ("class:bottom-toolbar.text", actions_line),
-                ("", "\n"),
-                ("class:bottom-toolbar.text", " | "),
                 (f"fg:{mode_color} bg:ansiblack", f" {mode_label} "),
-                ("class:bottom-toolbar.text", navigation_tail),
+                ("class:bottom-toolbar.text", actions_line),
             ]
         )
 
@@ -396,7 +384,7 @@ class ElicitationForm:
         self._get_toolbar = self._toolbar_text
         self._toolbar_window = Window(
             FormattedTextControl(self._toolbar_text),
-            height=2,
+            height=1,
             style="class:bottom-toolbar",
         )
         root_layout = HSplit([constrained_dialog, self._toolbar_window])

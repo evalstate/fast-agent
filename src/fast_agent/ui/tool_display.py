@@ -1041,7 +1041,7 @@ class ToolDisplay:
                                     preview,
                                     other_args=extract_non_command_args(tool_args),
                                 ),
-                                default_style="white",
+                                default_style="dim",
                             )
                         )
                     else:
@@ -1121,7 +1121,7 @@ class ToolDisplay:
                                     key: value for key, value in tool_args.items() if key != "input"
                                 },
                             ),
-                            default_style="white",
+                            default_style="dim",
                         )
                     )
                 elif patch_input is not None:

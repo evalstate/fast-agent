@@ -25,6 +25,7 @@ from typing import (
     Sequence,
     TypeAlias,
     TypeVar,
+    cast,
 )
 
 import yaml
@@ -70,6 +71,7 @@ from fast_agent.ui.usage_display import display_usage_report
 if TYPE_CHECKING:
     from fastmcp.tools import FunctionTool
 
+    from fast_agent.acp.server.agent_acp_server import ACPInstanceScope
     from fast_agent.config import MCPServerSettings
     from fast_agent.context import Context
     from fast_agent.core.agent_card_loader import LoadedAgentCard
@@ -1876,8 +1878,12 @@ class FastAgent(DecoratorMixin):
         state: ManagedRunState,
         settings: RunSettings,
     ) -> RuntimeCallbacks:
+        callbacks: RuntimeCallbacks
+
         async def create_instance() -> AgentInstance:
-            return await self._instantiate_agent_instance(state.runtime)
+            instance = await self._instantiate_agent_instance(state.runtime)
+            self._configure_runtime_mcp_callbacks(instance.app)
+            return instance
 
         async def dispose_instance(instance: AgentInstance) -> None:
             await self._dispose_agent_instance(state.runtime, instance)
@@ -1955,7 +1961,7 @@ class FastAgent(DecoratorMixin):
                 agent_name,
             )
 
-        return RuntimeCallbacks(
+        callbacks = RuntimeCallbacks(
             create_instance=create_instance,
             dispose_instance=dispose_instance,
             refresh_shared_instance=refresh_shared_instance,
@@ -1972,6 +1978,51 @@ class FastAgent(DecoratorMixin):
             list_attached_mcp_servers=list_attached_mcp_servers,
             list_configured_detached_mcp_servers=list_configured_detached_mcp_servers,
             dump_agent_card=self._dump_agent_card_callback,
+        )
+        return callbacks
+
+    def _configure_runtime_mcp_callbacks(self, app: AgentApp) -> None:
+        def active_agents() -> dict[str, AgentProtocol]:
+            return cast("dict[str, AgentProtocol]", app.registered_agents())
+
+        async def attach_mcp_server(
+            agent_name: str,
+            server_name: str,
+            server_config: MCPServerSettings | None = None,
+            options: MCPAttachOptions | None = None,
+        ) -> MCPAttachResult:
+            return await self._attach_mcp_server_and_refresh(
+                active_agents(),
+                agent_name,
+                server_name,
+                server_config,
+                options,
+            )
+
+        async def detach_mcp_server(
+            agent_name: str,
+            server_name: str,
+        ) -> MCPDetachResult:
+            return await self._detach_mcp_server_and_refresh(
+                active_agents(),
+                agent_name,
+                server_name,
+            )
+
+        async def list_attached_mcp_servers(agent_name: str) -> list[str]:
+            return await self._list_attached_mcp_servers(active_agents(), agent_name)
+
+        async def list_configured_detached_mcp_servers(agent_name: str) -> list[str]:
+            return await self._list_configured_detached_mcp_servers(
+                active_agents(),
+                agent_name,
+            )
+
+        app.set_attach_mcp_server_callback(attach_mcp_server)
+        app.set_detach_mcp_server_callback(detach_mcp_server)
+        app.set_list_attached_mcp_servers_callback(list_attached_mcp_servers)
+        app.set_list_configured_detached_mcp_servers_callback(
+            list_configured_detached_mcp_servers
         )
 
     def _configure_wrapper_callbacks(
@@ -1991,12 +2042,7 @@ class FastAgent(DecoratorMixin):
         wrapper.set_attach_agent_tools_callback(callbacks.attach_agent_tools_and_refresh)
         wrapper.set_detach_agent_tools_callback(callbacks.detach_agent_tools_and_refresh)
         wrapper.set_dump_agent_callback(callbacks.dump_agent_card)
-        wrapper.set_attach_mcp_server_callback(callbacks.attach_mcp_server)
-        wrapper.set_detach_mcp_server_callback(callbacks.detach_mcp_server)
-        wrapper.set_list_attached_mcp_servers_callback(callbacks.list_attached_mcp_servers)
-        wrapper.set_list_configured_detached_mcp_servers_callback(
-            callbacks.list_configured_detached_mcp_servers
-        )
+        self._configure_runtime_mcp_callbacks(wrapper)
 
         self._agent_card_watch_reload = (
             callbacks.reload_and_refresh if settings.reload_enabled else None
@@ -2068,6 +2114,18 @@ class FastAgent(DecoratorMixin):
             print(f"Listening on {self.args.host}:{self.args.port}", file=output_stream)
         print("Press Ctrl+C to stop", file=output_stream)
 
+    @staticmethod
+    def _resolve_server_instance_scope(
+        *,
+        transport: str,
+        instance_scope: str | None,
+    ) -> str:
+        if instance_scope is None:
+            return "connection" if transport == "acp" else "shared"
+        if transport == "acp" and instance_scope == "shared":
+            raise ValueError("ACP does not support instance_scope='shared'.")
+        return instance_scope
+
     async def _run_acp_server(
         self,
         state: ManagedRunState,
@@ -2076,27 +2134,24 @@ class FastAgent(DecoratorMixin):
         AgentACPServer = self._get_acp_server_class()
 
         server_name = getattr(self.args, "server_name", None)
-        instance_scope = getattr(self.args, "instance_scope", "shared")
+        instance_scope = self._resolve_server_instance_scope(
+            transport="acp",
+            instance_scope=getattr(self.args, "instance_scope", None),
+        )
+        acp_instance_scope = cast("ACPInstanceScope", instance_scope)
         permissions_enabled = getattr(self.args, "permissions_enabled", True)
 
         acp_server = AgentACPServer(
-            primary_instance=state.primary_instance,
+            bootstrap_instance=state.primary_instance,
             create_instance=callbacks.create_instance,
             dispose_instance=callbacks.dispose_instance,
-            instance_scope=instance_scope,
+            instance_scope=acp_instance_scope,
             server_name=server_name or f"{self.name}",
-            get_registry_version=self._get_registry_version,
             skills_directory_override=self._skills_directory_override,
             permissions_enabled=permissions_enabled,
             load_card_callback=callbacks.load_card_source,
             attach_agent_tools_callback=callbacks.attach_agent_tools_source,
             detach_agent_tools_callback=callbacks.detach_agent_tools_source,
-            attach_mcp_server_callback=callbacks.attach_mcp_server,
-            detach_mcp_server_callback=callbacks.detach_mcp_server,
-            list_attached_mcp_servers_callback=callbacks.list_attached_mcp_servers,
-            list_configured_detached_mcp_servers_callback=(
-                callbacks.list_configured_detached_mcp_servers
-            ),
             dump_agent_card_callback=callbacks.dump_agent_card,
             reload_callback=callbacks.reload_source,
         )
@@ -2632,7 +2687,7 @@ class FastAgent(DecoratorMixin):
         server_name: str | None = None,
         server_description: str | None = None,
         tool_description: str | None = None,
-        instance_scope: str = "shared",
+        instance_scope: str | None = None,
         permissions_enabled: bool = True,
         tool_name_template: str | None = None,
     ) -> None:
@@ -2649,7 +2704,7 @@ class FastAgent(DecoratorMixin):
             server_description: Optional description/instructions for the MCP server
             tool_description: Optional description template for the exposed send tool.
                               Use {agent} to reference the agent name.
-            permissions_enabled: Whether to request tool permissions from ACP clients (default: True)
+            permissions_enabled: Whether to request tool permissions from connected clients (default: True)
             tool_name_template: Optional template for exposed agent tool names.
                                 Use {agent} to reference the agent name.
         """
@@ -2673,7 +2728,10 @@ class FastAgent(DecoratorMixin):
         self.args.tool_name_template = tool_name_template
         self.args.server_description = server_description
         self.args.server_name = server_name
-        self.args.instance_scope = instance_scope
+        self.args.instance_scope = self._resolve_server_instance_scope(
+            transport=transport,
+            instance_scope=instance_scope,
+        )
         self.args.permissions_enabled = permissions_enabled
         # Force quiet mode for stdio/acp transports to avoid polluting the protocol stream
         self.args.quiet = (
@@ -2709,7 +2767,7 @@ class FastAgent(DecoratorMixin):
         server_name: str | None = None,
         server_description: str | None = None,
         tool_description: str | None = None,
-        instance_scope: str = "shared",
+        instance_scope: str | None = None,
         tool_name_template: str | None = None,
     ) -> None:
         """

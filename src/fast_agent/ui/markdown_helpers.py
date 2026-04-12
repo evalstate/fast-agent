@@ -11,6 +11,7 @@ HTML_ESCAPE_CHARS: dict[str, str] = {
     '"': "&quot;",
     "'": "&#39;",
 }
+_BLOCKQUOTE_PREFIX_RE = re.compile(r"^(?P<prefix>[ ]{0,3}(?:>[ \t]?)+)")
 _FENCE_PATTERN = re.compile(r"^```", re.MULTILINE)
 
 
@@ -35,10 +36,7 @@ def _prepare_markdown_content_cached(content: str) -> str:
     try:
         tokens = parser.parse(content)
     except Exception:
-        result = content
-        for char, replacement in HTML_ESCAPE_CHARS.items():
-            result = result.replace(char, replacement)
-        return result
+        return _escape_markdown_text(content)
 
     protected_ranges: list[tuple[int, int]] = []
     lines = content.split("\n")
@@ -87,20 +85,38 @@ def _prepare_markdown_content_cached(content: str) -> str:
     last_end = 0
 
     for start, end in merged_ranges:
-        unprotected_text = content[last_end:start]
-        for char, replacement in HTML_ESCAPE_CHARS.items():
-            unprotected_text = unprotected_text.replace(char, replacement)
-        result_segments.append(unprotected_text)
+        result_segments.append(_escape_markdown_text(content[last_end:start]))
 
         result_segments.append(content[start:end])
         last_end = end
 
-    remainder_text = content[last_end:]
-    for char, replacement in HTML_ESCAPE_CHARS.items():
-        remainder_text = remainder_text.replace(char, replacement)
-    result_segments.append(remainder_text)
+    result_segments.append(_escape_markdown_text(content[last_end:]))
 
     return "".join(result_segments)
+
+
+def _escape_markdown_text(text: str) -> str:
+    if not text:
+        return text
+
+    escaped_lines: list[str] = []
+    for raw_line in text.splitlines(keepends=True):
+        line = raw_line.rstrip("\r\n")
+        newline = raw_line[len(line) :]
+        prefix = ""
+        body = line
+
+        match = _BLOCKQUOTE_PREFIX_RE.match(line)
+        if match is not None:
+            prefix = match.group("prefix")
+            body = line[len(prefix) :]
+
+        for char, replacement in HTML_ESCAPE_CHARS.items():
+            body = body.replace(char, replacement)
+
+        escaped_lines.append(f"{prefix}{body}{newline}")
+
+    return "".join(escaped_lines)
 
 
 def prepare_markdown_content(content: str, escape_xml: bool = True) -> str:

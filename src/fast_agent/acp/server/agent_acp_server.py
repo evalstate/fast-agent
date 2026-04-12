@@ -8,7 +8,7 @@ and other clients to interact with fast-agent agents over stdio using the ACP pr
 import asyncio
 from importlib.metadata import version as get_version
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Sequence, cast
+from typing import Any, Awaitable, Callable, Literal, Sequence, cast
 
 from acp import (
     Agent as ACPAgent,
@@ -31,7 +31,6 @@ from acp.schema import (
     AuthenticateResponse,
     AuthMethodAgent,
     AvailableCommandsUpdate,
-    ClientCapabilities,
     EnvVarAuthMethod,
     HttpMcpServer,
     Implementation,
@@ -48,10 +47,15 @@ from acp.schema import (
     TerminalAuthMethod,
     UserMessageChunk,
 )
+from acp.schema import (
+    ClientCapabilities as ACPClientCapabilities,
+)
+from acp.schema import (
+    FileSystemCapabilities as ACPFileSystemCapabilities,
+)
 
 from fast_agent.acp.acp_context import ClientCapabilities as FAClientCapabilities
 from fast_agent.acp.acp_context import ClientInfo
-from fast_agent.acp.server.common import coerce_registry_version
 from fast_agent.acp.server.models import ACPSessionState
 from fast_agent.acp.server.prompt_flow import ACPPromptFlow, PromptFlowHost
 from fast_agent.acp.server.session_runtime import ACPServerSessionRuntime, SessionRuntimeHost
@@ -74,6 +78,7 @@ from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 
 logger = get_logger(__name__)
+ACPInstanceScope = Literal["connection", "request"]
 
 ACP_AUTH_METHOD_ID = "fast-agent-ai-secrets"
 ACP_AUTH_DOCS_URL = "https://fast-agent.ai/ref/config_file/"
@@ -98,29 +103,19 @@ class AgentACPServer(ACPAgent):
 
     def __init__(
         self,
-        primary_instance: AgentInstance,
+        bootstrap_instance: AgentInstance,
         create_instance: Callable[[], Awaitable[AgentInstance]],
         dispose_instance: Callable[[AgentInstance], Awaitable[None]],
-        instance_scope: str,
+        instance_scope: ACPInstanceScope,
         server_name: str = "fast-agent-acp",
         server_version: str | None = None,
         skills_directory_override: Sequence[str | Path] | str | Path | None = None,
         permissions_enabled: bool = True,
-        get_registry_version: Callable[[], int] | None = None,
         load_card_callback: Callable[[str, str | None], Awaitable[tuple[list[str], list[str]]]]
         | None = None,
         attach_agent_tools_callback: Callable[[str, Sequence[str]], Awaitable[list[str]]]
         | None = None,
         detach_agent_tools_callback: Callable[[str, Sequence[str]], Awaitable[list[str]]]
-        | None = None,
-        attach_mcp_server_callback: Callable[
-            [str, str, MCPServerSettings | None, MCPAttachOptions | None],
-            Awaitable[MCPAttachResult],
-        ]
-        | None = None,
-        detach_mcp_server_callback: Callable[[str, str], Awaitable[MCPDetachResult]] | None = None,
-        list_attached_mcp_servers_callback: Callable[[str], Awaitable[list[str]]] | None = None,
-        list_configured_detached_mcp_servers_callback: Callable[[str], Awaitable[list[str]]]
         | None = None,
         dump_agent_card_callback: Callable[[str], Awaitable[str]] | None = None,
         reload_callback: Callable[[], Awaitable[bool]] | None = None,
@@ -129,10 +124,10 @@ class AgentACPServer(ACPAgent):
         Initialize the ACP server.
 
         Args:
-            primary_instance: The primary agent instance (used in shared mode)
+            bootstrap_instance: Initial agent instance used for capabilities and cleanup
             create_instance: Factory function to create new agent instances
             dispose_instance: Function to dispose of agent instances
-            instance_scope: How to scope instances ('shared', 'connection', or 'request')
+            instance_scope: How to scope ACP session instances ('connection' or 'request')
             server_name: Name of the server for capability advertisement
             server_version: Version of the server (defaults to fast-agent version)
             skills_directory_override: Optional skills directory override (relative to session cwd)
@@ -140,37 +135,20 @@ class AgentACPServer(ACPAgent):
             load_card_callback: Optional callback to load AgentCards at runtime
             attach_agent_tools_callback: Optional callback to attach agent tools at runtime
             detach_agent_tools_callback: Optional callback to detach agent tools at runtime
-            attach_mcp_server_callback: Optional callback to attach MCP servers at runtime
-            detach_mcp_server_callback: Optional callback to detach MCP servers at runtime
-            list_attached_mcp_servers_callback: Optional callback to list attached MCP servers
-            list_configured_detached_mcp_servers_callback: Optional callback to list configured
-                detached MCP servers
             dump_agent_card_callback: Optional callback to dump AgentCards at runtime
             reload_callback: Optional callback to reload AgentCards
         """
         super().__init__()
 
-        self.primary_instance = primary_instance
+        self._bootstrap_instance = bootstrap_instance
         self._create_instance_task = create_instance
         self._dispose_instance_task = dispose_instance
         self._instance_scope = instance_scope
-        self._get_registry_version = get_registry_version
         self._load_card_callback = load_card_callback
         self._attach_agent_tools_callback = attach_agent_tools_callback
         self._detach_agent_tools_callback = detach_agent_tools_callback
-        self._attach_mcp_server_callback = attach_mcp_server_callback
-        self._detach_mcp_server_callback = detach_mcp_server_callback
-        self._list_attached_mcp_servers_callback = list_attached_mcp_servers_callback
-        self._list_configured_detached_mcp_servers_callback = (
-            list_configured_detached_mcp_servers_callback
-        )
         self._dump_agent_card_callback = dump_agent_card_callback
         self._reload_callback = reload_callback
-        self._primary_registry_version = coerce_registry_version(
-            getattr(primary_instance, "registry_version", 0)
-        )
-        self._shared_reload_lock = asyncio.Lock()
-        self._stale_instances: list[AgentInstance] = []
         self.server_name = server_name
         self._skills_directory_override = skills_directory_override
         self._permissions_enabled = permissions_enabled
@@ -216,7 +194,7 @@ class AgentACPServer(ACPAgent):
         self._parsed_client_info: ClientInfo | None = None
 
         # Determine primary agent using FastAgent default flag when available
-        self.primary_agent_name = self._select_primary_agent(primary_instance)
+        self.primary_agent_name = self._select_primary_agent(bootstrap_instance)
         self._session_runtime = ACPServerSessionRuntime(cast("SessionRuntimeHost", self))
         self._session_store = ACPServerSessionStore(cast("SessionStoreHost", self))
         self._slash_runtime = ACPServerSlashRuntime(cast("SlashRuntimeHost", self))
@@ -225,7 +203,7 @@ class AgentACPServer(ACPAgent):
         logger.info(
             "AgentACPServer initialized",
             name="acp_server_initialized",
-            agent_count=len(primary_instance.agents),
+            agent_count=len(bootstrap_instance.agents),
             instance_scope=instance_scope,
             primary_agent=self.primary_agent_name,
         )
@@ -238,11 +216,11 @@ class AgentACPServer(ACPAgent):
             agent: Agent instance that may expose an llm with model metadata.
         """
         # Some workflow agents (e.g., chain/parallel) don't attach an LLM directly.
-        llm = getattr(agent, "_llm", None)
-        resolved_model = getattr(llm, "resolved_model", None)
+        llm = agent.llm if isinstance(agent, AgentProtocol) else None
+        resolved_model = llm.resolved_model if llm else None
         if resolved_model is not None:
             return calculate_terminal_output_limit_for_resolved_model(resolved_model)
-        model_name = getattr(llm, "model_name", None)
+        model_name = llm.model_name if llm else None
         return self._calculate_terminal_output_limit_for_model(model_name)
 
     @staticmethod
@@ -278,10 +256,10 @@ class AgentACPServer(ACPAgent):
             **self._build_auth_meta(),
         }
 
-        llm = getattr(agent, "_llm", None)
-        provider = getattr(llm, "provider", None)
-        provider_name = getattr(provider, "value", None)
-        provider_display_name = getattr(provider, "display_name", None)
+        llm = agent.llm if isinstance(agent, AgentProtocol) else None
+        provider = llm.provider if llm else None
+        provider_name = provider.value if provider else None
+        provider_display_name = provider.display_name if provider else None
         if isinstance(provider_name, str) and provider_name:
             from fast_agent.llm.provider_key_manager import ProviderKeyManager
 
@@ -301,7 +279,7 @@ class AgentACPServer(ACPAgent):
     async def initialize(
         self,
         protocol_version: int,
-        client_capabilities: ClientCapabilities | None = None,
+        client_capabilities: ACPClientCapabilities | None = None,
         client_info: Implementation | None = None,
         **kwargs: Any,
     ) -> InitializeResponse:
@@ -317,57 +295,38 @@ class AgentACPServer(ACPAgent):
             # Store client info
             if client_info:
                 self._client_info = {
-                    "name": getattr(client_info, "name", "unknown"),
-                    "version": getattr(client_info, "version", "unknown"),
+                    "name": client_info.name,
+                    "version": client_info.version,
                 }
-                # Include title if available
-                if hasattr(client_info, "title"):
+                if client_info.title:
                     self._client_info["title"] = client_info.title
 
             # Store client capabilities
             if client_capabilities:
-                self._client_supports_terminal = bool(
-                    getattr(client_capabilities, "terminal", False)
-                )
-
-                # Check for filesystem capabilities
-                if hasattr(client_capabilities, "fs"):
-                    fs_caps = client_capabilities.fs
-                    if fs_caps:
-                        self._client_supports_fs_read = bool(
-                            getattr(fs_caps, "read_text_file", False)
-                        )
-                        self._client_supports_fs_write = bool(
-                            getattr(fs_caps, "write_text_file", False)
-                        )
+                fs_caps = client_capabilities.fs
+                self._client_supports_terminal = bool(client_capabilities.terminal)
+                self._client_supports_fs_read = bool(fs_caps.read_text_file) if fs_caps else False
+                self._client_supports_fs_write = bool(fs_caps.write_text_file) if fs_caps else False
 
                 # Convert capabilities to a dict for status reporting
                 self._client_capabilities = {}
-                if hasattr(client_capabilities, "fs"):
-                    fs_caps = client_capabilities.fs
-                    fs_capabilities = self._extract_fs_capabilities(fs_caps)
-                    if fs_capabilities:
-                        self._client_capabilities["fs"] = fs_capabilities
+                fs_capabilities = self._extract_fs_capabilities(fs_caps)
+                if fs_capabilities:
+                    self._client_capabilities["fs"] = fs_capabilities
 
-                if hasattr(client_capabilities, "terminal") and client_capabilities.terminal:
+                if client_capabilities.terminal:
                     self._client_capabilities["terminal"] = True
 
                 # Store _meta if present
-                if hasattr(client_capabilities, "_meta"):
-                    meta = client_capabilities._meta
-                    if meta:
-                        self._client_capabilities["_meta"] = (
-                            dict(meta) if isinstance(meta, dict) else {}
-                        )
+                meta = client_capabilities.field_meta
+                if meta:
+                    self._client_capabilities["_meta"] = (
+                        dict(meta) if isinstance(meta, dict) else {}
+                    )
 
             # Parse client capabilities and info for ACPContext
-            self._parsed_client_capabilities = FAClientCapabilities(
-                terminal=self._client_supports_terminal,
-                fs_read=self._client_supports_fs_read,
-                fs_write=self._client_supports_fs_write,
-                _meta=self._client_capabilities.get("_meta", {})
-                if self._client_capabilities
-                else {},
+            self._parsed_client_capabilities = FAClientCapabilities.from_acp_capabilities(
+                client_capabilities
             )
             self._parsed_client_info = ClientInfo.from_acp_info(client_info)
 
@@ -451,7 +410,10 @@ class AgentACPServer(ACPAgent):
 
         return AuthenticateResponse(field_meta=self._build_auth_meta())
 
-    def _extract_fs_capabilities(self, fs_caps: Any) -> dict[str, bool]:
+    def _extract_fs_capabilities(
+        self,
+        fs_caps: ACPFileSystemCapabilities | dict[str, bool | None] | None,
+    ) -> dict[str, bool]:
         """Normalize filesystem capabilities for status reporting."""
         normalized: dict[str, bool] = {}
         if not fs_caps:
@@ -463,11 +425,10 @@ class AgentACPServer(ACPAgent):
                     normalized[key] = bool(value)
             return normalized
 
-        for attr in ("read_text_file", "write_text_file"):
-            if hasattr(fs_caps, attr):
-                value = getattr(fs_caps, attr)
-                if value is not None:
-                    normalized[attr] = bool(value)
+        if fs_caps.read_text_file is not None:
+            normalized["read_text_file"] = bool(fs_caps.read_text_file)
+        if fs_caps.write_text_file is not None:
+            normalized["write_text_file"] = bool(fs_caps.write_text_file)
 
         return normalized
 
@@ -528,9 +489,6 @@ class AgentACPServer(ACPAgent):
     def _decode_session_list_cursor(cursor: str) -> int:
         return ACPServerSessionStore._decode_session_list_cursor(cursor)
 
-    async def _maybe_refresh_shared_instance(self) -> None:
-        await self._session_runtime.maybe_refresh_shared_instance()
-
     async def _replace_instance_for_session(
         self,
         session_state: ACPSessionState,
@@ -544,13 +502,62 @@ class AgentACPServer(ACPAgent):
             await_refresh_session_state=await_refresh_session_state,
         )
 
-    async def _refresh_sessions_for_instance(self, instance: AgentInstance) -> None:
-        await self._session_runtime.refresh_sessions_for_instance(instance)
-
     async def _refresh_session_state(
         self, session_state: ACPSessionState, instance: AgentInstance
     ) -> None:
         await self._session_runtime.refresh_session_state(session_state, instance)
+
+    async def _attach_mcp_server_for_session(
+        self,
+        session_state: ACPSessionState,
+        *,
+        agent_name: str,
+        server_name: str,
+        server_config: MCPServerSettings | None = None,
+        options: MCPAttachOptions | None = None,
+    ) -> MCPAttachResult:
+        return await self._session_runtime.attach_session_mcp_server(
+            session_state,
+            agent_name=agent_name,
+            server_name=server_name,
+            server_config=server_config,
+            options=options,
+        )
+
+    async def _detach_mcp_server_for_session(
+        self,
+        session_state: ACPSessionState,
+        *,
+        agent_name: str,
+        server_name: str,
+    ) -> MCPDetachResult:
+        return await self._session_runtime.detach_session_mcp_server(
+            session_state,
+            agent_name=agent_name,
+            server_name=server_name,
+        )
+
+    async def _list_attached_mcp_servers_for_session(
+        self,
+        session_state: ACPSessionState,
+        *,
+        agent_name: str,
+    ) -> list[str]:
+        return await self._session_runtime.list_attached_mcp_servers(
+            session_state,
+            agent_name=agent_name,
+        )
+
+    async def _list_configured_detached_mcp_servers_for_session(
+        self,
+        session_state: ACPSessionState,
+        *,
+        agent_name: str,
+    ) -> list[str]:
+        return await self._session_runtime.list_configured_detached_mcp_servers(
+            session_state,
+            agent_name=agent_name,
+        )
 
     def _create_slash_handler(
         self,
@@ -598,9 +605,6 @@ class AgentACPServer(ACPAgent):
 
     async def _reload_agent_cards_for_session(self, session_id: str) -> bool:
         return await self._slash_runtime.reload_agent_cards_for_session(session_id)
-
-    async def _dispose_stale_instances_if_idle(self) -> None:
-        await self._session_runtime.dispose_stale_instances_if_idle()
 
     def _build_status_line_meta(
         self, agent: Any, turn_start_index: int | None
@@ -709,7 +713,7 @@ class AgentACPServer(ACPAgent):
         """
         Handle new session request.
 
-        Creates a new session and maps it to an AgentInstance based on instance_scope.
+        Creates a new ACP session with its own dedicated agent instance.
         """
         request_cwd = self._resolve_request_cwd(
             cwd=cwd,
@@ -831,29 +835,28 @@ class AgentACPServer(ACPAgent):
 
         Respects AgentConfig.default when set; otherwise falls back to the first agent.
         """
+        try:
+            return instance.app.resolve_target_agent_name()
+        except Exception:
+            pass
+
         if not instance.agents:
             return None
 
         for agent_name, agent in instance.agents.items():
-            config = getattr(agent, "config", None)
-            if config and getattr(config, "default", False):
+            if agent.config.default:
                 return agent_name
 
         return next(iter(instance.agents.keys()))
 
-    def _resolve_session_fallback_agent_name(self, instance: AgentInstance) -> str | None:
-        if self.primary_agent_name is not None:
-            try:
-                return instance.app.resolve_target_agent_name(self.primary_agent_name)
-            except ValueError:
-                logger.warning(
-                    "ACP session load primary agent missing after refresh; using default agent",
-                    name="acp_load_session_primary_agent_missing",
-                    missing_agent=self.primary_agent_name,
-                    available_agents=sorted(instance.agents.keys()),
-                )
+    def _resolve_primary_agent_name(self, instance: AgentInstance) -> str | None:
+        """Recompute and cache the ACP primary agent for a specific instance."""
+        primary_agent_name = self._select_primary_agent(instance)
+        self.primary_agent_name = primary_agent_name
+        return primary_agent_name
 
-        return instance.app.resolve_target_agent_name()
+    def _resolve_session_fallback_agent_name(self, instance: AgentInstance) -> str | None:
+        return self._resolve_primary_agent_name(instance)
 
     async def prompt(
         self,
@@ -1056,38 +1059,29 @@ class AgentACPServer(ACPAgent):
             self._active_prompts.clear()
             self._prompt_locks.clear()
 
-            # Dispose of non-shared instances
-            if self._instance_scope in ["connection", "request"]:
-                for session_id, instance in self.sessions.items():
-                    if instance != self.primary_instance:
-                        try:
-                            await self._dispose_instance_task(instance)
-                        except Exception as e:
-                            logger.error(
-                                f"Error disposing instance for session {session_id}: {e}",
-                                name="acp_cleanup_error",
-                            )
-
-            # Dispose of primary instance
-            if self.primary_instance:
+            disposed_instances: set[int] = set()
+            for session_id, instance in self.sessions.items():
+                instance_id = id(instance)
+                if instance_id in disposed_instances:
+                    continue
+                disposed_instances.add(instance_id)
                 try:
-                    await self._dispose_instance_task(self.primary_instance)
+                    await self._dispose_instance_task(instance)
                 except Exception as e:
                     logger.error(
-                        f"Error disposing primary instance: {e}",
+                        f"Error disposing instance for session {session_id}: {e}",
                         name="acp_cleanup_error",
                     )
 
-            if self._stale_instances:
-                for instance in list(self._stale_instances):
-                    try:
-                        await self._dispose_instance_task(instance)
-                    except Exception as e:
-                        logger.error(
-                            f"Error disposing stale instance: {e}",
-                            name="acp_cleanup_error",
-                        )
-                self._stale_instances.clear()
+            bootstrap_instance = self._bootstrap_instance
+            if bootstrap_instance and id(bootstrap_instance) not in disposed_instances:
+                try:
+                    await self._dispose_instance_task(bootstrap_instance)
+                except Exception as e:
+                    logger.error(
+                        f"Error disposing ACP bootstrap instance: {e}",
+                        name="acp_cleanup_error",
+                    )
 
             self.sessions.clear()
 

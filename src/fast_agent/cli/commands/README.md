@@ -116,7 +116,7 @@ fast-agent serve [OPTIONS]
 - `--shell`, `-x`: Enable a local shell runtime and expose the execute tool
 - `--description`, `-d TEXT`: Description used for each send tool (supports `{agent}` placeholder)
 - `--tool-name-template TEXT`: Template for exposed agent tool names (supports `{agent}` placeholder)
-- `--instance-scope [shared|connection|request]`: Control how MCP clients receive isolated agent instances (default: shared)
+- `--instance-scope [shared|connection|request]`: Control how clients receive isolated agent instances (default: shared; ACP supports `connection` and `request` only)
 - `--reload`: Enable manual AgentCard reloads (ACP: `/reload`, MCP: `reload_agent_cards`)
 - `--watch`: Watch AgentCard paths and reload
 

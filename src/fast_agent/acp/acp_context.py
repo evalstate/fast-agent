@@ -18,8 +18,15 @@ from typing import TYPE_CHECKING, Any, Literal
 from acp.schema import (
     AvailableCommandsUpdate,
     CurrentModeUpdate,
+    FileSystemCapabilities,
     SessionInfoUpdate,
     SessionMode,
+)
+from acp.schema import (
+    ClientCapabilities as ACPClientCapabilities,
+)
+from acp.schema import (
+    Implementation as ACPImplementation,
 )
 
 from fast_agent.core.logging.logger import get_logger
@@ -47,23 +54,19 @@ class ClientCapabilities:
     _meta: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_acp_capabilities(cls, caps: Any) -> "ClientCapabilities":
+    def from_acp_capabilities(cls, caps: ACPClientCapabilities | None) -> "ClientCapabilities":
         """Create from ACP ClientCapabilities object."""
-        result = cls()
         if caps is None:
-            return result
+            return cls()
 
-        result.terminal = bool(getattr(caps, "terminal", False))
-
-        if hasattr(caps, "fs") and caps.fs:
-            fs_caps = caps.fs
-            result.fs_read = bool(getattr(fs_caps, "read_text_file", False))
-            result.fs_write = bool(getattr(fs_caps, "write_text_file", False))
-
-        if hasattr(caps, "_meta") and caps._meta:
-            result._meta = dict(caps._meta) if isinstance(caps._meta, dict) else {}
-
-        return result
+        fs_caps: FileSystemCapabilities | None = caps.fs
+        meta = caps.field_meta or {}
+        return cls(
+            terminal=bool(caps.terminal),
+            fs_read=bool(fs_caps.read_text_file) if fs_caps else False,
+            fs_write=bool(fs_caps.write_text_file) if fs_caps else False,
+            _meta=dict(meta) if isinstance(meta, dict) else {},
+        )
 
 
 @dataclass
@@ -75,14 +78,14 @@ class ClientInfo:
     title: str | None = None
 
     @classmethod
-    def from_acp_info(cls, info: Any) -> "ClientInfo":
+    def from_acp_info(cls, info: ACPImplementation | None) -> "ClientInfo":
         """Create from ACP Implementation object."""
         if info is None:
             return cls()
         return cls(
-            name=getattr(info, "name", "unknown"),
-            version=getattr(info, "version", "unknown"),
-            title=getattr(info, "title", None),
+            name=info.name,
+            version=info.version,
+            title=info.title,
         )
 
 

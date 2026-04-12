@@ -7,13 +7,19 @@ import json
 import time
 from dataclasses import dataclass
 from enum import Enum
+from importlib.resources import files
 from pathlib import Path
 from random import Random
 from typing import TYPE_CHECKING
 
 import typer
+from typer.models import OptionInfo
 
+from fast_agent.cli.command_support import get_settings_or_exit
+from fast_agent.cli.shared_options import CommonAgentOptions
+from fast_agent.ui import console as shared_console
 from fast_agent.ui.console_display import ConsoleDisplay
+from fast_agent.ui.markdown_renderables import build_markdown_renderable
 from fast_agent.ui.message_primitives import MESSAGE_CONFIGS, MessageType
 from fast_agent.ui.streaming import StreamingMessageHandle
 
@@ -53,6 +59,11 @@ def _build_demo_stream_handle(
 
 app = typer.Typer(help="Demo commands for UI features.")
 
+_SOURCE_MARKDOWN_DEMO_DIR = Path(__file__).resolve().parents[4] / "examples" / "markdown"
+_PACKAGED_MARKDOWN_DEMO_DIR = (
+    files("fast_agent").joinpath("resources").joinpath("examples").joinpath("markdown")
+)
+
 
 @app.callback(invoke_without_command=True)
 def _demo_root(ctx: typer.Context) -> None:
@@ -64,6 +75,31 @@ def _demo_root(ctx: typer.Context) -> None:
 def _chunk_text(text: str, chunk_size: int) -> Iterable[str]:
     for idx in range(0, len(text), chunk_size):
         yield text[idx : idx + chunk_size]
+
+
+def _read_markdown_demo_asset(filename: str | Path) -> str:
+    asset_path = Path(filename).expanduser()
+
+    if asset_path.is_absolute() and asset_path.is_file():
+        return asset_path.read_text(encoding="utf-8")
+
+    cwd_path = (Path.cwd() / asset_path).resolve()
+    if cwd_path.is_file():
+        return cwd_path.read_text(encoding="utf-8")
+
+    source_path = (_SOURCE_MARKDOWN_DEMO_DIR / asset_path).resolve()
+    if source_path.is_file():
+        return source_path.read_text(encoding="utf-8")
+
+    packaged_path = _PACKAGED_MARKDOWN_DEMO_DIR.joinpath(asset_path.as_posix())
+    if packaged_path.is_file():
+        return packaged_path.read_text(encoding="utf-8")
+
+    raise FileNotFoundError(f"Markdown demo asset not found: {filename}")
+
+
+def _resolve_option_value[T](value: T | OptionInfo, default: T) -> T:
+    return default if isinstance(value, OptionInfo) else value
 
 
 @dataclass(frozen=True, slots=True)
@@ -730,6 +766,75 @@ def _build_scenario_markdown(
         body = _SCENARIO_BUILDERS[scenario](lines if scenario == DemoScenario.mixed else scale)
     section = [header, description, "", body]
     return "\n".join(section).strip() + "\n"
+
+
+@app.command("markdown")
+def markdown(
+    config_path: str | None = CommonAgentOptions.config_path(),
+    sample_file: str = typer.Option(
+        "demo_markdown.md",
+        "--sample-file",
+        "--sample",
+        help="Markdown sample to render. Accepts a local path or a bundled asset name.",
+    ),
+    theme_file: Path | None = typer.Option(
+        None,
+        "--theme-file",
+        help="Optional Rich theme file override for this preview.",
+    ),
+    wrap_code: bool = typer.Option(
+        False,
+        "--wrap-code/--crop-code",
+        help="Wrap Syntax-rendered code blocks instead of cropping at the viewport edge.",
+    ),
+    syntax_fences: bool = typer.Option(
+        True,
+        "--syntax-fences/--markdown-fences",
+        help="Render fenced code blocks with Rich Syntax instead of markdown fence blocks.",
+    ),
+) -> None:
+    """Render the bundled markdown style demo."""
+    sample_file = _resolve_option_value(sample_file, "demo_markdown.md")
+    theme_file = _resolve_option_value(theme_file, None)
+    wrap_code = _resolve_option_value(wrap_code, False)
+    syntax_fences = _resolve_option_value(syntax_fences, True)
+
+    settings = get_settings_or_exit(config_path)
+    if theme_file is not None:
+        resolved_theme = theme_file.expanduser()
+        if not resolved_theme.is_absolute():
+            resolved_theme = (Path.cwd() / resolved_theme).resolve()
+        if not resolved_theme.is_file():
+            raise typer.BadParameter(
+                f"Theme file not found: {theme_file}",
+                param_hint="--theme-file",
+            )
+        settings.logger.theme_file = str(resolved_theme)
+
+    display = ConsoleDisplay(
+        config=settings,
+        code_word_wrap=wrap_code,
+        render_fences_with_syntax=syntax_fences,
+    )
+    theme_label = settings.logger.theme_file or "default"
+    try:
+        demo_markdown = _read_markdown_demo_asset(sample_file)
+    except FileNotFoundError as exc:
+        raise typer.BadParameter(str(exc), param_hint="--sample-file") from exc
+
+    shared_console.console.print(
+        f"[dim]theme: {theme_label} • code theme: {display.code_style}[/dim]\n"
+    )
+    shared_console.console.print(
+        build_markdown_renderable(
+            demo_markdown,
+            code_theme=display.code_style,
+            escape_xml=True,
+            render_fences_with_syntax=display.render_fences_with_syntax,
+            code_word_wrap=display.code_word_wrap,
+        ),
+        markup=getattr(settings.logger, "enable_markup", True),
+    )
 
 
 @app.command()

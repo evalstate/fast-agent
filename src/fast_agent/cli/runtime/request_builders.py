@@ -219,6 +219,16 @@ def collect_stdio_commands(npx: str | None, uvx: str | None, stdio: str | None) 
     return stdio_commands
 
 
+def resolve_instance_scope(
+    *,
+    transport: str,
+    instance_scope: str | None,
+) -> str:
+    if instance_scope is None:
+        return "connection" if transport == "acp" else "shared"
+    return instance_scope
+
+
 def _merge_url_servers(
     server_list: list[str] | None,
     urls: str | None,
@@ -340,7 +350,7 @@ def build_agent_run_request(
     port: int,
     tool_description: str | None,
     tool_name_template: str | None,
-    instance_scope: str,
+    instance_scope: str | None,
     permissions_enabled: bool,
     reload: bool,
     watch: bool,
@@ -428,7 +438,10 @@ def build_agent_run_request(
         port=port,
         tool_description=tool_description,
         tool_name_template=tool_name_template,
-        instance_scope=instance_scope,
+        instance_scope=resolve_instance_scope(
+            transport=transport,
+            instance_scope=instance_scope,
+        ),
         permissions_enabled=effective_permissions_enabled,
         reload=reload,
         watch=watch,
@@ -477,7 +490,7 @@ def build_command_run_request(
     port: int = 8000,
     tool_description: str | None = None,
     tool_name_template: str | None = None,
-    instance_scope: str = "shared",
+    instance_scope: str | None = None,
     permissions_enabled: bool = True,
     reload: bool = False,
     watch: bool = False,

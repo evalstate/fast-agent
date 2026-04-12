@@ -1,6 +1,7 @@
 import json
 from contextlib import contextmanager
 from json import JSONDecodeError
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Iterator, Mapping, Union
 
 from mcp.types import CallToolResult
@@ -50,7 +51,7 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-CODE_STYLE = "native"
+DEFAULT_CODE_THEME = "native"
 
 # Glyph to indicate tool hooks are active
 HOOK_INDICATOR_GLYPH = "◆"
@@ -64,7 +65,7 @@ class ConsoleDisplay:
     This centralizes the UI display logic used by LLM implementations.
     """
 
-    CODE_STYLE = CODE_STYLE
+    CODE_STYLE = DEFAULT_CODE_THEME
 
     def __init__(
         self,
@@ -72,6 +73,7 @@ class ConsoleDisplay:
         *,
         code_word_wrap: bool | None = None,
         render_fences_with_syntax: bool | None = None,
+        code_theme: str | None = None,
     ) -> None:
         """
         Initialize the console display handler.
@@ -99,6 +101,12 @@ class ConsoleDisplay:
             if render_fences_with_syntax is None
             else render_fences_with_syntax
         )
+        self._code_style = (
+            getattr(self._logger_settings, "code_theme", DEFAULT_CODE_THEME)
+            if code_theme is None
+            else code_theme
+        )
+        self._apply_console_theme()
         self._style = A3MessageStyle()
         self._tool_display = ToolDisplay(self)
 
@@ -107,6 +115,29 @@ class ConsoleDisplay:
         """Provide a logger settings object even when callers omit it."""
         logger_settings = getattr(config, "logger", None) if config else None
         return logger_settings if logger_settings is not None else LoggerSettings()
+
+    def _apply_console_theme(self) -> None:
+        theme_file = getattr(self._logger_settings, "theme_file", None)
+        if theme_file is None and self.config is None:
+            return
+
+        base_dir: Path | None = None
+
+        theme_config_file = getattr(self._logger_settings, "_theme_file_config_path", None)
+        config_file = theme_config_file or (
+            getattr(self.config, "_config_file", None) if self.config else None
+        )
+        if config_file:
+            base_dir = Path(config_file).expanduser().resolve().parent
+
+        try:
+            console.configure_console_theme(theme_file, base_dir=base_dir)
+        except Exception as exc:
+            console.configure_console_theme(None)
+            logger.warning(
+                "Failed to load Rich theme file; using default console theme",
+                data={"theme_file": theme_file, "error": str(exc)},
+            )
 
     def _truncate_text(self, text: str, *, truncate: bool) -> str:
         if truncate and self.config and self.config.logger.truncate_tools and len(text) > 360:
@@ -136,7 +167,7 @@ class ConsoleDisplay:
 
     @property
     def code_style(self) -> str:
-        return CODE_STYLE
+        return self._code_style
 
     @property
     def code_word_wrap(self) -> bool:
@@ -462,7 +493,7 @@ class ConsoleDisplay:
                         console.console.print(
                             build_markdown_renderable(
                                 content,
-                                code_theme=CODE_STYLE,
+                                code_theme=self.code_style,
                                 escape_xml=self._escape_xml,
                                 render_fences_with_syntax=self.render_fences_with_syntax,
                                 code_word_wrap=self.code_word_wrap,
@@ -489,7 +520,7 @@ class ConsoleDisplay:
                     syntax = Syntax(
                         content,
                         "xml",
-                        theme=CODE_STYLE,
+                        theme=self.code_style,
                         line_numbers=False,
                         word_wrap=self.code_word_wrap,
                     )
@@ -501,7 +532,7 @@ class ConsoleDisplay:
                         console.console.print(
                             build_markdown_renderable(
                                 content,
-                                code_theme=CODE_STYLE,
+                                code_theme=self.code_style,
                                 escape_xml=self._escape_xml,
                                 render_fences_with_syntax=self.render_fences_with_syntax,
                                 code_word_wrap=self.code_word_wrap,
@@ -524,7 +555,7 @@ class ConsoleDisplay:
                         console.console.print(
                             build_markdown_renderable(
                                 content,
-                                code_theme=CODE_STYLE,
+                                code_theme=self.code_style,
                                 escape_xml=self._escape_xml,
                                 render_fences_with_syntax=self.render_fences_with_syntax,
                                 code_word_wrap=self.code_word_wrap,
@@ -544,7 +575,7 @@ class ConsoleDisplay:
                 except (JSONDecodeError, TypeError, ValueError):
                     if render_markdown:
                         prepared_content = prepare_markdown_content(plain_text, self._escape_xml)
-                        md = Markdown(prepared_content, code_theme=CODE_STYLE)
+                        md = Markdown(prepared_content, code_theme=self.code_style)
                         console.console.print(md, markup=self._markup)
                     else:
                         console.console.print(content, markup=self._markup)
@@ -575,7 +606,7 @@ class ConsoleDisplay:
                         console.console.print(
                             build_markdown_renderable(
                                 markdown_part,
-                                code_theme=CODE_STYLE,
+                                code_theme=self.code_style,
                                 escape_xml=self._escape_xml,
                                 render_fences_with_syntax=self.render_fences_with_syntax,
                                 code_word_wrap=self.code_word_wrap,
@@ -600,7 +631,7 @@ class ConsoleDisplay:
                     console.console.print(
                         build_markdown_renderable(
                             plain_text,
-                            code_theme=CODE_STYLE,
+                            code_theme=self.code_style,
                             escape_xml=self._escape_xml,
                             render_fences_with_syntax=self.render_fences_with_syntax,
                             code_word_wrap=self.code_word_wrap,
@@ -815,7 +846,10 @@ class ConsoleDisplay:
 
     @classmethod
     def _extract_openai_phase_content(
-        cls, message: "PromptMessageExtended"
+        cls,
+        message: "PromptMessageExtended",
+        *,
+        code_theme: str = DEFAULT_CODE_THEME,
     ) -> str | Group | None:
         channels = message.channels or {}
         raw_blocks = (
@@ -873,7 +907,7 @@ class ConsoleDisplay:
                     sections.append(
                         Group(
                             label,
-                            Markdown(prepared_content, code_theme=CODE_STYLE),
+                            Markdown(prepared_content, code_theme=code_theme),
                         )
                     )
                 else:
@@ -938,7 +972,7 @@ class ConsoleDisplay:
             # Prefer full assistant text so streamed/finalized multi-block responses
             # (e.g., provider-side web tool turns) are preserved after live refresh.
             display_text = (
-                self._extract_openai_phase_content(message_text)
+                self._extract_openai_phase_content(message_text, code_theme=self.code_style)
                 or message_text.all_text()
                 or message_text.last_text()
                 or ""

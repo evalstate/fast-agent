@@ -1176,9 +1176,9 @@ class StreamingMessageHandle:
             _, _, args_text = segment.text.partition("\n")
             if args_text:
                 tool_text.append("\n")
-                if "apply_patch preview:" in args_text:
+                if segment.apply_patch_preview or "apply_patch preview:" in args_text:
                     tool_text.append_text(
-                        style_apply_patch_preview_text(args_text, default_style="white")
+                        style_apply_patch_preview_text(args_text, default_style="dim")
                     )
                 else:
                     tool_text.append(args_text)

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Protocol, Sequence
 
 from acp.helpers import update_agent_message_text
@@ -18,11 +20,14 @@ from fast_agent.acp.protocols import (
     WorkflowTelemetryCapable,
 )
 from fast_agent.acp.server.common import (
-    coerce_registry_version,
     format_agent_name_as_title,
     truncate_description,
 )
-from fast_agent.acp.server.models import ACPSessionState
+from fast_agent.acp.server.mcp_server_conversion import (
+    ACPConfiguredMCPServer,
+    convert_acp_mcp_server,
+)
+from fast_agent.acp.server.models import ACPSessionState, SessionMCPServerState
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
 from fast_agent.acp.tool_permission_adapter import ACPToolPermissionAdapter
 from fast_agent.acp.tool_progress import ACPToolProgressManager
@@ -41,6 +46,7 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt_templates import enrich_with_environment_context
 from fast_agent.interfaces import ACPAwareProtocol
 from fast_agent.llm.usage_tracking import last_turn_usage
+from fast_agent.mcp.mcp_aggregator import MCPAttachOptions
 from fast_agent.mcp.tool_execution_handler import NoOpToolExecutionHandler
 from fast_agent.mcp.tool_permission_handler import NoOpToolPermissionHandler
 from fast_agent.mcp.types import McpAgentProtocol
@@ -48,20 +54,16 @@ from fast_agent.types import RequestParams
 from fast_agent.workflow_telemetry import ACPPlanTelemetryProvider, ToolHandlerWorkflowTelemetry
 
 if TYPE_CHECKING:
+    from fast_agent.config import MCPServerSettings
     from fast_agent.core.fastagent import AgentInstance
+    from fast_agent.mcp.mcp_aggregator import MCPAttachResult, MCPDetachResult
 
 logger = get_logger(__name__)
 
 
 class SessionRuntimeHost(Protocol):
-    primary_instance: AgentInstance
     _create_instance_task: Any
     _dispose_instance_task: Any
-    _instance_scope: str
-    _get_registry_version: Any
-    _primary_registry_version: int
-    _shared_reload_lock: asyncio.Lock
-    _stale_instances: list[AgentInstance]
     server_name: str
     sessions: dict[str, AgentInstance]
     _session_lock: asyncio.Lock
@@ -79,9 +81,9 @@ class SessionRuntimeHost(Protocol):
     primary_agent_name: str | None
     _permissions_enabled: bool
 
-    def _calculate_terminal_output_limit(self, agent: Any) -> int: ...
+    def _resolve_primary_agent_name(self, instance: AgentInstance) -> str | None: ...
 
-    def _select_primary_agent(self, instance: AgentInstance) -> str | None: ...
+    def _calculate_terminal_output_limit(self, agent: Any) -> int: ...
 
     def _create_slash_handler(
         self,
@@ -95,6 +97,296 @@ class SessionRuntimeHost(Protocol):
 class ACPServerSessionRuntime:
     def __init__(self, host: SessionRuntimeHost) -> None:
         self._host = host
+
+    @staticmethod
+    def _copy_requested_mcp_servers(
+        mcp_servers: Sequence[ACPConfiguredMCPServer],
+    ) -> dict[str, SessionMCPServerState]:
+        return {
+            server.name: SessionMCPServerState(
+                server_name=server.name,
+                server_config=deepcopy(convert_acp_mcp_server(server)),
+                attached=True,
+            )
+            for server in mcp_servers
+        }
+
+    @staticmethod
+    def _resolve_server_config(
+        server_config: MCPServerSettings | None,
+        inherited_state: SessionMCPServerState | None = None,
+    ) -> MCPServerSettings | None:
+        if server_config is not None:
+            return deepcopy(server_config)
+        if inherited_state and inherited_state.server_config is not None:
+            return deepcopy(inherited_state.server_config)
+        return None
+
+    @staticmethod
+    def _effective_session_mcp_servers_for_agent(
+        session_state: ACPSessionState,
+        agent_name: str,
+    ) -> dict[str, SessionMCPServerState]:
+        effective = {
+            server_name: replace(server_state)
+            for server_name, server_state in session_state.session_mcp_servers.items()
+        }
+        for server_name, server_state in session_state.agent_mcp_servers.get(agent_name, {}).items():
+            effective[server_name] = SessionMCPServerState(
+                server_name=server_name,
+                server_config=ACPServerSessionRuntime._resolve_server_config(
+                    server_state.server_config,
+                    effective.get(server_name),
+                ),
+                attached=server_state.attached,
+            )
+        return effective
+
+    def _diff_requested_session_mcp_servers(
+        self,
+        session_state: ACPSessionState,
+        instance: AgentInstance,
+        requested_mcp_servers: dict[str, SessionMCPServerState],
+    ) -> tuple[list[tuple[str, str]], set[tuple[str, str]]]:
+        removed_servers: list[tuple[str, str]] = []
+        reconnect_servers: set[tuple[str, str]] = set()
+
+        for agent_name, _agent in self._mcp_capable_agents(instance):
+            agent_overrides = session_state.agent_mcp_servers.get(agent_name, {})
+
+            # Reinitializing a live ACP session should only diff request-scoped MCP state.
+            # Runtime overlays created by /mcp connect or /mcp detach must survive reloads.
+            for server_name, current_state in session_state.session_mcp_servers.items():
+                desired_state = requested_mcp_servers.get(server_name)
+                if (
+                    current_state.attached
+                    and (desired_state is None or not desired_state.attached)
+                    and server_name not in agent_overrides
+                ):
+                    removed_servers.append((agent_name, server_name))
+
+                if (
+                    desired_state is not None
+                    and desired_state.attached
+                    and current_state.attached
+                    and current_state.server_config != desired_state.server_config
+                    and server_name not in agent_overrides
+                ):
+                    reconnect_servers.add((agent_name, server_name))
+
+        return removed_servers, reconnect_servers
+
+    @staticmethod
+    def _set_agent_overlay_state(
+        session_state: ACPSessionState,
+        *,
+        agent_name: str,
+        server_name: str,
+        server_config: MCPServerSettings | None,
+        attached: bool,
+    ) -> None:
+        agent_overlay = session_state.agent_mcp_servers.setdefault(agent_name, {})
+        agent_overlay[server_name] = SessionMCPServerState(
+            server_name=server_name,
+            server_config=deepcopy(server_config),
+            attached=attached,
+        )
+
+    @staticmethod
+    def _mcp_capable_agents(
+        instance: AgentInstance,
+    ) -> list[tuple[str, McpAgentProtocol]]:
+        return [
+            (agent_name, agent)
+            for agent_name, agent in instance.agents.items()
+            if isinstance(agent, McpAgentProtocol)
+        ]
+
+    @staticmethod
+    def _require_runtime_mcp_manager(
+        instance: AgentInstance,
+    ) -> Any:
+        manager = getattr(instance, "app", None)
+        if manager is None:
+            raise RuntimeError("Runtime MCP server management is not available.")
+        return manager
+
+    async def _attach_server_to_agent(
+        self,
+        instance: AgentInstance,
+        *,
+        agent_name: str,
+        server_name: str,
+        server_config: MCPServerSettings | None,
+        options: MCPAttachOptions | None = None,
+    ) -> MCPAttachResult:
+        manager = self._require_runtime_mcp_manager(instance)
+        return await manager.attach_mcp_server(
+            agent_name,
+            server_name,
+            server_config=server_config,
+            options=options,
+        )
+
+    async def _detach_server_from_agent(
+        self,
+        instance: AgentInstance,
+        *,
+        agent_name: str,
+        server_name: str,
+    ) -> MCPDetachResult:
+        manager = self._require_runtime_mcp_manager(instance)
+        return await manager.detach_mcp_server(agent_name, server_name)
+
+    async def _apply_session_mcp_overlay(
+        self,
+        session_state: ACPSessionState,
+        instance: AgentInstance,
+        *,
+        force_reconnect_targets: set[tuple[str, str]] | None = None,
+    ) -> None:
+        mcp_agents = self._mcp_capable_agents(instance)
+        if not mcp_agents:
+            if session_state.session_mcp_servers or session_state.agent_mcp_servers:
+                raise RuntimeError("ACP session requested MCP servers but no MCP-capable agents exist.")
+            return
+
+        for agent_name, _agent in mcp_agents:
+            effective_states = self._effective_session_mcp_servers_for_agent(session_state, agent_name)
+            for server_state in effective_states.values():
+                if not server_state.attached:
+                    await self._detach_server_from_agent(
+                        instance,
+                        agent_name=agent_name,
+                        server_name=server_state.server_name,
+                    )
+                    continue
+
+                attach_options = None
+                if (
+                    force_reconnect_targets
+                    and (agent_name, server_state.server_name) in force_reconnect_targets
+                ):
+                    attach_options = replace(MCPAttachOptions(), force_reconnect=True)
+                result = await self._attach_server_to_agent(
+                    instance,
+                    agent_name=agent_name,
+                    server_name=server_state.server_name,
+                    server_config=deepcopy(server_state.server_config),
+                    options=attach_options,
+                )
+                logger.info(
+                    "ACP session MCP server attached",
+                    name="acp_session_mcp_server_attached",
+                    agent_name=agent_name,
+                    server_name=server_state.server_name,
+                    transport=result.transport,
+                    already_attached=result.already_attached,
+                    tools_total=result.tools_total,
+                    prompts_total=result.prompts_total,
+                )
+
+    async def attach_session_mcp_server(
+        self,
+        session_state: ACPSessionState,
+        *,
+        agent_name: str,
+        server_name: str,
+        server_config: MCPServerSettings | None = None,
+        options: MCPAttachOptions | None = None,
+    ) -> MCPAttachResult:
+        instance = session_state.instance
+        existing_state = self._effective_session_mcp_servers_for_agent(session_state, agent_name).get(
+            server_name
+        )
+        effective_config = self._resolve_server_config(
+            server_config,
+            existing_state,
+        )
+        attach_options = options
+        if (
+            existing_state is not None
+            and existing_state.attached
+            and existing_state.server_config != effective_config
+        ):
+            attach_options = replace(options or MCPAttachOptions(), force_reconnect=True)
+        result = await self._attach_server_to_agent(
+            instance,
+            agent_name=agent_name,
+            server_name=server_name,
+            server_config=effective_config,
+            options=attach_options,
+        )
+        logger.info(
+            "ACP session MCP server attached",
+            name="acp_session_mcp_server_attached",
+            agent_name=agent_name,
+            server_name=server_name,
+            transport=result.transport,
+            already_attached=result.already_attached,
+            tools_total=result.tools_total,
+            prompts_total=result.prompts_total,
+        )
+        self._set_agent_overlay_state(
+            session_state,
+            agent_name=agent_name,
+            server_name=server_name,
+            server_config=effective_config,
+            attached=True,
+        )
+        return result
+
+    async def detach_session_mcp_server(
+        self,
+        session_state: ACPSessionState,
+        *,
+        agent_name: str,
+        server_name: str,
+    ) -> MCPDetachResult:
+        instance = session_state.instance
+        existing_state = self._effective_session_mcp_servers_for_agent(session_state, agent_name).get(
+            server_name
+        )
+        result = await self._detach_server_from_agent(
+            instance,
+            agent_name=agent_name,
+            server_name=server_name,
+        )
+        self._set_agent_overlay_state(
+            session_state,
+            agent_name=agent_name,
+            server_name=server_name,
+            server_config=self._resolve_server_config(None, existing_state),
+            attached=False,
+        )
+        return result
+
+    async def list_attached_mcp_servers(
+        self,
+        session_state: ACPSessionState,
+        *,
+        agent_name: str,
+    ) -> list[str]:
+        manager = self._require_runtime_mcp_manager(session_state.instance)
+        return await manager.list_attached_mcp_servers(agent_name)
+
+    async def list_configured_detached_mcp_servers(
+        self,
+        session_state: ACPSessionState,
+        *,
+        agent_name: str,
+    ) -> list[str]:
+        manager = self._require_runtime_mcp_manager(session_state.instance)
+        configured = set(await manager.list_configured_detached_mcp_servers(agent_name))
+        configured.update(
+            server_name
+            for server_name, server_state in self._effective_session_mcp_servers_for_agent(
+                session_state,
+                agent_name,
+            ).items()
+            if not server_state.attached and server_state.server_config is not None
+        )
+        return sorted(configured)
 
     def build_session_modes(
         self, instance: AgentInstance, session_state: ACPSessionState | None = None
@@ -140,7 +432,7 @@ class ACPServerSessionRuntime:
                 )
             )
 
-        current_mode_id = self._host.primary_agent_name or (
+        current_mode_id = self._host._resolve_primary_agent_name(instance) or (
             list(instance.agents.keys())[0] if instance.agents else "default"
         )
         return SessionModeState(
@@ -197,38 +489,6 @@ class ACPServerSessionRuntime:
             source=getattr(agent, "name", None),
         )
 
-    async def maybe_refresh_shared_instance(self) -> None:
-        if self._host._instance_scope != "shared" or not self._host._get_registry_version:
-            return
-        if self._host._session_state and any(
-            session_id for session_id in self._host._session_state if session_id
-        ):
-            # Prompts guard refresh with _active_prompts; keep the original fast path.
-            pass
-        if getattr(self._host, "_active_prompts", None):
-            return
-
-        latest_version = coerce_registry_version(self._host._get_registry_version())
-        if latest_version <= self._host._primary_registry_version:
-            return
-
-        async with self._host._shared_reload_lock:
-            if getattr(self._host, "_active_prompts", None):
-                return
-            latest_version = coerce_registry_version(self._host._get_registry_version())
-            if latest_version <= self._host._primary_registry_version:
-                return
-
-            new_instance = await self._host._create_instance_task()
-            old_instance = self._host.primary_instance
-            self._host.primary_instance = new_instance
-            self._host._primary_registry_version = coerce_registry_version(
-                getattr(new_instance, "registry_version", latest_version)
-            )
-            self._host._stale_instances.append(old_instance)
-            self._host.primary_agent_name = self._host._select_primary_agent(new_instance)
-            await self.refresh_sessions_for_instance(new_instance)
-
     async def replace_instance_for_session(
         self,
         session_state: ACPSessionState,
@@ -236,24 +496,6 @@ class ACPServerSessionRuntime:
         dispose_error_name: str,
         await_refresh_session_state: bool,
     ) -> AgentInstance:
-        if self._host._instance_scope == "shared":
-            async with self._host._shared_reload_lock:
-                new_instance = await self._host._create_instance_task()
-                old_instance = self._host.primary_instance
-                self._host.primary_instance = new_instance
-                latest_version = (
-                    coerce_registry_version(self._host._get_registry_version())
-                    if self._host._get_registry_version
-                    else 0
-                )
-                self._host._primary_registry_version = coerce_registry_version(
-                    getattr(new_instance, "registry_version", latest_version)
-                )
-                self._host._stale_instances.append(old_instance)
-                self._host.primary_agent_name = self._host._select_primary_agent(new_instance)
-                await self.refresh_sessions_for_instance(new_instance)
-            return session_state.instance
-
         instance = await self._host._create_instance_task()
         old_instance = session_state.instance
         session_state.instance = instance
@@ -263,28 +505,23 @@ class ACPServerSessionRuntime:
             await self.refresh_session_state(session_state, instance)
         else:
             asyncio.create_task(self.refresh_session_state(session_state, instance))
-        if old_instance != self._host.primary_instance:
-            try:
-                await self._host._dispose_instance_task(old_instance)
-            except Exception as exc:
-                logger.warning(
-                    "Failed to dispose old session instance",
-                    name=dispose_error_name,
-                    session_id=session_state.session_id,
-                    error=str(exc),
-                )
+        try:
+            await self._host._dispose_instance_task(old_instance)
+        except Exception as exc:
+            logger.warning(
+                "Failed to dispose old session instance",
+                name=dispose_error_name,
+                session_id=session_state.session_id,
+                error=str(exc),
+            )
         return instance
-
-    async def refresh_sessions_for_instance(self, instance: AgentInstance) -> None:
-        async with self._host._session_lock:
-            for session_id, session_state in self._host._session_state.items():
-                self._host.sessions[session_id] = instance
-                session_state.instance = instance
-                await self.refresh_session_state(session_state, instance)
 
     async def refresh_session_state(
         self, session_state: ACPSessionState, instance: AgentInstance
     ) -> None:
+        primary_agent_name = self._host._resolve_primary_agent_name(instance)
+        await self._apply_session_mcp_overlay(session_state, instance)
+
         prompt_context = session_state.prompt_context or {}
         resolved_for_session: dict[str, str] = {}
         for agent_name, agent in instance.agents.items():
@@ -374,7 +611,7 @@ class ACPServerSessionRuntime:
 
         current_agent = session_state.current_agent_name
         if not current_agent or current_agent not in instance.agents:
-            current_agent = self._host.primary_agent_name or next(iter(instance.agents.keys()), None)
+            current_agent = primary_agent_name or next(iter(instance.agents.keys()), None)
             session_state.current_agent_name = current_agent
         if current_agent and session_state.slash_handler:
             session_state.slash_handler.set_current_agent(current_agent)
@@ -401,24 +638,31 @@ class ACPServerSessionRuntime:
         cwd: str,
         mcp_servers: list[HttpMcpServer | SseMcpServer | McpServerStdio],
     ) -> tuple[ACPSessionState, SessionModeState]:
-        _ = mcp_servers
-        await self.maybe_refresh_shared_instance()
+        requested_mcp_servers = self._copy_requested_mcp_servers(mcp_servers)
+        removed_session_mcp_servers: list[tuple[str, str]] = []
+        force_reconnect_targets: set[tuple[str, str]] = set()
 
         async with self._host._session_lock:
             session_state = self._host._session_state.get(session_id)
             if session_state:
+                requested_mcp_servers_changed = (
+                    session_state.session_mcp_servers != requested_mcp_servers
+                )
+                if requested_mcp_servers_changed:
+                    removed_session_mcp_servers, force_reconnect_targets = (
+                        self._diff_requested_session_mcp_servers(
+                            session_state,
+                            session_state.instance,
+                            requested_mcp_servers,
+                        )
+                    )
+                    session_state.session_mcp_servers = requested_mcp_servers
                 instance = session_state.instance
-                self._host.sessions[session_id] = instance
             else:
-                if self._host._instance_scope == "shared":
-                    instance = self._host.primary_instance
-                elif self._host._instance_scope in ["connection", "request"]:
-                    instance = await self._host._create_instance_task()
-                else:
-                    instance = self._host.primary_instance
-
+                instance = await self._host._create_instance_task()
                 self._host.sessions[session_id] = instance
                 session_state = ACPSessionState(session_id=session_id, instance=instance)
+                session_state.session_mcp_servers = requested_mcp_servers
                 self._host._session_state[session_id] = session_state
 
             session_state.session_cwd = cwd
@@ -583,6 +827,20 @@ class ACPServerSessionRuntime:
                 for agent in instance.agents.values():
                     await rebuild_agent_instruction(agent)
 
+        self._host._resolve_primary_agent_name(instance)
+
+        for agent_name, server_name in removed_session_mcp_servers:
+            await self._detach_server_from_agent(
+                instance,
+                agent_name=agent_name,
+                server_name=server_name,
+            )
+        await self._apply_session_mcp_overlay(
+            session_state,
+            instance,
+            force_reconnect_targets=force_reconnect_targets,
+        )
+
         session_context: dict[str, str] = {}
         enrich_with_environment_context(
             session_context,
@@ -683,16 +941,6 @@ class ACPServerSessionRuntime:
         )
 
         return session_state, session_modes
-
-    async def dispose_stale_instances_if_idle(self) -> None:
-        if getattr(self._host, "_active_prompts", None):
-            return
-        if not self._host._stale_instances:
-            return
-        stale = list(self._host._stale_instances)
-        self._host._stale_instances.clear()
-        for instance in stale:
-            await self._host._dispose_instance_task(instance)
 
     def build_status_line_meta(
         self, agent: Any, turn_start_index: int | None

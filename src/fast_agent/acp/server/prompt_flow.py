@@ -29,6 +29,7 @@ from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 
 if TYPE_CHECKING:
     from fast_agent.acp.server.models import ACPSessionState
+    from fast_agent.core.fastagent import AgentInstance
     from fast_agent.llm.stream_types import StreamChunk
 
 logger = get_logger(__name__)
@@ -44,7 +45,7 @@ class PromptFlowHost(Protocol):
     _connection: Any
     primary_agent_name: str | None
 
-    async def _maybe_refresh_shared_instance(self) -> None: ...
+    def _resolve_primary_agent_name(self, instance: AgentInstance) -> str | None: ...
 
     async def _build_session_request_params(
         self, agent: Any, session_state: ACPSessionState | None
@@ -61,8 +62,6 @@ class PromptFlowHost(Protocol):
     async def _send_status_line_update(
         self, session_id: str, agent: Any, turn_start_index: int | None
     ) -> None: ...
-
-    async def _dispose_stale_instances_if_idle(self) -> None: ...
 
     def _build_auth_required_data(
         self,
@@ -122,8 +121,6 @@ class ACPPromptFlow:
         )
         write_interactive_trace("acp.prompt.start", session_id=session_id)
 
-        await self._host._maybe_refresh_shared_instance()
-
         async with self._host._session_lock:
             self._host._active_prompts.add(session_id)
             current_task = asyncio.current_task()
@@ -157,7 +154,7 @@ class ACPPromptFlow:
             if not current_agent_name and session_state:
                 current_agent_name = session_state.current_agent_name
             if not current_agent_name:
-                current_agent_name = self._host.primary_agent_name
+                current_agent_name = self._host._resolve_primary_agent_name(instance)
 
             slash_handler = session_state.slash_handler if session_state else None
             is_single_text_block = len(mcp_content_blocks) == 1 and is_text_content(
@@ -309,7 +306,6 @@ class ACPPromptFlow:
                 name="acp_prompt_complete",
                 session_id=session_id,
             )
-            await self._host._dispose_stale_instances_if_idle()
 
     async def _handle_slash_command(
         self,

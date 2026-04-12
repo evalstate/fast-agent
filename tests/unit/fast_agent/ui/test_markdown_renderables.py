@@ -5,6 +5,7 @@ from rich.markdown import Markdown
 from rich.syntax import Syntax
 from rich.text import Text
 
+from fast_agent.ui.markdown_helpers import prepare_markdown_content
 from fast_agent.ui.markdown_renderables import (
     _rewrite_fence_languages,
     build_markdown_renderable,
@@ -66,13 +67,14 @@ def test_build_markdown_renderable_can_wrap_syntax_code() -> None:
 
 def test_build_markdown_renderable_styles_apply_patch_fence() -> None:
     renderable = build_markdown_renderable(
-        "```apply_patch\n*** Begin Patch\n*** Update File: a.txt\n@@\n-old\n+new\n```",
+        "```apply_patch\n*** Begin Patch\n*** Update File: a.txt\n@@\n context\n-old\n+new\n```",
         code_theme="monokai",
         escape_xml=True,
     )
 
     assert isinstance(renderable, Text)
     span_styles = {str(span.style) for span in renderable.spans}
+    assert "dim" in span_styles
     assert "cyan" in span_styles
     assert "yellow" in span_styles
     assert "red" in span_styles
@@ -208,6 +210,26 @@ def test_build_markdown_renderable_skips_nested_fences_without_disabling_top_lev
     assert isinstance(renderable.renderables[0], Markdown)
     assert isinstance(renderable.renderables[1], Syntax)
     assert isinstance(renderable.renderables[2], Markdown)
+
+
+def test_prepare_markdown_content_preserves_blockquote_markers() -> None:
+    prepared = prepare_markdown_content("> quoted <tag>\n\nplain > text")
+
+    assert prepared.startswith("> quoted &lt;tag&gt;")
+    assert "plain &gt; text" in prepared
+
+
+def test_build_markdown_renderable_renders_blockquote_prefix() -> None:
+    renderable = build_markdown_renderable(
+        "> quoted <tag>",
+        code_theme="monokai",
+        escape_xml=True,
+    )
+
+    output = io.StringIO()
+    Console(file=output, force_terminal=False, width=20).print(renderable)
+
+    assert "▌ quoted <tag>" in output.getvalue()
 
 
 def test_extract_single_fenced_code_block_handles_incomplete_stream() -> None:

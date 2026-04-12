@@ -7,6 +7,7 @@ from fast_agent.cli.runtime.request_builders import (
     build_agent_run_request,
     build_command_run_request,
     resolve_default_instruction,
+    resolve_instance_scope,
     resolve_smart_agent_enabled,
 )
 from fast_agent.constants import SMART_AGENT_INSTRUCTION
@@ -168,6 +169,40 @@ def test_build_command_run_request_resolves_defaults() -> None:
     assert request.agent_name == "agent"
     assert request.result_file == "out.json"
     assert request.execution_mode == "repl"
+
+
+def test_build_command_run_request_defaults_acp_instance_scope_to_connection() -> None:
+    request = build_command_run_request(
+        name="cli",
+        instruction_option=None,
+        config_path=None,
+        servers=None,
+        urls=None,
+        auth=None,
+        client_metadata_url=None,
+        agent_cards=None,
+        card_tools=None,
+        model=None,
+        message=None,
+        prompt_file=None,
+        result_file=None,
+        resume=None,
+        npx=None,
+        uvx=None,
+        stdio=None,
+        target_agent_name=None,
+        skills_directory=None,
+        environment_dir=None,
+        shell_enabled=False,
+        mode="serve",
+        transport="acp",
+    )
+
+    assert request.instance_scope == "connection"
+
+
+def test_resolve_instance_scope_defaults_shared_for_non_acp() -> None:
+    assert resolve_instance_scope(transport="http", instance_scope=None) == "shared"
 
 
 def test_build_command_run_request_marks_message_mode_one_shot() -> None:

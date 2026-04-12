@@ -40,7 +40,9 @@ class _App:
 
 
 @pytest.mark.asyncio
-async def test_initialize_session_wires_mcp_callbacks_into_slash_handler() -> None:
+async def test_initialize_session_wires_session_mcp_listing_into_slash_handler(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     app = _App()
     instance = AgentInstance(
         app=cast("AgentApp", app),
@@ -55,14 +57,25 @@ async def test_initialize_session_wires_mcp_callbacks_into_slash_handler() -> No
         return None
 
     server = AgentACPServer(
-        primary_instance=instance,
+        bootstrap_instance=instance,
         create_instance=create_instance,
         dispose_instance=dispose_instance,
-        instance_scope="shared",
+        instance_scope="connection",
         server_name="test",
         permissions_enabled=False,
-        list_attached_mcp_servers_callback=app.list_attached_mcp_servers,
-        list_configured_detached_mcp_servers_callback=app.list_configured_detached_mcp_servers,
+    )
+
+    async def fake_list_attached(*_args, **_kwargs) -> list[str]:
+        return await app.list_attached_mcp_servers("main")
+
+    async def fake_list_detached(*_args, **_kwargs) -> list[str]:
+        return await app.list_configured_detached_mcp_servers("main")
+
+    monkeypatch.setattr(server, "_list_attached_mcp_servers_for_session", fake_list_attached)
+    monkeypatch.setattr(
+        server,
+        "_list_configured_detached_mcp_servers_for_session",
+        fake_list_detached,
     )
 
     session_state, _ = await server._initialize_session_state(

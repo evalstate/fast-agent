@@ -65,6 +65,7 @@ def _build_run_request(
     missing_shell_cwd: serve.MissingShellCwdPolicy | None = None,
 ) -> AgentRunRequest:
     resolved_env_dir = resolve_environment_dir_option(ctx, env_dir, set_env_var=not noenv)
+    resolved_instance_scope = serve._validate_acp_instance_scope(instance_scope)
     return build_command_run_request(
         name=name,
         instruction_option=instruction,
@@ -95,7 +96,7 @@ def _build_run_request(
         port=port,
         tool_description=description,
         tool_name_template=None,
-        instance_scope=instance_scope.value,
+        instance_scope=resolved_instance_scope.value,
         permissions_enabled=not no_permissions,
         reload=reload,
         watch=watch,
@@ -143,7 +144,7 @@ def run_acp(
     instance_scope: serve.InstanceScope = typer.Option(
         serve.InstanceScope.CONNECTION,
         "--instance-scope",
-        help="Control how ACP clients receive isolated agent instances (shared, connection, request)",
+        help="Control how ACP clients receive isolated agent instances (connection, request)",
     ),
     no_permissions: bool = typer.Option(
         False,

@@ -40,6 +40,7 @@ class StreamSegment:
     tool_use_id: str | None = None
     frozen: bool = False
     code_preview: "ToolCodePreview | None" = None
+    apply_patch_preview: bool = False
 
     def append(self, text: str) -> None:
         self.text += text
@@ -52,6 +53,7 @@ class StreamSegment:
             tool_use_id=self.tool_use_id,
             frozen=self.frozen,
             code_preview=self.code_preview,
+            apply_patch_preview=self.apply_patch_preview,
         )
 
 
@@ -374,6 +376,35 @@ class ToolStreamState:
             code=extracted.value,
             language=language,
             complete=extracted.complete,
+        )
+
+    def has_apply_patch_preview(self) -> bool:
+        tool_name = self.tool_name or "tool"
+        stripped_text = self.raw_text.strip()
+        if not stripped_text:
+            return False
+
+        if is_apply_patch_tool_name(tool_name):
+            return build_apply_patch_preview_from_input(stripped_text) is not None or (
+                stripped_text.lstrip().startswith("*** Begin Patch")
+            )
+
+        if not is_shell_execution_tool(tool_name):
+            return False
+
+        parsed_args = _parse_json_value(self.raw_text)
+        if parsed_args is not _JSON_PARSE_FAILED:
+            if not isinstance(parsed_args, dict):
+                return False
+            command = parsed_args.get("command")
+            return isinstance(command, str) and (
+                build_apply_patch_preview(command) is not None
+                or build_partial_apply_patch_preview(command) is not None
+            )
+
+        extracted = extract_partial_json_string_field(self.raw_text, field_name="command")
+        return extracted is not None and bool(extracted.value) and (
+            build_partial_apply_patch_preview(extracted.value) is not None
         )
 
     def render_text(self, *, prefix: str, pretty: bool) -> str:
@@ -937,6 +968,7 @@ class StreamSegmentAssembler:
         segment = self._buffer.segments[state.segment_index]
         segment.text = state.render_text(prefix=self._tool_prefix, pretty=pretty)
         segment.code_preview = state.code_preview()
+        segment.apply_patch_preview = state.has_apply_patch_preview()
 
     def _fallback_tool_id(self) -> str:
         self._fallback_tool_counter += 1

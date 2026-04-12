@@ -36,16 +36,7 @@ class CustomBuildHook(BuildHookInterface):
         # Examples:
         #  examples/workflows -> src/fast_agent/resources/examples/workflows
         #  examples/mcp/elicitations -> src/fast_agent/resources/examples/mcp/elicitations
-        EXAMPLES_DIR = Path("src") / "fast_agent" / "resources" / "examples"
-        example_mappings = {
-            "examples/workflows": EXAMPLES_DIR / "workflows",
-            "examples/researcher": EXAMPLES_DIR / "researcher",
-            "examples/data-analysis": EXAMPLES_DIR / "data-analysis",
-            "examples/mcp/state-transfer": EXAMPLES_DIR / "mcp" / "state-transfer",
-            "examples/mcp/elicitations": EXAMPLES_DIR / "mcp" / "elicitations",
-            "examples/tensorzero": EXAMPLES_DIR / "tensorzero",
-            "examples/hf-toad-cards": EXAMPLES_DIR / "hf-toad-cards",
-        }
+        example_mappings = _example_mappings()
 
         # Define setup template mapping (editable templates -> packaged resources)
         setup_mappings = {
@@ -155,3 +146,17 @@ package_name=fast-agent-mcp
 version={version}
 build_timestamp={build_timestamp}
 """
+
+
+def _example_mappings() -> dict[str, Path]:
+    examples_dir = Path("src") / "fast_agent" / "resources" / "examples"
+    return {
+        "examples/workflows": examples_dir / "workflows",
+        "examples/researcher": examples_dir / "researcher",
+        "examples/data-analysis": examples_dir / "data-analysis",
+        "examples/markdown": examples_dir / "markdown",
+        "examples/mcp/state-transfer": examples_dir / "mcp" / "state-transfer",
+        "examples/mcp/elicitations": examples_dir / "mcp" / "elicitations",
+        "examples/tensorzero": examples_dir / "tensorzero",
+        "examples/hf-toad-cards": examples_dir / "hf-toad-cards",
+    }

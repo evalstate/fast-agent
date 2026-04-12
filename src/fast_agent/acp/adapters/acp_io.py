@@ -10,6 +10,7 @@ from rich.text import Text
 from fast_agent.acp.command_io import render_history_turn_text
 from fast_agent.commands.context import AgentProvider, CommandIO
 from fast_agent.commands.results import CommandMessage
+from fast_agent.interfaces import AgentProtocol
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types.conversation_summary import ConversationSummary
 
@@ -155,18 +156,10 @@ class AcpCommandIO(CommandIO):
             lines.append("")
             lines.append(f"Recent {len(recent_messages)} messages:")
             for message in recent_messages:
-                role = getattr(message, "role", "message")
-                if hasattr(role, "value"):
-                    role = role.value
-                text = ""
-                if hasattr(message, "all_text"):
-                    text = message.all_text() or message.first_text() or ""
-                if not text:
-                    content = getattr(message, "content", None)
-                    if isinstance(content, list) and content:
-                        text = get_text(content[0]) or ""
-                    elif content is not None:
-                        text = get_text(content) or ""
+                role = str(message.role)
+                text = message.all_text() or message.first_text() or ""
+                if not text and message.content:
+                    text = get_text(message.content[0]) or ""
                 snippet = " ".join(text.split())
                 if not snippet:
                     snippet = "(no text content)"
@@ -184,20 +177,24 @@ class AcpCommandIO(CommandIO):
         usage_lines: list[str] = []
 
         for name, agent in agents.items():
-            usage = getattr(agent, "usage_accumulator", None)
+            if not isinstance(agent, AgentProtocol):
+                continue
+
+            usage = agent.usage_accumulator
             if not usage:
                 continue
             summary = usage.get_summary()
-            if summary.get("turn_count", 0) <= 0:
+            turn_count = summary.get("turn_count", 0)
+            if not isinstance(turn_count, int | float) or turn_count <= 0:
                 continue
 
-            model = getattr(usage, "model", None)
+            model = usage.model
             if not model:
-                llm = getattr(agent, "llm", None)
-                model = getattr(llm, "model_name", None) if llm else None
+                llm = agent.llm
+                model = llm.model_name if llm else None
             model_text = f" ({model})" if model else ""
 
-            context_pct = getattr(usage, "context_usage_percentage", None)
+            context_pct = usage.context_usage_percentage
             context_text = f", context {context_pct:.1f}%" if context_pct is not None else ""
 
             usage_lines.append(

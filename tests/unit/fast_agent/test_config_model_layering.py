@@ -144,6 +144,7 @@ def test_get_settings_loads_default_env_config_for_full_settings(tmp_path: Path)
         {
             "logger": {
                 "show_tools": False,
+                "code_theme": "monokai",
                 "render_fences_with_syntax": False,
                 "code_word_wrap": True,
             },
@@ -170,6 +171,7 @@ def test_get_settings_loads_default_env_config_for_full_settings(tmp_path: Path)
         settings = get_settings()
 
         assert settings.logger.show_tools is False
+        assert settings.logger.code_theme == "monokai"
         assert settings.logger.render_fences_with_syntax is False
         assert settings.logger.code_word_wrap is True
         assert settings.mcp is not None
@@ -216,7 +218,7 @@ def test_get_settings_layers_project_and_env_for_full_settings(tmp_path: Path) -
                     }
                 }
             },
-            "logger": {"show_chat": False, "code_word_wrap": True},
+            "logger": {"show_chat": False, "code_theme": "emacs", "code_word_wrap": True},
         },
     )
 
@@ -231,6 +233,7 @@ def test_get_settings_layers_project_and_env_for_full_settings(tmp_path: Path) -
         settings = get_settings()
 
         assert settings.logger.show_chat is False
+        assert settings.logger.code_theme == "emacs"
         assert settings.logger.code_word_wrap is True
         assert settings.mcp is not None
         assert settings.mcp.servers is not None

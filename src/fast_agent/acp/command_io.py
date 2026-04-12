@@ -33,19 +33,10 @@ def render_history_turn_text(
 
     lines = [heading, "", f"Agent: {agent_name}", ""]
     for message in turn:
-        role = getattr(message, "role", "message")
-        if hasattr(role, "value"):
-            role = role.value
-
-        text = ""
-        if hasattr(message, "all_text"):
-            text = message.all_text() or message.first_text() or ""
-        if not text:
-            content = getattr(message, "content", None)
-            if isinstance(content, list) and content:
-                text = get_text(content[0]) or ""
-            elif content is not None:
-                text = get_text(content) or ""
+        role = str(message.role)
+        text = message.all_text() or message.first_text() or ""
+        if not text and message.content:
+            text = get_text(message.content[0]) or ""
 
         lines.append(f"- {role}: {' '.join(text.split()) if text else '<no text>'}")
 

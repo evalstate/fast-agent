@@ -17,7 +17,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Protocol, runtime_checkable
 
 from acp.schema import (
+    AllowedOutcome,
+    DeniedOutcome,
     PermissionOption,
+    RequestPermissionResponse,
     ToolCallProgress,
     ToolCallUpdate,
     ToolKind,
@@ -340,7 +343,7 @@ class ACPToolPermissionManager:
 
     async def _handle_permission_response(
         self,
-        response: Any,
+        response: RequestPermissionResponse,
         permission_key: str,
         server_name: str,
         tool_name: str,
@@ -358,24 +361,15 @@ class ACPToolPermissionManager:
             PermissionResult based on client response
         """
         outcome = response.outcome
-        if not hasattr(outcome, "outcome"):
-            logger.warning(
-                f"Unknown permission response format for {permission_key}, defaulting to reject",
-                name="acp_tool_permission_unknown_format",
-            )
-            return PermissionResult(allowed=False, remember=False)
-
-        outcome_type = outcome.outcome
-
-        if outcome_type == "cancelled":
+        if isinstance(outcome, DeniedOutcome):
             logger.info(
                 f"Permission request cancelled for {permission_key}",
                 name="acp_tool_permission_cancelled",
             )
             return PermissionResult.cancelled()
 
-        if outcome_type == "selected":
-            option_id = getattr(outcome, "optionId", None)
+        if isinstance(outcome, AllowedOutcome):
+            option_id = outcome.option_id
 
             if option_id == "allow_once":
                 logger.info(
@@ -415,10 +409,15 @@ class ACPToolPermissionManager:
                 )
                 return PermissionResult.reject_always()
 
-        # Unknown response type - FAIL-SAFE: DENY
+            logger.warning(
+                f"Unknown permission option '{option_id}' for {permission_key}, defaulting to reject",
+                name="acp_tool_permission_unknown_option",
+            )
+            return PermissionResult(allowed=False, remember=False)
+
         logger.warning(
-            f"Unknown permission option for {permission_key}, defaulting to reject",
-            name="acp_tool_permission_unknown_option",
+            f"Unknown permission response format for {permission_key}, defaulting to reject",
+            name="acp_tool_permission_unknown_format",
         )
         return PermissionResult(allowed=False, remember=False)
 

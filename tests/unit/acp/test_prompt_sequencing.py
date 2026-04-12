@@ -101,10 +101,10 @@ async def test_overlapping_prompts_are_serialized() -> None:
         return None
 
     server = AgentACPServer(
-        primary_instance=instance,
+        bootstrap_instance=instance,
         create_instance=create_instance,
         dispose_instance=dispose_instance,
-        instance_scope="shared",
+        instance_scope="connection",
         server_name="test",
         permissions_enabled=False,
     )
@@ -165,10 +165,10 @@ async def test_cancelled_prompt_does_not_poison_next_acp_turn() -> None:
         return None
 
     server = AgentACPServer(
-        primary_instance=instance,
+        bootstrap_instance=instance,
         create_instance=create_instance,
         dispose_instance=dispose_instance,
-        instance_scope="shared",
+        instance_scope="connection",
         server_name="test",
         permissions_enabled=False,
     )
@@ -217,10 +217,10 @@ async def test_prompt_message_id_is_acknowledged_in_response_without_user_echo()
         return None
 
     server = AgentACPServer(
-        primary_instance=instance,
+        bootstrap_instance=instance,
         create_instance=create_instance,
         dispose_instance=dispose_instance,
-        instance_scope="shared",
+        instance_scope="connection",
         server_name="test",
         permissions_enabled=False,
     )
@@ -262,7 +262,7 @@ async def test_connection_scope_isolates_history_per_acp_session() -> None:
 
     primary_instance = await create_instance()
     server = AgentACPServer(
-        primary_instance=primary_instance,
+        bootstrap_instance=primary_instance,
         create_instance=create_instance,
         dispose_instance=dispose_instance,
         instance_scope="connection",

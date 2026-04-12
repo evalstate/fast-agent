@@ -1210,10 +1210,16 @@ class LoggerSettings(BaseModel):
     """Emit OSC 133 prompt marks for terminals that support scrollbar markers."""
     streaming: Literal["markdown", "plain", "none"] = "markdown"
     """Streaming renderer for assistant responses"""
+    theme_file: str | None = None
+    """Optional Rich theme file for console styles. Relative paths resolve from fastagent.config.yaml."""
+    code_theme: str = "native"
+    """Pygments / Rich syntax theme for fenced code blocks and markdown code rendering."""
     render_fences_with_syntax: bool = True
     """Render assistant markdown code fences with Rich Syntax instead of markdown fence blocks"""
     code_word_wrap: bool = False
     """Wrap Syntax-rendered code blocks instead of cropping at the viewport edge"""
+
+    _theme_file_config_path: str | None = PrivateAttr(default=None)
 
 
 def find_fastagent_config_files(start_path: Path) -> tuple[Path | None, Path | None]:
@@ -1448,6 +1454,16 @@ def load_layered_model_settings(
     return layered
 
 
+def _lookup_nested_mapping_value(mapping: dict[str, Any], path: tuple[str, ...]) -> tuple[bool, Any]:
+    """Return whether a nested mapping path exists plus its value."""
+    current: Any = mapping
+    for key in path:
+        if not isinstance(current, dict) or key not in current:
+            return False, None
+        current = current[key]
+    return True, current
+
+
 class Settings(BaseSettings):
     """
     Settings class for the fast-agent application.
@@ -1647,6 +1663,7 @@ def get_settings(config_path: str | os.PathLike[str] | None = None) -> Settings:
     config_file: Path | None
     secrets_file: Path | None
     merged_settings: dict[str, Any]
+    config_sources: list[tuple[Path, dict[str, Any]]] = []
     if config_path:
         config_file = Path(config_path)
         # If it's a relative path and doesn't exist, try finding it
@@ -1665,16 +1682,31 @@ def get_settings(config_path: str | os.PathLike[str] | None = None) -> Settings:
         # Load main config if it exists
         if config_file and config_file.exists():
             merged_settings = load_yaml_mapping(config_file)
+            config_sources.append((config_file, merged_settings))
         elif config_file and not config_file.exists():
             print(f"Warning: Specified config file does not exist: {config_file}")
     else:
         # Use standardized discovery for secrets and layered loading for config.
         search_root = resolve_config_search_root(Path.cwd())
         _, secrets_file = find_fastagent_config_files(search_root)
-        merged_settings, config_file = load_layered_settings(
-            start_path=Path.cwd(),
+        merged_settings = {}
+        config_file = None
+        project_config = find_project_config_file(Path.cwd())
+        if project_config and project_config.exists():
+            project_settings = load_yaml_mapping(project_config)
+            merged_settings = deep_merge(merged_settings, project_settings)
+            config_sources.append((project_config, project_settings))
+            config_file = project_config
+
+        env_config = resolve_environment_config_file(
+            Path.cwd(),
             env_dir=os.getenv("ENVIRONMENT_DIR"),
         )
+        if env_config.exists():
+            env_settings = load_yaml_mapping(env_config)
+            merged_settings = deep_merge(merged_settings, env_settings)
+            config_sources.append((env_config, env_settings))
+            config_file = env_config
 
     # Load secrets file if found (regardless of whether config file exists)
     if secrets_file and secrets_file.exists():
@@ -1702,6 +1734,16 @@ def get_settings(config_path: str | os.PathLike[str] | None = None) -> Settings:
     _settings = Settings(**merged_settings)
     _settings._config_file = str(config_file) if config_file else None
     _settings._secrets_file = str(secrets_file) if secrets_file else None
+    current_theme_file = getattr(_settings.logger, "theme_file", None)
+    if current_theme_file is not None:
+        for source_path, source_mapping in reversed(config_sources):
+            found, source_value = _lookup_nested_mapping_value(
+                source_mapping,
+                ("logger", "theme_file"),
+            )
+            if found and source_value == current_theme_file:
+                _settings.logger._theme_file_config_path = str(source_path)
+                break
     return _settings
 
 
