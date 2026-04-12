@@ -29,7 +29,6 @@ def test_acp_command_builds_request_with_watch() -> None:
         host="127.0.0.1",
         port=8010,
         shell=False,
-        instance_scope=acp_command.serve.InstanceScope.CONNECTION,
         no_permissions=False,
         resume=None,
         reload=True,
@@ -42,6 +41,7 @@ def test_acp_command_builds_request_with_watch() -> None:
     assert request.port == 8010
     assert request.agent_cards == ["./agents"]
     assert request.card_tools == ["./tool-cards"]
+    assert request.instance_scope == "connection"
     assert request.reload is True
     assert request.watch is True
 
@@ -71,7 +71,6 @@ def test_acp_command_noenv_forces_permissions_disabled() -> None:
         host="127.0.0.1",
         port=8010,
         shell=False,
-        instance_scope=acp_command.serve.InstanceScope.CONNECTION,
         no_permissions=False,
         resume=None,
         reload=False,
@@ -107,7 +106,6 @@ def test_acp_command_builds_request_with_missing_shell_cwd_override() -> None:
         host="127.0.0.1",
         port=8010,
         shell=False,
-        instance_scope=acp_command.serve.InstanceScope.CONNECTION,
         no_permissions=False,
         resume=None,
         reload=False,

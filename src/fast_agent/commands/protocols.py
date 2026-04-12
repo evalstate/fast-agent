@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 if TYPE_CHECKING:
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.skills.registry import SkillRegistry
+    from fast_agent.types import PromptMessageExtended
 
 
 @runtime_checkable
@@ -45,3 +46,27 @@ class ParallelAgentProtocol(Protocol):
 @runtime_checkable
 class HfDisplayInfoProvider(Protocol):
     def get_hf_display_info(self) -> dict[str, Any]: ...
+
+
+@runtime_checkable
+class HistoryEditableAgent(Protocol):
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def message_history(self) -> list["PromptMessageExtended"]: ...
+
+    @property
+    def usage_accumulator(self): ...
+
+    def load_message_history(self, messages: list["PromptMessageExtended"] | None) -> None: ...
+
+    def pop_last_message(self) -> "PromptMessageExtended | None": ...
+
+    def clear(self, *, clear_prompts: bool = False) -> None: ...
+
+
+@runtime_checkable
+class TemplateMessageProvider(Protocol):
+    @property
+    def template_messages(self) -> list["PromptMessageExtended"]: ...

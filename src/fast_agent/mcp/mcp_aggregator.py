@@ -10,10 +10,13 @@ from typing import (
     Awaitable,
     Callable,
     Iterable,
+    Literal,
     Mapping,
+    Protocol,
     TypeVar,
     Union,
     cast,
+    runtime_checkable,
 )
 
 from mcp import GetPromptResult, ReadResourceResult
@@ -24,8 +27,12 @@ from mcp.types import (
     CallToolResult,
     CompleteResult,
     Completion,
+    ListPromptsResult,
+    ListResourcesResult,
+    ListResourceTemplatesResult,
     ListToolsResult,
     Prompt,
+    Resource,
     ResourceTemplate,
     ResourceTemplateReference,
     ServerCapabilities,
@@ -49,6 +56,7 @@ from fast_agent.event_progress import ProgressAction
 from fast_agent.mcp.common import SEP, create_namespaced_name, is_namespaced_name
 from fast_agent.mcp.experimental_session_client import ExperimentalSessionClient
 from fast_agent.mcp.gen_client import gen_client
+from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.interfaces import ServerRegistryProtocol
 from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 from fast_agent.mcp.mcp_connection_manager import MCPConnectionManager
@@ -93,18 +101,45 @@ METHOD_NOT_FOUND_ERROR_CODE = -32601
 METHOD_NOT_FOUND_MESSAGE = "method not found"
 
 
+@runtime_checkable
+class ExperimentalSessionCapable(Protocol):
+    effective_elicitation_mode: str | None
+    experimental_session_supported: bool
+    experimental_session_features: tuple[str, ...] | list[str]
+    experimental_session_cookie: dict[str, Any] | None
+    experimental_session_title: str | None
+
+
+@runtime_checkable
+class SessionCookieCapable(Protocol):
+    experimental_session_id: str | None
+
+    def set_experimental_session_cookie(self, cookie: dict[str, Any] | None) -> None: ...
+
+
+@runtime_checkable
+class ClientInfoLike(Protocol):
+    name: str | None
+    version: str | None
+
+
+@runtime_checkable
+class SessionClientInfoCapable(Protocol):
+    client_info: ClientInfoLike | None
+
+
 def _is_capability_probe_error(exc: Exception) -> bool:
     """Return True when exc indicates a server does not support a probed method."""
     if isinstance(exc, NotImplementedError):
         return True
     if isinstance(exc, McpError):
-        code = getattr(getattr(exc, "error", None), "code", None)
+        code = exc.error.code
         if code == METHOD_NOT_FOUND_ERROR_CODE:
             return True
         # Only fall back to message matching when the server omitted the error code;
         # if a different code is set, trust the code over the message text.
         if code is None:
-            message = getattr(getattr(exc, "error", None), "message", None)
+            message = exc.error.message
             if isinstance(message, str) and METHOD_NOT_FOUND_MESSAGE in message.lower():
                 return True
     return False
@@ -252,7 +287,7 @@ class MCPAggregator(ContextDependent):
         if self.connection_persistence:
             context = self._require_context()
             # Try to get existing connection manager from context
-            if not hasattr(context, "_connection_manager") or context._connection_manager is None:
+            if context._connection_manager is None:
                 server_registry = cast("ServerRegistry", self._require_server_registry())
                 manager = MCPConnectionManager(server_registry, context=context)
                 await manager.__aenter__()
@@ -317,18 +352,16 @@ class MCPAggregator(ContextDependent):
         # aggregators must pick up the same progress manager so nested tool calls
         # are visible to ACP clients.
         resolved_tool_handler = tool_handler
-        if resolved_tool_handler is None and context is not None:
-            acp_ctx = getattr(context, "acp", None)
-            resolved_tool_handler = getattr(acp_ctx, "progress_manager", None) or None
+        if resolved_tool_handler is None and context is not None and context.acp is not None:
+            resolved_tool_handler = context.acp.progress_manager or None
 
         # Default to NoOpToolExecutionHandler if none provided.
         self._tool_handler = resolved_tool_handler or NoOpToolExecutionHandler()
 
         # Store tool permission handler for ACP or other permission systems.
         resolved_permission_handler = permission_handler
-        if resolved_permission_handler is None and context is not None:
-            acp_ctx = getattr(context, "acp", None)
-            resolved_permission_handler = getattr(acp_ctx, "permission_handler", None) or None
+        if resolved_permission_handler is None and context is not None and context.acp is not None:
+            resolved_permission_handler = context.acp.permission_handler or None
 
         # Default to NoOpToolPermissionHandler if none provided (allows all).
         self._permission_handler = resolved_permission_handler or NoOpToolPermissionHandler()
@@ -369,6 +402,20 @@ class MCPAggregator(ContextDependent):
         # Focused API for experimental data-layer session metadata controls.
         self.experimental_sessions = ExperimentalSessionClient(self)
 
+    @property
+    def tool_execution_handler(self) -> ToolExecutionHandler:
+        return self._tool_handler
+
+    def set_tool_execution_handler(self, handler: ToolExecutionHandler) -> None:
+        self._tool_handler = handler
+
+    @property
+    def permission_handler(self) -> ToolPermissionHandler:
+        return self._permission_handler
+
+    def set_permission_handler(self, handler: ToolPermissionHandler) -> None:
+        self._permission_handler = handler
+
     def _require_context(self) -> "Context":
         if self.context is None:
             raise RuntimeError("MCPAggregator requires a context")
@@ -376,10 +423,10 @@ class MCPAggregator(ContextDependent):
 
     def _require_server_registry(self) -> ServerRegistryProtocol:
         context = self._require_context()
-        server_registry = getattr(context, "server_registry", None)
+        server_registry = context.server_registry
         if server_registry is None:
             raise RuntimeError("Context is missing server registry for MCP connections")
-        return server_registry
+        return cast("ServerRegistryProtocol", server_registry)
 
     def _require_connection_manager(self) -> MCPConnectionManager:
         if self._persistent_connection_manager is None:
@@ -442,13 +489,13 @@ class MCPAggregator(ContextDependent):
             try:
                 # Only attempt cleanup if we own the connection manager
                 if self._owns_connection_manager and (
-                    hasattr(self.context, "_connection_manager")
+                    self.context is not None
                     and self.context._connection_manager == self._persistent_connection_manager
                 ):
                     logger.info("Shutting down all persistent connections...")
                     await self._persistent_connection_manager.disconnect_all()
                     await self._persistent_connection_manager.__aexit__(None, None, None)
-                    delattr(self.context, "_connection_manager")
+                    self.context._connection_manager = None
                 self.initialized = False
             except Exception as e:
                 logger.error(f"Error during connection manager cleanup: {e}")
@@ -567,7 +614,7 @@ class MCPAggregator(ContextDependent):
                 server_config = server_registry.get_server_config(server_name)
                 if (
                     server_config
-                    and not getattr(server_config, "load_on_start", True)
+                    and not server_config.load_on_start
                     and not force_connect
                 ):
                     logger.debug(f"Skipping server '{server_name}' - load_on_start=False")
@@ -645,14 +692,14 @@ class MCPAggregator(ContextDependent):
             return []
 
         try:
-            result = await self._execute_on_server(
+            result: ListPromptsResult = await self._execute_on_server(
                 server_name=server_name,
                 operation_type="prompts/list",
                 operation_name="",
                 method_name="list_prompts",
                 method_args={},
             )
-            return getattr(result, "prompts", [])
+            return result.prompts
         except Exception as e:
             logger.debug(f"Error loading prompts from server '{server_name}': {e}")
             return []
@@ -845,9 +892,8 @@ class MCPAggregator(ContextDependent):
     def list_configured_detached_servers(self) -> list[str]:
         configured = set(self._configured_server_names)
         server_registry = self.context.server_registry if self.context else None
-        registry_data = getattr(server_registry, "registry", None)
-        if isinstance(registry_data, dict):
-            configured.update(registry_data.keys())
+        if server_registry is not None:
+            configured.update(server_registry.registry.keys())
         return sorted(configured - set(self.list_attached_servers()))
 
     async def _initialize_skybridge_configs(self, server_names: list[str] | None = None) -> None:
@@ -877,7 +923,7 @@ class MCPAggregator(ContextDependent):
         tool_configs: list[SkybridgeToolConfig] = []
 
         for namespaced_tool in tool_entries:
-            tool_meta = getattr(namespaced_tool.tool, "meta", None) or {}
+            tool_meta = namespaced_tool.tool.meta or {}
             template_value = tool_meta.get("openai/outputTemplate")
             if not template_value:
                 continue
@@ -923,7 +969,7 @@ class MCPAggregator(ContextDependent):
             return server_name, config
 
         for resource_entry in resources:
-            uri = getattr(resource_entry, "uri", None)
+            uri = resource_entry.uri
             if not uri:
                 continue
 
@@ -952,11 +998,11 @@ class MCPAggregator(ContextDependent):
                 config.warnings.append(warning)
                 continue
 
-            contents = getattr(read_result, "contents", []) or []
+            contents = read_result.contents
             seen_mime_types: list[str] = []
 
             for content in contents:
-                mime_type = getattr(content, "mimeType", None)
+                mime_type = content.mimeType
                 if mime_type:
                     seen_mime_types.append(mime_type)
                 if mime_type == SKYBRIDGE_MIME_TYPE:
@@ -1081,7 +1127,11 @@ class MCPAggregator(ContextDependent):
             logger.debug(f"Server '{server_name}' not found")
         return valid
 
-    async def server_supports_feature(self, server_name: str, feature: str) -> bool:
+    async def server_supports_feature(
+        self,
+        server_name: str,
+        feature: Literal["prompts", "resources", "tools", "completions", "tasks"],
+    ) -> bool:
         """
         Check if a server supports a specific feature.
 
@@ -1099,7 +1149,13 @@ class MCPAggregator(ContextDependent):
         if not capabilities:
             return False
 
-        feature_value = getattr(capabilities, feature, False)
+        feature_value = {
+            "prompts": capabilities.prompts,
+            "resources": capabilities.resources,
+            "tools": capabilities.tools,
+            "completions": capabilities.completions,
+            "tasks": capabilities.tasks,
+        }[feature]
         if isinstance(feature_value, bool):
             return feature_value
         if feature_value is None:
@@ -1227,12 +1283,12 @@ class MCPAggregator(ContextDependent):
         if not self.connection_persistence:
             return instructions
 
-        manager = getattr(self, "_persistent_connection_manager", None)
+        manager = self._persistent_connection_manager
         if manager is None:
             return instructions
 
         # Only read from already-running server connections to avoid implicit connects.
-        running_servers = getattr(manager, "running_servers", {}) or {}
+        running_servers = manager.running_servers
         for server_name in self.server_names:
             server_conn = running_servers.get(server_name)
             if not server_conn:
@@ -1310,7 +1366,7 @@ class MCPAggregator(ContextDependent):
             ping_activity_bucket_seconds: int | None = None
             ping_activity_bucket_count: int | None = None
 
-            manager = getattr(self, "_persistent_connection_manager", None)
+            manager = self._persistent_connection_manager
             if self.connection_persistence and manager is not None:
                 try:
                     async with manager._lock:
@@ -1325,10 +1381,11 @@ class MCPAggregator(ContextDependent):
                         capabilities = server_conn.server_capabilities
                         client_capabilities = server_conn.client_capabilities
                         session = server_conn.session
-                        client_info = getattr(session, "client_info", None) if session else None
-                        if client_info:
-                            client_info_name = getattr(client_info, "name", None)
-                            client_info_version = getattr(client_info, "version", None)
+                        if isinstance(session, SessionClientInfoCapable):
+                            client_info = session.client_info
+                            if client_info:
+                                client_info_name = client_info.name
+                                client_info_version = client_info.version
                         if server_conn._initialized_event.is_set():
                             is_connected = server_conn.is_healthy()
                         else:
@@ -1347,22 +1404,19 @@ class MCPAggregator(ContextDependent):
                         ping_last_ok_at = server_conn._ping_last_ok_at
                         ping_last_fail_at = server_conn._ping_last_fail_at
                         ping_last_error = server_conn._ping_last_error
-                        if session:
+                        if isinstance(session, ExperimentalSessionCapable):
                             elicitation_mode = session.effective_elicitation_mode
-                            experimental_session_supported = getattr(
-                                session, "experimental_session_supported", None
-                            )
-                            raw_features = getattr(session, "experimental_session_features", None)
-                            if raw_features is not None:
-                                experimental_session_features = [
-                                    str(feature)
-                                    for feature in raw_features
-                                    if isinstance(feature, str) and feature
-                                ]
-                            raw_cookie = getattr(session, "experimental_session_cookie", None)
+                            experimental_session_supported = session.experimental_session_supported
+                            raw_features = session.experimental_session_features
+                            experimental_session_features = [
+                                str(feature)
+                                for feature in raw_features
+                                if isinstance(feature, str) and feature
+                            ]
+                            raw_cookie = session.experimental_session_cookie
                             if isinstance(raw_cookie, dict):
                                 session_cookie = dict(raw_cookie)
-                            raw_title = getattr(session, "experimental_session_title", None)
+                            raw_title = session.experimental_session_title
                             if isinstance(raw_title, str) and raw_title.strip():
                                 session_title = raw_title.strip()
                             if session_title is None and isinstance(session_cookie, dict):
@@ -1435,7 +1489,7 @@ class MCPAggregator(ContextDependent):
                 transport = server_cfg.transport or transport
                 elicitation = server_cfg.elicitation
                 elicitation_mode = (
-                    getattr(elicitation, "mode", None) if elicitation else elicitation_mode
+                    elicitation.mode if elicitation else elicitation_mode
                 )
                 ping_interval_seconds = ping_interval_seconds or server_cfg.ping_interval_seconds
                 ping_max_missed = ping_max_missed or server_cfg.max_missed_pings
@@ -1457,14 +1511,14 @@ class MCPAggregator(ContextDependent):
                     sampling_mode = "configured"
                 else:
                     auto_sampling = True
-                    if self.context and getattr(self.context, "config", None):
-                        auto_sampling = getattr(self.context.config, "auto_sampling", True)
+                    if self.context and self.context.config is not None:
+                        auto_sampling = self.context.config.auto_sampling
                     sampling_mode = "auto" if auto_sampling else "off"
             else:
                 # Fall back to defaults when config missing
                 auto_sampling = True
-                if self.context and getattr(self.context, "config", None):
-                    auto_sampling = getattr(self.context.config, "auto_sampling", True)
+                if self.context and self.context.config is not None:
+                    auto_sampling = self.context.config.auto_sampling
                 sampling_mode = sampling_mode or ("auto" if auto_sampling else "off")
 
             status_map[server_name] = ServerStatus(
@@ -1676,16 +1730,10 @@ class MCPAggregator(ContextDependent):
 
     @staticmethod
     def _is_session_required_error(exc: Exception) -> bool:
-        from mcp.shared.exceptions import McpError
-
         if not isinstance(exc, McpError):
             return False
 
-        error_data = getattr(exc, "error", None)
-        if error_data is None:
-            return False
-
-        code = getattr(error_data, "code", None)
+        code = exc.error.code
         return code in {
             SESSION_NOT_FOUND_ERROR_CODE,
             LEGACY_SESSION_REQUIRED_ERROR_CODE,
@@ -1701,8 +1749,8 @@ class MCPAggregator(ContextDependent):
         if not self._is_session_required_error(exc):
             return
 
-        error_data = getattr(exc, "error", None)
-        reason = getattr(error_data, "message", None)
+        assert isinstance(exc, McpError)
+        reason = exc.error.message
         reason_text = str(reason) if isinstance(reason, str) and reason else None
 
         self._invalidate_session_cookie(
@@ -1729,9 +1777,9 @@ class MCPAggregator(ContextDependent):
 
     @staticmethod
     def _extract_tool_error_text(result: Any) -> str | None:
-        content = getattr(result, "content", None)
-        if not isinstance(content, list):
+        if not isinstance(result, CallToolResult):
             return None
+        content = result.content
 
         for item in content:
             if isinstance(item, TextContent):
@@ -1740,15 +1788,15 @@ class MCPAggregator(ContextDependent):
                     return text
                 continue
 
-            text = getattr(item, "text", None)
-            if isinstance(text, str) and text.strip():
+            text = get_text(item)
+            if text is not None and text.strip():
                 return text.strip()
 
         return None
 
     @classmethod
     def _is_session_required_tool_error_result(cls, result: Any) -> bool:
-        if not bool(getattr(result, "isError", False)):
+        if not isinstance(result, CallToolResult) or not result.isError:
             return False
 
         text = cls._extract_tool_error_text(result)
@@ -1769,21 +1817,22 @@ class MCPAggregator(ContextDependent):
         client: ClientSession,
         reason: str | None,
     ) -> None:
-        session_id = getattr(client, "experimental_session_id", None)
+        if not isinstance(client, SessionCookieCapable):
+            return
+
+        session_id = client.experimental_session_id
         if not isinstance(session_id, str) or not session_id:
             return
 
-        clear_cookie = getattr(client, "set_experimental_session_cookie", None)
-        if callable(clear_cookie):
-            try:
-                clear_cookie(None)
-            except Exception:
-                logger.debug(
-                    "Failed clearing rejected MCP session metadata",
-                    server_name=server_name,
-                    session_id=session_id,
-                    exc_info=True,
-                )
+        try:
+            client.set_experimental_session_cookie(None)
+        except Exception:
+            logger.debug(
+                "Failed clearing rejected MCP session metadata",
+                server_name=server_name,
+                session_id=session_id,
+                exc_info=True,
+            )
 
         try:
             self.experimental_sessions.mark_cookie_invalidated(
@@ -2038,13 +2087,12 @@ class MCPAggregator(ContextDependent):
                         error_msg = f"The user has declined permission to use this tool: {namespaced_tool_name}"
 
                 # Notify tool handler so ACP clients can reflect the cancellation/denial
-                if hasattr(active_tool_handler, "on_tool_permission_denied"):
-                    try:
-                        await active_tool_handler.on_tool_permission_denied(
-                            local_tool_name, server_name, tool_use_id, error_msg
-                        )
-                    except Exception as e:
-                        logger.error(f"Error notifying permission denial: {e}", exc_info=True)
+                try:
+                    await active_tool_handler.on_tool_permission_denied(
+                        local_tool_name, server_name, tool_use_id, error_msg
+                    )
+                except Exception as e:
+                    logger.error(f"Error notifying permission denial: {e}", exc_info=True)
                 logger.info(
                     "Tool execution denied by permission handler",
                     data={
@@ -2154,7 +2202,7 @@ class MCPAggregator(ContextDependent):
                     error_text = None
                     if result.isError and content:
                         # Extract text from content for error message
-                        text_parts = [c.text for c in content if hasattr(c, "text") and c.text]
+                        text_parts = [text for c in content if (text := get_text(c))]
                         error_text = "\n".join(text_parts) if text_parts else None
                         content = None  # Don't send content when there's an error
 
@@ -2390,7 +2438,7 @@ class MCPAggregator(ContextDependent):
 
                         # Update the cache - need to fetch the prompt object to store in cache
                         try:
-                            prompt_list_result = await self._execute_on_server(
+                            prompt_list_result: ListPromptsResult = await self._execute_on_server(
                                 server_name=s_name,
                                 operation_type="prompts/list",
                                 operation_name="",
@@ -2398,7 +2446,7 @@ class MCPAggregator(ContextDependent):
                                 error_factory=lambda _: None,
                             )
 
-                            prompts = getattr(prompt_list_result, "prompts", [])
+                            prompts = prompt_list_result.prompts
                             matching_prompts = [p for p in prompts if p.name == local_prompt_name]
                             if matching_prompts:
                                 async with self._prompt_cache_lock:
@@ -2464,7 +2512,7 @@ class MCPAggregator(ContextDependent):
                 return results
 
             # Fetch from server
-            result = await self._execute_on_server(
+            result: ListPromptsResult = await self._execute_on_server(
                 server_name=server_name,
                 operation_type="prompts/list",
                 operation_name="",
@@ -2473,7 +2521,7 @@ class MCPAggregator(ContextDependent):
             )
 
             # Get prompts from result
-            prompts = getattr(result, "prompts", [])
+            prompts = result.prompts
 
             # Update cache
             async with self._prompt_cache_lock:
@@ -2503,7 +2551,7 @@ class MCPAggregator(ContextDependent):
         # Fetch prompts from supported servers
         for s_name in supported_servers:
             try:
-                result = await self._execute_on_server(
+                result: ListPromptsResult = await self._execute_on_server(
                     server_name=s_name,
                     operation_type="prompts/list",
                     operation_name="",
@@ -2511,7 +2559,7 @@ class MCPAggregator(ContextDependent):
                     error_factory=lambda _: None,
                 )
 
-                prompts = getattr(result, "prompts", [])
+                prompts = result.prompts
 
                 # Update cache and results
                 async with self._prompt_cache_lock:
@@ -2714,7 +2762,7 @@ class MCPAggregator(ContextDependent):
         if check_support and not await self.server_supports_feature(server_name, "resources"):
             return []
 
-        result = await self._execute_on_server(
+        result: ListResourcesResult = await self._execute_on_server(
             server_name=server_name,
             operation_type="resources/list",
             operation_name="",
@@ -2722,7 +2770,7 @@ class MCPAggregator(ContextDependent):
             method_args={},
         )
 
-        return getattr(result, "resources", []) or []
+        return result.resources
 
     async def _list_resource_templates_from_server(
         self, server_name: str, *, check_support: bool = True
@@ -2731,7 +2779,7 @@ class MCPAggregator(ContextDependent):
         if check_support and not await self.server_supports_feature(server_name, "resources"):
             return []
 
-        result = await self._execute_on_server(
+        result: ListResourceTemplatesResult = await self._execute_on_server(
             server_name=server_name,
             operation_type="resources/templates/list",
             operation_name="",
@@ -2740,7 +2788,7 @@ class MCPAggregator(ContextDependent):
             error_factory=lambda _: None,
         )
 
-        return getattr(result, "resourceTemplates", []) or []
+        return result.resourceTemplates
 
     async def list_resources(self, server_name: str | None = None) -> dict[str, list[str]]:
         """
@@ -2776,10 +2824,12 @@ class MCPAggregator(ContextDependent):
                 continue
 
             try:
-                resources = await self._list_resources_from_server(s_name, check_support=False)
+                resources: list[Resource] = await self._list_resources_from_server(
+                    s_name, check_support=False
+                )
                 formatted_resources: list[str] = []
                 for resource in resources:
-                    uri = getattr(resource, "uri", None)
+                    uri = resource.uri
                     if uri is not None:
                         formatted_resources.append(str(uri))
                 results[s_name] = formatted_resources
@@ -2884,7 +2934,7 @@ class MCPAggregator(ContextDependent):
 
             try:
                 # Use the _execute_on_server method to call list_tools on the server
-                result = await self._execute_on_server(
+                result: ListToolsResult = await self._execute_on_server(
                     server_name=s_name,
                     operation_type="tools/list",
                     operation_name="",
@@ -2893,7 +2943,7 @@ class MCPAggregator(ContextDependent):
                 )
 
                 # Get tools from result (these have original names, not namespaced)
-                tools = getattr(result, "tools", [])
+                tools = result.tools
                 results[s_name] = tools
 
             except Exception as e:

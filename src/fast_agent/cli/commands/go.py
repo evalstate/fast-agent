@@ -113,8 +113,6 @@ def _build_compat_run_request(**kwargs: Any) -> AgentRunRequest:
     """
     transport = kwargs.get("transport", "http")
     instance_scope = kwargs.get("instance_scope", "shared")
-    if transport == "acp" and instance_scope == "shared":
-        instance_scope = None
 
     return AgentRunRequest(
         name=kwargs.get("name", "fast-agent cli"),
@@ -205,10 +203,6 @@ def run_async_agent(
 ) -> None:
     """Run the async agent function with proper loop handling."""
     try:
-        resolved_instance_scope = instance_scope
-        if transport == "acp" and resolved_instance_scope == "shared":
-            resolved_instance_scope = None
-
         run_kwargs = _build_run_agent_kwargs(
             name=name,
             mode=mode,
@@ -236,7 +230,7 @@ def run_async_agent(
             transport=transport,
             instance_scope=resolve_instance_scope(
                 transport=transport,
-                instance_scope=resolved_instance_scope,
+                instance_scope=instance_scope,
             ),
             host=host,
             port=port,

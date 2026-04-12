@@ -10,8 +10,11 @@ from rich.text import Text
 from fast_agent.commands.handlers._text_utils import truncate_description
 from fast_agent.commands.results import CommandOutcome
 from fast_agent.commands.tool_summaries import ToolSummary, build_tool_summaries
+from fast_agent.interfaces import AgentProtocol
 
 if TYPE_CHECKING:
+    from mcp.types import Tool
+
     from fast_agent.commands.context import CommandContext
 
 
@@ -31,7 +34,7 @@ def _format_tool_description(description: str) -> list[Text]:
     return [Text(line, style="white") for line in wrapped_lines]
 
 
-def _summaries_from_tools(agent: object, tools: list[object]) -> list[ToolSummary]:
+def _summaries_from_tools(agent: object, tools: list["Tool"]) -> list[ToolSummary]:
     return build_tool_summaries(agent, tools)
 
 
@@ -46,9 +49,18 @@ async def handle_list_tools(ctx: CommandContext, *, agent_name: str) -> CommandO
     outcome = CommandOutcome()
 
     agent = ctx.agent_provider._agent(agent_name)
+    if not isinstance(agent, AgentProtocol):
+        outcome.add_message(
+            "This agent does not support tool listing.",
+            channel="warning",
+            right_info="tools",
+            agent_name=agent_name,
+        )
+        return outcome
+
     tools_result = await agent.list_tools()
 
-    if not tools_result or not hasattr(tools_result, "tools") or not tools_result.tools:
+    if not tools_result.tools:
         outcome.add_message(
             "No tools available for this agent.",
             channel="warning",

@@ -275,7 +275,6 @@ async def run_agents(
     host: str,
     port: int,
     tool_description: str | None,
-    instance_scope: str,
     permissions_enabled: bool,
     agent_cards: list[str] | None,
     card_tools: list[str] | None,
@@ -435,7 +434,7 @@ async def run_agents(
         host=host,
         port=port,
         tool_description=tool_description,
-        instance_scope=instance_scope,
+        instance_scope=serve.InstanceScope.CONNECTION.value,
         permissions_enabled=permissions_enabled,
     )
 
@@ -500,11 +499,6 @@ def run_acp(
         "-x",
         help="Enable a local shell runtime and expose the execute tool (bash or pwsh).",
     ),
-    instance_scope: serve.InstanceScope = typer.Option(
-        serve.InstanceScope.CONNECTION,
-        "--instance-scope",
-        help="Control how ACP clients receive isolated agent instances (shared, connection, request)",
-    ),
     no_permissions: bool = typer.Option(
         False,
         "--no-permissions",
@@ -561,7 +555,6 @@ def run_acp(
                 host=host,
                 port=port,
                 tool_description=description,
-                instance_scope=instance_scope.value,
                 permissions_enabled=not no_permissions,
                 agent_cards=agent_cards,
                 card_tools=card_tools,

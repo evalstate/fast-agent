@@ -20,6 +20,8 @@ class _FakeAgentApp:
     def __init__(self) -> None:
         self._agents: dict[str, _FakeAgent] = {"vertex-rag": _FakeAgent()}
         self._refreshed = False
+        self.noenv_mode = False
+        self.missing_shell_cwd_policy_override: str | None = None
 
     async def refresh_if_needed(self) -> bool:
         if self._refreshed:
@@ -59,6 +61,8 @@ class _FakeAgentAppRemove:
             "sizer": _FakeAgent(),
         }
         self._refreshed = False
+        self.noenv_mode = False
+        self.missing_shell_cwd_policy_override: str | None = None
 
     async def refresh_if_needed(self) -> bool:
         if self._refreshed:
@@ -99,6 +103,8 @@ class _FakeToolOnlyAgentApp:
         }
         self._tool_only = {"tool-only"}
         self._refreshed = False
+        self.noenv_mode = False
+        self.missing_shell_cwd_policy_override: str | None = None
 
     async def refresh_if_needed(self) -> bool:
         if self._refreshed:

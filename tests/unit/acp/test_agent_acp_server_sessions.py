@@ -53,7 +53,6 @@ def _build_server(
         bootstrap_instance=instance,
         create_instance=create_instance,
         dispose_instance=dispose_instance,
-        instance_scope="connection",
         server_name="test",
         permissions_enabled=False,
     )

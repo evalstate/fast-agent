@@ -71,7 +71,6 @@ from fast_agent.ui.usage_display import display_usage_report
 if TYPE_CHECKING:
     from fastmcp.tools import FunctionTool
 
-    from fast_agent.acp.server.agent_acp_server import ACPInstanceScope
     from fast_agent.config import MCPServerSettings
     from fast_agent.context import Context
     from fast_agent.core.agent_card_loader import LoadedAgentCard
@@ -255,7 +254,10 @@ class FastAgent(DecoratorMixin):
                 "--instance-scope",
                 choices=["shared", "connection", "request"],
                 default="shared",
-                help="Control MCP agent instancing behaviour (shared, connection, request)",
+                help=(
+                    "Control MCP agent instancing behaviour (shared, connection, request). "
+                    "ACP is always connection-scoped."
+                ),
             )
             parser.add_argument(
                 "--env",
@@ -1530,6 +1532,7 @@ class FastAgent(DecoratorMixin):
                     agents_map,
                     tool_only_agents=tool_only_agents,
                     card_collision_warnings=self._card_collision_warnings,
+                    noenv_mode=runtime.noenv_mode,
                 )
             else:
                 app_override.set_agents(
@@ -1537,9 +1540,9 @@ class FastAgent(DecoratorMixin):
                     tool_only_agents=tool_only_agents,
                     card_collision_warnings=self._card_collision_warnings,
                 )
+                app_override.noenv_mode = runtime.noenv_mode
                 app = app_override
 
-            setattr(app, "_noenv_mode", runtime.noenv_mode)
             instance = AgentInstance(
                 app,
                 agents_map,
@@ -2120,10 +2123,16 @@ class FastAgent(DecoratorMixin):
         transport: str,
         instance_scope: str | None,
     ) -> str:
+        if transport == "acp":
+            if instance_scope is None:
+                return "connection"
+            if instance_scope != "connection":
+                raise ValueError(
+                    "ACP is always connection-scoped; instance_scope must be omitted or set to 'connection'."
+                )
+            return "connection"
         if instance_scope is None:
-            return "connection" if transport == "acp" else "shared"
-        if transport == "acp" and instance_scope == "shared":
-            raise ValueError("ACP does not support instance_scope='shared'.")
+            return "shared"
         return instance_scope
 
     async def _run_acp_server(
@@ -2134,18 +2143,16 @@ class FastAgent(DecoratorMixin):
         AgentACPServer = self._get_acp_server_class()
 
         server_name = getattr(self.args, "server_name", None)
-        instance_scope = self._resolve_server_instance_scope(
+        self._resolve_server_instance_scope(
             transport="acp",
             instance_scope=getattr(self.args, "instance_scope", None),
         )
-        acp_instance_scope = cast("ACPInstanceScope", instance_scope)
         permissions_enabled = getattr(self.args, "permissions_enabled", True)
 
         acp_server = AgentACPServer(
             bootstrap_instance=state.primary_instance,
             create_instance=callbacks.create_instance,
             dispose_instance=callbacks.dispose_instance,
-            instance_scope=acp_instance_scope,
             server_name=server_name or f"{self.name}",
             skills_directory_override=self._skills_directory_override,
             permissions_enabled=permissions_enabled,

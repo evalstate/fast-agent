@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from fast_agent.acp.server.models import ACPSessionState
     from fast_agent.config import MCPServerSettings
     from fast_agent.core.fastagent import AgentInstance
+    from fast_agent.interfaces import AgentProtocol
     from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
 
 logger = get_logger(__name__)
@@ -82,7 +83,7 @@ class SlashRuntimeHost(Protocol):
 
     async def _resolve_instruction_for_session(
         self,
-        agent: object,
+        agent: AgentProtocol,
         context: dict[str, str],
     ) -> str | None: ...
 
@@ -212,7 +213,7 @@ class ACPServerSlashRuntime:
             session_state.session_id,
             instance,
             self._host._resolve_primary_agent_name(instance) or "default",
-            noenv=bool(getattr(instance.app, "_noenv_mode", False)),
+            noenv=instance.app.noenv_mode,
             client_info=self._host._client_info,
             client_capabilities=self._host._client_capabilities,
             protocol_version=self._host._protocol_version,

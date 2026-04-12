@@ -33,6 +33,7 @@ def test_config_display_updates_logger_settings(tmp_path: Path, monkeypatch) -> 
             "theme_file": "themes/custom.ini",
             "code_theme": "monokai",
             "streaming": "plain",
+            "apply_patch_preview_max_lines": 40,
             "render_fences_with_syntax": False,
             "code_word_wrap": True,
             "progress_display": False,
@@ -59,6 +60,7 @@ def test_config_display_updates_logger_settings(tmp_path: Path, monkeypatch) -> 
     assert logger["theme_file"] == "themes/custom.ini"
     assert logger["code_theme"] == "monokai"
     assert logger["streaming"] == "plain"
+    assert logger["apply_patch_preview_max_lines"] == 40
     assert logger["render_fences_with_syntax"] is False
     assert logger["code_word_wrap"] is True
     assert logger["progress_display"] is False
@@ -83,6 +85,7 @@ def test_config_display_removes_default_theme_and_code_theme(tmp_path: Path, mon
             "theme_file": "",
             "code_theme": "native",
             "streaming": "markdown",
+            "apply_patch_preview_max_lines": 120,
             "render_fences_with_syntax": True,
             "code_word_wrap": False,
             "progress_display": True,
@@ -187,6 +190,7 @@ def test_config_display_updates_legacy_parent_config_when_run_from_nested_dir(
             "theme_file": "",
             "code_theme": "native",
             "streaming": "markdown",
+            "apply_patch_preview_max_lines": 120,
             "render_fences_with_syntax": True,
             "code_word_wrap": False,
             "progress_display": True,
@@ -210,3 +214,37 @@ def test_config_display_updates_legacy_parent_config_when_run_from_nested_dir(
     assert logger["show_tools"] is False
     assert logger["show_chat"] is False
     assert (nested / ".fast-agent" / "fastagent.config.yaml").exists() is False
+
+
+def test_config_display_zero_patch_preview_lines_means_unlimited(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config_path = tmp_path / "fastagent.config.yaml"
+    config_path.write_text("logger: {}\n", encoding="utf-8")
+
+    def _fake_form_sync(*args, **kwargs):  # noqa: ARG001
+        return {
+            "theme_file": "",
+            "code_theme": "native",
+            "streaming": "markdown",
+            "apply_patch_preview_max_lines": 0,
+            "render_fences_with_syntax": True,
+            "code_word_wrap": False,
+            "progress_display": True,
+            "show_chat": True,
+            "show_tools": True,
+            "truncate_tools": True,
+            "enable_markup": True,
+            "enable_prompt_marks": True,
+        }
+
+    monkeypatch.setattr(config_command, "form_sync", _fake_form_sync)
+
+    runner = CliRunner()
+    result = runner.invoke(config_command.app, ["display", "--config", str(config_path)])
+
+    assert result.exit_code == 0, result.output
+
+    config_data, _ = config_command._load_config(config_path)
+    logger = config_data["logger"]
+    assert logger["apply_patch_preview_max_lines"] is None

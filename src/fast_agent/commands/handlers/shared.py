@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from rich import print as rich_print
 
+from fast_agent.commands.protocols import HistoryEditableAgent
 from fast_agent.core.exceptions import AgentConfigError, format_fast_agent_error
 
 if TYPE_CHECKING:
@@ -34,15 +35,12 @@ def load_prompt_messages_from_file(
 
 
 def replace_agent_history(agent_obj: Any, messages: list[PromptMessageExtended]) -> None:
-    if hasattr(agent_obj, "clear"):
+    if isinstance(agent_obj, HistoryEditableAgent):
         try:
             agent_obj.clear(clear_prompts=True)
         except TypeError:
             agent_obj.clear()
-    history = getattr(agent_obj, "message_history", None)
-    if isinstance(history, list):
-        history.clear()
-        history.extend(messages)
+        agent_obj.load_message_history(messages)
 
 
 def clear_agent_histories(
@@ -61,11 +59,10 @@ def clear_agent_histories(
     """
     cleared: list[str] = []
     for name, agent in agents.items():
-        clear_fn = getattr(agent, "clear", None)
-        if not callable(clear_fn):
+        if not isinstance(agent, HistoryEditableAgent):
             continue
         try:
-            clear_fn()
+            agent.clear()
             cleared.append(name)
         except Exception as exc:
             if logger:

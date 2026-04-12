@@ -1,3 +1,4 @@
+from fast_agent.config import LoggerSettings, Settings
 from fast_agent.ui import console
 from fast_agent.ui.console_display import ConsoleDisplay
 
@@ -104,3 +105,28 @@ def test_apply_patch_tool_call_renders_preview() -> None:
     assert "apply_patch (preview)" in rendered
     assert "*** Begin Patch" in rendered
     assert "apply_patch preview:" in rendered
+
+
+def test_apply_patch_tool_call_respects_preview_line_limit() -> None:
+    display = ConsoleDisplay(
+        Settings(logger=LoggerSettings(apply_patch_preview_max_lines=4))
+    )
+    patch_text = (
+        "*** Begin Patch\n"
+        "*** Add File: hello.txt\n"
+        "+line-1\n"
+        "+line-2\n"
+        "+line-3\n"
+        "*** End Patch\n"
+    )
+
+    with console.console.capture() as capture:
+        display.show_tool_call(
+            tool_name="apply_patch",
+            tool_args={"input": patch_text},
+            metadata={},
+            name="dev",
+        )
+
+    rendered = capture.get()
+    assert "(+2 more lines)" in rendered

@@ -37,12 +37,12 @@ class MissingShellCwdPolicy(str, Enum):
 
 
 def _validate_acp_instance_scope(instance_scope: InstanceScope) -> InstanceScope:
-    if instance_scope == InstanceScope.SHARED:
+    if instance_scope != InstanceScope.CONNECTION:
         raise typer.BadParameter(
-            "ACP does not support --instance-scope=shared. Use connection or request.",
+            "ACP is always connection-scoped. Remove --instance-scope or set it to connection.",
             param_hint="--instance-scope",
         )
-    return instance_scope
+    return InstanceScope.CONNECTION
 
 
 def _resolve_instance_scope(
@@ -189,7 +189,7 @@ def serve(
     instance_scope: InstanceScope = typer.Option(
         InstanceScope.SHARED,
         "--instance-scope",
-        help="Control how clients receive isolated agent instances (ACP supports connection/request only)",
+        help="Control how clients receive isolated agent instances. ACP is always connection-scoped.",
     ),
     no_permissions: bool = typer.Option(
         False,

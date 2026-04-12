@@ -188,9 +188,21 @@ def test_resolve_instance_scope_rejects_explicit_shared_for_acp() -> None:
     ctx = typer.Context(click.Command("serve"))
     ctx.set_parameter_source("instance_scope", click.core.ParameterSource.COMMANDLINE)
 
-    with pytest.raises(typer.BadParameter, match="ACP does not support"):
+    with pytest.raises(typer.BadParameter, match="ACP is always connection-scoped"):
         serve_command._resolve_instance_scope(
             ctx,
             transport=serve_command.ServeTransport.ACP,
             instance_scope=serve_command.InstanceScope.SHARED,
+        )
+
+
+def test_resolve_instance_scope_rejects_explicit_request_for_acp() -> None:
+    ctx = typer.Context(click.Command("serve"))
+    ctx.set_parameter_source("instance_scope", click.core.ParameterSource.COMMANDLINE)
+
+    with pytest.raises(typer.BadParameter, match="ACP is always connection-scoped"):
+        serve_command._resolve_instance_scope(
+            ctx,
+            transport=serve_command.ServeTransport.ACP,
+            instance_scope=serve_command.InstanceScope.REQUEST,
         )

@@ -20,7 +20,7 @@ import time
 from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Union
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Protocol, Union, runtime_checkable
 
 from mcp.types import PromptMessage
 from rich import print as rich_print
@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from fast_agent.ui.console_display import ConsoleDisplay
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.agents.tool_runner import HistoryRollbackState
 from fast_agent.cli.runtime.shell_cwd_policy import (
     can_prompt_for_missing_cwd,
     collect_shell_cwd_issues_from_runtime_agents,
@@ -41,6 +42,7 @@ from fast_agent.commands.handlers import mcp_runtime as mcp_runtime_handlers  # 
 from fast_agent.commands.handlers import prompts as prompt_handlers
 from fast_agent.config import get_settings
 from fast_agent.core.exceptions import PromptExitError
+from fast_agent.interfaces import AgentProtocol, TurnCancellationStateCapable
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui import enhanced_prompt
@@ -76,6 +78,12 @@ type PromptLoopResult = str | ShellExecutionResult
 
 # Type alias for the agent getter function
 AgentGetter = Callable[[str], object | None]
+
+
+@runtime_checkable
+class DisplayCapable(Protocol):
+    @property
+    def display(self) -> "ConsoleDisplay": ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -343,9 +351,14 @@ class InteractivePrompt:
             available_agents_set=next_available_agents_set,
         )
 
-    def _describe_cancelled_history_state(self, history_state: object | None) -> str:
-        status = getattr(history_state, "status", None)
-        removed_messages = getattr(history_state, "removed_messages", 0)
+    def _describe_cancelled_history_state(
+        self, history_state: HistoryRollbackState | None
+    ) -> str:
+        if history_state is None:
+            return "History reconciliation completed."
+
+        status = history_state.status
+        removed_messages = history_state.removed_messages
 
         if status == "history_disabled":
             return (
@@ -382,15 +395,14 @@ class InteractivePrompt:
         except Exception:
             agent_obj = None
 
-        if agent_obj is None or not getattr(agent_obj, "_last_turn_cancelled", False):
+        if not isinstance(agent_obj, TurnCancellationStateCapable) or not agent_obj.last_turn_cancelled:
             return
 
         _clear_current_task_cancellation_requests()
         clear_progress_for_agent(agent_name)
-        reason = getattr(agent_obj, "_last_turn_cancel_reason", "cancelled")
-        setattr(agent_obj, "_last_turn_cancelled", False)
-        history_state = getattr(agent_obj, "_last_turn_history_state", None)
-        setattr(agent_obj, "_last_turn_history_state", None)
+        reason = agent_obj.last_turn_cancel_reason
+        history_state = agent_obj.last_turn_history_state
+        agent_obj.clear_last_turn_cancellation()
         state_message = self._describe_cancelled_history_state(history_state)
         write_interactive_trace(
             "prompt.previous_turn_cancelled",
@@ -456,12 +468,12 @@ class InteractivePrompt:
             return False
 
         try:
-            history = getattr(agent_obj, "message_history", [])
+            history = agent_obj.message_history
             last_message = history[-1] if history else None
             return bool(
                 last_message is not None
-                and getattr(last_message, "role", None) == "assistant"
-                and getattr(last_message, "stop_reason", None) == LlmStopReason.CANCELLED
+                and last_message.role == "assistant"
+                and last_message.stop_reason == LlmStopReason.CANCELLED
             )
         except Exception:
             return False
@@ -635,7 +647,7 @@ class InteractivePrompt:
         runtime_state: PromptLoopRuntimeState,
         ctrl_c_exit_window_seconds: float,
     ) -> PromptInputPhase:
-        noenv_mode = bool(getattr(prompt_provider, "_noenv_mode", False))
+        noenv_mode = prompt_provider.noenv_mode
         try:
             user_input = await get_enhanced_input(
                 agent_name=agent_state.current_agent,
@@ -990,13 +1002,9 @@ class InteractivePrompt:
         buffer_prefill = ""  # One-off buffer content for # command results
         ctrl_c_exit_window_seconds = 2.0
         runtime_state = PromptLoopRuntimeState()
-        configured_shell_cwd_policy = getattr(
-            getattr(get_settings(), "shell_execution", None),
-            "missing_cwd_policy",
-            None,
-        )
+        configured_shell_cwd_policy = get_settings().shell_execution.missing_cwd_policy
         resolved_shell_cwd_policy = resolve_missing_shell_cwd_policy(
-            cli_override=getattr(prompt_provider, "_missing_shell_cwd_policy_override", None),
+            cli_override=prompt_provider.missing_shell_cwd_policy_override,
             configured_policy=configured_shell_cwd_policy,
         )
         shell_cwd_policy = effective_missing_shell_cwd_policy(
@@ -1178,20 +1186,19 @@ class InteractivePrompt:
         from fast_agent.ui.console_display import ConsoleDisplay
 
         agent = None
-        if agent_name and hasattr(prompt_provider, "_agent"):
+        if agent_name:
             try:
                 agent = prompt_provider._agent(agent_name)
             except Exception:
                 agent = None
 
-        display = getattr(agent, "display", None) if agent is not None else None
-        if display is not None:
-            return display
+        if isinstance(agent, DisplayCapable):
+            return agent.display
 
         config = None
-        if agent is not None:
-            agent_context = getattr(agent, "context", None)
-            config = getattr(agent_context, "config", None) if agent_context else None
+        if isinstance(agent, AgentProtocol):
+            agent_context = agent.context
+            config = agent_context.config if agent_context else None
 
         if config is None:
             config = get_settings()

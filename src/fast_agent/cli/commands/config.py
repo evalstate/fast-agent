@@ -253,6 +253,18 @@ def _build_display_form(current: LoggerSettings) -> FormSchema:
             description=_get_logger_field_description("code_word_wrap"),
             default=current.code_word_wrap,
         ),
+        apply_patch_preview_max_lines=integer(
+            title="Apply Patch Preview Lines",
+            description=(
+                f"{_get_logger_field_description('apply_patch_preview_max_lines')} "
+                "(0 = show all)"
+            ),
+            default=current.apply_patch_preview_max_lines
+            if current.apply_patch_preview_max_lines is not None
+            else 0,
+            minimum=0,
+            maximum=10000,
+        ),
         progress_display=boolean(
             title="Progress Display",
             description=_get_logger_field_description("progress_display"),
@@ -345,6 +357,12 @@ def _normalize_display_updates(result: dict[str, Any]) -> dict[str, Any]:
         if normalized_streaming not in {"markdown", "plain", "none"}:
             normalized_streaming = "markdown"
         logger_updates["streaming"] = normalized_streaming
+
+    apply_patch_preview_max_lines = result.get("apply_patch_preview_max_lines", 120)
+    if isinstance(apply_patch_preview_max_lines, int):
+        logger_updates["apply_patch_preview_max_lines"] = (
+            None if apply_patch_preview_max_lines == 0 else apply_patch_preview_max_lines
+        )
 
     for key in (
         "render_fences_with_syntax",

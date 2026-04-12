@@ -445,6 +445,7 @@ def _default_logger_summary(default_settings: Any) -> dict[str, Any]:
         "streaming": default_settings.logger.streaming,
         "theme_file": default_settings.logger.theme_file,
         "code_theme": default_settings.logger.code_theme,
+        "apply_patch_preview_max_lines": default_settings.logger.apply_patch_preview_max_lines,
         "render_fences_with_syntax": default_settings.logger.render_fences_with_syntax,
         "code_word_wrap": default_settings.logger.code_word_wrap,
         "progress_display": default_settings.logger.progress_display,
@@ -483,6 +484,10 @@ def _build_logger_summary(
         "streaming": logger_config.get("streaming", default_settings.logger.streaming),
         "theme_file": logger_config.get("theme_file", default_settings.logger.theme_file),
         "code_theme": logger_config.get("code_theme", default_settings.logger.code_theme),
+        "apply_patch_preview_max_lines": logger_config.get(
+            "apply_patch_preview_max_lines",
+            default_settings.logger.apply_patch_preview_max_lines,
+        ),
         "render_fences_with_syntax": logger_config.get(
             "render_fences_with_syntax",
             default_settings.logger.render_fences_with_syntax,
@@ -1391,6 +1396,14 @@ def _build_application_settings_rows(
         ("Streaming Mode", f"[green]{logger.get('streaming', 'markdown')}[/green]"),
         ("Theme File", logger.get("theme_file") or "[dim]default[/dim]"),
         ("Code Theme", f"[green]{logger.get('code_theme', 'native')}[/green]"),
+        (
+            "Patch Preview Lines",
+            (
+                "[dim]unlimited[/dim]"
+                if logger.get("apply_patch_preview_max_lines") is None
+                else f"[green]{logger.get('apply_patch_preview_max_lines')}[/green]"
+            ),
+        ),
         ("Streaming Display", _bool_to_symbol(logger.get("streaming_display", True))),
         ("Syntax Fences", _bool_to_symbol(logger.get("render_fences_with_syntax", True))),
         ("Wrap Code", _bool_to_symbol(logger.get("code_word_wrap", False))),

@@ -3,9 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from fast_agent.interfaces import (
+    AgentBackedToolProvider,
+    CardToolProvider,
+    SmartToolingCapable,
+)
 from fast_agent.mcp.common import is_namespaced_name
+
+if TYPE_CHECKING:
+    from mcp.types import Tool
 
 
 @dataclass(slots=True)
@@ -37,21 +45,30 @@ def _format_tool_args(schema: dict[str, Any] | None) -> list[str] | None:
     return arg_list or None
 
 
-def build_tool_summaries(agent: object, tools: list[object]) -> list[ToolSummary]:
-    card_tool_names = set(getattr(agent, "_card_tool_names", []) or [])
-    smart_tool_names = set(getattr(agent, "_smart_tool_names", []) or [])
-    agent_tool_names = set(getattr(agent, "_agent_tools", {}).keys())
-    child_agent_tool_names = set(getattr(agent, "_child_agents", {}).keys())
-    agent_tool_names |= child_agent_tool_names
+def _tool_meta(tool: "Tool") -> dict[str, Any]:
+    """Return MCP tool metadata, working around upstream model access quirks."""
+    if tool.meta:
+        return tool.meta
+    dumped = tool.model_dump().get("meta")
+    return dumped if isinstance(dumped, dict) else {}
+
+
+def build_tool_summaries(agent: object, tools: list[Tool]) -> list[ToolSummary]:
+    card_tool_names = set(agent.card_tool_names) if isinstance(agent, CardToolProvider) else set()
+    smart_tool_names = set(agent.smart_tool_names) if isinstance(agent, SmartToolingCapable) else set()
+    agent_tool_names = (
+        set(agent.agent_backed_tools.keys()) if isinstance(agent, AgentBackedToolProvider) else set()
+    )
+    child_agent_tool_names = agent_tool_names
     internal_tool_names = {"execute", "read_skill"}
 
     summaries: list[ToolSummary] = []
 
     for tool in tools:
-        name = getattr(tool, "name", None) or "unnamed"
-        title = getattr(tool, "title", None)
-        description = (getattr(tool, "description", None) or "").strip() or None
-        meta = getattr(tool, "meta", {}) or {}
+        name = tool.name
+        title = tool.title
+        description = (tool.description or "").strip() or None
+        meta = _tool_meta(tool)
 
         suffix = None
         if name in internal_tool_names:
@@ -68,8 +85,7 @@ def build_tool_summaries(agent: object, tools: list[object]) -> list[ToolSummary
         if meta.get("openai/skybridgeEnabled"):
             suffix = f"{suffix} (skybridge)" if suffix else "(skybridge)"
 
-        schema = getattr(tool, "inputSchema", None)
-        args = _format_tool_args(schema) if isinstance(schema, dict) else None
+        args = _format_tool_args(tool.inputSchema)
         template = meta.get("openai/skybridgeTemplate")
 
         summaries.append(

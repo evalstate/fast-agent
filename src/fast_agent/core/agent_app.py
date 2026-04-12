@@ -24,6 +24,7 @@ from fast_agent.ui.interactive_prompt import InteractivePrompt, PromptLoopResult
 from fast_agent.ui.progress_display import progress_display
 
 if TYPE_CHECKING:
+    from fast_agent.cli.runtime.shell_cwd_policy import MissingShellCwdPolicy
     from fast_agent.config import MCPServerSettings
     from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
 
@@ -67,6 +68,7 @@ class AgentApp:
         | None = None,
         tool_only_agents: set[str] | None = None,
         card_collision_warnings: list[str] | None = None,
+        noenv_mode: bool = False,
     ) -> None:
         """
         Initialize the DirectAgentApp.
@@ -99,6 +101,8 @@ class AgentApp:
         )
         self._tool_only_agents: set[str] = tool_only_agents or set()
         self._card_collision_warnings: list[str] = card_collision_warnings or []
+        self._noenv_mode = noenv_mode
+        self._missing_shell_cwd_policy_override: "MissingShellCwdPolicy | None" = None
         self._apply_agent_registry()
 
     def _apply_agent_registry(self) -> None:
@@ -435,6 +439,22 @@ class AgentApp:
     def card_collision_warnings(self) -> list[str]:
         """Return warnings from agent card name collisions."""
         return list(self._card_collision_warnings)
+
+    @property
+    def noenv_mode(self) -> bool:
+        return self._noenv_mode
+
+    @noenv_mode.setter
+    def noenv_mode(self, value: bool) -> None:
+        self._noenv_mode = value
+
+    @property
+    def missing_shell_cwd_policy_override(self) -> "MissingShellCwdPolicy | None":
+        return self._missing_shell_cwd_policy_override
+
+    @missing_shell_cwd_policy_override.setter
+    def missing_shell_cwd_policy_override(self, value: "MissingShellCwdPolicy | None") -> None:
+        self._missing_shell_cwd_policy_override = value
 
     def set_reload_callback(self, callback: Callable[[], Awaitable[bool]] | None) -> None:
         """Update the reload callback for manual AgentCard refresh."""

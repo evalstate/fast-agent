@@ -21,11 +21,16 @@ class _Agent:
 class _App:
     def __init__(self) -> None:
         self._attached = ["local"]
+        self.noenv_mode = False
 
     def _agent(self, _name: str):
         return _Agent()
 
     def agent_names(self):
+        return ["main"]
+
+    def visible_agent_names(self, *, force_include: str | None = None) -> list[str]:
+        del force_include
         return ["main"]
 
     async def list_prompts(self, namespace: str | None, agent_name: str | None = None):
@@ -60,7 +65,6 @@ async def test_initialize_session_wires_session_mcp_listing_into_slash_handler(
         bootstrap_instance=instance,
         create_instance=create_instance,
         dispose_instance=dispose_instance,
-        instance_scope="connection",
         server_name="test",
         permissions_enabled=False,
     )

@@ -250,19 +250,15 @@ def handle_skills_list(handler: "SlashCommandHandler") -> str:
 
 def skills_override_section(handler: "SlashCommandHandler") -> str | None:
     agent = handler._get_current_agent()
-    if not agent:
+    if agent is None:
         return None
-    config = getattr(agent, "config", None)
-    if not config:
+    config = agent.config
+    if config.skills is SKILLS_DEFAULT:
         return None
-    if getattr(config, "skills", SKILLS_DEFAULT) is SKILLS_DEFAULT:
-        return None
-    manifests = list(getattr(config, "skill_manifests", []) or [])
+    manifests = list(config.skill_manifests)
     sources: list[str] = []
     for manifest in manifests:
-        path = getattr(manifest, "path", None)
-        if not path:
-            continue
+        path = manifest.path
         source_path = path.parent if Path(path).is_file() else Path(path)
         try:
             display_path = source_path.relative_to(Path.cwd())

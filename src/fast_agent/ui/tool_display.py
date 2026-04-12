@@ -1030,7 +1030,10 @@ class ToolDisplay:
 
                 command_text = Text()
                 if command and isinstance(command, str):
-                    preview = build_apply_patch_preview(command)
+                    preview = build_apply_patch_preview(
+                        command,
+                        max_lines=self._display.apply_patch_preview_max_lines,
+                    )
                     if preview is not None:
                         command_text.append("$ ", style="magenta")
                         command_text.append("apply_patch (preview)", style="white")
@@ -1105,7 +1108,10 @@ class ToolDisplay:
             elif is_apply_patch_tool_name(tool_name):
                 patch_input = extract_apply_patch_input(tool_args)
                 preview = (
-                    build_apply_patch_preview_from_input(patch_input)
+                    build_apply_patch_preview_from_input(
+                        patch_input,
+                        max_lines=self._display.apply_patch_preview_max_lines,
+                    )
                     if patch_input is not None
                     else None
                 )

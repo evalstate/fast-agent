@@ -55,7 +55,7 @@ from fast_agent.workflow_telemetry import (
 
 if TYPE_CHECKING:
     from fast_agent.agents.llm_decorator import RemovedContentSummary
-    from fast_agent.agents.tool_runner import ToolRunnerHooks
+    from fast_agent.agents.tool_runner import HistoryRollbackState, ToolRunnerHooks
     from fast_agent.ui.streaming import StreamingHandle
 # TODO -- decide what to do with type safety for model/chat_turn()
 
@@ -91,6 +91,9 @@ class LlmAgent(LlmDecorator):
         self._workflow_telemetry_provider: WorkflowTelemetryProvider = (
             NoOpWorkflowTelemetryProvider()
         )
+        self._last_turn_cancelled = False
+        self._last_turn_cancel_reason = "cancelled"
+        self._last_turn_history_state: "HistoryRollbackState | None" = None
 
     @property
     def display(self) -> ConsoleDisplay:
@@ -111,6 +114,32 @@ class LlmAgent(LlmDecorator):
         if provider is None:
             provider = NoOpWorkflowTelemetryProvider()
         self._workflow_telemetry_provider = provider
+
+    @property
+    def last_turn_cancelled(self) -> bool:
+        return self._last_turn_cancelled
+
+    @property
+    def last_turn_cancel_reason(self) -> str:
+        return self._last_turn_cancel_reason
+
+    @property
+    def last_turn_history_state(self) -> "HistoryRollbackState | None":
+        return self._last_turn_history_state
+
+    def record_last_turn_cancellation(
+        self,
+        *,
+        reason: str,
+        rollback_state: "HistoryRollbackState",
+    ) -> None:
+        self._last_turn_cancelled = True
+        self._last_turn_cancel_reason = reason
+        self._last_turn_history_state = rollback_state
+
+    def clear_last_turn_cancellation(self) -> None:
+        self._last_turn_cancelled = False
+        self._last_turn_history_state = None
 
     async def show_assistant_message(
         self,

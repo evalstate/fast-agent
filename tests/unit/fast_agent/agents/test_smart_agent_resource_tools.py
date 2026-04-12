@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -12,9 +12,28 @@ from fast_agent.core.exceptions import AgentConfigError
 
 class _SmartToolHarness:
     def __init__(self) -> None:
-        self.tools: list[object] = []
+        self.tools: list[Any] = []
+        self._smart_tool_names: set[str] = set()
+        self._parallel_smart_tool_calls = False
 
-    def add_tool(self, tool: object) -> None:
+    @property
+    def smart_tool_names(self) -> set[str]:
+        return self._smart_tool_names
+
+    @smart_tool_names.setter
+    def smart_tool_names(self, value) -> None:
+        self._smart_tool_names = set(value)
+
+    @property
+    def parallel_smart_tool_calls(self) -> bool:
+        return self._parallel_smart_tool_calls
+
+    @parallel_smart_tool_calls.setter
+    def parallel_smart_tool_calls(self, value: bool) -> None:
+        self._parallel_smart_tool_calls = value
+
+    def add_tool(self, tool: object, *, replace: bool = True) -> None:
+        del replace
         self.tools.append(tool)
 
     async def smart(
@@ -55,9 +74,9 @@ class _SmartToolHarness:
 def test_enable_smart_tooling_registers_minimal_visible_tools() -> None:
     harness = _SmartToolHarness()
 
-    _enable_smart_tooling(harness)
+    _enable_smart_tooling(cast("Any", harness))
 
-    names = {getattr(tool, "name", "") for tool in harness.tools}
+    names = {tool.name for tool in harness.tools}
     assert "smart" in names
     assert "slash_command" in names
     assert "get_resource" in names
@@ -67,12 +86,12 @@ def test_enable_smart_tooling_registers_minimal_visible_tools() -> None:
     assert "list_resources" not in names
     assert "attach_resource" not in names
 
-    smart_tool = next(tool for tool in harness.tools if getattr(tool, "name", "") == "smart")
-    smart_description = str(getattr(smart_tool, "description", ""))
+    smart_tool = next(tool for tool in harness.tools if tool.name == "smart")
+    smart_description = str(smart_tool.description or "")
     assert "action=`validate`" in smart_description
 
-    slash_tool = next(tool for tool in harness.tools if getattr(tool, "name", "") == "slash_command")
-    description = str(getattr(slash_tool, "description", ""))
+    slash_tool = next(tool for tool in harness.tools if tool.name == "slash_command")
+    description = str(slash_tool.description or "")
     assert "/skills" in description
     assert "/cards" in description
     assert "/model" in description
@@ -82,9 +101,9 @@ def test_enable_smart_tooling_registers_minimal_visible_tools() -> None:
 async def test_enable_smart_tooling_tools_default_to_content_only() -> None:
     harness = _SmartToolHarness()
 
-    _enable_smart_tooling(harness)
+    _enable_smart_tooling(cast("Any", harness))
 
-    tools: dict[str, Any] = {getattr(tool, "name", ""): tool for tool in harness.tools}
+    tools: dict[str, Any] = {tool.name: tool for tool in harness.tools}
 
     smart_result = await tools["smart"].run({"agent_card_path": "worker.md", "message": "hi"})
     slash_result = await tools["slash_command"].run({"command": "/commands"})

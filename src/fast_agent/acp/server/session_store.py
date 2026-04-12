@@ -357,13 +357,13 @@ class ACPServerSessionStore:
             if session_state.acp_context:
                 session_state.acp_context.set_current_mode(current_agent)
 
-        if current_agent and current_agent != session_modes.currentModeId:
+        if current_agent and current_agent != session_modes.current_mode_id:
             session_modes = SessionModeState(
-                available_modes=session_modes.availableModes,
+                available_modes=session_modes.available_modes,
                 current_mode_id=current_agent,
             )
             if session_state.acp_context:
-                session_state.acp_context.set_available_modes(session_modes.availableModes)
+                session_state.acp_context.set_available_modes(session_modes.available_modes)
                 session_state.acp_context.set_current_mode(current_agent)
 
         if self._host._connection:

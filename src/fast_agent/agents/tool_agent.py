@@ -1,6 +1,7 @@
 import asyncio
 import json
 import time
+from collections.abc import Collection
 from contextvars import ContextVar
 from dataclasses import asdict
 from typing import Any, Callable, Dict, List, Mapping, Sequence
@@ -21,7 +22,7 @@ from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
 from fast_agent.event_progress import ProgressAction
-from fast_agent.interfaces import ToolRunnerHookCapable
+from fast_agent.interfaces import LlmAgentProtocol, ToolRunnerHookCapable
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
 from fast_agent.tools.elicitation import get_elicitation_fastmcp_tool
@@ -121,6 +122,8 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         self._tool_schemas: list[Tool] = []
         self._agent_tools: dict[str, LlmAgent] = {}
         self._card_tool_names: set[str] = set()
+        self._smart_tool_names: set[str] = set()
+        self._parallel_smart_tool_calls = False
         self.tool_runner_hooks: ToolRunnerHooks | None = None
 
         # Build a working list of tools and auto-inject human-input tool if missing
@@ -245,6 +248,34 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             self.tool_runner_hooks is not None
             and self.tool_runner_hooks.after_turn_complete is not None
         )
+
+    @property
+    def agent_backed_tools(self) -> Mapping[str, LlmAgentProtocol]:
+        """Return the public view of child agents exposed as tools."""
+        return self._agent_tools
+
+    @property
+    def card_tool_names(self) -> Collection[str]:
+        """Return the public view of card-sourced tool names."""
+        return self._card_tool_names
+
+    @property
+    def smart_tool_names(self) -> Collection[str]:
+        """Return the public view of smart tool names."""
+        return self._smart_tool_names
+
+    @smart_tool_names.setter
+    def smart_tool_names(self, value: Collection[str]) -> None:
+        self._smart_tool_names = set(value)
+
+    @property
+    def parallel_smart_tool_calls(self) -> bool:
+        """Return whether a parallel smart-tool batch is active."""
+        return self._parallel_smart_tool_calls
+
+    @parallel_smart_tool_calls.setter
+    def parallel_smart_tool_calls(self, value: bool) -> None:
+        self._parallel_smart_tool_calls = value
 
     def _card_tools_label(self) -> str | None:
         if not self._card_tool_names:

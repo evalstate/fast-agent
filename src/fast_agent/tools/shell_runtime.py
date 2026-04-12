@@ -143,6 +143,11 @@ class ShellRuntime:
         """Return the current byte limit used to retain command output."""
         return self._output_byte_limit
 
+    @property
+    def timeout_seconds(self) -> int:
+        """Return the timeout used for shell execution."""
+        return self._timeout_seconds
+
     def set_output_byte_limit(self, output_byte_limit: int | None) -> None:
         """Set output retention byte limit, honoring global defaults and hard cap."""
         resolved_limit = output_byte_limit or DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from copy import deepcopy
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any, Protocol, Sequence
+from typing import TYPE_CHECKING, Any, Protocol, Sequence, cast
 
 from acp.helpers import update_agent_message_text
 from acp.schema import HttpMcpServer, McpServerStdio, SessionMode, SessionModeState, SseMcpServer
@@ -44,17 +44,16 @@ from fast_agent.core.instruction_utils import (
 )
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt_templates import enrich_with_environment_context
-from fast_agent.interfaces import ACPAwareProtocol, LlmCapableProtocol
+from fast_agent.interfaces import ACPAwareProtocol, AgentProtocol, LlmCapableProtocol
 from fast_agent.llm.usage_tracking import last_turn_usage
 from fast_agent.mcp.mcp_aggregator import MCPAttachOptions
-from fast_agent.mcp.tool_execution_handler import NoOpToolExecutionHandler
-from fast_agent.mcp.tool_permission_handler import NoOpToolPermissionHandler
 from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.types import RequestParams
 from fast_agent.workflow_telemetry import ACPPlanTelemetryProvider, ToolHandlerWorkflowTelemetry
 
 if TYPE_CHECKING:
     from fast_agent.config import MCPServerSettings
+    from fast_agent.core.agent_app import AgentApp
     from fast_agent.core.fastagent import AgentInstance
     from fast_agent.mcp.mcp_aggregator import MCPAttachResult, MCPDetachResult
 
@@ -97,6 +96,15 @@ class SessionRuntimeHost(Protocol):
 class ACPServerSessionRuntime:
     def __init__(self, host: SessionRuntimeHost) -> None:
         self._host = host
+
+    async def _rebuild_agent_instructions_for_filesystem(
+        self,
+        instance: AgentInstance,
+    ) -> None:
+        from fast_agent.core.instruction_refresh import rebuild_agent_instruction
+
+        for agent in instance.agents.values():
+            await rebuild_agent_instruction(agent)
 
     @staticmethod
     def _copy_requested_mcp_servers(
@@ -154,8 +162,8 @@ class ACPServerSessionRuntime:
         for agent_name, _agent in self._mcp_capable_agents(instance):
             agent_overrides = session_state.agent_mcp_servers.get(agent_name, {})
 
-            # Reinitializing a live ACP session should only diff request-scoped MCP state.
-            # Runtime overlays created by /mcp connect or /mcp detach must survive reloads.
+            # Only session-level MCP requests should be diffed here.
+            # Runtime overlays created by /mcp connect or /mcp detach survive reloads.
             for server_name, current_state in session_state.session_mcp_servers.items():
                 desired_state = requested_mcp_servers.get(server_name)
                 if (
@@ -205,11 +213,8 @@ class ACPServerSessionRuntime:
     @staticmethod
     def _require_runtime_mcp_manager(
         instance: AgentInstance,
-    ) -> Any:
-        manager = getattr(instance, "app", None)
-        if manager is None:
-            raise RuntimeError("Runtime MCP server management is not available.")
-        return manager
+    ) -> AgentApp:
+        return instance.app
 
     async def _attach_server_to_agent(
         self,
@@ -393,11 +398,11 @@ class ACPServerSessionRuntime:
     ) -> SessionModeState:
         available_modes: list[SessionMode] = []
         resolved_cache = session_state.resolved_instructions if session_state else {}
-        tool_only_agents = getattr(instance.app, "_tool_only_agents", set())
+        force_include = session_state.current_agent_name if session_state else None
+        visible_agent_names = instance.app.visible_agent_names(force_include=force_include)
 
-        for agent_name, agent in instance.agents.items():
-            if agent_name in tool_only_agents:
-                continue
+        for agent_name in visible_agent_names:
+            agent = instance.agents[agent_name]
 
             instruction = resolved_cache.get(agent_name) or agent.instruction
             description = truncate_description(instruction) if instruction else None
@@ -432,8 +437,10 @@ class ACPServerSessionRuntime:
                 )
             )
 
-        current_mode_id = self._host._resolve_primary_agent_name(instance) or (
-            list(instance.agents.keys())[0] if instance.agents else "default"
+        current_mode_id = (
+            self._host._resolve_primary_agent_name(instance)
+            or next(iter(visible_agent_names), None)
+            or (list(instance.agents.keys())[0] if instance.agents else "default")
         )
         return SessionModeState(
             available_modes=available_modes,
@@ -447,7 +454,7 @@ class ACPServerSessionRuntime:
             return None
 
         resolved_cache = session_state.resolved_instructions if session_state else {}
-        agent_name = getattr(agent, "name", "")
+        agent_name = agent.name if isinstance(agent, AgentProtocol) else ""
         resolved = resolved_cache.get(agent_name, None)
         if isinstance(agent, McpInstructionCapable) or resolved is None:
             context = session_state.prompt_context if session_state else None
@@ -465,7 +472,10 @@ class ACPServerSessionRuntime:
         agent: object,
         context: dict[str, str],
     ) -> str | None:
-        template = get_instruction_template(agent)
+        try:
+            template = get_instruction_template(cast("Any", agent))
+        except AttributeError:
+            return None
         if not template:
             return None
 
@@ -480,14 +490,20 @@ class ACPServerSessionRuntime:
             if agent.instruction_context:
                 effective_context = dict(agent.instruction_context)
 
-        effective_context = build_agent_instruction_context(agent, effective_context)
+        try:
+            effective_context = build_agent_instruction_context(
+                cast("Any", agent),
+                effective_context,
+            )
+        except AttributeError:
+            return None
         return await build_instruction(
             template,
             aggregator=aggregator,
             skill_manifests=skill_manifests,
             skill_read_tool_name=skill_read_tool_name,
             context=effective_context,
-            source=getattr(agent, "name", None),
+            source=agent.name if isinstance(agent, AgentProtocol) else None,
         )
 
     async def replace_instance_for_session(
@@ -520,17 +536,107 @@ class ACPServerSessionRuntime:
     async def refresh_session_state(
         self, session_state: ACPSessionState, instance: AgentInstance
     ) -> None:
-        primary_agent_name = self._host._resolve_primary_agent_name(instance)
         await self._apply_session_mcp_overlay(session_state, instance)
+        self._apply_session_agent_bindings(
+            session_state,
+            instance,
+            bind_tool_handler=session_state.progress_manager is not None,
+            bind_permission_handler=session_state.permission_handler is not None,
+            bind_runtimes=True,
+            register_stream_listeners=session_state.progress_manager is not None,
+        )
+        if session_state.filesystem_runtime:
+            await self._rebuild_agent_instructions_for_filesystem(instance)
+        await self._finalize_session_instance_state(
+            session_state,
+            instance,
+            session_cwd=session_state.session_cwd,
+            prompt_context=session_state.prompt_context or {},
+        )
 
-        prompt_context = session_state.prompt_context or {}
+    def _apply_session_agent_bindings(
+        self,
+        session_state: ACPSessionState,
+        instance: AgentInstance,
+        *,
+        bind_tool_handler: bool,
+        bind_permission_handler: bool,
+        bind_runtimes: bool,
+        register_stream_listeners: bool,
+    ) -> None:
+        tool_handler = session_state.progress_manager
+        permission_handler = session_state.permission_handler
+        workflow_telemetry = (
+            ToolHandlerWorkflowTelemetry(tool_handler, server_name=self._host.server_name)
+            if tool_handler and bind_tool_handler
+            else None
+        )
+
+        for agent_name, agent in instance.agents.items():
+            if isinstance(agent, McpAgentProtocol):
+                if (
+                    bind_tool_handler
+                    and tool_handler
+                    and agent.aggregator.tool_execution_handler is not tool_handler
+                ):
+                    agent.aggregator.set_tool_execution_handler(tool_handler)
+
+                if (
+                    bind_permission_handler
+                    and permission_handler
+                    and agent.aggregator.permission_handler is not permission_handler
+                ):
+                    agent.aggregator.set_permission_handler(permission_handler)
+
+            if workflow_telemetry and isinstance(agent, WorkflowTelemetryCapable):
+                agent.workflow_telemetry = workflow_telemetry
+
+            if bind_tool_handler and isinstance(agent, PlanTelemetryCapable) and self._host._connection:
+                agent.plan_telemetry = ACPPlanTelemetryProvider(
+                    self._host._connection,
+                    session_state.session_id,
+                )
+
+            llm = agent.llm if isinstance(agent, LlmCapableProtocol) else None
+            if register_stream_listeners and tool_handler and llm is not None:
+                try:
+                    llm.add_tool_stream_listener(tool_handler.handle_tool_stream_event)
+                except Exception:
+                    pass
+
+            if (
+                bind_runtimes
+                and session_state.terminal_runtime
+                and isinstance(agent, ShellRuntimeCapable)
+                and agent.shell_runtime_enabled
+            ):
+                agent.set_external_runtime(session_state.terminal_runtime)
+
+            if (
+                bind_runtimes
+                and session_state.filesystem_runtime
+                and isinstance(agent, FilesystemRuntimeCapable)
+            ):
+                agent.set_filesystem_runtime(session_state.filesystem_runtime)
+
+    async def _resolve_session_instructions(
+        self,
+        instance: AgentInstance,
+        prompt_context: dict[str, str],
+    ) -> dict[str, str]:
         resolved_for_session: dict[str, str] = {}
         for agent_name, agent in instance.agents.items():
             resolved = await self.resolve_instruction_for_session(agent, prompt_context)
             if resolved:
                 resolved_for_session[agent_name] = resolved
-        session_state.resolved_instructions = resolved_for_session
+        return resolved_for_session
 
+    def _apply_instruction_context(
+        self,
+        session_state: ACPSessionState,
+        instance: AgentInstance,
+        prompt_context: dict[str, str],
+    ) -> None:
         for agent_name, agent in instance.agents.items():
             if isinstance(agent, InstructionContextCapable):
                 try:
@@ -545,77 +651,105 @@ class ACPServerSessionRuntime:
                         error=str(exc),
                     )
 
-        tool_handler = session_state.progress_manager
-        permission_handler = session_state.permission_handler
-        if tool_handler:
-            workflow_telemetry = ToolHandlerWorkflowTelemetry(
-                tool_handler, server_name=self._host.server_name
+    def _ensure_session_acp_context(
+        self,
+        session_state: ACPSessionState,
+        *,
+        session_cwd: str | None,
+    ) -> ACPContext | None:
+        if not self._host._connection:
+            return None
+
+        acp_context = session_state.acp_context
+        if acp_context is None:
+            acp_context = ACPContext(
+                connection=self._host._connection,
+                session_id=session_state.session_id,
+                session_cwd=session_cwd,
+                session_store_scope=session_state.session_store_scope,
+                session_store_cwd=session_state.session_store_cwd,
+                client_capabilities=self._host._parsed_client_capabilities,
+                client_info=self._host._parsed_client_info,
+                protocol_version=self._host._protocol_version,
             )
-            for agent_name, agent in instance.agents.items():
-                if isinstance(agent, McpAgentProtocol):
-                    aggregator = agent.aggregator
-                    if isinstance(aggregator._tool_handler, NoOpToolExecutionHandler):
-                        aggregator._tool_handler = tool_handler
-                        logger.debug(
-                            "ACP tool handler registered (refresh)",
-                            name="acp_tool_handler_refresh",
-                            session_id=session_state.session_id,
-                            agent_name=agent_name,
-                        )
-
-                if isinstance(agent, WorkflowTelemetryCapable) and agent.workflow_telemetry is None:
-                    agent.workflow_telemetry = workflow_telemetry
-
-                if isinstance(agent, PlanTelemetryCapable):
-                    if agent.plan_telemetry is None and self._host._connection:
-                        plan_telemetry = ACPPlanTelemetryProvider(
-                            self._host._connection, session_state.session_id
-                        )
-                        agent.plan_telemetry = plan_telemetry
-
-                llm = agent.llm if isinstance(agent, LlmCapableProtocol) else None
-                if llm is not None:
-                    try:
-                        llm.add_tool_stream_listener(tool_handler.handle_tool_stream_event)
-                    except Exception:
-                        pass
-
-        if permission_handler:
-            for agent_name, agent in instance.agents.items():
-                if isinstance(agent, McpAgentProtocol):
-                    aggregator = agent.aggregator
-                    if isinstance(aggregator._permission_handler, NoOpToolPermissionHandler):
-                        aggregator._permission_handler = permission_handler
-                        logger.debug(
-                            "ACP permission handler registered (refresh)",
-                            name="acp_permission_handler_refresh",
-                            session_id=session_state.session_id,
-                            agent_name=agent_name,
-                        )
+            session_state.acp_context = acp_context
+        else:
+            acp_context.set_session_cwd(session_cwd)
+            acp_context.set_session_store(
+                session_state.session_store_scope,
+                session_state.session_store_cwd,
+            )
 
         if session_state.terminal_runtime:
-            for agent in instance.agents.values():
-                if isinstance(agent, ShellRuntimeCapable) and agent._shell_runtime_enabled:
-                    agent.set_external_runtime(session_state.terminal_runtime)
-
+            acp_context.set_terminal_runtime(session_state.terminal_runtime)
         if session_state.filesystem_runtime:
-            for agent in instance.agents.values():
-                if isinstance(agent, FilesystemRuntimeCapable):
-                    agent.set_filesystem_runtime(session_state.filesystem_runtime)
-            from fast_agent.core.instruction_refresh import rebuild_agent_instruction
+            acp_context.set_filesystem_runtime(session_state.filesystem_runtime)
+        if session_state.permission_handler:
+            acp_context.set_permission_handler(session_state.permission_handler)
+        if session_state.progress_manager:
+            acp_context.set_progress_manager(session_state.progress_manager)
+        return acp_context
 
-            for agent in instance.agents.values():
-                await rebuild_agent_instruction(agent)
+    async def _finalize_session_instance_state(
+        self,
+        session_state: ACPSessionState,
+        instance: AgentInstance,
+        *,
+        session_cwd: str | None,
+        prompt_context: dict[str, str],
+    ) -> SessionModeState:
+        primary_agent_name = self._host._resolve_primary_agent_name(instance)
+        session_state.prompt_context = prompt_context
+        session_state.resolved_instructions = await self._resolve_session_instructions(
+            instance,
+            prompt_context,
+        )
+        self._apply_instruction_context(session_state, instance, prompt_context)
 
         slash_handler = self._host._create_slash_handler(session_state, instance)
         session_state.slash_handler = slash_handler
+
+        acp_context = self._ensure_session_acp_context(
+            session_state,
+            session_cwd=session_cwd,
+        )
+        if acp_context is not None:
+            slash_handler.set_acp_context(acp_context)
+            acp_context.set_slash_handler(slash_handler)
+            acp_context.set_resolved_instructions(session_state.resolved_instructions)
+
+            for agent_name, agent in instance.agents.items():
+                try:
+                    context = agent.context
+                except AttributeError:
+                    continue
+                if isinstance(context, Context):
+                    context.acp = acp_context
+                    logger.debug(
+                        "ACPContext set on agent",
+                        name="acp_context_set",
+                        session_id=session_state.session_id,
+                        agent_name=agent_name,
+                    )
+
+            logger.info(
+                "ACPContext created for session",
+                name="acp_context_created",
+                session_id=session_state.session_id,
+                has_terminal=acp_context.terminal_runtime is not None,
+                has_filesystem=acp_context.filesystem_runtime is not None,
+                has_permissions=acp_context.permission_handler is not None,
+            )
+
+        if self._host._connection:
+            asyncio.create_task(self._host._send_available_commands_update(session_state.session_id))
 
         current_agent = session_state.current_agent_name
         if not current_agent or current_agent not in instance.agents:
             current_agent = primary_agent_name or next(iter(instance.agents.keys()), None)
             session_state.current_agent_name = current_agent
-        if current_agent and session_state.slash_handler:
-            session_state.slash_handler.set_current_agent(current_agent)
+        if current_agent:
+            slash_handler.set_current_agent(current_agent)
 
         session_modes = self.build_session_modes(instance, session_state)
         if current_agent and current_agent in instance.agents:
@@ -624,13 +758,12 @@ class ACPServerSessionRuntime:
                 current_mode_id=current_agent,
             )
 
-        if session_state.acp_context:
-            slash_handler.set_acp_context(session_state.acp_context)
-            session_state.acp_context.set_slash_handler(slash_handler)
-            session_state.acp_context.set_resolved_instructions(resolved_for_session)
-            session_state.acp_context.set_available_modes(session_modes.available_modes)
+        if acp_context is not None:
+            acp_context.set_available_modes(session_modes.available_modes)
             if current_agent:
-                session_state.acp_context.set_current_mode(current_agent)
+                acp_context.set_current_mode(current_agent)
+
+        return session_modes
 
     async def initialize_session_state(
         self,
@@ -670,63 +803,20 @@ class ACPServerSessionRuntime:
             if session_state.session_store_scope == "workspace":
                 session_state.session_store_cwd = cwd
 
-            if session_id not in self._host._prompt_locks:
-                self._host._prompt_locks[session_id] = asyncio.Lock()
-
             tool_handler = session_state.progress_manager
+            tool_handler_created = False
+            permission_handler_created = False
+            terminal_runtime_created = False
+            filesystem_runtime_created = False
             if self._host._connection and tool_handler is None:
                 tool_handler = ACPToolProgressManager(self._host._connection, session_id)
                 session_state.progress_manager = tool_handler
-                workflow_telemetry = ToolHandlerWorkflowTelemetry(
-                    tool_handler, server_name=self._host.server_name
-                )
+                tool_handler_created = True
                 logger.info(
                     "ACP tool progress manager created for session",
                     name="acp_tool_progress_init",
                     session_id=session_id,
                 )
-
-                for agent_name, agent in instance.agents.items():
-                    if isinstance(agent, McpAgentProtocol):
-                        agent.aggregator._tool_handler = tool_handler
-                        logger.info(
-                            "ACP tool handler registered",
-                            name="acp_tool_handler_registered",
-                            session_id=session_id,
-                            agent_name=agent_name,
-                        )
-
-                    if isinstance(agent, WorkflowTelemetryCapable):
-                        agent.workflow_telemetry = workflow_telemetry
-
-                    if isinstance(agent, PlanTelemetryCapable):
-                        plan_telemetry = ACPPlanTelemetryProvider(
-                            self._host._connection, session_id
-                        )
-                        agent.plan_telemetry = plan_telemetry
-                        logger.info(
-                            "ACP plan telemetry registered",
-                            name="acp_plan_telemetry_registered",
-                            session_id=session_id,
-                            agent_name=agent_name,
-                        )
-
-                    llm = agent.llm if isinstance(agent, LlmCapableProtocol) else None
-                    if llm is not None:
-                        try:
-                            llm.add_tool_stream_listener(tool_handler.handle_tool_stream_event)
-                            logger.info(
-                                "ACP tool handler registered as stream listener",
-                                name="acp_tool_stream_listener_registered",
-                                session_id=session_id,
-                                agent_name=agent_name,
-                            )
-                        except Exception as e:
-                            logger.warning(
-                                f"Failed to register tool stream listener: {e}",
-                                name="acp_tool_stream_listener_failed",
-                                exc_info=True,
-                            )
 
             if (
                 self._host._connection
@@ -743,10 +833,11 @@ class ACPServerSessionRuntime:
                     tool_handler=tool_handler,
                 )
                 session_state.permission_handler = permission_handler
+                permission_handler_created = True
 
                 for agent_name, agent in instance.agents.items():
                     if isinstance(agent, McpAgentProtocol):
-                        agent.aggregator._permission_handler = permission_handler
+                        agent.aggregator.set_permission_handler(permission_handler)
                         logger.info(
                             "ACP permission handler registered",
                             name="acp_permission_handler_registered",
@@ -767,32 +858,33 @@ class ACPServerSessionRuntime:
                 and session_state.terminal_runtime is None
             ):
                 for agent_name, agent in instance.agents.items():
-                    if isinstance(agent, ShellRuntimeCapable) and agent._shell_runtime_enabled:
-                        default_limit = getattr(
-                            agent._shell_runtime,
-                            "_output_byte_limit",
-                            self._host._calculate_terminal_output_limit(agent),
-                        )
-                        perm_handler = session_state.permission_handler
-                        terminal_runtime = ACPTerminalRuntime(
-                            connection=self._host._connection,
-                            session_id=session_id,
-                            activation_reason="via ACP terminal support",
-                            timeout_seconds=getattr(agent._shell_runtime, "timeout_seconds", 90),
-                            tool_handler=tool_handler,
-                            default_output_byte_limit=default_limit,
-                            permission_handler=perm_handler,
-                        )
-                        agent.set_external_runtime(terminal_runtime)
-                        session_state.terminal_runtime = terminal_runtime
+                    if not isinstance(agent, ShellRuntimeCapable) or not agent.shell_runtime_enabled:
+                        continue
+                    shell_runtime = agent.shell_runtime
+                    if shell_runtime is None:
+                        continue
+                    default_limit = shell_runtime.output_byte_limit
+                    perm_handler = session_state.permission_handler
+                    terminal_runtime = ACPTerminalRuntime(
+                        connection=self._host._connection,
+                        session_id=session_id,
+                        activation_reason="via ACP terminal support",
+                        timeout_seconds=shell_runtime.timeout_seconds,
+                        tool_handler=tool_handler,
+                        default_output_byte_limit=default_limit,
+                        permission_handler=perm_handler,
+                    )
+                    agent.set_external_runtime(terminal_runtime)
+                    session_state.terminal_runtime = terminal_runtime
+                    terminal_runtime_created = True
 
-                        logger.info(
-                            "ACP terminal runtime injected",
-                            name="acp_terminal_injected",
-                            session_id=session_id,
-                            agent_name=agent_name,
-                            default_output_limit=default_limit,
-                        )
+                    logger.info(
+                        "ACP terminal runtime injected",
+                        name="acp_terminal_injected",
+                        session_id=session_id,
+                        agent_name=agent_name,
+                        default_output_limit=default_limit,
+                    )
 
             if (
                 self._host._connection
@@ -810,6 +902,7 @@ class ACPServerSessionRuntime:
                     permission_handler=perm_handler,
                 )
                 session_state.filesystem_runtime = filesystem_runtime
+                filesystem_runtime_created = True
 
                 for agent_name, agent in instance.agents.items():
                     if isinstance(agent, FilesystemRuntimeCapable):
@@ -822,13 +915,6 @@ class ACPServerSessionRuntime:
                             read_enabled=self._host._client_supports_fs_read,
                             write_enabled=self._host._client_supports_fs_write,
                         )
-
-                from fast_agent.core.instruction_refresh import rebuild_agent_instruction
-
-                for agent in instance.agents.values():
-                    await rebuild_agent_instruction(agent)
-
-        self._host._resolve_primary_agent_name(instance)
 
         for agent_name, server_name in removed_session_mcp_servers:
             await self._detach_server_from_agent(
@@ -849,104 +935,37 @@ class ACPServerSessionRuntime:
             self._host._client_info,
             self._host._skills_directory_override,
         )
-        session_state.prompt_context = session_context
-
-        resolved_for_session: dict[str, str] = {}
-        for agent_name, agent in instance.agents.items():
-            resolved = await self.resolve_instruction_for_session(agent, session_context)
-            if resolved:
-                resolved_for_session[agent_name] = resolved
-        if resolved_for_session:
-            session_state.resolved_instructions = resolved_for_session
-
-        for agent_name, agent in instance.agents.items():
-            if isinstance(agent, InstructionContextCapable):
-                try:
-                    context_with_agent = build_agent_instruction_context(agent, session_context)
-                    agent.set_instruction_context(context_with_agent)
-                except Exception as e:
-                    logger.warning(f"Failed to set instruction context on agent {agent_name}: {e}")
-
-        slash_handler = self._host._create_slash_handler(session_state, instance)
-        session_state.slash_handler = slash_handler
-
-        acp_context = session_state.acp_context
-        if self._host._connection:
-            if acp_context is None:
-                acp_context = ACPContext(
-                    connection=self._host._connection,
-                    session_id=session_id,
-                    session_cwd=cwd,
-                    session_store_scope=session_state.session_store_scope,
-                    session_store_cwd=session_state.session_store_cwd,
-                    client_capabilities=self._host._parsed_client_capabilities,
-                    client_info=self._host._parsed_client_info,
-                    protocol_version=self._host._protocol_version,
-                )
-                session_state.acp_context = acp_context
-            else:
-                acp_context.set_session_cwd(cwd)
-                acp_context.set_session_store(
-                    session_state.session_store_scope,
-                    session_state.session_store_cwd,
-                )
-
-            if session_state.terminal_runtime:
-                acp_context.set_terminal_runtime(session_state.terminal_runtime)
-            if session_state.filesystem_runtime:
-                acp_context.set_filesystem_runtime(session_state.filesystem_runtime)
-            if session_state.permission_handler:
-                acp_context.set_permission_handler(session_state.permission_handler)
-            if session_state.progress_manager:
-                acp_context.set_progress_manager(session_state.progress_manager)
-
-            slash_handler.set_acp_context(acp_context)
-            acp_context.set_slash_handler(slash_handler)
-            acp_context.set_resolved_instructions(session_state.resolved_instructions)
-
-            for agent_name, agent in instance.agents.items():
-                context = getattr(agent, "context", None)
-                if isinstance(context, Context):
-                    context.acp = acp_context
-                    logger.debug(
-                        "ACPContext set on agent",
-                        name="acp_context_set",
-                        session_id=session_id,
-                        agent_name=agent_name,
-                    )
-
-            logger.info(
-                "ACPContext created for session",
-                name="acp_context_created",
-                session_id=session_id,
-                has_terminal=acp_context.terminal_runtime is not None,
-                has_filesystem=acp_context.filesystem_runtime is not None,
-                has_permissions=acp_context.permission_handler is not None,
-            )
-
-        if self._host._connection:
-            asyncio.create_task(self._host._send_available_commands_update(session_id))
-
-        session_modes = self.build_session_modes(instance, session_state)
-        session_state.current_agent_name = session_modes.currentModeId
-        if session_state.acp_context:
-            session_state.acp_context.set_available_modes(session_modes.availableModes)
-            session_state.acp_context.set_current_mode(session_modes.currentModeId)
+        self._apply_session_agent_bindings(
+            session_state,
+            instance,
+            bind_tool_handler=tool_handler_created,
+            bind_permission_handler=permission_handler_created,
+            bind_runtimes=terminal_runtime_created or filesystem_runtime_created,
+            register_stream_listeners=tool_handler_created,
+        )
+        if filesystem_runtime_created:
+            await self._rebuild_agent_instructions_for_filesystem(instance)
+        session_modes = await self._finalize_session_instance_state(
+            session_state,
+            instance,
+            session_cwd=cwd,
+            prompt_context=session_context,
+        )
 
         logger.info(
             "Session modes initialized",
             name="acp_session_modes_init",
             session_id=session_id,
-            current_mode=session_modes.currentModeId,
-            mode_count=len(session_modes.availableModes),
+            current_mode=session_modes.current_mode_id,
+            mode_count=len(session_modes.available_modes),
         )
 
         return session_state, session_modes
 
     def build_status_line_meta(
-        self, agent: Any, turn_start_index: int | None
+        self, agent: AgentProtocol | None, turn_start_index: int | None
     ) -> dict[str, Any] | None:
-        if not agent or not getattr(agent, "usage_accumulator", None):
+        if agent is None or agent.usage_accumulator is None:
             return None
 
         totals = last_turn_usage(agent.usage_accumulator, turn_start_index)
@@ -992,7 +1011,7 @@ class ACPServerSessionRuntime:
         )
 
     async def send_status_line_update(
-        self, session_id: str, agent: Any, turn_start_index: int | None
+        self, session_id: str, agent: AgentProtocol | None, turn_start_index: int | None
     ) -> None:
         if not self._host._connection:
             return

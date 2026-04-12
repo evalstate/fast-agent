@@ -27,15 +27,15 @@ def test_mcp_aggregator_uses_acp_context_handlers_when_provided() -> None:
         context=ctx,
     )
 
-    assert agg._tool_handler is progress_manager
-    assert agg._permission_handler is permission_handler
+    assert agg.tool_execution_handler is progress_manager
+    assert agg.permission_handler is permission_handler
 
 
 def test_mcp_aggregator_falls_back_to_noop_handlers_without_acp_context() -> None:
     agg = MCPAggregator(server_names=[], connection_persistence=False, context=None)
 
-    assert isinstance(agg._tool_handler, NoOpToolExecutionHandler)
-    assert isinstance(agg._permission_handler, NoOpToolPermissionHandler)
+    assert isinstance(agg.tool_execution_handler, NoOpToolExecutionHandler)
+    assert isinstance(agg.permission_handler, NoOpToolPermissionHandler)
 
 
 def test_mcp_aggregator_explicit_handlers_override_acp_context() -> None:
@@ -58,5 +58,17 @@ def test_mcp_aggregator_explicit_handlers_override_acp_context() -> None:
         permission_handler=explicit_permission_handler,
     )
 
-    assert agg._tool_handler is explicit_tool_handler
-    assert agg._permission_handler is explicit_permission_handler
+    assert agg.tool_execution_handler is explicit_tool_handler
+    assert agg.permission_handler is explicit_permission_handler
+
+
+def test_mcp_aggregator_setters_replace_runtime_handlers() -> None:
+    agg = MCPAggregator(server_names=[], connection_persistence=False, context=None)
+    tool_handler = NoOpToolExecutionHandler()
+    permission_handler = NoOpToolPermissionHandler()
+
+    agg.set_tool_execution_handler(tool_handler)
+    agg.set_permission_handler(permission_handler)
+
+    assert agg.tool_execution_handler is tool_handler
+    assert agg.permission_handler is permission_handler

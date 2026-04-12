@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Iterable, Literal
+from typing import TYPE_CHECKING, Iterable, Literal, Protocol, runtime_checkable
 
 from rich.text import Text
 
@@ -13,6 +13,21 @@ from fast_agent.ui import console
 if TYPE_CHECKING:
     from fast_agent.mcp.mcp_aggregator import ServerStatus
     from fast_agent.mcp.transport_tracking import ChannelSnapshot
+
+
+@runtime_checkable
+class _ConfigWithInstruction(Protocol):
+    instruction: str | None
+
+
+@runtime_checkable
+class _HasConfig(Protocol):
+    config: object | None
+
+
+@runtime_checkable
+class _ServerStatusProvider(Protocol):
+    async def get_server_status(self) -> dict[str, ServerStatus]: ...
 
 
 type CapabilityState = bool | Literal["blue", "red", "warn"]
@@ -293,20 +308,6 @@ def _build_aligned_field(
     return field
 
 
-def _cap_attr(source, attr: str | None) -> bool:
-    if source is None:
-        return False
-    target = source
-    if attr:
-        if isinstance(source, dict):
-            target = source.get(attr)
-        else:
-            target = getattr(source, attr, None)
-    if isinstance(target, bool):
-        return target
-    return bool(target)
-
-
 def _instruction_capability_state(
     status: ServerStatus,
     *,
@@ -326,12 +327,12 @@ def _instruction_capability_state(
 
 
 def _skybridge_capability_state(status: ServerStatus) -> CapabilityState:
-    skybridge_config = getattr(status, "skybridge", None)
+    skybridge_config = status.skybridge
     if not skybridge_config:
         return False
-    if getattr(skybridge_config, "warnings", None):
+    if skybridge_config.warnings:
         return "warn"
-    if getattr(skybridge_config, "enabled", False):
+    if skybridge_config.enabled:
         return True
     return False
 
@@ -372,29 +373,25 @@ def _format_capability_shorthand(
     status: ServerStatus, template_expected: bool
 ) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
     caps = status.server_capabilities
-    tools = getattr(caps, "tools", None)
-    prompts = getattr(caps, "prompts", None)
-    resources = getattr(caps, "resources", None)
-    logging_caps = getattr(caps, "logging", None)
-    completion_caps = (
-        getattr(caps, "completion", None)
-        or getattr(caps, "completions", None)
-        or getattr(caps, "respond", None)
-    )
-    experimental_caps = getattr(caps, "experimental", None)
+    tools = caps.tools if caps else None
+    prompts = caps.prompts if caps else None
+    resources = caps.resources if caps else None
+    logging_caps = caps.logging if caps else None
+    completion_caps = caps.completions if caps else None
+    experimental_caps = caps.experimental if caps else None
 
     entries: list[tuple[str, CapabilityState, bool]] = [
-        ("To", _cap_attr(tools, None), _cap_attr(tools, "listChanged")),
-        ("Pr", _cap_attr(prompts, None), _cap_attr(prompts, "listChanged")),
+        ("To", bool(tools), bool(tools and tools.listChanged)),
+        ("Pr", bool(prompts), bool(prompts and prompts.listChanged)),
         (
             "Re",
-            _cap_attr(resources, "read") or _cap_attr(resources, None),
-            _cap_attr(resources, "listChanged"),
+            bool(resources),
+            bool(resources and resources.listChanged),
         ),
-        ("Rs", _cap_attr(resources, "subscribe"), _cap_attr(resources, "subscribe")),
-        ("Lo", _cap_attr(logging_caps, None), False),
-        ("Co", _cap_attr(completion_caps, None), _cap_attr(completion_caps, "listChanged")),
-        ("Ex", _cap_attr(experimental_caps, None), False),
+        ("Rs", bool(resources and resources.subscribe), bool(resources and resources.subscribe)),
+        ("Lo", bool(logging_caps), False),
+        ("Co", bool(completion_caps), False),
+        ("Ex", bool(experimental_caps), False),
         ("In", _instruction_capability_state(status, template_expected=template_expected), False),
         ("Sk", _skybridge_capability_state(status), False),
         ("Ro", bool(status.roots_configured), False),
@@ -531,12 +528,12 @@ def _has_transport_error(status: ServerStatus) -> bool:
     if snapshot is None:
         return False
     channels = [
-        getattr(snapshot, "get", None),
-        getattr(snapshot, "post_json", None),
-        getattr(snapshot, "post_sse", None),
-        getattr(snapshot, "post", None),
-        getattr(snapshot, "resumption", None),
-        getattr(snapshot, "stdio", None),
+        snapshot.get,
+        snapshot.post_json,
+        snapshot.post_sse,
+        snapshot.post,
+        snapshot.resumption,
+        snapshot.stdio,
     ]
     for channel in channels:
         if channel is None:
@@ -645,27 +642,21 @@ def _normalise_timeline_states(
 
 
 def _build_channel_entries(status: ServerStatus) -> list[_ChannelSummaryEntry]:
-    snapshot = getattr(status, "transport_channels", None)
+    snapshot = status.transport_channels
     if snapshot is None:
         return []
 
-    transport_lower = (getattr(status, "transport", None) or "").lower()
-    http_channels = [
-        getattr(snapshot, "get", None),
-        getattr(snapshot, "post_sse", None),
-        getattr(snapshot, "post_json", None),
-    ]
-    stdio_channel = getattr(snapshot, "stdio", None)
+    transport_lower = (status.transport or "").lower()
+    http_channels = [snapshot.get, snapshot.post_sse, snapshot.post_json]
+    stdio_channel = snapshot.stdio
 
     if any(channel is not None for channel in http_channels):
         entries = [
-            _ChannelSummaryEntry("GET (SSE)", "◀", getattr(snapshot, "get", None)),
-            _ChannelSummaryEntry("POST (SSE)", "▶", getattr(snapshot, "post_sse", None)),
+            _ChannelSummaryEntry("GET (SSE)", "◀", snapshot.get),
+            _ChannelSummaryEntry("POST (SSE)", "▶", snapshot.post_sse),
         ]
         if transport_lower != "sse":
-            entries.append(
-                _ChannelSummaryEntry("POST (JSON)", "▶", getattr(snapshot, "post_json", None))
-            )
+            entries.append(_ChannelSummaryEntry("POST (JSON)", "▶", snapshot.post_json))
         return entries
 
     if stdio_channel is None:
@@ -697,12 +688,14 @@ def _build_channel_summary_layout(
     status: ServerStatus,
     entries: list[_ChannelSummaryEntry],
 ) -> _ChannelSummaryLayout:
-    snapshot = getattr(status, "transport_channels", None)
-    default_bucket_seconds = getattr(snapshot, "activity_bucket_seconds", None) or 30
-    default_bucket_count = getattr(snapshot, "activity_bucket_count", None) or 20
+    snapshot = status.transport_channels
+    default_bucket_seconds = snapshot.activity_bucket_seconds if snapshot else None
+    default_bucket_count = snapshot.activity_bucket_count if snapshot else None
+    default_bucket_seconds = default_bucket_seconds or 30
+    default_bucket_count = default_bucket_count or 20
     timeline_header_label = _format_timeline_label(default_bucket_seconds * default_bucket_count)
     metrics_prefix_width = 22 + len(timeline_header_label) + default_bucket_count
-    transport = getattr(status, "transport", None) or "unknown"
+    transport = status.transport or "unknown"
     transport_display = transport.upper() if transport != "unknown" else "Channels"
     is_stdio = len(entries) == 1 and entries[0].label == "STDIO"
     return _ChannelSummaryLayout(
@@ -803,12 +796,12 @@ def _append_channel_timeline(
     layout: _ChannelSummaryLayout,
 ) -> None:
     channel_bucket_seconds = (
-        getattr(channel, "activity_bucket_seconds", None) or layout.default_bucket_seconds
-    )
+        channel.activity_bucket_seconds if channel else None
+    ) or layout.default_bucket_seconds
     bucket_count = (
         len(channel.activity_buckets)
         if channel is not None and channel.activity_buckets
-        else getattr(channel, "activity_bucket_count", None)
+        else channel.activity_bucket_count if channel else None
     )
     if not bucket_count or bucket_count <= 0:
         bucket_count = layout.default_bucket_count
@@ -1029,12 +1022,11 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
 
 
 async def _load_server_status_map(agent: object) -> dict[str, ServerStatus]:
-    get_server_status = getattr(agent, "get_server_status", None)
-    if not callable(get_server_status):
+    if not isinstance(agent, _ServerStatusProvider):
         return {}
 
     try:
-        status_map = await get_server_status()
+        status_map = await agent.get_server_status()
     except Exception:
         return {}
 
@@ -1042,10 +1034,13 @@ async def _load_server_status_map(agent: object) -> dict[str, ServerStatus]:
 
 
 def _template_expects_server_instructions(agent: object) -> bool:
-    config = getattr(agent, "config", None)
-    if config is None:
+    if not isinstance(agent, _HasConfig):
         return False
-    return "{{serverInstructions}}" in str(getattr(config, "instruction", ""))
+
+    config = agent.config
+    if config is None or not isinstance(config, _ConfigWithInstruction):
+        return False
+    return "{{serverInstructions}}" in str(config.instruction or "")
 
 
 def _console_width() -> int:

@@ -8,12 +8,14 @@ from rich import print as rich_print
 
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.agents.workflow.router_agent import RouterAgent
+from fast_agent.interfaces import AgentBackedToolProvider, AgentProtocol, LlmAgentProtocol
 from fast_agent.mcp.types import McpAgentProtocol
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
     from fast_agent.core.agent_app import AgentApp
+
 
 
 async def display_agent_info(
@@ -99,19 +101,16 @@ def _server_count_for_agent(agent: object) -> int:
 
 
 async def _resource_counts_for_agent(agent: object) -> tuple[int, int, int]:
-    list_tools = getattr(agent, "list_tools", None)
-    list_resources = getattr(agent, "list_resources", None)
-    list_prompts = getattr(agent, "list_prompts", None)
-    if not callable(list_tools) or not callable(list_resources) or not callable(list_prompts):
+    if not isinstance(agent, AgentProtocol):
         return 0, 0, 0
 
-    tools_result = await list_tools()
-    tool_count = len(tools_result.tools) if tools_result and hasattr(tools_result, "tools") else 0
+    tools_result = await agent.list_tools()
+    tool_count = len(tools_result.tools)
 
-    resources_dict = await list_resources()
+    resources_dict = await agent.list_resources()
     resource_count = sum(len(resources) for resources in resources_dict.values()) if resources_dict else 0
 
-    prompts_dict = await list_prompts()
+    prompts_dict = await agent.list_prompts()
     prompt_count = sum(len(prompts) for prompts in prompts_dict.values()) if prompts_dict else 0
     return tool_count, prompt_count, resource_count
 
@@ -142,22 +141,19 @@ def _format_server_summary(
 
 
 def _skill_count_for_agent(agent: object) -> int:
-    skill_manifests = getattr(agent, "_skill_manifests", None)
-    if not skill_manifests:
+    if not isinstance(agent, McpAgentProtocol) or not agent.skill_manifests:
         return 0
     try:
-        return len(list(skill_manifests))
+        return len(list(agent.skill_manifests))
     except TypeError:
         return 0
 
 
 async def _show_skybridge_summary(agent_name: str, agent: object) -> None:
     try:
-        aggregator = agent.aggregator if isinstance(agent, McpAgentProtocol) else None
-        display = getattr(agent, "display", None)
-        if aggregator and display and hasattr(display, "show_skybridge_summary"):
-            skybridge_configs = await aggregator.get_skybridge_configs()
-            display.show_skybridge_summary(agent_name, skybridge_configs)
+        if isinstance(agent, McpAgentProtocol):
+            skybridge_configs = await agent.aggregator.get_skybridge_configs()
+            agent.display.show_skybridge_summary(agent_name, skybridge_configs)
     except Exception:
         return
 
@@ -197,9 +193,7 @@ async def _collect_child_agent_names(
         except Exception:
             continue
         for child_agent in _child_agents_for_display(agent):
-            child_name = getattr(child_agent, "name", None)
-            if child_name:
-                child_agents.add(child_name)
+            child_agents.add(child_agent.name)
     return child_agents
 
 
@@ -216,7 +210,7 @@ async def _display_agent_children(agent: object, agent_provider: "AgentApp") -> 
         await _display_tool_children(tool_children, agent_provider)
 
 
-def _child_agents_for_display(agent: object) -> list[Any]:
+def _child_agents_for_display(agent: object) -> list[LlmAgentProtocol]:
     if isinstance(agent, ParallelAgent):
         children = list(agent.fan_out_agents) if agent.fan_out_agents else []
         if agent.fan_in_agent is not None:
@@ -237,33 +231,31 @@ async def _display_router_children(router_agent: RouterAgent, agent_provider: "A
     await _display_child_agents(children, agent_provider)
 
 
-async def _display_tool_children(tool_children: list[Any], agent_provider: "AgentApp") -> None:
+async def _display_tool_children(
+    tool_children: list[LlmAgentProtocol], agent_provider: "AgentApp"
+) -> None:
     await _display_child_agents(tool_children, agent_provider)
 
 
-async def _display_child_agents(children: list[Any], agent_provider: "AgentApp") -> None:
+async def _display_child_agents(
+    children: list[LlmAgentProtocol], agent_provider: "AgentApp"
+) -> None:
     for index, child_agent in enumerate(children):
         prefix = "└─" if index == len(children) - 1 else "├─"
         await _display_child_agent_info(child_agent, prefix, agent_provider)
 
 
-def collect_tool_children(agent: object) -> list[Any]:
+def collect_tool_children(agent: object) -> list[LlmAgentProtocol]:
     """Collect child agents exposed as tools."""
-    children: list[Any] = []
-    child_map = getattr(agent, "_child_agents", None)
-    if isinstance(child_map, dict):
-        children.extend(child_map.values())
-    agent_tools = getattr(agent, "_agent_tools", None)
-    if isinstance(agent_tools, dict):
-        children.extend(agent_tools.values())
+    if not isinstance(agent, AgentBackedToolProvider):
+        return []
 
     seen: set[str] = set()
-    unique_children: list[Any] = []
-    for child in children:
-        name = getattr(child, "name", None)
-        if not name or name in seen:
+    unique_children: list[LlmAgentProtocol] = []
+    for child in agent.agent_backed_tools.values():
+        if child.name in seen:
             continue
-        seen.add(name)
+        seen.add(child.name)
         unique_children.append(child)
     return unique_children
 
@@ -295,7 +287,7 @@ async def _child_agent_counts(child_agent: Any) -> tuple[int, int, int, int]:
     server_count = len(servers) if servers else 0
 
     tools_result = await child_agent.list_tools()
-    tool_count = len(tools_result.tools) if tools_result and hasattr(tools_result, "tools") else 0
+    tool_count = len(tools_result.tools)
 
     resources_dict = await child_agent.list_resources()
     resource_count = sum(len(resources) for resources in resources_dict.values()) if resources_dict else 0

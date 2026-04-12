@@ -192,7 +192,7 @@ from contextlib import contextmanager, nullcontext
 from copy import copy, deepcopy
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Mapping
 
 from mcp import ListToolsResult, Tool
 from mcp.types import CallToolResult
@@ -363,6 +363,15 @@ class AgentsAsToolsAgent(McpAgent):
             Prefixed tool name to avoid collisions with MCP tools
         """
         return f"agent__{child_name}"
+
+    @property
+    def agent_backed_tools(self) -> Mapping[str, LlmAgent]:
+        """Return all child agents exposed as tool invocations."""
+        if not self._agent_tools:
+            return self._child_agents
+        if not self._child_agents:
+            return self._agent_tools
+        return {**self._agent_tools, **self._child_agents}
 
     async def initialize(self) -> None:
         """Initialize this agent and all child agents."""

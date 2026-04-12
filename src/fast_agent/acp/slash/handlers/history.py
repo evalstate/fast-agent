@@ -135,7 +135,7 @@ async def handle_show(handler: "SlashCommandHandler") -> str:
         return error
     assert agent is not None
 
-    history = list(getattr(agent, "message_history", []))
+    history = list(agent.message_history)
     report = build_history_turn_report(history)
     return render_history_turn_report_markdown(report, heading="history show")
 

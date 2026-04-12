@@ -479,6 +479,7 @@ class StreamingMessageHandle:
             base_kind=base_kind,
             tool_prefix=self._tool_header_prefix_plain,
             tool_metadata_resolver=tool_metadata_resolver,
+            apply_patch_preview_max_lines=self._display.apply_patch_preview_max_lines,
         )
         self._markdown_truncator = MarkdownTruncator(
             target_height_ratio=1.0,

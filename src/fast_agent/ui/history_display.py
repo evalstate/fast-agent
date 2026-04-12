@@ -185,8 +185,8 @@ def _preview_text(value: str | None, limit: int = 80) -> str:
 
 
 def _has_non_text_content(message: PromptMessageExtended) -> bool:
-    for block in getattr(message, "content", []) or []:
-        block_type = getattr(block, "type", None)
+    for block in message.content:
+        block_type = block.type
         if block_type and block_type != "text":
             return True
     return False
@@ -197,7 +197,7 @@ def _extract_tool_result_summary(result, *, limit: int = 80) -> tuple[str, int, 
     total_chars = 0
     saw_non_text = False
 
-    for block in getattr(result, "content", []) or []:
+    for block in result.content:
         text = get_text(block)
         if text:
             normalized = _normalize_text(text)
@@ -224,7 +224,7 @@ def format_chars(value: int) -> str:
 
 def _extract_timing_ms(message: PromptMessageExtended) -> float | None:
     """Extract timing duration in milliseconds from message channels."""
-    channels = getattr(message, "channels", None)
+    channels = message.channels
     if not channels:
         return None
 
@@ -256,7 +256,7 @@ def _extract_tool_timings(message: PromptMessageExtended) -> dict[str, dict[str,
 
     Handles backward compatibility with old format where values were just floats.
     """
-    channels = getattr(message, "channels", None)
+    channels = message.channels
     if not channels:
         return {}
 
@@ -307,16 +307,13 @@ def _build_history_rows(history: Sequence[PromptMessageExtended]) -> list[dict]:
     call_name_lookup: dict[str, str] = {}
 
     for message in history:
-        role_raw = getattr(message, "role", "assistant")
-        role_value = getattr(role_raw, "value", role_raw)
-        role = str(role_value).lower() if role_value else "assistant"
+        role = str(message.role).lower() if message.role else "assistant"
 
         text = ""
-        if hasattr(message, "first_text"):
-            try:
-                text = message.first_text() or ""
-            except Exception:  # pragma: no cover - defensive
-                text = ""
+        try:
+            text = message.first_text() or ""
+        except Exception:  # pragma: no cover - defensive
+            text = ""
         normalized_text = _normalize_text(text)
         chars = len(normalized_text)
         preview = _preview_text(text)
@@ -326,8 +323,8 @@ def _build_history_rows(history: Sequence[PromptMessageExtended]) -> list[dict]:
         timing_ms = _extract_timing_ms(message)
         tool_timings = _extract_tool_timings(message)
 
-        tool_calls: Mapping[str, object] | None = getattr(message, "tool_calls", None)
-        tool_results: Mapping[str, object] | None = getattr(message, "tool_results", None)
+        tool_calls: Mapping[str, object] | None = message.tool_calls
+        tool_results: Mapping[str, object] | None = message.tool_results
 
         detail_sections: list[Text] = []
         row_non_text = non_text
@@ -345,8 +342,8 @@ def _build_history_rows(history: Sequence[PromptMessageExtended]) -> list[dict]:
         if tool_calls:
             names: list[str] = []
             for call_id, call in tool_calls.items():
-                params = getattr(call, "params", None)
-                name = getattr(params, "name", None) or getattr(call, "name", None) or call_id
+                params = call.params
+                name = params.name or call_id
                 call_name_lookup[call_id] = name
                 names.append(name)
             if names:
@@ -365,7 +362,7 @@ def _build_history_rows(history: Sequence[PromptMessageExtended]) -> list[dict]:
                 tool_result_total_chars += result_chars
                 tool_result_has_non_text = tool_result_has_non_text or result_non_text
                 detail = _format_tool_detail("result→", [tool_name])
-                is_error = getattr(result, "isError", False)
+                is_error = result.isError
                 tool_result_has_error = tool_result_has_error or is_error
                 # Get timing info for this specific tool call
                 tool_timing_info = tool_timings.get(call_id)
@@ -713,8 +710,8 @@ def _render_history_chrome(
 
     history_bar, history_detail = _build_history_bar(timeline_entries)
     if usage_accumulator:
-        current_tokens = getattr(usage_accumulator, "current_context_tokens", 0)
-        window = getattr(usage_accumulator, "context_window_size", None)
+        current_tokens = usage_accumulator.current_context_tokens
+        window = usage_accumulator.context_window_size
     else:
         current_tokens = 0
         window = None

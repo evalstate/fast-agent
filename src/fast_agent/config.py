@@ -1218,8 +1218,34 @@ class LoggerSettings(BaseModel):
     """Render assistant markdown code fences with Rich Syntax instead of markdown fence blocks"""
     code_word_wrap: bool = False
     """Wrap Syntax-rendered code blocks instead of cropping at the viewport edge"""
+    apply_patch_preview_max_lines: int | None = Field(
+        default=120,
+        description=(
+            "Maximum lines to show in apply_patch previews before appending "
+            "'(+N more lines)' (0/None = no limit)"
+        ),
+    )
+    """Maximum lines to show in apply_patch previews before truncation"""
 
     _theme_file_config_path: str | None = PrivateAttr(default=None)
+
+    @field_validator("apply_patch_preview_max_lines", mode="before")
+    @classmethod
+    def _coerce_apply_patch_preview_max_lines(cls, value: Any) -> int | None:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped == "" or stripped.lower() in {"none", "null", "all", "unlimited"}:
+                return None
+            value = int(stripped)
+        else:
+            value = int(value)
+        if value == 0:
+            return None
+        if value < 0:
+            raise ValueError("apply_patch_preview_max_lines must be non-negative.")
+        return value
 
 
 def find_fastagent_config_files(start_path: Path) -> tuple[Path | None, Path | None]:

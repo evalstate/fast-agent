@@ -3,11 +3,16 @@ import json
 from fast_agent.ui.stream_segments import StreamSegmentAssembler, extract_partial_json_string_field
 
 
-def _make_assembler(*, tool_metadata_resolver=None) -> StreamSegmentAssembler:
+def _make_assembler(
+    *,
+    tool_metadata_resolver=None,
+    apply_patch_preview_max_lines=None,
+) -> StreamSegmentAssembler:
     return StreamSegmentAssembler(
         base_kind="markdown",
         tool_prefix="->",
         tool_metadata_resolver=tool_metadata_resolver,
+        apply_patch_preview_max_lines=apply_patch_preview_max_lines,
     )
 
 
@@ -412,6 +417,38 @@ def test_tool_stream_apply_patch_preview_colours_partial_patch_lines() -> None:
     assert "*** Update File: a.txt" in segment.text
     assert "-old" in segment.text
     assert "+new" in segment.text
+
+
+def test_tool_stream_apply_patch_preview_respects_line_limit() -> None:
+    metadata = {
+        "variant": "shell",
+        "shell_name": "bash",
+    }
+    assembler = _make_assembler(
+        tool_metadata_resolver=lambda tool_name: metadata if tool_name == "execute" else None,
+        apply_patch_preview_max_lines=4,
+    )
+    command = (
+        "apply_patch <<'PATCH'\n"
+        "*** Begin Patch\n"
+        "*** Add File: a.txt\n"
+        "+line-1\n"
+        "+line-2\n"
+        "+line-3\n"
+        "*** End Patch\n"
+        "PATCH"
+    )
+
+    assembler.handle_tool_event(
+        "delta",
+        {
+            "tool_name": "execute",
+            "tool_use_id": "tool-shell-5",
+            "chunk": json.dumps({"command": command}),
+        },
+    )
+
+    assert "(+2 more lines)" in assembler.segments[0].text
 
 
 def test_tool_stream_code_preview_uses_namespaced_tool_metadata() -> None:

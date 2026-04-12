@@ -57,7 +57,7 @@ async def _refresh_acp_instruction_cache(handler: "SlashCommandHandler") -> None
     agent = handler._get_current_agent()
     await handler._acp_context.invalidate_instruction_cache(
         handler.current_agent_name,
-        getattr(agent, "instruction", None) if agent else None,
+        agent.instruction if agent else None,
     )
     await handler._acp_context.send_available_commands_update()
 
@@ -346,7 +346,7 @@ async def _handle_mcp_connect_command(
         agent = handler._get_current_agent()
         await handler._acp_context.invalidate_instruction_cache(
             handler.current_agent_name,
-            getattr(agent, "instruction", None) if agent else None,
+            agent.instruction if agent else None,
         )
         await handler._acp_context.send_available_commands_update()
     return handler._format_outcome_as_markdown(outcome, heading, io=io)

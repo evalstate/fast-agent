@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 from fast_agent.commands.handlers.shared import (
     load_prompt_messages_from_file,
     replace_agent_history,
 )
 from fast_agent.commands.history_summaries import collect_user_turns, group_history_turns
+from fast_agent.commands.protocols import HistoryEditableAgent, TemplateMessageProvider
 from fast_agent.commands.results import CommandOutcome
 from fast_agent.constants import (
     ANTHROPIC_ASSISTANT_RAW_CONTENT,
@@ -19,11 +20,17 @@ from fast_agent.constants import (
     CONTROL_MESSAGE_SAVE_HISTORY,
 )
 from fast_agent.history.history_exporter import HistoryExporter
-from fast_agent.interfaces import LlmCapableProtocol
+from fast_agent.interfaces import AgentProtocol, LlmCapableProtocol
 from fast_agent.types import LlmStopReason, PromptMessageExtended
 
 if TYPE_CHECKING:
     from fast_agent.commands.context import CommandContext
+
+
+@runtime_checkable
+class _WebToolsTupleCapable(Protocol):
+    @property
+    def web_tools_enabled(self) -> tuple[bool, bool]: ...
 
 
 def _trim_history_for_rewind(
@@ -62,7 +69,9 @@ def _strip_web_tool_traces_from_raw_assistant_channel(
     removed = 0
 
     for block in blocks:
-        raw_text = getattr(block, "text", None)
+        from fast_agent.mcp.helpers.content_helpers import get_text
+
+        raw_text = get_text(block)
         if not isinstance(raw_text, str) or not raw_text:
             retained.append(block)
             continue
@@ -114,17 +123,11 @@ def web_tools_enabled_for_agent(agent_obj: object) -> bool:
     llm = agent_obj.llm if isinstance(agent_obj, LlmCapableProtocol) else None
     if llm is None:
         return False
+    if isinstance(llm, _WebToolsTupleCapable):
+        web_search_enabled, web_fetch_enabled = llm.web_tools_enabled
+        return bool(web_search_enabled or web_fetch_enabled)
 
-    enabled = getattr(llm, "web_tools_enabled", None)
-    if isinstance(enabled, tuple) and len(enabled) >= 2:
-        return bool(enabled[0] or enabled[1])
-    if isinstance(enabled, bool):
-        return enabled
-
-    web_search_enabled = getattr(llm, "web_search_enabled", None)
-    if isinstance(web_search_enabled, bool):
-        return web_search_enabled
-    return False
+    return bool(llm.web_search_enabled or llm.web_fetch_enabled)
 
 
 async def handle_show_history(
@@ -135,9 +138,9 @@ async def handle_show_history(
 ) -> CommandOutcome:
     outcome = CommandOutcome()
     target = target_agent or agent_name
-    agent_obj = ctx.agent_provider._agent(target)
-    history = getattr(agent_obj, "message_history", [])
-    usage = getattr(agent_obj, "usage_accumulator", None)
+    agent_obj = cast("HistoryEditableAgent", ctx.agent_provider._agent(target))
+    history = agent_obj.message_history
+    usage = agent_obj.usage_accumulator
     await ctx.io.display_history_overview(target, list(history), usage)
     return outcome
 
@@ -167,8 +170,8 @@ async def handle_history_rewind(
         )
         return outcome
 
-    agent_obj = ctx.agent_provider._agent(agent_name)
-    history = getattr(agent_obj, "message_history", [])
+    agent_obj = cast("HistoryEditableAgent", ctx.agent_provider._agent(agent_name))
+    history = agent_obj.message_history
     user_turns = collect_user_turns(list(history))
     if not user_turns:
         outcome.add_message(
@@ -182,7 +185,7 @@ async def handle_history_rewind(
         return outcome
 
     turn_start, user_message = user_turns[turn_index - 1]
-    content = getattr(user_message, "content", []) or []
+    content = user_message.content
     user_text = None
     if content:
         from fast_agent.mcp.helpers.content_helpers import get_text
@@ -196,20 +199,15 @@ async def handle_history_rewind(
         )
         return outcome
 
-    template_messages = getattr(agent_obj, "template_messages", None)
+    template_messages = (
+        agent_obj.template_messages if isinstance(agent_obj, TemplateMessageProvider) else None
+    )
     trimmed = _trim_history_for_rewind(
         list(history),
         turn_start_index=turn_start,
         template_messages=template_messages,
     )
-    load_history = getattr(agent_obj, "load_message_history", None)
-    if callable(load_history):
-        load_history(trimmed)
-    else:
-        existing_history = getattr(agent_obj, "message_history", None)
-        if isinstance(existing_history, list):
-            existing_history.clear()
-            existing_history.extend(trimmed)
+    agent_obj.load_message_history(trimmed)
 
     outcome.buffer_prefill = user_text
     outcome.add_message(
@@ -245,8 +243,8 @@ async def handle_history_review(
         )
         return outcome
 
-    agent_obj = ctx.agent_provider._agent(agent_name)
-    history = getattr(agent_obj, "message_history", [])
+    agent_obj = cast("AgentProtocol", ctx.agent_provider._agent(agent_name))
+    history = agent_obj.message_history
     turns = [
         turn
         for _, turn in group_history_turns(list(history))
@@ -272,7 +270,7 @@ async def handle_history_review(
     )
 
     await ctx.io.display_history_turn(
-        agent_obj.name if hasattr(agent_obj, "name") else agent_name,
+        agent_obj.name,
         list(selected_turn),
         turn_index=turn_index,
         total_turns=len(user_turns),
@@ -290,8 +288,8 @@ async def handle_history_fix(
     outcome = CommandOutcome()
     target = target_agent or agent_name
 
-    agent_obj = ctx.agent_provider._agent(target)
-    history = list(getattr(agent_obj, "message_history", []))
+    agent_obj = cast("HistoryEditableAgent", ctx.agent_provider._agent(target))
+    history = list(agent_obj.message_history)
     if not history:
         outcome.add_message("No history to fix.", channel="warning", agent_name=target)
         return outcome
@@ -303,14 +301,7 @@ async def handle_history_fix(
         and last_msg.stop_reason == LlmStopReason.TOOL_USE
     ):
         trimmed = history[:-1]
-        load_history = getattr(agent_obj, "load_message_history", None)
-        if callable(load_history):
-            load_history(trimmed)
-        else:
-            existing_history = getattr(agent_obj, "message_history", None)
-            if isinstance(existing_history, list):
-                existing_history.clear()
-                existing_history.extend(trimmed)
+        agent_obj.load_message_history(trimmed)
         outcome.add_message(
             f"Removed pending tool call from '{target}'.",
             channel="info",
@@ -345,7 +336,7 @@ async def handle_history_webclear(
         )
         return outcome
 
-    history = list(getattr(agent_obj, "message_history", []))
+    history = list(agent_obj.message_history)
     if not history:
         outcome.add_message("No history to clean.", channel="warning", agent_name=target)
         return outcome
@@ -368,14 +359,7 @@ async def handle_history_webclear(
         )
         return outcome
 
-    load_history = getattr(agent_obj, "load_message_history", None)
-    if callable(load_history):
-        load_history(cleaned_history)
-    else:
-        existing_history = getattr(agent_obj, "message_history", None)
-        if isinstance(existing_history, list):
-            existing_history.clear()
-            existing_history.extend(cleaned_history)
+    agent_obj.load_message_history(cleaned_history)
 
     outcome.add_message(
         (
@@ -397,22 +381,11 @@ async def handle_history_clear_last(
     outcome = CommandOutcome()
     target = target_agent or agent_name
 
-    agent_obj = ctx.agent_provider._agent(target)
-    removed_message = None
-    pop_callable = getattr(agent_obj, "pop_last_message", None)
-    if callable(pop_callable):
-        removed_message = pop_callable()
-    else:
-        history = getattr(agent_obj, "message_history", [])
-        if history:
-            try:
-                removed_message = history.pop()
-            except Exception:
-                removed_message = None
+    agent_obj = cast("HistoryEditableAgent", ctx.agent_provider._agent(target))
+    removed_message = agent_obj.pop_last_message()
 
     if removed_message:
-        role = getattr(removed_message, "role", "message")
-        role_display = role.capitalize() if isinstance(role, str) else "Message"
+        role_display = str(removed_message.role).capitalize()
         outcome.add_message(
             f"Removed last {role_display} for agent '{target}'.",
             channel="info",
@@ -438,7 +411,7 @@ async def handle_history_clear_all(
     target = target_agent or agent_name
 
     agent_obj = ctx.agent_provider._agent(target)
-    if hasattr(agent_obj, "clear"):
+    if isinstance(agent_obj, HistoryEditableAgent):
         try:
             agent_obj.clear()
             outcome.add_message(

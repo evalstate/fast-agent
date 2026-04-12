@@ -224,8 +224,16 @@ def resolve_instance_scope(
     transport: str,
     instance_scope: str | None,
 ) -> str:
+    if transport == "acp":
+        if instance_scope is None:
+            return "connection"
+        if instance_scope != "connection":
+            raise ValueError(
+                "ACP is always connection-scoped; --instance-scope must be omitted or set to connection."
+            )
+        return "connection"
     if instance_scope is None:
-        return "connection" if transport == "acp" else "shared"
+        return "shared"
     return instance_scope
 
 

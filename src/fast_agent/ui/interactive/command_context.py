@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 def build_command_context(prompt_provider: "AgentApp", agent_name: str) -> CommandContext:
     settings = get_settings()
-    noenv_mode = bool(getattr(prompt_provider, "_noenv_mode", False))
+    noenv_mode = prompt_provider.noenv_mode
     io = TuiCommandIO(
         prompt_provider=cast("AgentProvider", prompt_provider),
         agent_name=agent_name,

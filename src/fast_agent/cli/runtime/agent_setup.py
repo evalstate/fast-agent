@@ -769,7 +769,7 @@ async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -
     from fast_agent.mcp.prompts.prompt_load import load_prompt
 
     # Allow interactive prompt startup checks to honor per-run CLI override policy.
-    setattr(agent_app, "_missing_shell_cwd_policy_override", request.missing_shell_cwd_policy)
+    agent_app.missing_shell_cwd_policy_override = request.missing_shell_cwd_policy
 
     async def _run_interactive_with_interrupt_recovery() -> None:
         ctrl_c_exit_window_seconds = 2.0

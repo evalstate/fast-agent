@@ -45,7 +45,7 @@ from fast_agent.acp.slash.handlers import skills as skills_slash_handlers
 from fast_agent.acp.slash.handlers import status as status_slash_handlers
 from fast_agent.acp.slash.handlers import tools as tools_slash_handlers
 from fast_agent.commands.command_catalog import command_action_names
-from fast_agent.commands.context import CommandContext, StaticAgentProvider
+from fast_agent.commands.context import CommandContext
 from fast_agent.commands.handlers import model as model_handlers
 from fast_agent.commands.protocols import ACPCommandAllowlistProvider
 from fast_agent.commands.renderers.command_markdown import render_command_outcome_markdown
@@ -506,15 +506,12 @@ class SlashCommandHandler:
         return _ACPAgentCardManager(self)
 
     def _agent_provider(self) -> "AgentProvider":
-        app = getattr(self.instance, "app", None)
-        if app is not None:
-            return cast("AgentProvider", app)
-        return StaticAgentProvider(self.instance.agents)
+        return cast("AgentProvider", self.instance.app)
 
     def _build_command_context(self) -> CommandContext:
         settings = get_settings()
-        raw_session_cwd = getattr(self._acp_context, "session_cwd", None)
-        raw_session_store_cwd = getattr(self._acp_context, "session_store_cwd", None)
+        raw_session_cwd = self._acp_context.session_cwd if self._acp_context else None
+        raw_session_store_cwd = self._acp_context.session_store_cwd if self._acp_context else None
         return CommandContext(
             agent_provider=self._agent_provider(),
             current_agent_name=self.current_agent_name,
@@ -526,10 +523,8 @@ class SlashCommandHandler:
                 if raw_session_cwd
                 else None
             ),
-            session_store_scope=getattr(
-                self._acp_context,
-                "session_store_scope",
-                "workspace",
+            session_store_scope=(
+                self._acp_context.session_store_scope if self._acp_context else "workspace"
             ),
             session_store_cwd=(
                 Path(str(raw_session_store_cwd)).expanduser().resolve()
@@ -559,13 +554,9 @@ class SlashCommandHandler:
             return
         from fast_agent.session import extract_session_title, get_session_manager
 
-        raw_session_store_scope = getattr(
-            self._acp_context,
-            "session_store_scope",
-            "workspace",
-        )
-        raw_session_store_cwd = getattr(self._acp_context, "session_store_cwd", None)
-        raw_session_cwd = getattr(self._acp_context, "session_cwd", None)
+        raw_session_store_scope = self._acp_context.session_store_scope
+        raw_session_store_cwd = self._acp_context.session_store_cwd
+        raw_session_cwd = self._acp_context.session_cwd
         if raw_session_store_scope == "app":
             manager = get_session_manager()
         elif raw_session_store_cwd:

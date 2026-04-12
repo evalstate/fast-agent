@@ -33,6 +33,51 @@ if TYPE_CHECKING:
 class _FakeAgent:
     agent_type = AgentType.BASIC
 
+    def __init__(self) -> None:
+        self.name = "test"
+        self.usage_accumulator = None
+        self._message_history: list[object] = []
+        self._last_turn_cancelled = False
+        self._last_turn_cancel_reason = "cancelled"
+        self._last_turn_history_state = None
+
+    @property
+    def last_turn_cancelled(self) -> bool:
+        return getattr(self, "_last_turn_cancelled", False)
+
+    @property
+    def last_turn_cancel_reason(self) -> str:
+        return getattr(self, "_last_turn_cancel_reason", "cancelled")
+
+    @property
+    def last_turn_history_state(self):
+        return getattr(self, "_last_turn_history_state", None)
+
+    def record_last_turn_cancellation(self, *, reason: str, rollback_state) -> None:
+        self._last_turn_cancelled = True
+        self._last_turn_cancel_reason = reason
+        self._last_turn_history_state = rollback_state
+
+    def clear_last_turn_cancellation(self) -> None:
+        self._last_turn_cancelled = False
+        self._last_turn_history_state = None
+
+    @property
+    def message_history(self):
+        return self._message_history
+
+    def load_message_history(self, history):
+        self._message_history = list(history or [])
+
+    def pop_last_message(self):
+        if not self._message_history:
+            return None
+        return self._message_history.pop()
+
+    def clear(self, *, clear_prompts: bool = False):
+        del clear_prompts
+        self._message_history.clear()
+
 
 class _FakeAgentApp:
     def __init__(self, agent_names: list[str]) -> None:
@@ -40,6 +85,8 @@ class _FakeAgentApp:
         self.attached: list[str] = []
         self.detached: list[str] = []
         self.loaded: list[str] = []
+        self.noenv_mode = False
+        self.missing_shell_cwd_policy_override: str | None = None
 
     async def refresh_if_needed(self) -> bool:
         return False
@@ -190,7 +237,7 @@ async def test_prompt_loop_skips_shell_cwd_startup_prompt_when_policy_not_ask(
 
     prompt_ui = InteractivePrompt()
     agent_app = _FakeAgentApp(["vertex-rag"])
-    setattr(agent_app, "_missing_shell_cwd_policy_override", "warn")
+    agent_app.missing_shell_cwd_policy_override = "warn"
 
     await prompt_ui.prompt_loop(
         send_func=fake_send,
@@ -1052,7 +1099,8 @@ async def test_prompt_loop_stop_exits_after_cancelled_generation(
 ) -> None:
     class _CancelledGenerationAgent(_FakeAgent):
         def __init__(self) -> None:
-            self.message_history: list[object] = []
+            super().__init__()
+            self._message_history = []
 
     class _CancelledGenerationApp(_FakeAgentApp):
         def __init__(self) -> None:

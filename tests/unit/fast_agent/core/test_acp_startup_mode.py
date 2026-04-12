@@ -51,10 +51,18 @@ def test_resolve_server_instance_scope_defaults_acp_to_connection() -> None:
 
 
 def test_resolve_server_instance_scope_rejects_explicit_shared_for_acp() -> None:
-    with pytest.raises(ValueError, match="ACP does not support"):
+    with pytest.raises(ValueError, match="ACP is always connection-scoped"):
         FastAgent._resolve_server_instance_scope(
             transport="acp",
             instance_scope="shared",
+        )
+
+
+def test_resolve_server_instance_scope_rejects_explicit_request_for_acp() -> None:
+    with pytest.raises(ValueError, match="ACP is always connection-scoped"):
+        FastAgent._resolve_server_instance_scope(
+            transport="acp",
+            instance_scope="request",
         )
 
 

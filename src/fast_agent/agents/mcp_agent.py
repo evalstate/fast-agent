@@ -195,7 +195,7 @@ class McpAgent(ABC, ToolAgent):
         self._instruction = self.config.instruction  # Will be replaced by builder output
         self.executor = context.executor if context else None
         self.logger = get_logger(f"{__name__}.{self._name}")
-        manifests: list[SkillManifest] = list(getattr(self.config, "skill_manifests", []) or [])
+        manifests: list[SkillManifest] = list(self.config.skill_manifests or [])
         if (
             self.config.skills is SKILLS_DEFAULT
             and not manifests
@@ -395,8 +395,8 @@ class McpAgent(ABC, ToolAgent):
             return status_map
 
         auto_sampling = True
-        if self._context and getattr(self._context, "config", None):
-            auto_sampling = getattr(self._context.config, "auto_sampling", True)
+        if self._context and self._context.config:
+            auto_sampling = self._context.config.auto_sampling
 
         for server_name in self._provider_managed_server_names:
             if server_name in status_map:
@@ -415,7 +415,7 @@ class McpAgent(ABC, ToolAgent):
                 instructions_enabled=server_cfg.include_instructions,
                 roots_configured=bool(roots),
                 roots_count=len(roots) if roots else 0,
-                elicitation_mode=getattr(elicitation, "mode", None) if elicitation else None,
+                elicitation_mode=elicitation.mode if elicitation else None,
                 sampling_mode=(
                     "configured"
                     if sampling_cfg is not None
@@ -627,18 +627,18 @@ class McpAgent(ABC, ToolAgent):
         config_output_byte_limit = None
         shell_config = None
         if self._context and self._context.config:
-            shell_config = getattr(self._context.config, "shell_execution", None)
+            shell_config = self._context.config.shell_execution
         if shell_config:
-            timeout_seconds = getattr(shell_config, "timeout_seconds", 90)
-            warning_interval_seconds = getattr(shell_config, "warning_interval_seconds", 30)
-            config_output_byte_limit = getattr(shell_config, "output_byte_limit", None)
+            timeout_seconds = shell_config.timeout_seconds
+            warning_interval_seconds = shell_config.warning_interval_seconds
+            config_output_byte_limit = shell_config.output_byte_limit
 
         if config_output_byte_limit is not None:
             output_byte_limit = config_output_byte_limit
         else:
             model_name = self.config.model
             if not model_name and self._context and self._context.config:
-                model_name = getattr(self._context.config, "default_model", None)
+                model_name = self._context.config.default_model
             output_byte_limit = calculate_terminal_output_limit_for_model(model_name)
         return timeout_seconds, warning_interval_seconds, output_byte_limit
 
@@ -646,10 +646,7 @@ class McpAgent(ABC, ToolAgent):
         """Return whether shell-enabled agents should expose local read_text_file."""
         if not self._context or not self._context.config:
             return True
-        shell_config = getattr(self._context.config, "shell_execution", None)
-        if shell_config is None:
-            return True
-        return bool(getattr(shell_config, "enable_read_text_file", True))
+        return self._context.config.shell_execution.enable_read_text_file
 
     def _resolve_shell_edit_tool_mode(self) -> Literal["write_text_file", "apply_patch", "off"]:
         """Return which shell edit tool should be exposed for the current model/config."""
@@ -662,11 +659,7 @@ class McpAgent(ABC, ToolAgent):
         if not self._context or not self._context.config:
             return default_mode
 
-        shell_config = getattr(self._context.config, "shell_execution", None)
-        if shell_config is None:
-            return default_mode
-
-        mode_raw = getattr(shell_config, "write_text_file_mode", None)
+        mode_raw = self._context.config.shell_execution.write_text_file_mode
         mode = mode_raw.strip().lower() if isinstance(mode_raw, str) else None
         if mode == "on":
             return "write_text_file"
@@ -681,13 +674,14 @@ class McpAgent(ABC, ToolAgent):
 
     def _resolve_shell_tool_model_name(self) -> str | None:
         """Resolve the best-available model name for shell tool policy decisions."""
-        llm_model = getattr(getattr(self, "_llm", None), "model_name", None)
+        llm = self._llm
+        llm_model = llm.model_name if llm is not None else None
         if isinstance(llm_model, str) and llm_model.strip():
             return llm_model.strip()
 
         model_name = self.config.model
         if not model_name and self._context and self._context.config:
-            model_name = getattr(self._context.config, "default_model", None)
+            model_name = self._context.config.default_model
         return model_name
 
     @staticmethod
@@ -753,10 +747,7 @@ class McpAgent(ABC, ToolAgent):
         """Return True when shell output byte limit is explicitly configured."""
         if not self._context or not self._context.config:
             return False
-        shell_config = getattr(self._context.config, "shell_execution", None)
-        if shell_config is None:
-            return False
-        return getattr(shell_config, "output_byte_limit", None) is not None
+        return self._context.config.shell_execution.output_byte_limit is not None
 
     def _on_llm_attached(self, llm: FastAgentLLMProtocol) -> None:
         super()._on_llm_attached(llm)
@@ -782,11 +773,7 @@ class McpAgent(ABC, ToolAgent):
         if self._shell_output_limit_overridden():
             return
 
-        resolved_model = getattr(llm, "resolved_model", None)
-        if resolved_model is not None:
-            output_byte_limit = calculate_terminal_output_limit_for_resolved_model(resolved_model)
-        else:
-            output_byte_limit = calculate_terminal_output_limit_for_model(llm.model_name)
+        output_byte_limit = calculate_terminal_output_limit_for_resolved_model(llm.resolved_model)
         self._shell_runtime.set_output_byte_limit(output_byte_limit)
 
     def _activate_shell_runtime(
@@ -1401,7 +1388,7 @@ class McpAgent(ABC, ToolAgent):
                     )
 
         smart_parallel_calls = 0
-        if getattr(self, "agent_type", None) == AgentType.SMART:
+        if self.agent_type == AgentType.SMART:
             smart_parallel_calls = sum(
                 1 for _, tool_request in tool_call_items if tool_request.params.name == "smart"
             )
@@ -1546,7 +1533,7 @@ class McpAgent(ABC, ToolAgent):
             self._show_shell_tool_call_id = True
             self._defer_shell_display_to_tool_result = True
             if smart_parallel_active:
-                setattr(self, "_parallel_smart_tool_calls", True)
+                self.parallel_smart_tool_calls = True
                 self.logger.info(
                     "Parallel smart tool calls detected",
                     agent_name=self._name,
@@ -1571,7 +1558,7 @@ class McpAgent(ABC, ToolAgent):
                 self._show_shell_tool_call_id = previous_shell_tool_call_id_setting
                 self._defer_shell_display_to_tool_result = previous_shell_display_setting
                 if smart_parallel_active:
-                    setattr(self, "_parallel_smart_tool_calls", False)
+                    self.parallel_smart_tool_calls = False
 
             for i, item in enumerate(results):
                 call = planned_calls[i]
@@ -1993,7 +1980,7 @@ class McpAgent(ABC, ToolAgent):
                 existing_names.add(skill_tool.name)
 
         if self.config.human_input:
-            human_tool = getattr(self, "_human_input_tool", None)
+            human_tool = self._human_input_tool
             if human_tool and human_tool.name not in existing_names:
                 merged_tools.append(human_tool)
                 existing_names.add(human_tool.name)
@@ -2074,21 +2061,11 @@ class McpAgent(ABC, ToolAgent):
                 server_names.append(card_tools_label)
 
         # Add agent-as-tool names to the bottom bar (they aren't MCP servers but should be shown)
-        for tool_name in self._agent_tools:
+        for tool_name in self.agent_backed_tools:
             # Extract the agent name from tool_name (e.g., "agent__foo" -> "foo")
             agent_label = tool_name[7:] if tool_name.startswith("agent__") else tool_name
             if agent_label not in server_names:
                 server_names.append(agent_label)
-
-        # Also check _child_agents (used by AgentsAsToolsAgent)
-        # Import at runtime to avoid circular import
-        from fast_agent.agents.workflow.agents_as_tools_agent import AgentsAsToolsAgent
-
-        if isinstance(self, AgentsAsToolsAgent):
-            for agent_name in self._child_agents:
-                agent_label = agent_name[7:] if agent_name.startswith("agent__") else agent_name
-                if agent_label not in server_names:
-                    server_names.append(agent_label)
 
         # Extract servers from tool calls in the message for highlighting
         if highlight_items is None:
@@ -2135,14 +2112,7 @@ class McpAgent(ABC, ToolAgent):
             for tool_request in message.tool_calls.values():
                 tool_name = tool_request.params.name
 
-                if tool_name in self._agent_tools:
-                    agent_label = tool_name[7:] if tool_name.startswith("agent__") else tool_name
-                    if agent_label not in servers:
-                        servers.append(agent_label)
-                    continue
-
-                child_agents = getattr(self, "_child_agents", None)
-                if isinstance(child_agents, dict) and tool_name in child_agents:
+                if tool_name in self.agent_backed_tools:
                     agent_label = tool_name[7:] if tool_name.startswith("agent__") else tool_name
                     if agent_label not in servers:
                         servers.append(agent_label)

@@ -28,6 +28,45 @@ class _Agent:
         self.config = SimpleNamespace(default=False)
 
 
+class _VisibleAgentNamesOnlyApp(AgentApp):
+    def __init__(self, agents: dict[str, "AgentProtocol"], visible_names: list[str]) -> None:
+        super().__init__(agents)
+        self._visible_names = visible_names
+
+    def visible_agent_names(self, *, force_include: str | None = None) -> list[str]:
+        names = list(self._visible_names)
+        if force_include and force_include in self._agents and force_include not in names:
+            names.insert(0, force_include)
+        return names
+
+
+class _ShellRuntimeStub:
+    def __init__(self, *, timeout_seconds: int = 42, output_byte_limit: int = 1234) -> None:
+        self.timeout_seconds = timeout_seconds
+        self.output_byte_limit = output_byte_limit
+
+
+class _ShellAgent(_Agent):
+    def __init__(self, name: str) -> None:
+        super().__init__(name)
+        self._runtime = _ShellRuntimeStub()
+        self.injected_runtime = None
+        self.context = None
+        self.llm = None
+        self.usage_accumulator = None
+
+    @property
+    def shell_runtime_enabled(self) -> bool:
+        return True
+
+    @property
+    def shell_runtime(self) -> _ShellRuntimeStub:
+        return self._runtime
+
+    def set_external_runtime(self, runtime) -> None:
+        self.injected_runtime = runtime
+
+
 def _build_instance(label: str) -> AgentInstance:
     agent = cast("AgentProtocol", _Agent(f"{label}-main"))
     return AgentInstance(
@@ -70,10 +109,21 @@ def _build_session_server(
         bootstrap_instance=primary_instance,
         create_instance=create_instance,
         dispose_instance=dispose_instance,
-        instance_scope="connection",
         server_name="test",
         permissions_enabled=False,
     )
+
+
+def test_build_session_modes_uses_visible_agent_names() -> None:
+    main = cast("AgentProtocol", _Agent("main"))
+    helper = cast("AgentProtocol", _Agent("helper"))
+    app = _VisibleAgentNamesOnlyApp({"main": main, "helper": helper}, ["main"])
+    instance = AgentInstance(app=app, agents={"main": main, "helper": helper}, registry_version=0)
+    server = _build_session_server(instance, [])
+
+    modes = server._session_runtime.build_session_modes(instance)
+
+    assert [mode.id for mode in modes.available_modes] == ["main"]
 
 
 @pytest.mark.asyncio
@@ -763,3 +813,39 @@ async def test_list_configured_detached_mcp_servers_includes_session_overlay_con
     )
 
     assert detached == ["local"]
+
+
+@pytest.mark.asyncio
+async def test_initialize_session_state_injects_terminal_runtime_via_public_shell_runtime_surface(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    shell_agent = _ShellAgent("main")
+    agent = cast("AgentProtocol", shell_agent)
+    instance = AgentInstance(
+        app=AgentApp({"main": agent}),
+        agents={"main": agent},
+        registry_version=0,
+    )
+    server = _build_session_server(instance, [instance])
+    server._connection = cast("Any", object())
+    server._client_supports_terminal = True
+
+    async def fake_send_available_commands_update(_session_id: str) -> None:
+        return None
+
+    async def fake_apply_session_mcp_overlay(*_args, **_kwargs) -> None:
+        return None
+
+    monkeypatch.setattr(server, "_send_available_commands_update", fake_send_available_commands_update)
+    monkeypatch.setattr(server._session_runtime, "_apply_session_mcp_overlay", fake_apply_session_mcp_overlay)
+
+    session_state, _ = await server._initialize_session_state(
+        "session-1",
+        cwd=str(tmp_path),
+        mcp_servers=[],
+    )
+
+    assert session_state.terminal_runtime is not None
+    assert shell_agent.injected_runtime is session_state.terminal_runtime
+    assert session_state.terminal_runtime.timeout_seconds == 42

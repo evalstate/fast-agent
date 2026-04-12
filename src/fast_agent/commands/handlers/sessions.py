@@ -388,16 +388,16 @@ async def handle_resume_session(
                 right_info="session",
             )
 
-    usage = getattr(agent_obj, "usage_accumulator", None)
+    usage = agent_obj.usage_accumulator
     if usage and usage.model is None:
-        llm = getattr(agent_obj, "llm", None)
-        model_name = getattr(llm, "model_name", None)
+        llm = agent_obj.llm
+        model_name = llm.model_name if llm is not None else None
         if not model_name:
-            model_name = getattr(getattr(agent_obj, "config", None), "model", None)
+            model_name = agent_obj.config.model
         if model_name:
             usage.model = model_name
 
-    history = getattr(agent_obj, "message_history", [])
+    history = agent_obj.message_history
     await ctx.io.display_history_overview(agent_obj.name, list(history), usage)
 
     assistant_text = _find_last_assistant_text(list(history))

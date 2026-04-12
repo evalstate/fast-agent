@@ -8,7 +8,7 @@ and other clients to interact with fast-agent agents over stdio using the ACP pr
 import asyncio
 from importlib.metadata import version as get_version
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Literal, Sequence, cast
+from typing import Any, Awaitable, Callable, Sequence, cast
 
 from acp import (
     Agent as ACPAgent,
@@ -27,7 +27,6 @@ from acp.exceptions import RequestError
 from acp.helpers import ContentBlock as ACPContentBlock
 from acp.schema import (
     AgentCapabilities,
-    AgentMessageChunk,
     AuthenticateResponse,
     AuthMethodAgent,
     AvailableCommandsUpdate,
@@ -45,7 +44,6 @@ from acp.schema import (
     SessionResumeCapabilities,
     SseMcpServer,
     TerminalAuthMethod,
-    UserMessageChunk,
 )
 from acp.schema import (
     ClientCapabilities as ACPClientCapabilities,
@@ -74,12 +72,11 @@ from fast_agent.llm.terminal_output_limits import (
     calculate_terminal_output_limit_for_resolved_model,
 )
 from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
-from fast_agent.session import Session, get_session_manager
-from fast_agent.types import PromptMessageExtended, RequestParams
+from fast_agent.session import get_session_manager
+from fast_agent.types import RequestParams
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 
 logger = get_logger(__name__)
-ACPInstanceScope = Literal["connection", "request"]
 
 ACP_AUTH_METHOD_ID = "fast-agent-ai-secrets"
 ACP_AUTH_DOCS_URL = "https://fast-agent.ai/ref/config_file/"
@@ -107,7 +104,6 @@ class AgentACPServer(ACPAgent):
         bootstrap_instance: AgentInstance,
         create_instance: Callable[[], Awaitable[AgentInstance]],
         dispose_instance: Callable[[AgentInstance], Awaitable[None]],
-        instance_scope: ACPInstanceScope,
         server_name: str = "fast-agent-acp",
         server_version: str | None = None,
         skills_directory_override: Sequence[str | Path] | str | Path | None = None,
@@ -128,7 +124,6 @@ class AgentACPServer(ACPAgent):
             bootstrap_instance: Initial agent instance used for capabilities and cleanup
             create_instance: Factory function to create new agent instances
             dispose_instance: Function to dispose of agent instances
-            instance_scope: How to scope ACP session instances ('connection' or 'request')
             server_name: Name of the server for capability advertisement
             server_version: Version of the server (defaults to fast-agent version)
             skills_directory_override: Optional skills directory override (relative to session cwd)
@@ -144,7 +139,6 @@ class AgentACPServer(ACPAgent):
         self._bootstrap_instance = bootstrap_instance
         self._create_instance_task = create_instance
         self._dispose_instance_task = dispose_instance
-        self._instance_scope = instance_scope
         self._load_card_callback = load_card_callback
         self._attach_agent_tools_callback = attach_agent_tools_callback
         self._detach_agent_tools_callback = detach_agent_tools_callback
@@ -205,7 +199,6 @@ class AgentACPServer(ACPAgent):
             "AgentACPServer initialized",
             name="acp_server_initialized",
             agent_count=len(bootstrap_instance.agents),
-            instance_scope=instance_scope,
             primary_agent=self.primary_agent_name,
         )
 
@@ -439,13 +432,13 @@ class AgentACPServer(ACPAgent):
         return self._session_runtime.build_session_modes(instance, session_state)
 
     async def _build_session_request_params(
-        self, agent: Any, session_state: ACPSessionState | None
+        self, agent: AgentProtocol, session_state: ACPSessionState | None
     ) -> RequestParams | None:
         return await self._session_runtime.build_session_request_params(agent, session_state)
 
     async def _resolve_instruction_for_session(
         self,
-        agent: object,
+        agent: AgentProtocol,
         context: dict[str, str],
     ) -> str | None:
         return await self._session_runtime.resolve_instruction_for_session(agent, context)
@@ -636,39 +629,6 @@ class AgentACPServer(ACPAgent):
             mcp_servers=mcp_servers,
         )
 
-    @staticmethod
-    def _extract_session_title(metadata: object) -> str | None:
-        return ACPServerSessionStore.extract_session_title(metadata)
-
-    @staticmethod
-    def _extract_session_cwd(metadata: object) -> str | None:
-        return ACPServerSessionStore.extract_session_cwd(metadata)
-
-    @staticmethod
-    def _legacy_session_cwd(manager: Any) -> str:
-        return ACPServerSessionStore.legacy_session_cwd(manager)
-
-    def _session_manager_entries(self, cwd: str | None) -> list[tuple[Any, str]]:
-        return self._session_store.session_manager_entries(cwd)
-
-    def _build_history_updates(
-        self,
-        history: Sequence[PromptMessageExtended],
-    ) -> list[UserMessageChunk | AgentMessageChunk]:
-        return self._session_store.build_history_updates(history)
-
-    async def _send_session_history_updates(
-        self,
-        session_state: ACPSessionState,
-        session: Session,
-        agent_name: str | None,
-    ) -> None:
-        await self._session_store.send_session_history_updates(
-            session_state,
-            session,
-            agent_name,
-        )
-
     async def list_sessions(
         self,
         cursor: str | None = None,
@@ -729,7 +689,6 @@ class AgentACPServer(ACPAgent):
             "ACP new session request",
             name="acp_new_session",
             session_id=session_id,
-            instance_scope=self._instance_scope,
             cwd=request_cwd,
             mcp_server_count=len(mcp_servers or []),
         )
@@ -863,23 +822,6 @@ class AgentACPServer(ACPAgent):
         **kwargs: Any,
     ) -> PromptResponse:
         return await self._prompt_flow.prompt(
-            prompt=prompt,
-            session_id=session_id,
-            message_id=message_id,
-            **kwargs,
-        )
-
-    async def _get_prompt_lock(self, session_id: str) -> asyncio.Lock:
-        return await self._prompt_flow.get_prompt_lock(session_id)
-
-    async def _prompt_locked(
-        self,
-        prompt: list[ACPContentBlock],
-        session_id: str,
-        message_id: str | None = None,
-        **kwargs: Any,
-    ) -> PromptResponse:
-        return await self._prompt_flow.prompt_locked(
             prompt=prompt,
             session_id=session_id,
             message_id=message_id,

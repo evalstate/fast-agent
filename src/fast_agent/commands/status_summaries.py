@@ -19,6 +19,7 @@ from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types.conversation_summary import ConversationSummary
 
 if TYPE_CHECKING:
+    from fast_agent.core.fastagent import AgentInstance
     from fast_agent.interfaces import AgentProtocol
 
 
@@ -170,7 +171,7 @@ def _build_agent_model_summary(agent: "AgentProtocol") -> AgentModelSummary:
             hf_provider = hf_info.get("provider", "auto-routing")
 
     return AgentModelSummary(
-        agent_name=getattr(agent, "name", "unknown"),
+        agent_name=agent.name,
         provider=provider,
         provider_display=provider_display,
         model_name=model_name,
@@ -197,7 +198,7 @@ def _build_parallel_model_summary(agent: ParallelAgentProtocol) -> ParallelModel
 
 
 def _context_usage_line(summary: ConversationSummary, agent: "AgentProtocol") -> str:
-    usage = getattr(agent, "usage_accumulator", None)
+    usage = agent.usage_accumulator
     if usage:
         window = usage.context_window_size
         tokens = usage.current_context_tokens
@@ -247,7 +248,7 @@ def _estimate_tokens(
         return 0, 0
 
     model_name = None
-    llm = getattr(agent, "llm", None)
+    llm = agent.llm
     if llm:
         model_name = llm.model_name
 
@@ -309,7 +310,7 @@ def build_conversation_stats_summary(
             runtime = summary.conversation_span_ms / 1000
 
         return ConversationStatsSummary(
-            agent_name=getattr(agent, "name", fallback_agent_name),
+            agent_name=agent.name,
             turns=turns,
             message_count=summary.message_count,
             user_message_count=summary.user_message_count,
@@ -324,7 +325,7 @@ def build_conversation_stats_summary(
         )
     except Exception as exc:  # noqa: BLE001
         return ConversationStatsSummary(
-            agent_name=fallback_agent_name,
+            agent_name=agent.name,
             turns=0,
             message_count=0,
             user_message_count=0,
@@ -377,12 +378,12 @@ def build_error_handling_summary(
 def build_warning_summary(
     agent: "AgentProtocol | None",
     *,
-    instance: object | None,
+    instance: "AgentInstance | None",
     max_entries: int = 5,
 ) -> list[str]:
     warnings: list[str] = []
 
-    if instance and hasattr(instance, "app") and hasattr(instance.app, "card_collision_warnings"):
+    if instance is not None:
         warnings_attr = instance.app.card_collision_warnings
         if isinstance(warnings_attr, list):
             warnings.extend(str(item) for item in warnings_attr)
@@ -428,16 +429,14 @@ def build_status_summary(
     client_capabilities: dict | None,
     protocol_version: str | None,
     uptime_seconds: float,
-    instance: object | None,
+    instance: "AgentInstance | None",
 ) -> StatusSummary:
     model_source = None
     candidate_configs: list[object] = []
     if agent is not None:
-        agent_context = getattr(agent, "context", None)
+        agent_context = agent.context
         if agent_context is not None:
-            candidate_configs.append(getattr(agent_context, "config", None))
-    if instance and hasattr(instance, "app") and hasattr(instance.app, "context"):
-        candidate_configs.append(getattr(instance.app.context, "config", None))
+            candidate_configs.append(agent_context.config)
 
     for config in candidate_configs:
         source = getattr(config, "model_source", None) if config is not None else None
@@ -461,7 +460,7 @@ def build_status_summary(
 
     conversation_stats = build_conversation_stats_summary(
         agent,
-        fallback_agent_name=getattr(agent, "name", "Unknown") if agent else "Unknown",
+        fallback_agent_name=agent.name if agent else "Unknown",
     )
     error_report = build_error_handling_summary(agent)
     warnings = build_warning_summary(agent, instance=instance)

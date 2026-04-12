@@ -3,6 +3,7 @@
 
 - Use `uv run` for repo scripts and examples.
 - Always run `uv run scripts/lint.py` and `uv run scripts/typecheck.py` after code changes.
+- Check the type safety rules in `typesafe.md` and avoid hasattr/getattr style checks
 - Keep examples under `examples/` in sync with packaged resources when relevant.
 - Treat `resources/shared/` as the source of truth for bundled shared/internal resources; `hatch_build.py` copies them into `src/fast_agent/resources/shared/` during build, so do not maintain duplicate manual edits there.
 - Prefer small, focused diffs; avoid reformatting unrelated code.

@@ -68,6 +68,7 @@ from fast_agent.core.internal_resources import (
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt_templates import enrich_with_environment_context
 from fast_agent.core.validation import validate_provider_keys_post_creation
+from fast_agent.interfaces import SmartToolingCapable
 from fast_agent.mcp.connect_targets import infer_server_name, parse_connect_command_text
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompts.prompt_load import load_prompt
@@ -77,6 +78,8 @@ from fast_agent.tools.function_tool_loader import build_default_function_tool
 from fast_agent.utils.slash_commands import split_subcommand_and_remainder
 
 if TYPE_CHECKING:
+    from fastmcp.tools import FunctionTool
+
     from fast_agent.agents.llm_agent import LlmAgent
     from fast_agent.config import MCPServerSettings
     from fast_agent.context import Context
@@ -113,6 +116,22 @@ class _McpCapableAgent(Protocol):
 class _SmartConnectSummary:
     connected: list[str]
     warnings: list[str]
+
+
+class _SmartToolingAgent(SmartToolingCapable, Protocol):
+    def add_tool(self, tool: "FunctionTool", *, replace: bool = True) -> None: ...
+
+    async def smart(
+        self,
+        agent_card_path: str,
+        message: str | None = None,
+        mcp_connect: list[str] | None = None,
+        action: Literal["run", "validate"] = "run",
+    ) -> str: ...
+
+    async def slash_command(self, command: str) -> str: ...
+
+    async def read_resource(self, uri: str, server_name: str | None = None) -> str: ...
 
 
 class _SmartToolMcpManager:
@@ -1426,15 +1445,15 @@ def _slash_command_tool_description() -> str:
     )
 
 
-def _enable_smart_tooling(agent: Any) -> None:
+def _enable_smart_tooling(agent: _SmartToolingAgent) -> None:
     """Register smart tool endpoints on a smart-capable agent."""
-    setattr(agent, "_parallel_smart_tool_calls", False)
+    agent.parallel_smart_tool_calls = False
     smart_tool_names = {
         "smart",
         "slash_command",
         "get_resource",
     }
-    setattr(agent, "_smart_tool_names", set(smart_tool_names))
+    agent.smart_tool_names = smart_tool_names
 
     smart_tool = build_default_function_tool(
         agent.smart,
@@ -1487,7 +1506,7 @@ async def _dispatch_smart_tool(
             "Provide `message` when action=`run`.",
         )
 
-    disable_streaming = bool(getattr(agent, "_parallel_smart_tool_calls", False))
+    disable_streaming = agent.parallel_smart_tool_calls
     return await _run_smart_call(
         context,
         agent_card_path,
@@ -1602,7 +1621,7 @@ class SmartAgent(McpAgent):
         **kwargs: Any,
     ) -> None:
         super().__init__(config=config, context=context, **kwargs)
-        _enable_smart_tooling(self)
+        _enable_smart_tooling(cast("_SmartToolingAgent", self))
 
     @property
     def agent_type(self) -> AgentType:
@@ -1723,7 +1742,7 @@ class SmartAgentsAsToolsAgent(AgentsAsToolsAgent):
             child_message_files=child_message_files,
             **kwargs,
         )
-        _enable_smart_tooling(self)
+        _enable_smart_tooling(cast("_SmartToolingAgent", self))
 
     @property
     def agent_type(self) -> AgentType:

@@ -178,6 +178,10 @@ class ConsoleDisplay:
         return self._render_fences_with_syntax
 
     @property
+    def apply_patch_preview_max_lines(self) -> int | None:
+        return getattr(self._logger_settings, "apply_patch_preview_max_lines", 120)
+
+    @property
     def style(self) -> A3MessageStyle:
         return self._style
 
