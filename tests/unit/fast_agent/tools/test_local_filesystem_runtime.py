@@ -78,6 +78,19 @@ def test_tools_property_respects_enable_flags() -> None:
     assert [tool.name for tool in runtime.tools] == ["read_text_file"]
 
 
+def test_set_enabled_tools_preserves_edit_file_flag_when_omitted() -> None:
+    runtime = LocalFilesystemRuntime(
+        logging.getLogger("local-filesystem-runtime-test"),
+        enable_read=False,
+        enable_write=False,
+        enable_edit_file=True,
+    )
+
+    runtime.set_enabled_tools(enable_read=True, enable_write=False, enable_apply_patch=False)
+
+    assert [tool.name for tool in runtime.tools] == ["read_text_file", "edit_file"]
+
+
 @pytest.mark.asyncio
 async def test_read_text_file_reads_full_file(tmp_path: Path) -> None:
     runtime = LocalFilesystemRuntime(logging.getLogger("local-filesystem-runtime-test"))

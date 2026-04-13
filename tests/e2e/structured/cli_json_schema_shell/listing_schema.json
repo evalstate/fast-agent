@@ -1,0 +1,40 @@
+{
+  "type": "object",
+  "properties": {
+    "directory": {
+      "type": "string"
+    },
+    "entry_count": {
+      "type": "integer"
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "file",
+              "directory"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "directory",
+    "entry_count",
+    "entries"
+  ],
+  "additionalProperties": false
+}

@@ -1,4 +1,5 @@
 import asyncio
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, TypedDict, cast
@@ -327,6 +328,7 @@ async def test_shell_can_include_local_read_text_file_when_enabled(tmp_path: Pat
     assert "execute" in tool_names
     assert "read_text_file" in tool_names
     assert "write_text_file" in tool_names
+    assert "edit_file" in tool_names
 
     result = await agent.call_tool(
         "read_text_file",
@@ -350,6 +352,8 @@ async def test_shell_can_include_local_write_text_file_when_enabled(tmp_path: Pa
 
     tool_names = {tool.name for tool in (await agent.list_tools()).tools}
     assert "write_text_file" in tool_names
+    assert "edit_file" in tool_names
+    assert "apply_patch" not in tool_names
 
     result = await agent.call_tool(
         "write_text_file",
@@ -362,6 +366,185 @@ async def test_shell_can_include_local_write_text_file_when_enabled(tmp_path: Pa
     assert "Successfully wrote" in result.content[0].text
 
     await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_shell_can_call_edit_file_when_local_filesystem_runtime_is_enabled(
+    tmp_path: Path,
+) -> None:
+    target_file = tmp_path / "notes.txt"
+    target_file.write_text("hello world\n", encoding="utf-8")
+
+    config = AgentConfig(
+        name="test",
+        instruction="Instruction",
+        servers=[],
+        shell=True,
+        cwd=tmp_path,
+    )
+    agent = McpAgent(config=config, context=Context())
+
+    tool_names = {tool.name for tool in (await agent.list_tools()).tools}
+    assert "edit_file" in tool_names
+    assert "apply_patch" not in tool_names
+
+    result = await agent.call_tool(
+        "edit_file",
+        {
+            "path": "notes.txt",
+            "old_string": "world",
+            "new_string": "there",
+        },
+    )
+
+    assert result.isError is False
+    assert target_file.read_text(encoding="utf-8") == "hello there\n"
+    assert result.structuredContent is not None
+    assert result.structuredContent["success"] is True
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_local_filesystem_edit_tools_report_completion_to_tool_handler(
+    tmp_path: Path,
+) -> None:
+    class RecordingToolHandler:
+        def __init__(self) -> None:
+            self.starts: list[tuple[str, str, dict[str, object] | None, str | None]] = []
+            self.completions: list[tuple[str, bool, str | None]] = []
+
+        async def on_tool_start(
+            self,
+            tool_name: str,
+            server_name: str,
+            arguments: dict | None,
+            tool_use_id: str | None = None,
+        ) -> str:
+            self.starts.append((tool_name, server_name, arguments, tool_use_id))
+            return f"call-{len(self.starts)}"
+
+        async def on_tool_progress(
+            self,
+            tool_call_id: str,
+            progress: float,
+            total: float | None,
+            message: str | None,
+        ) -> None:
+            del tool_call_id, progress, total, message
+
+        async def on_tool_complete(
+            self,
+            tool_call_id: str,
+            success: bool,
+            content: list[object] | None,
+            error: str | None,
+        ) -> None:
+            del content
+            self.completions.append((tool_call_id, success, error))
+
+        async def on_tool_permission_denied(
+            self,
+            tool_name: str,
+            server_name: str,
+            tool_use_id: str | None,
+            error: str | None = None,
+        ) -> None:
+            del tool_name, server_name, tool_use_id, error
+
+        async def get_tool_call_id_for_tool_use(self, tool_use_id: str) -> str | None:
+            del tool_use_id
+            return None
+
+        async def ensure_tool_call_exists(
+            self,
+            tool_use_id: str,
+            tool_name: str,
+            server_name: str,
+            arguments: dict | None = None,
+        ) -> str:
+            del tool_use_id, tool_name, server_name, arguments
+            return "ensured"
+
+    edit_target = tmp_path / "edit.txt"
+    edit_target.write_text("hello world\n", encoding="utf-8")
+    patch_target = tmp_path / "patch.txt"
+    patch_target.write_text("one\ntwo\n", encoding="utf-8")
+
+    edit_agent = McpAgent(
+        config=AgentConfig(name="test", instruction="Instruction", servers=[], shell=True, cwd=tmp_path),
+        context=Context(),
+    )
+    patch_agent = McpAgent(
+        config=AgentConfig(
+            name="test",
+            instruction="Instruction",
+            servers=[],
+            shell=True,
+            model="gpt-5.4",
+            cwd=tmp_path,
+        ),
+        context=Context(),
+    )
+    handler = RecordingToolHandler()
+    params = RequestParams(tool_execution_handler=cast("Any", handler))
+
+    edit_result = await edit_agent.call_tool(
+        "edit_file",
+        {"path": "edit.txt", "old_string": "world", "new_string": "there"},
+        tool_use_id="edit-use-1",
+        request_params=params,
+    )
+    patch_result = await patch_agent.call_tool(
+        "apply_patch",
+        {
+            "input": (
+                "*** Begin Patch\n"
+                "*** Update File: patch.txt\n"
+                "@@\n"
+                "-one\n"
+                "+ONE\n"
+                " two\n"
+                "*** End Patch\n"
+            )
+        },
+        tool_use_id="patch-use-1",
+        request_params=params,
+    )
+
+    assert edit_result.isError is False
+    assert patch_result.isError is False
+    assert handler.starts == [
+        (
+            "edit_file",
+            "local",
+            {"path": "edit.txt", "old_string": "world", "new_string": "there"},
+            "edit-use-1",
+        ),
+        (
+            "apply_patch",
+            "local",
+            {
+                "input": (
+                    "*** Begin Patch\n"
+                    "*** Update File: patch.txt\n"
+                    "@@\n"
+                    "-one\n"
+                    "+ONE\n"
+                    " two\n"
+                    "*** End Patch\n"
+                )
+            },
+            "patch-use-1",
+        ),
+    ]
+    assert handler.completions == [
+        ("call-1", True, None),
+        ("call-2", True, None),
+    ]
+
+    await edit_agent._aggregator.close()
+    await patch_agent._aggregator.close()
 
 
 @pytest.mark.asyncio
@@ -382,6 +565,7 @@ async def test_shell_can_include_apply_patch_when_model_prefers_it(tmp_path: Pat
     tool_names = {tool.name for tool in (await agent.list_tools()).tools}
     assert "apply_patch" in tool_names
     assert "write_text_file" not in tool_names
+    assert "edit_file" not in tool_names
 
     patch_text = (
         "*** Begin Patch\n"
@@ -413,6 +597,7 @@ async def test_local_read_text_file_option_requires_shell_runtime() -> None:
     assert "read_text_file" not in tool_names
     assert "write_text_file" not in tool_names
     assert "apply_patch" not in tool_names
+    assert "edit_file" not in tool_names
 
     await agent._aggregator.close()
 
@@ -426,12 +611,17 @@ async def test_local_read_text_file_option_is_enabled_by_default() -> None:
     assert "execute" in tool_names
     assert "read_text_file" in tool_names
     assert "write_text_file" in tool_names
+    assert "edit_file" in tool_names
+    assert "apply_patch" not in tool_names
 
     await agent._aggregator.close()
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("model_name", ["codexplan", "gpt-5.4", "responses.gpt-5.4"])
+@pytest.mark.parametrize(
+    "model_name",
+    ["codexplan", "gpt-5.2", "gpt-5.4", "responses.gpt-5.4"],
+)
 async def test_write_text_file_auto_mode_prefers_apply_patch_for_codex_family_models(
     model_name: str,
 ) -> None:
@@ -448,6 +638,30 @@ async def test_write_text_file_auto_mode_prefers_apply_patch_for_codex_family_mo
     assert "read_text_file" in tool_names
     assert "write_text_file" not in tool_names
     assert "apply_patch" in tool_names
+    assert "edit_file" not in tool_names
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model_name", ["gpt-5", "gpt-5.0", "gpt-5.1"])
+async def test_write_text_file_auto_mode_keeps_write_and_edit_for_pre_52_gpt5_models(
+    model_name: str,
+) -> None:
+    config = AgentConfig(
+        name="test",
+        instruction="Instruction",
+        servers=[],
+        shell=True,
+        model=model_name,
+    )
+    agent = McpAgent(config=config, context=Context())
+
+    tool_names = {tool.name for tool in (await agent.list_tools()).tools}
+    assert "read_text_file" in tool_names
+    assert "write_text_file" in tool_names
+    assert "edit_file" in tool_names
+    assert "apply_patch" not in tool_names
 
     await agent._aggregator.close()
 
@@ -465,6 +679,8 @@ async def test_write_text_file_auto_mode_remains_enabled_for_qwen35() -> None:
 
     tool_names = {tool.name for tool in (await agent.list_tools()).tools}
     assert "write_text_file" in tool_names
+    assert "edit_file" in tool_names
+    assert "apply_patch" not in tool_names
 
     await agent._aggregator.close()
 
@@ -480,6 +696,7 @@ async def test_write_text_file_auto_mode_uses_context_default_model_when_agent_m
     tool_names = {tool.name for tool in (await agent.list_tools()).tools}
     assert "write_text_file" not in tool_names
     assert "apply_patch" in tool_names
+    assert "edit_file" not in tool_names
 
     await agent._aggregator.close()
 
@@ -499,6 +716,7 @@ async def test_apply_patch_mode_explicitly_enables_tool() -> None:
     tool_names = {tool.name for tool in (await agent.list_tools()).tools}
     assert "apply_patch" in tool_names
     assert "write_text_file" not in tool_names
+    assert "edit_file" not in tool_names
 
     await agent._aggregator.close()
 
@@ -517,6 +735,8 @@ async def test_write_text_file_mode_on_enables_tool_for_codex_models() -> None:
 
     tool_names = {tool.name for tool in (await agent.list_tools()).tools}
     assert "write_text_file" in tool_names
+    assert "edit_file" in tool_names
+    assert "apply_patch" not in tool_names
 
     await agent._aggregator.close()
 
@@ -535,6 +755,8 @@ async def test_write_text_file_mode_off_disables_tool_even_for_non_codex_models(
 
     tool_names = {tool.name for tool in (await agent.list_tools()).tools}
     assert "write_text_file" not in tool_names
+    assert "edit_file" not in tool_names
+    assert "apply_patch" not in tool_names
 
     await agent._aggregator.close()
 
@@ -548,6 +770,8 @@ async def test_local_write_text_file_option_can_be_disabled() -> None:
     tool_names = {tool.name for tool in (await agent.list_tools()).tools}
     assert "read_text_file" in tool_names
     assert "write_text_file" not in tool_names
+    assert "edit_file" not in tool_names
+    assert "apply_patch" not in tool_names
 
     await agent._aggregator.close()
 
@@ -583,8 +807,8 @@ async def test_skills_fallback_to_read_skill_when_local_read_text_file_disabled(
 
 
 @pytest.mark.asyncio
-async def test_acp_filesystem_runtime_injection_replaces_local_runtime_tools() -> None:
-    class ReadOnlyACPFilesystemRuntime:
+async def test_acp_filesystem_runtime_injection_augments_local_shell_edit_tools() -> None:
+    class ACPFilesystemRuntime:
         def __init__(self) -> None:
             self.tools = [
                 Tool(
@@ -592,9 +816,20 @@ async def test_acp_filesystem_runtime_injection_replaces_local_runtime_tools() -
                     description="ACP read tool",
                     inputSchema={
                         "type": "object",
-                        "properties": {"path": {"type": "string"}},
+                            "properties": {"path": {"type": "string"}},
+                        },
+                ),
+                Tool(
+                    name="write_text_file",
+                    description="ACP write tool",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string"},
+                            "content": {"type": "string"},
+                        },
                     },
-                )
+                ),
             ]
 
         async def read_text_file(
@@ -610,14 +845,33 @@ async def test_acp_filesystem_runtime_injection_replaces_local_runtime_tools() -
             arguments: dict[str, object] | None = None,
             tool_use_id: str | None = None,
         ) -> CallToolResult:
-            del arguments, tool_use_id
+            del tool_use_id
+            assert arguments is not None
             return CallToolResult(
-                content=[TextContent(type="text", text="write unavailable")],
-                isError=True,
+                content=[TextContent(type="text", text=f"acp-write:{arguments['path']}")],
+                isError=False,
             )
 
         def metadata(self) -> dict[str, object]:
-            return {"variant": "acp_filesystem", "tools": ["read_text_file"]}
+            return {"variant": "acp_filesystem", "tools": ["read_text_file", "write_text_file"]}
+
+        async def call_tool(
+            self,
+            name: str,
+            arguments: dict[str, object] | None = None,
+            tool_use_id: str | None = None,
+            *,
+            request_params: object | None = None,
+        ) -> CallToolResult:
+            del request_params
+            if name == "read_text_file":
+                return await self.read_text_file(arguments, tool_use_id)
+            if name == "write_text_file":
+                return await self.write_text_file(arguments, tool_use_id)
+            return CallToolResult(
+                content=[TextContent(type="text", text=f"unsupported: {name}")],
+                isError=True,
+            )
 
     config = AgentConfig(name="test", instruction="Instruction", servers=[], shell=True)
     agent = McpAgent(config=config, context=Context())
@@ -625,19 +879,144 @@ async def test_acp_filesystem_runtime_injection_replaces_local_runtime_tools() -
     initial_tool_names = {tool.name for tool in (await agent.list_tools()).tools}
     assert "read_text_file" in initial_tool_names
     assert "write_text_file" in initial_tool_names
+    assert "edit_file" in initial_tool_names
 
-    acp_runtime = ReadOnlyACPFilesystemRuntime()
+    acp_runtime = ACPFilesystemRuntime()
     agent.set_filesystem_runtime(cast("Any", acp_runtime))
 
     replaced_tool_names = {tool.name for tool in (await agent.list_tools()).tools}
     assert "read_text_file" in replaced_tool_names
-    assert "write_text_file" not in replaced_tool_names
+    assert "write_text_file" in replaced_tool_names
+    assert "edit_file" in replaced_tool_names
 
     result = await agent.call_tool("read_text_file", {"path": "/tmp/anything"})
     assert result.isError is False
     assert result.content is not None
     assert isinstance(result.content[0], TextContent)
     assert result.content[0].text == "acp"
+
+    write_result = await agent.call_tool(
+        "write_text_file",
+        {"path": "/tmp/output.txt", "content": "ignored by acp stub"},
+    )
+    assert write_result.isError is False
+    assert write_result.content is not None
+    assert isinstance(write_result.content[0], TextContent)
+    assert write_result.content[0].text == "acp-write:/tmp/output.txt"
+
+    edit_target = Path(tempfile.gettempdir()) / "fast-agent-edit-file-acp-test.txt"
+    edit_target.write_text("hello world\n", encoding="utf-8")
+    try:
+        edit_result = await agent.call_tool(
+            "edit_file",
+            {
+                "path": str(edit_target),
+                "old_string": "world",
+                "new_string": "there",
+            },
+        )
+        assert edit_result.isError is False
+        assert edit_target.read_text(encoding="utf-8") == "hello there\n"
+    finally:
+        edit_target.unlink(missing_ok=True)
+
+    await agent._aggregator.close()
+
+
+@pytest.mark.asyncio
+async def test_acp_filesystem_runtime_injection_preserves_local_apply_patch_for_codex_models(
+    tmp_path: Path,
+) -> None:
+    class ACPReadWriteRuntime:
+        def __init__(self) -> None:
+            self.tools = [
+                Tool(
+                    name="read_text_file",
+                    description="ACP read tool",
+                    inputSchema={"type": "object", "properties": {"path": {"type": "string"}}},
+                ),
+                Tool(
+                    name="write_text_file",
+                    description="ACP write tool",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string"},
+                            "content": {"type": "string"},
+                        },
+                    },
+                ),
+            ]
+
+        async def read_text_file(
+            self,
+            arguments: dict[str, object] | None = None,
+            tool_use_id: str | None = None,
+        ) -> CallToolResult:
+            del arguments, tool_use_id
+            return CallToolResult(content=[TextContent(type="text", text="acp-read")], isError=False)
+
+        async def write_text_file(
+            self,
+            arguments: dict[str, object] | None = None,
+            tool_use_id: str | None = None,
+        ) -> CallToolResult:
+            del arguments, tool_use_id
+            return CallToolResult(content=[TextContent(type="text", text="acp-write")], isError=False)
+
+        def metadata(self) -> dict[str, object]:
+            return {"variant": "acp_filesystem", "tools": ["read_text_file", "write_text_file"]}
+
+        async def call_tool(
+            self,
+            name: str,
+            arguments: dict[str, object] | None = None,
+            tool_use_id: str | None = None,
+            *,
+            request_params: object | None = None,
+        ) -> CallToolResult:
+            del request_params
+            if name == "read_text_file":
+                return await self.read_text_file(arguments, tool_use_id)
+            if name == "write_text_file":
+                return await self.write_text_file(arguments, tool_use_id)
+            return CallToolResult(
+                content=[TextContent(type="text", text=f"unsupported: {name}")],
+                isError=True,
+            )
+
+    target_file = tmp_path / "notes.txt"
+    target_file.write_text("one\ntwo\n", encoding="utf-8")
+    config = AgentConfig(
+        name="test",
+        instruction="Instruction",
+        servers=[],
+        shell=True,
+        model="gpt-5.4",
+        cwd=tmp_path,
+    )
+    agent = McpAgent(config=config, context=Context())
+    agent.set_filesystem_runtime(cast("Any", ACPReadWriteRuntime()))
+
+    tool_names = {tool.name for tool in (await agent.list_tools()).tools}
+    assert "read_text_file" in tool_names
+    assert "write_text_file" in tool_names
+    assert "apply_patch" in tool_names
+    assert "edit_file" not in tool_names
+
+    patch_text = (
+        "*** Begin Patch\n"
+        "*** Update File: notes.txt\n"
+        "@@\n"
+        "-one\n"
+        "+ONE\n"
+        " two\n"
+        "*** End Patch\n"
+    )
+    result = await agent.call_tool("apply_patch", {"input": patch_text})
+
+    assert result.isError is False
+    assert target_file.read_text(encoding="utf-8") == "ONE\ntwo\n"
 
     await agent._aggregator.close()
 
@@ -677,6 +1056,24 @@ async def test_unprefixed_read_text_file_routes_to_namespaced_mcp_when_local_fs_
 
         def metadata(self) -> dict[str, object]:
             return {"variant": "local_filesystem"}
+
+        async def call_tool(
+            self,
+            name: str,
+            arguments: dict[str, object] | None = None,
+            tool_use_id: str | None = None,
+            *,
+            request_params: object | None = None,
+        ) -> CallToolResult:
+            del request_params
+            if name == "read_text_file":
+                return await self.read_text_file(arguments, tool_use_id)
+            if name == "write_text_file":
+                return await self.write_text_file(arguments, tool_use_id)
+            return CallToolResult(
+                content=[TextContent(type="text", text=f"unsupported: {name}")],
+                isError=True,
+            )
 
     config = AgentConfig(name="test", instruction="Instruction", servers=[], shell=False)
     agent = McpAgent(config=config, context=Context())
@@ -795,6 +1192,24 @@ async def test_unprefixed_write_text_file_routes_to_namespaced_mcp_when_local_fs
 
         def metadata(self) -> dict[str, object]:
             return {"variant": "local_filesystem"}
+
+        async def call_tool(
+            self,
+            name: str,
+            arguments: dict[str, object] | None = None,
+            tool_use_id: str | None = None,
+            *,
+            request_params: object | None = None,
+        ) -> CallToolResult:
+            del request_params
+            if name == "read_text_file":
+                return await self.read_text_file(arguments, tool_use_id)
+            if name == "write_text_file":
+                return await self.write_text_file(arguments, tool_use_id)
+            return CallToolResult(
+                content=[TextContent(type="text", text=f"unsupported: {name}")],
+                isError=True,
+            )
 
     config = AgentConfig(name="test", instruction="Instruction", servers=[], shell=False)
     agent = McpAgent(config=config, context=Context())
@@ -1176,6 +1591,24 @@ async def test_read_text_file_tool_call_header_is_suppressed() -> None:
         def metadata(self) -> dict[str, object]:
             return {"variant": "local_filesystem"}
 
+        async def call_tool(
+            self,
+            name: str,
+            arguments: dict[str, object] | None = None,
+            tool_use_id: str | None = None,
+            *,
+            request_params: object | None = None,
+        ) -> CallToolResult:
+            del request_params
+            if name == "read_text_file":
+                return await self.read_text_file(arguments, tool_use_id)
+            if name == "write_text_file":
+                return await self.write_text_file(arguments, tool_use_id)
+            return CallToolResult(
+                content=[TextContent(type="text", text=f"unsupported: {name}")],
+                isError=True,
+            )
+
     class RecordingDisplay:
         def __init__(self) -> None:
             self.tool_call_count = 0
@@ -1252,6 +1685,24 @@ async def test_parallel_read_text_file_results_use_file_read_label_without_ids()
 
         def metadata(self) -> dict[str, object]:
             return {"variant": "local_filesystem"}
+
+        async def call_tool(
+            self,
+            name: str,
+            arguments: dict[str, object] | None = None,
+            tool_use_id: str | None = None,
+            *,
+            request_params: object | None = None,
+        ) -> CallToolResult:
+            del request_params
+            if name == "read_text_file":
+                return await self.read_text_file(arguments, tool_use_id)
+            if name == "write_text_file":
+                return await self.write_text_file(arguments, tool_use_id)
+            return CallToolResult(
+                content=[TextContent(type="text", text=f"unsupported: {name}")],
+                isError=True,
+            )
 
     class RecordingDisplay:
         def __init__(self) -> None:

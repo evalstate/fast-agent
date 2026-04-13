@@ -100,6 +100,27 @@ class ACPFilesystemRuntime:
             tools.append(self._write_tool)
         return tools
 
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        tool_use_id: str | None = None,
+        *,
+        request_params=None,
+    ) -> CallToolResult:
+        del request_params
+
+        payload = arguments if arguments is not None else {}
+        if name == "read_text_file" and self._enable_read:
+            return await self.read_text_file(payload, tool_use_id)
+        if name == "write_text_file" and self._enable_write:
+            return await self.write_text_file(payload, tool_use_id)
+
+        return CallToolResult(
+            content=[text_content(f"Error: unsupported ACP filesystem tool '{name}'.")],
+            isError=True,
+        )
+
     async def read_text_file(
         self, arguments: dict[str, Any], tool_use_id: str | None = None
     ) -> CallToolResult:
@@ -405,21 +426,6 @@ class ACPFilesystemRuntime:
                 content=[text_content(f"Error writing file: {e}")],
                 isError=True,
             )
-
-
-    async def apply_patch(
-        self, arguments: dict[str, Any], tool_use_id: str | None = None
-    ) -> CallToolResult:
-        """Return an error because ACP filesystem runtime does not support apply_patch."""
-        del arguments, tool_use_id
-        return CallToolResult(
-            content=[
-                text_content(
-                    "Error: apply_patch is not supported with ACP filesystem runtime yet."
-                )
-            ],
-            isError=True,
-        )
 
     def metadata(self) -> dict[str, Any]:
         """

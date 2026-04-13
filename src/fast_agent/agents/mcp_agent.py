@@ -7,6 +7,7 @@ and delegates operations to an attached FastAgentLLMProtocol instance.
 
 import asyncio
 import fnmatch
+import re
 import time
 from abc import ABC
 from pathlib import Path
@@ -17,12 +18,10 @@ from typing import (
     Iterable,
     Literal,
     Mapping,
-    Protocol,
     Sequence,
     TypeVar,
     Union,
     cast,
-    runtime_checkable,
 )
 
 import mcp
@@ -80,12 +79,13 @@ from fast_agent.mcp.provider_management import (
 )
 from fast_agent.skills import SKILLS_DEFAULT, SkillManifest
 from fast_agent.skills.registry import SkillRegistry
-from fast_agent.tools.apply_patch_tool import is_apply_patch_tool_name
+from fast_agent.tools.composite_filesystem_runtime import CompositeFilesystemRuntime
 from fast_agent.tools.elicitation import (
     get_elicitation_tool,
     run_elicitation_form,
     set_elicitation_input_callback,
 )
+from fast_agent.tools.filesystem_runtime_protocol import FilesystemRuntime
 from fast_agent.tools.local_filesystem_runtime import LocalFilesystemRuntime
 from fast_agent.tools.shell_runtime import ShellRuntime
 from fast_agent.tools.skill_reader import SkillReader
@@ -108,28 +108,6 @@ LLM = TypeVar("LLM", bound=FastAgentLLMProtocol)
 TOOL_DISPLAY_NAMES: dict[str, str] = {
     "read_skill": "skill",
 }
-
-
-@runtime_checkable
-class FilesystemRuntime(Protocol):
-    """Protocol for runtimes that expose filesystem tools via McpAgent."""
-
-    @property
-    def tools(self) -> Sequence[Tool]: ...
-
-    async def read_text_file(
-        self, arguments: dict[str, Any] | None = None, tool_use_id: str | None = None
-    ) -> CallToolResult: ...
-
-    async def write_text_file(
-        self, arguments: dict[str, Any] | None = None, tool_use_id: str | None = None
-    ) -> CallToolResult: ...
-
-    async def apply_patch(
-        self, arguments: dict[str, Any] | None = None, tool_use_id: str | None = None
-    ) -> CallToolResult: ...
-
-    def metadata(self) -> dict[str, Any]: ...
 
 
 if TYPE_CHECKING:
@@ -369,8 +347,9 @@ class McpAgent(ABC, ToolAgent):
             shell_runtime = self._shell_runtime
             if working_directory is not None and shell_runtime is not None:
                 shell_runtime._working_directory = working_directory
-                if isinstance(self._filesystem_runtime, LocalFilesystemRuntime):
-                    self._filesystem_runtime.set_working_directory(working_directory)
+                local_runtime = self._local_filesystem_runtime()
+                if local_runtime is not None:
+                    local_runtime.set_working_directory(working_directory)
 
             self._maybe_enable_local_filesystem_runtime(working_directory)
             return
@@ -490,6 +469,19 @@ class McpAgent(ABC, ToolAgent):
     def has_filesystem_runtime(self) -> bool:
         """Whether any filesystem runtime is attached."""
         return self._filesystem_runtime is not None
+
+    def _local_filesystem_runtime(self) -> LocalFilesystemRuntime | None:
+        runtime = self._filesystem_runtime
+        if isinstance(runtime, LocalFilesystemRuntime):
+            return runtime
+        if isinstance(runtime, CompositeFilesystemRuntime):
+            primary = runtime.primary
+            if isinstance(primary, LocalFilesystemRuntime):
+                return primary
+            fallback = runtime.fallback
+            if isinstance(fallback, LocalFilesystemRuntime):
+                return fallback
+        return None
 
     @property
     def has_filesystem_read_text_file_tool(self) -> bool:
@@ -686,12 +678,22 @@ class McpAgent(ABC, ToolAgent):
 
     @staticmethod
     def _prefers_apply_patch_model(model_name: str | None) -> bool:
-        """Return True for models where apply_patch-first workflows are preferred."""
+        """Return True for Codex and GPT-5.2+ models."""
         if not model_name:
             return False
 
         normalized = ModelDatabase.normalize_model_name(model_name)
-        return normalized.startswith("gpt-5") or "codex" in normalized
+        if "codex" in normalized:
+            return True
+
+        match = re.match(r"^gpt-5(?:\.(\d+))?", normalized)
+        if match is None:
+            return False
+
+        minor = match.group(1)
+        if minor is None:
+            return False
+        return int(minor) >= 2
 
     def _maybe_enable_local_filesystem_runtime(self, working_directory: Path | None = None) -> None:
         """Enable local filesystem runtime when shell mode is active and configured."""
@@ -702,45 +704,46 @@ class McpAgent(ABC, ToolAgent):
         edit_mode = self._resolve_shell_edit_tool_mode()
         enable_write = edit_mode == "write_text_file"
         enable_apply_patch = edit_mode == "apply_patch"
-        if not enable_read and not enable_write and not enable_apply_patch:
-            if isinstance(self._filesystem_runtime, LocalFilesystemRuntime):
-                if working_directory is not None:
-                    self._filesystem_runtime.set_working_directory(working_directory)
-                self._filesystem_runtime.set_enabled_tools(
-                    enable_read=enable_read,
-                    enable_write=enable_write,
-                    enable_apply_patch=enable_apply_patch,
-                )
-            return
-
-        if self._filesystem_runtime is not None:
-            if isinstance(self._filesystem_runtime, LocalFilesystemRuntime):
-                if working_directory is not None:
-                    self._filesystem_runtime.set_working_directory(working_directory)
-                self._filesystem_runtime.set_enabled_tools(
-                    enable_read=enable_read,
-                    enable_write=enable_write,
-                    enable_apply_patch=enable_apply_patch,
-                )
+        enable_edit_file = edit_mode == "write_text_file"
+        local_runtime = self._local_filesystem_runtime()
+        if local_runtime is not None:
+            if working_directory is not None:
+                local_runtime.set_working_directory(working_directory)
+            local_runtime.set_tool_handler_resolver(self._get_tool_handler)
+            local_runtime.set_enabled_tools(
+                enable_read=enable_read,
+                enable_write=enable_write,
+                enable_apply_patch=enable_apply_patch,
+                enable_edit_file=enable_edit_file,
+            )
             return
 
         runtime_working_directory = (
             working_directory if working_directory is not None else self.config.cwd
         )
-        runtime = LocalFilesystemRuntime(
+        local_runtime = LocalFilesystemRuntime(
             self.logger,
             working_directory=runtime_working_directory,
             enable_read=enable_read,
             enable_write=enable_write,
             enable_apply_patch=enable_apply_patch,
+            enable_edit_file=enable_edit_file,
+            tool_handler_resolver=self._get_tool_handler,
         )
-        self._filesystem_runtime = runtime
+        if self._filesystem_runtime is None:
+            self._filesystem_runtime = local_runtime
+        else:
+            self._filesystem_runtime = CompositeFilesystemRuntime(
+                primary=self._filesystem_runtime,
+                fallback=local_runtime,
+            )
         self.logger.info(
             "Local filesystem runtime enabled",
-            runtime_type=type(runtime).__name__,
+            runtime_type=type(self._filesystem_runtime).__name__,
             read_enabled=enable_read,
             write_enabled=enable_write,
             apply_patch_enabled=enable_apply_patch,
+            edit_file_enabled=enable_edit_file,
         )
 
     def _shell_output_limit_overridden(self) -> bool:
@@ -765,11 +768,14 @@ class McpAgent(ABC, ToolAgent):
             if hasattr(llm, "set_provider_managed_mcp_state"):
                 cast("Any", llm).set_provider_managed_mcp_state(self._provider_managed_mcp_state)
 
-        if isinstance(self._filesystem_runtime, LocalFilesystemRuntime):
-            self._filesystem_runtime.set_enabled_tools(
+        local_runtime = self._local_filesystem_runtime()
+        if local_runtime is not None:
+            edit_mode = self._resolve_shell_edit_tool_mode()
+            local_runtime.set_enabled_tools(
                 enable_read=self._shell_read_text_file_enabled(),
-                enable_write=self._resolve_shell_edit_tool_mode() == "write_text_file",
-                enable_apply_patch=self._resolve_shell_edit_tool_mode() == "apply_patch",
+                enable_write=edit_mode == "write_text_file",
+                enable_apply_patch=edit_mode == "apply_patch",
+                enable_edit_file=edit_mode == "write_text_file",
             )
 
         if self._shell_runtime is None:
@@ -1013,12 +1019,22 @@ class McpAgent(ABC, ToolAgent):
         Set a filesystem runtime (e.g., ACPFilesystemRuntime) to add filesystem tools.
 
         This allows ACP mode to inject filesystem support that uses the client's
-        filesystem capabilities for reading and writing files.
+        filesystem capabilities for reading and writing files while preserving
+        local shell edit tools when shell mode is enabled.
 
         Args:
             runtime: Runtime instance with tools property and read_text_file/write_text_file methods
         """
-        self._filesystem_runtime = runtime
+        local_runtime = self._local_filesystem_runtime()
+        if isinstance(runtime, (LocalFilesystemRuntime, CompositeFilesystemRuntime)):
+            self._filesystem_runtime = runtime
+        elif local_runtime is not None and runtime is not local_runtime:
+            self._filesystem_runtime = CompositeFilesystemRuntime(primary=runtime, fallback=local_runtime)
+        else:
+            self._filesystem_runtime = runtime
+        current_local_runtime = self._local_filesystem_runtime()
+        if current_local_runtime is not None:
+            current_local_runtime.set_tool_handler_resolver(self._get_tool_handler)
         self.logger.info(
             f"Filesystem runtime injected: {type(runtime).__name__}",
             runtime_type=type(runtime).__name__,
@@ -1050,17 +1066,13 @@ class McpAgent(ABC, ToolAgent):
 
         # Check filesystem runtime (e.g., ACP filesystem)
         if self._filesystem_runtime:
-            for tool in self._filesystem_runtime.tools:
-                if tool.name == name:
-                    # Route to the appropriate method based on tool name
-                    if name == "read_text_file":
-                        return await self._filesystem_runtime.read_text_file(arguments, tool_use_id)
-                    if name == "write_text_file":
-                        return await self._filesystem_runtime.write_text_file(
-                            arguments, tool_use_id
-                        )
-                    if is_apply_patch_tool_name(name):
-                        return await self._filesystem_runtime.apply_patch(arguments, tool_use_id)
+            if any(tool.name == name for tool in self._filesystem_runtime.tools):
+                return await self._filesystem_runtime.call_tool(
+                    name,
+                    arguments,
+                    tool_use_id,
+                    request_params=request_params,
+                )
 
         # Check skill reader (non-ACP context with skills)
         if self._skill_reader and name == "read_skill":

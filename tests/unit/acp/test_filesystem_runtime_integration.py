@@ -60,6 +60,24 @@ class SimpleFilesystemRuntime:
         )
         self.tools = [self.read_tool, self.write_tool]
 
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, object] | None = None,
+        tool_use_id: str | None = None,
+        *,
+        request_params: object | None = None,
+    ) -> CallToolResult:
+        del request_params
+        if name == "read_text_file":
+            return await self.read_text_file(arguments, tool_use_id)
+        if name == "write_text_file":
+            return await self.write_text_file(arguments, tool_use_id)
+        return CallToolResult(
+            content=[text_content(f"unsupported tool: {name}")],
+            isError=True,
+        )
+
     async def read_text_file(self, arguments, tool_use_id=None):
         try:
             path = arguments["path"]
@@ -92,11 +110,17 @@ class SimpleFilesystemRuntime:
                 isError=True,
             )
 
-
     async def apply_patch(self, arguments, tool_use_id=None):
         del arguments, tool_use_id
         return CallToolResult(
             content=[text_content("apply_patch unsupported")],
+            isError=True,
+        )
+
+    async def edit_file(self, arguments, tool_use_id=None):
+        del arguments, tool_use_id
+        return CallToolResult(
+            content=[text_content("edit_file unsupported")],
             isError=True,
         )
 
