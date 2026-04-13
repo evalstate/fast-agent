@@ -11,7 +11,7 @@ from typing import Any, Iterable, Mapping
 import yaml
 from frontmatter import loads as load_frontmatter
 
-from fast_agent.config import resolve_env_vars
+from fast_agent.config import MCPServerSettings, resolve_env_vars
 from fast_agent.core.agent_card_rules import (
     ALLOWED_FIELDS_BY_TYPE,
     MCP_CONNECT_ALLOWED_KEYS,
@@ -606,13 +606,38 @@ def _validate_mcp_connect_entries(value: Any, errors: list[str]) -> None:
             errors.append(f"'mcp_connect[{idx}]' has unsupported keys: {unknown_text}")
 
         target_value = raw_entry.get("target")
-        if not isinstance(target_value, str) or not target_value.strip():
-            errors.append(f"'mcp_connect[{idx}].target' must be a non-empty string")
-            continue
+        resolved_target: str | None = None
+        if target_value is not None:
+            if not isinstance(target_value, str) or not target_value.strip():
+                errors.append(f"'mcp_connect[{idx}].target' must be a non-empty string")
+                continue
+            resolved_target = target_value.strip()
 
         name_value = raw_entry.get("name")
         if name_value is not None and (not isinstance(name_value, str) or not name_value.strip()):
             errors.append(f"'mcp_connect[{idx}].name' must be a non-empty string")
+            continue
+
+        connector_id_value = raw_entry.get("connector_id")
+        if connector_id_value is not None and (
+            not isinstance(connector_id_value, str) or not connector_id_value.strip()
+        ):
+            errors.append(f"'mcp_connect[{idx}].connector_id' must be a non-empty string")
+            continue
+
+        resolved_connector_id = connector_id_value.strip() if isinstance(connector_id_value, str) else None
+        if resolved_target is None and resolved_connector_id is None:
+            errors.append(
+                f"'mcp_connect[{idx}].target' must be a non-empty string unless connector_id is set"
+            )
+            continue
+        if resolved_target is not None and resolved_connector_id is not None:
+            errors.append(f"'mcp_connect[{idx}]' must set exactly one of 'target' or 'connector_id'")
+            continue
+        if resolved_connector_id is not None and name_value is None:
+            errors.append(
+                f"'mcp_connect[{idx}].name' must be a non-empty string when connector_id is set"
+            )
             continue
 
         headers_value = raw_entry.get("headers")
@@ -666,25 +691,40 @@ def _validate_mcp_connect_entries(value: Any, errors: list[str]) -> None:
             continue
 
         try:
-            overrides: dict[str, Any] = {}
-            if isinstance(description_value, str):
-                overrides["description"] = description_value
-            if isinstance(management_value, str):
-                overrides["management"] = management_value
-            if resolved_headers is not None:
-                overrides["headers"] = resolved_headers
-            if isinstance(access_token_value, str):
-                overrides["access_token"] = access_token_value
-            if isinstance(defer_loading_value, bool):
-                overrides["defer_loading"] = defer_loading_value
-            if resolved_auth is not None:
-                overrides["auth"] = resolved_auth
-            resolve_target_entry(
-                target=target_value.strip(),
-                default_name=name_value.strip() if isinstance(name_value, str) else None,
-                overrides=overrides,
-                source_path=f"mcp_connect[{idx}].target",
-            )
+            if resolved_connector_id is not None:
+                payload: dict[str, Any] = {
+                    "name": name_value.strip() if isinstance(name_value, str) else None,
+                    "description": description_value,
+                    "management": management_value,
+                    "connector_id": resolved_connector_id,
+                    "headers": resolved_headers,
+                    "access_token": access_token_value,
+                    "auth": resolved_auth,
+                }
+                if isinstance(defer_loading_value, bool):
+                    payload["defer_loading"] = defer_loading_value
+                MCPServerSettings.model_validate(payload)
+            else:
+                assert resolved_target is not None
+                overrides: dict[str, Any] = {}
+                if isinstance(description_value, str):
+                    overrides["description"] = description_value
+                if isinstance(management_value, str):
+                    overrides["management"] = management_value
+                if resolved_headers is not None:
+                    overrides["headers"] = resolved_headers
+                if isinstance(access_token_value, str):
+                    overrides["access_token"] = access_token_value
+                if isinstance(defer_loading_value, bool):
+                    overrides["defer_loading"] = defer_loading_value
+                if resolved_auth is not None:
+                    overrides["auth"] = resolved_auth
+                resolve_target_entry(
+                    target=resolved_target,
+                    default_name=name_value.strip() if isinstance(name_value, str) else None,
+                    overrides=overrides,
+                    source_path=f"mcp_connect[{idx}].target",
+                )
         except Exception as exc:  # noqa: BLE001 - surfaced as card scan issue
             errors.append(f"Invalid mcp_connect target at index {idx}: {exc}")
 

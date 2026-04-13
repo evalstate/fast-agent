@@ -193,6 +193,8 @@ async def test_anthropic_server_tool_start_stop_without_delta() -> None:
             "event_type": "start",
             "payload": {
                 "tool_name": "web_search",
+                "presentation_family": "web_search",
+                "preserve_details": False,
                 "tool_display_name": "Searching the web",
                 "chunk": '{"query": "capital of France"}',
                 "tool_use_id": "srvtoolu_1",
@@ -203,6 +205,8 @@ async def test_anthropic_server_tool_start_stop_without_delta() -> None:
             "event_type": "stop",
             "payload": {
                 "tool_name": "web_search",
+                "presentation_family": "web_search",
+                "preserve_details": False,
                 "tool_display_name": "Searching the web",
                 "tool_use_id": "srvtoolu_1",
                 "index": 2,
@@ -262,6 +266,8 @@ async def test_anthropic_mcp_tool_start_stop_without_delta() -> None:
             "payload": {
                 "tool_name": "huggingface_mcp/hf_hub_query",
                 "server_name": "huggingface_mcp",
+                "presentation_family": "remote_tool",
+                "preserve_details": True,
                 "tool_display_name": "remote tool: hf_hub_query",
                 "chunk": "{}",
                 "tool_use_id": "mcptoolu_1",
@@ -273,6 +279,8 @@ async def test_anthropic_mcp_tool_start_stop_without_delta() -> None:
             "payload": {
                 "tool_name": "huggingface_mcp/hf_hub_query",
                 "server_name": "huggingface_mcp",
+                "presentation_family": "remote_tool",
+                "preserve_details": True,
                 "tool_use_id": "mcptoolu_1",
                 "index": 2,
                 "chunk": '{"message": "top models"}',
@@ -283,6 +291,8 @@ async def test_anthropic_mcp_tool_start_stop_without_delta() -> None:
             "payload": {
                 "tool_name": "huggingface_mcp/hf_hub_query",
                 "server_name": "huggingface_mcp",
+                "presentation_family": "remote_tool",
+                "preserve_details": True,
                 "tool_display_name": "remote tool: hf_hub_query",
                 "tool_use_id": "mcptoolu_1",
                 "index": 2,

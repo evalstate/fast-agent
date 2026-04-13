@@ -1,5 +1,6 @@
 """Tests for Anthropic reasoning defaults and adaptive thinking behavior."""
 
+import pytest
 from pydantic import BaseModel
 
 from fast_agent.config import AnthropicSettings, Settings
@@ -243,6 +244,57 @@ def test_json_structured_output_merges_with_adaptive_effort():
     assert args["thinking"] == {"type": "adaptive"}
     assert args["output_config"]["effort"] == "max"
     assert args["output_config"]["format"]["type"] == "json_schema"
+
+
+def test_json_structured_output_uses_raw_schema_when_supplied() -> None:
+    llm = _make_llm("claude-opus-4-6", reasoning=False)
+    schema = {
+        "type": "object",
+        "properties": {"answer": {"type": "string"}},
+        "required": ["answer"],
+        "additionalProperties": False,
+    }
+
+    args, _ = llm._build_anthropic_base_args(
+        model="claude-opus-4-6",
+        messages=[],
+        params=RequestParams(maxTokens=1024, structured_schema=schema),
+        history=None,
+        current_extended=None,
+        request_tools=[],
+        structured_mode="json",
+        structured_model=None,
+        structured_schema=schema,
+    )
+
+    assert args["output_config"]["format"]["schema"] == schema
+
+
+@pytest.mark.asyncio
+async def test_tool_use_structured_output_uses_raw_schema_when_supplied() -> None:
+    llm = _make_llm("claude-opus-4-6", reasoning=False)
+    schema = {
+        "type": "object",
+        "properties": {"answer": {"type": "string"}},
+        "required": ["answer"],
+    }
+
+    tools = await llm._prepare_tools(
+        structured_model=None,
+        structured_schema=schema,
+        tools=None,
+        structured_mode="tool_use",
+    )
+
+    input_schema = tools[0]["input_schema"]
+    assert isinstance(input_schema, dict)
+    properties = input_schema["properties"]
+    assert isinstance(properties, dict)
+    normalized_properties = {str(key): value for key, value in properties.items()}
+    answer_schema = normalized_properties.get("answer")
+    assert isinstance(answer_schema, dict)
+    normalized_answer_schema = {str(key): value for key, value in answer_schema.items()}
+    assert normalized_answer_schema.get("type") == "string"
 
 
 def test_structured_output_json_adds_structured_output_beta() -> None:

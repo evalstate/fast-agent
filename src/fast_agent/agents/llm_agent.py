@@ -29,7 +29,10 @@ from fast_agent.constants import (
 )
 from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.history.tool_activities import display_remote_tool_activities
+from fast_agent.history.tool_activities import (
+    display_remote_tool_activities,
+    remote_tool_activities,
+)
 from fast_agent.llm.model_display_name import resolve_llm_display_name
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types import PromptMessageExtended, RequestParams
@@ -511,6 +514,11 @@ class LlmAgent(LlmDecorator):
             return False
         if collect_citation_sources(message):
             return False
+        remote_activities = remote_tool_activities(message)
+        if any(activity.kind == "result" for activity in remote_activities):
+            return False
+        if remote_activities:
+            return True
 
         display_text = message.all_text() or message.last_text() or ""
         if not display_text.strip():
@@ -866,6 +874,29 @@ class LlmAgent(LlmDecorator):
 
         (result, message), summary = await self._structured_with_summary(
             messages, model, request_params
+        )
+        summary_text = self._summary_text_for_result(message, summary)
+        await self.show_assistant_message(message=message, additional_message=summary_text)
+        return result, message
+
+    async def structured_schema_impl(
+        self,
+        messages: List[PromptMessageExtended],
+        schema: dict[str, Any],
+        request_params: RequestParams | None = None,
+    ) -> Tuple[Any | None, PromptMessageExtended]:
+        if "user" == messages[-1].role:
+            trailing_users: list[PromptMessageExtended] = []
+            for message in reversed(messages):
+                if message.role != "user":
+                    break
+                trailing_users.append(message)
+            self._display_user_messages(
+                list(reversed(trailing_users)), request_params=request_params
+            )
+
+        (result, message), summary = await self._structured_schema_with_summary(
+            messages, schema, request_params
         )
         summary_text = self._summary_text_for_result(message, summary)
         await self.show_assistant_message(message=message, additional_message=summary_text)

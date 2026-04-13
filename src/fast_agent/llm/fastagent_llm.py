@@ -65,6 +65,10 @@ from fast_agent.llm.response_telemetry import (
     start_request_timing_capture,
 )
 from fast_agent.llm.stream_types import StreamChunk
+from fast_agent.llm.structured_schema import (
+    validate_json_instance,
+    validate_json_schema_definition,
+)
 from fast_agent.llm.text_verbosity import (
     TextVerbosityLevel,
     TextVerbositySpec,
@@ -107,6 +111,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     PARAM_TOOL_RESULT_MODE = "tool_result_mode"
     PARAM_STREAMING_TIMEOUT = "streaming_timeout"
     PARAM_SERVICE_TIER = "service_tier"
+    PARAM_STRUCTURED_SCHEMA = "structured_schema"
 
     # Base set of fields that should always be excluded
     BASE_EXCLUDE_FIELDS = {
@@ -116,6 +121,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         PARAM_TOOL_RESULT_MODE,
         PARAM_STREAMING_TIMEOUT,
         PARAM_SERVICE_TIER,
+        PARAM_STRUCTURED_SCHEMA,
     }
 
     """
@@ -808,6 +814,66 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
         return result, assistant_response
 
+    async def structured_schema(
+        self,
+        messages: list[PromptMessageExtended],
+        schema: dict[str, Any],
+        request_params: RequestParams | None = None,
+    ) -> tuple[Any | None, PromptMessageExtended]:
+        """
+        Generate a structured response using a raw JSON Schema.
+
+        Args:
+            messages: List of PromptMessageExtended objects
+            schema: JSON Schema object used to constrain and validate the response
+            request_params: Optional parameters to configure the LLM request
+
+        Returns:
+            Tuple of (parsed JSON-compatible data or None, assistant response message)
+        """
+
+        normalized_schema = validate_json_schema_definition(schema)
+        final_request_params = self.get_request_params(request_params).model_copy(
+            update={"structured_schema": normalized_schema}
+        )
+
+        if final_request_params.mcp_metadata:
+            _mcp_metadata_var.set(final_request_params.mcp_metadata)
+
+        timing_capture, cleanup_timing_capture = self._start_request_timing_capture()
+        try:
+            result_or_response = await self._execute_with_retry(
+                self._apply_prompt_provider_specific_structured_schema,
+                messages,
+                normalized_schema,
+                final_request_params,
+                on_final_error=self._handle_retry_failure,
+            )
+        finally:
+            cleanup_timing_capture()
+
+        if isinstance(result_or_response, PromptMessageExtended):
+            result, assistant_response = self._structured_schema_from_multipart(
+                result_or_response,
+                normalized_schema,
+            )
+        else:
+            result, assistant_response = result_or_response
+
+        end_time = time.perf_counter()
+        self._add_timing_channel(
+            assistant_response,
+            timing_capture.start_time,
+            end_time,
+            ttft_ms=timing_capture.ttft_ms,
+            time_to_response_ms=timing_capture.time_to_response_ms,
+        )
+
+        self.usage_accumulator.count_tools(len(assistant_response.tool_calls or {}))
+        self._append_usage_channel(assistant_response)
+
+        return result, assistant_response
+
     @staticmethod
     def model_to_response_format(
         model: Type[Any],
@@ -846,6 +912,31 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         except Exception:
             return ""
 
+    @staticmethod
+    def schema_to_response_format(
+        schema: dict[str, Any],
+        *,
+        name: str = "structured_output",
+        strict: bool = True,
+    ) -> dict[str, Any]:
+        return {
+            "type": "json_schema",
+            "json_schema": {
+                "name": name,
+                "strict": strict,
+                "schema": schema,
+            },
+        }
+
+    @staticmethod
+    def schema_to_schema_str(
+        schema: dict[str, Any],
+    ) -> str:
+        try:
+            return json.dumps(schema)
+        except Exception:
+            return ""
+
     async def _apply_prompt_provider_specific_structured(
         self,
         multipart_messages: list[PromptMessageExtended],
@@ -866,6 +957,22 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         )
         return self._structured_from_multipart(result, model)
 
+    async def _apply_prompt_provider_specific_structured_schema(
+        self,
+        multipart_messages: list[PromptMessageExtended],
+        schema: dict[str, Any],
+        request_params: RequestParams | None = None,
+    ) -> PromptMessageExtended | tuple[Any | None, PromptMessageExtended]:
+        """Base class attempts structured JSON parsing after a normal provider call."""
+
+        del schema
+        request_params = self.get_request_params(request_params)
+
+        if multipart_messages and multipart_messages[-1].role == "assistant":
+            return multipart_messages[-1]
+
+        return await self._apply_prompt_provider_specific(multipart_messages, request_params)
+
     def _structured_from_multipart(
         self, message: PromptMessageExtended, model: Type[ModelT]
     ) -> tuple[ModelT | None, PromptMessageExtended]:
@@ -877,6 +984,25 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             validated_model = model.model_validate(json_data)
             return validated_model, message
         except ValueError as e:
+            logger = get_logger(__name__)
+            logger.warning(f"Failed to parse structured response: {str(e)}")
+            return None, message
+
+    def _structured_schema_from_multipart(
+        self,
+        message: PromptMessageExtended,
+        schema: dict[str, Any],
+    ) -> tuple[Any | None, PromptMessageExtended]:
+        """Parse and validate a JSON response against a raw JSON Schema."""
+        try:
+            text = ""
+            if message.content:
+                text = get_text(message.content[-1]) or ""
+            text = self._prepare_structured_text(text)
+            json_data = json.loads(text)
+            validate_json_instance(json_data, schema)
+            return json_data, message
+        except Exception as e:
             logger = get_logger(__name__)
             logger.warning(f"Failed to parse structured response: {str(e)}")
             return None, message

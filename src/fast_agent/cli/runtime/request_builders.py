@@ -143,6 +143,26 @@ def validate_execution_mode_inputs(
         ) from exc
 
 
+def validate_json_schema_inputs(
+    *,
+    json_schema: str | None,
+    execution_mode: ExecutionMode,
+    model: str | None,
+) -> None:
+    if json_schema is None:
+        return
+    if execution_mode == "repl":
+        raise typer.BadParameter(
+            "--json-schema requires --message or --prompt-file",
+            param_hint="--json-schema",
+        )
+    if is_multi_model(model):
+        raise typer.BadParameter(
+            "Cannot combine --json-schema with multiple models.",
+            param_hint="--json-schema",
+        )
+
+
 def validate_multi_model_card_conflicts(
     *,
     model: str | None,
@@ -364,6 +384,7 @@ def build_agent_run_request(
     watch: bool,
     quiet: bool = False,
     missing_shell_cwd_policy: Literal["ask", "create", "warn", "error"] | None = None,
+    json_schema: str | None = None,
     force_smart: bool = False,
     noenv: bool = False,
 ) -> AgentRunRequest:
@@ -376,6 +397,11 @@ def build_agent_run_request(
     execution_mode = validate_execution_mode_inputs(
         message=message,
         prompt_file=prompt_file,
+    )
+    validate_json_schema_inputs(
+        json_schema=json_schema,
+        execution_mode=execution_mode,
+        model=model,
     )
 
     server_list = servers.split(",") if servers else None
@@ -429,6 +455,7 @@ def build_agent_run_request(
         model=model,
         message=message,
         prompt_file=prompt_file,
+        json_schema=json_schema,
         result_file=result_file,
         resume=resume,
         url_servers=url_servers,
@@ -506,6 +533,7 @@ def build_command_run_request(
     missing_shell_cwd_policy: Literal["ask", "create", "warn", "error"] | None = None,
     force_smart: bool = False,
     noenv: bool = False,
+    json_schema: str | None = None,
 ) -> AgentRunRequest:
     """Build a normalized request directly from command option values."""
     validate_noenv_conflicts(
@@ -535,6 +563,7 @@ def build_command_run_request(
         model=model,
         message=message,
         prompt_file=prompt_file,
+        json_schema=json_schema,
         result_file=result_file,
         resume=resume,
         stdio_commands=stdio_commands,

@@ -134,6 +134,40 @@ def test_load_agent_card_parses_provider_managed_mcp_connect_entries(
     assert entry.defer_loading is True
 
 
+def test_load_agent_card_parses_provider_managed_connector_entries(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("DROPBOX_TOKEN", "secret-token")
+    card_path = tmp_path / "provider_connector_agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: provider_connector_agent",
+                "mcp_connect:",
+                "  - name: dropbox",
+                "    management: provider",
+                "    connector_id: connector_dropbox",
+                "    access_token: ${DROPBOX_TOKEN}",
+                "    defer_loading: true",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_agent_cards(card_path)
+    config = loaded[0].agent_data["config"]
+
+    assert len(config.mcp_connect) == 1
+    entry = config.mcp_connect[0]
+    assert entry.target is None
+    assert entry.name == "dropbox"
+    assert entry.management == "provider"
+    assert entry.connector_id == "connector_dropbox"
+    assert entry.access_token == "secret-token"
+    assert entry.defer_loading is True
+
+
 def test_dump_agent_card_preserves_mcp_connect_auth_fields(tmp_path: Path) -> None:
     card_path = tmp_path / "mcp_agent.yaml"
     card_path.write_text(
@@ -182,6 +216,32 @@ def test_dump_agent_card_preserves_provider_mcp_connect_fields(tmp_path: Path) -
     loaded = load_agent_cards(card_path)
     dumped = dump_agent_to_string("provider_mcp_agent", loaded[0].agent_data, as_yaml=True)
 
+    assert "management: provider" in dumped
+    assert "access_token: token-123" in dumped
+    assert "defer_loading: true" in dumped
+
+
+def test_dump_agent_card_preserves_provider_connector_fields(tmp_path: Path) -> None:
+    card_path = tmp_path / "provider_connector_agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: provider_connector_agent",
+                "mcp_connect:",
+                "  - name: dropbox",
+                "    management: provider",
+                "    connector_id: connector_dropbox",
+                "    access_token: token-123",
+                "    defer_loading: true",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = load_agent_cards(card_path)
+    dumped = dump_agent_to_string("provider_connector_agent", loaded[0].agent_data, as_yaml=True)
+
+    assert "connector_id: connector_dropbox" in dumped
     assert "management: provider" in dumped
     assert "access_token: token-123" in dumped
     assert "defer_loading: true" in dumped

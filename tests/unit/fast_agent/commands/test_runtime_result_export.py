@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -51,6 +52,27 @@ class _NonPersistentMessageAgent(_DummyAgent):
         )
 
 
+class _StructuredMessageAgent(_DummyAgent):
+    def __init__(self, name: str, payload: object | None, reply_text: str) -> None:
+        super().__init__(name)
+        self.payload = payload
+        self.reply_text = reply_text
+        self.generated_messages: list[object] = []
+        self.schemas: list[dict[str, Any]] = []
+
+    async def structured_schema(
+        self,
+        messages: object,
+        schema: dict[str, Any],
+    ) -> tuple[object | None, PromptMessageExtended]:
+        self.generated_messages.append(messages)
+        self.schemas.append(schema)
+        return self.payload, PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text=self.reply_text)],
+        )
+
+
 class _DummyAgentApp:
     def __init__(self, agent_names: list[str], *, default_agent: str | None = None) -> None:
         self._agents = {name: _DummyAgent(name) for name in agent_names}
@@ -84,6 +106,7 @@ def _make_request(
     target_agent_name: str | None = None,
     message: str | None = "hello",
     prompt_file: str | None = None,
+    json_schema: str | None = None,
 ) -> AgentRunRequest:
     return AgentRunRequest(
         name="test",
@@ -95,6 +118,7 @@ def _make_request(
         model=None,
         message=message,
         prompt_file=prompt_file,
+        json_schema=json_schema,
         result_file=result_file,
         resume=None,
         url_servers=None,
@@ -348,6 +372,125 @@ async def test_run_single_agent_cli_flow_prompt_file_is_one_shot_and_exports_res
     assert exported[1].last_text() == "done"
     captured = capsys.readouterr()
     assert captured.out.strip() == "done"
+
+
+@pytest.mark.asyncio
+async def test_run_single_agent_cli_flow_json_schema_message_emits_only_json(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    schema_path = tmp_path / "schema.json"
+    schema = {
+        "type": "object",
+        "properties": {"answer": {"type": "string"}},
+        "required": ["answer"],
+        "additionalProperties": False,
+    }
+    schema_path.write_text(json.dumps(schema), encoding="utf-8")
+
+    agent = _StructuredMessageAgent("agent", {"answer": "done"}, '{"answer":"done"}')
+    app = _DummyAgentApp(["agent"])
+    app._agents["agent"] = agent
+
+    await _run_single_agent_cli_flow(
+        app,
+        _make_request(
+            result_file=None,
+            message="hello",
+            json_schema=str(schema_path),
+        ),
+    )
+
+    captured = capsys.readouterr()
+    assert captured.out == '{"answer": "done"}'
+    assert captured.err == ""
+    assert agent.schemas == [schema]
+
+
+@pytest.mark.asyncio
+async def test_run_single_agent_cli_flow_json_schema_prompt_file_emits_only_json(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    schema_path = tmp_path / "schema.json"
+    schema = {
+        "type": "object",
+        "properties": {"answer": {"type": "string"}},
+        "required": ["answer"],
+        "additionalProperties": False,
+    }
+    schema_path.write_text(json.dumps(schema), encoding="utf-8")
+
+    prompt = [
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="hello from prompt")],
+        )
+    ]
+    prompt_file = tmp_path / "prompt.json"
+    prompt_file.write_text("[]", encoding="utf-8")
+
+    agent = _StructuredMessageAgent("agent", {"answer": "done"}, '{"answer":"done"}')
+    app = _DummyAgentApp(["agent"])
+    app._agents["agent"] = agent
+
+    monkeypatch.setattr(
+        "fast_agent.mcp.prompts.prompt_load.load_prompt",
+        lambda _path: prompt,
+    )
+
+    await _run_single_agent_cli_flow(
+        app,
+        _make_request(
+            result_file=None,
+            message=None,
+            prompt_file=str(prompt_file),
+            json_schema=str(schema_path),
+        ),
+    )
+
+    captured = capsys.readouterr()
+    assert captured.out == '{"answer": "done"}'
+    assert captured.err == ""
+    assert agent.generated_messages == [prompt]
+
+
+@pytest.mark.asyncio
+async def test_run_single_agent_cli_flow_json_schema_invalid_output_exits_nonzero(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    schema_path = tmp_path / "schema.json"
+    schema_path.write_text(
+        json.dumps(
+            {
+                "type": "object",
+                "properties": {"answer": {"type": "string"}},
+                "required": ["answer"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    agent = _StructuredMessageAgent("agent", None, "not-json")
+    app = _DummyAgentApp(["agent"])
+    app._agents["agent"] = agent
+
+    with pytest.raises(typer.Exit) as exc_info:
+        await _run_single_agent_cli_flow(
+            app,
+            _make_request(
+                result_file=None,
+                message="hello",
+                json_schema=str(schema_path),
+            ),
+        )
+
+    assert exc_info.value.exit_code == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "valid JSON matching --json-schema" in captured.err
 
 
 @pytest.mark.asyncio

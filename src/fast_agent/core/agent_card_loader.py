@@ -17,7 +17,7 @@ from fast_agent.agents.agent_types import (
     FunctionToolConfig,
     MCPConnectTarget,
 )
-from fast_agent.config import resolve_env_vars
+from fast_agent.config import MCPServerSettings, resolve_env_vars
 from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION, SMART_AGENT_INSTRUCTION
 from fast_agent.core.agent_card_rules import (
     AGENT_TYPE_TO_CARD_TYPE,
@@ -630,15 +630,38 @@ def _ensure_mcp_connect_entries(value: Any, path: Path) -> list[MCPConnectTarget
             )
 
         target_raw = raw_entry.get("target")
-        if not isinstance(target_raw, str) or not target_raw.strip():
+        target = None
+        if target_raw is not None:
+            if not isinstance(target_raw, str) or not target_raw.strip():
+                raise AgentConfigError(
+                    f"'mcp_connect[{idx}].target' must be a non-empty string in {path}"
+                )
+            target = target_raw.strip()
+
+        connector_id = _ensure_optional_str(
+            raw_entry.get("connector_id"),
+            f"mcp_connect[{idx}].connector_id",
+            path,
+        )
+        if target is None and connector_id is None:
             raise AgentConfigError(
-                f"'mcp_connect[{idx}].target' must be a non-empty string in {path}"
+                f"'mcp_connect[{idx}].target' must be a non-empty string in {path} "
+                "unless connector_id is set"
+            )
+        if target is not None and connector_id is not None:
+            raise AgentConfigError(
+                f"'mcp_connect[{idx}]' must set exactly one of 'target' or 'connector_id' in {path}"
             )
 
         name_raw = raw_entry.get("name")
         if name_raw is not None and (not isinstance(name_raw, str) or not name_raw.strip()):
             raise AgentConfigError(
                 f"'mcp_connect[{idx}].name' must be a non-empty string in {path}"
+            )
+        if connector_id is not None and name_raw is None:
+            raise AgentConfigError(
+                f"'mcp_connect[{idx}].name' must be a non-empty string in {path} "
+                "when connector_id is set"
             )
 
         headers = _ensure_headers_map(raw_entry.get("headers"), f"mcp_connect[{idx}].headers", path)
@@ -667,12 +690,30 @@ def _ensure_mcp_connect_entries(value: Any, path: Path) -> list[MCPConnectTarget
         if defer_loading_raw is None:
             defer_loading = None
 
+        if connector_id is not None:
+            payload: dict[str, Any] = {
+                "name": name_raw.strip() if isinstance(name_raw, str) else None,
+                "description": description,
+                "management": management,
+                "connector_id": connector_id,
+                "headers": headers,
+                "access_token": access_token,
+                "auth": auth,
+            }
+            if defer_loading is not None:
+                payload["defer_loading"] = defer_loading
+            try:
+                MCPServerSettings.model_validate(payload)
+            except Exception as exc:  # noqa: BLE001
+                raise AgentConfigError(f"Invalid 'mcp_connect[{idx}]' in {path}", str(exc)) from exc
+
         entries.append(
             MCPConnectTarget(
-                target=target_raw.strip(),
+                target=target,
                 name=name_raw.strip() if isinstance(name_raw, str) else None,
                 description=description,
                 management=management,
+                connector_id=connector_id,
                 headers=headers,
                 access_token=access_token,
                 defer_loading=defer_loading,
@@ -915,13 +956,17 @@ def _serialize_common_card_fields(
 def _serialize_mcp_connect_targets(targets: list[MCPConnectTarget]) -> list[dict[str, Any]]:
     serialized_targets: list[dict[str, Any]] = []
     for entry in targets:
-        serialized_entry: dict[str, Any] = {"target": entry.target}
+        serialized_entry: dict[str, Any] = {}
+        if entry.target is not None:
+            serialized_entry["target"] = entry.target
         if entry.name:
             serialized_entry["name"] = entry.name
         if entry.description:
             serialized_entry["description"] = entry.description
         if entry.management:
             serialized_entry["management"] = entry.management
+        if entry.connector_id is not None:
+            serialized_entry["connector_id"] = entry.connector_id
         if entry.headers is not None:
             serialized_entry["headers"] = dict(entry.headers)
         if entry.access_token is not None:

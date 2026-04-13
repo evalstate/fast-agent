@@ -76,6 +76,24 @@ def _write_provider_mcp_card(path: Path) -> None:
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
+def _write_provider_connector_card(path: Path) -> None:
+    lines = [
+        "---",
+        "type: agent",
+        "name: card_agent",
+        "mcp_connect:",
+        "  - name: 'dropbox'",
+        "    management: provider",
+        "    connector_id: 'connector_dropbox'",
+        "    access_token: 'Bearer provider-token'",
+        "    defer_loading: true",
+        "---",
+        "Return ok.",
+        "",
+    ]
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
 @pytest.mark.asyncio
 async def test_sync_agent_card_mcp_connect_registers_runtime_server(tmp_path: Path) -> None:
     config_path = tmp_path / "fastagent.config.yaml"
@@ -182,6 +200,42 @@ async def test_sync_agent_card_provider_mcp_connect_normalizes_provider_target(t
         assert server_cfg.url == "https://mcp.stripe.com/mcp"
         assert server_cfg.access_token == "provider-token"
         assert server_cfg.headers is None
+    finally:
+        await fast.app.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_sync_agent_card_provider_connector_registers_runtime_server(tmp_path: Path) -> None:
+    config_path = tmp_path / "fastagent.config.yaml"
+    config_path.write_text("", encoding="utf-8")
+
+    cards_dir = tmp_path / "cards"
+    cards_dir.mkdir()
+    _write_provider_connector_card(cards_dir / "card_agent.md")
+
+    fast = FastAgent(
+        "mcp-connect-test",
+        config_path=str(config_path),
+        parse_cli_args=False,
+        quiet=True,
+    )
+    fast.load_agents(cards_dir)
+
+    await fast.app.initialize()
+    try:
+        fast._sync_agent_card_mcp_servers()
+
+        context = fast.app.context
+        cfg = context.config
+        assert cfg is not None
+        assert cfg.mcp is not None
+        server_cfg = cfg.mcp.servers.get("dropbox")
+        assert server_cfg is not None
+        assert server_cfg.management == "provider"
+        assert server_cfg.connector_id == "connector_dropbox"
+        assert server_cfg.access_token == "provider-token"
+        assert server_cfg.defer_loading is True
+        assert server_cfg.url is None
     finally:
         await fast.app.cleanup()
 

@@ -190,6 +190,47 @@ def test_scan_agent_cards_reports_invalid_provider_mcp_connect_settings(tmp_path
     assert any("unsupported settings" in err for err in results[0].errors)
 
 
+def test_scan_agent_cards_accepts_provider_connector_mcp_connect_entry(tmp_path: Path) -> None:
+    card_path = tmp_path / "agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: connector_agent",
+                "mcp_connect:",
+                "  - name: dropbox",
+                "    management: provider",
+                "    connector_id: connector_dropbox",
+                "    access_token: token-123",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    results = scan_agent_card_directory(tmp_path)
+    assert len(results) == 1
+    assert results[0].errors == []
+
+
+def test_scan_agent_cards_rejects_provider_connector_without_name(tmp_path: Path) -> None:
+    card_path = tmp_path / "agent.yaml"
+    card_path.write_text(
+        "\n".join(
+            [
+                "name: connector_agent",
+                "mcp_connect:",
+                "  - management: provider",
+                "    connector_id: connector_dropbox",
+                "    access_token: token-123",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    results = scan_agent_card_directory(tmp_path)
+    assert len(results) == 1
+    assert any("name" in err and "connector_id" in err for err in results[0].errors)
+
+
 def test_scan_agent_cards_reports_missing_shell_cwd(tmp_path: Path) -> None:
     missing_cwd = tmp_path / "missing-shell-cwd"
     card_path = tmp_path / "agent.yaml"

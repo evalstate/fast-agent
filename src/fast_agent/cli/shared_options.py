@@ -77,6 +77,14 @@ class CommonAgentOptions:
             "--agent",
             help="Target a specific agent by name for --message, --prompt-file, and initial interactive mode",
         )
+
+    @staticmethod
+    def json_schema():
+        return typer.Option(
+            None,
+            "--json-schema",
+            help="Path to a JSON Schema file used for one-shot structured output",
+        )
     
     @staticmethod
     def env_dir():

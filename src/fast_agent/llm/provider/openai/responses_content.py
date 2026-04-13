@@ -6,7 +6,9 @@ from typing import TYPE_CHECKING, Any, Iterable, Mapping
 from mcp.types import CallToolRequest, ContentBlock, EmbeddedResource
 
 from fast_agent.constants import (
+    ANTHROPIC_SERVER_TOOLS_CHANNEL,
     OPENAI_ASSISTANT_MESSAGE_ITEMS,
+    OPENAI_MCP_LIST_TOOLS_ITEMS,
     OPENAI_REASONING_ENCRYPTED,
     REASONING,
 )
@@ -105,6 +107,8 @@ class ResponsesContentMixin:
     def _convert_message_to_items(self, msg: PromptMessageExtended) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         items.extend(self._extract_encrypted_reasoning_items(msg.channels))
+        items.extend(self._extract_mcp_list_tools_items(msg))
+        items.extend(self._extract_tool_search_items(msg))
 
         raw_assistant_items = self._extract_assistant_message_items(msg)
 
@@ -128,6 +132,93 @@ class ResponsesContentMixin:
         if msg.tool_calls:
             items.extend(self._convert_tool_calls(msg.tool_calls))
 
+        return items
+
+    def _extract_tool_search_items(
+        self,
+        msg: PromptMessageExtended,
+    ) -> list[dict[str, Any]]:
+        if msg.role != "assistant" or not msg.channels:
+            return []
+
+        raw_blocks = msg.channels.get(ANTHROPIC_SERVER_TOOLS_CHANNEL)
+        if not raw_blocks:
+            return []
+
+        items: list[dict[str, Any]] = []
+        for block in raw_blocks:
+            text = get_text(block)
+            if not text:
+                continue
+            try:
+                payload = json.loads(text)
+            except json.JSONDecodeError:
+                self.logger.debug("Skipping malformed OpenAI tool_search replay payload")
+                continue
+            if not isinstance(payload, dict):
+                continue
+            item = self._tool_search_payload_to_input_item(payload)
+            if item is not None:
+                items.append(item)
+        return items
+
+    @staticmethod
+    def _tool_search_payload_to_input_item(payload: dict[str, Any]) -> dict[str, Any] | None:
+        if payload.get("type") != "server_tool_use":
+            return None
+
+        provider_tool_type = payload.get("provider_tool_type")
+        if provider_tool_type not in {"tool_search_call", "tool_search_output"}:
+            return None
+
+        item: dict[str, Any] = {"type": provider_tool_type}
+        for field in ("id", "call_id", "status", "execution"):
+            value = payload.get(field)
+            if isinstance(value, str) and value:
+                item[field] = value
+
+        if provider_tool_type == "tool_search_call":
+            input_payload = payload.get("input")
+            if isinstance(input_payload, dict):
+                item["arguments"] = dict(input_payload)
+                return item
+
+            arguments = payload.get("arguments")
+            if arguments is not None:
+                item["arguments"] = arguments
+            return item
+
+        tools = payload.get("tools")
+        if not isinstance(tools, list):
+            return None
+        item["tools"] = list(tools)
+        return item
+
+    def _extract_mcp_list_tools_items(
+        self, msg: PromptMessageExtended
+    ) -> list[dict[str, Any]]:
+        if not msg.channels:
+            return []
+
+        raw_blocks = msg.channels.get(OPENAI_MCP_LIST_TOOLS_ITEMS)
+        if not raw_blocks:
+            return []
+
+        items: list[dict[str, Any]] = []
+        for block in raw_blocks:
+            text = get_text(block)
+            if not text:
+                continue
+            try:
+                payload = json.loads(text)
+            except json.JSONDecodeError:
+                self.logger.debug("Skipping malformed OpenAI mcp_list_tools item")
+                continue
+            if not isinstance(payload, dict):
+                continue
+            if payload.get("type") != "mcp_list_tools":
+                continue
+            items.append(dict(payload))
         return items
 
     def _extract_assistant_message_items(

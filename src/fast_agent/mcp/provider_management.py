@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Mapping, Sequence
+from functools import lru_cache
+from typing import TYPE_CHECKING, Any, Literal, Mapping, Sequence, get_args, get_origin
 from urllib.parse import urlparse, urlunparse
 
 from fast_agent.cli.commands.url_parser import parse_server_url
@@ -80,18 +81,64 @@ def provider_managed_base_url(url: str) -> str:
     return base_url
 
 
+def _extract_literal_str_values(annotation: Any) -> tuple[str, ...]:
+    origin = get_origin(annotation)
+    if origin is Literal:
+        return tuple(value for value in get_args(annotation) if isinstance(value, str))
+    if origin is None:
+        return ()
+
+    values: list[str] = []
+    for arg in get_args(annotation):
+        values.extend(_extract_literal_str_values(arg))
+    return tuple(values)
+
+
+@lru_cache(maxsize=1)
+def get_openai_connector_ids() -> tuple[str, ...]:
+    from openai.types.responses.tool import Mcp
+
+    annotation = Mcp.__annotations__.get("connector_id")
+    values = tuple(dict.fromkeys(_extract_literal_str_values(annotation)))
+    if not values:
+        raise RuntimeError("OpenAI SDK does not expose Responses MCP connector_id literals")
+    return values
+
+
+@lru_cache(maxsize=1)
+def get_openai_connector_id_set() -> frozenset[str]:
+    return frozenset(get_openai_connector_ids())
+
+
+def normalize_connector_id(value: str | None) -> str | None:
+    if value is None:
+        return None
+
+    normalized = value.strip()
+    if not normalized:
+        raise ValueError("connector_id must not be empty")
+    if normalized not in get_openai_connector_id_set():
+        allowed = ", ".join(get_openai_connector_ids())
+        raise ValueError(f"connector_id must be one of: {allowed}")
+    return normalized
+
+
 @dataclass(frozen=True, slots=True)
-class ProviderManagedMCPAttachment:
+class ProviderManagedToolAttachment:
     server_name: str
     server_description: str | None
-    server_url: str
+    server_url: str | None = None
+    connector_id: str | None = None
     access_token: str | None = None
     defer_loading: bool = False
 
+    def is_connector(self) -> bool:
+        return self.connector_id is not None
+
 
 @dataclass(frozen=True, slots=True)
-class ProviderManagedMCPState:
-    attachments: tuple[ProviderManagedMCPAttachment, ...] = ()
+class ProviderManagedToolState:
+    attachments: tuple[ProviderManagedToolAttachment, ...] = ()
     tool_allowlists: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
     @property
@@ -100,6 +147,13 @@ class ProviderManagedMCPState:
 
     def has_servers(self) -> bool:
         return bool(self.attachments)
+
+    def has_connectors(self) -> bool:
+        return any(attachment.is_connector() for attachment in self.attachments)
+
+
+ProviderManagedMCPAttachment = ProviderManagedToolAttachment
+ProviderManagedMCPState = ProviderManagedToolState
 
 
 def _contains_wildcard(pattern: str) -> bool:
@@ -111,10 +165,14 @@ def _validate_provider_managed_server(
     server_name: str,
     settings: MCPServerSettings,
 ) -> None:
-    invalid_fields: list[str] = []
+    has_url = bool(settings.url)
+    has_connector_id = settings.connector_id is not None
+    if has_url == has_connector_id:
+        raise ValueError(
+            f"Provider-managed MCP server '{server_name}' requires exactly one of url or connector_id"
+        )
 
-    if not settings.url:
-        invalid_fields.append("url")
+    invalid_fields: list[str] = []
     if settings.command is not None:
         invalid_fields.append("command")
     if settings.args:
@@ -129,7 +187,9 @@ def _validate_provider_managed_server(
         invalid_fields.append("auth")
     if settings.roots:
         invalid_fields.append("roots")
-    if settings.transport not in {"http", "sse"}:
+    if has_url and settings.transport not in {"http", "sse"}:
+        invalid_fields.append("transport")
+    if has_connector_id and "transport" in settings.model_fields_set:
         invalid_fields.append("transport")
 
     if invalid_fields:
@@ -137,17 +197,21 @@ def _validate_provider_managed_server(
         raise ValueError(
             f"Provider-managed MCP server '{server_name}' has unsupported settings: {invalid_list}"
         )
+    if has_connector_id and settings.access_token is None:
+        raise ValueError(
+            f"Provider-managed MCP server '{server_name}' requires access_token when connector_id is set"
+        )
 
 
 def build_provider_managed_mcp_state(
     *,
     agent_config: AgentConfig,
     server_settings_by_name: Mapping[str, MCPServerSettings] | None,
-) -> ProviderManagedMCPState:
+) -> ProviderManagedToolState:
     if not server_settings_by_name:
-        return ProviderManagedMCPState()
+        return ProviderManagedToolState()
 
-    attachments: list[ProviderManagedMCPAttachment] = []
+    attachments: list[ProviderManagedToolAttachment] = []
     tool_allowlists: dict[str, tuple[str, ...]] = {}
     seen_server_names: set[str] = set()
 
@@ -179,34 +243,45 @@ def build_provider_managed_mcp_state(
             raise ValueError(
                 f"Provider-managed MCP server '{server_name}' does not support resource filters"
             )
-        if settings.url is None:
-            raise ValueError(f"Provider-managed MCP server '{server_name}' requires a URL")
+        if settings.url is None and settings.connector_id is None:
+            raise ValueError(
+                f"Provider-managed MCP server '{server_name}' requires url or connector_id"
+            )
 
         if server_name in agent_config.tools:
             tool_allowlists[server_name] = tool_patterns
         attachments.append(
-            ProviderManagedMCPAttachment(
+            ProviderManagedToolAttachment(
                 server_name=server_name,
                 server_description=settings.description,
                 server_url=settings.url,
+                connector_id=settings.connector_id,
                 access_token=settings.access_token,
                 defer_loading=settings.defer_loading,
             )
         )
 
-    return ProviderManagedMCPState(
+    return ProviderManagedToolState(
         attachments=tuple(attachments),
         tool_allowlists=tool_allowlists,
     )
 
 
 def build_anthropic_provider_managed_mcp_payload(
-    state: ProviderManagedMCPState,
+    state: ProviderManagedToolState,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     mcp_servers: list[dict[str, Any]] = []
     toolsets: list[dict[str, Any]] = []
 
     for attachment in state.attachments:
+        if attachment.connector_id is not None:
+            raise ValueError(
+                "Provider-managed connectors are only supported for the OpenAI Responses provider"
+            )
+        if attachment.server_url is None:
+            raise ValueError(
+                f"Provider-managed MCP server '{attachment.server_name}' requires a URL"
+            )
         server_payload: dict[str, Any] = {
             "type": "url",
             "name": attachment.server_name,
@@ -233,7 +308,7 @@ def build_anthropic_provider_managed_mcp_payload(
 
 
 def build_openai_provider_managed_mcp_tools(
-    state: ProviderManagedMCPState,
+    state: ProviderManagedToolState,
 ) -> list[dict[str, Any]]:
     tools: list[dict[str, Any]] = []
     seen_labels: set[str] = set()
@@ -248,9 +323,16 @@ def build_openai_provider_managed_mcp_tools(
         tool_payload: dict[str, Any] = {
             "type": "mcp",
             "server_label": attachment.server_name,
-            "server_url": attachment.server_url,
             "require_approval": "never",
         }
+        if attachment.server_url is not None:
+            tool_payload["server_url"] = attachment.server_url
+        elif attachment.connector_id is not None:
+            tool_payload["connector_id"] = attachment.connector_id
+        else:
+            raise ValueError(
+                f"Provider-managed MCP server '{attachment.server_name}' requires a URL or connector_id"
+            )
         if attachment.server_description:
             tool_payload["server_description"] = attachment.server_description
         if attachment.access_token is not None:
@@ -282,3 +364,23 @@ def split_managed_server_names(
             client_managed.append(server_name)
 
     return client_managed, provider_managed
+
+
+__all__ = [
+    "ProviderManagedToolAttachment",
+    "ProviderManagedToolState",
+    "ProviderManagedMCPAttachment",
+    "ProviderManagedMCPState",
+    "build_anthropic_provider_managed_mcp_payload",
+    "build_openai_provider_managed_mcp_tools",
+    "build_provider_managed_mcp_state",
+    "get_openai_connector_id_set",
+    "get_openai_connector_ids",
+    "has_authorization_header",
+    "normalize_access_token",
+    "normalize_client_managed_url_server",
+    "normalize_connector_id",
+    "normalize_provider_managed_url_server",
+    "provider_managed_base_url",
+    "split_managed_server_names",
+]

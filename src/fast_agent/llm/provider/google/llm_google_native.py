@@ -2,7 +2,7 @@ import json
 import secrets
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import cast
+from typing import Any, cast
 
 from google import genai
 from google.genai import (
@@ -885,3 +885,30 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         # Parse using shared helper for consistency
         parsed, _ = self._structured_from_multipart(assistant_msg, model)
         return parsed, assistant_msg
+
+    async def _apply_prompt_provider_specific_structured_schema(
+        self,
+        multipart_messages: list[PromptMessageExtended],
+        schema: dict[str, Any],
+        request_params: RequestParams | None = None,
+    ) -> tuple[Any | None, PromptMessageExtended]:
+        last_message = multipart_messages[-1] if multipart_messages else None
+
+        if last_message and last_message.role == "assistant":
+            return self._structured_schema_from_multipart(last_message, schema)
+
+        request_params = self.get_request_params(request_params)
+        response_schema = self._converter._clean_schema_for_google(schema)
+
+        turn_messages: list[types.Content] = []
+        if last_message:
+            turn_messages = self._converter.convert_to_google_content([last_message])
+
+        assistant_msg = await self._google_completion(
+            turn_messages,
+            request_params=request_params,
+            tools=None,
+            response_mime_type="application/json",
+            response_schema=response_schema,
+        )
+        return self._structured_schema_from_multipart(assistant_msg, schema)

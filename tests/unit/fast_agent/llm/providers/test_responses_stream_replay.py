@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -108,6 +109,16 @@ class _FakeResponsesStream:
 
     async def get_final_response(self) -> Any:
         return self._final_response
+
+
+def _load_sanitized_trace_stream(*, fixture_dir: str) -> Any:
+    trace_path = REPO_ROOT / "tests" / "fixtures" / "llm_traces" / "sanitized" / fixture_dir / "stream.jsonl"
+    payloads = [
+        json.loads(line)
+        for line in trace_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    return _replay.ResponsesReplayStream(payloads)
 
 
 def _fixture_params() -> list[Any]:
@@ -258,6 +269,28 @@ async def test_openresponses_status_after_added_uses_registered_tool_state() -> 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
+async def test_responses_stream_trace_preserves_reasoning_summary_section_breaks() -> None:
+    harness = _ResponsesHarness()
+
+    _final_response, reasoning_segments = await harness._process_stream(
+        _load_sanitized_trace_stream(
+            fixture_dir="responses/gpt-5-4/reasoning_summary_sections"
+        ),
+        model="gpt-5.4",
+        capture_filename=None,
+    )
+
+    reasoning_text = "".join(reasoning_segments)
+    assert (
+        "needing just one or two from them.\n\n"
+        "**Identifying key decisions**\n\n"
+        "I think I should emphasize that there are really only "
+        "three decisions to make; the others are already determined by the plan."
+    ) in reasoning_text
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
 async def test_responses_stream_namespaces_mcp_call_tool_with_server_label() -> None:
     harness = _ResponsesHarness()
     final_response = SimpleNamespace(output=[], usage=None)
@@ -404,6 +437,9 @@ async def test_openresponses_null_output_index_still_streams_tool_arguments() ->
                 "tool_name": "weather",
                 "tool_use_id": "call_123",
                 "index": None,
+                "presentation_family": "tool",
+                "preserve_details": False,
+                "tool_display_name": "weather",
                 "tool_type": "function_call",
             },
         },
@@ -413,6 +449,9 @@ async def test_openresponses_null_output_index_still_streams_tool_arguments() ->
                 "tool_name": "weather",
                 "tool_use_id": "call_123",
                 "index": None,
+                "presentation_family": "tool",
+                "preserve_details": False,
+                "tool_display_name": "weather",
                 "tool_type": "function_call",
                 "chunk": '{"city":"',
             },
@@ -423,6 +462,9 @@ async def test_openresponses_null_output_index_still_streams_tool_arguments() ->
                 "tool_name": "weather",
                 "tool_use_id": "call_123",
                 "index": None,
+                "presentation_family": "tool",
+                "preserve_details": False,
+                "tool_display_name": "weather",
                 "tool_type": "function_call",
                 "chunk": 'Paris"}',
             },
@@ -433,6 +475,9 @@ async def test_openresponses_null_output_index_still_streams_tool_arguments() ->
                 "tool_name": "weather",
                 "tool_use_id": "call_123",
                 "index": -1,
+                "presentation_family": "tool",
+                "preserve_details": False,
+                "tool_display_name": "weather",
             },
         },
     ]

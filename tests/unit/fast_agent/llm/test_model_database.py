@@ -24,6 +24,7 @@ from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider_types import Provider
+from fast_agent.utils.reasoning_chunk_join import ReasoningTextAccumulator
 
 
 def test_model_database_context_windows():
@@ -563,7 +564,7 @@ def test_huggingface_qwen35_default_reasoning_emits_chat_template_kwargs_enabled
 def test_huggingface_qwen35_reasoning_stream_hidden_when_disabled():
     llm = _make_hf_llm_with_reasoning("Qwen/Qwen3.5-397B-A17B", reasoning=False)
 
-    segments: list[str] = []
+    segments = ReasoningTextAccumulator()
     active = llm._handle_reasoning_delta(
         reasoning_mode="reasoning_content",
         reasoning_text="hidden reasoning",
@@ -572,13 +573,13 @@ def test_huggingface_qwen35_reasoning_stream_hidden_when_disabled():
     )
 
     assert active is False
-    assert segments == []
+    assert segments.parts() == []
 
 
 def test_huggingface_qwen35_reasoning_stream_visible_when_enabled():
     llm = _make_hf_llm_with_reasoning("Qwen/Qwen3.5-397B-A17B", reasoning=True)
 
-    segments: list[str] = []
+    segments = ReasoningTextAccumulator()
     active = llm._handle_reasoning_delta(
         reasoning_mode="reasoning_content",
         reasoning_text="visible reasoning",
@@ -587,7 +588,7 @@ def test_huggingface_qwen35_reasoning_stream_visible_when_enabled():
     )
 
     assert active is False
-    assert segments == ["visible reasoning"]
+    assert segments.parts() == ["visible reasoning"]
 
 
 def test_model_database_runtime_model_params_registration():

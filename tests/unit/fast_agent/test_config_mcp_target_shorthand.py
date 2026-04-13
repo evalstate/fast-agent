@@ -349,6 +349,85 @@ def test_provider_managed_rejects_prompt_and_resource_settings() -> None:
     assert "Provider-managed MCP servers have unsupported settings" in str(exc_info.value)
 
 
+def test_provider_managed_connector_requires_access_token() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        Settings.model_validate(
+            {
+                "mcp": {
+                    "servers": {
+                        "dropbox": {
+                            "management": "provider",
+                            "connector_id": "connector_dropbox",
+                        }
+                    }
+                }
+            }
+        )
+
+    assert "Provider-managed connectors require access_token" in str(exc_info.value)
+
+
+def test_provider_managed_connector_rejects_explicit_transport() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        Settings.model_validate(
+            {
+                "mcp": {
+                    "servers": {
+                        "dropbox": {
+                            "management": "provider",
+                            "connector_id": "connector_dropbox",
+                            "access_token": "token-123",
+                            "transport": "http",
+                        }
+                    }
+                }
+            }
+        )
+
+    assert "Provider-managed MCP servers have unsupported settings: transport" in str(
+        exc_info.value
+    )
+
+
+def test_provider_managed_connector_rejects_url_combo() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        Settings.model_validate(
+            {
+                "mcp": {
+                    "servers": {
+                        "dropbox": {
+                            "management": "provider",
+                            "url": "https://example.com",
+                            "connector_id": "connector_dropbox",
+                            "access_token": "token-123",
+                        }
+                    }
+                }
+            }
+        )
+
+    assert "exactly one of url or connector_id" in str(exc_info.value)
+
+
+def test_provider_managed_connector_rejects_unknown_connector_id() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        Settings.model_validate(
+            {
+                "mcp": {
+                    "servers": {
+                        "dropbox": {
+                            "management": "provider",
+                            "connector_id": "connector_not_real",
+                            "access_token": "token-123",
+                        }
+                    }
+                }
+            }
+        )
+
+    assert "connector_id must be one of:" in str(exc_info.value)
+
+
 def test_load_yaml_mapping_resolves_provider_access_token_env(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,

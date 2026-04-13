@@ -25,7 +25,7 @@ class MarkdownTruncator:
         self,
         target_height_ratio: float = 0.8,
         *,
-        code_word_wrap: bool = False,
+        code_word_wrap: bool = True,
         render_fences_with_syntax: bool = True,
     ) -> None:
         if not 0 < target_height_ratio <= 1:

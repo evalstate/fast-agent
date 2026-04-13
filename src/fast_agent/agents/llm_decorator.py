@@ -718,6 +718,32 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         with self._tracer.start_as_current_span(f"Agent: '{self._name}' structured"):
             return await self.structured_impl(multipart_messages, model, final_request_params)
 
+    async def structured_schema(
+        self,
+        messages: Union[
+            str,
+            PromptMessage,
+            PromptMessageExtended,
+            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
+        ],
+        schema: dict[str, Any],
+        request_params: RequestParams | None = None,
+    ) -> tuple[Any | None, PromptMessageExtended]:
+        """
+        Apply the prompt and return structured JSON validated against a raw schema.
+        """
+        multipart_messages = normalize_to_extended_list(messages)
+        final_request_params = (
+            self.llm.get_request_params(request_params) if self.llm else request_params
+        )
+
+        with self._tracer.start_as_current_span(f"Agent: '{self._name}' structured_schema"):
+            return await self.structured_schema_impl(
+                multipart_messages,
+                schema,
+                final_request_params,
+            )
+
     async def structured_impl(
         self,
         messages: list[PromptMessageExtended],
@@ -740,6 +766,18 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             A tuple of (parsed model instance or None, assistant response message)
         """
         result, _ = await self._structured_with_summary(messages, model, request_params)
+        return result
+
+    async def structured_schema_impl(
+        self,
+        messages: list[PromptMessageExtended],
+        schema: dict[str, Any],
+        request_params: RequestParams | None = None,
+    ) -> tuple[Any | None, PromptMessageExtended]:
+        """
+        Implementation method for structured_schema.
+        """
+        result, _ = await self._structured_schema_with_summary(messages, schema, request_params)
         return result
 
     async def _generate_with_summary(
@@ -771,6 +809,29 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
         structured_result = await self._llm.structured(
             call_ctx.full_history, model, call_ctx.call_params
+        )
+
+        if call_ctx.persist_history:
+            try:
+                _, assistant_message = structured_result
+                self._persist_history(call_ctx.sanitized_messages, assistant_message)
+            except Exception:
+                pass
+        return structured_result, call_ctx.summary
+
+    async def _structured_schema_with_summary(
+        self,
+        messages: list[PromptMessageExtended],
+        schema: dict[str, Any],
+        request_params: RequestParams | None = None,
+    ) -> tuple[tuple[Any | None, PromptMessageExtended], RemovedContentSummary | None]:
+        assert self._llm, "LLM is not attached"
+        call_ctx = self._prepare_llm_call(messages, request_params)
+
+        structured_result = await self._llm.structured_schema(
+            call_ctx.full_history,
+            schema,
+            call_ctx.call_params,
         )
 
         if call_ctx.persist_history:

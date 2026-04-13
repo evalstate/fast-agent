@@ -33,6 +33,7 @@ GO_SPECIFIC_OPTIONS = {
     "-m",
     "--prompt-file",
     "-p",
+    "--json-schema",
     "--results",
     "--servers",
     "--auth",

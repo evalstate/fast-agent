@@ -92,7 +92,7 @@ class ConsoleDisplay:
         self._markup = getattr(self._logger_settings, "enable_markup", True)
         self._escape_xml = True
         self._code_word_wrap = (
-            getattr(self._logger_settings, "code_word_wrap", False)
+            getattr(self._logger_settings, "code_word_wrap", True)
             if code_word_wrap is None
             else code_word_wrap
         )

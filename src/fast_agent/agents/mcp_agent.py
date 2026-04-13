@@ -753,6 +753,10 @@ class McpAgent(ABC, ToolAgent):
         super()._on_llm_attached(llm)
 
         if self._provider_managed_mcp_state.has_servers():
+            if self._provider_managed_mcp_state.has_connectors() and llm.provider != Provider.RESPONSES:
+                raise AgentConfigError(
+                    "Provider-managed connectors are only supported for the OpenAI Responses provider."
+                )
             if llm.provider not in {Provider.ANTHROPIC, Provider.RESPONSES}:
                 raise AgentConfigError(
                     "Provider-managed MCP is only supported for Anthropic Messages "

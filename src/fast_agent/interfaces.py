@@ -92,6 +92,13 @@ class ModelFactoryFunctionProtocol(Protocol):
 class FastAgentLLMProtocol(Protocol):
     """Protocol defining the interface for LLMs"""
 
+    async def structured_schema(
+        self,
+        messages: list[PromptMessageExtended],
+        schema: dict[str, Any],
+        request_params: RequestParams | None = None,
+    ) -> tuple[Any | None, PromptMessageExtended]: ...
+
     async def structured(
         self,
         messages: list[PromptMessageExtended],
@@ -268,6 +275,18 @@ class AgentProtocol(LlmAgentProtocol, Protocol):
         model: Type[ModelT],
         request_params: RequestParams | None = None,
     ) -> tuple[ModelT | None, PromptMessageExtended]: ...
+
+    async def structured_schema(
+        self,
+        messages: Union[
+            str,
+            PromptMessage,
+            PromptMessageExtended,
+            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
+        ],
+        schema: dict[str, Any],
+        request_params: RequestParams | None = None,
+    ) -> tuple[Any | None, PromptMessageExtended]: ...
 
     @property
     def message_history(self) -> list[PromptMessageExtended]: ...

@@ -1,6 +1,7 @@
-from typing import Type
+from typing import Any, Type
 
 from fast_agent.interfaces import ModelT
+from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.mcp.helpers.content_helpers import split_thinking_content
 from fast_agent.types import PromptMessageExtended, RequestParams
@@ -32,6 +33,13 @@ IMPORTANT RULES:
 
         request_params = self.get_request_params(request_params)
 
+        if multipart_messages and multipart_messages[-1].role == "assistant":
+            return await super()._apply_prompt_provider_specific_structured(
+                multipart_messages,
+                model,
+                request_params,
+            )
+
         prompt_format = self._structured_prompt_format()
         if prompt_format == "json_object" and not request_params.response_format:
             request_params.response_format = {"type": "json_object"}
@@ -44,6 +52,44 @@ IMPORTANT RULES:
             multipart_messages, model, request_params
         )
 
+    async def _apply_prompt_provider_specific_structured_schema(
+        self,
+        multipart_messages: list[PromptMessageExtended],
+        schema: dict[str, Any],
+        request_params: RequestParams | None = None,
+    ) -> PromptMessageExtended | tuple[Any | None, PromptMessageExtended]:
+        if not self._supports_structured_prompt():
+            return await super()._apply_prompt_provider_specific_structured_schema(
+                multipart_messages,
+                schema,
+                request_params,
+            )
+
+        request_params = self.get_request_params(request_params)
+
+        if multipart_messages and multipart_messages[-1].role == "assistant":
+            return await FastAgentLLM._apply_prompt_provider_specific_structured_schema(
+                self,
+                multipart_messages,
+                schema,
+                request_params,
+            )
+
+        prompt_format = self._structured_prompt_format()
+        if prompt_format == "json_object" and not request_params.response_format:
+            request_params.response_format = {"type": "json_object"}
+
+        instructions = self._build_structured_prompt_instruction_from_schema(schema)
+        if instructions:
+            multipart_messages[-1].add_text(instructions)
+
+        return await FastAgentLLM._apply_prompt_provider_specific_structured_schema(
+            self,
+            multipart_messages,
+            schema,
+            request_params,
+        )
+
     def _supports_structured_prompt(self) -> bool:
         """Allow subclasses to opt-out of shared structured prompting."""
         return True
@@ -53,11 +99,16 @@ IMPORTANT RULES:
         return "json_object"
 
     def _build_structured_prompt_instruction(self, model: Type[ModelT]) -> str | None:
+        return self._build_structured_prompt_instruction_from_schema(model.model_json_schema())
+
+    def _build_structured_prompt_instruction_from_schema(
+        self,
+        schema: dict[str, Any],
+    ) -> str | None:
         template = self._structured_prompt_template()
         if not template:
             return None
 
-        schema = model.model_json_schema()
         format_description = self._schema_to_json_object(schema, schema.get("$defs"))
         return template.format(format_description=format_description)
 

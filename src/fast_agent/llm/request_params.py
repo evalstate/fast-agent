@@ -76,6 +76,12 @@ class RequestParams(CreateMessageRequestParams):
     Override response format for structured calls. Prefer sending pydantic model - only use in exceptional circumstances
     """
 
+    structured_schema: dict[str, Any] | None = None
+    """
+    Internal raw JSON Schema payload for schema-native structured output requests.
+    Providers may translate this to response_format, tool schemas, or prompt instructions.
+    """
+
     template_vars: dict[str, Any] = Field(default_factory=dict)
     """
     Optional dictionary of template variables for dynamic templates. Currently only works for TensorZero inference backend

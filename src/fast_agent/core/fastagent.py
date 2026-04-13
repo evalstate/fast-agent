@@ -1234,53 +1234,82 @@ class FastAgent(DecoratorMixin):
 
             owner = str(getattr(config_obj, "source_path", None) or f"agent:{agent_name}")
             for index, entry in enumerate(entries):
-                target = getattr(entry, "target", None)
-                explicit_name = getattr(entry, "name", None)
-                if not isinstance(target, str) or not target.strip():
-                    raise AgentConfigError(
-                        f"Invalid mcp_connect entry for agent '{agent_name}'",
-                        f"Entry {index}: target must be a non-empty string",
-                    )
+                explicit_name = entry.name
 
-                overrides: dict[str, Any] = {}
-                entry_description = getattr(entry, "description", None)
-                if isinstance(entry_description, str):
-                    overrides["description"] = entry_description
-                entry_management = getattr(entry, "management", None)
-                if isinstance(entry_management, str):
-                    overrides["management"] = entry_management
-                entry_headers = getattr(entry, "headers", None)
-                if isinstance(entry_headers, dict):
-                    overrides["headers"] = dict(entry_headers)
-                entry_access_token = getattr(entry, "access_token", None)
-                if isinstance(entry_access_token, str):
-                    overrides["access_token"] = entry_access_token
-                entry_defer_loading = getattr(entry, "defer_loading", None)
-                if isinstance(entry_defer_loading, bool):
-                    overrides["defer_loading"] = entry_defer_loading
-                entry_auth = getattr(entry, "auth", None)
-                if isinstance(entry_auth, dict):
-                    overrides["auth"] = dict(entry_auth)
+                if entry.connector_id is not None:
+                    if entry.target is not None:
+                        raise AgentConfigError(
+                            f"Invalid mcp_connect entry for agent '{agent_name}'",
+                            f"Entry {index}: target must be omitted when connector_id is set",
+                        )
+                    if explicit_name is None:
+                        raise AgentConfigError(
+                            f"Invalid mcp_connect entry for agent '{agent_name}'",
+                            f"Entry {index}: name is required when connector_id is set",
+                        )
 
-                try:
-                    resolved_name, resolved_settings = resolve_target_entry(
-                        target=target,
-                        default_name=explicit_name,
-                        overrides=overrides,
-                        source_path=f"mcp_connect[{index}].target",
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    raise AgentConfigError(
-                        f"Invalid mcp_connect entry for agent '{agent_name}'",
-                        f"Entry {index} target '{target}': {exc}",
-                    ) from exc
+                    payload: dict[str, Any] = {
+                        "name": explicit_name,
+                        "description": entry.description,
+                        "management": entry.management,
+                        "connector_id": entry.connector_id,
+                        "headers": dict(entry.headers) if entry.headers is not None else None,
+                        "access_token": entry.access_token,
+                        "auth": dict(entry.auth) if entry.auth is not None else None,
+                    }
+                    if entry.defer_loading is not None:
+                        payload["defer_loading"] = entry.defer_loading
+                    try:
+                        resolved_settings = config.MCPServerSettings.model_validate(payload)
+                    except Exception as exc:  # noqa: BLE001
+                        raise AgentConfigError(
+                            f"Invalid mcp_connect entry for agent '{agent_name}'",
+                            f"Entry {index} connector_id '{entry.connector_id}': {exc}",
+                        ) from exc
+                    resolved_name = explicit_name
+                    target_label = entry.connector_id
+                else:
+                    target = entry.target
+                    if target is None:
+                        raise AgentConfigError(
+                            f"Invalid mcp_connect entry for agent '{agent_name}'",
+                            f"Entry {index}: target must be a non-empty string",
+                        )
+
+                    overrides: dict[str, Any] = {}
+                    if entry.description is not None:
+                        overrides["description"] = entry.description
+                    if entry.management is not None:
+                        overrides["management"] = entry.management
+                    if entry.headers is not None:
+                        overrides["headers"] = dict(entry.headers)
+                    if entry.access_token is not None:
+                        overrides["access_token"] = entry.access_token
+                    if entry.defer_loading is not None:
+                        overrides["defer_loading"] = entry.defer_loading
+                    if entry.auth is not None:
+                        overrides["auth"] = dict(entry.auth)
+
+                    try:
+                        resolved_name, resolved_settings = resolve_target_entry(
+                            target=target,
+                            default_name=explicit_name,
+                            overrides=overrides,
+                            source_path=f"mcp_connect[{index}].target",
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        raise AgentConfigError(
+                            f"Invalid mcp_connect entry for agent '{agent_name}'",
+                            f"Entry {index} target '{target}': {exc}",
+                        ) from exc
+                    target_label = target
 
                 existing = effective_servers.get(resolved_name)
                 if existing is not None and not self._settings_equivalent(existing, resolved_settings):
                     raise AgentConfigError(
                         (
                             f"Server name collision for '{resolved_name}' from mcp_connect "
-                            f"target '{target}'."
+                            f"target '{target_label}'."
                         ),
                         "Set an explicit unique `name` or change target.",
                     )

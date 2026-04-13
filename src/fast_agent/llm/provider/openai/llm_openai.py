@@ -55,7 +55,10 @@ from fast_agent.llm.usage_tracking import TurnUsage
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.mime_utils import guess_mime_type
 from fast_agent.types import LlmStopReason, PromptMessageExtended
-from fast_agent.utils.reasoning_chunk_join import normalize_reasoning_delta
+from fast_agent.utils.reasoning_chunk_join import (
+    ReasoningTextAccumulator,
+    normalize_reasoning_delta,
+)
 
 _logger = get_logger(__name__)
 
@@ -317,7 +320,7 @@ class OpenAILLM(
         reasoning_mode: str | None,
         reasoning_text: str,
         reasoning_active: bool,
-        reasoning_segments: list[str],
+        reasoning_segments: ReasoningTextAccumulator,
     ) -> bool:
         """Stream reasoning text and track whether a thinking block is open."""
         if not self._should_emit_reasoning_stream(reasoning_mode):
@@ -326,8 +329,7 @@ class OpenAILLM(
         if not reasoning_text:
             return reasoning_active
 
-        last_char = reasoning_segments[-1][-1] if reasoning_segments and reasoning_segments[-1] else None
-        normalized_text = normalize_reasoning_delta(last_char, reasoning_text)
+        normalized_text = reasoning_segments.append(reasoning_text)
         if not normalized_text:
             return reasoning_active
 
@@ -335,13 +337,11 @@ class OpenAILLM(
             if not reasoning_active:
                 reasoning_active = True
             self._notify_stream_listeners(StreamChunk(text=normalized_text, is_reasoning=True))
-            reasoning_segments.append(normalized_text)
             return reasoning_active
 
         if reasoning_mode in {"stream", "reasoning_content", "gpt_oss"}:
             # Emit reasoning as-is
             self._notify_stream_listeners(StreamChunk(text=normalized_text, is_reasoning=True))
-            reasoning_segments.append(normalized_text)
             return reasoning_active
 
         return reasoning_active
@@ -445,7 +445,7 @@ class OpenAILLM(
         *,
         reasoning_mode: Any,
         reasoning_active: bool,
-        reasoning_segments: list[str],
+        reasoning_segments: ReasoningTextAccumulator,
         tool_call_started: dict[int, dict[str, Any]],
         model: str,
         notified_tool_indices: set[int],
@@ -605,7 +605,7 @@ class OpenAILLM(
         # Track estimated output tokens by counting text chunks
         estimated_tokens = 0
         reasoning_active = False
-        reasoning_segments: list[str] = []
+        reasoning_segments = ReasoningTextAccumulator(normalizer=normalize_reasoning_delta)
         reasoning_mode = self._get_model_reasoning(model)
 
         # For providers/models that emit non-OpenAI deltas, fall back to manual accumulation
@@ -709,7 +709,7 @@ class OpenAILLM(
             model=model,
         )
 
-        return final_completion, reasoning_segments
+        return final_completion, reasoning_segments.parts()
 
     def _normalize_role(self, role: str | None) -> str:
         """Ensure the role string matches MCP expectations."""
@@ -756,7 +756,7 @@ class OpenAILLM(
         # Track estimated output tokens by counting text chunks
         estimated_tokens = 0
         reasoning_active = False
-        reasoning_segments: list[str] = []
+        reasoning_segments = ReasoningTextAccumulator(normalizer=normalize_reasoning_delta)
         reasoning_mode = self._get_model_reasoning(model)
 
         # Manual accumulation of response data
@@ -920,7 +920,7 @@ class OpenAILLM(
             model=model,
         )
 
-        return final_completion, reasoning_segments
+        return final_completion, reasoning_segments.parts()
 
     async def _openai_completion(
         self,
@@ -1180,6 +1180,21 @@ class OpenAILLM(
             converted_messages = [ChatCompletionUserMessageParam(role="user", content="")]
 
         return await self._openai_completion(converted_messages, req_params, tools)
+
+    async def _apply_prompt_provider_specific_structured_schema(
+        self,
+        multipart_messages: list["PromptMessageExtended"],
+        schema: dict[str, Any],
+        request_params: RequestParams | None = None,
+    ) -> PromptMessageExtended | tuple[Any | None, PromptMessageExtended]:
+        request_params = self.get_request_params(request_params)
+        if not request_params.response_format:
+            request_params.response_format = self.schema_to_response_format(schema)
+        return await super()._apply_prompt_provider_specific_structured_schema(
+            multipart_messages,
+            schema,
+            request_params,
+        )
 
     def _prepare_api_request(
         self,

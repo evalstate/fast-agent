@@ -271,6 +271,68 @@ def test_build_command_run_request_marks_prompt_file_mode_one_shot() -> None:
     assert request.execution_mode == "one_shot_prompt_file"
 
 
+def test_build_command_run_request_accepts_json_schema_for_message_mode() -> None:
+    request = build_command_run_request(
+        name="cli",
+        instruction_option=None,
+        config_path=None,
+        servers=None,
+        urls=None,
+        auth=None,
+        client_metadata_url=None,
+        agent_cards=None,
+        card_tools=None,
+        model=None,
+        message="hello",
+        prompt_file=None,
+        json_schema="schema.json",
+        result_file=None,
+        resume=None,
+        npx=None,
+        uvx=None,
+        stdio=None,
+        target_agent_name=None,
+        skills_directory=None,
+        environment_dir=None,
+        shell_enabled=False,
+        mode="interactive",
+    )
+
+    assert request.json_schema == "schema.json"
+    assert request.quiet is True
+
+
+def test_build_command_run_request_accepts_json_schema_for_prompt_file_mode() -> None:
+    request = build_command_run_request(
+        name="cli",
+        instruction_option=None,
+        config_path=None,
+        servers=None,
+        urls=None,
+        auth=None,
+        client_metadata_url=None,
+        agent_cards=None,
+        card_tools=None,
+        model=None,
+        message=None,
+        prompt_file="prompt.txt",
+        json_schema="schema.json",
+        result_file=None,
+        resume=None,
+        npx=None,
+        uvx=None,
+        stdio=None,
+        target_agent_name=None,
+        skills_directory=None,
+        environment_dir=None,
+        shell_enabled=False,
+        mode="interactive",
+    )
+
+    assert request.json_schema == "schema.json"
+    assert request.quiet is True
+
+
 def test_build_command_run_request_smart_flag_uses_smart_instruction() -> None:
     request = build_command_run_request(
         name="cli",
@@ -347,6 +409,64 @@ def test_build_command_run_request_rejects_message_and_prompt_file() -> None:
             model=None,
             message="hello",
             prompt_file="prompt.txt",
+            result_file=None,
+            resume=None,
+            npx=None,
+            uvx=None,
+            stdio=None,
+            target_agent_name=None,
+            skills_directory=None,
+            environment_dir=None,
+            shell_enabled=False,
+            mode="interactive",
+        )
+
+
+def test_build_command_run_request_rejects_json_schema_without_one_shot_input() -> None:
+    with pytest.raises(typer.BadParameter, match="--json-schema requires --message or --prompt-file"):
+        build_command_run_request(
+            name="cli",
+            instruction_option=None,
+            config_path=None,
+            servers=None,
+            urls=None,
+            auth=None,
+            client_metadata_url=None,
+            agent_cards=None,
+            card_tools=None,
+            model=None,
+            message=None,
+            prompt_file=None,
+            json_schema="schema.json",
+            result_file=None,
+            resume=None,
+            npx=None,
+            uvx=None,
+            stdio=None,
+            target_agent_name=None,
+            skills_directory=None,
+            environment_dir=None,
+            shell_enabled=False,
+            mode="interactive",
+        )
+
+
+def test_build_command_run_request_rejects_json_schema_with_multi_model() -> None:
+    with pytest.raises(typer.BadParameter, match="Cannot combine --json-schema with multiple models"):
+        build_command_run_request(
+            name="cli",
+            instruction_option=None,
+            config_path=None,
+            servers=None,
+            urls=None,
+            auth=None,
+            client_metadata_url=None,
+            agent_cards=None,
+            card_tools=None,
+            model="gpt-4.1,claude-sonnet-4-5",
+            message="hello",
+            prompt_file=None,
+            json_schema="schema.json",
             result_file=None,
             resume=None,
             npx=None,

@@ -9,13 +9,21 @@ from openai.types.responses import ResponseReasoningSummaryTextDeltaEvent, Respo
 
 from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.provider.openai.streaming_utils import fetch_and_finalize_stream_response
+from fast_agent.llm.provider.openai.tool_event_helpers import (
+    fallback_tool_spec,
+    tool_event_payload,
+    tool_family_for_item_type,
+)
 from fast_agent.llm.provider.openai.tool_notifications import OpenAIToolNotificationMixin
 from fast_agent.llm.provider.openai.tool_stream_state import (
     OpenAIToolStreamEntry,
     OpenAIToolStreamState,
 )
 from fast_agent.llm.stream_types import StreamChunk
-from fast_agent.utils.reasoning_chunk_join import normalize_reasoning_delta
+from fast_agent.utils.reasoning_chunk_join import (
+    ReasoningTextAccumulator,
+    normalize_reasoning_delta,
+)
 
 if TYPE_CHECKING:
     from openai.types.responses import (
@@ -123,26 +131,58 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
         info: OpenAIToolStreamEntry,
         *,
         status: str | None = None,
+        phase: str = "call",
     ) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "tool_name": info.tool_name,
-            "tool_use_id": info.tool_use_id,
-            "index": info.index,
-        }
+        payload = tool_event_payload(
+            tool_name=info.tool_name,
+            tool_use_id=info.tool_use_id,
+            index=info.index if info.index is not None else -1,
+            family=tool_family_for_item_type(info.item_type),
+            phase="result" if phase == "result" else "call",
+            status=status,
+        )
+        if info.index is None:
+            payload["index"] = None
         if info.item_id:
             payload["item_id"] = info.item_id
         if info.item_type:
             payload["tool_type"] = info.item_type
-        if status:
-            payload["status"] = status
         return payload
+
+    def _log_tool_stream_event(
+        self,
+        *,
+        model: str,
+        tool_name: str | None,
+        tool_use_id: str | None,
+        event_type: str,
+        fallback: bool = False,
+    ) -> None:
+        message = (
+            "Model emitted fallback tool notification"
+            if fallback
+            else "Model started streaming tool call"
+            if event_type == "start"
+            else "Model finished streaming tool call"
+        )
+        data: dict[str, Any] = {
+            "progress_action": ProgressAction.CALLING_TOOL,
+            "agent_name": self.name,
+            "model": model,
+            "tool_name": tool_name,
+            "tool_use_id": tool_use_id,
+            "tool_event": event_type,
+        }
+        if fallback:
+            data["fallback"] = True
+        self.logger.info(message, data=data)
 
     async def _process_stream(
         self, stream: Any, model: str, capture_filename: Any
     ) -> tuple[Any, list[str]]:
         estimated_tokens = 0
         reasoning_chars = 0
-        reasoning_segments: list[str] = []
+        reasoning_segments = ReasoningTextAccumulator(normalizer=normalize_reasoning_delta)
         tool_state = OpenAIToolStreamState()
         notified_tool_indices: set[int] = set()
         notified_tool_use_ids: set[str] = set()
@@ -180,6 +220,20 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
             anonymous_tool_counter += 1
             return f"tool-unknown-{anonymous_tool_counter}"
 
+        async def emit_reasoning_delta(delta_text: str, *, progress_model: str) -> None:
+            nonlocal reasoning_chars
+
+            normalized_delta = reasoning_segments.append(delta_text)
+            if not normalized_delta:
+                return
+            self._notify_stream_listeners(StreamChunk(text=normalized_delta, is_reasoning=True))
+            reasoning_chars += len(normalized_delta)
+            await self._emit_streaming_progress(
+                model=progress_model,
+                new_total=reasoning_chars,
+                type=ProgressAction.THINKING,
+            )
+
         with warnings.catch_warnings():
             warnings.filterwarnings(
                 "ignore",
@@ -201,23 +255,9 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
                     part_type = getattr(part, "type", None)
                     part_text = getattr(part, "text", None)
                     if part_type in {"reasoning", "reasoning_text"} and part_text:
-                        last_char = (
-                            reasoning_segments[-1][-1]
-                            if reasoning_segments and reasoning_segments[-1]
-                            else None
-                        )
-                        normalized_delta = normalize_reasoning_delta(last_char, part_text)
-                        if not normalized_delta:
-                            continue
-                        reasoning_segments.append(normalized_delta)
-                        self._notify_stream_listeners(
-                            StreamChunk(text=normalized_delta, is_reasoning=True)
-                        )
-                        reasoning_chars += len(normalized_delta)
-                        await self._emit_streaming_progress(
-                            model=f"{model} (reasoning)",
-                            new_total=reasoning_chars,
-                            type=ProgressAction.THINKING,
+                        await emit_reasoning_delta(
+                            part_text,
+                            progress_model=f"{model} (reasoning)",
                         )
                         continue
 
@@ -226,23 +266,9 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
                     "response.reasoning_summary.delta",
                 }:
                     if delta:
-                        last_char = (
-                            reasoning_segments[-1][-1]
-                            if reasoning_segments and reasoning_segments[-1]
-                            else None
-                        )
-                        normalized_delta = normalize_reasoning_delta(last_char, delta)
-                        if not normalized_delta:
-                            continue
-                        reasoning_segments.append(normalized_delta)
-                        self._notify_stream_listeners(
-                            StreamChunk(text=normalized_delta, is_reasoning=True)
-                        )
-                        reasoning_chars += len(normalized_delta)
-                        await self._emit_streaming_progress(
-                            model=f"{model} (summary)",
-                            new_total=reasoning_chars,
-                            type=ProgressAction.THINKING,
+                        await emit_reasoning_delta(
+                            delta,
+                            progress_model=f"{model} (summary)",
                         )
                     continue
 
@@ -251,23 +277,9 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
                     "response.reasoning_text.delta",
                 }:
                     if delta:
-                        last_char = (
-                            reasoning_segments[-1][-1]
-                            if reasoning_segments and reasoning_segments[-1]
-                            else None
-                        )
-                        normalized_delta = normalize_reasoning_delta(last_char, delta)
-                        if not normalized_delta:
-                            continue
-                        reasoning_segments.append(normalized_delta)
-                        self._notify_stream_listeners(
-                            StreamChunk(text=normalized_delta, is_reasoning=True)
-                        )
-                        reasoning_chars += len(normalized_delta)
-                        await self._emit_streaming_progress(
-                            model=f"{model} (reasoning)",
-                            new_total=reasoning_chars,
-                            type=ProgressAction.THINKING,
+                        await emit_reasoning_delta(
+                            delta,
+                            progress_model=f"{model} (reasoning)",
                         )
                     continue
 
@@ -303,16 +315,11 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
                     if tool_info.tool_name and tool_info.tool_use_id and not tool_info.start_notified:
                         payload = self._tool_payload(tool_info)
                         self._notify_tool_stream_listeners("start", payload)
-                        self.logger.info(
-                            "Model started streaming tool call",
-                            data={
-                                "progress_action": ProgressAction.CALLING_TOOL,
-                                "agent_name": self.name,
-                                "model": model,
-                                "tool_name": payload["tool_name"],
-                                "tool_use_id": payload["tool_use_id"],
-                                "tool_event": "start",
-                            },
+                        self._log_tool_stream_event(
+                            model=model,
+                            tool_name=payload["tool_name"],
+                            tool_use_id=payload["tool_use_id"],
+                            event_type="start",
                         )
                         tool_info.start_notified = True
                     if tool_info.start_notified:
@@ -364,22 +371,21 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
                         tool_use_id or (tool_info.tool_use_id if tool_info is not None else None)
                     )
                     payload = {
-                        "tool_name": tool_name,
-                        "tool_use_id": tool_use_id,
-                        "index": index,
+                        **tool_event_payload(
+                            tool_name=tool_name,
+                            tool_use_id=tool_use_id,
+                            index=index,
+                            family=tool_family_for_item_type(getattr(item, "type", None)),
+                            phase="result",
+                        )
                     }
                     if not (tool_info.stop_notified if tool_info is not None else False):
                         self._notify_tool_stream_listeners("stop", payload)
-                        self.logger.info(
-                            "Model finished streaming tool call",
-                            data={
-                                "progress_action": ProgressAction.CALLING_TOOL,
-                                "agent_name": self.name,
-                                "model": model,
-                                "tool_name": tool_name,
-                                "tool_use_id": tool_use_id,
-                                "tool_event": "stop",
-                            },
+                        self._log_tool_stream_event(
+                            model=model,
+                            tool_name=tool_name,
+                            tool_use_id=tool_use_id,
+                            event_type="stop",
                         )
                         mark_tool_notified(
                             tool_use_id=tool_use_id,
@@ -408,22 +414,23 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
                         if status in _TOOL_START_STATUSES and not tool_info.start_notified:
                             self._notify_tool_stream_listeners("start", payload)
                             tool_info.start_notified = True
+                            self._log_tool_stream_event(
+                                model=model,
+                                tool_name=payload.get("tool_name"),
+                                tool_use_id=payload.get("tool_use_id"),
+                                event_type="start",
+                            )
                             mark_tool_notified(
                                 tool_use_id=tool_info.tool_use_id,
                                 index=tool_info.index,
                             )
                         if status in _TOOL_STOP_STATUSES:
                             self._notify_tool_stream_listeners("stop", payload)
-                            self.logger.info(
-                                "Model finished streaming tool call",
-                                data={
-                                    "progress_action": ProgressAction.CALLING_TOOL,
-                                    "agent_name": self.name,
-                                    "model": model,
-                                    "tool_name": payload.get("tool_name"),
-                                    "tool_use_id": payload.get("tool_use_id"),
-                                    "tool_event": "stop",
-                                },
+                            self._log_tool_stream_event(
+                                model=model,
+                                tool_name=payload.get("tool_name"),
+                                tool_use_id=payload.get("tool_use_id"),
+                                event_type="stop",
                             )
                             mark_tool_notified(
                                 tool_use_id=tool_info.tool_use_id,
@@ -463,7 +470,7 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
             notified_tool_indices=notified_tool_indices,
             emit_tool_fallback=emit_tool_fallback,
         )
-        return final_response, reasoning_segments
+        return final_response, reasoning_segments.parts()
 
     def _emit_tool_notification_fallback(
         self,
@@ -481,14 +488,21 @@ class OpenResponsesStreamingMixin(OpenAIToolNotificationMixin):
             if not self._is_tool_item(item):
                 continue
 
-            tool_name = self._tool_name_from_item(item)
-            tool_use_id = self._tool_use_id_from_item(item) or f"tool-{index}"
+            tool_name, tool_use_id, family = fallback_tool_spec(item, index)
             if index in notified_indices or tool_use_id in deduped_tool_use_ids:
                 continue
 
+            payload = tool_event_payload(
+                tool_name=tool_name,
+                tool_use_id=tool_use_id,
+                index=index,
+                family=family,
+                phase="call",
+            )
             self._emit_fallback_tool_notification_event(
                 tool_name=tool_name,
                 tool_use_id=tool_use_id,
                 index=index,
                 model=model,
+                payload=payload,
             )

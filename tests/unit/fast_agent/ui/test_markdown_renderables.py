@@ -35,6 +35,7 @@ def test_build_markdown_renderable_uses_syntax_for_code_only_fence() -> None:
     )
 
     assert isinstance(renderable, Syntax)
+    assert renderable.word_wrap is True
 
     output = io.StringIO()
     Console(file=output, force_terminal=False, width=40).print(renderable)

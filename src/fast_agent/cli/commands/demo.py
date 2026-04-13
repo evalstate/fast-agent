@@ -783,7 +783,7 @@ def markdown(
         help="Optional Rich theme file override for this preview.",
     ),
     wrap_code: bool = typer.Option(
-        False,
+        True,
         "--wrap-code/--crop-code",
         help="Wrap Syntax-rendered code blocks instead of cropping at the viewport edge.",
     ),
@@ -796,7 +796,7 @@ def markdown(
     """Render the bundled markdown style demo."""
     sample_file = _resolve_option_value(sample_file, "demo_markdown.md")
     theme_file = _resolve_option_value(theme_file, None)
-    wrap_code = _resolve_option_value(wrap_code, False)
+    wrap_code = _resolve_option_value(wrap_code, True)
     syntax_fences = _resolve_option_value(syntax_fences, True)
 
     settings = get_settings_or_exit(config_path)
@@ -893,7 +893,7 @@ def streaming(
     ),
     plain: bool = typer.Option(False, "--plain", help="Render using plain text streaming."),
     wrap_code: bool = typer.Option(
-        False,
+        True,
         "--wrap-code/--crop-code",
         help="Wrap Syntax-rendered code blocks instead of cropping at the viewport edge.",
     ),

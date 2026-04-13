@@ -1,5 +1,6 @@
 """Unit tests for ACPTerminalRuntime."""
 
+import os
 from types import SimpleNamespace
 
 import pytest
@@ -143,6 +144,66 @@ async def test_optional_parameters_passed_correctly():
     assert create_params["env"] == [{"name": "DEBUG", "value": "true"}]
     assert create_params["cwd"] == "/home/testuser"
     assert create_params["outputByteLimit"] == 10000
+
+
+@pytest.mark.asyncio
+async def test_command_string_is_split_into_structured_acp_command_and_args():
+    runtime, conn = build_runtime(
+        responses=[
+            {"terminalId": "terminal-1"},
+            {"exitCode": 0, "signal": None},
+            {"output": "ok", "truncated": False, "exitCode": 0},
+            {},
+        ]
+    )
+
+    await runtime.execute({"command": "git status --short"})
+
+    _, create_params = conn.calls[0]
+    assert create_params["command"] == "git"
+    assert create_params["args"] == ["status", "--short"]
+
+
+@pytest.mark.asyncio
+async def test_explicit_empty_args_preserves_literal_command() -> None:
+    runtime, conn = build_runtime(
+        responses=[
+            {"terminalId": "terminal-1"},
+            {"exitCode": 0, "signal": None},
+            {"output": "ok", "truncated": False, "exitCode": 0},
+            {},
+        ]
+    )
+
+    await runtime.execute({"command": "/tmp/my tool", "args": []})
+
+    _, create_params = conn.calls[0]
+    assert create_params["command"] == "/tmp/my tool"
+    assert "args" not in create_params
+
+
+@pytest.mark.asyncio
+async def test_shell_syntax_is_wrapped_for_acp_terminal_requests():
+    runtime, conn = build_runtime(
+        responses=[
+            {"terminalId": "terminal-1"},
+            {"exitCode": 0, "signal": None},
+            {"output": "ok", "truncated": False, "exitCode": 0},
+            {},
+        ]
+    )
+
+    command = 'grep -R "Provider.AZURE\\|max_completion_tokens\\|max_tokens" -n src/fast_agent | head -n 80'
+    await runtime.execute({"command": command})
+
+    _, create_params = conn.calls[0]
+    if os.name == "nt":
+        expected_shell = os.environ.get("COMSPEC", "cmd.exe").strip() or "cmd.exe"
+        assert create_params["command"] == expected_shell
+        assert create_params["args"] == ["/d", "/s", "/c", command]
+    else:
+        assert create_params["command"] == "/bin/sh"
+        assert create_params["args"] == ["-lc", command]
 
 
 @pytest.mark.asyncio

@@ -94,7 +94,8 @@ def test_tool_stream_status_for_mcp_does_not_use_search_copy() -> None:
         "status",
         {
             "tool_name": "mcp_list_tools",
-            "tool_display_name": "Loading MCP tools",
+            "presentation_family": "remote_tool_listing",
+            "tool_display_name": "Loading remote tools",
             "tool_use_id": "mcp-2",
             "status": "completed",
         },
@@ -103,14 +104,15 @@ def test_tool_stream_status_for_mcp_does_not_use_search_copy() -> None:
         "stop",
         {
             "tool_name": "mcp_list_tools",
-            "tool_display_name": "Loading MCP tools",
+            "presentation_family": "remote_tool_listing",
+            "tool_display_name": "Loading remote tools",
             "tool_use_id": "mcp-2",
         },
     )
 
     text = "".join(segment.text for segment in assembler.segments)
-    assert "Loading MCP tools" in text
-    assert "completed" in text
+    assert "Loading remote tools" in text
+    assert "remote tools loaded" in text
     assert "search complete" not in text
 
 
@@ -120,7 +122,7 @@ def test_tool_stream_replace_resets_snapshot_content() -> None:
     assembler.handle_tool_event(
         "start",
         {
-            "tool_name": "huggingface_mcp/hf_whoami",
+            "tool_name": "search",
             "tool_use_id": "mcp-1",
             "chunk": "{}",
         },
@@ -128,14 +130,14 @@ def test_tool_stream_replace_resets_snapshot_content() -> None:
     assembler.handle_tool_event(
         "replace",
         {
-            "tool_name": "huggingface_mcp/hf_whoami",
+            "tool_name": "search",
             "tool_use_id": "mcp-1",
             "chunk": "{}",
         },
     )
     assembler.handle_tool_event(
         "stop",
-        {"tool_name": "huggingface_mcp/hf_whoami", "tool_use_id": "mcp-1"},
+        {"tool_name": "search", "tool_use_id": "mcp-1"},
     )
 
     text = "".join(segment.text for segment in assembler.segments)
@@ -150,6 +152,8 @@ def test_tool_stream_remote_labels_are_explicit() -> None:
         "start",
         {
             "tool_name": "huggingface_mcp/hf_whoami",
+            "presentation_family": "remote_tool",
+            "preserve_details": True,
             "tool_display_name": "remote tool: hf_whoami",
             "tool_use_id": "mcp-1",
             "chunk": "{}",
@@ -159,6 +163,8 @@ def test_tool_stream_remote_labels_are_explicit() -> None:
         "replace",
         {
             "tool_name": "huggingface_mcp/hf_whoami",
+            "presentation_family": "remote_tool",
+            "preserve_details": True,
             "tool_display_name": "remote tool: hf_whoami",
             "tool_use_id": "mcp-1:result",
             "chunk": "evalstate",
@@ -168,6 +174,8 @@ def test_tool_stream_remote_labels_are_explicit() -> None:
         "stop",
         {
             "tool_name": "huggingface_mcp/hf_whoami",
+            "presentation_family": "remote_tool",
+            "preserve_details": True,
             "tool_display_name": "remote tool: hf_whoami",
             "tool_use_id": "mcp-1:result",
         },
@@ -175,6 +183,181 @@ def test_tool_stream_remote_labels_are_explicit() -> None:
 
     text = "\n".join(segment.text for segment in assembler.segments)
     assert "remote tool: hf_whoami" in text
+
+
+def test_remote_tool_stream_preserves_args_status_and_result() -> None:
+    assembler = _make_assembler()
+
+    assembler.handle_tool_event(
+        "delta",
+        {
+            "tool_name": "huggingface/hf_whoami",
+            "presentation_family": "remote_tool",
+            "preserve_details": True,
+            "tool_display_name": "remote tool: hf_whoami",
+            "tool_use_id": "mcp-1",
+            "chunk": "{}",
+        },
+    )
+    assembler.handle_tool_event(
+        "status",
+        {
+            "tool_name": "huggingface/hf_whoami",
+            "presentation_family": "remote_tool",
+            "preserve_details": True,
+            "tool_display_name": "remote tool: hf_whoami",
+            "tool_use_id": "mcp-1",
+            "chunk": "calling remote tool...",
+        },
+    )
+    assembler.handle_tool_event(
+        "replace",
+        {
+            "tool_name": "huggingface/hf_whoami",
+            "presentation_family": "remote_tool",
+            "preserve_details": True,
+            "tool_display_name": "remote tool: hf_whoami",
+            "tool_use_id": "mcp-1",
+            "chunk": "You are authenticated as evalstate.",
+        },
+    )
+
+    in_progress_text = "".join(segment.text for segment in assembler.segments)
+    assert "remote tool: hf_whoami" in in_progress_text
+    assert "status: calling remote tool..." in in_progress_text
+    assert "result: You are authenticated as evalstate." in in_progress_text
+    assert "args: {}" in in_progress_text
+
+    assembler.handle_tool_event(
+        "stop",
+        {
+            "tool_name": "huggingface/hf_whoami",
+            "presentation_family": "remote_tool",
+            "preserve_details": True,
+            "tool_display_name": "remote tool: hf_whoami",
+            "tool_use_id": "mcp-1",
+        },
+    )
+
+    text = "".join(segment.text for segment in assembler.segments)
+    assert "remote tool: hf_whoami" in text
+    assert "{}" in text
+    assert "{}\n\nYou are authenticated as evalstate." in text
+    assert "You are authenticated as evalstate." in text
+    assert "status:" not in text
+    assert "result:" not in text
+    assert "args:" not in text
+
+
+def test_remote_tool_stream_result_only_does_not_duplicate_completed_output() -> None:
+    assembler = _make_assembler()
+
+    assembler.handle_tool_event(
+        "start",
+        {
+            "tool_name": "huggingface/hf_whoami",
+            "presentation_family": "remote_tool",
+            "preserve_details": True,
+            "tool_display_name": "remote tool: hf_whoami",
+            "tool_use_id": "mcp-1",
+        },
+    )
+    assembler.handle_tool_event(
+        "replace",
+        {
+            "tool_name": "huggingface/hf_whoami",
+            "presentation_family": "remote_tool",
+            "preserve_details": True,
+            "tool_display_name": "remote tool: hf_whoami",
+            "tool_use_id": "mcp-1",
+            "chunk": "You are authenticated as evalstate.",
+        },
+    )
+    assembler.handle_tool_event(
+        "stop",
+        {
+            "tool_name": "huggingface/hf_whoami",
+            "presentation_family": "remote_tool",
+            "preserve_details": True,
+            "tool_display_name": "remote tool: hf_whoami",
+            "tool_use_id": "mcp-1",
+        },
+    )
+
+    text = "".join(segment.text for segment in assembler.segments)
+    assert text.count("You are authenticated as evalstate.") == 1
+
+
+def test_remote_tool_stream_failed_blob_does_not_duplicate_completed_output() -> None:
+    assembler = _make_assembler()
+
+    assembler.handle_tool_event(
+        "replace",
+        {
+            "tool_name": "huggingface/hf_whoami",
+            "presentation_family": "remote_tool",
+            "preserve_details": True,
+            "tool_display_name": "remote tool: hf_whoami",
+            "tool_use_id": "mcp-1",
+            "chunk": "status: failed\nresult: forbidden",
+        },
+    )
+    assembler.handle_tool_event(
+        "stop",
+        {
+            "tool_name": "huggingface/hf_whoami",
+            "presentation_family": "remote_tool",
+            "preserve_details": True,
+            "tool_display_name": "remote tool: hf_whoami",
+            "tool_use_id": "mcp-1",
+        },
+    )
+
+    text = "".join(segment.text for segment in assembler.segments)
+    assert text.count("status: failed\nresult: forbidden") == 1
+
+
+def test_remote_tool_search_collapses_to_compact_completed_status() -> None:
+    assembler = _make_assembler()
+
+    assembler.handle_tool_event(
+        "start",
+        {
+            "tool_name": "tool_search",
+            "presentation_family": "remote_tool_search",
+            "preserve_details": True,
+            "tool_display_name": "Deferred tool search",
+            "tool_use_id": "search-1",
+            "chunk": "searching deferred tools...",
+        },
+    )
+    assembler.handle_tool_event(
+        "replace",
+        {
+            "tool_name": "tool_search",
+            "presentation_family": "remote_tool_search",
+            "preserve_details": True,
+            "tool_display_name": "Deferred tool search",
+            "tool_use_id": "search-1",
+            "chunk": "deferred tool search complete",
+        },
+    )
+    assembler.handle_tool_event(
+        "stop",
+        {
+            "tool_name": "tool_search",
+            "presentation_family": "remote_tool_search",
+            "preserve_details": True,
+            "tool_display_name": "Deferred tool search",
+            "tool_use_id": "search-1",
+        },
+    )
+
+    text = "".join(segment.text for segment in assembler.segments)
+    assert "Deferred tool search" in text
+    assert "deferred tool search complete" in text
+    assert "args:" not in text
+    assert "result:" not in text
 
 
 def test_tool_stream_apply_patch_preview_keeps_other_args() -> None:
@@ -467,6 +650,8 @@ def test_tool_stream_code_preview_uses_namespaced_tool_metadata() -> None:
         "delta",
         {
             "tool_name": "huggingface_mcp/hf_hub_query_raw",
+            "presentation_family": "remote_tool",
+            "preserve_details": True,
             "tool_display_name": "remote tool: hf_hub_query_raw",
             "tool_use_id": "tool-code-2",
             "chunk": '{"query":"count","code":"resp = await hf_trending()\\nprin',

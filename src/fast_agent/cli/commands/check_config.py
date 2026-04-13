@@ -1406,7 +1406,7 @@ def _build_application_settings_rows(
         ),
         ("Streaming Display", _bool_to_symbol(logger.get("streaming_display", True))),
         ("Syntax Fences", _bool_to_symbol(logger.get("render_fences_with_syntax", True))),
-        ("Wrap Code", _bool_to_symbol(logger.get("code_word_wrap", False))),
+        ("Wrap Code", _bool_to_symbol(logger.get("code_word_wrap", True))),
         ("Progress Display", _bool_to_symbol(logger.get("progress_display", True))),
         ("Show Chat", _bool_to_symbol(logger.get("show_chat", True))),
         ("Show Tools", _bool_to_symbol(logger.get("show_tools", True))),

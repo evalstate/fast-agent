@@ -27,6 +27,7 @@ from fast_agent.llm.text_verbosity import TextVerbosityLevel
 from fast_agent.mcp.provider_management import (
     normalize_access_token,
     normalize_client_managed_url_server,
+    normalize_connector_id,
     normalize_provider_managed_url_server,
 )
 from fast_agent.utils.type_narrowing import is_str_object_dict
@@ -343,6 +344,9 @@ class MCPServerSettings(BaseModel):
     url: str | None = None
     """The URL for the server (e.g. for SSE/SHTTP transport)."""
 
+    connector_id: str | None = None
+    """OpenAI Responses provider-managed connector identifier."""
+
     headers: dict[str, str] | None = None
     """Headers dictionary for HTTP connections"""
 
@@ -418,6 +422,15 @@ class MCPServerSettings(BaseModel):
             raise TypeError("access_token must be a string")
         return normalize_access_token(value)
 
+    @field_validator("connector_id", mode="before")
+    @classmethod
+    def _normalize_connector_id(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            raise TypeError("connector_id must be a string")
+        return normalize_connector_id(value)
+
     @model_validator(mode="before")
     @classmethod
     def validate_transport_inference(cls, values):
@@ -457,6 +470,11 @@ class MCPServerSettings(BaseModel):
     @model_validator(mode="after")
     def _normalize_management_specific_settings(self) -> "MCPServerSettings":
         if self.management == "provider":
+            has_url = bool(self.url)
+            has_connector_id = self.connector_id is not None
+            if has_url == has_connector_id:
+                raise ValueError("Provider-managed MCP servers require exactly one of url or connector_id")
+
             invalid_fields: list[str] = []
             if self.command is not None:
                 invalid_fields.append("command")
@@ -472,21 +490,27 @@ class MCPServerSettings(BaseModel):
                 invalid_fields.append("auth")
             if self.roots:
                 invalid_fields.append("roots")
-            if not self.url:
-                invalid_fields.append("url")
-            if self.transport not in {"http", "sse"}:
+            if has_url and self.transport not in {"http", "sse"}:
+                invalid_fields.append("transport")
+            if has_connector_id and "transport" in self.model_fields_set:
                 invalid_fields.append("transport")
             if invalid_fields:
                 invalid_list = ", ".join(sorted(invalid_fields))
                 raise ValueError(
                     f"Provider-managed MCP servers have unsupported settings: {invalid_list}"
                 )
-            assert self.url is not None
-            self.url = normalize_provider_managed_url_server(
-                transport=self.transport,
-                url=self.url,
-            )
+            if has_connector_id and self.access_token is None:
+                raise ValueError("Provider-managed connectors require access_token")
+            if has_url:
+                assert self.url is not None
+                self.url = normalize_provider_managed_url_server(
+                    transport=self.transport,
+                    url=self.url,
+                )
             return self
+
+        if self.connector_id is not None:
+            raise ValueError("connector_id is only supported for provider-managed MCP servers")
 
         if self.access_token is not None and not self.url:
             raise ValueError("access_token requires a URL-based MCP server")
@@ -1216,7 +1240,7 @@ class LoggerSettings(BaseModel):
     """Pygments / Rich syntax theme for fenced code blocks and markdown code rendering."""
     render_fences_with_syntax: bool = True
     """Render assistant markdown code fences with Rich Syntax instead of markdown fence blocks"""
-    code_word_wrap: bool = False
+    code_word_wrap: bool = True
     """Wrap Syntax-rendered code blocks instead of cropping at the viewport edge"""
     apply_patch_preview_max_lines: int | None = Field(
         default=120,

@@ -1,7 +1,7 @@
-{"event_type": "start", "payload": {"index": null, "tool_name": "weather", "tool_type": "function_call", "tool_use_id": "fc_1"}}
-{"event_type": "delta", "payload": {"chunk": "{", "index": null, "tool_name": "weather", "tool_type": "function_call", "tool_use_id": "fc_1"}}
-{"event_type": "delta", "payload": {"chunk": "\"city\":\"", "index": null, "tool_name": "weather", "tool_type": "function_call", "tool_use_id": "fc_1"}}
-{"event_type": "delta", "payload": {"chunk": "Paris", "index": null, "tool_name": "weather", "tool_type": "function_call", "tool_use_id": "fc_1"}}
-{"event_type": "delta", "payload": {"chunk": "\"", "index": null, "tool_name": "weather", "tool_type": "function_call", "tool_use_id": "fc_1"}}
-{"event_type": "delta", "payload": {"chunk": "}", "index": null, "tool_name": "weather", "tool_type": "function_call", "tool_use_id": "fc_1"}}
-{"event_type": "stop", "payload": {"index": -1, "tool_name": "weather", "tool_use_id": "fc_1"}}
+{"event_type": "start", "payload": {"index": null, "presentation_family": "tool", "preserve_details": false, "tool_display_name": "weather", "tool_name": "weather", "tool_type": "function_call", "tool_use_id": "fc_1"}}
+{"event_type": "delta", "payload": {"chunk": "{", "index": null, "presentation_family": "tool", "preserve_details": false, "tool_display_name": "weather", "tool_name": "weather", "tool_type": "function_call", "tool_use_id": "fc_1"}}
+{"event_type": "delta", "payload": {"chunk": "\"city\":\"", "index": null, "presentation_family": "tool", "preserve_details": false, "tool_display_name": "weather", "tool_name": "weather", "tool_type": "function_call", "tool_use_id": "fc_1"}}
+{"event_type": "delta", "payload": {"chunk": "Paris", "index": null, "presentation_family": "tool", "preserve_details": false, "tool_display_name": "weather", "tool_name": "weather", "tool_type": "function_call", "tool_use_id": "fc_1"}}
+{"event_type": "delta", "payload": {"chunk": "\"", "index": null, "presentation_family": "tool", "preserve_details": false, "tool_display_name": "weather", "tool_name": "weather", "tool_type": "function_call", "tool_use_id": "fc_1"}}
+{"event_type": "delta", "payload": {"chunk": "}", "index": null, "presentation_family": "tool", "preserve_details": false, "tool_display_name": "weather", "tool_name": "weather", "tool_type": "function_call", "tool_use_id": "fc_1"}}
+{"event_type": "stop", "payload": {"index": -1, "presentation_family": "tool", "preserve_details": false, "tool_display_name": "weather", "tool_name": "weather", "tool_use_id": "fc_1"}}

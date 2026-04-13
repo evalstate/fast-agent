@@ -35,6 +35,11 @@ When calling child-agent tools (`agent__*`), follow each tool's schema and
 parameter descriptions exactly.
 When a card needs MCP servers that are not preconfigured in `fastagent.config.yaml`,
 declare them with `mcp_connect` entries (`target` + optional `name`). Prefer explicit
-`name` values when collisions are possible.
+`name` values when collisions are possible. For provider-managed remote MCP, use
+`management: provider`. For OpenAI Responses connectors, use structured
+`mcp_connect` entries with `name`, `management: provider`, `connector_id`, and
+`access_token`, and omit `target`. On the OpenAI Responses provider,
+`defer_loading: true` automatically enables server-side `tool_search` for lazy
+remote tool or connector loading.
 
 The current date is {{currentDate}}.

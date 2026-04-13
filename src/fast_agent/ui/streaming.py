@@ -1182,10 +1182,39 @@ class StreamingMessageHandle:
                         style_apply_patch_preview_text(args_text, default_style="dim")
                     )
                 else:
-                    tool_text.append(args_text)
+                    self._append_tool_body_text(tool_text, segment, args_text)
         if cursor_suffix:
             tool_text.append(cursor_suffix, style="dim")
         return tool_text
+
+    @staticmethod
+    def _append_tool_body_text(tool_text: Text, segment: "StreamSegment", args_text: str) -> None:
+        if not segment.tool_completed:
+            tool_text.append(args_text)
+            return
+        if segment.tool_family in {"remote_tool_search", "remote_tool_listing"}:
+            tool_text.append(args_text, style="dim")
+            return
+        if segment.tool_family != "remote_tool":
+            tool_text.append(args_text)
+            return
+
+        args_block, separator, result_block = args_text.partition("\n\n")
+        if separator and result_block:
+            if args_block:
+                tool_text.append(args_block)
+            tool_text.append(separator)
+            tool_text.append(result_block, style="dim")
+            return
+        if StreamingMessageHandle._looks_like_tool_args(args_text):
+            tool_text.append(args_text)
+            return
+        tool_text.append(args_text, style="dim")
+
+    @staticmethod
+    def _looks_like_tool_args(text: str) -> bool:
+        stripped = text.strip()
+        return stripped.startswith("{") or stripped.startswith("[")
 
     async def _render_worker(self) -> None:
         assert self._queue is not None

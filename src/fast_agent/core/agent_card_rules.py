@@ -172,6 +172,7 @@ MCP_CONNECT_ALLOWED_KEYS = frozenset(
         "name",
         "description",
         "management",
+        "connector_id",
         "headers",
         "access_token",
         "defer_loading",

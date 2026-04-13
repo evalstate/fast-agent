@@ -7,6 +7,7 @@ compared to local process execution.
 """
 
 import asyncio
+import os
 from typing import TYPE_CHECKING, Any
 
 from mcp.types import CallToolResult, Tool
@@ -14,6 +15,7 @@ from mcp.types import CallToolResult, Tool
 from fast_agent.constants import DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT, TERMINAL_BYTES_PER_TOKEN
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.helpers.content_helpers import text_content
+from fast_agent.utils.commandline import split_commandline
 
 if TYPE_CHECKING:
     from acp import AgentSideConnection
@@ -22,6 +24,40 @@ if TYPE_CHECKING:
     from fast_agent.mcp.tool_permission_handler import ToolPermissionHandler
 
 logger = get_logger(__name__)
+
+_SHELL_ONLY_TOKENS = ("&&", "||", "|", ";", ">", "<", "(", ")", "\n")
+
+
+def _needs_shell_wrapper(command: str) -> bool:
+    return any(token in command for token in _SHELL_ONLY_TOKENS)
+
+
+def _wrap_shell_command(command: str) -> tuple[str, list[str]]:
+    if os.name == "nt":
+        shell = os.environ.get("COMSPEC", "cmd.exe").strip() or "cmd.exe"
+        return shell, ["/d", "/s", "/c", command]
+    return "/bin/sh", ["-lc", command]
+
+
+def _resolve_terminal_command(
+    command: str,
+    args: list[str] | None,
+) -> tuple[str, list[str]]:
+    if args is not None:
+        return command, list(args)
+
+    if _needs_shell_wrapper(command):
+        return _wrap_shell_command(command)
+
+    try:
+        tokens = split_commandline(command)
+    except ValueError:
+        return _wrap_shell_command(command)
+
+    if not tokens:
+        return command, []
+
+    return tokens[0], tokens[1:]
 
 
 class ACPTerminalRuntime:
@@ -81,13 +117,18 @@ class ACPTerminalRuntime:
                 "properties": {
                     "command": {
                         "type": "string",
-                        "description": "The shell command to execute. Do not include shell "
-                        "prefix (bash -c, etc.).",
+                        "description": "The command to execute. For simple commands, provide "
+                        "the executable here and use args for arguments. Shell operators "
+                        "(pipes, redirects, &&, etc.) may be included and will be run via "
+                        "a shell wrapper automatically. Do not include your own shell prefix "
+                        "(bash -c, etc.).",
                     },
                     "args": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Optional array of command arguments (alternative to including in command string).",
+                        "description": "Optional array of command arguments. When provided, "
+                        "command is treated as the executable path/name and args are passed "
+                        "through directly.",
                     },
                     "env": {
                         "type": "object",
@@ -205,16 +246,19 @@ class ACPTerminalRuntime:
             # NOTE: Client creates and returns the terminal ID, we don't generate it
             self.logger.debug("Creating terminal")
 
+            resolved_command, resolved_args = _resolve_terminal_command(
+                command,
+                arguments.get("args"),
+            )
+
             # Build create params per ACP spec (sessionId, command, args, env, cwd, outputByteLimit)
-            # Extract optional parameters from arguments
+            # Translate shell-style command strings into ACP's structured command + args shape.
             create_params: dict[str, Any] = {
                 "sessionId": self.session_id,
-                "command": command,
+                "command": resolved_command,
             }
-
-            # Add optional parameters if provided
-            if args := arguments.get("args"):
-                create_params["args"] = args
+            if resolved_args:
+                create_params["args"] = resolved_args
             if env := arguments.get("env"):
                 # Transform env from object format (LLM-friendly) to ACP array format
                 # Input: {"PATH": "/usr/bin", "HOME": "/home/user"}

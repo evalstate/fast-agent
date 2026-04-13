@@ -8,6 +8,7 @@ from fast_agent.mcp.provider_management import (
     build_anthropic_provider_managed_mcp_payload,
     build_openai_provider_managed_mcp_tools,
     build_provider_managed_mcp_state,
+    get_openai_connector_ids,
     provider_managed_base_url,
 )
 
@@ -192,3 +193,69 @@ def test_build_provider_managed_mcp_state_preserves_provider_endpoint_url() -> N
     )
 
     assert state.attachments[0].server_url == "https://example.com/api/mcp"
+
+
+def test_get_openai_connector_ids_reads_sdk_literals() -> None:
+    assert "connector_dropbox" in get_openai_connector_ids()
+
+
+def test_build_openai_provider_mcp_tools_supports_connectors() -> None:
+    config = AgentConfig(
+        name="mail",
+        instruction="Use Gmail.",
+        servers=["gmail"],
+        tools={"gmail": ["search_gmail"]},
+    )
+    settings = {
+        "gmail": MCPServerSettings(
+            name="gmail",
+            management="provider",
+            connector_id="connector_gmail",
+            access_token="token-123",
+            description="Gmail connector",
+            defer_loading=True,
+        )
+    }
+
+    state = build_provider_managed_mcp_state(
+        agent_config=config,
+        server_settings_by_name=settings,
+    )
+    tools = build_openai_provider_managed_mcp_tools(state)
+
+    assert tools == [
+        {
+            "type": "mcp",
+            "server_label": "gmail",
+            "connector_id": "connector_gmail",
+            "require_approval": "never",
+            "server_description": "Gmail connector",
+            "authorization": "token-123",
+            "allowed_tools": ["search_gmail"],
+            "defer_loading": True,
+        }
+    ]
+
+
+def test_build_anthropic_provider_mcp_payload_rejects_connectors() -> None:
+    config = AgentConfig(
+        name="mail",
+        instruction="Use Gmail.",
+        servers=["gmail"],
+    )
+    settings = {
+        "gmail": MCPServerSettings(
+            name="gmail",
+            management="provider",
+            connector_id="connector_gmail",
+            access_token="token-123",
+        )
+    }
+
+    state = build_provider_managed_mcp_state(
+        agent_config=config,
+        server_settings_by_name=settings,
+    )
+
+    with pytest.raises(ValueError, match="only supported for the OpenAI Responses provider"):
+        build_anthropic_provider_managed_mcp_payload(state)

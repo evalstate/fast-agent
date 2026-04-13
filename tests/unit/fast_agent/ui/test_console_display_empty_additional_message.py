@@ -47,6 +47,12 @@ def test_console_display_uses_logger_render_settings_by_default() -> None:
     assert display.code_word_wrap is True
 
 
+def test_console_display_wraps_code_by_default() -> None:
+    display = ConsoleDisplay(config=None)
+
+    assert display.code_word_wrap is True
+
+
 def test_normalize_assistant_display_text_trims_trailing_blank_lines() -> None:
     assert ConsoleDisplay._normalize_assistant_display_text("hello\n\n") == "hello"
 

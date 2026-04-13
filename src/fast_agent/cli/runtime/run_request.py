@@ -77,6 +77,7 @@ class AgentRunRequest:
     permissions_enabled: bool
     reload: bool
     watch: bool
+    json_schema: str | None = None
     execution_mode: ExecutionMode | None = None
     quiet: bool = False
     missing_shell_cwd_policy: Literal["ask", "create", "warn", "error"] | None = None
@@ -94,6 +95,12 @@ class AgentRunRequest:
             raise ValueError(
                 f"execution_mode {self.execution_mode!r} does not match request inputs"
             )
+        if self.json_schema is not None:
+            if self.execution_mode == "repl":
+                raise ValueError("--json-schema requires --message or --prompt-file")
+            if self.model is not None and "," in self.model:
+                raise ValueError("--json-schema cannot be combined with multiple models")
+            self.quiet = True
 
     @property
     def allow_sessions(self) -> bool:
@@ -123,6 +130,7 @@ class AgentRunRequest:
             "model": self.model,
             "message": self.message,
             "prompt_file": self.prompt_file,
+            "json_schema": self.json_schema,
             "result_file": self.result_file,
             "resume": self.resume,
             "url_servers": self.url_servers,

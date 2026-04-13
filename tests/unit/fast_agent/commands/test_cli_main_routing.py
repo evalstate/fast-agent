@@ -62,6 +62,15 @@ def test_auto_routes_to_go_with_trailing_quiet_option() -> None:
     assert "--quiet" in output
 
 
+def test_auto_routes_to_go_with_json_schema_option() -> None:
+    result = _run_fast_agent_cli("--json-schema", "schema.json", "--message", "hello", "--help")
+    output = strip_ansi(result.stdout)
+
+    assert result.returncode == 0, result.stderr
+    assert "go [OPTIONS] COMMAND" in output
+    assert "--json-schema" in output
+
+
 def test_auto_routes_to_go_when_pack_flag_used_at_root() -> None:
     result = _run_fast_agent_cli("--pack", "alpha", "--help")
     output = strip_ansi(result.stdout)

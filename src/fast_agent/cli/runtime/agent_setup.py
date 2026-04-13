@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import sys
 import time
@@ -11,6 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import typer
+from jsonschema.exceptions import SchemaError
 from prompt_toolkit import PromptSession
 
 from fast_agent.cli.command_support import get_settings_or_exit
@@ -21,6 +23,7 @@ from fast_agent.core.keyring_utils import emit_keyring_access_notice
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.llm.model_reference_config import resolve_model_reference_start_path
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.structured_schema import validate_json_schema_definition
 from fast_agent.session.preview import find_last_assistant_preview_text
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
 from fast_agent.ui.model_picker_common import (
@@ -47,6 +50,27 @@ if TYPE_CHECKING:
     from .run_request import AgentRunRequest
 
 logger = get_logger(__name__)
+
+
+def _load_structured_json_schema(path_str: str) -> dict[str, Any]:
+    schema_path = Path(path_str).expanduser()
+    try:
+        raw_text = schema_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ValueError(f"Could not read JSON schema file {schema_path}: {exc}") from exc
+
+    try:
+        loaded = json.loads(raw_text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON schema file {schema_path}: {exc}") from exc
+
+    if not isinstance(loaded, dict):
+        raise ValueError(f"JSON schema file {schema_path} must contain a JSON object")
+
+    try:
+        return validate_json_schema_definition(loaded)
+    except SchemaError as exc:
+        raise ValueError(f"Invalid JSON schema in {schema_path}: {exc.message}") from exc
 
 
 def _find_last_assistant_text(history: list[Any]) -> str | None:
@@ -770,6 +794,15 @@ async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -
 
     # Allow interactive prompt startup checks to honor per-run CLI override policy.
     agent_app.missing_shell_cwd_policy_override = request.missing_shell_cwd_policy
+    try:
+        structured_schema = (
+            _load_structured_json_schema(request.json_schema)
+            if request.json_schema is not None
+            else None
+        )
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(1) from exc
 
     async def _run_interactive_with_interrupt_recovery() -> None:
         ctrl_c_exit_window_seconds = 2.0
@@ -824,8 +857,18 @@ async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -
         assert request.message is not None
         agent_obj = agent_app._agent(request.target_agent_name)
         history_before = [message.model_copy(deep=True) for message in agent_obj.message_history]
-        response = await agent_obj.generate(request.message)
-        print(response.last_text() or "")
+        if structured_schema is None:
+            response = await agent_obj.generate(request.message)
+            print(response.last_text() or "")
+        else:
+            parsed, response = await agent_obj.structured_schema(request.message, structured_schema)
+            if parsed is None:
+                typer.echo(
+                    "Error: model response did not produce valid JSON matching --json-schema.",
+                    err=True,
+                )
+                raise typer.Exit(1)
+            sys.stdout.write(json.dumps(parsed, ensure_ascii=False))
         if request.result_file and not _response_was_persisted(
             history_before,
             agent_obj.message_history,
@@ -839,8 +882,18 @@ async def _run_single_agent_cli_flow(agent_app: Any, request: AgentRunRequest) -
         prompt = load_prompt(Path(request.prompt_file))
         agent_obj = agent_app._agent(request.target_agent_name)
         history_before = [message.model_copy(deep=True) for message in agent_obj.message_history]
-        response = await agent_obj.generate(prompt)
-        print(response.last_text() or "")
+        if structured_schema is None:
+            response = await agent_obj.generate(prompt)
+            print(response.last_text() or "")
+        else:
+            parsed, response = await agent_obj.structured_schema(prompt, structured_schema)
+            if parsed is None:
+                typer.echo(
+                    "Error: model response did not produce valid JSON matching --json-schema.",
+                    err=True,
+                )
+                raise typer.Exit(1)
+            sys.stdout.write(json.dumps(parsed, ensure_ascii=False))
         if request.result_file and not _response_was_persisted(
             history_before,
             agent_obj.message_history,

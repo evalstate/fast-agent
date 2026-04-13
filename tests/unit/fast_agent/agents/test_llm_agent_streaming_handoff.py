@@ -8,7 +8,11 @@ from mcp.types import TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
-from fast_agent.constants import ANTHROPIC_CITATIONS_CHANNEL, REASONING
+from fast_agent.constants import (
+    ANTHROPIC_CITATIONS_CHANNEL,
+    ANTHROPIC_SERVER_TOOLS_CHANNEL,
+    REASONING,
+)
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
@@ -232,6 +236,77 @@ async def test_generate_impl_reprints_when_sources_need_pre_content() -> None:
     assert handle.finalize_calls == [response]
     assert len(agent.shown_messages) == 1
     assert agent.shown_messages[0]["render_message"] is True
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_generate_impl_reprints_when_remote_tool_activity_needs_final_display() -> None:
+    handle = _FakeStreamHandle(has_scrolled=False, preserve_result=True)
+    response = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="answer")],
+        stop_reason=LlmStopReason.END_TURN,
+        channels={
+            ANTHROPIC_SERVER_TOOLS_CHANNEL: [
+                TextContent(
+                    type="text",
+                    text=(
+                        '{"type":"mcp_tool_use","id":"mcptoolu_1","name":"hf_whoami",'
+                        '"server_name":"huggingface_mcp","input":{}}'
+                    ),
+                ),
+                TextContent(
+                    type="text",
+                    text=(
+                        '{"type":"mcp_tool_result","tool_use_id":"mcptoolu_1",'
+                        '"is_error":false,"content":[{"type":"text","text":"ok"}]}'
+                    ),
+                ),
+            ]
+        },
+    )
+    agent = _StreamingHarnessAgent(handle=handle, response=response)
+
+    result = await agent.generate_impl([_seed_message()])
+
+    assert result is response
+    assert handle.wait_for_drain_calls == 1
+    assert handle.preserve_called is False
+    assert handle.finalize_calls == [response]
+    assert len(agent.shown_messages) == 1
+    assert agent.shown_messages[0]["render_message"] is True
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_generate_impl_preserves_streamed_frame_for_call_only_remote_tool_metadata() -> None:
+    handle = _FakeStreamHandle(has_scrolled=False, preserve_result=True)
+    response = PromptMessageExtended(
+        role="assistant",
+        content=[],
+        stop_reason=LlmStopReason.END_TURN,
+        channels={
+            ANTHROPIC_SERVER_TOOLS_CHANNEL: [
+                TextContent(
+                    type="text",
+                    text=(
+                        '{"type":"mcp_tool_use","id":"mcptoolu_1","name":"hf_whoami",'
+                        '"server_name":"huggingface_mcp","input":{}}'
+                    ),
+                )
+            ]
+        },
+    )
+    agent = _StreamingHarnessAgent(handle=handle, response=response)
+
+    result = await agent.generate_impl([_seed_message()])
+
+    assert result is response
+    assert handle.wait_for_drain_calls == 1
+    assert handle.preserve_called is True
+    assert handle.finalize_calls == [response]
+    assert len(agent.shown_messages) == 1
+    assert agent.shown_messages[0]["render_message"] is False
 
 
 @pytest.mark.unit

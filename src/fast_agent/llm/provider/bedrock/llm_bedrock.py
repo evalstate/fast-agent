@@ -2322,6 +2322,101 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             # Restore original reasoning effort
             self.set_reasoning_effort(original_reasoning_effort)
 
+    async def _apply_prompt_provider_specific_structured_schema(
+        self,
+        multipart_messages: list[PromptMessageExtended],
+        schema: dict[str, Any],
+        request_params: RequestParams | None = None,
+    ) -> tuple[Any | None, PromptMessageExtended]:
+        try:
+            if multipart_messages and multipart_messages[-1].role == "assistant":
+                parsed_data, parsed_mp = self._structured_schema_from_multipart(
+                    multipart_messages[-1],
+                    schema,
+                )
+                if parsed_data is not None:
+                    return parsed_data, parsed_mp
+        except Exception:
+            pass
+
+        request_params = self.get_request_params(request_params)
+
+        original_reasoning_effort = self.reasoning_effort
+        self.set_reasoning_effort(ReasoningEffortSetting(kind="toggle", value=False))
+
+        if request_params:
+            request_params = request_params.model_copy(update={"temperature": 0.0})
+        else:
+            request_params = RequestParams(temperature=0.0)
+
+        caps_struct = self.capabilities.get(self.model) or ModelCapabilities()
+        strategy = caps_struct.structured_strategy or StructuredStrategy.STRICT_SCHEMA
+        schema_text = (
+            json.dumps(schema, indent=2)
+            if strategy == StructuredStrategy.SIMPLIFIED_SCHEMA
+            else self.schema_to_schema_str(schema)
+        )
+
+        prompt_parts = [
+            "You are a JSON generator. Respond with JSON that strictly follows the provided schema. Do not add any commentary or explanation.",
+            "",
+            "JSON Schema:",
+            schema_text,
+            "",
+            "IMPORTANT RULES:",
+            "- You MUST respond with only raw JSON data. No other text, commentary, or markdown is allowed.",
+            "- All field names and enum values are case-sensitive and must match the schema exactly.",
+            "- Do not add any extra fields to the JSON response. Only include the fields specified in the schema.",
+            "- Do not use code fences or backticks (no ```json and no ```).",
+            "- Your output must start with '{' and end with '}'.",
+            "- Valid JSON requires double quotes for all field names and string values. Other types (int, float, boolean, etc.) should not be quoted.",
+            "",
+            "Now, generate the valid JSON response for the following request:",
+        ]
+
+        try:
+            temp_last = multipart_messages[-1].model_copy(deep=True)
+        except Exception:
+            temp_last = PromptMessageExtended(
+                role=multipart_messages[-1].role,
+                content=list(multipart_messages[-1].content),
+            )
+
+        temp_last.add_text("\n".join(prompt_parts))
+
+        try:
+            result = await self._apply_prompt_provider_specific([temp_last], request_params)
+            parsed, _ = self._structured_schema_from_multipart(result, schema)
+            if parsed is None:
+                raise ValueError("structured parse returned None; triggering retry")
+            return parsed, result
+        except Exception:
+            strict_parts = [
+                "STRICT MODE:",
+                "Return ONLY a single JSON object that matches the schema.",
+                "Do not include any prose, explanations, code fences, or extra characters.",
+                "Start with '{' and end with '}'.",
+                "",
+                "JSON Schema:",
+                json.dumps(schema, indent=2),
+            ]
+            try:
+                temp_last_retry = multipart_messages[-1].model_copy(deep=True)
+            except Exception:
+                temp_last_retry = PromptMessageExtended(
+                    role=multipart_messages[-1].role,
+                    content=list(multipart_messages[-1].content),
+                )
+            temp_last_retry.add_text("\n".join(strict_parts))
+
+            retry_result = await self._apply_prompt_provider_specific(
+                [temp_last_retry],
+                request_params,
+            )
+            return self._structured_schema_from_multipart(retry_result, schema)
+        finally:
+            self.set_reasoning_effort(original_reasoning_effort)
+
     def _clean_json_response(self, text: str) -> str:
         """Clean up JSON response by removing text before first { and after last }.
 

@@ -11,6 +11,10 @@ from mcp.types import CallToolResult, ContentBlock, TextContent
 
 from fast_agent.constants import ANTHROPIC_ASSISTANT_RAW_CONTENT, ANTHROPIC_SERVER_TOOLS_CHANNEL
 from fast_agent.mcp.helpers.content_helpers import get_text
+from fast_agent.tool_activity_presentation import (
+    ToolActivityFamily,
+    build_tool_activity_presentation,
+)
 
 if TYPE_CHECKING:
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -28,26 +32,23 @@ class ToolActivity:
     arguments: dict[str, Any] | None = None
     result: CallToolResult | None = None
     is_remote: bool = False
+    family: ToolActivityFamily = "tool"
+    server_name: str | None = None
 
     @property
     def type_label(self) -> str:
-        return tool_activity_type_label(kind=self.kind, is_remote=self.is_remote)
+        presentation = build_tool_activity_presentation(
+            tool_name=self.tool_name,
+            phase=self.kind,
+            family=self.family,
+            remote=self.is_remote,
+            server_name=self.server_name,
+        )
+        return presentation.type_label or f"tool {self.kind}"
 
     @property
     def is_error(self) -> bool:
         return bool(self.result.isError) if self.result is not None else False
-
-
-def tool_activity_type_label(*, kind: ToolActivityKind, is_remote: bool) -> str:
-    if kind == "call":
-        return "remote tool call" if is_remote else "tool call"
-    return "remote tool result" if is_remote else "tool result"
-
-
-def tool_activity_display_title(*, kind: ToolActivityKind, tool_name: str, is_remote: bool) -> str:
-    if is_remote:
-        return f"remote tool: {tool_name}"
-    return f"{tool_activity_type_label(kind=kind, is_remote=is_remote)}: {tool_name}"
 
 
 def tool_activities_for_message(
@@ -101,7 +102,9 @@ def tool_activities_for_message(
                 order=order,
                 arguments=remote_activity.arguments,
                 result=remote_activity.result,
-                is_remote=True,
+                is_remote=remote_activity.is_remote,
+                family=remote_activity.family,
+                server_name=remote_activity.server_name,
             )
         )
         order += 1
@@ -121,7 +124,7 @@ def remote_tool_activities(message: "PromptMessageExtended") -> list[ToolActivit
         block_type = payload.get("type")
         if block_type == "mcp_tool_use":
             tool_use_id = payload.get("id")
-            tool_name = _remote_tool_name(payload)
+            tool_name, server_name = _remote_tool_name(payload)
             if not isinstance(tool_use_id, str) or tool_name is None:
                 continue
 
@@ -138,6 +141,8 @@ def remote_tool_activities(message: "PromptMessageExtended") -> list[ToolActivit
                     order=order,
                     arguments=dict(arguments),
                     is_remote=True,
+                    family="remote_tool",
+                    server_name=server_name,
                 )
             )
             continue
@@ -150,6 +155,7 @@ def remote_tool_activities(message: "PromptMessageExtended") -> list[ToolActivit
             continue
 
         tool_name = tool_names_by_id.get(tool_use_id, tool_use_id)
+        server_name = tool_name.split("/", 1)[0] if "/" in tool_name else None
         activities.append(
             ToolActivity(
                 kind="result",
@@ -158,6 +164,8 @@ def remote_tool_activities(message: "PromptMessageExtended") -> list[ToolActivit
                 order=order,
                 result=_result_from_payload(payload),
                 is_remote=True,
+                family="remote_tool",
+                server_name=server_name,
             )
         )
 
@@ -228,14 +236,14 @@ def display_remote_tool_activities(
     return True
 
 
-def _remote_tool_name(payload: Mapping[str, Any]) -> str | None:
+def _remote_tool_name(payload: Mapping[str, Any]) -> tuple[str | None, str | None]:
     raw_name = payload.get("name")
     if not isinstance(raw_name, str):
-        return None
+        return None, None
     raw_server_name = payload.get("server_name")
     if isinstance(raw_server_name, str) and raw_server_name:
-        return f"{raw_server_name}/{raw_name}"
-    return raw_name
+        return f"{raw_server_name}/{raw_name}", raw_server_name
+    return raw_name, None
 
 
 def _remote_tool_payloads(message: "PromptMessageExtended") -> list[dict[str, Any]]:

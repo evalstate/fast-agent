@@ -1,6 +1,7 @@
 import base64
 import json
 import os
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Literal
 
@@ -16,7 +17,7 @@ from mcp.types import (
     TextResourceContents,
 )
 from openai import AsyncOpenAI
-from openai.types.responses import ResponseFunctionToolCall
+from openai.types.responses import Response, ResponseFunctionToolCall
 from pydantic import AnyUrl, ValidationError
 
 from fast_agent.config import (
@@ -27,7 +28,12 @@ from fast_agent.config import (
     OpenResponsesSettings,
     Settings,
 )
-from fast_agent.constants import OPENAI_ASSISTANT_MESSAGE_ITEMS, OPENAI_REASONING_ENCRYPTED
+from fast_agent.constants import (
+    ANTHROPIC_SERVER_TOOLS_CHANNEL,
+    OPENAI_ASSISTANT_MESSAGE_ITEMS,
+    OPENAI_MCP_LIST_TOOLS_ITEMS,
+    OPENAI_REASONING_ENCRYPTED,
+)
 from fast_agent.context import Context
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.logging.logger import get_logger
@@ -37,6 +43,7 @@ from fast_agent.llm.provider.openai.openresponses import (
     OpenResponsesLLM,
     _OpenResponsesRawStream,
 )
+from fast_agent.llm.provider.openai.openresponses_streaming import OpenResponsesStreamingMixin
 from fast_agent.llm.provider.openai.responses import (
     RESPONSE_INCLUDE_WEB_SEARCH_SOURCES,
     ResponsesLLM,
@@ -44,7 +51,11 @@ from fast_agent.llm.provider.openai.responses import (
 from fast_agent.llm.provider.openai.responses_content import ResponsesContentMixin
 from fast_agent.llm.provider.openai.responses_files import ResponsesFileMixin
 from fast_agent.llm.provider.openai.responses_output import ResponsesOutputMixin
-from fast_agent.llm.provider.openai.responses_streaming import ResponsesStreamingMixin
+from fast_agent.llm.provider.openai.responses_streaming import (
+    ResponsesStreamingMixin,
+    _tool_search_arguments_chunk,
+)
+from fast_agent.llm.provider.openai.responses_websocket import _AttrObjectView
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -84,12 +95,54 @@ class _StreamingHarness(ResponsesStreamingMixin):
     def _notify_stream_listeners(self, chunk) -> None:
         del chunk
 
-    def _update_streaming_progress(self, content, model, estimated_tokens):
+    def _update_streaming_progress(
+        self,
+        content: str,
+        model: str,
+        estimated_tokens: int,
+    ) -> int:
         del content, model
         return estimated_tokens
 
     def chat_turn(self) -> int:
         return 1
+
+    @property
+    def events(self) -> list[tuple[str, dict]]:
+        return self._events
+
+
+class _OpenResponsesStreamingHarness(OpenResponsesStreamingMixin):
+    def __init__(self) -> None:
+        self.logger = get_logger("test.openresponses.streaming")
+        self.name = "test"
+        self._events: list[tuple[str, dict]] = []
+
+    def _notify_tool_stream_listeners(self, event_type, payload=None) -> None:
+        self._events.append((event_type, payload or {}))
+
+    def _notify_stream_listeners(self, chunk) -> None:
+        del chunk
+
+    def _update_streaming_progress(
+        self,
+        chunk: str,
+        model: str,
+        current_total: int,
+    ) -> int:
+        del chunk, model
+        return current_total
+
+    def chat_turn(self) -> int:
+        return 1
+
+    async def _emit_streaming_progress(
+        self,
+        model: str,
+        new_total: int,
+        type: ProgressAction = ProgressAction.STREAMING,
+    ) -> None:
+        del model, new_total, type
 
     @property
     def events(self) -> list[tuple[str, dict]]:
@@ -228,6 +281,28 @@ class _LoggerSpy:
 
     def warning(self, message: str, **data: Any) -> None:
         self.warning_calls.append((message, data))
+
+
+def _load_reasoning_summary_trace_response() -> Response:
+    repo_root = next(parent for parent in Path(__file__).resolve().parents if (parent / "tests" / "support").is_dir())
+    trace_path = (
+        repo_root
+        / "tests"
+        / "fixtures"
+        / "llm_traces"
+        / "sanitized"
+        / "responses"
+        / "gpt-5-4"
+        / "reasoning_summary_sections"
+        / "stream.jsonl"
+    )
+    payloads = [
+        json.loads(line)
+        for line in trace_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    response_payload = payloads[-1]["response"]
+    return Response.model_validate(response_payload)
 
 
 def test_convert_tool_calls_serializes_apply_patch_as_custom_tool_call() -> None:
@@ -901,6 +976,32 @@ def test_convert_extended_messages_to_provider_uses_raw_assistant_items_channel(
     assert items == [raw_item]
 
 
+def test_convert_extended_messages_to_provider_uses_raw_mcp_list_tools_items_channel() -> None:
+    harness = _ContentHarness()
+    raw_item = {
+        "type": "mcp_list_tools",
+        "id": "mcpl_123",
+        "server_label": "huggingface",
+        "tools": [{"name": "hf_whoami", "description": "Who am I?"}],
+    }
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="Final answer")],
+        channels={OPENAI_MCP_LIST_TOOLS_ITEMS: [TextContent(type="text", text=json.dumps(raw_item))]},
+    )
+
+    items = harness._convert_extended_messages_to_provider([message])
+
+    assert items == [
+        raw_item,
+        {
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "Final answer"}],
+        },
+    ]
+
+
 def test_extract_reasoning_summary_trims_streamed_fallback() -> None:
     harness = _OutputHarness()
     response = SimpleNamespace(output=[])
@@ -922,6 +1023,63 @@ def test_extract_reasoning_summary_omits_whitespace_only_streamed_fallback() -> 
     blocks = harness._extract_reasoning_summary(response, ["\n", "   ", "\t"])
 
     assert blocks == []
+
+
+def test_extract_reasoning_summary_preserves_markdown_heading_paragraph_breaks() -> None:
+    harness = _OutputHarness()
+    response = SimpleNamespace(
+        output=[
+            SimpleNamespace(
+                type="reasoning",
+                summary=[
+                    SimpleNamespace(
+                        text=(
+                            "**Deciding on naming and implementation**\n\n"
+                            "I think I should prepare an implementation checklist, "
+                            "needing just one or two from them."
+                        )
+                    ),
+                    SimpleNamespace(
+                        text=(
+                            "**Identifying key decisions**\n\n"
+                            "I think I should emphasize that there are really only "
+                            "three decisions to make."
+                        )
+                    ),
+                ],
+            )
+        ]
+    )
+
+    blocks = harness._extract_reasoning_summary(response, [])
+
+    assert len(blocks) == 1
+    assert isinstance(blocks[0], TextContent)
+    assert (
+        blocks[0].text
+        == "**Deciding on naming and implementation**\n\n"
+        "I think I should prepare an implementation checklist, "
+        "needing just one or two from them.\n\n"
+        "**Identifying key decisions**\n\n"
+        "I think I should emphasize that there are really only "
+        "three decisions to make."
+    )
+
+
+def test_extract_reasoning_summary_from_trace_preserves_section_breaks() -> None:
+    harness = _OutputHarness()
+    response = _load_reasoning_summary_trace_response()
+
+    blocks = harness._extract_reasoning_summary(response, [])
+
+    assert len(blocks) == 1
+    assert isinstance(blocks[0], TextContent)
+    assert (
+        "needing just one or two from them.\n\n"
+        "**Identifying key decisions**\n\n"
+        "I think I should emphasize that there are really only "
+        "three decisions to make; the others are already determined by the plan."
+    ) in blocks[0].text
 
 
 def test_responses_tool_use_id_prefers_call_id_when_available():
@@ -1121,6 +1279,49 @@ def test_build_response_args_includes_provider_managed_mcp_tools() -> None:
                     server_description="Stripe official MCP",
                     server_url="https://mcp.stripe.com",
                     access_token="token-123",
+                ),
+            ),
+            tool_allowlists={"stripe": ("create_payment_link",)},
+        )
+    )
+
+    args = llm._build_response_args(
+        input_items=[
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "create a payment link"}],
+            }
+        ],
+        request_params=RequestParams(model="gpt-5.4"),
+        tools=None,
+    )
+
+    tools_payload = args.get("tools")
+    assert isinstance(tools_payload, list)
+    assert tools_payload == [
+        {
+            "type": "mcp",
+            "server_label": "stripe",
+            "server_description": "Stripe official MCP",
+            "server_url": "https://mcp.stripe.com",
+            "require_approval": "never",
+            "authorization": "token-123",
+            "allowed_tools": ["create_payment_link"],
+        }
+    ]
+
+
+def test_build_response_args_adds_tool_search_for_deferred_provider_managed_mcp_tools() -> None:
+    llm = _build_responses_family_llm(Provider.RESPONSES, model_name="gpt-5.4")
+    llm.set_provider_managed_mcp_state(
+        ProviderManagedMCPState(
+            attachments=(
+                ProviderManagedMCPAttachment(
+                    server_name="stripe",
+                    server_description="Stripe official MCP",
+                    server_url="https://mcp.stripe.com",
+                    access_token="token-123",
                     defer_loading=True,
                 ),
             ),
@@ -1152,7 +1353,101 @@ def test_build_response_args_includes_provider_managed_mcp_tools() -> None:
             "authorization": "token-123",
             "allowed_tools": ["create_payment_link"],
             "defer_loading": True,
+        },
+        {
+            "type": "tool_search",
+            "execution": "server",
+        },
+    ]
+
+
+def test_build_response_args_includes_provider_managed_connectors() -> None:
+    llm = _build_responses_family_llm(Provider.RESPONSES, model_name="gpt-5.4")
+    llm.set_provider_managed_mcp_state(
+        ProviderManagedMCPState(
+            attachments=(
+                ProviderManagedMCPAttachment(
+                    server_name="dropbox",
+                    server_description="Dropbox connector",
+                    connector_id="connector_dropbox",
+                    access_token="token-123",
+                ),
+            ),
+            tool_allowlists={"dropbox": ("search_dropbox",)},
+        )
+    )
+
+    args = llm._build_response_args(
+        input_items=[
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "find the quarterly plan"}],
+            }
+        ],
+        request_params=RequestParams(model="gpt-5.4"),
+        tools=None,
+    )
+
+    tools_payload = args.get("tools")
+    assert isinstance(tools_payload, list)
+    assert tools_payload == [
+        {
+            "type": "mcp",
+            "server_label": "dropbox",
+            "server_description": "Dropbox connector",
+            "connector_id": "connector_dropbox",
+            "require_approval": "never",
+            "authorization": "token-123",
+            "allowed_tools": ["search_dropbox"],
         }
+    ]
+
+
+def test_build_response_args_adds_tool_search_for_deferred_provider_managed_connectors() -> None:
+    llm = _build_responses_family_llm(Provider.RESPONSES, model_name="gpt-5.4")
+    llm.set_provider_managed_mcp_state(
+        ProviderManagedMCPState(
+            attachments=(
+                ProviderManagedMCPAttachment(
+                    server_name="dropbox",
+                    server_description="Dropbox connector",
+                    connector_id="connector_dropbox",
+                    access_token="token-123",
+                    defer_loading=True,
+                ),
+            ),
+        )
+    )
+
+    args = llm._build_response_args(
+        input_items=[
+            {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": "find the quarterly plan"}],
+            }
+        ],
+        request_params=RequestParams(model="gpt-5.4"),
+        tools=None,
+    )
+
+    tools_payload = args.get("tools")
+    assert isinstance(tools_payload, list)
+    assert tools_payload == [
+        {
+            "type": "mcp",
+            "server_label": "dropbox",
+            "server_description": "Dropbox connector",
+            "connector_id": "connector_dropbox",
+            "require_approval": "never",
+            "authorization": "token-123",
+            "defer_loading": True,
+        },
+        {
+            "type": "tool_search",
+            "execution": "server",
+        },
     ]
 
 
@@ -1642,17 +1937,19 @@ def test_extract_provider_mcp_metadata_captures_remote_activity() -> None:
             SimpleNamespace(
                 type="mcp_call",
                 id="mcp_call_123",
+                call_id="call_123",
                 server_label="stripe",
                 name="create_payment_link",
                 status="completed",
                 arguments='{"amount": 42, "currency": "usd"}',
+                output='{"url":"https://pay.stripe.com/test"}',
             ),
         ]
     )
 
     payloads = harness._extract_provider_mcp_metadata(response)
 
-    assert len(payloads) == 2
+    assert len(payloads) == 3
     assert isinstance(payloads[0], TextContent)
     list_payload = json.loads(payloads[0].text)
     assert list_payload["type"] == "mcp_tool_use"
@@ -1663,9 +1960,20 @@ def test_extract_provider_mcp_metadata_captures_remote_activity() -> None:
     call_payload = json.loads(payloads[1].text)
     assert call_payload["type"] == "mcp_tool_use"
     assert call_payload["provider_tool_type"] == "mcp_call"
+    assert call_payload["id"] == "call_123"
     assert call_payload["name"] == "create_payment_link"
     assert call_payload["server_name"] == "stripe"
     assert call_payload["input"] == {"amount": 42, "currency": "usd"}
+
+    assert isinstance(payloads[2], TextContent)
+    result_payload = json.loads(payloads[2].text)
+    assert result_payload["type"] == "mcp_tool_result"
+    assert result_payload["tool_use_id"] == "call_123"
+    assert result_payload["tool_use_id"] == call_payload["id"]
+    assert result_payload["is_error"] is False
+    assert result_payload["content"] == [
+        {"type": "text", "text": '{"url":"https://pay.stripe.com/test"}'}
+    ]
 
 
 def test_extract_provider_mcp_metadata_rejects_approval_requests() -> None:
@@ -1676,6 +1984,142 @@ def test_extract_provider_mcp_metadata_rejects_approval_requests() -> None:
 
     with pytest.raises(RuntimeError, match="approval requests are not supported"):
         harness._extract_provider_mcp_metadata(response)
+
+
+def test_extract_raw_mcp_list_tools_items_preserves_raw_payload() -> None:
+    harness = _OutputHarness()
+    response = SimpleNamespace(
+        output=[
+            SimpleNamespace(
+                type="mcp_list_tools",
+                id="mcpl_123",
+                server_label="huggingface",
+                tools=[{"name": "hf_whoami", "description": "Who am I?"}],
+            )
+        ]
+    )
+
+    payloads = harness._extract_raw_mcp_list_tools_items(response)
+
+    assert len(payloads) == 1
+    assert isinstance(payloads[0], TextContent)
+    payload = json.loads(payloads[0].text)
+    assert payload == {
+        "type": "mcp_list_tools",
+        "id": "mcpl_123",
+        "server_label": "huggingface",
+        "tools": [{"name": "hf_whoami", "description": "Who am I?"}],
+    }
+
+
+def test_extract_tool_search_metadata_captures_server_side_deferred_loading() -> None:
+    harness = _OutputHarness()
+    response = SimpleNamespace(
+        output=[
+            SimpleNamespace(
+                type="tool_search_call",
+                id="tsc_123",
+                call_id="call_123",
+                execution="server",
+                status="completed",
+                arguments={"q": "stripe"},
+            ),
+            SimpleNamespace(
+                type="tool_search_output",
+                id="tso_123",
+                call_id="call_123",
+                execution="server",
+                status="completed",
+                tools=[
+                    {"type": "mcp", "server_label": "stripe", "name": "create_payment_link"},
+                    {"type": "mcp", "server_label": "stripe", "name": "list_products"},
+                ],
+            ),
+        ]
+    )
+
+    payloads = harness._extract_tool_search_metadata(response)
+
+    assert len(payloads) == 2
+    assert isinstance(payloads[0], TextContent)
+    call_payload = json.loads(payloads[0].text)
+    assert call_payload["type"] == "server_tool_use"
+    assert call_payload["name"] == "tool_search"
+    assert call_payload["provider_tool_type"] == "tool_search_call"
+    assert call_payload["call_id"] == "call_123"
+    assert call_payload["input"] == {"q": "stripe"}
+
+    assert isinstance(payloads[1], TextContent)
+    output_payload = json.loads(payloads[1].text)
+    assert output_payload["type"] == "server_tool_use"
+    assert output_payload["name"] == "tool_search"
+    assert output_payload["provider_tool_type"] == "tool_search_output"
+    assert output_payload["tools"] == [
+        {"type": "mcp", "server_label": "stripe", "name": "create_payment_link"},
+        {"type": "mcp", "server_label": "stripe", "name": "list_products"},
+    ]
+    assert output_payload["tool_count"] == 2
+
+
+def test_convert_message_to_items_replays_tool_search_history_from_server_tool_channel() -> None:
+    harness = _ContentHarness()
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="Deferred tools loaded.")],
+        channels={
+            ANTHROPIC_SERVER_TOOLS_CHANNEL: [
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "type": "server_tool_use",
+                            "name": "tool_search",
+                            "provider_tool_type": "tool_search_call",
+                            "id": "tsc_123",
+                            "call_id": "call_123",
+                            "status": "completed",
+                            "execution": "server",
+                            "input": {"q": "stripe"},
+                        }
+                    ),
+                ),
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "type": "server_tool_use",
+                            "name": "tool_search",
+                            "provider_tool_type": "tool_search_output",
+                            "id": "tso_123",
+                            "call_id": "call_123",
+                            "status": "completed",
+                            "execution": "server",
+                            "tools": [
+                                {
+                                    "type": "mcp",
+                                    "server_label": "stripe",
+                                    "name": "create_payment_link",
+                                }
+                            ],
+                        }
+                    ),
+                ),
+            ]
+        },
+    )
+
+    items = harness._convert_message_to_items(message)
+
+    assert [item["type"] for item in items] == [
+        "tool_search_call",
+        "tool_search_output",
+        "message",
+    ]
+    assert items[0]["arguments"] == {"q": "stripe"}
+    assert items[1]["tools"] == [
+        {"type": "mcp", "server_label": "stripe", "name": "create_payment_link"}
+    ]
+    assert items[2]["content"] == [{"type": "output_text", "text": "Deferred tools loaded."}]
 
 
 def test_tool_fallback_notifications_support_web_search_call() -> None:
@@ -1691,6 +2135,153 @@ def test_tool_fallback_notifications_support_web_search_call() -> None:
     assert [event for event, _payload in events] == ["start", "stop"]
     assert events[0][1]["tool_use_id"] == "ws_123"
     assert events[0][1]["tool_name"] == "web_search"
+
+
+def test_tool_fallback_notifications_support_tool_search_call() -> None:
+    harness = _StreamingHarness()
+    tool_search_call = SimpleNamespace(
+        type="tool_search_call",
+        id="tsc_123",
+        call_id="call_123",
+    )
+
+    harness._emit_tool_notification_fallback([tool_search_call], set(), model="gpt-test")
+
+    events = harness.events
+    assert [event for event, _payload in events] == ["start", "stop"]
+    assert events[0][1]["tool_use_id"] == "call_123"
+    assert events[0][1]["tool_name"] == "tool_search"
+
+
+def test_openresponses_tool_fallback_dedupes_mcp_call_by_call_id() -> None:
+    harness = _OpenResponsesStreamingHarness()
+    mcp_call = SimpleNamespace(
+        type="mcp_call",
+        id="mcp_call_123",
+        call_id="call_123",
+        server_label="stripe",
+        name="create_payment_link",
+    )
+
+    harness._emit_tool_notification_fallback(
+        [mcp_call],
+        set(),
+        model="gpt-test",
+        notified_tool_use_ids={"call_123"},
+    )
+
+    assert harness.events == []
+
+
+def test_tool_search_arguments_chunk_normalizes_attr_object_view() -> None:
+    assert _tool_search_arguments_chunk(_AttrObjectView({})) is None
+    assert _tool_search_arguments_chunk(_AttrObjectView({"paths": ["mcp_huggingface"]})) == (
+        '{"paths": ["mcp_huggingface"]}'
+    )
+
+
+@pytest.mark.asyncio
+async def test_stream_process_emits_tool_search_events() -> None:
+    harness = _StreamingHarness()
+    final_response = SimpleNamespace(
+        output=[SimpleNamespace(type="tool_search_call", id="tsc_123", call_id="call_123")],
+        usage=None,
+    )
+    stream = _FakeResponsesStream(
+        events=[
+            SimpleNamespace(
+                type="response.output_item.added",
+                output_index=0,
+                item=SimpleNamespace(
+                    type="tool_search_call",
+                    id="tsc_123",
+                    call_id="call_123",
+                    arguments={"q": "stripe"},
+                ),
+                item_id="tsc_123",
+            ),
+            SimpleNamespace(
+                type="response.output_item.done",
+                output_index=0,
+                item=SimpleNamespace(
+                    type="tool_search_call",
+                    id="tsc_123",
+                    call_id="call_123",
+                    status="completed",
+                ),
+                item_id="tsc_123",
+            ),
+            SimpleNamespace(type="response.completed", response=final_response),
+        ],
+        final_response=final_response,
+    )
+
+    await harness._process_stream(stream, model="gpt-test", capture_filename=None)
+
+    event_types = [event for event, _payload in harness.events]
+    assert event_types == ["start", "replace", "stop"]
+
+    start_payload = harness.events[0][1]
+    assert start_payload["tool_name"] == "tool_search"
+    assert start_payload["tool_use_id"] == "call_123"
+    assert start_payload["presentation_family"] == "remote_tool_search"
+    assert start_payload["preserve_details"] is True
+    assert start_payload["tool_display_name"] == "Deferred tool search"
+    assert start_payload["chunk"] == '{"q": "stripe"}'
+
+    replace_payload = harness.events[1][1]
+    assert replace_payload["tool_name"] == "tool_search"
+    assert replace_payload["presentation_family"] == "remote_tool_search"
+    assert replace_payload["tool_display_name"] == "Deferred tool search"
+    assert replace_payload["chunk"] == "deferred tool search complete"
+
+    stop_payload = harness.events[2][1]
+    assert stop_payload["tool_name"] == "tool_search"
+    assert stop_payload["presentation_family"] == "remote_tool_search"
+    assert stop_payload["tool_display_name"] == "Deferred tool search"
+
+
+@pytest.mark.asyncio
+async def test_stream_process_emits_tool_search_status_when_arguments_are_empty() -> None:
+    harness = _StreamingHarness()
+    final_response = SimpleNamespace(
+        output=[SimpleNamespace(type="tool_search_call", id="tsc_123", call_id="call_123")],
+        usage=None,
+    )
+    stream = _FakeResponsesStream(
+        events=[
+            SimpleNamespace(
+                type="response.output_item.added",
+                output_index=0,
+                item=SimpleNamespace(
+                    type="tool_search_call",
+                    id="tsc_123",
+                    call_id="call_123",
+                    arguments={},
+                ),
+                item_id="tsc_123",
+            ),
+            SimpleNamespace(
+                type="response.output_item.done",
+                output_index=0,
+                item=SimpleNamespace(
+                    type="tool_search_call",
+                    id="tsc_123",
+                    call_id="call_123",
+                    status="completed",
+                    arguments={},
+                ),
+                item_id="tsc_123",
+            ),
+            SimpleNamespace(type="response.completed", response=final_response),
+        ],
+        final_response=final_response,
+    )
+
+    await harness._process_stream(stream, model="gpt-test", capture_filename=None)
+
+    start_payload = harness.events[0][1]
+    assert start_payload["chunk"] == "searching deferred tools..."
 
 
 @pytest.mark.asyncio
@@ -1734,6 +2325,7 @@ async def test_stream_process_emits_web_search_status_events() -> None:
         payload for event_type, payload in harness.events if event_type == "start"
     )
     assert first_start_payload["tool_name"] == "web_search"
+    assert first_start_payload["presentation_family"] == "web_search"
     assert first_start_payload["tool_display_name"] == "Searching the web"
     assert first_start_payload["chunk"] == "starting search..."
 
@@ -1774,9 +2366,10 @@ async def test_stream_process_emits_mcp_status_events_with_mcp_copy() -> None:
         payload for event_type, payload in harness.events if event_type == "status"
     ]
     assert status_payloads
-    assert status_payloads[0]["tool_display_name"] == "Loading MCP tools"
-    assert status_payloads[0]["chunk"] == "loading remote tool definitions..."
-    assert status_payloads[-1]["chunk"] == "remote tool definitions loaded"
+    assert status_payloads[0]["presentation_family"] == "remote_tool_listing"
+    assert status_payloads[0]["tool_display_name"] == "Loading remote tools"
+    assert status_payloads[0]["chunk"] == "loading remote tools..."
+    assert status_payloads[-1]["chunk"] == "remote tools loaded"
 
 
 @pytest.mark.asyncio
@@ -1830,6 +2423,8 @@ async def test_stream_process_emits_named_mcp_call_result_events() -> None:
 
     start_payload = next(payload for event, payload in harness.events if event == "start")
     assert start_payload["tool_name"] == "stripe/create_payment_link"
+    assert start_payload["presentation_family"] == "remote_tool"
+    assert start_payload["preserve_details"] is True
     assert start_payload["tool_display_name"] == "remote tool: create_payment_link"
 
     replace_payloads = [payload for event, payload in harness.events if event == "replace"]

@@ -1,0 +1,890 @@
+{"is_reasoning": true, "text": "**Reviewing project decisions**\n\nI"}
+{"is_reasoning": true, "text": " think"}
+{"is_reasoning": true, "text": " I"}
+{"is_reasoning": true, "text": " need"}
+{"is_reasoning": true, "text": " to"}
+{"is_reasoning": true, "text": " read"}
+{"is_reasoning": true, "text": " the"}
+{"is_reasoning": true, "text": " plan"}
+{"is_reasoning": true, "text": " again"}
+{"is_reasoning": true, "text": " to"}
+{"is_reasoning": true, "text": " determine"}
+{"is_reasoning": true, "text": " if"}
+{"is_reasoning": true, "text": " it"}
+{"is_reasoning": true, "text": "\u2019s"}
+{"is_reasoning": true, "text": " sufficient"}
+{"is_reasoning": true, "text": " for"}
+{"is_reasoning": true, "text": " our"}
+{"is_reasoning": true, "text": " answers"}
+{"is_reasoning": true, "text": "."}
+{"is_reasoning": true, "text": " I"}
+{"is_reasoning": true, "text": " should"}
+{"is_reasoning": true, "text": " check"}
+{"is_reasoning": true, "text": " for"}
+{"is_reasoning": true, "text": " any"}
+{"is_reasoning": true, "text": " existing"}
+{"is_reasoning": true, "text": " documentation"}
+{"is_reasoning": true, "text": " or"}
+{"is_reasoning": true, "text": " reference"}
+{"is_reasoning": true, "text": " materials"}
+{"is_reasoning": true, "text": ","}
+{"is_reasoning": true, "text": " like"}
+{"is_reasoning": true, "text": " \u201c"}
+{"is_reasoning": true, "text": "04"}
+{"is_reasoning": true, "text": "-"}
+{"is_reasoning": true, "text": "12"}
+{"is_reasoning": true, "text": "-connect"}
+{"is_reasoning": true, "text": "ors"}
+{"is_reasoning": true, "text": ".\u201d"}
+{"is_reasoning": true, "text": " It"}
+{"is_reasoning": true, "text": " seems"}
+{"is_reasoning": true, "text": " most"}
+{"is_reasoning": true, "text": " decisions"}
+{"is_reasoning": true, "text": " are"}
+{"is_reasoning": true, "text": " already"}
+{"is_reasoning": true, "text": " settled"}
+{"is_reasoning": true, "text": " by"}
+{"is_reasoning": true, "text": " the"}
+{"is_reasoning": true, "text": " plan"}
+{"is_reasoning": true, "text": ","}
+{"is_reasoning": true, "text": " but"}
+{"is_reasoning": true, "text": " I"}
+{"is_reasoning": true, "text": " want"}
+{"is_reasoning": true, "text": " to"}
+{"is_reasoning": true, "text": " clarify"}
+{"is_reasoning": true, "text": " that"}
+{"is_reasoning": true, "text": " only"}
+{"is_reasoning": true, "text": " a"}
+{"is_reasoning": true, "text": " few"}
+{"is_reasoning": true, "text": " substantive"}
+{"is_reasoning": true, "text": " choices"}
+{"is_reasoning": true, "text": " remain"}
+{"is_reasoning": true, "text": ","}
+{"is_reasoning": true, "text": " primarily"}
+{"is_reasoning": true, "text": " around"}
+{"is_reasoning": true, "text": " scope"}
+{"is_reasoning": true, "text": ","}
+{"is_reasoning": true, "text": " not"}
+{"is_reasoning": true, "text": " design"}
+{"is_reasoning": true, "text": "."}
+{"is_reasoning": true, "text": " I"}
+{"is_reasoning": true, "text": "\u2019ll"}
+{"is_reasoning": true, "text": " summarize"}
+{"is_reasoning": true, "text": " those"}
+{"is_reasoning": true, "text": " decisions"}
+{"is_reasoning": true, "text": " and"}
+{"is_reasoning": true, "text": " provide"}
+{"is_reasoning": true, "text": " a"}
+{"is_reasoning": true, "text": " bullet"}
+{"is_reasoning": true, "text": " list"}
+{"is_reasoning": true, "text": " of"}
+{"is_reasoning": true, "text": " recommendations"}
+{"is_reasoning": true, "text": " and"}
+{"is_reasoning": true, "text": " their"}
+{"is_reasoning": true, "text": " consequences"}
+{"is_reasoning": true, "text": "."}
+{"is_reasoning": true, "text": "\n\n**Deciding on naming and implementation**\n\nI"}
+{"is_reasoning": true, "text": "\u2019m"}
+{"is_reasoning": true, "text": " considering"}
+{"is_reasoning": true, "text": " whether"}
+{"is_reasoning": true, "text": " to"}
+{"is_reasoning": true, "text": " ref"}
+{"is_reasoning": true, "text": "actor"}
+{"is_reasoning": true, "text": " the"}
+{"is_reasoning": true, "text": " internal"}
+{"is_reasoning": true, "text": " naming"}
+{"is_reasoning": true, "text": " now"}
+{"is_reasoning": true, "text": " or"}
+{"is_reasoning": true, "text": " postpone"}
+{"is_reasoning": true, "text": " it"}
+{"is_reasoning": true, "text": ","}
+{"is_reasoning": true, "text": " like"}
+{"is_reasoning": true, "text": " ren"}
+{"is_reasoning": true, "text": "aming"}
+{"is_reasoning": true, "text": " `"}
+{"is_reasoning": true, "text": "Provider"}
+{"is_reasoning": true, "text": "Managed"}
+{"is_reasoning": true, "text": "M"}
+{"is_reasoning": true, "text": "CP"}
+{"is_reasoning": true, "text": "Attachment"}
+{"is_reasoning": true, "text": "/"}
+{"is_reasoning": true, "text": "State"}
+{"is_reasoning": true, "text": "`"}
+{"is_reasoning": true, "text": " for"}
+{"is_reasoning": true, "text": " clarity"}
+{"is_reasoning": true, "text": ","}
+{"is_reasoning": true, "text": " or"}
+{"is_reasoning": true, "text": " keeping"}
+{"is_reasoning": true, "text": " it"}
+{"is_reasoning": true, "text": " simpler"}
+{"is_reasoning": true, "text": " for"}
+{"is_reasoning": true, "text": " smaller"}
+{"is_reasoning": true, "text": " changes"}
+{"is_reasoning": true, "text": "."}
+{"is_reasoning": true, "text": " I"}
+{"is_reasoning": true, "text": " also"}
+{"is_reasoning": true, "text": " need"}
+{"is_reasoning": true, "text": " to"}
+{"is_reasoning": true, "text": " remember"}
+{"is_reasoning": true, "text": " that"}
+{"is_reasoning": true, "text": " phase"}
+{"is_reasoning": true, "text": " 1"}
+{"is_reasoning": true, "text": " won"}
+{"is_reasoning": true, "text": "\u2019t"}
+{"is_reasoning": true, "text": " support"}
+{"is_reasoning": true, "text": " free"}
+{"is_reasoning": true, "text": "form"}
+{"is_reasoning": true, "text": " connector"}
+{"is_reasoning": true, "text": " target"}
+{"is_reasoning": true, "text": " syntax"}
+{"is_reasoning": true, "text": "."}
+{"is_reasoning": true, "text": " I"}
+{"is_reasoning": true, "text": " think"}
+{"is_reasoning": true, "text": " I"}
+{"is_reasoning": true, "text": " should"}
+{"is_reasoning": true, "text": " prepare"}
+{"is_reasoning": true, "text": " an"}
+{"is_reasoning": true, "text": " implementation"}
+{"is_reasoning": true, "text": " checklist"}
+{"is_reasoning": true, "text": " based"}
+{"is_reasoning": true, "text": " on"}
+{"is_reasoning": true, "text": " the"}
+{"is_reasoning": true, "text": " plan"}
+{"is_reasoning": true, "text": ","}
+{"is_reasoning": true, "text": " highlighting"}
+{"is_reasoning": true, "text": " key"}
+{"is_reasoning": true, "text": " decisions"}
+{"is_reasoning": true, "text": " and"}
+{"is_reasoning": true, "text": " their"}
+{"is_reasoning": true, "text": " impacts"}
+{"is_reasoning": true, "text": ","}
+{"is_reasoning": true, "text": " and"}
+{"is_reasoning": true, "text": " provide"}
+{"is_reasoning": true, "text": " defaults"}
+{"is_reasoning": true, "text": " for"}
+{"is_reasoning": true, "text": " easy"}
+{"is_reasoning": true, "text": " decision"}
+{"is_reasoning": true, "text": "-making"}
+{"is_reasoning": true, "text": "."}
+{"is_reasoning": true, "text": " Finally"}
+{"is_reasoning": true, "text": ","}
+{"is_reasoning": true, "text": " I"}
+{"is_reasoning": true, "text": " want"}
+{"is_reasoning": true, "text": " to"}
+{"is_reasoning": true, "text": " reassure"}
+{"is_reasoning": true, "text": " the"}
+{"is_reasoning": true, "text": " user"}
+{"is_reasoning": true, "text": " that"}
+{"is_reasoning": true, "text": " most"}
+{"is_reasoning": true, "text": " choices"}
+{"is_reasoning": true, "text": " are"}
+{"is_reasoning": true, "text": " mechanical"}
+{"is_reasoning": true, "text": ","}
+{"is_reasoning": true, "text": " needing"}
+{"is_reasoning": true, "text": " just"}
+{"is_reasoning": true, "text": " one"}
+{"is_reasoning": true, "text": " or"}
+{"is_reasoning": true, "text": " two"}
+{"is_reasoning": true, "text": " from"}
+{"is_reasoning": true, "text": " them"}
+{"is_reasoning": true, "text": "."}
+{"is_reasoning": true, "text": "\n\n**Identifying key decisions**\n\nI"}
+{"is_reasoning": true, "text": " think"}
+{"is_reasoning": true, "text": " I"}
+{"is_reasoning": true, "text": " should"}
+{"is_reasoning": true, "text": " emphasize"}
+{"is_reasoning": true, "text": " that"}
+{"is_reasoning": true, "text": " there"}
+{"is_reasoning": true, "text": " are"}
+{"is_reasoning": true, "text": " really"}
+{"is_reasoning": true, "text": " only"}
+{"is_reasoning": true, "text": " three"}
+{"is_reasoning": true, "text": " decisions"}
+{"is_reasoning": true, "text": " to"}
+{"is_reasoning": true, "text": " make"}
+{"is_reasoning": true, "text": ";"}
+{"is_reasoning": true, "text": " the"}
+{"is_reasoning": true, "text": " others"}
+{"is_reasoning": true, "text": " are"}
+{"is_reasoning": true, "text": " already"}
+{"is_reasoning": true, "text": " determined"}
+{"is_reasoning": true, "text": " by"}
+{"is_reasoning": true, "text": " the"}
+{"is_reasoning": true, "text": " plan"}
+{"is_reasoning": true, "text": "."}
+{"is_reasoning": true, "text": " I"}
+{"is_reasoning": true, "text": " need"}
+{"is_reasoning": true, "text": " to"}
+{"is_reasoning": true, "text": " be"}
+{"is_reasoning": true, "text": " careful"}
+{"is_reasoning": true, "text": " not"}
+{"is_reasoning": true, "text": " to"}
+{"is_reasoning": true, "text": " imply"}
+{"is_reasoning": true, "text": " any"}
+{"is_reasoning": true, "text": " unsupported"}
+{"is_reasoning": true, "text": " fields"}
+{"is_reasoning": true, "text": "."}
+{"is_reasoning": true, "text": " It"}
+{"is_reasoning": true, "text": " might"}
+{"is_reasoning": true, "text": " be"}
+{"is_reasoning": true, "text": " helpful"}
+{"is_reasoning": true, "text": " to"}
+{"is_reasoning": true, "text": " mention"}
+{"is_reasoning": true, "text": " that"}
+{"is_reasoning": true, "text": " the"}
+{"is_reasoning": true, "text": " current"}
+{"is_reasoning": true, "text": " code"}
+{"is_reasoning": true, "text": " suggests"}
+{"is_reasoning": true, "text": " a"}
+{"is_reasoning": true, "text": " smaller"}
+{"is_reasoning": true, "text": " change"}
+{"is_reasoning": true, "text": " path"}
+{"is_reasoning": true, "text": "."}
+{"is_reasoning": true, "text": " I"}
+{"is_reasoning": true, "text": " could"}
+{"is_reasoning": true, "text": " recommend"}
+{"is_reasoning": true, "text": " avoiding"}
+{"is_reasoning": true, "text": " internal"}
+{"is_reasoning": true, "text": " ren"}
+{"is_reasoning": true, "text": "ames"}
+{"is_reasoning": true, "text": " in"}
+{"is_reasoning": true, "text": " the"}
+{"is_reasoning": true, "text": " first"}
+{"is_reasoning": true, "text": " PR"}
+{"is_reasoning": true, "text": ","}
+{"is_reasoning": true, "text": " even"}
+{"is_reasoning": true, "text": " though"}
+{"is_reasoning": true, "text": " the"}
+{"is_reasoning": true, "text": " plan"}
+{"is_reasoning": true, "text": " suggests"}
+{"is_reasoning": true, "text": " it"}
+{"is_reasoning": true, "text": "."}
+{"is_reasoning": true, "text": " I"}
+{"is_reasoning": true, "text": " definitely"}
+{"is_reasoning": true, "text": " want"}
+{"is_reasoning": true, "text": " to"}
+{"is_reasoning": true, "text": " make"}
+{"is_reasoning": true, "text": " my"}
+{"is_reasoning": true, "text": " response"}
+{"is_reasoning": true, "text": " clear"}
+{"is_reasoning": true, "text": " and"}
+{"is_reasoning": true, "text": " possibly"}
+{"is_reasoning": true, "text": " ask"}
+{"is_reasoning": true, "text": " clar"}
+{"is_reasoning": true, "text": "ifying"}
+{"is_reasoning": true, "text": " questions"}
+{"is_reasoning": true, "text": " if"}
+{"is_reasoning": true, "text": " needed"}
+{"is_reasoning": true, "text": "."}
+{"is_reasoning": false, "text": "Short"}
+{"is_reasoning": false, "text": " version"}
+{"is_reasoning": false, "text": ":"}
+{"is_reasoning": false, "text": " **"}
+{"is_reasoning": false, "text": "not"}
+{"is_reasoning": false, "text": " many"}
+{"is_reasoning": false, "text": "**"}
+{"is_reasoning": false, "text": "."}
+{"is_reasoning": false, "text": " The"}
+{"is_reasoning": false, "text": " plan"}
+{"is_reasoning": false, "text": " already"}
+{"is_reasoning": false, "text": " settles"}
+{"is_reasoning": false, "text": " most"}
+{"is_reasoning": false, "text": " of"}
+{"is_reasoning": false, "text": " the"}
+{"is_reasoning": false, "text": " product"}
+{"is_reasoning": false, "text": " shape"}
+{"is_reasoning": false, "text": ".\n\n"}
+{"is_reasoning": false, "text": "The"}
+{"is_reasoning": false, "text": " main"}
+{"is_reasoning": false, "text": " decisions"}
+{"is_reasoning": false, "text": " I"}
+{"is_reasoning": false, "text": "\u2019d"}
+{"is_reasoning": false, "text": " want"}
+{"is_reasoning": false, "text": " locked"}
+{"is_reasoning": false, "text": " before"}
+{"is_reasoning": false, "text": " coding"}
+{"is_reasoning": false, "text": " are"}
+{"is_reasoning": false, "text": ":\n\n"}
+{"is_reasoning": false, "text": "1"}
+{"is_reasoning": false, "text": "."}
+{"is_reasoning": false, "text": " **"}
+{"is_reasoning": false, "text": "Phase"}
+{"is_reasoning": false, "text": "-"}
+{"is_reasoning": false, "text": "1"}
+{"is_reasoning": false, "text": " scope"}
+{"is_reasoning": false, "text": "**\n"}
+{"is_reasoning": false, "text": "  "}
+{"is_reasoning": false, "text": " -"}
+{"is_reasoning": false, "text": " **"}
+{"is_reasoning": false, "text": "Small"}
+{"is_reasoning": false, "text": "est"}
+{"is_reasoning": false, "text": " PR"}
+{"is_reasoning": false, "text": ":**"}
+{"is_reasoning": false, "text": " config"}
+{"is_reasoning": false, "text": " +"}
+{"is_reasoning": false, "text": " Open"}
+{"is_reasoning": false, "text": "AI"}
+{"is_reasoning": false, "text": " `"}
+{"is_reasoning": false, "text": "responses"}
+{"is_reasoning": false, "text": "`"}
+{"is_reasoning": false, "text": " payload"}
+{"is_reasoning": false, "text": " support"}
+{"is_reasoning": false, "text": " under"}
+{"is_reasoning": false, "text": " `"}
+{"is_reasoning": false, "text": "m"}
+{"is_reasoning": false, "text": "cp"}
+{"is_reasoning": false, "text": ".serv"}
+{"is_reasoning": false, "text": "ers"}
+{"is_reasoning": false, "text": "`"}
+{"is_reasoning": false, "text": " only"}
+{"is_reasoning": false, "text": ".\n"}
+{"is_reasoning": false, "text": "  "}
+{"is_reasoning": false, "text": " -"}
+{"is_reasoning": false, "text": " **"}
+{"is_reasoning": false, "text": "B"}
+{"is_reasoning": false, "text": "igger"}
+{"is_reasoning": false, "text": " PR"}
+{"is_reasoning": false, "text": ":**"}
+{"is_reasoning": false, "text": " include"}
+{"is_reasoning": false, "text": " Agent"}
+{"is_reasoning": false, "text": "Card"}
+{"is_reasoning": false, "text": " `"}
+{"is_reasoning": false, "text": "m"}
+{"is_reasoning": false, "text": "cp"}
+{"is_reasoning": false, "text": "_connect"}
+{"is_reasoning": false, "text": "`"}
+{"is_reasoning": false, "text": " support"}
+{"is_reasoning": false, "text": " too"}
+{"is_reasoning": false, "text": ".\n"}
+{"is_reasoning": false, "text": "  "}
+{"is_reasoning": false, "text": " -"}
+{"is_reasoning": false, "text": " My"}
+{"is_reasoning": false, "text": " recommendation"}
+{"is_reasoning": false, "text": ":"}
+{"is_reasoning": false, "text": " **"}
+{"is_reasoning": false, "text": "dec"}
+{"is_reasoning": false, "text": "ide"}
+{"is_reasoning": false, "text": " explicitly"}
+{"is_reasoning": false, "text": " whether"}
+{"is_reasoning": false, "text": " Agent"}
+{"is_reasoning": false, "text": "Cards"}
+{"is_reasoning": false, "text": " are"}
+{"is_reasoning": false, "text": " in"}
+{"is_reasoning": false, "text": " or"}
+{"is_reasoning": false, "text": " out"}
+{"is_reasoning": false, "text": " for"}
+{"is_reasoning": false, "text": " PR"}
+{"is_reasoning": false, "text": "1"}
+{"is_reasoning": false, "text": "**"}
+{"is_reasoning": false, "text": "."}
+{"is_reasoning": false, "text": " Everything"}
+{"is_reasoning": false, "text": " else"}
+{"is_reasoning": false, "text": " can"}
+{"is_reasoning": false, "text": " stay"}
+{"is_reasoning": false, "text": " phase"}
+{"is_reasoning": false, "text": " "}
+{"is_reasoning": false, "text": "2"}
+{"is_reasoning": false, "text": ".\n\n"}
+{"is_reasoning": false, "text": "2"}
+{"is_reasoning": false, "text": "."}
+{"is_reasoning": false, "text": " **"}
+{"is_reasoning": false, "text": "Internal"}
+{"is_reasoning": false, "text": " rename"}
+{"is_reasoning": false, "text": " now"}
+{"is_reasoning": false, "text": " vs"}
+{"is_reasoning": false, "text": " later"}
+{"is_reasoning": false, "text": "**\n"}
+{"is_reasoning": false, "text": "  "}
+{"is_reasoning": false, "text": " -"}
+{"is_reasoning": false, "text": " Current"}
+{"is_reasoning": false, "text": " code"}
+{"is_reasoning": false, "text": " is"}
+{"is_reasoning": false, "text": " URL"}
+{"is_reasoning": false, "text": "/M"}
+{"is_reasoning": false, "text": "CP"}
+{"is_reasoning": false, "text": "-n"}
+{"is_reasoning": false, "text": "amed"}
+{"is_reasoning": false, "text": ":\n"}
+{"is_reasoning": false, "text": "    "}
+{"is_reasoning": false, "text": " -"}
+{"is_reasoning": false, "text": " `"}
+{"is_reasoning": false, "text": "Provider"}
+{"is_reasoning": false, "text": "Managed"}
+{"is_reasoning": false, "text": "M"}
+{"is_reasoning": false, "text": "CP"}
+{"is_reasoning": false, "text": "Attachment"}
+{"is_reasoning": false, "text": "`\n"}
+{"is_reasoning": false, "text": "    "}
+{"is_reasoning": false, "text": " -"}
+{"is_reasoning": false, "text": " `"}
+{"is_reasoning": false, "text": "Provider"}
+{"is_reasoning": false, "text": "Managed"}
+{"is_reasoning": false, "text": "M"}
+{"is_reasoning": false, "text": "CP"}
+{"is_reasoning": false, "text": "State"}
+{"is_reasoning": false, "text": "`\n"}
+{"is_reasoning": false, "text": "  "}
+{"is_reasoning": false, "text": " -"}
+{"is_reasoning": false, "text": " Plan"}
+{"is_reasoning": false, "text": " suggests"}
+{"is_reasoning": false, "text": " neutral"}
+{"is_reasoning": false, "text": " names"}
+{"is_reasoning": false, "text": ":\n"}
+{"is_reasoning": false, "text": "    "}
+{"is_reasoning": false, "text": " -"}
+{"is_reasoning": false, "text": " `"}
+{"is_reasoning": false, "text": "Provider"}
+{"is_reasoning": false, "text": "Managed"}
+{"is_reasoning": false, "text": "Tool"}
+{"is_reasoning": false, "text": "Attachment"}
+{"is_reasoning": false, "text": "`\n"}
+{"is_reasoning": false, "text": "    "}
+{"is_reasoning": false, "text": " -"}
+{"is_reasoning": false, "text": " `"}
+{"is_reasoning": false, "text": "Provider"}
+{"is_reasoning": false, "text": "Managed"}
+{"is_reasoning": false, "text": "Tool"}
+{"is_reasoning": false, "text": "State"}
+{"is_reasoning": false, "text": "`\n"}
+{"is_reasoning": false, "text": "  "}
+{"is_reasoning": false, "text": " -"}
+{"is_reasoning": false, "text": " This"}
+{"is_reasoning": false, "text": " is"}
+{"is_reasoning": false, "text": " mostly"}
+{"is_reasoning": false, "text": " a"}
+{"is_reasoning": false, "text": " **"}
+{"is_reasoning": false, "text": "diff"}
+{"is_reasoning": false, "text": "-size"}
+{"is_reasoning": false, "text": " vs"}
+{"is_reasoning": false, "text": " cleanliness"}
+{"is_reasoning": false, "text": "**"}
+{"is_reasoning": false, "text": " call"}
+{"is_reasoning": false, "text": ".\n"}
+{"is_reasoning": false, "text": "  "}
+{"is_reasoning": false, "text": " -"}
+{"is_reasoning": false, "text": " My"}
+{"is_reasoning": false, "text": " recommendation"}
+{"is_reasoning": false, "text": ":"}
+{"is_reasoning": false, "text": " **"}
+{"is_reasoning": false, "text": "de"}
+{"is_reasoning": false, "text": "fer"}
+{"is_reasoning": false, "text": " the"}
+{"is_reasoning": false, "text": " rename"}
+{"is_reasoning": false, "text": " unless"}
+{"is_reasoning": false, "text": " the"}
+{"is_reasoning": false, "text": " touched"}
+{"is_reasoning": false, "text": " surface"}
+{"is_reasoning": false, "text": " is"}
+{"is_reasoning": false, "text": " already"}
+{"is_reasoning": false, "text": " small"}
+{"is_reasoning": false, "text": "**"}
+{"is_reasoning": false, "text": ".\n\n"}
+{"is_reasoning": false, "text": "3"}
+{"is_reasoning": false, "text": "."}
+{"is_reasoning": false, "text": " **"}
+{"is_reasoning": false, "text": "Strict"}
+{"is_reasoning": false, "text": " validation"}
+{"is_reasoning": false, "text": " policy"}
+{"is_reasoning": false, "text": "**\n"}
+{"is_reasoning": false, "text": "  "}
+{"is_reasoning": false, "text": " These"}
+{"is_reasoning": false, "text": " are"}
+{"is_reasoning": false, "text": " product"}
+{"is_reasoning": false, "text": " decisions"}
+{"is_reasoning": false, "text": " more"}
+{"is_reasoning": false, "text": " than"}
+{"is_reasoning": false, "text": " implementation"}
+{"is_reasoning": false, "text": " details"}
+{"is_reasoning": false, "text": ":\n"}
+{"is_reasoning": false, "text": "  "}
+{"is_reasoning": false, "text": " -"}
+{"is_reasoning": false, "text": " `"}
+{"is_reasoning": false, "text": "management"}
+{"is_reasoning": false, "text": ":"}
+{"is_reasoning": false, "text": " provider"}
+{"is_reasoning": false, "text": "`"}
+{"is_reasoning": false, "text": " +"}
+{"is_reasoning": false, "text": " **"}
+{"is_reasoning": false, "text": "exact"}
+{"is_reasoning": false, "text": "ly"}
+{"is_reasoning": false, "text": " one"}
+{"is_reasoning": false, "text": " of"}
+{"is_reasoning": false, "text": "**"}
+{"is_reasoning": false, "text": " `"}
+{"is_reasoning": false, "text": "url"}
+{"is_reasoning": false, "text": "`"}
+{"is_reasoning": false, "text": " or"}
+{"is_reasoning": false, "text": " `"}
+{"is_reasoning": false, "text": "connector"}
+{"is_reasoning": false, "text": "_id"}
+{"is_reasoning": false, "text": "`\n"}
+{"is_reasoning": false, "text": "  "}
+{"is_reasoning": false, "text": " -"}
+{"is_reasoning": false, "text": " `"}
+{"is_reasoning": false, "text": "connector"}
+{"is_reasoning": false, "text": "_id"}
+{"is_reasoning": false, "text": "`"}
+{"is_reasoning": false, "text": " must"}
+{"is_reasoning": false, "text": " hard"}
+{"is_reasoning": false, "text": "-match"}
+{"is_reasoning": false, "text": " the"}
+{"is_reasoning": false, "text": " **"}
+{"is_reasoning": false, "text": "SDK"}
+{"is_reasoning": false, "text": "-derived"}
+{"is_reasoning": false, "text": " literal"}
+{"is_reasoning": false, "text": " set"}
+{"is_reasoning": false, "text": "**\n"}
+{"is_reasoning": false, "text": "  "}
+{"is_reasoning": false, "text": " -"}
+{"is_reasoning": false, "text": " `"}
+{"is_reasoning": false, "text": "access"}
+{"is_reasoning": false, "text": "_token"}
+{"is_reasoning": false, "text": "`"}
+{"is_reasoning": false, "text": " required"}
+{"is_reasoning": false, "text": " for"}
+{"is_reasoning": false, "text": " connectors"}
+{"is_reasoning": false, "text": "\n"}
+{"is_reasoning": false, "text": "  "}
+{"is_reasoning": false, "text": " -"}
+{"is_reasoning": false, "text": " explicit"}
+{"is_reasoning": false, "text": " `"}
+{"is_reasoning": false, "text": "transport"}
+{"is_reasoning": false, "text": "`"}
+{"is_reasoning": false, "text": " rejected"}
+{"is_reasoning": false, "text": " for"}
+{"is_reasoning": false, "text": " connectors"}
+{"is_reasoning": false, "text": "\n"}
+{"is_reasoning": false, "text": "  "}
+{"is_reasoning": false, "text": " -"}
+{"is_reasoning": false, "text": " My"}
+{"is_reasoning": false, "text": " recommendation"}
+{"is_reasoning": false, "text": ":"}
+{"is_reasoning": false, "text": " **"}
+{"is_reasoning": false, "text": "t"}
+{"is_reasoning": false, "text": "reat"}
+{"is_reasoning": false, "text": " all"}
+{"is_reasoning": false, "text": " of"}
+{"is_reasoning": false, "text": " those"}
+{"is_reasoning": false, "text": " as"}
+{"is_reasoning": false, "text": " hard"}
+{"is_reasoning": false, "text": " errors"}
+{"is_reasoning": false, "text": "**,"}
+{"is_reasoning": false, "text": " not"}
+{"is_reasoning": false, "text": " warnings"}
+{"is_reasoning": false, "text": ".\n\n"}
+{"is_reasoning": false, "text": "4"}
+{"is_reasoning": false, "text": "."}
+{"is_reasoning": false, "text": " **"}
+{"is_reasoning": false, "text": "Whether"}
+{"is_reasoning": false, "text": " to"}
+{"is_reasoning": false, "text": " support"}
+{"is_reasoning": false, "text": " connectors"}
+{"is_reasoning": false, "text": " anywhere"}
+{"is_reasoning": false, "text": " outside"}
+{"is_reasoning": false, "text": " `"}
+{"is_reasoning": false, "text": "m"}
+{"is_reasoning": false, "text": "cp"}
+{"is_reasoning": false, "text": ".serv"}
+{"is_reasoning": false, "text": "ers"}
+{"is_reasoning": false, "text": "`"}
+{"is_reasoning": false, "text": " right"}
+{"is_reasoning": false, "text": " now"}
+{"is_reasoning": false, "text": "**\n"}
+{"is_reasoning": false, "text": "  "}
+{"is_reasoning": false, "text": " -"}
+{"is_reasoning": false, "text": " The"}
+{"is_reasoning": false, "text": " plan"}
+{"is_reasoning": false, "text": " says"}
+{"is_reasoning": false, "text": " **"}
+{"is_reasoning": false, "text": "no"}
+{"is_reasoning": false, "text": " free"}
+{"is_reasoning": false, "text": "form"}
+{"is_reasoning": false, "text": " `/"}
+{"is_reasoning": false, "text": "m"}
+{"is_reasoning": false, "text": "cp"}
+{"is_reasoning": false, "text": " connect"}
+{"is_reasoning": false, "text": " connector"}
+{"is_reasoning": false, "text": "_*"}
+{"is_reasoning": false, "text": "`"}
+{"is_reasoning": false, "text": " syntax"}
+{"is_reasoning": false, "text": "**\n"}
+{"is_reasoning": false, "text": "  "}
+{"is_reasoning": false, "text": " -"}
+{"is_reasoning": false, "text": " Optional"}
+{"is_reasoning": false, "text": " later"}
+{"is_reasoning": false, "text": ":"}
+{"is_reasoning": false, "text": " structured"}
+{"is_reasoning": false, "text": " Agent"}
+{"is_reasoning": false, "text": "Card"}
+{"is_reasoning": false, "text": " entries"}
+{"is_reasoning": false, "text": " only"}
+{"is_reasoning": false, "text": "\n"}
+{"is_reasoning": false, "text": "  "}
+{"is_reasoning": false, "text": " -"}
+{"is_reasoning": false, "text": " My"}
+{"is_reasoning": false, "text": " recommendation"}
+{"is_reasoning": false, "text": ":"}
+{"is_reasoning": false, "text": " **"}
+{"is_reasoning": false, "text": "keep"}
+{"is_reasoning": false, "text": " runtime"}
+{"is_reasoning": false, "text": " target"}
+{"is_reasoning": false, "text": " parsing"}
+{"is_reasoning": false, "text": " out"}
+{"is_reasoning": false, "text": " of"}
+{"is_reasoning": false, "text": " scope"}
+{"is_reasoning": false, "text": " entirely"}
+{"is_reasoning": false, "text": "**\n\n"}
+{"is_reasoning": false, "text": "5"}
+{"is_reasoning": false, "text": "."}
+{"is_reasoning": false, "text": " **"}
+{"is_reasoning": false, "text": "Provider"}
+{"is_reasoning": false, "text": " scope"}
+{"is_reasoning": false, "text": "**\n"}
+{"is_reasoning": false, "text": "  "}
+{"is_reasoning": false, "text": " -"}
+{"is_reasoning": false, "text": " Plan"}
+{"is_reasoning": false, "text": " recommends"}
+{"is_reasoning": false, "text": ":"}
+{"is_reasoning": false, "text": " **"}
+{"is_reasoning": false, "text": "Open"}
+{"is_reasoning": false, "text": "AI"}
+{"is_reasoning": false, "text": " `"}
+{"is_reasoning": false, "text": "responses"}
+{"is_reasoning": false, "text": "`"}
+{"is_reasoning": false, "text": " only"}
+{"is_reasoning": false, "text": "**\n"}
+{"is_reasoning": false, "text": "  "}
+{"is_reasoning": false, "text": " -"}
+{"is_reasoning": false, "text": " Explicit"}
+{"is_reasoning": false, "text": "ly"}
+{"is_reasoning": false, "text": " **"}
+{"is_reasoning": false, "text": "not"}
+{"is_reasoning": false, "text": "**"}
+{"is_reasoning": false, "text": " `"}
+{"is_reasoning": false, "text": "cod"}
+{"is_reasoning": false, "text": "ex"}
+{"is_reasoning": false, "text": "responses"}
+{"is_reasoning": false, "text": "`,"}
+{"is_reasoning": false, "text": " Open"}
+{"is_reasoning": false, "text": "AI"}
+{"is_reasoning": false, "text": "-compatible"}
+{"is_reasoning": false, "text": " providers"}
+{"is_reasoning": false, "text": ","}
+{"is_reasoning": false, "text": " Anth"}
+{"is_reasoning": false, "text": "ropic"}
+{"is_reasoning": false, "text": ","}
+{"is_reasoning": false, "text": " etc"}
+{"is_reasoning": false, "text": ".\n"}
+{"is_reasoning": false, "text": "  "}
+{"is_reasoning": false, "text": " -"}
+{"is_reasoning": false, "text": " My"}
+{"is_reasoning": false, "text": " recommendation"}
+{"is_reasoning": false, "text": ":"}
+{"is_reasoning": false, "text": " **"}
+{"is_reasoning": false, "text": "say"}
+{"is_reasoning": false, "text": " no"}
+{"is_reasoning": false, "text": " to"}
+{"is_reasoning": false, "text": " all"}
+{"is_reasoning": false, "text": " of"}
+{"is_reasoning": false, "text": " those"}
+{"is_reasoning": false, "text": " for"}
+{"is_reasoning": false, "text": " initial"}
+{"is_reasoning": false, "text": " implementation"}
+{"is_reasoning": false, "text": "**\n\n"}
+{"is_reasoning": false, "text": "If"}
+{"is_reasoning": false, "text": " you"}
+{"is_reasoning": false, "text": " want"}
+{"is_reasoning": false, "text": " the"}
+{"is_reasoning": false, "text": " practical"}
+{"is_reasoning": false, "text": " answer"}
+{"is_reasoning": false, "text": ","}
+{"is_reasoning": false, "text": " I"}
+{"is_reasoning": false, "text": "\u2019d"}
+{"is_reasoning": false, "text": " lock"}
+{"is_reasoning": false, "text": " in"}
+{"is_reasoning": false, "text": " this"}
+{"is_reasoning": false, "text": " exact"}
+{"is_reasoning": false, "text": " set"}
+{"is_reasoning": false, "text": " and"}
+{"is_reasoning": false, "text": " start"}
+{"is_reasoning": false, "text": " coding"}
+{"is_reasoning": false, "text": ":\n\n"}
+{"is_reasoning": false, "text": "-"}
+{"is_reasoning": false, "text": " **"}
+{"is_reasoning": false, "text": "Yes"}
+{"is_reasoning": false, "text": "**"}
+{"is_reasoning": false, "text": ":"}
+{"is_reasoning": false, "text": " `"}
+{"is_reasoning": false, "text": "m"}
+{"is_reasoning": false, "text": "cp"}
+{"is_reasoning": false, "text": ".serv"}
+{"is_reasoning": false, "text": "ers"}
+{"is_reasoning": false, "text": ".<"}
+{"is_reasoning": false, "text": "name"}
+{"is_reasoning": false, "text": ">."}
+{"is_reasoning": false, "text": "management"}
+{"is_reasoning": false, "text": ":"}
+{"is_reasoning": false, "text": " provider"}
+{"is_reasoning": false, "text": "`"}
+{"is_reasoning": false, "text": " +"}
+{"is_reasoning": false, "text": " `"}
+{"is_reasoning": false, "text": "connector"}
+{"is_reasoning": false, "text": "_id"}
+{"is_reasoning": false, "text": "`\n"}
+{"is_reasoning": false, "text": "-"}
+{"is_reasoning": false, "text": " **"}
+{"is_reasoning": false, "text": "Yes"}
+{"is_reasoning": false, "text": "**"}
+{"is_reasoning": false, "text": ":"}
+{"is_reasoning": false, "text": " exactly"}
+{"is_reasoning": false, "text": " one"}
+{"is_reasoning": false, "text": " of"}
+{"is_reasoning": false, "text": " `"}
+{"is_reasoning": false, "text": "url"}
+{"is_reasoning": false, "text": " |"}
+{"is_reasoning": false, "text": " connector"}
+{"is_reasoning": false, "text": "_id"}
+{"is_reasoning": false, "text": "`\n"}
+{"is_reasoning": false, "text": "-"}
+{"is_reasoning": false, "text": " **"}
+{"is_reasoning": false, "text": "Yes"}
+{"is_reasoning": false, "text": "**"}
+{"is_reasoning": false, "text": ":"}
+{"is_reasoning": false, "text": " strict"}
+{"is_reasoning": false, "text": " SDK"}
+{"is_reasoning": false, "text": "-backed"}
+{"is_reasoning": false, "text": " connector"}
+{"is_reasoning": false, "text": " validation"}
+{"is_reasoning": false, "text": "\n"}
+{"is_reasoning": false, "text": "-"}
+{"is_reasoning": false, "text": " **"}
+{"is_reasoning": false, "text": "Yes"}
+{"is_reasoning": false, "text": "**"}
+{"is_reasoning": false, "text": ":"}
+{"is_reasoning": false, "text": " auto"}
+{"is_reasoning": false, "text": " reuse"}
+{"is_reasoning": false, "text": " of"}
+{"is_reasoning": false, "text": " `"}
+{"is_reasoning": false, "text": "de"}
+{"is_reasoning": false, "text": "fer"}
+{"is_reasoning": false, "text": "_loading"}
+{"is_reasoning": false, "text": "`"}
+{"is_reasoning": false, "text": " /"}
+{"is_reasoning": false, "text": " `"}
+{"is_reasoning": false, "text": "tool"}
+{"is_reasoning": false, "text": "_search"}
+{"is_reasoning": false, "text": "`\n"}
+{"is_reasoning": false, "text": "-"}
+{"is_reasoning": false, "text": " **"}
+{"is_reasoning": false, "text": "No"}
+{"is_reasoning": false, "text": "**"}
+{"is_reasoning": false, "text": ":"}
+{"is_reasoning": false, "text": " `/"}
+{"is_reasoning": false, "text": "m"}
+{"is_reasoning": false, "text": "cp"}
+{"is_reasoning": false, "text": " connect"}
+{"is_reasoning": false, "text": "`"}
+{"is_reasoning": false, "text": " connector"}
+{"is_reasoning": false, "text": " syntax"}
+{"is_reasoning": false, "text": "\n"}
+{"is_reasoning": false, "text": "-"}
+{"is_reasoning": false, "text": " **"}
+{"is_reasoning": false, "text": "No"}
+{"is_reasoning": false, "text": "**"}
+{"is_reasoning": false, "text": ":"}
+{"is_reasoning": false, "text": " `"}
+{"is_reasoning": false, "text": "cod"}
+{"is_reasoning": false, "text": "ex"}
+{"is_reasoning": false, "text": "responses"}
+{"is_reasoning": false, "text": "`\n"}
+{"is_reasoning": false, "text": "-"}
+{"is_reasoning": false, "text": " **"}
+{"is_reasoning": false, "text": "Maybe"}
+{"is_reasoning": false, "text": "**"}
+{"is_reasoning": false, "text": ":"}
+{"is_reasoning": false, "text": " Agent"}
+{"is_reasoning": false, "text": "Cards"}
+{"is_reasoning": false, "text": " in"}
+{"is_reasoning": false, "text": " PR"}
+{"is_reasoning": false, "text": "1"}
+{"is_reasoning": false, "text": "\n"}
+{"is_reasoning": false, "text": "-"}
+{"is_reasoning": false, "text": " **"}
+{"is_reasoning": false, "text": "Probably"}
+{"is_reasoning": false, "text": " no"}
+{"is_reasoning": false, "text": "**"}
+{"is_reasoning": false, "text": ":"}
+{"is_reasoning": false, "text": " internal"}
+{"is_reasoning": false, "text": " type"}
+{"is_reasoning": false, "text": " rename"}
+{"is_reasoning": false, "text": " in"}
+{"is_reasoning": false, "text": " PR"}
+{"is_reasoning": false, "text": "1"}
+{"is_reasoning": false, "text": "\n\n"}
+{"is_reasoning": false, "text": "So"}
+{"is_reasoning": false, "text": " the"}
+{"is_reasoning": false, "text": " only"}
+{"is_reasoning": false, "text": " real"}
+{"is_reasoning": false, "text": " calls"}
+{"is_reasoning": false, "text": " you"}
+{"is_reasoning": false, "text": " still"}
+{"is_reasoning": false, "text": " need"}
+{"is_reasoning": false, "text": " to"}
+{"is_reasoning": false, "text": " make"}
+{"is_reasoning": false, "text": " are"}
+{"is_reasoning": false, "text": ":\n\n"}
+{"is_reasoning": false, "text": "-"}
+{"is_reasoning": false, "text": " **"}
+{"is_reasoning": false, "text": "Do"}
+{"is_reasoning": false, "text": " Agent"}
+{"is_reasoning": false, "text": "Cards"}
+{"is_reasoning": false, "text": " ship"}
+{"is_reasoning": false, "text": " in"}
+{"is_reasoning": false, "text": " the"}
+{"is_reasoning": false, "text": " first"}
+{"is_reasoning": false, "text": " PR"}
+{"is_reasoning": false, "text": "?"}
+{"is_reasoning": false, "text": "**\n"}
+{"is_reasoning": false, "text": "-"}
+{"is_reasoning": false, "text": " **"}
+{"is_reasoning": false, "text": "Do"}
+{"is_reasoning": false, "text": " you"}
+{"is_reasoning": false, "text": " want"}
+{"is_reasoning": false, "text": " the"}
+{"is_reasoning": false, "text": " internal"}
+{"is_reasoning": false, "text": " rename"}
+{"is_reasoning": false, "text": " now"}
+{"is_reasoning": false, "text": ","}
+{"is_reasoning": false, "text": " or"}
+{"is_reasoning": false, "text": " keep"}
+{"is_reasoning": false, "text": " the"}
+{"is_reasoning": false, "text": " diff"}
+{"is_reasoning": false, "text": " minimal"}
+{"is_reasoning": false, "text": "?"}
+{"is_reasoning": false, "text": "**\n\n"}
+{"is_reasoning": false, "text": "Everything"}
+{"is_reasoning": false, "text": " else"}
+{"is_reasoning": false, "text": " in"}
+{"is_reasoning": false, "text": " the"}
+{"is_reasoning": false, "text": " plan"}
+{"is_reasoning": false, "text": " reads"}
+{"is_reasoning": false, "text": " as"}
+{"is_reasoning": false, "text": " already"}
+{"is_reasoning": false, "text": " decided"}
+{"is_reasoning": false, "text": ".\n\n"}
+{"is_reasoning": false, "text": "If"}
+{"is_reasoning": false, "text": " you"}
+{"is_reasoning": false, "text": " want"}
+{"is_reasoning": false, "text": ","}
+{"is_reasoning": false, "text": " I"}
+{"is_reasoning": false, "text": " can"}
+{"is_reasoning": false, "text": " turn"}
+{"is_reasoning": false, "text": " that"}
+{"is_reasoning": false, "text": " into"}
+{"is_reasoning": false, "text": " a"}
+{"is_reasoning": false, "text": " concrete"}
+{"is_reasoning": false, "text": " implementation"}
+{"is_reasoning": false, "text": " checklist"}
+{"is_reasoning": false, "text": " by"}
+{"is_reasoning": false, "text": " file"}
+{"is_reasoning": false, "text": "."}

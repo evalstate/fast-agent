@@ -73,10 +73,11 @@ LifecycleHooksConfig: TypeAlias = dict[str, str] | None
 class MCPConnectTarget:
     """Runtime MCP connect target declared on an AgentCard."""
 
-    target: str
+    target: str | None = None
     name: str | None = None
     description: str | None = None
     management: str | None = None
+    connector_id: str | None = None
     headers: dict[str, str] | None = None
     access_token: str | None = None
     defer_loading: bool | None = None

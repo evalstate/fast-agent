@@ -12,6 +12,7 @@ from fast_agent.constants import (
     ANTHROPIC_CITATIONS_CHANNEL,
     ANTHROPIC_SERVER_TOOLS_CHANNEL,
     OPENAI_ASSISTANT_MESSAGE_ITEMS,
+    OPENAI_MCP_LIST_TOOLS_ITEMS,
     OPENAI_REASONING_ENCRYPTED,
     REASONING,
 )
@@ -66,6 +67,7 @@ DEFAULT_RESPONSES_BASE_URL = "https://api.openai.com/v1"
 RESPONSES_DIAGNOSTICS_CHANNEL = "fast-agent-provider-diagnostics"
 RESPONSE_INCLUDE_REASONING = "reasoning.encrypted_content"
 RESPONSE_INCLUDE_WEB_SEARCH_SOURCES = "web_search_call.action.sources"
+OPENAI_TOOL_SEARCH_TOOL = {"type": "tool_search", "execution": "server"}
 
 ResponsesTransport = Literal["sse", "websocket", "auto"]
 ResponsesServiceTier = Literal["fast", "flex"]
@@ -655,6 +657,21 @@ class ResponsesLLM(
 
         return await self._responses_completion(input_items, req_params, tools)
 
+    async def _apply_prompt_provider_specific_structured_schema(
+        self,
+        multipart_messages: list[PromptMessageExtended],
+        schema: dict[str, Any],
+        request_params: RequestParams | None = None,
+    ) -> PromptMessageExtended | tuple[Any | None, PromptMessageExtended]:
+        request_params = self.get_request_params(request_params)
+        if not request_params.response_format:
+            request_params.response_format = self.schema_to_response_format(schema)
+        return await super()._apply_prompt_provider_specific_structured_schema(
+            multipart_messages,
+            schema,
+            request_params,
+        )
+
     def _build_response_args(
         self,
         input_items: list[dict[str, Any]],
@@ -702,6 +719,18 @@ class ResponsesLLM(
                 tools_payload.extend(
                     build_openai_provider_managed_mcp_tools(self.provider_managed_mcp_state)
                 )
+                if (
+                    any(
+                        attachment.defer_loading
+                        for attachment in self.provider_managed_mcp_state.attachments
+                    )
+                    and not any(
+                        isinstance(tool_payload, dict)
+                        and tool_payload.get("type") == "tool_search"
+                        for tool_payload in tools_payload
+                    )
+                ):
+                    tools_payload.append(dict(OPENAI_TOOL_SEARCH_TOOL))
 
         resolved_web_search = resolve_web_search(
             self._openai_settings(),
@@ -858,6 +887,11 @@ class ResponsesLLM(
             if channels is None:
                 channels = {}
             channels[OPENAI_ASSISTANT_MESSAGE_ITEMS] = assistant_message_items
+        raw_mcp_list_tools_items = self._extract_raw_mcp_list_tools_items(response)
+        if raw_mcp_list_tools_items:
+            if channels is None:
+                channels = {}
+            channels[OPENAI_MCP_LIST_TOOLS_ITEMS] = raw_mcp_list_tools_items
         tool_call_diagnostics = self._consume_tool_call_diagnostics()
         diagnostics_payload = dict(tool_call_diagnostics) if tool_call_diagnostics else None
         websocket_diagnostics = self._websocket_diagnostics_payload()
@@ -894,9 +928,10 @@ class ResponsesLLM(
         if getattr(response, "usage", None):
             self._record_usage(response.usage, model_name)
 
+        tool_search_payloads = self._extract_tool_search_metadata(response)
         web_tool_payloads, citation_payloads = self._extract_web_search_metadata(response)
         provider_mcp_payloads = self._extract_provider_mcp_metadata(response)
-        server_tool_payloads = [*web_tool_payloads, *provider_mcp_payloads]
+        server_tool_payloads = [*tool_search_payloads, *web_tool_payloads, *provider_mcp_payloads]
         if server_tool_payloads:
             if channels is None:
                 channels = {}

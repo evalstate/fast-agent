@@ -105,6 +105,17 @@ class TestRequestParamsInLLM:
         assert result["model"] == "test-model"
         assert result["response_format"] == json_format
 
+    def test_structured_schema_is_not_passed_through_to_provider_arguments(self):
+        llm = StubLLM()
+
+        result = llm.prepare_provider_arguments(
+            {"model": "test-model"},
+            RequestParams(structured_schema={"type": "object"}),
+        )
+
+        assert result["model"] == "test-model"
+        assert "structured_schema" not in result
+
     def test_service_tier_excluded_from_non_responses_provider_arguments(self):
         """Test that service_tier is kept off generic provider argument passthrough."""
         llm = StubLLM()

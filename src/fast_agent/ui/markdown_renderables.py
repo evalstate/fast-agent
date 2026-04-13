@@ -464,7 +464,7 @@ def build_markdown_renderable(
     cursor_suffix: str = "",
     close_incomplete_fences: bool = False,
     render_fences_with_syntax: bool = True,
-    code_word_wrap: bool = False,
+    code_word_wrap: bool = True,
     pad_code_blocks: bool = True,
 ):
     if not text and not cursor_suffix:

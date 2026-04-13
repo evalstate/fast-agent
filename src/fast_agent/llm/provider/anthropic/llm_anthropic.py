@@ -8,7 +8,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Mapping, Sequence, Type, Union, cast
+from typing import Any, Literal, Mapping, Sequence, Type, Union, cast
 
 from anthropic import (
     APIError,
@@ -46,7 +46,6 @@ from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
 from fast_agent.event_progress import ProgressAction
-from fast_agent.history.tool_activities import tool_activity_display_title
 from fast_agent.interfaces import ModelT
 from fast_agent.llm.fastagent_llm import (
     FastAgentLLM,
@@ -103,8 +102,10 @@ from fast_agent.llm.tool_tracking import ToolCallTracker
 from fast_agent.llm.usage_tracking import TurnUsage
 from fast_agent.mcp.mime_utils import DOCUMENT_MIME_TYPES, guess_mime_type, normalize_mime_type
 from fast_agent.mcp.provider_management import build_anthropic_provider_managed_mcp_payload
+from fast_agent.tool_activity_presentation import build_tool_activity_presentation
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
+from fast_agent.utils.reasoning_chunk_join import ReasoningTextAccumulator
 from fast_agent.utils.type_narrowing import is_str_object_dict
 
 DEFAULT_ANTHROPIC_MODEL = "sonnet"
@@ -197,16 +198,21 @@ def _mcp_tool_result_preview_chunk(result_content: object) -> str:
     return preview_chunk or "…"
 
 
-def _provider_tool_progress_label(*, tool_name: str, server_name: str | None = None) -> str:
-    if server_name:
-        return tool_activity_display_title(kind="call", tool_name=tool_name, is_remote=True)
-    return web_tool_progress_label(tool_name)
-
-
-def _provider_tool_result_label(*, tool_name: str, server_name: str | None = None) -> str:
-    if server_name:
-        return tool_activity_display_title(kind="result", tool_name=tool_name, is_remote=True)
-    return tool_activity_display_title(kind="result", tool_name=tool_name, is_remote=True)
+def _provider_tool_display_name(
+    *,
+    tool_name: str,
+    server_name: str | None = None,
+    phase: Literal["call", "result"] = "call",
+) -> str:
+    if server_name is None:
+        return web_tool_progress_label(tool_name)
+    combined_name = f"{server_name}/{tool_name}" if server_name else tool_name
+    return build_tool_activity_presentation(
+        tool_name=combined_name,
+        phase="result" if phase == "result" else "call",
+        server_name=server_name,
+        remote=bool(server_name),
+    ).display_name
 
 
 def _is_beta_text_block_validation_error(error: Exception) -> bool:
@@ -793,9 +799,12 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         return args, True
 
     def _resolve_structured_output_mode(
-        self, model: str, structured_model: Type[ModelT] | None
+        self,
+        model: str,
+        structured_model: Type[ModelT] | None,
+        structured_schema: dict[str, Any] | None = None,
     ) -> StructuredOutputMode | None:
-        if structured_model is None:
+        if structured_model is None and structured_schema is None:
             return None
         if self._structured_output_mode_override is not None:
             return self._structured_output_mode_override
@@ -810,22 +819,44 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             return "tool_use"
         return "tool_use"
 
-    def _build_output_format(self, structured_model: Type[ModelT]) -> dict[str, Any]:
-        try:
-            schema = transform_schema(structured_model)
-        except Exception:
-            schema = structured_model.model_json_schema()
+    def _build_output_format(
+        self,
+        structured_model: Type[ModelT] | None,
+        structured_schema: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if structured_schema is not None:
+            schema = structured_schema
+        elif structured_model is not None:
+            try:
+                schema = transform_schema(structured_model)
+            except Exception:
+                schema = structured_model.model_json_schema()
+        else:
+            schema = {"type": "object"}
         return {"type": "json_schema", "schema": schema}
 
     async def _prepare_tools(
         self,
         structured_model: Type[ModelT] | None = None,
+        structured_schema: dict[str, Any] | None = None,
         tools: list[Tool] | None = None,
         structured_mode: StructuredOutputMode | None = None,
     ) -> list[ToolParam]:
         """Prepare tools based on whether we're in structured output mode."""
-        if structured_model and structured_mode == "tool_use":
-            schema = _ensure_additional_properties_false(structured_model.model_json_schema())
+        if (structured_model or structured_schema) and structured_mode == "tool_use":
+            schema: dict[str, object]
+            if structured_schema is not None:
+                schema = cast(
+                    "dict[str, object]",
+                    _ensure_additional_properties_false(structured_schema),
+                )
+            elif structured_model is not None:
+                schema = cast(
+                    "dict[str, object]",
+                    _ensure_additional_properties_false(structured_model.model_json_schema()),
+                )
+            else:
+                schema = {"type": "object"}
             return [
                 ToolParam(
                     name=STRUCTURED_OUTPUT_TOOL_NAME,
@@ -834,7 +865,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                     strict=True,
                 )
             ]
-        if structured_model:
+        if structured_model or structured_schema:
             return []
         # Regular mode - use tools from aggregator
         return [
@@ -1051,7 +1082,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         tool_tracker = ToolCallTracker()
         tool_input_buffers: dict[str, _AnthropicToolInputBuffer] = {}
         provider_tool_names: dict[str, tuple[str, str | None]] = {}
-        thinking_segments: list[str] = []
+        thinking_segments = ReasoningTextAccumulator()
         streamed_text_segments: list[str] = []
         thinking_indices: set[int] = set()
 
@@ -1101,11 +1132,17 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                             index=event.index,
                             kind="server_tool",
                         )
-                        progress_label = _provider_tool_progress_label(tool_name=state.name)
+                        presentation = build_tool_activity_presentation(
+                            tool_name=state.name,
+                            phase="call",
+                        )
+                        progress_label = _provider_tool_display_name(tool_name=state.name)
                         self._notify_tool_stream_listeners(
                             "start",
                             {
                                 "tool_name": state.name,
+                                "presentation_family": presentation.family,
+                                "preserve_details": False,
                                 "tool_display_name": progress_label,
                                 "chunk": _server_tool_preview_chunk(content_block.input),
                                 "tool_use_id": state.tool_use_id,
@@ -1137,7 +1174,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                             index=event.index,
                             kind="server_tool",
                         )
-                        progress_label = _provider_tool_progress_label(
+                        progress_label = _provider_tool_display_name(
                             tool_name=content_block.name,
                             server_name=content_block.server_name,
                         )
@@ -1146,6 +1183,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                             {
                                 "tool_name": combined_name,
                                 "server_name": content_block.server_name,
+                                "presentation_family": "remote_tool",
+                                "preserve_details": True,
                                 "tool_display_name": progress_label,
                                 "chunk": _mcp_tool_preview_chunk(content_block.input),
                                 "tool_use_id": state.tool_use_id,
@@ -1173,9 +1212,10 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                         combined_name = (
                             f"{server_name}/{raw_tool_name}" if server_name else raw_tool_name
                         )
-                        display_name = _provider_tool_result_label(
+                        display_name = _provider_tool_display_name(
                             tool_name=raw_tool_name,
                             server_name=server_name,
+                            phase="result",
                         )
                         result_tool_use_id = f"{content_block.tool_use_id}:result"
                         self._notify_tool_stream_listeners(
@@ -1183,6 +1223,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                             {
                                 "tool_name": combined_name,
                                 "server_name": server_name,
+                                "presentation_family": "remote_tool",
+                                "preserve_details": True,
                                 "tool_display_name": display_name,
                                 "tool_use_id": result_tool_use_id,
                                 "index": event.index,
@@ -1194,6 +1236,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                             {
                                 "tool_name": combined_name,
                                 **({"server_name": server_name} if server_name else {}),
+                                "presentation_family": "remote_tool",
+                                "preserve_details": True,
                                 "tool_display_name": display_name,
                                 "tool_use_id": result_tool_use_id,
                                 "index": event.index,
@@ -1320,6 +1364,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                                     {
                                         "tool_name": tool_name,
                                         "server_name": server_name,
+                                        "presentation_family": "remote_tool",
+                                        "preserve_details": True,
                                         "tool_use_id": state.tool_use_id,
                                         "index": event.index,
                                         "chunk": input_preview,
@@ -1328,7 +1374,11 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                         elif isinstance(content_block, ServerToolUseBlock):
                             tool_name = content_block.name
 
-                        progress_label = _provider_tool_progress_label(
+                        presentation = build_tool_activity_presentation(
+                            tool_name=tool_name,
+                            phase="call",
+                        )
+                        progress_label = _provider_tool_display_name(
                             tool_name=tool_name.split("/", 1)[-1],
                             server_name=server_name,
                         )
@@ -1337,6 +1387,10 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                             {
                                 "tool_name": tool_name,
                                 **({"server_name": server_name} if server_name else {}),
+                                "presentation_family": (
+                                    "remote_tool" if server_name else presentation.family
+                                ),
+                                "preserve_details": bool(server_name),
                                 "tool_display_name": progress_label,
                                 "tool_use_id": state.tool_use_id,
                                 "index": event.index,
@@ -1439,7 +1493,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                         stop_reason="end_turn",
                         usage=None,
                     )
-                    return fallback_message, thinking_segments, streamed_text_segments
+                    return fallback_message, thinking_segments.parts(), streamed_text_segments
                 raise
 
             # Log final usage information
@@ -1448,7 +1502,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                     f"Streaming complete - Model: {model}, Input tokens: {message.usage.input_tokens}, Output tokens: {message.usage.output_tokens}"
                 )
 
-            return message, thinking_segments, streamed_text_segments
+            return message, thinking_segments.parts(), streamed_text_segments
         except APIError as error:
             logger.error("Streaming APIError during Anthropic completion", exc_info=error)
             raise  # Re-raise to be handled by _anthropic_completion
@@ -1551,6 +1605,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         request_tools: list[ToolParam],
         structured_mode: StructuredOutputMode | None,
         structured_model: Type[ModelT] | None,
+        structured_schema: dict[str, Any] | None = None,
     ) -> tuple[dict[str, Any], bool]:
         base_args: dict[str, Any] = {
             "model": model,
@@ -1585,9 +1640,12 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             structured_mode=structured_mode,
         )
         base_args.update(thinking_args)
-        if structured_mode == "json" and structured_model:
+        if structured_mode == "json" and (structured_model or structured_schema):
             output_config = dict(base_args.get("output_config") or {})
-            output_config["format"] = self._build_output_format(structured_model)
+            output_config["format"] = self._build_output_format(
+                structured_model,
+                structured_schema,
+            )
             base_args["output_config"] = output_config
         return base_args, thinking_enabled
 
@@ -1891,6 +1949,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         message_param,
         request_params: RequestParams | None = None,
         structured_model: Type[ModelT] | None = None,
+        structured_schema: dict[str, Any] | None = None,
         tools: list[Tool] | None = None,
         pre_messages: list[MessageParam] | None = None,
         history: list[PromptMessageExtended] | None = None,
@@ -1928,9 +1987,19 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
         model = self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
 
-        structured_mode = self._resolve_structured_output_mode(model, structured_model)
+        effective_structured_schema = (
+            params.structured_schema if params.structured_schema is not None else structured_schema
+        )
+        structured_mode = self._resolve_structured_output_mode(
+            model,
+            structured_model,
+            effective_structured_schema,
+        )
         available_tools = await self._prepare_tools(
-            structured_model, tools, structured_mode=structured_mode
+            structured_model,
+            effective_structured_schema,
+            tools,
+            structured_mode=structured_mode,
         )
         web_tools, web_tool_betas = self._prepare_web_tools(model)
         request_tools = [*available_tools, *web_tools]
@@ -1949,6 +2018,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             request_tools=request_tools,
             structured_mode=structured_mode,
             structured_model=structured_model,
+            structured_schema=effective_structured_schema,
         )
 
         beta_flags = self._resolve_anthropic_beta_flags(
@@ -2116,6 +2186,30 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             # For assistant messages: Return the last message content
             logger.debug("Last message in prompt is from assistant, returning it directly")
             return None, last_message
+
+    async def _apply_prompt_provider_specific_structured_schema(
+        self,
+        multipart_messages: list[PromptMessageExtended],
+        schema: dict[str, Any],
+        request_params: RequestParams | None = None,
+    ) -> tuple[Any | None, PromptMessageExtended]:
+        request_params = self.get_request_params(request_params)
+        last_message = multipart_messages[-1]
+
+        if last_message.role == "user":
+            logger.debug("Last message in prompt is from user, generating structured schema response")
+            message_param = AnthropicConverter.convert_to_anthropic(last_message)
+            result = await self._anthropic_completion(
+                message_param,
+                request_params,
+                structured_schema=schema,
+                history=multipart_messages,
+                current_extended=last_message,
+            )
+            return self._structured_schema_from_multipart(result, schema)
+
+        logger.debug("Last message in prompt is from assistant, returning it directly")
+        return self._structured_schema_from_multipart(last_message, schema)
 
     def _convert_extended_messages_to_provider(
         self, messages: list[PromptMessageExtended]
