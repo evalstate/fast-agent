@@ -658,7 +658,7 @@ class InteractivePrompt:
         runtime_state: PromptLoopRuntimeState,
         ctrl_c_exit_window_seconds: float,
     ) -> PromptInputPhase:
-        noenv_mode = prompt_provider._noenv_mode
+        noenv_mode = prompt_provider.noenv_mode
         try:
             user_input = await get_enhanced_input(
                 agent_name=agent_state.current_agent,
