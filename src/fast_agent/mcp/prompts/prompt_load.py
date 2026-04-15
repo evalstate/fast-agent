@@ -8,7 +8,7 @@ from fast_agent.constants import FAST_AGENT_USAGE
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import AgentProtocol
 from fast_agent.llm.provider_types import Provider
-from fast_agent.llm.usage_tracking import TurnUsage
+from fast_agent.llm.usage_tracking import TurnUsage, UsageAccumulator
 from fast_agent.mcp import mime_utils, resource_utils
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompts.prompt_template import (
@@ -162,6 +162,39 @@ def load_prompt_as_get_prompt_result(file: Path):
     return to_get_prompt_result(messages)
 
 
+def _history_messages(
+    history: Path | str | list[PromptMessageExtended],
+) -> list[PromptMessageExtended]:
+    if isinstance(history, list):
+        return history
+    return load_prompt(history)
+
+
+def _copy_messages(messages: list[PromptMessageExtended]) -> list[PromptMessageExtended]:
+    return [message.model_copy(deep=True) for message in messages]
+
+
+def _snapshot_usage_state(agent: AgentProtocol) -> UsageAccumulator | None:
+    usage_accumulator = agent.usage_accumulator
+    if usage_accumulator is None:
+        return None
+    return usage_accumulator.model_copy(deep=True)
+
+
+def _restore_usage_state(agent: AgentProtocol, snapshot: UsageAccumulator | None) -> None:
+    if snapshot is None:
+        return
+
+    usage_accumulator = agent.usage_accumulator
+    if usage_accumulator is None:
+        return
+
+    usage_accumulator.turns = [turn.model_copy(deep=True) for turn in snapshot.turns]
+    usage_accumulator.model = snapshot.model
+    usage_accumulator.last_cache_activity_time = snapshot.last_cache_activity_time
+    usage_accumulator.set_context_window_size(snapshot.context_window_size)
+
+
 def _extract_usage_payloads(messages: list[PromptMessageExtended]) -> list[dict[str, Any]]:
     payloads: list[dict[str, Any]] = []
     for message in messages:
@@ -285,9 +318,34 @@ def _rehydrate_responses_usage(
     return None
 
 
+def load_transcript_into_agent(
+    agent: AgentProtocol,
+    history: Path | str | list[PromptMessageExtended],
+) -> None:
+    """Replace visible conversation transcript without rebuilding usage state."""
+    messages = _history_messages(history)
+    usage_snapshot = _snapshot_usage_state(agent)
+
+    agent.clear(clear_prompts=True)
+    agent.message_history.extend(_copy_messages(messages))
+
+    _restore_usage_state(agent, usage_snapshot)
+
+
+def rehydrate_usage_from_history(
+    agent: AgentProtocol,
+    history: Path | str | list[PromptMessageExtended],
+) -> str | None:
+    """Rebuild usage state from saved history without mutating transcript state."""
+    messages = _history_messages(history)
+    return _rehydrate_responses_usage(agent, messages)
+
+
 def load_history_into_agent(agent: AgentProtocol, file_path: Path) -> str | None:
     """
     Load conversation history directly into agent without triggering LLM call.
+
+    Compatibility wrapper around transcript restore plus usage rehydration.
 
     This function restores saved conversation state by directly setting the
     agent's _message_history. No LLM API calls are made.
@@ -305,10 +363,7 @@ def load_history_into_agent(agent: AgentProtocol, file_path: Path) -> str | None
         Optional resume notice string when usage state cannot be restored.
     """
     messages = load_prompt(file_path)
-
-    # Direct restoration - no LLM call
-    agent.clear(clear_prompts=True)
-    agent.message_history.extend(messages)
+    load_transcript_into_agent(agent, messages)
 
     # Note: Provider diagnostic history will be updated on next API call
-    return _rehydrate_responses_usage(agent, messages)
+    return rehydrate_usage_from_history(agent, messages)

@@ -15,7 +15,11 @@ from fast_agent.llm.provider.openai.responses import ResponsesLLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import FastAgentUsage, TurnUsage
 from fast_agent.mcp.prompt_serialization import save_messages
-from fast_agent.mcp.prompts.prompt_load import load_history_into_agent
+from fast_agent.mcp.prompts.prompt_load import (
+    load_history_into_agent,
+    load_transcript_into_agent,
+    rehydrate_usage_from_history,
+)
 
 
 def _usage_payload(
@@ -74,6 +78,56 @@ def _history_with_usage(
 
 
 @pytest.mark.unit
+def test_load_transcript_into_agent_restores_messages_without_rehydrating_usage(tmp_path) -> None:
+    history_path = tmp_path / "history.json"
+    save_messages(
+        _history_with_usage(model="gpt-5.3-codex", input_tokens=120, output_tokens=30),
+        str(history_path),
+    )
+
+    agent = LlmAgent(AgentConfig("transcript-only"))
+    llm = ResponsesLLM(provider=Provider.RESPONSES, model="gpt-5.3-codex")
+    llm.usage_accumulator.add_turn(
+        TurnUsage.from_fast_agent(
+            FastAgentUsage(input_chars=10, output_chars=5, model_type="test"),
+            model="gpt-5.3-codex",
+        )
+    )
+    agent._llm = llm
+
+    summary_before = llm.usage_accumulator.get_summary()
+
+    load_transcript_into_agent(agent, history_path)
+
+    assert [message.role for message in agent.message_history] == ["user", "assistant"]
+    assert agent.message_history[0].first_text() == "hello"
+    assert agent.message_history[1].first_text() == "done"
+    assert llm.usage_accumulator.get_summary() == summary_before
+
+
+@pytest.mark.unit
+def test_rehydrate_usage_from_history_does_not_load_transcript(tmp_path) -> None:
+    history_path = tmp_path / "history.json"
+    save_messages(
+        _history_with_usage(model="gpt-5.3-codex", input_tokens=120, output_tokens=30),
+        str(history_path),
+    )
+
+    agent = LlmAgent(AgentConfig("usage-only"))
+    llm = ResponsesLLM(provider=Provider.RESPONSES, model="gpt-5.3-codex")
+    agent._llm = llm
+    agent.message_history.append(Prompt.user("keep existing transcript"))
+
+    notice = rehydrate_usage_from_history(agent, history_path)
+
+    assert notice is None
+    assert len(agent.message_history) == 1
+    assert agent.message_history[0].first_text() == "keep existing transcript"
+    assert llm.usage_accumulator.turn_count == 1
+    assert llm.usage_accumulator.get_summary()["cumulative_billing_tokens"] == 150
+
+
+@pytest.mark.unit
 def test_load_history_rehydrates_responses_usage_when_model_matches(tmp_path) -> None:
     history_path = tmp_path / "history.json"
     save_messages(
@@ -88,6 +142,9 @@ def test_load_history_rehydrates_responses_usage_when_model_matches(tmp_path) ->
     notice = load_history_into_agent(agent, history_path)
 
     assert notice is None
+    assert [message.role for message in agent.message_history] == ["user", "assistant"]
+    assert agent.message_history[0].first_text() == "hello"
+    assert agent.message_history[1].first_text() == "done"
     assert llm.usage_accumulator.turn_count == 1
     turn = llm.usage_accumulator.turns[0]
     assert turn.provider == Provider.RESPONSES
