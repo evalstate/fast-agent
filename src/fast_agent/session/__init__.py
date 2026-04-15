@@ -8,6 +8,7 @@ from .formatting import (
     format_history_summary,
     format_session_entries,
 )
+from .identity import SessionSaveContext, SessionSaveIdentity, resolve_session_for_save
 from .session_manager import (
     ResumeSessionAgentsResult,
     Session,
@@ -20,6 +21,27 @@ from .session_manager import (
     is_session_pinned,
     reset_session_manager,
     summarize_session_histories,
+)
+from .snapshot import (
+    SESSION_SNAPSHOT_SCHEMA_VERSION,
+    SessionAgentSnapshot,
+    SessionAnalysisSnapshot,
+    SessionAttachmentRef,
+    SessionCardProvenanceRef,
+    SessionContinuationSnapshot,
+    SessionDiagnosticSnapshot,
+    SessionLineageSnapshot,
+    SessionMetadataSnapshot,
+    SessionModelOverlayRef,
+    SessionRequestSettingsSnapshot,
+    SessionSnapshot,
+    SessionTimingSummarySnapshot,
+    SessionUsageSummarySnapshot,
+    capture_session_snapshot,
+    load_session_snapshot,
+    session_info_from_snapshot,
+    snapshot_from_session_info,
+    synthesize_legacy_session_snapshot,
 )
 
 __all__ = [
@@ -39,5 +61,27 @@ __all__ = [
     "get_session_manager",
     "is_session_pinned",
     "reset_session_manager",
+    "SessionSaveContext",
+    "SessionSaveIdentity",
+    "SESSION_SNAPSHOT_SCHEMA_VERSION",
+    "SessionAgentSnapshot",
+    "SessionAnalysisSnapshot",
+    "SessionAttachmentRef",
+    "SessionCardProvenanceRef",
+    "SessionContinuationSnapshot",
+    "SessionDiagnosticSnapshot",
+    "SessionLineageSnapshot",
+    "SessionMetadataSnapshot",
+    "SessionModelOverlayRef",
+    "SessionRequestSettingsSnapshot",
+    "SessionSnapshot",
+    "SessionTimingSummarySnapshot",
+    "SessionUsageSummarySnapshot",
+    "capture_session_snapshot",
+    "load_session_snapshot",
+    "resolve_session_for_save",
+    "session_info_from_snapshot",
+    "snapshot_from_session_info",
     "summarize_session_histories",
+    "synthesize_legacy_session_snapshot",
 ]

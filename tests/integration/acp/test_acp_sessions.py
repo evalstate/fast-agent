@@ -14,6 +14,7 @@ from acp.schema import ClientCapabilities, FileSystemCapabilities, Implementatio
 from acp.stdio import spawn_agent_process
 from mcp.types import TextContent
 
+from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.session import get_session_manager
 from fast_agent.session import session_manager as session_manager_module
@@ -31,6 +32,35 @@ if TYPE_CHECKING:
 
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
+
+
+def _as_object_dict(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict):
+        return None
+    return {key: item for key, item in value.items() if isinstance(key, str)}
+
+
+def _persisted_history_files(payload: dict[str, object]) -> list[str]:
+    history_files = payload.get("history_files")
+    if isinstance(history_files, list):
+        return [item for item in history_files if isinstance(item, str)]
+
+    continuation = _as_object_dict(payload.get("continuation"))
+    if continuation is None:
+        return []
+    agents = _as_object_dict(continuation.get("agents"))
+    if agents is None:
+        return []
+
+    selected: list[str] = []
+    for agent_payload in agents.values():
+        agent_entry = _as_object_dict(agent_payload)
+        if agent_entry is None:
+            continue
+        history_file = agent_entry.get("history_file")
+        if isinstance(history_file, str) and history_file not in selected:
+            selected.append(history_file)
+    return selected
 
 
 @pytest.mark.integration
@@ -74,7 +104,17 @@ async def test_acp_prompt_saves_session_history(
     session_meta_path = session_dir / "session.json"
     assert session_meta_path.exists()
     metadata = json.loads(session_meta_path.read_text())
-    history_files = metadata.get("history_files") or []
+    assert metadata["schema_version"] == 2
+    active_agent = metadata["continuation"]["active_agent"]
+    assert isinstance(active_agent, str)
+    assert active_agent
+    active_agent_payload = metadata["continuation"]["agents"][active_agent]
+    assert active_agent_payload["resolved_prompt"]
+    assert active_agent_payload["model"] == "passthrough"
+    assert active_agent_payload["provider"] == "fast-agent"
+    assert isinstance(active_agent_payload["request_settings"], dict)
+    assert metadata["continuation"]["lineage"]["acp_session_id"] == session_response.session_id
+    history_files = _persisted_history_files(metadata)
     assert history_files
     for filename in history_files:
         assert (session_dir / filename).exists()
@@ -135,7 +175,7 @@ async def test_acp_prompt_saves_session_history_in_workspace_store_for_session_c
     session_dir = session_cwd / ".fast-agent" / "sessions" / session_response.session_id
     assert session_dir.exists()
     metadata = json.loads((session_dir / "session.json").read_text())
-    assert metadata["metadata"]["cwd"] == str(session_cwd.resolve())
+    assert metadata["continuation"]["cwd"] == str(session_cwd.resolve())
     assert any(info.session_id == session_response.session_id for info in listed.sessions)
 
 
@@ -196,7 +236,7 @@ async def test_acp_prompt_saves_session_history_in_configured_environment_dir(
     assert session_dir.exists()
     assert not (session_cwd / ".fast-agent" / "sessions" / session_response.session_id).exists()
     metadata = json.loads((session_dir / "session.json").read_text())
-    assert metadata["metadata"]["cwd"] == str(session_cwd.resolve())
+    assert metadata["continuation"]["cwd"] == str(session_cwd.resolve())
     assert any(info.session_id == session_response.session_id for info in listed.sessions)
 
 
@@ -350,6 +390,10 @@ async def test_acp_session_resume_emits_current_mode_update(
         class StubAgent:
             def __init__(self) -> None:
                 self.name = "alpha"
+                self.instruction = "Alpha agent."
+                self.config = AgentConfig("alpha", instruction=self.instruction, model="passthrough")
+                self.llm = None
+                self.usage_accumulator = None
                 self.message_history = [history_message]
 
         await session.save_history(cast("AgentProtocol", StubAgent()))
@@ -559,6 +603,10 @@ async def test_acp_load_session_streams_history(
         class StubAgent:
             def __init__(self) -> None:
                 self.name = "alpha"
+                self.instruction = "Alpha agent."
+                self.config = AgentConfig("alpha", instruction=self.instruction, model="passthrough")
+                self.llm = None
+                self.usage_accumulator = None
                 self.message_history = history_messages
 
         await session.save_history(cast("AgentProtocol", StubAgent()))
@@ -669,6 +717,10 @@ async def test_acp_load_session_reads_workspace_scoped_session_when_server_runs_
         class StubAgent:
             def __init__(self) -> None:
                 self.name = "alpha"
+                self.instruction = "Alpha agent."
+                self.config = AgentConfig("alpha", instruction=self.instruction, model="passthrough")
+                self.llm = None
+                self.usage_accumulator = None
                 self.message_history = history_messages
 
         await session.save_history(cast("AgentProtocol", StubAgent()))

@@ -13,6 +13,8 @@ from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from fast_agent.session.identity import SessionSaveIdentity
+
 
 class _Session:
     def __init__(self, session_id: str, metadata: dict[str, object]) -> None:
@@ -31,6 +33,7 @@ class _Manager:
         self.label = label
         self.current_session: _Session | None = None
         self.saved_agents: list[object] = []
+        self.saved_identities: list[SessionSaveIdentity | None] = []
 
     def get_session(self, name: str) -> object | None:
         del name
@@ -46,8 +49,17 @@ class _Manager:
     ) -> None:
         self.current_session = _Session(session_id, metadata or {})
 
-    async def save_current_session(self, agent: object) -> str:
+    async def save_current_session(
+        self,
+        agent: object,
+        filename: str | None = None,
+        *,
+        agent_registry=None,
+        identity: SessionSaveIdentity | None = None,
+    ) -> str:
+        del filename, agent_registry
         self.saved_agents.append(agent)
+        self.saved_identities.append(identity)
         return "history.json"
 
 
@@ -138,4 +150,9 @@ async def test_save_session_history_uses_app_store_for_app_scoped_acp_session(
     current_session = app_manager.current_session
     assert current_session is not None
     assert current_session.info.metadata["cwd"] == str(workspace.resolve())
+    assert len(app_manager.saved_identities) == 1
+    identity = app_manager.saved_identities[0]
+    assert identity is not None
+    assert identity.session_store_scope == "app"
+    assert identity.session_cwd == workspace.resolve()
     assert session_info_updates == [{"updated_at": "2024-01-01T00:00:00"}]

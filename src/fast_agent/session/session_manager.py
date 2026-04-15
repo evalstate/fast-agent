@@ -24,11 +24,19 @@ from typing import TYPE_CHECKING, Any, Mapping
 from fast_agent.core.default_agent import resolve_default_agent_name
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.paths import resolve_environment_paths
+from fast_agent.session.snapshot import (
+    SessionSnapshot,
+    capture_session_snapshot,
+    load_session_snapshot,
+    session_info_from_snapshot,
+    snapshot_from_session_info,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from fast_agent.interfaces import AgentProtocol
+    from fast_agent.session.identity import SessionSaveIdentity
     from fast_agent.types import PromptMessageExtended
 
 logger = get_logger(__name__)
@@ -195,13 +203,8 @@ class SessionInfo:
     @classmethod
     def from_dict(cls, data: dict) -> SessionInfo:
         """Create SessionInfo from dictionary."""
-        return cls(
-            name=data["name"],
-            created_at=datetime.fromisoformat(data["created_at"]),
-            last_activity=datetime.fromisoformat(data["last_activity"]),
-            history_files=data.get("history_files", []),
-            metadata=data.get("metadata", {}),
-        )
+        snapshot = load_session_snapshot(data)
+        return session_info_from_snapshot(snapshot)
 
     def to_dict(self) -> dict:
         """Convert to dictionary."""
@@ -227,14 +230,28 @@ class ResumeSessionAgentsResult:
 class Session:
     """Represents a single conversation session."""
 
-    def __init__(self, info: SessionInfo, directory: pathlib.Path) -> None:
+    def __init__(
+        self,
+        info: SessionInfo,
+        directory: pathlib.Path,
+        *,
+        manager: SessionManager | None = None,
+    ) -> None:
         """Initialize session."""
         self.info = info
         self.directory = directory
+        self._manager = manager
         self._dirty = False
 
 
-    async def save_history(self, agent: AgentProtocol, filename: str | None = None) -> str:
+    async def save_history(
+        self,
+        agent: AgentProtocol,
+        filename: str | None = None,
+        *,
+        agent_registry: Mapping[str, AgentProtocol] | None = None,
+        identity: "SessionSaveIdentity | None" = None,
+    ) -> str:
         """Save agent history to this session."""
         from fast_agent.history.history_exporter import HistoryExporter
 
@@ -291,7 +308,13 @@ class Session:
             if preview:
                 self.info.metadata["first_user_preview"] = preview
 
-        self._save_metadata()
+        snapshot = capture_session_snapshot(
+            session=self,
+            active_agent=agent,
+            agent_registry=agent_registry,
+            identity=identity or self._default_save_identity(),
+        )
+        self._save_snapshot(snapshot)
         return result
 
     async def _save_rotating_history(
@@ -339,10 +362,41 @@ class Session:
 
     def _save_metadata(self) -> None:
         """Save session metadata."""
+        self._save_snapshot(snapshot_from_session_info(self.info))
+
+    def _save_snapshot(self, snapshot: SessionSnapshot) -> None:
+        """Save a typed snapshot payload."""
         metadata_file = self.directory / "session.json"
+        payload = snapshot.model_dump(mode="json")
         with self._metadata_lock():
-            self._atomic_write_json(metadata_file, self.info.to_dict())
+            self._atomic_write_json(metadata_file, payload)
         self._dirty = False
+
+    def _default_save_identity(self) -> "SessionSaveIdentity":
+        """Build a compatibility save identity when a caller does not supply one."""
+        from fast_agent.session.identity import SessionSaveIdentity
+
+        metadata = self.info.metadata if isinstance(self.info.metadata, dict) else {}
+        raw_session_cwd = metadata.get("cwd")
+        session_cwd = None
+        if isinstance(raw_session_cwd, str) and raw_session_cwd:
+            session_cwd = pathlib.Path(raw_session_cwd).expanduser().resolve()
+
+        acp_session_id = metadata.get("acp_session_id")
+        manager = self._manager
+        if manager is None:
+            manager = SessionManager(cwd=self.directory.parent)
+            self._manager = manager
+
+        return SessionSaveIdentity(
+            manager=manager,
+            session=self,
+            created=False,
+            acp_session_id=acp_session_id if isinstance(acp_session_id, str) else None,
+            session_cwd=session_cwd,
+            session_store_scope="workspace",
+            session_store_cwd=manager.workspace_dir,
+        )
 
     def set_pinned(self, pinned: bool) -> None:
         """Pin or unpin the session to prevent auto-pruning."""
@@ -556,7 +610,7 @@ class SessionManager:
             metadata=session_metadata,
         )
 
-        session = Session(info, session_dir)
+        session = Session(info, session_dir, manager=self)
         session._save_metadata()
         self._current_session = session
         self._prune_sessions()
@@ -595,7 +649,7 @@ class SessionManager:
             history_files=[],
             metadata=session_metadata,
         )
-        session = Session(info, session_dir)
+        session = Session(info, session_dir, manager=self)
         session._save_metadata()
         self._current_session = session
         self._prune_sessions()
@@ -615,7 +669,7 @@ class SessionManager:
             metadata_file = session_dir / "session.json"
             if metadata_file.exists():
                 try:
-                    with open(metadata_file) as f:
+                    with open(metadata_file, encoding="utf-8") as f:
                         data = json.load(f)
                         info = SessionInfo.from_dict(data)
                         sessions.append(info)
@@ -634,13 +688,11 @@ class SessionManager:
             return None
 
         try:
-            with open(metadata_file) as f:
+            with open(metadata_file, encoding="utf-8") as f:
                 data = json.load(f)
                 info = SessionInfo.from_dict(data)
 
-            session = Session(info, session_dir)
-            session.info.last_activity = datetime.now()
-            session._save_metadata()
+            session = Session(info, session_dir, manager=self)
             self._current_session = session
             logger.info(f"Loaded session: {name}")
             return session
@@ -666,9 +718,17 @@ class SessionManager:
             return False
 
     async def save_current_session(
-        self, agent: AgentProtocol, filename: str | None = None
+        self,
+        agent: AgentProtocol,
+        filename: str | None = None,
+        *,
+        agent_registry: Mapping[str, AgentProtocol] | None = None,
+        identity: "SessionSaveIdentity | None" = None,
     ) -> str | None:
         """Save history to the current session."""
+        if identity is not None:
+            self._current_session = identity.session
+
         if self._current_session and not self._current_session.directory.exists():
             logger.warning(
                 "Current session directory is missing; creating a replacement session",
@@ -693,7 +753,12 @@ class SessionManager:
             )
 
         assert self._current_session is not None
-        return await self._current_session.save_history(agent, filename)
+        return await self._current_session.save_history(
+            agent,
+            filename,
+            agent_registry=agent_registry,
+            identity=identity,
+        )
 
     def load_latest_session(self) -> Session | None:
         """Load the most recently used session."""
@@ -867,10 +932,10 @@ class SessionManager:
             return None
 
         try:
-            with open(metadata_file) as f:
+            with open(metadata_file, encoding="utf-8") as f:
                 data = json.load(f)
                 info = SessionInfo.from_dict(data)
-            return Session(info, session_dir)
+            return Session(info, session_dir, manager=self)
         except Exception as e:
             logger.error(f"Failed to get session {name}: {e}")
             return None
