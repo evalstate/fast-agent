@@ -96,7 +96,7 @@ class TuiCommandIO(CommandIO):
             return None
         stripped = token.strip()
         if not stripped:
-            return stripped
+            return None
         if stripped.startswith("$"):
             return stripped
         return f"${stripped}"

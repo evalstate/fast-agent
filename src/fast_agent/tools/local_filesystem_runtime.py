@@ -435,14 +435,21 @@ class LocalFilesystemRuntime:
 
         path_value, old_string, new_string, replace_all = edit_input
         resolved_path = self._resolve_path(path_value)
-        result_payload = run_edit_file(
-            resolved_path,
-            display_path=path_value,
-            old_string=old_string,
-            new_string=new_string,
-            replace_all=replace_all,
-        )
-        structured_payload = serialize_edit_file_result(result_payload)
+        try:
+            result_payload = run_edit_file(
+                resolved_path,
+                display_path=path_value,
+                old_string=old_string,
+                new_string=new_string,
+                replace_all=replace_all,
+            )
+            structured_payload = serialize_edit_file_result(result_payload)
+        except Exception as exc:
+            self._logger.error(f"Error editing file: {exc}")
+            return CallToolResult(
+                content=[TextContent(type="text", text=f"Error editing file: {exc}")],
+                isError=True,
+            )
         payload_text = json.dumps(structured_payload, ensure_ascii=False, indent=2)
         is_error = structured_payload["success"] is False
         return CallToolResult(

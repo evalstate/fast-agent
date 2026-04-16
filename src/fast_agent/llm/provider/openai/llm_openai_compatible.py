@@ -46,7 +46,9 @@ IMPORTANT RULES:
 
         instructions = self._build_structured_prompt_instruction(model)
         if instructions:
-            multipart_messages[-1].add_text(instructions)
+            last_copy = multipart_messages[-1].model_copy(deep=True)
+            last_copy.add_text(instructions)
+            multipart_messages = multipart_messages[:-1] + [last_copy]
 
         return await super()._apply_prompt_provider_specific_structured(
             multipart_messages, model, request_params
@@ -81,7 +83,9 @@ IMPORTANT RULES:
 
         instructions = self._build_structured_prompt_instruction_from_schema(schema)
         if instructions:
-            multipart_messages[-1].add_text(instructions)
+            last_copy = multipart_messages[-1].model_copy(deep=True)
+            last_copy.add_text(instructions)
+            multipart_messages = multipart_messages[:-1] + [last_copy]
 
         return await FastAgentLLM._apply_prompt_provider_specific_structured_schema(
             self,

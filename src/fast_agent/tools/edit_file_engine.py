@@ -5,7 +5,7 @@ import errno
 import os
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final, Literal, TypedDict, TypeGuard
+from typing import TYPE_CHECKING, Any, Final, Literal, NotRequired, TypedDict, TypeGuard
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -36,12 +36,12 @@ class EditFileSuccess(TypedDict):
     diff: str
 
 
-class EditFileError(TypedDict, total=False):
+class EditFileError(TypedDict):
     success: Literal[False]
     error: EditFileErrorCode
     message: str
     path: str
-    matches: list[MatchLocation]
+    matches: NotRequired[list[MatchLocation]]
 
 
 type EditFileResult = EditFileSuccess | EditFileError
@@ -226,6 +226,8 @@ def _write_text_file_atomic(path: Path, contents: str) -> EditFileErrorCode | No
 
 
 def _find_match_spans(contents: str, old_string: str) -> list[tuple[int, int]]:
+    if not old_string:
+        return []
     matches: list[tuple[int, int]] = []
     start = 0
     while True:
