@@ -98,6 +98,11 @@ from fast_agent.llm.reasoning_effort import (
 )
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.structured_output_mode import StructuredOutputMode
+from fast_agent.llm.task_budget import (
+    format_task_budget_tokens,
+    parse_task_budget_tokens,
+    validate_task_budget_tokens,
+)
 from fast_agent.llm.tool_tracking import ToolCallTracker
 from fast_agent.llm.usage_tracking import TurnUsage
 from fast_agent.mcp.mime_utils import DOCUMENT_MIME_TYPES, guess_mime_type, normalize_mime_type
@@ -112,6 +117,7 @@ DEFAULT_ANTHROPIC_MODEL = "sonnet"
 STRUCTURED_OUTPUT_TOOL_NAME = "return_structured_output"
 STRUCTURED_OUTPUT_BETA = "structured-outputs-2025-11-13"
 INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14"
+TASK_BUDGETS_BETA = "task-budgets-2026-03-13"
 
 # Explicit 1M context is still opt-in for pre-4.6 Anthropic models.
 LONG_CONTEXT_BETA = "context-1m-2025-08-07"
@@ -132,6 +138,7 @@ SystemParam = Union[str, list[TextBlockParam]]
 logger = get_logger(__name__)
 
 _OTEL_STREAM_WRAPPER_WARNED = False
+_UNSET_TASK_BUDGET = object()
 
 
 @dataclass(slots=True)
@@ -433,6 +440,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         long_context_requested = kwargs.pop("long_context", False)
         web_search_override = kwargs.pop("web_search", None)
         web_fetch_override = kwargs.pop("web_fetch", None)
+        raw_task_budget = kwargs.pop("task_budget_tokens", _UNSET_TASK_BUDGET)
         super().__init__(provider=self.provider_identity(), **kwargs)
         self._structured_output_mode_override: StructuredOutputMode | None = structured_override
         self._web_search_override: bool | None = (
@@ -449,10 +457,17 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             reasoning_source = "llm_kwargs"
         config = self.context.config.anthropic if self.context and self.context.config else None
         model_name = self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
+        task_budget_source: str | None = None
         if raw_setting is None and config:
             raw_setting = config.reasoning
             if raw_setting is not None:
                 reasoning_source = "config_reasoning"
+        if raw_task_budget is not _UNSET_TASK_BUDGET:
+            task_budget_source = "llm_kwargs"
+        elif config:
+            raw_task_budget = config.task_budget
+            if raw_task_budget is not None:
+                task_budget_source = "config_task_budget"
 
         from fast_agent.llm.model_database import ModelDatabase
 
@@ -490,6 +505,23 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         else:
             self.set_reasoning_effort(None)
 
+        self._task_budget_tokens: int | None = None
+        if raw_task_budget is not _UNSET_TASK_BUDGET:
+            if not self._supports_task_budget(model_name):
+                self.logger.warning(
+                    "Task budget ignored for model without Anthropic task budget support."
+                )
+            else:
+                try:
+                    parsed_task_budget = parse_task_budget_tokens(
+                        raw_task_budget if isinstance(raw_task_budget, (int, str)) else None
+                    )
+                    self.set_task_budget_tokens(parsed_task_budget)
+                except ValueError as exc:
+                    self.logger.warning(f"Invalid task budget setting: {exc}")
+                    self.set_task_budget_tokens(None)
+                    task_budget_source = None
+
         if self._get_model_reasoning(model_name) == "anthropic_thinking":
             resolved_setting = self.reasoning_effort
             thinking_enabled = self._is_thinking_enabled(model_name)
@@ -520,6 +552,19 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                     None,
                     payload,
                 )
+
+        if task_budget_source is not None or self.task_budget_tokens is not None:
+            self.logger.event(
+                "info",
+                "anthropic_task_budget",
+                "Anthropic task budget resolved",
+                None,
+                {
+                    "model": model_name,
+                    "task_budget": format_task_budget_tokens(self.task_budget_tokens),
+                    "task_budget_source": task_budget_source or "unknown",
+                },
+            )
 
         # Explicit long-context (1M) opt-in setup for pre-4.6 models.
         self._long_context = False
@@ -736,7 +781,35 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             return self._supports_adaptive_thinking(model)
         return False
 
-    def _resolve_adaptive_effort(self) -> str | None:
+    def _uses_summarized_thinking_display(self, model: str) -> bool:
+        """Return True when summarized thinking should be requested explicitly."""
+        return self._normalize_model_name(model) == "claude-opus-4-7"
+
+    def _supports_task_budget(self, model: str) -> bool:
+        """Return True when Anthropic task budgets are supported for the model/provider."""
+        return self.provider_identity() in {
+            Provider.ANTHROPIC,
+            Provider.ANTHROPIC_VERTEX,
+        } and self._get_model_anthropic_task_budget_supported(model)
+
+    @property
+    def task_budget_supported(self) -> bool:
+        model_name = self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
+        return self._supports_task_budget(model_name)
+
+    @property
+    def task_budget_tokens(self) -> int | None:
+        return self._task_budget_tokens
+
+    def set_task_budget_tokens(self, value: int | None) -> None:
+        if value is None:
+            self._task_budget_tokens = None
+            return
+        if not self.task_budget_supported:
+            raise ValueError("Current model does not support task budget configuration.")
+        self._task_budget_tokens = validate_task_budget_tokens(value)
+
+    def _resolve_adaptive_effort(self, model: str) -> str | None:
         """Resolve adaptive effort for Anthropic output_config."""
         setting = self.reasoning_effort
         if setting is None or setting.kind != "effort":
@@ -745,6 +818,9 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             return None
         effort = str(setting.value).lower()
         if effort == "xhigh":
+            spec = self._get_model_reasoning_effort_spec(model)
+            if spec and "xhigh" in (spec.allowed_efforts or []):
+                return "xhigh"
             return "max"
         if effort == "none":
             return None
@@ -779,8 +855,11 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             return args, False
 
         if adaptive_supported:
-            args["thinking"] = {"type": "adaptive"}
-            effort = self._resolve_adaptive_effort()
+            thinking: dict[str, str] = {"type": "adaptive"}
+            if self._uses_summarized_thinking_display(model):
+                thinking["display"] = "summarized"
+            args["thinking"] = thinking
+            effort = self._resolve_adaptive_effort(model)
             if effort:
                 args["output_config"] = {"effort": effort}
             args["max_tokens"] = max_tokens if max_tokens is not None else 16000
@@ -1640,6 +1719,13 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             structured_mode=structured_mode,
         )
         base_args.update(thinking_args)
+        if self.task_budget_tokens is not None and self._supports_task_budget(model):
+            output_config = dict(base_args.get("output_config") or {})
+            output_config["task_budget"] = {
+                "type": "tokens",
+                "total": self.task_budget_tokens,
+            }
+            base_args["output_config"] = output_config
         if structured_mode == "json" and (structured_model or structured_schema):
             output_config = dict(base_args.get("output_config") or {})
             output_config["format"] = self._build_output_format(
@@ -1648,6 +1734,26 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             )
             base_args["output_config"] = output_config
         return base_args, thinking_enabled
+
+    def prepare_provider_arguments(
+        self,
+        base_args: dict,
+        request_params: RequestParams,
+        exclude_fields: set | None = None,
+    ) -> dict:
+        arguments = super().prepare_provider_arguments(base_args, request_params, exclude_fields)
+        if self._normalize_model_name(str(arguments.get("model", ""))) != "claude-opus-4-7":
+            return arguments
+
+        removed_fields = [
+            key for key in ("temperature", "top_p", "top_k") if arguments.pop(key, None) is not None
+        ]
+        if removed_fields:
+            removed = ", ".join(removed_fields)
+            self.logger.warning(
+                f"Anthropic Opus 4.7 ignores unsupported sampling parameters; removed {removed}."
+            )
+        return arguments
 
     def _resolve_anthropic_beta_flags(
         self,
@@ -1678,6 +1784,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             beta_flags.extend(web_tool_betas)
         if provider_mcp_enabled:
             beta_flags.append(MCP_CLIENT_BETA)
+        if self.task_budget_tokens is not None and self._supports_task_budget(model):
+            beta_flags.append(TASK_BUDGETS_BETA)
         return dedupe_preserve_order(beta_flags)
 
     def _apply_anthropic_cache_plan(

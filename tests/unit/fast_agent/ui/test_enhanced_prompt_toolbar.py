@@ -136,7 +136,7 @@ def test_render_model_gauges_uses_standalone_reasoning_without_verbosity() -> No
         None,
     )
 
-    assert gauges == "<style bg='ansiyellow'>⣶</style>"
+    assert gauges == "<style bg='ansigreen'>⣤</style>"
 
 
 def test_render_model_gauges_uses_paired_glyphs_when_reasoning_and_verbosity_exist() -> None:
@@ -153,7 +153,7 @@ def test_render_model_gauges_uses_paired_glyphs_when_reasoning_and_verbosity_exi
         TextVerbositySpec(default="medium"),
     )
 
-    assert gauges == "<style bg='ansiyellow'>⢰</style><style bg='ansiyellow'>⡆</style>"
+    assert gauges == "<style bg='ansigreen'>⢠</style><style bg='ansiyellow'>⡆</style>"
 
 
 class _StubAgent:

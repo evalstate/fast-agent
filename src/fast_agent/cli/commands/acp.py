@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from fast_agent.cli.runtime.run_request import AgentRunRequest
 
 app = typer.Typer(
-    help="Run FastAgent as an ACP stdio server without specifying --transport=acp explicitly.",
+    help="Start fast-agent as an ACP stdio server (convenience wrapper for 'serve --transport acp').",
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
 )
 

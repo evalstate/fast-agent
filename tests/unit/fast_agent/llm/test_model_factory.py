@@ -244,6 +244,26 @@ def test_kimi25_alias_sets_thinking_sampling_defaults() -> None:
     assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=True)
 
 
+def test_kimi25instant_alias_sets_instant_sampling_defaults() -> None:
+    config = ModelFactory.parse_model_string("kimi25instant")
+
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == "moonshotai/Kimi-K2.5:fireworks-ai"
+    assert config.temperature == 0.6
+    assert config.top_p == 0.95
+    assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=False)
+
+
+def test_kimi_alias_matches_kimi25_defaults() -> None:
+    config = ModelFactory.parse_model_string("kimi")
+
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == "moonshotai/Kimi-K2.5:fireworks-ai"
+    assert config.temperature == 1.0
+    assert config.top_p == 0.95
+    assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=True)
+
+
 def test_minimax25_alias_sets_sampling_defaults() -> None:
     config = ModelFactory.parse_model_string("minimax25")
 
@@ -556,10 +576,10 @@ def test_builtin_glm_alias_uses_glm_51_default() -> None:
     assert legacy.model_name == "zai-org/GLM-5:novita"
 
 
-def test_opus_aliases_resolve_to_opus_46():
+def test_opus_aliases_resolve_to_opus_47():
     config = ModelFactory.parse_model_string("opus")
     assert config.provider == Provider.ANTHROPIC
-    assert config.model_name == "claude-opus-4-6"
+    assert config.model_name == "claude-opus-4-7"
 
 
 def test_claude_alias_resolves_to_sonnet_46():
@@ -570,6 +590,10 @@ def test_claude_alias_resolves_to_sonnet_46():
     config = ModelFactory.parse_model_string("opus46")
     assert config.provider == Provider.ANTHROPIC
     assert config.model_name == "claude-opus-4-6"
+
+    config = ModelFactory.parse_model_string("opus47")
+    assert config.provider == Provider.ANTHROPIC
+    assert config.model_name == "claude-opus-4-7"
 
 
 def test_gemini31_alias_resolves_to_google_31_preview():
@@ -700,6 +724,25 @@ def test_model_query_context_non_anthropic_parses():
     assert config.provider == Provider.RESPONSES
 
 
+def test_model_query_task_budget_parses() -> None:
+    config = ModelFactory.parse_model_string("claude-opus-4-7?task_budget=128k")
+    assert config.provider == Provider.ANTHROPIC
+    assert config.model_name == "claude-opus-4-7"
+    assert config.task_budget_tokens == 128_000
+    assert config.task_budget_configured is True
+
+
+def test_model_query_task_budget_off_clears_default() -> None:
+    config = ModelFactory.parse_model_string("claude-opus-4-7?task_budget=off")
+    assert config.task_budget_tokens is None
+    assert config.task_budget_configured is True
+
+
+def test_model_query_task_budget_rejects_values_below_minimum() -> None:
+    with pytest.raises(ModelConfigError, match="Invalid task_budget query value"):
+        ModelFactory.parse_model_string("claude-opus-4-7?task_budget=10k")
+
+
 # --- Long context: LLM instantiation tests ---
 
 
@@ -811,7 +854,7 @@ def test_hf_qwen35_instruct_alias_disables_thinking_via_chat_template_kwargs() -
     assert extra_body["chat_template_kwargs"] == {"enable_thinking": False}
 
 
-def test_hf_kimi25_alias_does_not_emit_chat_template_kwargs_for_thinking_mode() -> None:
+def test_hf_kimi25_alias_does_not_emit_thinking_override_for_thinking_mode() -> None:
     factory = ModelFactory.create_factory("kimi25")
     agent = LlmAgent(AgentConfig(name="test"))
     llm = factory(agent)
@@ -829,6 +872,27 @@ def test_hf_kimi25_alias_does_not_emit_chat_template_kwargs_for_thinking_mode() 
 
     extra_body = args.get("extra_body")
     if isinstance(extra_body, dict):
-        assert "chat_template_kwargs" not in extra_body
+        assert "thinking" not in extra_body
     else:
         assert extra_body is None
+
+
+def test_hf_kimi25instant_alias_disables_thinking_via_extra_body() -> None:
+    factory = ModelFactory.create_factory("kimi25instant")
+    agent = LlmAgent(AgentConfig(name="test"))
+    llm = factory(agent)
+
+    assert isinstance(llm, HuggingFaceLLM)
+
+    args = llm._prepare_api_request(
+        [{"role": "user", "content": "hi"}],
+        None,
+        llm.default_request_params,
+    )
+
+    assert args["temperature"] == 0.6
+    assert args["top_p"] == 0.95
+
+    extra_body = args.get("extra_body")
+    assert isinstance(extra_body, dict)
+    assert extra_body["thinking"] == {"type": "disabled"}

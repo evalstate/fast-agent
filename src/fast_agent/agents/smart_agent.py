@@ -364,6 +364,12 @@ async def _run_named_command_call(
                 agent_name=agent_name,
                 value=argument,
             )
+        elif selected_action == "task_budget":
+            outcome = await model_handlers.handle_model_task_budget(
+                context,
+                agent_name=agent_name,
+                value=argument,
+            )
         elif selected_action == "fast":
             outcome = await model_handlers.handle_model_fast(
                 context,
@@ -522,7 +528,7 @@ def _mcp_usage_text() -> str:
 def _model_usage_text() -> str:
     return (
         "Usage: /model "
-        "[reasoning|verbosity|fast|web_search|web_fetch|switch|doctor|references|catalog|help] [args]"
+        "[reasoning|task_budget|verbosity|fast|web_search|web_fetch|switch|doctor|references|catalog|help] [args]"
     )
 
 

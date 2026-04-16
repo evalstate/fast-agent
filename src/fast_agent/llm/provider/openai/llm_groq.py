@@ -3,7 +3,7 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.types import RequestParams
 
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
-DEFAULT_GROQ_MODEL = "moonshotai/kimi-k2-instruct-0905"
+DEFAULT_GROQ_MODEL = "qwen/qwen3-32b"
 
 ### There is some big refactorings to be had quite easily here now:
 ### - combining the structured output type handling

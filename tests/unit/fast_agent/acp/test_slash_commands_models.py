@@ -28,6 +28,7 @@ class _Agent:
 class _FastModeLlm:
     service_tier_supported = True
     available_service_tiers = ("fast", "flex")
+    task_budget_supported = False
 
     def __init__(self) -> None:
         self.service_tier: str | None = None
@@ -40,6 +41,8 @@ class _FastModeLlm:
         self.web_fetch_enabled = False
         self.service_tier_supported = True
         self.available_service_tiers = ("fast", "flex")
+        self.task_budget_supported = False
+        self.task_budget_tokens: int | None = None
         self.resolved_model = None
         self.provider = Provider.RESPONSES
         self.model_name = "gpt-5"
@@ -51,11 +54,33 @@ class _FastModeLlm:
         self.service_tier = value
 
 
+class _TaskBudgetLlm(_FastModeLlm):
+    task_budget_supported = True
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.task_budget_supported = True
+        self.task_budget_tokens: int | None = None
+        self.provider = Provider.ANTHROPIC
+        self.model_name = "claude-opus-4-7"
+
+    def set_task_budget_tokens(self, value: int | None) -> None:
+        self.task_budget_tokens = value
+
+
 class _FastModeAgent:
     acp_commands = {}
 
     def __init__(self) -> None:
         self.llm = _FastModeLlm()
+        self._llm = self.llm
+
+
+class _TaskBudgetAgent:
+    acp_commands = {}
+
+    def __init__(self) -> None:
+        self.llm = _TaskBudgetLlm()
         self._llm = self.llm
 
 
@@ -196,6 +221,27 @@ async def test_slash_command_model_fast_and_dynamic_hint() -> None:
     assert model_input is not None
     assert model_input.root.hint is not None
     assert "fast <on|off|flex|status>" in model_input.root.hint
+
+
+@pytest.mark.asyncio
+async def test_slash_command_model_task_budget() -> None:
+    app = _App()
+    agent = _TaskBudgetAgent()
+    instance = AgentInstance(
+        app=cast("AgentApp", app),
+        agents={"main": cast("AgentProtocol", agent)},
+        registry_version=0,
+    )
+    handler = SlashCommandHandler(
+        session_id="s1",
+        instance=instance,
+        primary_agent_name="main",
+    )
+
+    output = await handler.execute_command("model", "task_budget 64k")
+
+    assert "Task budget: set to 64k." in output
+    assert agent.llm.task_budget_tokens == 64_000
 
 
 @pytest.mark.asyncio

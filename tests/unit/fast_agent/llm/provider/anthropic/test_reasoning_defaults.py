@@ -11,6 +11,7 @@ from fast_agent.llm.provider.anthropic.llm_anthropic import (
     STRUCTURED_OUTPUT_BETA,
     AnthropicLLM,
 )
+from fast_agent.llm.provider.anthropic.llm_anthropic_vertex import AnthropicVertexLLM
 from fast_agent.llm.reasoning_effort import is_auto_reasoning
 from fast_agent.llm.request_params import RequestParams
 
@@ -25,6 +26,26 @@ def _make_llm(
     settings.anthropic = AnthropicSettings(api_key="test-key", reasoning=reasoning)
     context = Context(config=settings)
     return AnthropicLLM(
+        context=context,
+        model=model,
+        name="test-agent",
+        long_context=long_context,
+    )
+
+
+def _make_vertex_llm(
+    model: str,
+    reasoning: str | int | bool | None = None,
+    *,
+    long_context: bool = False,
+) -> AnthropicVertexLLM:
+    settings = Settings()
+    settings.anthropic = AnthropicSettings(api_key="test-key", reasoning=reasoning)
+    settings.anthropic.vertex_ai.enabled = True
+    settings.anthropic.vertex_ai.project_id = "test-project"
+    settings.anthropic.vertex_ai.location = "us-east5"
+    context = Context(config=settings)
+    return AnthropicVertexLLM(
         context=context,
         model=model,
         name="test-agent",
@@ -70,6 +91,104 @@ def test_opus_46_supports_max_effort():
     assert thinking_enabled
     assert args["thinking"] == {"type": "adaptive"}
     assert args["output_config"] == {"effort": "max"}
+
+
+def test_opus_47_requests_summarized_adaptive_thinking_by_default():
+    llm = _make_llm("claude-opus-4-7")
+
+    args, thinking_enabled = llm._resolve_thinking_arguments(
+        model="claude-opus-4-7",
+        max_tokens=16000,
+        structured_mode=None,
+    )
+
+    assert thinking_enabled
+    assert args["thinking"] == {"type": "adaptive", "display": "summarized"}
+    assert "output_config" not in args
+
+
+def test_opus_47_supports_xhigh_effort():
+    llm = _make_llm("claude-opus-4-7", reasoning="xhigh")
+
+    args, thinking_enabled = llm._resolve_thinking_arguments(
+        model="claude-opus-4-7",
+        max_tokens=16000,
+        structured_mode=None,
+    )
+
+    assert thinking_enabled
+    assert args["thinking"] == {"type": "adaptive", "display": "summarized"}
+    assert args["output_config"] == {"effort": "xhigh"}
+
+
+def test_opus_47_task_budget_merges_into_output_config() -> None:
+    llm = _make_llm("claude-opus-4-7")
+    llm.set_task_budget_tokens(128_000)
+
+    args, thinking_enabled = llm._build_anthropic_base_args(
+        model="claude-opus-4-7",
+        messages=[],
+        params=RequestParams(maxTokens=1024),
+        history=None,
+        current_extended=None,
+        request_tools=[],
+        structured_mode=None,
+        structured_model=None,
+    )
+
+    assert thinking_enabled
+    assert args["thinking"] == {"type": "adaptive", "display": "summarized"}
+    assert args["output_config"]["task_budget"] == {"type": "tokens", "total": 128_000}
+
+
+def test_opus_47_task_budget_adds_beta_flag() -> None:
+    llm = _make_llm("claude-opus-4-7")
+    llm.set_task_budget_tokens(64_000)
+
+    beta_flags = llm._resolve_anthropic_beta_flags(
+        model="claude-opus-4-7",
+        structured_mode=None,
+        thinking_enabled=True,
+        request_tools=[],
+        web_tool_betas=[],
+    )
+
+    assert "task-budgets-2026-03-13" in beta_flags
+
+
+def test_vertex_opus_47_task_budget_merges_into_output_config() -> None:
+    llm = _make_vertex_llm("claude-opus-4-7")
+    llm.set_task_budget_tokens(128_000)
+
+    args, thinking_enabled = llm._build_anthropic_base_args(
+        model="claude-opus-4-7",
+        messages=[],
+        params=RequestParams(maxTokens=1024),
+        history=None,
+        current_extended=None,
+        request_tools=[],
+        structured_mode=None,
+        structured_model=None,
+    )
+
+    assert thinking_enabled
+    assert args["thinking"] == {"type": "adaptive", "display": "summarized"}
+    assert args["output_config"]["task_budget"] == {"type": "tokens", "total": 128_000}
+
+
+def test_vertex_opus_47_task_budget_adds_beta_flag() -> None:
+    llm = _make_vertex_llm("claude-opus-4-7")
+    llm.set_task_budget_tokens(64_000)
+
+    beta_flags = llm._resolve_anthropic_beta_flags(
+        model="claude-opus-4-7",
+        structured_mode=None,
+        thinking_enabled=True,
+        request_tools=[],
+        web_tool_betas=[],
+    )
+
+    assert "task-budgets-2026-03-13" in beta_flags
 
 
 def test_opus_46_supports_disable_toggle():
@@ -244,6 +363,24 @@ def test_json_structured_output_merges_with_adaptive_effort():
     assert args["thinking"] == {"type": "adaptive"}
     assert args["output_config"]["effort"] == "max"
     assert args["output_config"]["format"]["type"] == "json_schema"
+
+
+def test_opus_47_drops_sampling_parameters_from_request_payload() -> None:
+    llm = _make_llm("claude-opus-4-7")
+
+    result = llm.prepare_provider_arguments(
+        {
+            "model": "claude-opus-4-7",
+            "messages": [],
+            "max_tokens": 1000,
+        },
+        RequestParams(temperature=0.7, top_p=0.9, top_k=10),
+        llm.ANTHROPIC_EXCLUDE_FIELDS,
+    )
+
+    assert "temperature" not in result
+    assert "top_p" not in result
+    assert "top_k" not in result
 
 
 def test_json_structured_output_uses_raw_schema_when_supplied() -> None:

@@ -114,11 +114,10 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
         if uses_kimi_chat_toggle:
             # Kimi 2.5 defaults to thinking-enabled on the provider side.
             # Only send the explicit instant-mode disable flag when reasoning is off.
+            # Hugging Face's router expects Moonshot's official API thinking config,
+            # not vLLM/SGLang's chat_template_kwargs override.
             if disable_reasoning:
-                chat_kwargs_raw = extra_body.get("chat_template_kwargs", {})
-                chat_kwargs = chat_kwargs_raw if isinstance(chat_kwargs_raw, dict) else {}
-                chat_kwargs["thinking"] = False
-                extra_body["chat_template_kwargs"] = chat_kwargs
+                extra_body["thinking"] = {"type": "disabled"}
                 arguments["extra_body"] = extra_body
             return
         elif uses_qwen_chat_toggle:

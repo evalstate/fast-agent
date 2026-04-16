@@ -580,13 +580,15 @@ async def test_resume_session_interactive_queues_markdown_preview(
             last_activity=datetime(2026, 2, 26, 12, 0, 0),
         )
     )
-    manager = SimpleNamespace(
-        resume_session_agents=lambda *args, **kwargs: ResumeSessionAgentsResult(
+    async def _resume_session_agents_async(*args, **kwargs):
+        del args, kwargs
+        return ResumeSessionAgentsResult(
             session=cast("Any", session),
             loaded={"alpha": Path("history_alpha.json")},
             missing_agents=[],
         )
-    )
+
+    manager = SimpleNamespace(resume_session_agents_async=_resume_session_agents_async)
 
     markdown_notices: list[tuple[str, dict[str, str | None]]] = []
     plain_notices: list[str] = []
@@ -631,14 +633,16 @@ async def test_resume_session_interactive_handles_usage_notices_from_result(
             last_activity=datetime(2026, 2, 26, 12, 0, 0),
         )
     )
-    manager = SimpleNamespace(
-        resume_session_agents=lambda *args, **kwargs: ResumeSessionAgentsResult(
+    async def _resume_session_agents_async(*args, **kwargs):
+        del args, kwargs
+        return ResumeSessionAgentsResult(
             session=cast("Any", session),
             loaded={"agent": Path("history_agent.json")},
             missing_agents=[],
             usage_notices=["[dim]Usage restored[/dim]"],
         )
-    )
+
+    manager = SimpleNamespace(resume_session_agents_async=_resume_session_agents_async)
 
     plain_notices: list[str] = []
 
@@ -684,8 +688,9 @@ async def test_resume_session_applies_hydrated_active_agent_to_request(
             last_activity=datetime(2026, 2, 26, 12, 0, 0),
         )
     )
-    manager = SimpleNamespace(
-        resume_session_agents=lambda *args, **kwargs: ResumeSessionAgentsResult(
+    async def _resume_session_agents_async(*args, **kwargs):
+        del args, kwargs
+        return ResumeSessionAgentsResult(
             session=cast("Any", session),
             loaded={
                 "alpha": Path("history_alpha.json"),
@@ -694,7 +699,8 @@ async def test_resume_session_applies_hydrated_active_agent_to_request(
             missing_agents=[],
             active_agent="alpha",
         )
-    )
+
+    manager = SimpleNamespace(resume_session_agents_async=_resume_session_agents_async)
 
     markdown_notices: list[tuple[str, dict[str, str | None]]] = []
 
@@ -736,7 +742,7 @@ async def test_resume_session_prefers_explicit_target_agent_for_fallback_history
         )
     )
 
-    def _resume_session_agents(*args, **kwargs):
+    async def _resume_session_agents_async(*args, **kwargs):
         del args
         captured_kwargs.update(kwargs)
         return ResumeSessionAgentsResult(
@@ -745,7 +751,7 @@ async def test_resume_session_prefers_explicit_target_agent_for_fallback_history
             missing_agents=[],
         )
 
-    manager = SimpleNamespace(resume_session_agents=_resume_session_agents)
+    manager = SimpleNamespace(resume_session_agents_async=_resume_session_agents_async)
 
     monkeypatch.setattr("fast_agent.session.get_session_manager", lambda: manager)
     monkeypatch.setattr("fast_agent.ui.enhanced_prompt.queue_startup_notice", lambda *_args: None)

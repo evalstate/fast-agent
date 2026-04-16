@@ -98,7 +98,7 @@ class AgentCompleter(Completer):
             "tools": "List tools",
             "model": (
                 "Inspect/switch models and update runtime settings "
-                "(/model reasoning|verbosity|fast|web_search|web_fetch|switch [starts new session]|doctor|references|catalog)"
+                "(/model reasoning|task_budget|verbosity|fast|web_search|web_fetch|switch [starts new session]|doctor|references|catalog)"
             ),
             "skills": (
                 "Manage skills "
@@ -328,7 +328,21 @@ class AgentCompleter(Completer):
         llm = self._current_agent_llm()
         if not llm:
             return []
-        return available_reasoning_values(getattr(llm, "reasoning_effort_spec", None))
+        values = available_reasoning_values(getattr(llm, "reasoning_effort_spec", None))
+        if "auto" in values:
+            values = ["adaptive" if value == "auto" else value for value in values]
+        return values
+
+    def _supports_task_budget_setting(self) -> bool:
+        llm = self._current_agent_llm()
+        if llm is None:
+            return False
+        return bool(getattr(llm, "task_budget_supported", False))
+
+    def _resolve_task_budget_values(self) -> list[str]:
+        if not self._supports_task_budget_setting():
+            return []
+        return ["off", "20k", "64k", "128k", "256k"]
 
     def _resolve_verbosity_values(self) -> list[str]:
         llm = self._current_agent_llm()

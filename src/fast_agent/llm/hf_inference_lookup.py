@@ -305,7 +305,7 @@ async def validate_hf_model(
     Returns:
         ModelValidationResult with validation status and messages
     """
-    # Resolve presets first (e.g., "kimi" -> "hf.moonshotai/Kimi-K2-Instruct-0905:groq")
+    # Resolve presets first (e.g., "kimi" -> "hf.moonshotai/Kimi-K2.5:fireworks-ai?...")
     if presets:
         model = presets.get(model, model)
 

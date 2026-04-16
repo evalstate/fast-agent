@@ -46,6 +46,7 @@ from fast_agent.ui.command_payloads import (
     ModelReasoningCommand,
     ModelsCommand,
     ModelSwitchCommand,
+    ModelTaskBudgetCommand,
     ModelVerbosityCommand,
     ModelWebFetchCommand,
     ModelWebSearchCommand,
@@ -529,6 +530,7 @@ def _parse_model_command(cmd_line: str, remainder: str) -> CommandPayload:
     value = argument or None
     value_command_factories: dict[str, Callable[[str | None], CommandPayload]] = {
         "reasoning": ModelReasoningCommand,
+        "task_budget": ModelTaskBudgetCommand,
         "verbosity": ModelVerbosityCommand,
         "fast": ModelFastCommand,
         "web_search": ModelWebSearchCommand,

@@ -7,6 +7,7 @@ from fast_agent.commands.handlers.model import (
     handle_model_fast,
     handle_model_reasoning,
     handle_model_switch,
+    handle_model_task_budget,
     handle_model_verbosity,
     handle_model_web_fetch,
     handle_model_web_search,
@@ -21,6 +22,7 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, ReasoningEffortSpec
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.llm.resolved_model import ResolvedModelSpec, resolve_base_model_params
+from fast_agent.llm.task_budget import format_task_budget_tokens
 from fast_agent.llm.text_verbosity import TextVerbositySpec
 from fast_agent.ui.model_picker_common import ANTHROPIC_VERTEX_PROVIDER_KEY
 
@@ -99,6 +101,8 @@ class _StubLLM:
         service_tier_supported: bool = False,
         service_tier_default: str | None = None,
         available_service_tiers: tuple[str, ...] | None = None,
+        task_budget_supported: bool = False,
+        task_budget_default: int | None = None,
         sampling_overrides: dict[str, float | int] | None = None,
         provider: Provider = Provider.RESPONSES,
         selected_model_name: str | None = None,
@@ -153,6 +157,8 @@ class _StubLLM:
             available_service_tiers = ("fast", "flex")
         self.available_service_tiers = available_service_tiers or ()
         self._service_tier = service_tier_default
+        self.task_budget_supported = task_budget_supported
+        self._task_budget_tokens = task_budget_default
         self.web_search_supported = web_search_supported
         self.web_fetch_supported = web_fetch_supported
         self._web_search_default = web_search_default
@@ -189,6 +195,10 @@ class _StubLLM:
         return self._service_tier
 
     @property
+    def task_budget_tokens(self) -> int | None:
+        return self._task_budget_tokens
+
+    @property
     def model_info(self) -> ModelInfo | None:
         if self._model_info_override is not None:
             return self._model_info_override
@@ -213,6 +223,11 @@ class _StubLLM:
                 f"Current model supports only {allowed} or unset (standard) service tier."
             )
         self._service_tier = value
+
+    def set_task_budget_tokens(self, value: int | None) -> None:
+        if value is not None and not self.task_budget_supported:
+            raise ValueError("Current model does not support task budget configuration.")
+        self._task_budget_tokens = value
 
 
 class _StubShellRuntime:
@@ -802,3 +817,73 @@ async def test_model_switch_returns_model_config_errors_without_raising() -> Non
     assert text_messages == [
         "Model reference '$system.typo' could not be resolved: Available references: $system.default"
     ]
+
+
+@pytest.mark.asyncio
+async def test_model_task_budget_reports_current_value_when_supported() -> None:
+    llm = _StubLLM(
+        "claude-opus-4-7",
+        provider=Provider.ANTHROPIC,
+        task_budget_supported=True,
+        task_budget_default=128_000,
+    )
+    agent = _StubAgent(llm)
+    provider = _StubAgentProvider(agent)
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+    )
+
+    outcome = await handle_model_task_budget(ctx, agent_name="test", value=None)
+
+    rendered = [str(message.text) for message in outcome.messages]
+    assert any("Task budget: 128k." in line for line in rendered)
+
+
+@pytest.mark.asyncio
+async def test_model_task_budget_set_when_supported() -> None:
+    llm = _StubLLM(
+        "claude-opus-4-7",
+        provider=Provider.ANTHROPIC,
+        task_budget_supported=True,
+    )
+    agent = _StubAgent(llm)
+    provider = _StubAgentProvider(agent)
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+    )
+
+    outcome = await handle_model_task_budget(ctx, agent_name="test", value="64k")
+
+    assert llm.task_budget_tokens == 64_000
+    assert any(
+        str(message.text) == f"Task budget: set to {format_task_budget_tokens(64_000)}."
+        for message in outcome.messages
+    )
+
+
+@pytest.mark.asyncio
+async def test_model_task_budget_rejects_values_below_minimum() -> None:
+    llm = _StubLLM(
+        "claude-opus-4-7",
+        provider=Provider.ANTHROPIC,
+        task_budget_supported=True,
+    )
+    agent = _StubAgent(llm)
+    provider = _StubAgentProvider(agent)
+    ctx = CommandContext(
+        agent_provider=provider,
+        current_agent_name="test",
+        io=_StubIO(),
+        settings=Settings(),
+    )
+
+    outcome = await handle_model_task_budget(ctx, agent_name="test", value="10k")
+
+    assert llm.task_budget_tokens is None
+    assert any("Task budget must be at least 20,000 tokens." in str(message.text) for message in outcome.messages)

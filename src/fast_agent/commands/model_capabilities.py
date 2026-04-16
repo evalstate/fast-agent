@@ -46,6 +46,25 @@ def set_web_fetch_enabled(llm: FastAgentLLMProtocol | object, value: bool | None
     llm.set_web_fetch_enabled(value)
 
 
+def resolve_task_budget_supported(llm: FastAgentLLMProtocol | object | None) -> bool:
+    if llm is None:
+        return False
+    llm = cast("FastAgentLLMProtocol", llm)
+    return bool(llm.task_budget_supported)
+
+
+def resolve_task_budget_tokens(llm: FastAgentLLMProtocol | object | None) -> int | None:
+    if llm is None:
+        return None
+    llm = cast("FastAgentLLMProtocol", llm)
+    return llm.task_budget_tokens
+
+
+def set_task_budget_tokens(llm: FastAgentLLMProtocol | object, value: int | None) -> None:
+    llm = cast("FastAgentLLMProtocol", llm)
+    llm.set_task_budget_tokens(value)
+
+
 def resolve_service_tier_supported(llm: FastAgentLLMProtocol | object | None) -> bool:
     if llm is None:
         return False
@@ -111,6 +130,11 @@ def model_supports_web_fetch(llm: FastAgentLLMProtocol | object | None) -> bool:
 def model_supports_service_tier(llm: FastAgentLLMProtocol | object | None) -> bool:
     """Return True when model/provider supports service tier runtime configuration."""
     return resolve_service_tier_supported(llm)
+
+
+def model_supports_task_budget(llm: FastAgentLLMProtocol | object | None) -> bool:
+    """Return True when model/provider supports task budget runtime configuration."""
+    return resolve_task_budget_supported(llm)
 
 
 def model_supports_text_verbosity(llm: FastAgentLLMProtocol | object | None) -> bool:

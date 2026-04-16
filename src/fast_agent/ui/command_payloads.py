@@ -338,6 +338,12 @@ class ModelReasoningCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class ModelTaskBudgetCommand(CommandBase):
+    value: str | None
+    kind: Literal["model_task_budget"] = "model_task_budget"
+
+
+@dataclass(frozen=True, slots=True)
 class ModelVerbosityCommand(CommandBase):
     value: str | None
     kind: Literal["model_verbosity"] = "model_verbosity"
@@ -423,6 +429,7 @@ CommandPayload = (
     | ShellCommand
     | AttachCommand
     | ModelReasoningCommand
+    | ModelTaskBudgetCommand
     | ModelVerbosityCommand
     | ModelFastCommand
     | ModelWebSearchCommand

@@ -230,6 +230,11 @@ class ResolvedModelSpec:
             kwargs["web_search"] = config.web_search
         if config.web_fetch is not None and self.provider == Provider.ANTHROPIC:
             kwargs["web_fetch"] = config.web_fetch
+        if config.task_budget_configured and self.provider in {
+            Provider.ANTHROPIC,
+            Provider.ANTHROPIC_VERTEX,
+        }:
+            kwargs["task_budget_tokens"] = config.task_budget_tokens
 
         return kwargs
 

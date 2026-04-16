@@ -90,9 +90,10 @@ def _discovery_top_level_catalog() -> tuple[dict[str, object], ...]:
         {
             "name": "model",
             "summary": "Request behavior, switching, and model diagnostics",
-            "usage": "/model [reasoning|verbosity|fast|web_search|web_fetch|switch|doctor|references|catalog|help] [args]",
+            "usage": "/model [reasoning|task_budget|verbosity|fast|web_search|web_fetch|switch|doctor|references|catalog|help] [args]",
             "actions": [
                 {"name": "reasoning", "summary": "set reasoning effort"},
+                {"name": "task_budget", "summary": "set Anthropic task budget"},
                 {"name": "verbosity", "summary": "set response length"},
                 {"name": "fast", "summary": "set service tier"},
                 {"name": "web_search", "summary": "toggle web search"},
@@ -105,6 +106,7 @@ def _discovery_top_level_catalog() -> tuple[dict[str, object], ...]:
             ],
             "examples": [
                 "/model reasoning high",
+                "/model task_budget 64k",
                 "/model switch",
                 "/model doctor",
                 "/model references",

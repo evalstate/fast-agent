@@ -33,6 +33,7 @@ def test_model_database_context_windows():
     assert ModelDatabase.get_context_window("claude-sonnet-4-0") == 200000
     assert ModelDatabase.get_context_window("claude-sonnet-4-6") == 1_000_000
     assert ModelDatabase.get_context_window("claude-opus-4-6") == 1_000_000
+    assert ModelDatabase.get_context_window("claude-opus-4-7") == 1_000_000
     assert ModelDatabase.get_context_window("gpt-4o") == 128000
     assert ModelDatabase.get_context_window("gemini-2.0-flash") == 1048576
     assert ModelDatabase.get_context_window("Qwen/Qwen3.5-397B-A17B") == 262144
@@ -117,6 +118,11 @@ def test_model_database_anthropic_web_tool_versions_unknown_model():
     assert ModelDatabase.get_anthropic_web_search_version("unknown-model") is None
     assert ModelDatabase.get_anthropic_web_fetch_version("unknown-model") is None
     assert ModelDatabase.get_anthropic_required_betas("unknown-model") is None
+
+
+def test_model_database_anthropic_task_budget_support() -> None:
+    assert ModelDatabase.supports_anthropic_task_budget("claude-opus-4-7") is True
+    assert ModelDatabase.supports_anthropic_task_budget("claude-opus-4-6") is False
 
 
 def test_model_database_anthropic_vertex_caps_are_provider_aware() -> None:
@@ -406,12 +412,12 @@ def test_model_database_codex_spark_is_text_only() -> None:
     assert not ModelDatabase.supports_mime("gpt-5.3-codex-spark", "image/png")
 
 
-def test_model_database_opus_46_reasoning_spec():
-    """Opus 4.6 should expose adaptive effort settings."""
-    spec = ModelDatabase.get_reasoning_effort_spec("claude-opus-4-6")
+def test_model_database_opus_47_reasoning_spec():
+    """Opus 4.7 should expose adaptive effort settings including xhigh."""
+    spec = ModelDatabase.get_reasoning_effort_spec("claude-opus-4-7")
     assert spec is not None
     assert spec.kind == "effort"
-    assert spec.allowed_efforts == ["low", "medium", "high", "max"]
+    assert spec.allowed_efforts == ["low", "medium", "high", "xhigh", "max"]
     assert spec.allow_toggle_disable
 
 
@@ -520,7 +526,7 @@ def test_huggingface_kimi25_disable_reasoning_toggle():
     args = _hf_request_args(llm)
     extra_body = args.get("extra_body")
     assert isinstance(extra_body, dict)
-    assert extra_body["chat_template_kwargs"] == {"thinking": False}
+    assert extra_body["thinking"] == {"type": "disabled"}
 
 
 def test_huggingface_kimi25_default_reasoning_toggle_enabled():
@@ -529,7 +535,7 @@ def test_huggingface_kimi25_default_reasoning_toggle_enabled():
     args = _hf_request_args(llm)
     extra_body = args.get("extra_body")
     if isinstance(extra_body, dict):
-        assert "chat_template_kwargs" not in extra_body
+        assert "thinking" not in extra_body
     else:
         assert extra_body is None
 

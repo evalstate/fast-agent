@@ -89,7 +89,8 @@ def show_welcome() -> None:
 
     table.add_row("[bold]go[/bold]", "Start an interactive session")
     table.add_row("go -x", "Start an interactive session with a local shell tool")
-    table.add_row("[bold]serve[/bold]", "Start fast-agent as an MCP server")
+    table.add_row("[bold]serve[/bold]", "Expose fast-agent over MCP (http/stdio) or ACP")
+    table.add_row("[bold]acp[/bold]", "Start fast-agent as an ACP stdio server (for Zed, Toad, etc.)")
     table.add_row("check", "Show current configuration")
     table.add_row("cards", "Manage card packs (list/add/remove/update/publish)")
     table.add_row("skills", "Manage skills (list/available/search/add/remove/update)")

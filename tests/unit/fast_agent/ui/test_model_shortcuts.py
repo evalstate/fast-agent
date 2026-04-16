@@ -29,7 +29,7 @@ def test_cycle_reasoning_setting_uses_available_values_order() -> None:
     assert cycle_reasoning_setting(ReasoningEffortSetting(kind="effort", value="high"), spec) == ReasoningEffortSetting(kind="toggle", value=False)
 
 
-def test_cycle_reasoning_setting_skips_auto_default_in_f6_rotation() -> None:
+def test_cycle_reasoning_setting_returns_to_adaptive_in_f6_rotation() -> None:
     spec = ReasoningEffortSpec(
         kind="effort",
         allowed_efforts=["low", "medium", "high"],
@@ -40,6 +40,7 @@ def test_cycle_reasoning_setting_skips_auto_default_in_f6_rotation() -> None:
 
     assert cycle_reasoning_setting(None, spec) == ReasoningEffortSetting(kind="effort", value="low")
     assert cycle_reasoning_setting(ReasoningEffortSetting(kind="effort", value="auto"), spec) == ReasoningEffortSetting(kind="effort", value="low")
+    assert cycle_reasoning_setting(ReasoningEffortSetting(kind="toggle", value=False), spec) == ReasoningEffortSetting(kind="effort", value="auto")
 
 
 def test_cycle_reasoning_setting_does_not_add_off_when_none_exists() -> None:
@@ -98,7 +99,7 @@ def test_build_model_shortcut_hints_codexresponses_omit_flex() -> None:
     ]
 
 
-def test_build_model_shortcut_hints_omit_auto_from_f6_reasoning_values() -> None:
+def test_build_model_shortcut_hints_include_adaptive_for_auto_reasoning() -> None:
     class _AutoReasoningShortcutStub(_ShortcutStub):
         reasoning_effort_spec = ReasoningEffortSpec(
             kind="effort",
@@ -110,7 +111,7 @@ def test_build_model_shortcut_hints_omit_auto_from_f6_reasoning_values() -> None
 
     hints = build_model_shortcut_hints(_AutoReasoningShortcutStub())
 
-    assert ModelShortcutHint("F6", "Reasoning", "low, medium, high, off") in hints
+    assert ModelShortcutHint("F6", "Reasoning", "low, medium, high, off, adaptive") in hints
 
 
 def test_build_model_shortcut_hints_omit_off_when_none_exists() -> None:

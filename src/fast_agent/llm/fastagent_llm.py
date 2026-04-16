@@ -351,6 +351,10 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         params = self._get_model_params(model_name)
         return params.anthropic_required_betas if params is not None else None
 
+    def _get_model_anthropic_task_budget_supported(self, model_name: str | None) -> bool:
+        params = self._get_model_params(model_name)
+        return bool(params.anthropic_task_budget_supported) if params is not None else False
+
     def set_reasoning_effort(self, setting: ReasoningEffortSetting | None) -> None:
         if setting is None:
             self._reasoning_effort = None
@@ -413,6 +417,20 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     def set_web_fetch_enabled(self, value: bool | None) -> None:
         if value is not None and not self.web_fetch_supported:
             raise ValueError("Current model does not support web fetch configuration.")
+
+    @property
+    def task_budget_supported(self) -> bool:
+        """Whether provider-side task_budget selection is supported."""
+        return False
+
+    @property
+    def task_budget_tokens(self) -> int | None:
+        """Current provider-side task_budget selection for this LLM instance."""
+        return None
+
+    def set_task_budget_tokens(self, value: int | None) -> None:
+        if value is not None and not self.task_budget_supported:
+            raise ValueError("Current model does not support task budget configuration.")
 
     @property
     def service_tier_supported(self) -> bool:

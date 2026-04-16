@@ -136,6 +136,22 @@ def _select_history_files(session_dir: Path) -> list[Path]:
                 if selected:
                     return sorted(selected)
 
+            continuation = _as_dict(payload.get("continuation")) or {}
+            agents = _as_dict(continuation.get("agents")) or {}
+            selected = []
+            for agent_payload in agents.values():
+                agent_entry = _as_dict(agent_payload)
+                if agent_entry is None:
+                    continue
+                history_file = agent_entry.get("history_file")
+                if not isinstance(history_file, str) or history_file.endswith("_previous.json"):
+                    continue
+                candidate = session_dir / history_file
+                if candidate.exists() and candidate not in selected:
+                    selected.append(candidate)
+            if selected:
+                return sorted(selected)
+
     return sorted(
         path
         for path in session_dir.glob("history_*.json")

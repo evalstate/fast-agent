@@ -21,6 +21,7 @@ from fast_agent.llm.structured_output_mode import (
     StructuredOutputMode,
     parse_structured_output_mode,
 )
+from fast_agent.llm.task_budget import parse_task_budget_tokens, validate_task_budget_tokens
 from fast_agent.llm.text_verbosity import TextVerbosityLevel, parse_text_verbosity
 from fast_agent.types import RequestParams
 
@@ -43,6 +44,8 @@ class ModelConfig(BaseModel):
     service_tier: ServiceTierSetting | None = None
     web_search: bool | None = None
     web_fetch: bool | None = None
+    task_budget_tokens: int | None = None
+    task_budget_configured: bool = False
     temperature: float | None = None
     top_p: float | None = None
     top_k: int | None = None
@@ -64,6 +67,8 @@ class ModelQueryOverrides:
     service_tier: ServiceTierSetting | None = None
     web_search: bool | None = None
     web_fetch: bool | None = None
+    task_budget_tokens: int | None = None
+    task_budget_configured: bool = False
     temperature: float | None = None
     top_p: float | None = None
     top_k: int | None = None
@@ -95,6 +100,12 @@ class ModelQueryOverrides:
             ),
             web_search=self.web_search if self.web_search is not None else defaults.web_search,
             web_fetch=self.web_fetch if self.web_fetch is not None else defaults.web_fetch,
+            task_budget_tokens=(
+                self.task_budget_tokens
+                if self.task_budget_configured
+                else defaults.task_budget_tokens
+            ),
+            task_budget_configured=self.task_budget_configured or defaults.task_budget_configured,
             temperature=self.temperature if self.temperature is not None else defaults.temperature,
             top_p=self.top_p if self.top_p is not None else defaults.top_p,
             top_k=self.top_k if self.top_k is not None else defaults.top_k,
@@ -136,6 +147,8 @@ class ParsedModelSpec:
             service_tier=self.query_overrides.service_tier,
             web_search=self.query_overrides.web_search,
             web_fetch=self.query_overrides.web_fetch,
+            task_budget_tokens=self.query_overrides.task_budget_tokens,
+            task_budget_configured=self.query_overrides.task_budget_configured,
             temperature=self.query_overrides.temperature,
             top_p=self.query_overrides.top_p,
             top_k=self.query_overrides.top_k,
@@ -230,6 +243,8 @@ def _parse_query_overrides(
         "service_tier",
         "web_search",
         "web_fetch",
+        "task_budget",
+        "taskBudget",
         "temperature",
         "temp",
         "top_p",
@@ -257,6 +272,8 @@ def _parse_query_overrides(
     service_tier: ServiceTierSetting | None = None
     web_search: bool | None = None
     web_fetch: bool | None = None
+    task_budget_tokens: int | None = None
+    task_budget_configured = False
 
     if "reasoning" in query_params:
         raw_value = _collect_query_values(query_params, ("reasoning",))[-1]
@@ -332,6 +349,15 @@ def _parse_query_overrides(
         raw_value = _collect_query_values(query_params, ("web_fetch",))[-1]
         web_fetch = _parse_on_off_query(raw_value, "web_fetch", model_spec)
 
+    task_budget_keys = ("task_budget", "taskBudget")
+    if any(key in query_params for key in task_budget_keys):
+        raw_value = _collect_query_values(query_params, task_budget_keys)[-1]
+        try:
+            task_budget_tokens = validate_task_budget_tokens(parse_task_budget_tokens(raw_value))
+        except ValueError as exc:
+            raise ModelConfigError(f"Invalid task_budget query value: '{raw_value}' in '{model_spec}'") from exc
+        task_budget_configured = True
+
     return ModelQueryOverrides(
         reasoning_effort=reasoning_effort,
         instant=instant,
@@ -342,6 +368,8 @@ def _parse_query_overrides(
         service_tier=service_tier,
         web_search=web_search,
         web_fetch=web_fetch,
+        task_budget_tokens=task_budget_tokens,
+        task_budget_configured=task_budget_configured,
         temperature=_parse_float_query(
             query_params,
             model_spec,
@@ -563,10 +591,11 @@ class ModelFactory:
         "haiku3": "claude-3-haiku-20240307",
         "haiku35": "claude-3-5-haiku-latest",
         "haiku45": "claude-haiku-4-5",
-        "opus": "claude-opus-4-6",
+        "opus": "claude-opus-4-7",
         "opus4": "claude-opus-4-1",
         "opus45": "claude-opus-4-5",
         "opus46": "claude-opus-4-6",
+        "opus47": "claude-opus-4-7",
         "opus3": "claude-3-opus-latest",
         "deepseekv3": "deepseek-chat",
         "deepseek3": "deepseek-chat",
@@ -579,12 +608,11 @@ class ModelFactory:
         "gemini3flash": "gemini-3-flash-preview",
         "grok-4-fast": "xai.grok-4-fast-non-reasoning",
         "grok-4-fast-reasoning": "xai.grok-4-fast-reasoning",
-        "kimigroq": "groq.moonshotai/kimi-k2-instruct-0905",
         "minimax": "hf.MiniMaxAI/MiniMax-M2.5:novita",
         "minimax25": "hf.MiniMaxAI/MiniMax-M2.5:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40",
         "minimax2.5": "hf.MiniMaxAI/MiniMax-M2.5:novita?temperature=1.0&top_p=0.95&top_k=40",
         "minimax21": "hf.MiniMaxAI/MiniMax-M2.1:novita",
-        "kimi": "hf.moonshotai/Kimi-K2-Instruct-0905:groq",
+        "kimi": ("hf.moonshotai/Kimi-K2.5:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on"),
         "gpt-oss": "hf.openai/gpt-oss-120b:cerebras",
         "gpt-oss-20b": "hf.openai/gpt-oss-20b",
         "glm47": "hf.zai-org/GLM-4.7:cerebras",
@@ -596,10 +624,9 @@ class ModelFactory:
         "kimithink": "hf.moonshotai/Kimi-K2-Thinking:fireworks-ai",
         "deepseek32": "hf.deepseek-ai/DeepSeek-V3.2:fireworks-ai",
         "kimi25": ("hf.moonshotai/Kimi-K2.5:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on"),
-        # "kimi25instant": (
-        #     "hf.moonshotai/Kimi-K2.5:fireworks-ai"
-        #     "?temperature=0.6&top_p=0.95&reasoning=off"
-        # ),
+        "kimi25instant": (
+            "hf.moonshotai/Kimi-K2.5:fireworks-ai?temperature=0.6&top_p=0.95&reasoning=off"
+        ),
         "kimi-2.5": (
             "hf.moonshotai/Kimi-K2.5:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on"
         ),

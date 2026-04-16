@@ -591,7 +591,10 @@ async def test_resumed_tool_result_history_does_not_rerun_completed_tool(tmp_pat
         resumed_agent._llm = resumed_llm
 
         manager = get_session_manager()
-        resumed = manager.resume_session(resumed_agent)
+        resumed = await manager.resume_session_agents_async(
+            {resumed_agent.name: resumed_agent},
+            fallback_agent_name=resumed_agent.name,
+        )
         assert resumed is not None
 
         result = await resumed_agent.generate("after resume")

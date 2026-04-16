@@ -75,6 +75,8 @@ def parse_reasoning_setting(value: ReasoningEffortInput) -> ReasoningEffortSetti
         cleaned = value.strip().lower()
         if not cleaned:
             return None
+        if cleaned == "adaptive":
+            cleaned = AUTO_REASONING
         if cleaned in EFFORT_LEVELS:
             return ReasoningEffortSetting(
                 kind="effort",

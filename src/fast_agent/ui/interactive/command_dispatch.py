@@ -51,6 +51,7 @@ from fast_agent.ui.command_payloads import (
     ModelReasoningCommand,
     ModelsCommand,
     ModelSwitchCommand,
+    ModelTaskBudgetCommand,
     ModelVerbosityCommand,
     ModelWebFetchCommand,
     ModelWebSearchCommand,
@@ -545,6 +546,15 @@ async def _dispatch_model_payload(
         case ModelReasoningCommand(value=value):
             context = build_command_context(prompt_provider, agent)
             outcome = await model_handlers.handle_model_reasoning(
+                context,
+                agent_name=agent,
+                value=value,
+            )
+            await emit_command_outcome(context, outcome)
+            return result
+        case ModelTaskBudgetCommand(value=value):
+            context = build_command_context(prompt_provider, agent)
+            outcome = await model_handlers.handle_model_task_budget(
                 context,
                 agent_name=agent,
                 value=value,

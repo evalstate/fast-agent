@@ -46,6 +46,19 @@ def test_effort_max_renders_highest_gauge() -> None:
     assert gauge == "<style bg='ansired'>⣿</style>"
 
 
+def test_effort_xhigh_uses_distinct_non_max_gauge() -> None:
+    spec = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "medium", "high", "xhigh", "max"],
+        default=ReasoningEffortSetting(kind="effort", value="high"),
+    )
+    setting = ReasoningEffortSetting(kind="effort", value="xhigh")
+
+    gauge = render_reasoning_effort_gauge(setting, spec)
+
+    assert gauge == "<style bg='ansiyellow'>⣿</style>"
+
+
 def test_effort_auto_renders_blue() -> None:
     """The 'auto' effort setting should render as a blue full block."""
     spec = ReasoningEffortSpec(
@@ -76,7 +89,7 @@ def test_effort_explicit_setting_not_blue() -> None:
     assert gauge is not None
     assert AUTO_COLOR not in gauge
     assert "ansiyellow" in gauge
-    assert "⣿" in gauge
+    assert "⣶" in gauge
 
 
 def test_toggle_auto_not_blue() -> None:
@@ -106,4 +119,4 @@ def test_reasoning_gauge_can_render_paired_palette() -> None:
         glyph_palette=PAIRED_REASONING_GAUGE_GLYPHS,
     )
 
-    assert gauge == "<style bg='ansiyellow'>⢰</style>"
+    assert gauge == "<style bg='ansigreen'>⢠</style>"

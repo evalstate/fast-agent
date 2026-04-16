@@ -53,5 +53,6 @@ def test_wizard_curated_models_include_qwen35_and_kimi25_profiles() -> None:
 
     ids = {entry.id for entry in model_catalog.CURATED_MODELS}
     assert "kimi25" in ids
+    assert "kimi25instant" in ids
     assert "qwen35" in ids
     assert "qwen35instruct" in ids

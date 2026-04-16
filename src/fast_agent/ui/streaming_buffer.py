@@ -28,6 +28,7 @@ class CodeBlock:
     start_pos: int  # Character position where block starts
     end_pos: int  # Character position where block ends
     language: str  # Language identifier (e.g., "python")
+    is_fenced: bool  # True for ```/~~~ fenced blocks, False for 4-space indented blocks
 
 
 @dataclass
@@ -332,7 +333,12 @@ class StreamBuffer:
                 language = getattr(token, "info", "") or ""
 
                 blocks.append(
-                    CodeBlock(start_pos=start_pos, end_pos=end_pos, language=language)
+                    CodeBlock(
+                        start_pos=start_pos,
+                        end_pos=end_pos,
+                        language=language,
+                        is_fenced=(token.type == "fence"),
+                    )
                 )
 
         return blocks
@@ -401,6 +407,14 @@ class StreamBuffer:
         When we truncate mid-code-block, we need to preserve the opening fence
         so the remaining code still renders with syntax highlighting.
 
+        Only applies to fenced blocks (```/~~~). Indented (4-space) code blocks
+        have no closing delimiter in the source; prepending a synthetic ``` for
+        them produces an unclosed fence that is later closed at end-of-text by
+        ``close_incomplete_code_blocks`` in the streaming render path, which
+        would swallow any paragraphs or other content that appeared after the
+        indented block. Indented blocks keep their leading 4 spaces on every
+        retained line, so markdown-it re-detects them as code without help.
+
         Args:
             original_text: Full original text
             truncated_text: Text after truncation
@@ -413,7 +427,10 @@ class StreamBuffer:
         for block in code_blocks:
             # Check if we truncated within this code block
             if block.start_pos < truncation_pos < block.end_pos:
-                # We're inside this block - did we remove the opening fence?
+                if not block.is_fenced:
+                    # Indented code block: never prepend a synthetic fence.
+                    break
+                # We're inside this fenced block - did we remove the opening fence?
                 if truncation_pos > block.start_pos:
                     fence = f"```{block.language}\n"
                     # Avoid duplicates

@@ -75,6 +75,9 @@ class ModelParameters(BaseModel):
     anthropic_required_betas: tuple[str, ...] | None = None
     """Anthropic beta headers required for model-specific server tool support."""
 
+    anthropic_task_budget_supported: bool = False
+    """Whether Anthropic task_budget output_config is supported for this model."""
+
     default_temperature: float | None = None
     """Optional default sampling temperature for this model."""
 
@@ -444,6 +447,12 @@ class ModelDatabase:
         anthropic_required_betas=(ANTHROPIC_WEB_TOOLS_BETA_46,),
         default_provider=Provider.ANTHROPIC,
     )
+    ANTHROPIC_OPUS_47 = ANTHROPIC_OPUS_46.model_copy(
+        update={
+            "reasoning_effort_spec": ANTHROPIC_ADAPTIVE_THINKING_EFFORT_SPEC_OPUS47,
+            "anthropic_task_budget_supported": True,
+        }
+    )
 
     ANTHROPIC_OPUS_4_LEGACY = ModelParameters(
         context_window=200000,
@@ -776,7 +785,7 @@ class ModelDatabase:
         "claude-opus-4-1": ANTHROPIC_OPUS_4_VERSIONED,
         "claude-opus-4-5": ANTHROPIC_OPUS_4_VERSIONED,
         "claude-opus-4-6": ANTHROPIC_OPUS_46,
-        "claude-opus-4-7": ANTHROPIC_OPUS_46,
+        "claude-opus-4-7": ANTHROPIC_OPUS_47,
         "claude-opus-4-20250514": ANTHROPIC_OPUS_4_LEGACY,
         "claude-haiku-4-5-20251001": ANTHROPIC_SONNET_4_VERSIONED,
         "claude-haiku-4-5": _with_fast(ANTHROPIC_SONNET_4_VERSIONED),
@@ -1166,6 +1175,17 @@ class ModelDatabase:
         """Get Anthropic beta headers required for model-specific capabilities."""
         params = cls.get_model_params(model, provider=provider)
         return params.anthropic_required_betas if params else None
+
+    @classmethod
+    def supports_anthropic_task_budget(
+        cls,
+        model: str,
+        *,
+        provider: Provider | None = None,
+    ) -> bool:
+        """Return whether Anthropic task_budget is supported for a model/provider."""
+        params = cls.get_model_params(model, provider=provider)
+        return bool(params.anthropic_task_budget_supported) if params else False
 
     @classmethod
     def resolve_wire_model_name(cls, *, provider: Provider, model_name: str) -> str:

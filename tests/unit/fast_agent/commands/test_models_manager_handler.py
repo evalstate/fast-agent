@@ -407,7 +407,7 @@ async def test_models_doctor_treats_builtin_model_alias_as_equivalent(tmp_path: 
         "main": _StubAgent(
             model="opus",
             tool_only=False,
-            resolved_model="claude-opus-4-6",
+            resolved_model="claude-opus-4-7",
         ),
     }
 
@@ -427,7 +427,7 @@ async def test_models_doctor_treats_builtin_model_alias_as_equivalent(tmp_path: 
     rendered = str(outcome.messages[0].text)
     assert "main" in rendered
     assert "opus" in rendered
-    assert "claude-opus-4-6" in rendered
+    assert "claude-opus-4-7" in rendered
     assert "Resolved spec suggests" not in rendered
 
 

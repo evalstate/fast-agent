@@ -76,7 +76,7 @@ class ModelSelectionCatalog:
         Provider.ANTHROPIC: (
             CatalogModelEntry(alias="sonnet", model="claude-sonnet-4-6"),
             CatalogModelEntry(alias="haiku", model="claude-haiku-4-5", fast=True),
-            CatalogModelEntry(alias="opus", model="claude-opus-4-6"),
+            CatalogModelEntry(alias="opus", model="claude-opus-4-7"),
         ),
         Provider.ANTHROPIC_VERTEX: (
             CatalogModelEntry(alias="sonnet", model="anthropic-vertex.claude-sonnet-4-6"),
@@ -85,7 +85,7 @@ class ModelSelectionCatalog:
                 model="anthropic-vertex.claude-haiku-4-5",
                 fast=True,
             ),
-            CatalogModelEntry(alias="opus", model="anthropic-vertex.claude-opus-4-6"),
+            CatalogModelEntry(alias="opus", model="anthropic-vertex.claude-opus-4-7"),
         ),
         Provider.GOOGLE: (
             CatalogModelEntry(
@@ -133,6 +133,13 @@ class ModelSelectionCatalog:
                 fast=True,
             ),
             CatalogModelEntry(
+                alias="kimi25instant",
+                model=(
+                    "hf.moonshotai/Kimi-K2.5:fireworks-ai?temperature=0.6&top_p=0.95&reasoning=off"
+                ),
+                fast=True,
+            ),
+            CatalogModelEntry(
                 alias="glm5",
                 model="hf.zai-org/GLM-5:novita",
                 current=False,
@@ -156,9 +163,6 @@ class ModelSelectionCatalog:
             CatalogModelEntry(
                 alias="deepseek32",
                 model="hf.deepseek-ai/DeepSeek-V3.2:fireworks-ai",
-            ),
-            CatalogModelEntry(
-                alias="kimi-k2-instruct", model="hf.moonshotai/Kimi-K2-Instruct-0905:groq"
             ),
             CatalogModelEntry(
                 alias="kimi-k2-thinking", model="hf.moonshotai/Kimi-K2-Thinking:together"
@@ -190,8 +194,13 @@ class ModelSelectionCatalog:
         ),
         Provider.GROQ: (
             CatalogModelEntry(
-                alias="kimigroq",
-                model="kimigroq",
+                alias="qwen3-32b",
+                model="groq.qwen/qwen3-32b",
+                fast=True,
+            ),
+            CatalogModelEntry(
+                alias="deepseek-r1-distill-llama-70b",
+                model="groq.deepseek-r1-distill-llama-70b",
             ),
         ),
         Provider.FAST_AGENT: (

@@ -1,7 +1,7 @@
 import json
 import os
 import re
-from typing import Literal, Mapping, Sequence, Union, cast
+from typing import Any, Literal, Mapping, Sequence, Union, cast
 from urllib.parse import urlparse
 
 from anthropic.types.beta import (
@@ -353,7 +353,14 @@ class AnthropicConverter:
             if not isinstance(normalized, dict):
                 continue
 
-            deserialized.append(cast("ContentBlockParam", normalized))
+            # Strip output-only fields that survive TypedDict validation and
+            # that Anthropic rejects when replayed in message history. Mirrors
+            # the tool-block handling in web_tools.py.
+            mutable_payload = cast("dict[str, Any]", normalized)
+            if mutable_payload.get("type") == "text":
+                mutable_payload.pop("parsed_output", None)
+
+            deserialized.append(cast("ContentBlockParam", mutable_payload))
 
         return deserialized
 

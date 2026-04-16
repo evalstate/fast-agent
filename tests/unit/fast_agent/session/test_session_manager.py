@@ -45,6 +45,9 @@ class _Agent:
     def set_instruction(self, instruction: str) -> None:
         self.instruction = instruction
 
+    def set_model(self, model: str | None) -> None:
+        self.config.model = model
+
 
 def _message(role: Literal["user", "assistant"], text: str) -> PromptMessageExtended:
     return PromptMessageExtended(
@@ -271,7 +274,7 @@ async def test_resume_session_agents_uses_hydrator_active_agent_and_prompt_resto
     runtime_foo = _Agent(name="foo", instruction="Changed foo prompt")
     runtime_bar = _Agent(name="bar", instruction="Changed bar prompt")
 
-    result = manager.resume_session_agents(
+    result = await manager.resume_session_agents_async(
         {
             "foo": cast("AgentProtocol", runtime_foo),
             "bar": cast("AgentProtocol", runtime_bar),

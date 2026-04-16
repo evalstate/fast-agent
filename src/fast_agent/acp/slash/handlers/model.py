@@ -42,6 +42,9 @@ async def _handle_model_like(
             if subcmd == "verbosity":
                 command_kind = "verbosity"
                 value = argument or None
+            elif subcmd == "task_budget":
+                command_kind = "task_budget"
+                value = argument or None
             elif subcmd == "fast":
                 command_kind = "fast"
                 value = argument or None
@@ -96,6 +99,12 @@ async def _handle_model_like(
         )
     elif command_kind == "verbosity":
         outcome = await model_handlers.handle_model_verbosity(
+            ctx,
+            agent_name=handler.current_agent_name,
+            value=value,
+        )
+    elif command_kind == "task_budget":
+        outcome = await model_handlers.handle_model_task_budget(
             ctx,
             agent_name=handler.current_agent_name,
             value=value,

@@ -383,11 +383,14 @@ class SlashCommandHandler:
         llm = self._get_current_llm()
         if llm is None:
             return (
-                "reasoning <value> | verbosity <value> | fast <on|off|status|flex when supported> | "
+                "reasoning <value> | task_budget <off|20k+|status when supported> | "
+                "verbosity <value> | fast <on|off|status|flex when supported> | "
                 "web_search <on|off|default> | web_fetch <on|off|default>"
             )
 
         options = ["reasoning <value>"]
+        if model_handlers.model_supports_task_budget(llm):
+            options.append("task_budget <off|20k+|status>")
         if model_handlers.model_supports_text_verbosity(llm):
             options.append("verbosity <value>")
         if model_handlers.model_supports_service_tier(llm):

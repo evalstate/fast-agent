@@ -25,9 +25,9 @@ MAX_LEVEL = MAX_GAUGE_LEVEL
 EFFORT_LEVEL_MAPPING = {
     "none": 0,
     "minimal": 1,
-    "low": 2,
-    "medium": 3,
-    "high": 4,
+    "low": 1,
+    "medium": 2,
+    "high": 3,
     "xhigh": 4,
     "max": 4,
 }
@@ -36,9 +36,9 @@ EFFORT_COLOR_MAPPING = {
     "none": INACTIVE_COLOR,
     "minimal": "ansigreen",
     "low": "ansigreen",
-    "medium": "ansiyellow",
+    "medium": "ansigreen",
     "high": "ansiyellow",
-    "xhigh": "ansired",
+    "xhigh": "ansiyellow",
     "max": "ansired",
 }
 

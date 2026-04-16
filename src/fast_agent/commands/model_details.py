@@ -9,6 +9,8 @@ from rich.text import Text
 from fast_agent.commands.model_capabilities import (
     describe_service_tier_state,
     resolve_service_tier_supported,
+    resolve_task_budget_supported,
+    resolve_task_budget_tokens,
     resolve_web_fetch_supported,
     resolve_web_search_supported,
 )
@@ -17,6 +19,7 @@ from fast_agent.llm.model_display_name import (
     resolve_llm_display_name,
     resolve_resolved_model_display_name,
 )
+from fast_agent.llm.task_budget import format_task_budget_tokens
 from fast_agent.llm.terminal_output_limits import (
     calculate_terminal_output_limit_for_max_tokens,
     calculate_terminal_output_limit_for_model,
@@ -257,6 +260,13 @@ def _add_model_runtime_settings(
 
     if resolve_service_tier_supported(llm):
         _emit_model_line(outcome, "Service tier", describe_service_tier_state(llm))
+
+    if resolve_task_budget_supported(llm):
+        _emit_model_line(
+            outcome,
+            "Task budget",
+            format_task_budget_tokens(resolve_task_budget_tokens(llm)),
+        )
 
     if resolve_web_search_supported(llm):
         _emit_model_line(outcome, "Web search", _enabled_label(llm.web_search_enabled))

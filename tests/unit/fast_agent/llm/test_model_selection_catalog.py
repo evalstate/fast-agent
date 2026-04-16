@@ -55,7 +55,7 @@ def test_list_curated_models_for_provider() -> None:
     models = ModelSelectionCatalog.list_curated_models(Provider.ANTHROPIC)
     assert "claude-haiku-4-5" in models
     assert "claude-sonnet-4-6" in models
-    assert "claude-opus-4-6" in models
+    assert "claude-opus-4-7" in models
 
 
 def test_list_curated_aliases_for_provider() -> None:
@@ -69,6 +69,8 @@ def test_legacy_aliases_are_listed_but_not_curated() -> None:
 
     assert set(curated_aliases).isdisjoint(legacy_aliases)
     assert "glm51" in curated_aliases
+    assert "kimi25instant" in curated_aliases
+    assert "kimi-k2-instruct" not in curated_aliases
     assert "glm5" not in curated_aliases
     assert "glm5" in legacy_aliases
     assert "glm47" in legacy_aliases
@@ -76,10 +78,17 @@ def test_legacy_aliases_are_listed_but_not_curated() -> None:
 
 
 def test_list_fast_models_uses_explicit_curated_designation() -> None:
-    for provider in (Provider.ANTHROPIC, Provider.CODEX_RESPONSES, Provider.HUGGINGFACE):
+    for provider in (Provider.ANTHROPIC, Provider.CODEX_RESPONSES, Provider.HUGGINGFACE, Provider.GROQ):
         assert ModelSelectionCatalog.list_fast_models(provider) == [
             entry.model for entry in _static_current_entries(provider) if entry.fast
         ]
+
+
+def test_groq_curated_aliases_drop_deprecated_kimi_entry() -> None:
+    aliases = ModelSelectionCatalog.list_curated_aliases(Provider.GROQ)
+
+    assert "kimigroq" not in aliases
+    assert "qwen3-32b" in aliases
 
 
 @pytest.mark.parametrize(

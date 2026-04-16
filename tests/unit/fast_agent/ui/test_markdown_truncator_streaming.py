@@ -3,10 +3,26 @@ from __future__ import annotations
 import io
 import re
 
-from rich.console import Console
+from rich.console import Console, Group
+from rich.syntax import Syntax
 
 from fast_agent.ui.markdown_renderables import build_markdown_renderable
 from fast_agent.ui.markdown_truncator import MarkdownTruncator
+
+
+def _find_renderable_containing(renderable: object, needle: str) -> object | None:
+    """Return the first leaf renderable whose text contains ``needle``."""
+    if isinstance(renderable, Group):
+        for child in renderable.renderables:
+            found = _find_renderable_containing(child, needle)
+            if found is not None:
+                return found
+        return None
+    if isinstance(renderable, Syntax):
+        return renderable if needle in (renderable.code or "") else None
+    # Rich Markdown / Text etc. expose the source via .markup or str()
+    source = getattr(renderable, "markup", None) or str(renderable)
+    return renderable if needle in source else None
 
 
 def test_streaming_truncation_reinserts_code_fence() -> None:
@@ -265,6 +281,17 @@ def test_streaming_truncation_handles_lists_and_code() -> None:
 
 
 def test_streaming_truncation_indented_code_block() -> None:
+    """Indented (4-space) code blocks must not gain a synthetic ``` fence.
+
+    Earlier versions prepended an opening fence when truncation landed inside
+    an indented code block. Because indented blocks have no closing delimiter
+    in the source, the downstream ``close_incomplete_code_blocks`` pass in the
+    live render path would then append a closing ``` at the very end of the
+    truncated text — sweeping any paragraphs that followed the indented block
+    into a spurious fenced code region. The retained 4-space indent on every
+    kept line is sufficient for markdown-it to re-detect the block as code,
+    so no synthetic fence is needed and trailing prose stays prose.
+    """
     truncator = MarkdownTruncator(target_height_ratio=0.6)
     test_console = Console(width=80)
 
@@ -281,7 +308,111 @@ def test_streaming_truncation_indented_code_block() -> None:
         )
 
         assert truncated.strip(), f"no content produced for height={height}"
-        assert truncated.lstrip().startswith("```"), "expected synthetic fence for indented block"
+        # No synthetic fence should be inserted for indented blocks.
+        assert not truncated.lstrip().startswith("```"), (
+            f"unexpected synthetic fence for indented block at height={height}"
+        )
+        # Any retained indented lines keep their 4-space prefix so markdown-it
+        # still recognises them as an indented code block without help.
+        retained_indented_lines = [
+            line for line in truncated.splitlines() if "indented line" in line
+        ]
+        for line in retained_indented_lines:
+            assert line.startswith("    "), (
+                f"indented line lost its 4-space prefix at height={height}: {line!r}"
+            )
+        # If trailing prose made it into the window, it must not be dragged
+        # inside a synthetic fence (i.e. it must render via Markdown, not Syntax).
+        if "closing text" in truncated:
+            renderable = build_markdown_renderable(
+                truncated,
+                code_theme="native",
+                escape_xml=False,
+                close_incomplete_fences=True,
+                render_fences_with_syntax=True,
+            )
+            closing_renderable = _find_renderable_containing(renderable, "closing text")
+            assert closing_renderable is not None, (
+                f"closing text vanished from renderables at height={height}"
+            )
+            assert not isinstance(closing_renderable, Syntax), (
+                "closing prose was rendered as Syntax (inside a spurious fence) "
+                f"at height={height}"
+            )
+
+
+def test_streaming_truncation_does_not_wrap_nested_list_as_code() -> None:
+    """Deeply-indented list continuations must not be rendered as code.
+
+    When a viewport truncation lands just before a line indented by 4+ spaces
+    (e.g. a nested bullet like ``    - child``), markdown-it parses that line
+    in isolation as an indented code block. Earlier versions responded by
+    prepending a synthetic ``` fence, which then got auto-closed at end of
+    text by ``close_incomplete_code_blocks`` — dragging the following list
+    items and any trailing paragraphs into a single syntax-highlighted region.
+    The effect was prose suddenly "looking like code" during a live stream and
+    self-correcting once the viewport scrolled past the indented line.
+    """
+    truncator = MarkdownTruncator(target_height_ratio=0.7)
+    test_console = Console(width=80)
+
+    text = (
+        "Here is the plan for the new model:\n\n"
+        "- Item has its own model-db entry/spec, not just an alias.\n"
+        "  - It uses the adaptive reasoning spec with:\n"
+        "    - low\n"
+        "    - medium\n"
+        "    - high\n"
+        "    - xhigh\n"
+        "    - max\n"
+        "  - Default effort is medium.\n"
+        "  - Router prefers adaptive reasoning by default.\n\n"
+        "Next up we should verify the router configuration, confirm that "
+        "defaults load, and decide on the alias policy.\n"
+    )
+
+    # Sweep a range of heights so at least some truncations land just before
+    # a 4-space-indented line (the failure mode). For every height, no prose
+    # should end up inside a Syntax renderable.
+    prose_markers = (
+        "Next up",
+        "Router prefers",
+        "Default effort",
+        "defaults load",
+    )
+
+    saw_group = False
+    for height in range(6, 18):
+        truncated = truncator.truncate_to_height(
+            text, terminal_height=height, console=test_console
+        )
+        renderable = build_markdown_renderable(
+            truncated,
+            code_theme="native",
+            escape_xml=False,
+            close_incomplete_fences=True,
+            render_fences_with_syntax=True,
+        )
+        if isinstance(renderable, Group):
+            saw_group = True
+        # Walk every Syntax leaf and make sure none contain prose.
+        pending: list[object] = [renderable]
+        while pending:
+            node = pending.pop()
+            if isinstance(node, Group):
+                pending.extend(node.renderables)
+                continue
+            if isinstance(node, Syntax):
+                code = node.code or ""
+                for marker in prose_markers:
+                    assert marker not in code, (
+                        f"prose containing {marker!r} was rendered as Syntax at "
+                        f"height={height}; truncated text was:\n{truncated!r}"
+                    )
+
+    # Guard: the sweep really did exercise the fenced/grouped paths too, so
+    # the loop isn't vacuously passing by only hitting pure-Markdown frames.
+    assert saw_group, "expected at least one height to produce a Group renderable"
 
 
 def test_streaming_truncation_avoids_duplicate_table_header() -> None:

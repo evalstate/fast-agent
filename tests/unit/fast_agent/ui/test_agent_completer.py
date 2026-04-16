@@ -24,6 +24,7 @@ from fast_agent.config import (
     get_settings,
     update_global_settings,
 )
+from fast_agent.llm.reasoning_effort import ReasoningEffortSetting, ReasoningEffortSpec
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.session import get_session_manager, reset_session_manager
 from fast_agent.skills.models import (
@@ -54,6 +55,16 @@ class _ProviderStub:
 
     def _agent(self, _name: str) -> object:
         return self._agent_obj
+
+
+class _ReasoningLlmStub:
+    reasoning_effort_spec = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "medium", "high", "xhigh", "max"],
+        allow_auto=True,
+        allow_toggle_disable=True,
+        default=ReasoningEffortSetting(kind="effort", value="auto"),
+    )
 
 
 class _McpSessionClientStub:
@@ -177,6 +188,21 @@ class _HistoryAgentStub:
                 ),
             )
         ]
+
+
+def test_model_reasoning_values_prefer_adaptive_label_over_auto() -> None:
+    agent = SimpleNamespace(llm=_ReasoningLlmStub())
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(agent)),
+    )
+
+    values = completer._resolve_reasoning_values()
+
+    assert "adaptive" in values
+    assert "auto" not in values
+    assert values.count("adaptive") == 1
 
 
 def test_complete_history_files_finds_json_and_md():
@@ -458,6 +484,7 @@ def test_get_completions_for_model_subcommands_includes_web_search_when_supporte
         text_verbosity_spec = None
         service_tier_supported = True
         available_service_tiers = ("fast", "flex")
+        task_budget_supported = True
         web_search_supported = True
         web_fetch_supported = False
 
@@ -475,6 +502,7 @@ def test_get_completions_for_model_subcommands_includes_web_search_when_supporte
     names = [c.text for c in completions]
 
     assert "reasoning" in names
+    assert "task_budget" in names
     assert "fast" in names
     assert "web_search" in names
     assert "web_fetch" not in names
@@ -532,6 +560,32 @@ def test_get_completions_for_model_fast_values() -> None:
     assert "off" in names
     assert "flex" in names
     assert "status" in names
+
+
+def test_get_completions_for_model_task_budget_values() -> None:
+    class _LlmStub:
+        reasoning_effort_spec = None
+        text_verbosity_spec = None
+        service_tier_supported = False
+        available_service_tiers = ()
+        task_budget_supported = True
+        web_search_supported = False
+        web_fetch_supported = False
+
+    class _AgentStub:
+        llm = _LlmStub()
+
+    completer = AgentCompleter(
+        agents=["agent1"],
+        current_agent="agent1",
+        agent_provider=cast("AgentApp", _ProviderStub(_AgentStub())),
+    )
+
+    doc = Document("/model task_budget ", cursor_position=len("/model task_budget "))
+    completions = list(completer.get_completions(doc, None))
+    names = [c.text for c in completions]
+
+    assert names == ["off", "20k", "64k", "128k", "256k"]
 
 
 def test_get_completions_for_model_fast_values_codexresponses_omit_flex() -> None:

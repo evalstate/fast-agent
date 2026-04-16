@@ -3,6 +3,7 @@ from fast_agent.ui.command_payloads import (
     ModelReasoningCommand,
     ModelsCommand,
     ModelSwitchCommand,
+    ModelTaskBudgetCommand,
     ModelVerbosityCommand,
     ModelWebFetchCommand,
     ModelWebSearchCommand,
@@ -20,6 +21,12 @@ def test_parse_model_verbosity_command() -> None:
     result = parse_special_input("/model verbosity low")
     assert isinstance(result, ModelVerbosityCommand)
     assert result.value == "low"
+
+
+def test_parse_model_task_budget_command() -> None:
+    result = parse_special_input("/model task_budget 128k")
+    assert isinstance(result, ModelTaskBudgetCommand)
+    assert result.value == "128k"
 
 
 def test_parse_model_fast_command() -> None:

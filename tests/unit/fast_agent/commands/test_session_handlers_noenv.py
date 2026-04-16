@@ -217,14 +217,16 @@ async def test_resume_session_switches_to_hydrated_active_agent(
         io=io,
     )
     session = SimpleNamespace(info=SimpleNamespace(name="s-1", metadata={}))
-    manager = SimpleNamespace(
-        resume_session_agents=lambda *args, **kwargs: ResumeSessionAgentsResult(
+    async def _resume_session_agents_async(*args, **kwargs):
+        del args, kwargs
+        return ResumeSessionAgentsResult(
             session=cast("Any", session),
             loaded={"alpha": Path("history_alpha.json")},
             missing_agents=[],
             active_agent="beta",
         )
-    )
+
+    manager = SimpleNamespace(resume_session_agents_async=_resume_session_agents_async)
 
     monkeypatch.setattr("fast_agent.session.get_session_manager", lambda **kwargs: manager)
 

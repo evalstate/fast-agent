@@ -1,4 +1,4 @@
-"""Run FastAgent as an MCP server from the command line."""
+"""Expose fast-agent over MCP (http/stdio) or ACP from the command line."""
 
 from __future__ import annotations
 
@@ -134,7 +134,7 @@ def _build_run_request(
 
 
 app = typer.Typer(
-    help="Run FastAgent as an MCP server without writing an agent.py file",
+    help="Expose fast-agent to clients over MCP (http or stdio) or ACP, without writing an agent.py file",
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
 )
 
@@ -204,7 +204,7 @@ def serve(
     reload: bool = CommonAgentOptions.reload(),
     watch: bool = CommonAgentOptions.watch(),
 ) -> None:
-    """Run FastAgent as an MCP server."""
+    """Expose fast-agent to clients over MCP (http/stdio) or ACP."""
     request = _build_run_request(
         ctx=ctx,
         name=name,

@@ -10,6 +10,8 @@ from fast_agent.agents.smart_agent import _run_slash_command_call
 from fast_agent.config import Settings
 from fast_agent.context import Context
 from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.request_params import RequestParams
 from fast_agent.skills import SKILLS_DEFAULT
 
 
@@ -25,6 +27,8 @@ class _SmartAgentStub:
         self.name = "main"
         self.config = _AgentConfig()
         self.context = Context(config=settings)
+        self.llm = None
+        self._llm = None
 
     async def attach_mcp_server(self, **_kwargs):
         return object()
@@ -34,6 +38,26 @@ class _SmartAgentStub:
 
     def list_attached_mcp_servers(self) -> list[str]:
         return []
+
+
+class _TaskBudgetLlm:
+    task_budget_supported = True
+    task_budget_tokens = None
+    service_tier_supported = False
+    web_search_supported = False
+    web_fetch_supported = False
+    reasoning_effort_spec = None
+    text_verbosity_spec = None
+    text_verbosity = None
+    resolved_model = None
+    provider = Provider.ANTHROPIC
+    model_name = "claude-opus-4-7"
+    default_request_params = RequestParams()
+    configured_transport = None
+    active_transport = None
+
+    def set_task_budget_tokens(self, value: int | None) -> None:
+        self.task_budget_tokens = value
 
 
 @pytest.mark.asyncio
@@ -50,6 +74,22 @@ async def test_run_slash_command_model_doctor_returns_markdown(tmp_path: Path) -
 
     assert "# model.doctor" in result
     assert "model doctor" in result
+
+
+@pytest.mark.asyncio
+async def test_run_slash_command_model_task_budget_routes_to_task_budget_handler(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(environment_dir=str(tmp_path / ".fast-agent"))
+    agent = _SmartAgentStub(settings=settings)
+    agent.llm = _TaskBudgetLlm()
+    agent._llm = agent.llm
+
+    result = await _run_slash_command_call(agent, "/model task_budget 64k")
+
+    assert "# model.task_budget" in result
+    assert "Task budget: set to 64k." in result
+    assert agent.llm.task_budget_tokens == 64_000
 
 
 @pytest.mark.asyncio
