@@ -21,6 +21,12 @@ def _hint_completion(display: str, display_meta: str) -> Completion:
     we can't complete synchronously (e.g. marketplace entries behind
     network fetches). Selecting the hint is a no-op; its only purpose is
     to surface the signature and guidance in the completion menu.
+
+    Note: prompt-toolkit drops the completion menu when a single
+    completion would "do nothing" (buffer.completion_does_nothing). Callers
+    yielding hints for otherwise-empty argument slots should emit at least
+    two entries (see :func:`_signature_hints`) or pair a hint with real
+    completions.
     """
     return Completion(
         "",
@@ -28,6 +34,26 @@ def _hint_completion(display: str, display_meta: str) -> Completion:
         display=display,
         display_meta=display_meta,
     )
+
+
+def _signature_hints(kind: str, *, empty_arg_list: bool = True) -> list[Completion]:
+    """Build several hint completions describing an argument signature.
+
+    Two or more entries are returned so the prompt-toolkit menu renders
+    them; a single no-op completion is culled by the buffer.
+    """
+    hints = [
+        _hint_completion("<number>", f"by index — {kind}"),
+        _hint_completion("<name>", f"by name — {kind}"),
+    ]
+    if empty_arg_list:
+        hints.append(
+            _hint_completion(
+                "(empty)",
+                "press Enter with no argument to pick from a list",
+            )
+        )
+    return hints
 
 
 def _attached_mcp_servers_for_completion(completer: "AgentCompleter") -> list[str]:
@@ -396,30 +422,26 @@ def _skills_command_completions(
     subcmd = parts[0].lower()
     argument = parts[1] if len(parts) > 1 else ""
     if subcmd in {"add", "install"}:
-        results.append(
-            _hint_completion(
-                "<number|name>",
-                "marketplace skill; run empty to pick from a list",
-            )
-        )
+        if not argument:
+            results.extend(_signature_hints("marketplace skill"))
         return results
     if subcmd in {"search", "find"}:
         if not argument:
-            results.append(
-                _hint_completion("<query>", "filter marketplace skills by name/description")
+            results.extend(
+                [
+                    _hint_completion("<query>", "filter marketplace skills by name/description"),
+                    _hint_completion(
+                        "(empty)", "no arg lists all; run /skills available to browse"
+                    ),
+                ]
             )
         return results
     if subcmd in {"remove", "rm", "delete", "uninstall"}:
         name_completions = list(completer._complete_local_skill_names(argument))
         if name_completions:
             results.extend(name_completions)
-        else:
-            results.append(
-                _hint_completion(
-                    "<number|name>",
-                    "managed skill; run empty to pick from a list",
-                )
-            )
+        elif not argument:
+            results.extend(_signature_hints("managed skill"))
         return results
     if subcmd in {"update", "refresh", "upgrade"}:
         if "all".startswith(argument.lower()):
@@ -532,33 +554,22 @@ def _cards_command_completions(
     subcmd = parts[0].lower()
     argument = parts[1] if len(parts) > 1 else ""
     if subcmd in {"add", "install"}:
-        results.append(
-            _hint_completion(
-                "<number|name>",
-                "marketplace card pack; run empty to pick from a list",
-            )
-        )
+        if not argument:
+            results.extend(_signature_hints("marketplace card pack"))
         return results
     if subcmd in {"remove", "rm", "delete", "uninstall"}:
         name_completions = list(completer._complete_local_card_pack_names(argument))
         if name_completions:
             results.extend(name_completions)
-        else:
-            results.append(
-                _hint_completion(
-                    "<number|name>",
-                    "installed card pack; run empty to pick from a list",
-                )
-            )
+        elif not argument:
+            results.extend(_signature_hints("installed card pack"))
         return results
     if subcmd in {"readme", "show", "cat"}:
         name_completions = list(completer._complete_local_card_pack_names(argument))
         if name_completions:
             results.extend(name_completions)
-        else:
-            results.append(
-                _hint_completion("<number|name>", "installed card pack")
-            )
+        elif not argument:
+            results.extend(_signature_hints("installed card pack", empty_arg_list=False))
         return results
     if subcmd in {"update", "refresh", "upgrade"}:
         if "all".startswith(argument.lower()):

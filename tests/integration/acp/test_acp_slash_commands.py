@@ -455,7 +455,7 @@ async def test_slash_command_status_system_prefers_session_instruction() -> None
 @pytest.mark.asyncio
 async def test_slash_command_status_system_without_instruction() -> None:
     """Test /status system when agent has no configured instruction."""
-    stub_agent = StubAgent(message_history=[], llm=None)
+    stub_agent = StubAgent(message_history=[], llm=None, instruction="")
     instance = StubAgentInstance(agents={"test-agent": stub_agent})
 
     handler = _handler(instance)

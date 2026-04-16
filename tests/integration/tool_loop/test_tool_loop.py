@@ -250,7 +250,7 @@ async def test_resume_preserves_completed_tool_result_after_followup_llm_failure
         resumed_agent = ToolAgent(AgentConfig("tool-loop-resume"), [side_effect_tool])
         resumed_agent._llm = resumed_llm
 
-        resumed = manager.resume_session(resumed_agent)
+        resumed = await manager.resume_session_async(resumed_agent)
         assert resumed is not None
 
         result = await resumed_agent.generate("after resume")

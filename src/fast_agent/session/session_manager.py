@@ -834,6 +834,22 @@ class SessionManager:
         notices.extend(warning.message for warning in result.warnings)
         return result.session, result.loaded.get(agent.name), notices
 
+    async def resume_session_async(
+        self, agent: AgentProtocol, name: str | None = None
+    ) -> tuple[Session, pathlib.Path | None, list[str]] | None:
+        """Async resume_session companion for callers already running in an event loop."""
+        result = await self.resume_session_agents_async(
+            {agent.name: agent},
+            name,
+            fallback_agent_name=agent.name,
+        )
+        if result is None:
+            return None
+
+        notices = list(result.usage_notices)
+        notices.extend(warning.message for warning in result.warnings)
+        return result.session, result.loaded.get(agent.name), notices
+
     async def resume_session_agents_async(
         self,
         agents: Mapping[str, AgentProtocol],

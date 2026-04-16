@@ -152,7 +152,7 @@ async def test_resume_latest_session(tmp_path, monkeypatch):
             saved_messages = load_messages(str(history_path))
             agent_obj.clear(clear_prompts=True)
 
-            result = manager.resume_session_agents(
+            result = await manager.resume_session_agents_async(
                 agent.registered_agents(),
                 None,
                 fallback_agent_name=agent_obj.name,
