@@ -1227,14 +1227,12 @@ async def handle_mcp_connect(
     else:
         await emit_progress(f"Connecting MCP server '{server_name}' via {mode}…")
 
-    trigger_oauth = (
-        True if parsed.options.trigger_oauth is None else parsed.options.trigger_oauth
-    )
+    trigger_oauth = parsed.options.trigger_oauth
     startup_timeout_seconds = parsed.options.timeout_seconds
     if startup_timeout_seconds is None:
         # OAuth-backed URL servers often need additional non-callback time for
         # metadata discovery and token exchange after the browser callback.
-        startup_timeout_seconds = 30.0 if (mode == "url" and trigger_oauth) else 10.0
+        startup_timeout_seconds = 30.0 if (mode == "url" and trigger_oauth is not False) else 10.0
 
     try:
         config: MCPServerSettings | None

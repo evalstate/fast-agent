@@ -98,6 +98,88 @@ def test_display_message_keeps_empty_content_without_additional_message() -> Non
     assert display.displayed_content == [""]
 
 
+def test_show_stream_reprint_banner_renders_three_lines() -> None:
+    display = ConsoleDisplay(config=None)
+
+    with console.console.capture() as capture:
+        display.show_stream_reprint_banner()
+
+    rendered_lines = capture.get().splitlines()
+    assert len(rendered_lines) == 3
+    assert "FINAL RESPONSE" in rendered_lines[1]
+
+
+def test_show_stream_reprint_banner_respects_logger_setting() -> None:
+    display = ConsoleDisplay(
+        config=Settings(
+            logger=LoggerSettings(
+                show_chat=True,
+                stream_reprint_banner=False,
+            )
+        )
+    )
+
+    with console.console.capture() as capture:
+        display.show_stream_reprint_banner()
+
+    assert capture.get() == ""
+
+
+def test_assistant_reprint_banner_is_rendered_with_final_assistant_message() -> None:
+    display = ConsoleDisplay(config=None)
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="Final answer")],
+        stop_reason=LlmStopReason.END_TURN,
+    )
+
+    async def _render() -> str:
+        with console.console.capture() as capture:
+            await display.show_assistant_message(
+                message_text=message,
+                name="dev",
+                model="gpt-test",
+                show_reprint_banner=True,
+            )
+        return capture.get()
+
+    rendered = asyncio.run(_render())
+    assert "FINAL RESPONSE" in rendered
+    assert rendered.index("FINAL RESPONSE") < rendered.index("▎◀ dev")
+    assert rendered.index("▎◀ dev") < rendered.index("Final answer")
+
+
+def test_assistant_reprint_banner_can_be_disabled_in_logger_settings() -> None:
+    display = ConsoleDisplay(
+        config=Settings(
+            logger=LoggerSettings(
+                show_chat=True,
+                stream_reprint_banner=False,
+            )
+        )
+    )
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="Final answer")],
+        stop_reason=LlmStopReason.END_TURN,
+    )
+
+    async def _render() -> str:
+        with console.console.capture() as capture:
+            await display.show_assistant_message(
+                message_text=message,
+                name="dev",
+                model="gpt-test",
+                show_reprint_banner=True,
+            )
+        return capture.get()
+
+    rendered = asyncio.run(_render())
+    assert "FINAL RESPONSE" not in rendered
+    assert "▎◀ dev" in rendered
+    assert "Final answer" in rendered
+
+
 def test_display_message_skips_empty_content_when_pre_content_present() -> None:
     display = _CaptureContentDisplay()
 

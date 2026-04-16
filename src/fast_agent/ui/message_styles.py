@@ -213,6 +213,7 @@ class A3MessageStyle:
     name = "a3"
     header_spacing_after = 0
     shell_exit_spacing_after = 1
+    stream_reprint_banner_label = "FINAL RESPONSE"
 
     def header_line(
         self,
@@ -323,3 +324,35 @@ class A3MessageStyle:
     def tool_update_line(self, width: int) -> Text:  # noqa: ARG002
         note = Text("tool update", style="dim")
         return self.metadata_line(note, width)
+
+    def stream_reprint_banner(
+        self,
+        width: int,
+        *,
+        label: str | None = None,
+    ) -> list[Text]:
+        banner_width = max(1, width)
+        banner_style = "bright_green bold"
+        banner_label = (label or self.stream_reprint_banner_label).strip()
+        if not banner_label:
+            banner_label = self.stream_reprint_banner_label
+
+        top = Text("━" * banner_width, style=banner_style)
+        bottom = Text("━" * banner_width, style=banner_style)
+
+        middle = Text()
+        label_text = Text(f" {banner_label} ", style="black on bright_green bold")
+        if label_text.cell_len >= banner_width:
+            label_text.truncate(banner_width)
+            middle.append_text(label_text)
+            return [top, middle, bottom]
+
+        fill_width = banner_width - label_text.cell_len
+        left_fill = fill_width // 2
+        right_fill = fill_width - left_fill
+        if left_fill:
+            middle.append("━" * left_fill, style=banner_style)
+        middle.append_text(label_text)
+        if right_fill:
+            middle.append("━" * right_fill, style=banner_style)
+        return [top, middle, bottom]

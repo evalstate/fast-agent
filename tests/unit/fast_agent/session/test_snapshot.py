@@ -194,7 +194,7 @@ def test_session_snapshot_v2_round_trips_unchanged() -> None:
     assert reloaded == snapshot
 
 
-def test_load_session_does_not_rewrite_legacy_file(tmp_path) -> None:
+def test_load_session_rewrites_legacy_file_as_v2_snapshot(tmp_path) -> None:
     manager = SessionManager(
         cwd=tmp_path,
         environment_override=tmp_path / ".fast-agent",
@@ -220,8 +220,11 @@ def test_load_session_does_not_rewrite_legacy_file(tmp_path) -> None:
     session = manager.load_session(session_id)
 
     assert session is not None
-    assert metadata_path.read_text(encoding="utf-8") == original_text
-    assert "schema_version" not in json.loads(metadata_path.read_text(encoding="utf-8"))
+    rewritten = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert rewritten["schema_version"] == 2
+    assert rewritten["session_id"] == session_id
+    assert rewritten["created_at"] == payload["created_at"]
+    assert rewritten["last_activity"] != payload["last_activity"]
 
 
 def test_malformed_legacy_fields_warn_but_still_synthesize() -> None:
@@ -425,7 +428,11 @@ def test_capture_session_snapshot_preserves_existing_v2_fallback_values(tmp_path
                     history_file="history_foo.json",
                     model="persisted-model",
                     provider="persisted-provider",
-                )
+                ),
+                "bar": SessionAgentSnapshot(
+                    history_file="history_bar.json",
+                    resolved_prompt="persisted bar prompt",
+                ),
             },
         ),
     )
@@ -458,11 +465,14 @@ def test_capture_session_snapshot_preserves_existing_v2_fallback_values(tmp_path
     )
 
     foo_snapshot = snapshot.continuation.agents["foo"]
+    bar_snapshot = snapshot.continuation.agents["bar"]
     assert snapshot.continuation.cwd == "/persisted/cwd"
     assert snapshot.continuation.lineage.acp_session_id == "persisted-acp"
     assert foo_snapshot.history_file == "history_foo.json"
     assert foo_snapshot.model == "persisted-model"
     assert foo_snapshot.provider == "persisted-provider"
+    assert bar_snapshot.history_file == "history_bar.json"
+    assert bar_snapshot.resolved_prompt == "persisted bar prompt"
 
 
 @pytest.mark.asyncio

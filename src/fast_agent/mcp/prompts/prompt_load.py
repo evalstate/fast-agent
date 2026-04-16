@@ -363,6 +363,9 @@ def load_history_into_agent(agent: AgentProtocol, file_path: Path) -> str | None
         Optional resume notice string when usage state cannot be restored.
     """
     messages = load_prompt(file_path)
+    usage_accumulator = agent.usage_accumulator
+    if usage_accumulator is not None:
+        usage_accumulator.reset()
     load_transcript_into_agent(agent, messages)
 
     # Note: Provider diagnostic history will be updated on next API call

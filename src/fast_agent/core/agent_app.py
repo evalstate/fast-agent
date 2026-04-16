@@ -3,6 +3,7 @@ Direct AgentApp implementation for interacting with agents without proxies.
 """
 
 import time
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Awaitable, Callable, Mapping, Sequence, Union
 
@@ -31,6 +32,13 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+@dataclass(slots=True, frozen=True)
+class AgentRefreshResult:
+    changed: bool
+    active_agent: str | None = None
+    warnings: list[str] = field(default_factory=list)
+
+
 class AgentApp:
     """
     Container for active agents that provides a simple API for interacting with them.
@@ -47,8 +55,8 @@ class AgentApp:
         self,
         agents: dict[str, AgentProtocol],
         *,
-        reload_callback: Callable[[], Awaitable[bool]] | None = None,
-        refresh_callback: Callable[[], Awaitable[bool]] | None = None,
+        reload_callback: Callable[[], Awaitable[AgentRefreshResult]] | None = None,
+        refresh_callback: Callable[[], Awaitable[AgentRefreshResult]] | None = None,
         load_card_callback: Callable[[str, str | None], Awaitable[tuple[list[str], list[str]]]]
         | None = None,
         attach_agent_tools_callback: Callable[[str, Sequence[str]], Awaitable[list[str]]]
@@ -101,6 +109,7 @@ class AgentApp:
         )
         self._tool_only_agents: set[str] = tool_only_agents or set()
         self._card_collision_warnings: list[str] = card_collision_warnings or []
+        self._last_refresh_result = AgentRefreshResult(changed=False)
         self._noenv_mode = noenv_mode
         self._missing_shell_cwd_policy_override: "MissingShellCwdPolicy | None" = None
         self._apply_agent_registry()
@@ -336,8 +345,11 @@ class AgentApp:
     async def reload_agents(self) -> bool:
         """Reload AgentCards and refresh active instances when available."""
         if not self._reload_callback:
+            self._last_refresh_result = AgentRefreshResult(changed=False)
             return False
-        return await self._reload_callback()
+        result = await self._reload_callback()
+        self._last_refresh_result = result
+        return result.changed
 
     def can_reload_agents(self) -> bool:
         """Return True if manual reload is available."""
@@ -456,11 +468,18 @@ class AgentApp:
     def missing_shell_cwd_policy_override(self, value: "MissingShellCwdPolicy | None") -> None:
         self._missing_shell_cwd_policy_override = value
 
-    def set_reload_callback(self, callback: Callable[[], Awaitable[bool]] | None) -> None:
+    def latest_refresh_result(self) -> AgentRefreshResult:
+        return self._last_refresh_result
+
+    def set_reload_callback(
+        self, callback: Callable[[], Awaitable[AgentRefreshResult]] | None
+    ) -> None:
         """Update the reload callback for manual AgentCard refresh."""
         self._reload_callback = callback
 
-    def set_refresh_callback(self, callback: Callable[[], Awaitable[bool]] | None) -> None:
+    def set_refresh_callback(
+        self, callback: Callable[[], Awaitable[AgentRefreshResult]] | None
+    ) -> None:
         """Update the refresh callback for lazy instance swaps."""
         self._refresh_callback = callback
 
@@ -546,12 +565,14 @@ class AgentApp:
 
     async def refresh_if_needed(self) -> bool:
         """Refresh agent instances if the registry has changed."""
-        return await self._refresh_if_needed()
+        result = await self._refresh_if_needed()
+        self._last_refresh_result = result
+        return result.changed
 
-    async def _refresh_if_needed(self) -> bool:
+    async def _refresh_if_needed(self) -> AgentRefreshResult:
         if self._refresh_callback:
             return await self._refresh_callback()
-        return False
+        return AgentRefreshResult(changed=False)
 
     @deprecated
     async def prompt(

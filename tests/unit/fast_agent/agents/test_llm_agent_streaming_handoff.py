@@ -112,6 +112,7 @@ class _StreamingHarnessAgent(LlmAgent):
         render_markdown: bool | None = None,
         show_hook_indicator: bool | None = None,
         render_message: bool = True,
+        show_reprint_banner: bool = False,
     ) -> None:
         self.shown_messages.append(
             {
@@ -120,6 +121,7 @@ class _StreamingHarnessAgent(LlmAgent):
                 "render_markdown": render_markdown,
                 "show_hook_indicator": show_hook_indicator,
                 "render_message": render_message,
+                "show_reprint_banner": show_reprint_banner,
             }
         )
 
@@ -168,6 +170,7 @@ async def test_generate_impl_preserves_streamed_frame_and_skips_reprint_when_saf
     assert handle.finalize_calls == [response]
     assert len(agent.shown_messages) == 1
     assert agent.shown_messages[0]["render_message"] is False
+    assert agent.shown_messages[0]["show_reprint_banner"] is False
     assert agent.url_elicitation_calls == []
 
 
@@ -185,6 +188,28 @@ async def test_generate_impl_reprints_when_stream_scrolled() -> None:
     assert handle.preserve_called is False
     assert handle.finalize_calls == [response]
     assert len(agent.shown_messages) == 1
+    assert agent.shown_messages[0]["show_reprint_banner"] is True
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_generate_impl_does_not_banner_non_end_turn_reprint() -> None:
+    handle = _FakeStreamHandle(has_scrolled=True, preserve_result=True)
+    response = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="calling tool")],
+        stop_reason=LlmStopReason.TOOL_USE,
+    )
+    agent = _StreamingHarnessAgent(handle=handle, response=response)
+
+    result = await agent.generate_impl([_seed_message()])
+
+    assert result is response
+    assert handle.wait_for_drain_calls == 1
+    assert handle.preserve_called is False
+    assert handle.finalize_calls == [response]
+    assert len(agent.shown_messages) == 1
+    assert agent.shown_messages[0]["show_reprint_banner"] is False
 
 
 @pytest.mark.unit
@@ -207,6 +232,7 @@ async def test_generate_impl_preserves_streamed_frame_with_reasoning_channel() -
     assert handle.finalize_calls == [response]
     assert len(agent.shown_messages) == 1
     assert agent.shown_messages[0]["render_message"] is False
+    assert agent.shown_messages[0]["show_reprint_banner"] is False
 
 
 @pytest.mark.unit
@@ -235,6 +261,7 @@ async def test_generate_impl_reprints_when_sources_need_pre_content() -> None:
     assert handle.preserve_called is False
     assert handle.finalize_calls == [response]
     assert len(agent.shown_messages) == 1
+    assert agent.shown_messages[0]["show_reprint_banner"] is False
     assert agent.shown_messages[0]["render_message"] is True
 
 
@@ -274,6 +301,7 @@ async def test_generate_impl_reprints_when_remote_tool_activity_needs_final_disp
     assert handle.preserve_called is False
     assert handle.finalize_calls == [response]
     assert len(agent.shown_messages) == 1
+    assert agent.shown_messages[0]["show_reprint_banner"] is False
     assert agent.shown_messages[0]["render_message"] is True
 
 
@@ -307,6 +335,7 @@ async def test_generate_impl_preserves_streamed_frame_for_call_only_remote_tool_
     assert handle.finalize_calls == [response]
     assert len(agent.shown_messages) == 1
     assert agent.shown_messages[0]["render_message"] is False
+    assert agent.shown_messages[0]["show_reprint_banner"] is False
 
 
 @pytest.mark.unit

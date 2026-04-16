@@ -8,14 +8,13 @@ import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
 
 from fast_agent.acp.slash_commands import SlashCommandHandler
-from fast_agent.agents.agent_types import AgentType
+from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.commands.context import StaticAgentProvider
 from fast_agent.config import get_settings, update_global_settings
 from fast_agent.constants import (
@@ -62,7 +61,14 @@ class StubAgent:
     instruction: str | None = None
     context: Any = None
     usage_accumulator: Any = None
-    config: Any = field(default_factory=lambda: SimpleNamespace(model=None))
+    config: Any = field(default_factory=lambda: AgentConfig("test-agent"))
+
+    def __post_init__(self) -> None:
+        if self.instruction is None:
+            self.instruction = f"{self.name} agent."
+        if isinstance(self.config, AgentConfig):
+            self.config.name = self.name
+            self.config.instruction = self.instruction
 
     def clear(self, clear_prompts: bool = False) -> None:
         self.cleared = True

@@ -19,6 +19,8 @@ async def gen_client(
     server_name: str,
     server_registry: ServerInitializerProtocol,
     client_session_factory: ClientSessionFactory = MCPAgentClientSession,
+    *,
+    trigger_oauth: bool | None = None,
 ) -> AsyncIterator[ClientSession]:
     """
     Create a client session to the specified server.
@@ -34,6 +36,7 @@ async def gen_client(
     async with server_registry.initialize_server(
         server_name=server_name,
         client_session_factory=client_session_factory,
+        trigger_oauth=trigger_oauth,
     ) as session:
         yield session
 

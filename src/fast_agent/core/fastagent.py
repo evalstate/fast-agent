@@ -34,9 +34,9 @@ from opentelemetry import trace
 
 from fast_agent import config
 from fast_agent.core import Core
-from fast_agent.core.agent_app import AgentApp
+from fast_agent.core.agent_app import AgentApp, AgentRefreshResult
 from fast_agent.core.agent_tools import add_tools_for_agents
-from fast_agent.core.default_agent import resolve_default_agent_name
+from fast_agent.core.default_agent import agent_is_default, resolve_default_agent_name
 from fast_agent.core.direct_decorators import DecoratorMixin
 from fast_agent.core.direct_factory import (
     create_agents_in_dependency_order,
@@ -78,6 +78,7 @@ if TYPE_CHECKING:
     from fast_agent.interfaces import AgentProtocol, ModelFactoryFunctionProtocol
     from fast_agent.mcp.mcp_aggregator import MCPAttachOptions, MCPAttachResult, MCPDetachResult
     from fast_agent.mcp.types import McpAgentProtocol
+    from fast_agent.session import Session, SessionHydrationResult
     from fast_agent.types import PromptMessageExtended
 
 F = TypeVar("F", bound=Callable[..., Any])  # For decorated functions
@@ -121,8 +122,8 @@ class ManagedRunState:
 class RuntimeCallbacks:
     create_instance: Callable[[], Awaitable[AgentInstance]]
     dispose_instance: Callable[[AgentInstance], Awaitable[None]]
-    refresh_shared_instance: Callable[[], Awaitable[bool]]
-    reload_and_refresh: Callable[[], Awaitable[bool]]
+    refresh_shared_instance: Callable[[], Awaitable[AgentRefreshResult]]
+    reload_and_refresh: Callable[[], Awaitable[AgentRefreshResult]]
     reload_source: Callable[[], Awaitable[bool]] | None
     load_card_and_refresh: Callable[[str, str | None], Awaitable[tuple[list[str], list[str]]]]
     load_card_source: Callable[[str, str | None], Awaitable[tuple[list[str], list[str]]]]
@@ -464,7 +465,7 @@ class FastAgent(DecoratorMixin):
         self._agent_registry_version: int = 0
         self._agent_card_watch_task: asyncio.Task[None] | None = None
         self._agent_card_reload_lock: asyncio.Lock | None = None
-        self._agent_card_watch_reload: Callable[[], Awaitable[bool]] | None = None
+        self._agent_card_watch_reload: Callable[[], Awaitable[AgentRefreshResult]] | None = None
         self._card_collision_warnings: list[str] = []
 
     @staticmethod
@@ -1384,7 +1385,10 @@ class FastAgent(DecoratorMixin):
         reload_callback = self._agent_card_watch_reload
         if reload_callback is None:
             return await self.reload_agents()
-        return await reload_callback()
+        result = await reload_callback()
+        if isinstance(result, AgentRefreshResult):
+            return result.changed
+        return result
 
     # Decorator methods with precise signatures for IDE completion
 
@@ -1650,32 +1654,11 @@ class FastAgent(DecoratorMixin):
                 active_agents,
             )
 
-    def _copy_updated_agent_histories(
-        self,
-        updated_agents: dict[str, AgentProtocol],
-        old_agents: dict[str, AgentProtocol | None],
-    ) -> None:
-        for name, new_agent in updated_agents.items():
-            old_agent = old_agents.get(name)
-            if old_agent is None or old_agent is new_agent:
-                continue
-            if new_agent.message_history:
-                continue
-
-            history = old_agent.message_history
-            if not history:
-                continue
-
-            copied_history = [
-                msg.model_copy(deep=True) if hasattr(msg, "model_copy") else msg for msg in history
-            ]
-            new_agent.message_history.extend(copied_history)
-            existing_mtime = self._agent_card_history_mtime.get(name)
-            self._record_history_snapshot(name, len(new_agent.message_history), existing_mtime)
-
     def _reload_updated_agent_file_histories(
         self,
         updated_agents: dict[str, AgentProtocol],
+        *,
+        allow_unchanged_empty: bool = False,
     ) -> None:
         for name, new_agent in updated_agents.items():
             history_files = self._agent_card_histories.get(name)
@@ -1692,6 +1675,8 @@ class FastAgent(DecoratorMixin):
             if last_mtime is None:
                 if current_len != 0:
                     continue
+            elif allow_unchanged_empty and current_len == 0 and files_mtime == last_mtime:
+                pass
             elif files_mtime <= last_mtime:
                 continue
             elif last_len is not None and current_len != last_len:
@@ -1721,9 +1706,93 @@ class FastAgent(DecoratorMixin):
         if runtime.global_prompt_context:
             await apply_instruction_context(updated_agents.values(), runtime.global_prompt_context)
 
-    async def _refresh_shared_instance(self, state: ManagedRunState) -> bool:
+    def _load_current_persisted_session(self) -> "Session | None":
+        from fast_agent.session import get_session_manager
+
+        manager = get_session_manager()
+        current_session = manager.current_session
+        if current_session is None:
+            return None
+        loaded_session = manager.load_session(current_session.info.name)
+        return loaded_session or current_session
+
+    def _log_local_hydration_messages(self, warnings: list[str]) -> None:
+        for warning in warnings:
+            logger.warning(
+                "Shared runtime reload hydration warning",
+                name="shared_reload_hydration_warning",
+                warning=warning,
+            )
+
+    async def _hydrate_active_agents_from_session(
+        self,
+        agents: dict[str, AgentProtocol],
+    ) -> "SessionHydrationResult | None":
+        from fast_agent.session import SessionHydrationPolicy, SessionHydrator
+
+        persisted_session = self._load_current_persisted_session()
+        if persisted_session is None:
+            return None
+
+        fallback_agent_name = resolve_default_agent_name(
+            agents,
+            is_default=lambda _name, agent: agent_is_default(agent),
+        )
+        hydration = SessionHydrator().hydrate_session(
+            session=persisted_session,
+            agents=agents,
+            fallback_agent_name=fallback_agent_name,
+            policy=SessionHydrationPolicy.for_refresh(),
+        )
+        result = await hydration if inspect.isawaitable(hydration) else hydration
+        warnings = [warning.message for warning in result.warnings]
+        warnings.extend(result.usage_notices)
+        self._log_local_hydration_messages(warnings)
+        return result
+
+    async def _refresh_result_from_session_restore(
+        self,
+        agents: dict[str, AgentProtocol],
+        updated_agents: dict[str, AgentProtocol] | None = None,
+    ) -> AgentRefreshResult:
+        agents_to_hydrate = updated_agents if updated_agents is not None else agents
+        hydration_result = self._hydrate_active_agents_from_session(agents_to_hydrate)
+        hydration = await hydration_result if inspect.isawaitable(hydration_result) else hydration_result
+        if hydration is None:
+            if updated_agents:
+                self._reload_updated_agent_file_histories(
+                    updated_agents,
+                    allow_unchanged_empty=True,
+                )
+            return AgentRefreshResult(changed=True)
+
+        snapshot_agent_names = set(hydration.snapshot.continuation.agents)
+        if updated_agents:
+            unpersisted_agents = {
+                name: agent
+                for name, agent in updated_agents.items()
+                if name not in snapshot_agent_names
+            }
+            if unpersisted_agents:
+                self._reload_updated_agent_file_histories(
+                    unpersisted_agents,
+                    allow_unchanged_empty=True,
+                )
+
+        warnings = [warning.message for warning in hydration.warnings]
+        warnings.extend(hydration.usage_notices)
+        active_agent = hydration.active_agent
+        if updated_agents is not None and active_agent not in updated_agents:
+            active_agent = None
+        return AgentRefreshResult(
+            changed=True,
+            active_agent=active_agent,
+            warnings=warnings,
+        )
+
+    async def _refresh_shared_instance(self, state: ManagedRunState) -> AgentRefreshResult:
         if self._agent_registry_version <= state.primary_instance.registry_version:
-            return False
+            return AgentRefreshResult(changed=False)
 
         self._sync_agent_card_mcp_servers()
         changed_names = set(self._agent_card_last_changed)
@@ -1736,11 +1805,12 @@ class FastAgent(DecoratorMixin):
                 state.runtime,
                 app_override=state.wrapper,
             )
+            refresh_result = await self._refresh_result_from_session_restore(new_instance.agents)
             old_instance = state.primary_instance
             state.primary_instance = new_instance
             state.active_agents = new_instance.agents
             await self._dispose_agent_instance(state.runtime, old_instance)
-            return True
+            return refresh_result
 
         async with state.runtime.instance_lock:
             impacted = set(changed_names)
@@ -1776,21 +1846,25 @@ class FastAgent(DecoratorMixin):
                 updated_agents = {
                     name: active_agents_local[name] for name in impacted if name in active_agents_local
                 }
-                self._copy_updated_agent_histories(updated_agents, old_agents)
-                self._reload_updated_agent_file_histories(updated_agents)
                 await self._finalize_updated_agents(updated_agents, state.runtime)
+                refresh_result = await self._refresh_result_from_session_restore(
+                    active_agents_local,
+                    updated_agents,
+                )
+            else:
+                refresh_result = AgentRefreshResult(changed=True)
 
             state.primary_instance.registry_version = self._agent_registry_version
             state.active_agents = active_agents_local
             self._agent_card_last_changed.clear()
             self._agent_card_last_removed.clear()
             self._agent_card_last_dependents.clear()
-            return True
+            return refresh_result
 
-    async def _reload_and_refresh(self, state: ManagedRunState) -> bool:
+    async def _reload_and_refresh(self, state: ManagedRunState) -> AgentRefreshResult:
         changed = await self.reload_agents()
         if not changed:
-            return False
+            return AgentRefreshResult(changed=False)
         return await self._refresh_shared_instance(state)
 
     async def _load_card_core(
@@ -1920,10 +1994,10 @@ class FastAgent(DecoratorMixin):
         async def dispose_instance(instance: AgentInstance) -> None:
             await self._dispose_agent_instance(state.runtime, instance)
 
-        async def refresh_shared_instance() -> bool:
+        async def refresh_shared_instance() -> AgentRefreshResult:
             return await self._refresh_shared_instance(state)
 
-        async def reload_and_refresh() -> bool:
+        async def reload_and_refresh() -> AgentRefreshResult:
             return await self._reload_and_refresh(state)
 
         async def load_card_and_refresh(
@@ -2103,7 +2177,7 @@ class FastAgent(DecoratorMixin):
     async def _apply_card_tool_cli_option(
         self,
         state: ManagedRunState,
-        refresh_callback: Callable[[], Awaitable[bool]],
+        refresh_callback: Callable[[], Awaitable[AgentRefreshResult]],
     ) -> None:
         card_tools = getattr(self.args, "card_tools", None)
         if not card_tools:

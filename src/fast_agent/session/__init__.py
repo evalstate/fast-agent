@@ -8,6 +8,12 @@ from .formatting import (
     format_history_summary,
     format_session_entries,
 )
+from .hydrator import (
+    SessionHydrationPolicy,
+    SessionHydrationResult,
+    SessionHydrationWarning,
+    SessionHydrator,
+)
 from .identity import SessionSaveContext, SessionSaveIdentity, resolve_session_for_save
 from .session_manager import (
     ResumeSessionAgentsResult,
@@ -38,6 +44,7 @@ from .snapshot import (
     SessionTimingSummarySnapshot,
     SessionUsageSummarySnapshot,
     capture_session_snapshot,
+    clone_session_snapshot_for_fork,
     load_session_snapshot,
     session_info_from_snapshot,
     snapshot_from_session_info,
@@ -63,6 +70,10 @@ __all__ = [
     "reset_session_manager",
     "SessionSaveContext",
     "SessionSaveIdentity",
+    "SessionHydrationPolicy",
+    "SessionHydrationResult",
+    "SessionHydrationWarning",
+    "SessionHydrator",
     "SESSION_SNAPSHOT_SCHEMA_VERSION",
     "SessionAgentSnapshot",
     "SessionAnalysisSnapshot",
@@ -78,6 +89,7 @@ __all__ = [
     "SessionTimingSummarySnapshot",
     "SessionUsageSummarySnapshot",
     "capture_session_snapshot",
+    "clone_session_snapshot_for_fork",
     "load_session_snapshot",
     "resolve_session_for_save",
     "session_info_from_snapshot",

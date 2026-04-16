@@ -529,7 +529,7 @@ async def _resume_session_if_requested(agent_app, request: AgentRunRequest) -> N
         agent_app.resolve_target_agent_name(request.target_agent_name)
         or getattr(default_agent, "name", None)
     )
-    result = manager.resume_session_agents(
+    result = await manager.resume_session_agents_async(
         agents_map,
         session_id,
         fallback_agent_name=fallback_agent_name,
@@ -553,6 +553,7 @@ async def _resume_session_if_requested(agent_app, request: AgentRunRequest) -> N
     loaded = result.loaded
     missing_agents = result.missing_agents
     usage_notices = result.usage_notices
+    active_agent_name = result.active_agent
     session_time = session.info.last_activity.strftime("%y-%m-%d %H:%M")
     resume_notice = (
         f"[dim]Resumed session[/dim] [cyan]{session.info.name}[/cyan] [dim]({session_time})[/dim]"
@@ -571,6 +572,15 @@ async def _resume_session_if_requested(agent_app, request: AgentRunRequest) -> N
             queue_startup_notice(missing_notice)
         else:
             typer.echo(f"Missing agents from session: {missing_list}", err=True)
+
+    for warning in result.warnings:
+        if warning.code == "missing-agent":
+            continue
+        warning_notice = f"[yellow]{warning.message}[/yellow]"
+        if interactive_notice:
+            queue_startup_notice(warning_notice)
+        else:
+            typer.echo(warning.message, err=True)
 
     for usage_notice in usage_notices:
         if not usage_notice:
@@ -599,13 +609,19 @@ async def _resume_session_if_requested(agent_app, request: AgentRunRequest) -> N
             else:
                 typer.echo(f"Available histories: {summary_text}", err=True)
 
+    if active_agent_name is not None:
+        request.target_agent_name = active_agent_name
+
     preview_agent = default_agent
-    default_name = getattr(default_agent, "name", None)
-    if loaded and default_name not in loaded:
+    default_name = default_agent.name
+    preview_name = request.target_agent_name or default_name
+    if loaded and preview_name not in loaded:
         first_loaded_name = sorted(loaded.keys())[0]
         preview_agent = agent_app.get_agent(first_loaded_name) or default_agent
+    elif preview_name is not None:
+        preview_agent = agent_app.get_agent(preview_name) or default_agent
 
-    preview_history = getattr(preview_agent, "message_history", [])
+    preview_history = preview_agent.message_history
     assistant_text = _find_last_assistant_text(list(preview_history))
     if assistant_text:
         if interactive_notice:
@@ -614,7 +630,7 @@ async def _resume_session_if_requested(agent_app, request: AgentRunRequest) -> N
                 assistant_text,
                 title="Last assistant message",
                 right_info="session",
-                agent_name=getattr(preview_agent, "name", None),
+                agent_name=preview_agent.name,
             )
         else:
             typer.echo("Last assistant message:", err=True)

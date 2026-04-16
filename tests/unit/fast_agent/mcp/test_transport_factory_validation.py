@@ -2,7 +2,7 @@
 
 import pytest
 
-from fast_agent.config import MCPServerSettings
+from fast_agent.config import MCPServerAuthSettings, MCPServerSettings
 from fast_agent.mcp.mcp_connection_manager import create_transport_context
 
 
@@ -65,3 +65,57 @@ def test_explicit_transport_validation_still_works():
     server_config = MCPServerSettings(transport="stdio", url="http://example.com")
     with pytest.raises(ValueError, match="uses stdio transport but no command is specified"):
         create_transport_context(server_name="test_server", config=server_config)
+
+
+def test_nonpersistent_transport_avoids_speculative_oauth(monkeypatch: pytest.MonkeyPatch):
+    captured: list[bool | None] = []
+
+    def _fake_prepare_headers_and_auth(server_config, **kwargs):
+        del server_config
+        captured.append(kwargs.get("trigger_oauth"))
+        return {}, None, set()
+
+    monkeypatch.setattr(
+        "fast_agent.mcp.mcp_connection_manager._prepare_headers_and_auth",
+        _fake_prepare_headers_and_auth,
+    )
+    monkeypatch.setattr(
+        "fast_agent.mcp.mcp_connection_manager.tracking_sse_client",
+        lambda *args, **kwargs: object(),
+    )
+
+    server_config = MCPServerSettings(transport="sse", url="http://example.com/sse")
+    ctx = create_transport_context(server_name="test_server", config=server_config)
+
+    assert ctx is not None
+    assert captured == [False]
+
+
+def test_nonpersistent_transport_honors_explicit_oauth_config(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    captured: list[bool | None] = []
+
+    def _fake_prepare_headers_and_auth(server_config, **kwargs):
+        del server_config
+        captured.append(kwargs.get("trigger_oauth"))
+        return {}, None, set()
+
+    monkeypatch.setattr(
+        "fast_agent.mcp.mcp_connection_manager._prepare_headers_and_auth",
+        _fake_prepare_headers_and_auth,
+    )
+    monkeypatch.setattr(
+        "fast_agent.mcp.mcp_connection_manager.tracking_sse_client",
+        lambda *args, **kwargs: object(),
+    )
+
+    server_config = MCPServerSettings(
+        transport="sse",
+        url="http://example.com/sse",
+        auth=MCPServerAuthSettings(oauth=True),
+    )
+    ctx = create_transport_context(server_name="test_server", config=server_config)
+
+    assert ctx is not None
+    assert captured == [True]

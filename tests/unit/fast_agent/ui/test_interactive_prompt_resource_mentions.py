@@ -8,6 +8,7 @@ from mcp.types import EmbeddedResource, ReadResourceResult, TextResourceContents
 from pydantic import AnyUrl
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.core.agent_app import AgentRefreshResult
 from fast_agent.types import PromptMessageExtended
 from fast_agent.ui import interactive_prompt
 from fast_agent.ui.interactive_prompt import InteractivePrompt
@@ -46,6 +47,9 @@ class _MentionAgentApp:
 
     async def refresh_if_needed(self) -> bool:
         return False
+
+    def latest_refresh_result(self) -> AgentRefreshResult:
+        return AgentRefreshResult(changed=False)
 
     def _agent(self, _name: str) -> _MentionAgent:
         return self._agent_obj

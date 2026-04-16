@@ -365,6 +365,7 @@ class HookMessageDeferringAgent(ToolAgent):
         render_markdown: bool | None = None,
         show_hook_indicator: bool | None = None,
         render_message: bool = True,
+        show_reprint_banner: bool = False,
     ) -> None:
         del (
             message,
@@ -377,6 +378,7 @@ class HookMessageDeferringAgent(ToolAgent):
             render_markdown,
             show_hook_indicator,
             render_message,
+            show_reprint_banner,
         )
 
     def _tool_runner_hooks(self) -> ToolRunnerHooks | None:
@@ -524,6 +526,7 @@ class ToolUseHookMessageDeferringAgent(ToolAgent):
         render_markdown: bool | None = None,
         show_hook_indicator: bool | None = None,
         render_message: bool = True,
+        show_reprint_banner: bool = False,
     ) -> None:
         del (
             message,
@@ -536,6 +539,7 @@ class ToolUseHookMessageDeferringAgent(ToolAgent):
             render_markdown,
             show_hook_indicator,
             render_message,
+            show_reprint_banner,
         )
 
     def _tool_runner_hooks(self) -> ToolRunnerHooks | None:

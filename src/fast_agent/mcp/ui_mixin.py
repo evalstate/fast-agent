@@ -102,6 +102,7 @@ class McpUIMixin:
         render_markdown: bool | None = None,
         show_hook_indicator: bool | None = None,
         render_message: bool = True,
+        show_reprint_banner: bool = False,
     ) -> None:
         """Override to display UI resources after showing assistant message."""
         # Show the assistant message normally via parent
@@ -117,6 +118,7 @@ class McpUIMixin:
                 render_markdown=render_markdown,
                 show_hook_indicator=show_hook_indicator,
                 render_message=render_message,
+                show_reprint_banner=show_reprint_banner,
             )
         except TypeError as exc:
             error_text = str(exc)
@@ -132,9 +134,24 @@ class McpUIMixin:
                         additional_message=additional_message,
                         render_markdown=render_markdown,
                         render_message=render_message,
+                        show_reprint_banner=show_reprint_banner,
                     )
                 except TypeError as nested_exc:
-                    if "render_message" not in str(nested_exc):
+                    nested_error_text = str(nested_exc)
+                    if "show_reprint_banner" in nested_error_text:
+                        await super().show_assistant_message(  # type: ignore
+                            message,
+                            bottom_items,
+                            highlight_items,
+                            max_item_length,
+                            name=name,
+                            model=model,
+                            additional_message=additional_message,
+                            render_markdown=render_markdown,
+                            render_message=render_message,
+                        )
+                        return
+                    if "render_message" not in nested_error_text:
                         raise
                     await super().show_assistant_message(  # type: ignore
                         message,
@@ -146,6 +163,19 @@ class McpUIMixin:
                         additional_message=additional_message,
                         render_markdown=render_markdown,
                     )
+            elif "show_reprint_banner" in error_text:
+                await super().show_assistant_message(  # type: ignore
+                    message,
+                    bottom_items,
+                    highlight_items,
+                    max_item_length,
+                    name=name,
+                    model=model,
+                    additional_message=additional_message,
+                    render_markdown=render_markdown,
+                    show_hook_indicator=show_hook_indicator,
+                    render_message=render_message,
+                )
             elif "render_message" in error_text:
                 await super().show_assistant_message(  # type: ignore
                     message,

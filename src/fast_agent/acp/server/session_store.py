@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Mapping, Protocol, Sequence, cast
 
@@ -27,7 +28,12 @@ if TYPE_CHECKING:
 
 from fast_agent.acp.content_conversion import convert_mcp_content_to_acp
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.session import Session, extract_session_title, get_session_history_window
+from fast_agent.session import (
+    Session,
+    SessionHydrator,
+    extract_session_title,
+    get_session_history_window,
+)
 
 logger = get_logger(__name__)
 
@@ -100,6 +106,107 @@ class ACPServerSessionStore:
         if Path(app_manager.base_dir).resolve() != Path(request_manager.base_dir).resolve():
             entries.append((app_manager, self.legacy_session_cwd(app_manager)))
         return entries
+
+    def session_manager_for_state(self, session_state: ACPSessionState) -> Any:
+        if session_state.session_store_scope == "app":
+            return self._host._get_session_manager()
+
+        session_cwd = session_state.session_store_cwd or session_state.session_cwd
+        if session_cwd:
+            return self._host._get_session_manager(cwd=Path(session_cwd))
+        return self._host._get_session_manager()
+
+    def load_persisted_session_for_state(self, session_state: ACPSessionState) -> Session | None:
+        manager = self.session_manager_for_state(session_state)
+        loaded_session = manager.load_session(session_state.session_id)
+        if loaded_session is None:
+            return None
+        return cast("Session", loaded_session)
+
+    async def hydrate_session_state(
+        self,
+        session_state: ACPSessionState,
+        session: Session,
+        *,
+        session_modes: SessionModeState | None = None,
+        send_history_updates: bool,
+    ) -> SessionModeState | None:
+        fallback_agent_name = self._host._resolve_session_fallback_agent_name(
+            session_state.instance
+        )
+        hydration = SessionHydrator().hydrate_session(
+            session=session,
+            agents=session_state.instance.agents,
+            fallback_agent_name=fallback_agent_name,
+        )
+        result = await hydration if inspect.isawaitable(hydration) else hydration
+        for warning in result.warnings:
+            logger.warning(
+                warning.message,
+                name="acp_session_hydration_warning",
+                session_id=session_state.session_id,
+                code=warning.code,
+                agent_name=warning.agent_name,
+                ref=warning.ref,
+            )
+        for usage_notice in result.usage_notices:
+            logger.warning(
+                usage_notice,
+                name="acp_session_usage_unavailable",
+                session_id=session_state.session_id,
+            )
+
+        for agent_name, resolved_prompt in result.restored_prompts.items():
+            session_state.resolved_instructions[agent_name] = resolved_prompt
+        if session_state.acp_context:
+            session_state.acp_context.set_resolved_instructions(session_state.resolved_instructions)
+
+        current_agent = result.active_agent
+        if current_agent:
+            session_state.current_agent_name = current_agent
+            if session_state.slash_handler:
+                session_state.slash_handler.set_current_agent(current_agent)
+            if session_state.acp_context:
+                session_state.acp_context.set_current_mode(current_agent)
+
+        next_modes = session_modes
+        if current_agent and session_modes is not None and current_agent != session_modes.current_mode_id:
+            next_modes = SessionModeState(
+                available_modes=session_modes.available_modes,
+                current_mode_id=current_agent,
+            )
+            if session_state.acp_context:
+                session_state.acp_context.set_available_modes(next_modes.available_modes)
+                session_state.acp_context.set_current_mode(current_agent)
+
+        if send_history_updates:
+            await self.send_session_history_updates(
+                session_state,
+                session,
+                current_agent,
+            )
+
+        logger.info(
+            "ACP session hydrated",
+            name="acp_session_hydrated",
+            session_id=session_state.session_id,
+            loaded_agents=sorted(result.loaded_agents.keys()),
+        )
+        return next_modes
+
+    async def hydrate_session_state_from_persisted_session(
+        self,
+        session_state: ACPSessionState,
+    ) -> bool:
+        persisted_session = self.load_persisted_session_for_state(session_state)
+        if persisted_session is None:
+            return False
+        await self.hydrate_session_state(
+            session_state,
+            persisted_session,
+            send_history_updates=False,
+        )
+        return True
 
     def build_history_updates(
         self,
@@ -260,16 +367,15 @@ class ACPServerSessionStore:
             cwd=request_cwd,
             mcp_server_count=len(mcp_servers or []),
         )
-        async with self._host._session_lock:
-            existing_session = session_id in self._host._session_state
-
         persisted_session = None
-        manager = None
+        persisted_manager = None
         manager_store_scope: Literal["workspace", "app"] = "workspace"
         manager_store_cwd: str | None = request_cwd
         for index, (candidate_manager, _legacy_cwd) in enumerate(
             self.session_manager_entries(request_cwd)
         ):
+            # ACP session/load follows the protocol sessionId contract and does not
+            # resolve display aliases or local shorthand identifiers.
             candidate_session = candidate_manager.get_session(session_id)
             if candidate_session is None:
                 continue
@@ -283,15 +389,19 @@ class ACPServerSessionStore:
                     persisted_cwd=persisted_cwd,
                 )
                 continue
-            manager = candidate_manager
             persisted_session = candidate_session
+            persisted_manager = candidate_manager
             manager_store_scope = "workspace" if index == 0 else "app"
             manager_store_cwd = request_cwd if manager_store_scope == "workspace" else None
             break
         if not persisted_session:
             self._raise_session_not_found(session_id=session_id, request_cwd=request_cwd)
-        assert manager is not None
         assert persisted_session is not None
+        assert persisted_manager is not None
+        loaded_session = persisted_manager.load_session(session_id)
+        if loaded_session is None:
+            self._raise_session_not_found(session_id=session_id, request_cwd=request_cwd)
+        persisted_session = loaded_session
 
         session_state, session_modes = await self._host._initialize_session_state(
             session_id,
@@ -306,80 +416,19 @@ class ACPServerSessionStore:
                 manager_store_cwd,
             )
 
-        fallback_agent_name = self._host._resolve_session_fallback_agent_name(
-            session_state.instance
+        hydrated_modes = await self.hydrate_session_state(
+            session_state,
+            persisted_session,
+            session_modes=session_modes,
+            send_history_updates=self._host._connection is not None,
         )
-        result = manager.resume_session_agents(
-            session_state.instance.agents,
-            session_id,
-            fallback_agent_name=fallback_agent_name,
-        )
-        if not result:
-            if not existing_session:
-                async with self._host._session_lock:
-                    self._host.sessions.pop(session_id, None)
-                    self._host._session_state.pop(session_id, None)
-                    self._host._prompt_locks.pop(session_id, None)
-                await self._host._dispose_instance_task(session_state.instance)
-            self._raise_session_not_found(session_id=session_id, request_cwd=request_cwd)
-
-        session = result.session
-        loaded = result.loaded
-        missing_agents = result.missing_agents
-        usage_notices = result.usage_notices
-        if missing_agents:
-            logger.warning(
-                "Missing agents while loading session",
-                name="acp_load_session_missing_agents",
-                session_id=session_id,
-                missing_agents=missing_agents,
-            )
-        for usage_notice in usage_notices:
-            logger.warning(
-                usage_notice,
-                name="acp_load_session_usage_unavailable",
-                session_id=session_id,
-            )
-
-        current_agent = session_state.current_agent_name
-        if len(loaded) == 1:
-            current_agent = next(iter(loaded.keys()))
-        if not current_agent or current_agent not in session_state.instance.agents:
-            current_agent = fallback_agent_name or next(
-                iter(session_state.instance.agents.keys()),
-                None,
-            )
-
-        if current_agent:
-            session_state.current_agent_name = current_agent
-            if session_state.slash_handler:
-                session_state.slash_handler.set_current_agent(current_agent)
-            if session_state.acp_context:
-                session_state.acp_context.set_current_mode(current_agent)
-
-        if current_agent and current_agent != session_modes.current_mode_id:
-            session_modes = SessionModeState(
-                available_modes=session_modes.available_modes,
-                current_mode_id=current_agent,
-            )
-            if session_state.acp_context:
-                session_state.acp_context.set_available_modes(session_modes.available_modes)
-                session_state.acp_context.set_current_mode(current_agent)
-
-        if self._host._connection:
-            # ACP session/load must return only after the replayed
-            # session/update history has been streamed to the client.
-            await self.send_session_history_updates(
-                session_state,
-                session,
-                current_agent,
-            )
+        if hydrated_modes is not None:
+            session_modes = hydrated_modes
 
         logger.info(
             "ACP session loaded",
             name="acp_session_loaded",
             session_id=session_id,
-            loaded_agents=sorted(loaded.keys()),
         )
 
         return LoadSessionResponse(modes=session_modes)

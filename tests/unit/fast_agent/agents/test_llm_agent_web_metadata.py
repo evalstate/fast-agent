@@ -40,6 +40,7 @@ class _CaptureDisplay(ConsoleDisplay):
         pre_content=None,
         render_markdown: bool | None = None,
         show_hook_indicator: bool = False,
+        show_reprint_banner: bool = False,
     ) -> None:
         payload = {
             "message_text": message_text,
@@ -52,6 +53,7 @@ class _CaptureDisplay(ConsoleDisplay):
             "pre_content": pre_content,
             "render_markdown": render_markdown,
             "show_hook_indicator": show_hook_indicator,
+            "show_reprint_banner": show_reprint_banner,
         }
         self.event_order.append("assistant")
         self.calls.append(payload)
@@ -165,7 +167,9 @@ class _SummaryHarnessAgent(LlmAgent):
         render_markdown: bool | None = None,
         show_hook_indicator: bool | None = None,
         render_message: bool = True,
+        show_reprint_banner: bool = False,
     ) -> None:
+        del show_reprint_banner
         self.additional_messages.append(additional_message)
 
 

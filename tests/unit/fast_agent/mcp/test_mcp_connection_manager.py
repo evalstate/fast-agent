@@ -13,6 +13,7 @@ from fast_agent.mcp.mcp_connection_manager import (
     MCPConnectionManager,
     ServerConnection,
     _format_oauth_registration_404_details,
+    _is_http_auth_challenge_error,
     _is_oauth_registration_404_message,
     _is_oauth_timeout_message,
     _managed_http_transport_context,
@@ -89,12 +90,34 @@ def test_prepare_headers_invokes_oauth_when_no_auth_headers(monkeypatch):
         _builder,
     )
 
-    headers, auth, user_keys = _prepare_headers_and_auth(config)
+    headers, auth, user_keys = _prepare_headers_and_auth(config, trigger_oauth=True)
 
     assert headers == {"Accept": "application/json"}
     assert auth is sentinel
     assert user_keys == set()
     assert calls == [config]
+
+
+def test_prepare_headers_auto_mode_does_not_build_oauth(monkeypatch):
+    config = MCPServerSettings(
+        name="test",
+        transport="sse",
+        url="https://example.com/mcp",
+    )
+
+    def _builder(_config, **_kwargs):
+        raise AssertionError("OAuth provider should not be built in auto mode.")
+
+    monkeypatch.setattr(
+        "fast_agent.mcp.mcp_connection_manager.build_oauth_provider",
+        _builder,
+    )
+
+    headers, auth, user_keys = _prepare_headers_and_auth(config, trigger_oauth=None)
+
+    assert headers == {}
+    assert auth is None
+    assert user_keys == set()
 
 
 @pytest.mark.asyncio
@@ -307,6 +330,43 @@ async def test_get_server_cancellation_cleans_up_pending_connection() -> None:
     assert "demo" not in manager.running_servers
     assert server_conn._shutdown_event.is_set()
     assert server_conn._oauth_abort_event.is_set()
+
+
+@pytest.mark.asyncio
+async def test_get_server_retries_with_oauth_after_401_startup() -> None:
+    manager = MCPConnectionManager(server_registry=cast("Any", _DummyRegistry()))
+    unhealthy = _make_server_connection()
+    unhealthy._error_occurred = True
+    unhealthy._error_message = "HTTP Error: 401 Unauthorized for URL: http://example.com/mcp"
+
+    healthy = _make_server_connection()
+    healthy.session = cast("Any", object())
+
+    calls: list[bool | None] = []
+
+    async def _fake_launch_and_wait_for_server(*_args, **kwargs):
+        trigger = kwargs.get("trigger_oauth")
+        calls.append(trigger)
+        manager._server_oauth_mode["demo"] = "force" if trigger is True else "auto"
+        manager._server_oauth_active["demo"] = trigger is True
+        return healthy if trigger is True else unhealthy
+
+    async def _fake_retry_server_with_oauth(*_args, **_kwargs):
+        calls.append(True)
+        manager._server_oauth_mode["demo"] = "force"
+        manager._server_oauth_active["demo"] = True
+        return healthy
+
+    manager._launch_and_wait_for_server = _fake_launch_and_wait_for_server  # type: ignore[method-assign]
+    manager._retry_server_with_oauth = _fake_retry_server_with_oauth  # type: ignore[method-assign]
+
+    server_conn = await manager.get_server(
+        "demo",
+        client_session_factory=lambda *_args, **_kwargs: object(),
+    )
+
+    assert server_conn is healthy
+    assert calls == [None, True]
 
 
 @pytest.mark.asyncio
@@ -533,6 +593,13 @@ def test_is_oauth_registration_404_message_detects_registration_failures() -> No
         is True
     )
     assert _is_oauth_registration_404_message("HTTP Error: 404 Not Found for URL: /mcp") is False
+
+
+def test_is_http_auth_challenge_error_detects_401_responses() -> None:
+    assert _is_http_auth_challenge_error("HTTP Error: 401 Unauthorized for URL: /mcp") is True
+    assert _is_http_auth_challenge_error("401 Client Error: Unauthorized for url") is True
+    assert _is_http_auth_challenge_error("WWW-Authenticate: Bearer realm=example") is True
+    assert _is_http_auth_challenge_error("HTTP Error: 404 Not Found for URL: /mcp") is False
 
 
 def test_format_oauth_registration_404_details_includes_copilot_hint() -> None:

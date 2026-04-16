@@ -57,6 +57,7 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 STDIO_STDERR_BUFFER_LINES = 12
+OAuthMode = str
 
 
 class StreamingContextAdapter:
@@ -94,7 +95,7 @@ async def _managed_http_transport_context(
 def _prepare_headers_and_auth(
     server_config: MCPServerSettings,
     *,
-    trigger_oauth: bool = True,
+    trigger_oauth: bool | None = None,
     oauth_event_handler: OAuthEventHandler | None = None,
     emit_oauth_console_output: bool = True,
     oauth_abort_event: threading.Event | None = None,
@@ -112,11 +113,7 @@ def _prepare_headers_and_auth(
 
     # OAuth is only relevant for SSE/HTTP transports and should be skipped when the
     # user has already supplied explicit Authorization headers.
-    if (
-        not trigger_oauth
-        or server_config.transport not in ("sse", "http")
-        or user_provided_auth_keys
-    ):
+    if not trigger_oauth or server_config.transport not in ("sse", "http") or user_provided_auth_keys:
         return headers, None, user_provided_auth_keys
 
     oauth_auth = build_oauth_provider(
@@ -137,6 +134,45 @@ def _prepare_headers_and_auth(
             headers.pop(header_name, None)
 
     return headers, oauth_auth, user_provided_auth_keys
+
+
+def _resolve_oauth_mode(
+    server_config: MCPServerSettings,
+    *,
+    trigger_oauth: bool | None,
+) -> OAuthMode:
+    if server_config.transport not in ("sse", "http"):
+        return "disabled"
+    if trigger_oauth is False:
+        return "disabled"
+    auth_config = server_config.auth
+    if auth_config is not None and auth_config.oauth is False:
+        return "disabled"
+    if trigger_oauth is True:
+        return "force"
+    if auth_config is not None and auth_config.oauth:
+        return "force"
+    return "auto"
+
+
+def _is_http_auth_challenge_error(error: object) -> bool:
+    if isinstance(error, HTTPStatusError):
+        response = error.response
+        return response is not None and response.status_code == 401
+
+    if isinstance(error, list):
+        haystack = "\n".join(str(item) for item in error)
+    else:
+        haystack = "" if error is None else str(error)
+
+    normalized = " ".join(haystack.lower().split())
+    auth_markers = (
+        "http error: 401",
+        "401 unauthorized",
+        "401 client error: unauthorized",
+        "www-authenticate",
+    )
+    return any(marker in normalized for marker in auth_markers)
 
 
 def _build_transport_metrics_hook(
@@ -163,6 +199,8 @@ def _build_transport_metrics_hook(
 def create_transport_context(
     server_name: str,
     config: MCPServerSettings,
+    *,
+    trigger_oauth: bool | None = None,
 ) -> AbstractAsyncContextManager:
     """
     Create a transport context manager for the given server configuration.
@@ -177,7 +215,15 @@ def create_transport_context(
     unnecessary. The persistent path in MCPConnectionManager.launch_server()
     uses its own transport_context_factory closure with those features.
     """
-    headers, oauth_auth, user_auth_keys = _prepare_headers_and_auth(config)
+    # Short-lived probe connections intentionally avoid speculative OAuth startup.
+    # Plain local HTTP/SSE servers can hang if we begin an auth flow before the
+    # server has actually challenged the request; higher-level non-persistent
+    # callers may still retry with OAuth enabled after a 401 challenge.
+    oauth_mode = _resolve_oauth_mode(config, trigger_oauth=trigger_oauth)
+    headers, oauth_auth, user_auth_keys = _prepare_headers_and_auth(
+        config,
+        trigger_oauth=oauth_mode == "force",
+    )
     if user_auth_keys:
         logger.debug(
             f"{server_name}: Using user-specified auth header(s); skipping OAuth provider.",
@@ -833,6 +879,9 @@ class MCPConnectionManager(ContextDependent):
         self._mcp_sse_filter_added = False
         self._mcp_streamable_http_filter_added = False
         self._mcp_oauth_cancel_filter_added = False
+        self._oauth_required_servers: set[str] = set()
+        self._server_oauth_mode: dict[str, OAuthMode] = {}
+        self._server_oauth_active: dict[str, bool] = {}
 
     async def __aenter__(self):
         # Create a task group that isn't tied to a specific task
@@ -970,7 +1019,7 @@ class MCPConnectionManager(ContextDependent):
         client_session_factory: ClientSessionFactory,
         *,
         startup_timeout_seconds: float | None = None,
-        trigger_oauth: bool = True,
+        trigger_oauth: bool | None = None,
         oauth_event_handler: OAuthEventHandler | None = None,
         allow_oauth_paste_fallback: bool = True,
     ) -> ServerConnection:
@@ -991,6 +1040,10 @@ class MCPConnectionManager(ContextDependent):
             raise ValueError(f"Server '{server_name}' not found in registry.")
 
         logger.debug(f"{server_name}: Found server configuration=", data=config.model_dump())
+        oauth_mode = _resolve_oauth_mode(config, trigger_oauth=trigger_oauth)
+        oauth_active = oauth_mode == "force" or (
+            oauth_mode == "auto" and server_name in self._oauth_required_servers
+        )
 
         timeline_steps = 20
         timeline_seconds = 30
@@ -1025,7 +1078,7 @@ class MCPConnectionManager(ContextDependent):
                 self._suppress_mcp_oauth_cancel_errors()
                 headers, oauth_auth, user_auth_keys = _prepare_headers_and_auth(
                     config,
-                    trigger_oauth=trigger_oauth,
+                    trigger_oauth=oauth_active,
                     oauth_event_handler=self._build_oauth_event_handler(
                         server_conn,
                         oauth_event_handler,
@@ -1136,6 +1189,8 @@ class MCPConnectionManager(ContextDependent):
                 return self.running_servers[server_name]
 
             self.running_servers[server_name] = server_conn
+            self._server_oauth_mode[server_name] = oauth_mode
+            self._server_oauth_active[server_name] = oauth_active
             if startup_timeout_seconds is not None and startup_timeout_seconds <= 0:
                 raise ValueError("startup_timeout_seconds must be > 0 when provided")
             assert self._tg is not None
@@ -1150,7 +1205,7 @@ class MCPConnectionManager(ContextDependent):
         server_name: str,
         client_session_factory: ClientSessionFactory,
         startup_timeout_seconds: float | None,
-        trigger_oauth: bool,
+        trigger_oauth: bool | None,
         oauth_event_handler: OAuthEventHandler | None,
         allow_oauth_paste_fallback: bool,
         timeout_action: str,
@@ -1173,6 +1228,8 @@ class MCPConnectionManager(ContextDependent):
                 current = self.running_servers.get(server_name)
                 if current is server_conn:
                     self.running_servers.pop(server_name, None)
+                self._server_oauth_mode.pop(server_name, None)
+                self._server_oauth_active.pop(server_name, None)
             raise
         except TimeoutError as exc:
             server_conn.request_shutdown()
@@ -1180,6 +1237,8 @@ class MCPConnectionManager(ContextDependent):
                 current = self.running_servers.get(server_name)
                 if current is server_conn:
                     self.running_servers.pop(server_name, None)
+                self._server_oauth_mode.pop(server_name, None)
+                self._server_oauth_active.pop(server_name, None)
             raise ServerInitializationError(
                 (
                     f"MCP Server: '{server_name}': {timeout_action} timed out after "
@@ -1193,13 +1252,61 @@ class MCPConnectionManager(ContextDependent):
 
         return server_conn
 
+    async def _clear_running_server_state(
+        self,
+        server_name: str,
+        server_conn: ServerConnection,
+    ) -> None:
+        server_conn.request_shutdown()
+        async with self._lock:
+            current = self.running_servers.get(server_name)
+            if current is server_conn:
+                self.running_servers.pop(server_name, None)
+            self._server_oauth_mode.pop(server_name, None)
+            self._server_oauth_active.pop(server_name, None)
+
+    async def _retry_server_with_oauth(
+        self,
+        *,
+        server_name: str,
+        server_conn: ServerConnection,
+        client_session_factory: ClientSessionFactory,
+        startup_timeout_seconds: float | None,
+        oauth_event_handler: OAuthEventHandler | None,
+        allow_oauth_paste_fallback: bool,
+        timeout_action: str,
+    ) -> ServerConnection:
+        logger.info(
+            "%s: Received authentication challenge; retrying with OAuth enabled",
+            server_name,
+        )
+        self._oauth_required_servers.add(server_name)
+        await self._clear_running_server_state(server_name, server_conn)
+        await asyncio.sleep(0.1)
+        return await self._launch_and_wait_for_server(
+            server_name=server_name,
+            client_session_factory=client_session_factory,
+            startup_timeout_seconds=startup_timeout_seconds,
+            trigger_oauth=True,
+            oauth_event_handler=oauth_event_handler,
+            allow_oauth_paste_fallback=allow_oauth_paste_fallback,
+            timeout_action=timeout_action,
+        )
+
+    def should_retry_server_with_oauth(self, server_name: str, error: object) -> bool:
+        return (
+            self._server_oauth_mode.get(server_name) == "auto"
+            and not self._server_oauth_active.get(server_name, False)
+            and _is_http_auth_challenge_error(error)
+        )
+
     async def get_server(
         self,
         server_name: str,
         client_session_factory: ClientSessionFactory,
         *,
         startup_timeout_seconds: float | None = None,
-        trigger_oauth: bool = True,
+        trigger_oauth: bool | None = None,
         oauth_event_handler: OAuthEventHandler | None = None,
         allow_oauth_paste_fallback: bool = True,
     ) -> ServerConnection:
@@ -1216,6 +1323,8 @@ class MCPConnectionManager(ContextDependent):
             if server_conn:
                 logger.info(f"{server_name}: Server exists but is unhealthy, recreating...")
                 self.running_servers.pop(server_name)
+                self._server_oauth_mode.pop(server_name, None)
+                self._server_oauth_active.pop(server_name, None)
                 server_conn.request_shutdown()
 
         server_conn = await self._launch_and_wait_for_server(
@@ -1230,6 +1339,19 @@ class MCPConnectionManager(ContextDependent):
 
         # Check if the server is healthy after initialization
         if not server_conn.is_healthy():
+            if self.should_retry_server_with_oauth(server_name, server_conn._error_message):
+                server_conn = await self._retry_server_with_oauth(
+                    server_name=server_name,
+                    server_conn=server_conn,
+                    client_session_factory=client_session_factory,
+                    startup_timeout_seconds=startup_timeout_seconds,
+                    oauth_event_handler=oauth_event_handler,
+                    allow_oauth_paste_fallback=allow_oauth_paste_fallback,
+                    timeout_action="Startup",
+                )
+                if server_conn.is_healthy():
+                    return server_conn
+
             error_msg = server_conn._error_message or "Unknown error"
 
             if isinstance(error_msg, list):
@@ -1284,6 +1406,8 @@ class MCPConnectionManager(ContextDependent):
 
         async with self._lock:
             server_conn = self.running_servers.pop(server_name, None)
+            self._server_oauth_mode.pop(server_name, None)
+            self._server_oauth_active.pop(server_name, None)
         if server_conn:
             server_conn.request_shutdown()
             logger.info(f"{server_name}: Shutdown signal sent (lifecycle task will exit).")
@@ -1296,7 +1420,7 @@ class MCPConnectionManager(ContextDependent):
         client_session_factory: ClientSessionFactory,
         *,
         startup_timeout_seconds: float | None = None,
-        trigger_oauth: bool = True,
+        trigger_oauth: bool | None = None,
         oauth_event_handler: OAuthEventHandler | None = None,
         allow_oauth_paste_fallback: bool = True,
     ) -> "ServerConnection":
@@ -1333,6 +1457,20 @@ class MCPConnectionManager(ContextDependent):
 
         # Check if the reconnection was successful
         if not server_conn.is_healthy():
+            if self.should_retry_server_with_oauth(server_name, server_conn._error_message):
+                server_conn = await self._retry_server_with_oauth(
+                    server_name=server_name,
+                    server_conn=server_conn,
+                    client_session_factory=client_session_factory,
+                    startup_timeout_seconds=startup_timeout_seconds,
+                    oauth_event_handler=oauth_event_handler,
+                    allow_oauth_paste_fallback=allow_oauth_paste_fallback,
+                    timeout_action="Reconnect",
+                )
+                if server_conn.is_healthy():
+                    logger.info(f"{server_name}: Reconnection successful")
+                    return server_conn
+
             error_msg = server_conn._error_message or "Unknown error during reconnection"
 
             if isinstance(error_msg, list):
@@ -1383,6 +1521,8 @@ class MCPConnectionManager(ContextDependent):
             servers_to_shutdown = list(self.running_servers.items())
             # Clear the dict immediately to prevent any new access
             self.running_servers.clear()
+            self._server_oauth_mode.clear()
+            self._server_oauth_active.clear()
 
         # Release the lock before waiting for servers to shut down
         for name, conn in servers_to_shutdown:

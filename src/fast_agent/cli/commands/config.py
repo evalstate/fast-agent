@@ -275,6 +275,11 @@ def _build_display_form(current: LoggerSettings) -> FormSchema:
             description=_get_logger_field_description("show_chat"),
             default=current.show_chat,
         ),
+        stream_reprint_banner=boolean(
+            title="Stream Reprint Banner",
+            description=_get_logger_field_description("stream_reprint_banner"),
+            default=current.stream_reprint_banner,
+        ),
         show_tools=boolean(
             title="Show Tools",
             description=_get_logger_field_description("show_tools"),
@@ -369,6 +374,7 @@ def _normalize_display_updates(result: dict[str, Any]) -> dict[str, Any]:
         "code_word_wrap",
         "progress_display",
         "show_chat",
+        "stream_reprint_banner",
         "show_tools",
         "truncate_tools",
         "enable_markup",

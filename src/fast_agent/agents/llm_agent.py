@@ -199,6 +199,7 @@ class LlmAgent(LlmDecorator):
         render_markdown: bool | None = None,
         show_hook_indicator: bool | None = None,
         render_message: bool = True,
+        show_reprint_banner: bool = False,
     ) -> None:
         """Display an assistant message with appropriate styling based on stop reason.
 
@@ -276,6 +277,7 @@ class LlmAgent(LlmDecorator):
                     pre_content=pre_content,
                     render_markdown=render_markdown,
                     show_hook_indicator=hook_indicator,
+                    show_reprint_banner=show_reprint_banner,
                 )
         else:
             if status_message_text is not None:
@@ -732,6 +734,7 @@ class LlmAgent(LlmDecorator):
 
             remove_listener: Callable[[], None] | None = None
             remove_tool_listener: Callable[[], None] | None = None
+            stream_scrolled = False
 
             with self.display.streaming_assistant_message(
                 name=display_name,
@@ -768,6 +771,7 @@ class LlmAgent(LlmDecorator):
 
                     await stream_handle.wait_for_drain()
                     self._maybe_close_streaming_for_tool_calls(result)
+                    stream_scrolled = stream_handle.has_scrolled()
                     preserve_streamed_frame = self._can_preserve_streamed_final_frame(
                         message=result,
                         summary_text=summary_text,
@@ -795,6 +799,9 @@ class LlmAgent(LlmDecorator):
                     result,
                     additional_message=summary_text,
                     render_markdown=render_markdown,
+                    show_reprint_banner=(
+                        stream_scrolled and result.stop_reason == LlmStopReason.END_TURN
+                    ),
                 )
         else:
             result, summary = await self._generate_with_summary(messages, request_params, tools)

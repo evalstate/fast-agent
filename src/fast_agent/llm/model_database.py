@@ -209,6 +209,14 @@ class ModelDatabase:
         default=ReasoningEffortSetting(kind="effort", value=AUTO_REASONING),
     )
 
+    ANTHROPIC_ADAPTIVE_THINKING_EFFORT_SPEC_OPUS47 = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["low", "medium", "high", "xhigh", "max"],
+        allow_toggle_disable=True,
+        allow_auto=True,
+        default=ReasoningEffortSetting(kind="effort", value=AUTO_REASONING),
+    )
+
     GOOGLE_THINKING_EFFORT_SPEC = ReasoningEffortSpec(
         kind="effort",
         allowed_efforts=["minimal", "low", "medium", "high"],
@@ -436,6 +444,7 @@ class ModelDatabase:
         anthropic_required_betas=(ANTHROPIC_WEB_TOOLS_BETA_46,),
         default_provider=Provider.ANTHROPIC,
     )
+
     ANTHROPIC_OPUS_4_LEGACY = ModelParameters(
         context_window=200000,
         max_output_tokens=32000,
@@ -767,6 +776,7 @@ class ModelDatabase:
         "claude-opus-4-1": ANTHROPIC_OPUS_4_VERSIONED,
         "claude-opus-4-5": ANTHROPIC_OPUS_4_VERSIONED,
         "claude-opus-4-6": ANTHROPIC_OPUS_46,
+        "claude-opus-4-7": ANTHROPIC_OPUS_46,
         "claude-opus-4-20250514": ANTHROPIC_OPUS_4_LEGACY,
         "claude-haiku-4-5-20251001": ANTHROPIC_SONNET_4_VERSIONED,
         "claude-haiku-4-5": _with_fast(ANTHROPIC_SONNET_4_VERSIONED),

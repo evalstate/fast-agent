@@ -172,3 +172,15 @@ class TestA3MessageStyle:
         assert "exit code 0" in result.plain
         assert "(no output)" in result.plain
         assert "id: call_…123456" in result.plain
+
+    def test_stream_reprint_banner_spans_full_width(self) -> None:
+        """Stream reprint banner renders three full-width bright rows."""
+        style = A3MessageStyle()
+
+        lines = style.stream_reprint_banner(40)
+
+        assert len(lines) == 3
+        assert all(line.cell_len == 40 for line in lines)
+        assert lines[0].plain == "━" * 40
+        assert "FINAL RESPONSE" in lines[1].plain
+        assert lines[2].plain == "━" * 40

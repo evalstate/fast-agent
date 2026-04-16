@@ -59,7 +59,11 @@ from fast_agent.mcp.gen_client import gen_client
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.interfaces import ServerRegistryProtocol
 from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
-from fast_agent.mcp.mcp_connection_manager import MCPConnectionManager
+from fast_agent.mcp.mcp_connection_manager import (
+    MCPConnectionManager,
+    _is_http_auth_challenge_error,
+    _resolve_oauth_mode,
+)
 from fast_agent.mcp.skybridge import (
     SKYBRIDGE_MIME_TYPE,
     SkybridgeResourceConfig,
@@ -223,7 +227,7 @@ class ServerStatus(BaseModel):
 @dataclass(frozen=True, slots=True)
 class MCPAttachOptions:
     startup_timeout_seconds: float = 10.0
-    trigger_oauth: bool = True
+    trigger_oauth: bool | None = None
     force_reconnect: bool = False
     reconnect_on_disconnect: bool | None = None
     oauth_event_handler: Callable[["OAuthEvent"], Awaitable[None]] | None = None
@@ -1714,9 +1718,14 @@ class MCPAggregator(ContextDependent):
             result, success_flag = await self._handle_session_terminated(
                 server_name, try_execute, error_factory, exc
             )
-        except Exception:
-            success_flag = False
-            raise
+        except Exception as exc:
+            if self._should_retry_with_oauth(server_name, exc):
+                result, success_flag = await self._handle_auth_challenge(
+                    server_name, try_execute, error_factory, exc
+                )
+            else:
+                success_flag = False
+                raise
         finally:
             if success_flag is not None:
                 await self._record_server_call(server_name, operation_type, success_flag)
@@ -1727,6 +1736,62 @@ class MCPAggregator(ContextDependent):
                 return error_factory(error_msg)
             raise RuntimeError(error_msg)
         return result
+
+    def _should_retry_with_oauth(self, server_name: str, exc: Exception) -> bool:
+        if self.connection_persistence:
+            manager = self._require_connection_manager()
+            return manager.should_retry_server_with_oauth(server_name, exc)
+
+        server_registry = self._require_server_registry()
+        config = server_registry.get_server_config(server_name)
+        if config is None:
+            return False
+        return (
+            _resolve_oauth_mode(config, trigger_oauth=None) == 'auto'
+            and _is_http_auth_challenge_error(exc)
+        )
+
+    async def _handle_auth_challenge(
+        self,
+        server_name: str,
+        try_execute: Callable,
+        error_factory: Callable[[str], R] | None,
+        exc: Exception,
+    ) -> tuple[R | None, bool]:
+        from fast_agent.ui import console
+
+        console.console.print(
+            f"[dim yellow]MCP server {server_name} requested authorization - reconnecting with OAuth...[/dim yellow]"
+        )
+
+        try:
+            if self.connection_persistence:
+                manager = self._require_connection_manager()
+                server_connection = await manager.reconnect_server(
+                    server_name,
+                    client_session_factory=self._create_session_factory(server_name),
+                    trigger_oauth=True,
+                )
+                session = server_connection.session
+                if session is None:
+                    raise RuntimeError(f"Server session not initialized for '{server_name}'")
+                result = await try_execute(session)
+            else:
+                server_registry = self._require_server_registry()
+                async with gen_client(
+                    server_name,
+                    server_registry=server_registry,
+                    trigger_oauth=True,
+                ) as client:
+                    result = await try_execute(client)
+            console.console.print(
+                f"[dim green]MCP server {server_name} reconnected with OAuth successfully[/dim green]"
+            )
+            return result, True
+        except Exception as retry_exc:
+            if error_factory:
+                return error_factory(str(retry_exc)), False
+            raise
 
     @staticmethod
     def _is_session_required_error(exc: Exception) -> bool:

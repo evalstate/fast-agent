@@ -304,11 +304,14 @@ class InteractivePrompt:
     def _select_active_agent_or_exit(
         self,
         *,
+        preferred_agent: str | None,
         current_agent: str,
         available_agents: list[str],
         available_agents_set: set[str],
         no_agents_message: str,
     ) -> str | None:
+        if preferred_agent and preferred_agent in available_agents_set:
+            return preferred_agent
         if current_agent in available_agents_set:
             return current_agent
         if available_agents:
@@ -328,6 +331,7 @@ class InteractivePrompt:
         refreshed = False
         if not skip_refresh:
             refreshed = await prompt_provider.refresh_if_needed()
+        refresh_result = prompt_provider.latest_refresh_result()
 
         next_available_agents, next_available_agents_set = self._current_agent_roster(
             prompt_provider=prompt_provider,
@@ -341,6 +345,7 @@ class InteractivePrompt:
             return state
 
         next_agent = self._select_active_agent_or_exit(
+            preferred_agent=refresh_result.active_agent if refreshed else None,
             current_agent=state.current_agent,
             available_agents=next_available_agents,
             available_agents_set=next_available_agents_set,
@@ -354,6 +359,8 @@ class InteractivePrompt:
             available_agents=next_available_agents,
         )
         if refreshed:
+            for warning in refresh_result.warnings:
+                rich_print(f"[yellow]{warning}[/yellow]")
             rich_print("[green]AgentCards reloaded.[/green]")
 
         return PromptLoopAgents(

@@ -196,6 +196,21 @@ class ConsoleDisplay:
         console.ensure_blocking_console()
         console.console.print(content, markup=self._markup)
 
+    def show_stream_reprint_banner(self, *, label: str | None = None) -> None:
+        """Display a bright banner before reprinting a streamed final response."""
+        if not display_chat_enabled():
+            return
+        if self.config and not self.config.logger.show_chat:
+            return
+        if self.config and not getattr(self.config.logger, "stream_reprint_banner", True):
+            return
+        console.ensure_blocking_console()
+        for line in self._style.stream_reprint_banner(
+            console.console.size.width,
+            label=label,
+        ):
+            console.console.print(line, markup=self._markup)
+
     def resolve_streaming_preferences(self) -> tuple[bool, str]:
         """Return whether streaming is enabled plus the active mode."""
         if not self.config:
@@ -950,6 +965,7 @@ class ConsoleDisplay:
         pre_content: Text | Group | None = None,
         render_markdown: bool | None = None,
         show_hook_indicator: bool = False,
+        show_reprint_banner: bool = False,
     ) -> None:
         """Display an assistant message in a formatted panel.
 
@@ -965,6 +981,7 @@ class ConsoleDisplay:
             pre_content: Optional additional styled message to prepend before body text
             render_markdown: Force markdown rendering (True) or plain rendering (False)
             show_hook_indicator: Whether to show the hook indicator glyph (◆)
+            show_reprint_banner: Whether to emit the bright reprint banner for this message
         """
         if not display_chat_enabled():
             return
@@ -997,6 +1014,9 @@ class ConsoleDisplay:
         # Build right info
         display_model = resolve_model_display_name(model)
         right_info = f"[dim]{display_model}[/dim]" if display_model else ""
+
+        if show_reprint_banner:
+            self.show_stream_reprint_banner()
 
         # Display main message using unified method
         self.display_message(

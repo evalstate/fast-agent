@@ -1454,5 +1454,6 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         render_markdown: bool | None = None,
         show_hook_indicator: bool | None = None,
         render_message: bool = True,
+        show_reprint_banner: bool = False,
     ) -> None:
         pass

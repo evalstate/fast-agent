@@ -14,6 +14,7 @@ from fast_agent.constants import (
     ANTHROPIC_CITATIONS_CHANNEL,
     ANTHROPIC_SERVER_TOOLS_CHANNEL,
 )
+from fast_agent.core.agent_app import AgentRefreshResult
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.core.prompt import Prompt
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -91,6 +92,9 @@ class _FakeAgentApp:
     async def refresh_if_needed(self) -> bool:
         return False
 
+    def latest_refresh_result(self) -> AgentRefreshResult:
+        return AgentRefreshResult(changed=False)
+
     def visible_agent_names(self, *, force_include: str | None = None) -> list[str]:
         del force_include
         return list(self._agents.keys())
@@ -165,15 +169,28 @@ class _FakeAgentApp:
 
 
 class _ReloadAgentApp(_FakeAgentApp):
-    def __init__(self, agent_names: list[str], changed: bool) -> None:
+    def __init__(
+        self,
+        agent_names: list[str],
+        changed: bool,
+        *,
+        active_agent: str | None = None,
+    ) -> None:
         super().__init__(agent_names)
         self._changed = changed
+        self._latest_refresh_result = AgentRefreshResult(
+            changed=changed,
+            active_agent=active_agent,
+        )
 
     def can_reload_agents(self) -> bool:
         return True
 
     async def reload_agents(self) -> bool:
         return self._changed
+
+    def latest_refresh_result(self) -> AgentRefreshResult:
+        return self._latest_refresh_result
 
 
 class _DetachCancelledAgentApp(_FakeAgentApp):
@@ -693,6 +710,35 @@ async def test_reload_agents_with_changes(monkeypatch, capsys: Any) -> None:
 
     output = capsys.readouterr().out
     assert "AgentCards reloaded" in output
+
+
+@pytest.mark.asyncio
+async def test_reload_agents_switches_to_hydrated_active_agent(monkeypatch) -> None:
+    seen_agents: list[str] = []
+    inputs = iter(["/reload", "STOP"])
+
+    async def fake_get_enhanced_input(*_args: Any, **kwargs: Any) -> str:
+        agent_name = kwargs.get("agent_name")
+        if isinstance(agent_name, str):
+            seen_agents.append(agent_name)
+        return next(inputs)
+
+    monkeypatch.setattr(interactive_prompt, "get_enhanced_input", fake_get_enhanced_input)
+
+    async def fake_send(*_args: Any, **_kwargs: Any) -> str:
+        return ""
+
+    prompt_ui = InteractivePrompt()
+    agent_app = _ReloadAgentApp(["old", "new"], changed=True, active_agent="new")
+
+    await prompt_ui.prompt_loop(
+        send_func=fake_send,
+        default_agent="old",
+        available_agents=["old", "new"],
+        prompt_provider=cast("AgentApp", agent_app),
+    )
+
+    assert seen_agents[:2] == ["old", "new"]
 
 
 @pytest.mark.asyncio

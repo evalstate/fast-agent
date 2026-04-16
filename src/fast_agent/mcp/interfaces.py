@@ -82,6 +82,7 @@ class ServerInitializerProtocol(Protocol):
         self,
         server_name: str,
         client_session_factory: ClientSessionFactory | None = None,
+        trigger_oauth: bool | None = None,
     ) -> AbstractAsyncContextManager[ClientSession]:
         """Initialize a server and yield a client session."""
         ...

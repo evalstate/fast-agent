@@ -49,6 +49,11 @@ class SlashRuntimeHost(Protocol):
         self, session_state: ACPSessionState, instance: AgentInstance
     ) -> None: ...
 
+    async def _hydrate_session_state_from_persisted_session(
+        self,
+        session_state: ACPSessionState,
+    ) -> bool: ...
+
     async def _attach_mcp_server_for_session(
         self,
         session_state: ACPSessionState,
@@ -245,6 +250,20 @@ class ACPServerSlashRuntime:
             set_current_mode_callback=set_current_mode,
         )
 
+    async def _replace_instance_and_hydrate_session(
+        self,
+        session_state: ACPSessionState,
+        *,
+        dispose_error_name: str,
+    ) -> AgentInstance:
+        instance = await self._host._replace_instance_for_session(
+            session_state,
+            dispose_error_name=dispose_error_name,
+            await_refresh_session_state=True,
+        )
+        await self._host._hydrate_session_state_from_persisted_session(session_state)
+        return instance
+
     async def load_agent_card_for_session(
         self,
         session_state: ACPSessionState,
@@ -256,10 +275,9 @@ class ACPServerSlashRuntime:
             raise RuntimeError("AgentCard loading is not available.")
         loaded_names, attached_names = await self._host._load_card_callback(source, attach_to)
 
-        instance = await self._host._replace_instance_for_session(
+        instance = await self._replace_instance_and_hydrate_session(
             session_state,
             dispose_error_name="acp_card_dispose_error",
-            await_refresh_session_state=True,
         )
 
         if session_state.acp_context:
@@ -280,10 +298,9 @@ class ACPServerSlashRuntime:
         if not attached_names:
             return session_state.instance, []
 
-        instance = await self._host._replace_instance_for_session(
+        instance = await self._replace_instance_and_hydrate_session(
             session_state,
             dispose_error_name="acp_attach_dispose_error",
-            await_refresh_session_state=False,
         )
 
         if session_state.acp_context:
@@ -304,10 +321,9 @@ class ACPServerSlashRuntime:
         if not detached_names:
             return session_state.instance, []
 
-        instance = await self._host._replace_instance_for_session(
+        instance = await self._replace_instance_and_hydrate_session(
             session_state,
             dispose_error_name="acp_detach_dispose_error",
-            await_refresh_session_state=False,
         )
 
         if session_state.acp_context:
@@ -333,21 +349,10 @@ class ACPServerSlashRuntime:
         if not session_state:
             return True
 
-        instance = await self._host._create_instance_task()
-        old_instance = session_state.instance
-        session_state.instance = instance
-        async with self._host._session_lock:
-            self._host.sessions[session_id] = instance
-        await self._host._refresh_session_state(session_state, instance)
-        try:
-            await self._host._dispose_instance_task(old_instance)
-        except Exception as exc:
-            logger.warning(
-                "Failed to dispose old session instance after reload",
-                name="acp_reload_dispose_error",
-                session_id=session_id,
-                error=str(exc),
-            )
+        await self._replace_instance_and_hydrate_session(
+            session_state,
+            dispose_error_name="acp_reload_dispose_error",
+        )
 
         if session_state.acp_context:
             await session_state.acp_context.send_available_commands_update()

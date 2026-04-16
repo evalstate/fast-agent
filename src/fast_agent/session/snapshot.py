@@ -74,9 +74,9 @@ class SessionRequestSettingsSnapshot(BaseModel):
     use_history: bool | None = None
     parallel_tool_calls: bool | None = None
     max_iterations: int | None = None
-    tool_result_mode: str | None = None
+    tool_result_mode: Literal["postprocess", "passthrough", "selectable"] | None = None
     streaming_timeout: float | None = None
-    service_tier: str | None = None
+    service_tier: Literal["fast", "flex"] | None = None
 
 
 class SessionCardProvenanceRef(BaseModel):
@@ -363,6 +363,37 @@ def session_info_from_snapshot(snapshot: SessionSnapshot) -> "SessionInfo":
     )
 
 
+def clone_session_snapshot_for_fork(
+    snapshot: SessionSnapshot,
+    *,
+    new_session_id: str,
+    copied_history_files: Mapping[str, str],
+    cloned_at: datetime,
+    title: str | None = None,
+) -> SessionSnapshot:
+    """Clone a persisted snapshot for a forked local session."""
+    cloned = snapshot.model_copy(deep=True)
+    cloned.session_id = new_session_id
+    cloned.created_at = cloned_at
+    cloned.last_activity = cloned_at
+
+    if title is not None:
+        cloned.metadata.title = title
+
+    cloned.continuation.lineage = SessionLineageSnapshot(
+        forked_from=snapshot.session_id,
+        acp_session_id=None,
+    )
+
+    for agent_snapshot in cloned.continuation.agents.values():
+        history_file = agent_snapshot.history_file
+        if history_file is None:
+            continue
+        agent_snapshot.history_file = copied_history_files.get(history_file)
+
+    return cloned
+
+
 def _legacy_session_id(payload: Mapping[str, object]) -> str:
     for key in ("name", "session_id"):
         value = payload.get(key)
@@ -590,7 +621,10 @@ def _capture_agent_snapshots(
     compatibility_agents = compatibility_snapshot.continuation.agents
     existing_agents = existing_snapshot.continuation.agents if existing_snapshot is not None else {}
 
-    snapshots: dict[str, SessionAgentSnapshot] = {}
+    snapshots = dict(existing_agents)
+    for agent_name, agent_snapshot in compatibility_agents.items():
+        snapshots.setdefault(agent_name, agent_snapshot)
+
     for agent_name, agent in agents.items():
         snapshots[agent_name] = _capture_agent_snapshot(
             session=session,

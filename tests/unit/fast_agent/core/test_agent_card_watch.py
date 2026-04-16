@@ -3,16 +3,27 @@ from __future__ import annotations
 import json
 import os
 import time
-from typing import TYPE_CHECKING
+from datetime import datetime
+from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock
 
 import pytest
 
 from fast_agent import FastAgent
+from fast_agent.core.fastagent import AgentRefreshResult
+from fast_agent.session import (
+    SessionContinuationSnapshot,
+    SessionHydrationResult,
+    SessionSnapshot,
+    get_session_manager,
+    reset_session_manager,
+)
 from fast_agent.types import PromptMessageExtended, text_content
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from fast_agent.interfaces import AgentProtocol
 
 
 def _write_agent_card(
@@ -248,7 +259,10 @@ async def test_reload_agents_prunes_removed_child_agents(tmp_path: Path) -> None
 
 
 @pytest.mark.asyncio
-async def test_reload_agents_preserves_history(monkeypatch, tmp_path: Path) -> None:
+async def test_reload_agents_discards_unsaved_live_history_without_session(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
     config_path = tmp_path / "fastagent.config.yaml"
     config_path.write_text("", encoding="utf-8")
 
@@ -285,8 +299,7 @@ async def test_reload_agents_preserves_history(monkeypatch, tmp_path: Path) -> N
 
         await app.refresh_if_needed()
         updated_agent = app["watcher"]
-        assert updated_agent.message_history
-        assert updated_agent.message_history[0].all_text() == "hello"
+        assert updated_agent.message_history == []
 
 
 @pytest.mark.asyncio
@@ -328,3 +341,114 @@ async def test_reload_agents_updates_history_when_file_newer(monkeypatch, tmp_pa
         updated_agent = app["watcher"]
         assert updated_agent.message_history
         assert updated_agent.message_history[0].all_text() == "second"
+
+
+@pytest.mark.asyncio
+async def test_reload_agents_rehydrates_saved_session_not_unsaved_live_history(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    reset_session_manager()
+    monkeypatch.chdir(tmp_path)
+
+    config_path = tmp_path / "fastagent.config.yaml"
+    config_path.write_text("", encoding="utf-8")
+
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
+
+    card_path = agents_dir / "watcher.md"
+    _write_agent_card(card_path)
+
+    fast = FastAgent(
+        "watch-test",
+        config_path=str(config_path),
+        parse_cli_args=False,
+        quiet=True,
+    )
+    monkeypatch.setenv("OPENAI_API_KEY", "test")
+    fast.args.watch = True
+    fast.load_agents(agents_dir)
+
+    try:
+        async with fast.run() as app:
+            agent = app["watcher"]
+            saved_message = PromptMessageExtended(
+                role="user",
+                content=[text_content("saved turn")],
+            )
+            unsaved_message = PromptMessageExtended(
+                role="assistant",
+                content=[text_content("unsaved drift")],
+            )
+            agent.message_history.append(saved_message)
+
+            manager = get_session_manager()
+            await manager.save_current_session(agent, agent_registry=app.registered_agents())
+
+            agent.message_history.append(unsaved_message)
+
+            card_path.write_text(
+                "---\ntype: agent\nname: watcher\n---\nReturn ok updated.\n",
+                encoding="utf-8",
+            )
+
+            changed = await fast.reload_agents()
+            assert changed is True
+
+            await app.refresh_if_needed()
+            updated_agent = app["watcher"]
+            assert [message.all_text() for message in updated_agent.message_history] == ["saved turn"]
+            assert updated_agent.instruction.strip() == "Return ok updated."
+    finally:
+        reset_session_manager()
+
+
+@pytest.mark.asyncio
+async def test_refresh_result_rehydrates_only_updated_agents_on_partial_refresh(tmp_path: Path) -> None:
+    config_path = tmp_path / "fastagent.config.yaml"
+    config_path.write_text("", encoding="utf-8")
+    fast = FastAgent(
+        "watch-test",
+        config_path=str(config_path),
+        parse_cli_args=False,
+        quiet=True,
+    )
+
+    rehydrated_agent_sets: list[set[str]] = []
+
+    class _Agent:
+        def __init__(self, name: str) -> None:
+            self.name = name
+
+    def fake_hydrate_active_agents_from_session(agents):
+        rehydrated_agent_sets.append(set(agents))
+        now = datetime.now()
+        return SessionHydrationResult(
+            session=None,  # type: ignore[arg-type]
+            snapshot=SessionSnapshot(
+                session_id="s-1",
+                created_at=now,
+                last_activity=now,
+                continuation=SessionContinuationSnapshot(),
+            ),
+            loaded_agents={},
+            restored_prompts={},
+            skipped_agents=[],
+            missing_history_files=[],
+            active_agent="unchanged",
+        )
+
+    fast._hydrate_active_agents_from_session = fake_hydrate_active_agents_from_session  # type: ignore[method-assign]
+
+    changed_agent = cast("AgentProtocol", _Agent("changed"))
+    unchanged_agent = cast("AgentProtocol", _Agent("unchanged"))
+
+    result = await fast._refresh_result_from_session_restore(
+        {"changed": changed_agent, "unchanged": unchanged_agent},
+        {"changed": changed_agent},
+    )
+
+    assert isinstance(result, AgentRefreshResult)
+    assert rehydrated_agent_sets == [{"changed"}]
+    assert result.active_agent is None

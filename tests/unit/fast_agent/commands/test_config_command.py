@@ -38,6 +38,7 @@ def test_config_display_updates_logger_settings(tmp_path: Path, monkeypatch) -> 
             "code_word_wrap": True,
             "progress_display": False,
             "show_chat": False,
+            "stream_reprint_banner": False,
             "show_tools": True,
             "truncate_tools": False,
             "enable_markup": False,
@@ -65,6 +66,7 @@ def test_config_display_updates_logger_settings(tmp_path: Path, monkeypatch) -> 
     assert logger["code_word_wrap"] is True
     assert logger["progress_display"] is False
     assert logger["show_chat"] is False
+    assert logger["stream_reprint_banner"] is False
     assert logger["show_tools"] is True
     assert logger["truncate_tools"] is False
     assert logger["enable_markup"] is False
@@ -90,6 +92,7 @@ def test_config_display_removes_default_theme_and_code_theme(tmp_path: Path, mon
             "code_word_wrap": False,
             "progress_display": True,
             "show_chat": True,
+            "stream_reprint_banner": True,
             "show_tools": True,
             "truncate_tools": True,
             "enable_markup": True,
@@ -195,6 +198,7 @@ def test_config_display_updates_legacy_parent_config_when_run_from_nested_dir(
             "code_word_wrap": False,
             "progress_display": True,
             "show_chat": False,
+            "stream_reprint_banner": True,
             "show_tools": False,
             "truncate_tools": True,
             "enable_markup": True,
@@ -232,6 +236,7 @@ def test_config_display_zero_patch_preview_lines_means_unlimited(
             "code_word_wrap": False,
             "progress_display": True,
             "show_chat": True,
+            "stream_reprint_banner": True,
             "show_tools": True,
             "truncate_tools": True,
             "enable_markup": True,

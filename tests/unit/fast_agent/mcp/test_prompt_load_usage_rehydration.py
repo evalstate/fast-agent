@@ -259,3 +259,24 @@ def test_load_history_preserves_raw_usage_snapshot_shape(tmp_path) -> None:
         "output_tokens_details": {"reasoning_tokens": 64},
         "total_tokens": 210,
     }
+
+
+@pytest.mark.unit
+def test_load_history_clears_stale_usage_when_history_has_no_usage_payload(tmp_path) -> None:
+    history_path = tmp_path / "history.json"
+    save_messages([Prompt.user("hello"), Prompt.assistant("done")], str(history_path))
+
+    agent = LlmAgent(AgentConfig("rehydrate-no-usage"))
+    llm = ResponsesLLM(provider=Provider.RESPONSES, model="gpt-5.3-codex")
+    llm.usage_accumulator.add_turn(
+        TurnUsage.from_fast_agent(
+            FastAgentUsage(input_chars=10, output_chars=5, model_type="test"),
+            model="gpt-5.3-codex",
+        )
+    )
+    agent._llm = llm
+
+    notice = load_history_into_agent(agent, history_path)
+
+    assert notice is None
+    assert llm.usage_accumulator.turn_count == 0

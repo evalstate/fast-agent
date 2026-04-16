@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from mcp.shared.exceptions import McpError
@@ -26,6 +27,9 @@ from fast_agent.mcp.mcp_aggregator import (
 )
 from fast_agent.mcp.skybridge import SkybridgeServerConfig
 from fast_agent.mcp_server_registry import ServerRegistry
+
+if TYPE_CHECKING:
+    from fast_agent.mcp.mcp_connection_manager import MCPConnectionManager
 
 
 def _build_context(configs: dict[str, MCPServerSettings]) -> Context:
@@ -109,7 +113,8 @@ async def test_initialize_server_creates_and_tears_down_session(monkeypatch) -> 
     transport_exited = False
 
     @asynccontextmanager
-    async def _fake_transport(server_name, config):
+    async def _fake_transport(server_name, config, trigger_oauth=None):
+        del trigger_oauth
         nonlocal transport_entered, transport_exited
         transport_entered = True
         yield (object(), object(), None)
@@ -136,6 +141,35 @@ async def test_initialize_server_creates_and_tears_down_session(monkeypatch) -> 
 
 
 @pytest.mark.asyncio
+async def test_handle_auth_challenge_reports_retry_failure() -> None:
+    class _FailingManager:
+        async def reconnect_server(self, server_name, client_session_factory, trigger_oauth=None):
+            del server_name, client_session_factory, trigger_oauth
+            raise RuntimeError("OAuth callback timed out")
+
+    aggregator = MCPAggregator(
+        server_names=[],
+        connection_persistence=True,
+        context=None,
+    )
+    aggregator._persistent_connection_manager = cast("MCPConnectionManager", _FailingManager())
+
+    async def _try_execute(session) -> None:
+        del session
+        raise AssertionError("try_execute should not run when reconnect fails")
+
+    result, success = await aggregator._handle_auth_challenge(
+        "alpha",
+        _try_execute,
+        lambda message: message,
+        RuntimeError("401 Unauthorized"),
+    )
+
+    assert success is False
+    assert result == "OAuth callback timed out"
+
+
+@pytest.mark.asyncio
 async def test_initialize_server_forwards_server_config_to_custom_factory(monkeypatch) -> None:
     registry = ServerRegistry()
     server_config = MCPServerSettings(name="demo", transport="stdio", command="echo")
@@ -145,7 +179,8 @@ async def test_initialize_server_forwards_server_config_to_custom_factory(monkey
     captured_server_config = None
 
     @asynccontextmanager
-    async def _fake_transport(server_name, config):
+    async def _fake_transport(server_name, config, trigger_oauth=None):
+        del trigger_oauth
         yield (object(), object(), None)
 
     monkeypatch.setattr(
@@ -167,6 +202,103 @@ async def test_initialize_server_forwards_server_config_to_custom_factory(monkey
     assert captured_server_config is server_config
 
 
+@pytest.mark.asyncio
+async def test_initialize_server_retries_with_oauth_after_401(monkeypatch) -> None:
+    registry = ServerRegistry()
+    registry.registry = {
+        "demo": MCPServerSettings(name="demo", transport="http", url="https://example.com"),
+    }
+
+    trigger_history: list[bool | None] = []
+
+    @asynccontextmanager
+    async def _fake_transport(server_name, config, trigger_oauth=None):
+        del server_name, config
+        trigger_history.append(trigger_oauth)
+        yield (object(), object(), None)
+
+    monkeypatch.setattr(
+        "fast_agent.mcp.mcp_connection_manager.create_transport_context",
+        _fake_transport,
+    )
+
+    class _ChallengeSession(_DummySession):
+        def __init__(self, oauth_enabled: bool) -> None:
+            super().__init__()
+            self._oauth_enabled = oauth_enabled
+
+        async def initialize(self):
+            if not self._oauth_enabled:
+                raise RuntimeError("401 Unauthorized")
+            return await super().initialize()
+
+    def _fake_factory(read_stream, write_stream, read_timeout, **kwargs):
+        del read_stream, write_stream, read_timeout, kwargs
+        return _ChallengeSession(oauth_enabled=bool(trigger_history[-1]))
+
+    async with registry.initialize_server(
+        "demo", client_session_factory=_fake_factory
+    ) as session:
+        assert isinstance(session, _ChallengeSession)
+        assert session.initialized is True
+
+    assert trigger_history == [False, True]
+
+
+@pytest.mark.asyncio
+async def test_execute_on_server_nonpersistent_retries_with_oauth_after_401(
+    monkeypatch,
+) -> None:
+    context = _build_context(
+        {
+            "alpha": MCPServerSettings(
+                name="alpha", transport="http", url="https://example.com"
+            )
+        }
+    )
+    aggregator = MCPAggregator(
+        server_names=["alpha"],
+        connection_persistence=False,
+        context=context,
+    )
+
+    trigger_history: list[bool | None] = []
+
+    class _RetryClient:
+        def __init__(self, trigger_oauth: bool | None) -> None:
+            self._trigger_oauth = trigger_oauth
+
+        async def list_tools(self) -> ListToolsResult:
+            if self._trigger_oauth is not True:
+                raise RuntimeError("401 Unauthorized")
+            return ListToolsResult(tools=[Tool(name="echo", inputSchema={"type": "object"})])
+
+    @asynccontextmanager
+    async def _fake_gen_client(
+        server_name,
+        server_registry,
+        client_session_factory=_DummySession,
+        *,
+        trigger_oauth=None,
+    ):
+        del server_name, server_registry, client_session_factory
+        trigger_history.append(trigger_oauth)
+        yield _RetryClient(trigger_oauth)
+
+    monkeypatch.setattr("fast_agent.mcp.mcp_aggregator.gen_client", _fake_gen_client)
+
+    result = await aggregator._execute_on_server(
+        "alpha",
+        "tools/list",
+        "",
+        "list_tools",
+    )
+
+    assert isinstance(result, ListToolsResult)
+    assert [tool.name for tool in result.tools] == ["echo"]
+    assert trigger_history == [None, True]
+
+
 # ---------------------------------------------------------------------------
 # get_capabilities (non-persistent path)
 # ---------------------------------------------------------------------------
@@ -183,7 +315,8 @@ async def test_get_capabilities_nonpersistent_returns_real_capabilities(
     expected_caps = ServerCapabilities(tools=ToolsCapability(), prompts=PromptsCapability())
 
     @asynccontextmanager
-    async def _fake_initialize_server(self, server_name, client_session_factory=None):
+    async def _fake_initialize_server(self, server_name, client_session_factory=None, trigger_oauth=None):
+        del trigger_oauth
         self._init_results[server_name] = InitializeResult(
             protocolVersion="2025-03-26",
             capabilities=expected_caps,
@@ -217,7 +350,8 @@ async def test_get_capabilities_nonpersistent_caches_result(monkeypatch) -> None
     init_count = 0
 
     @asynccontextmanager
-    async def _counting_initialize(self, server_name, client_session_factory=None):
+    async def _counting_initialize(self, server_name, client_session_factory=None, trigger_oauth=None):
+        del trigger_oauth
         nonlocal init_count
         init_count += 1
         self._init_results[server_name] = InitializeResult(
@@ -255,7 +389,8 @@ async def test_get_capabilities_returns_none_when_initialize_raises(monkeypatch)
     )
 
     @asynccontextmanager
-    async def _exploding_initialize(self, server_name, client_session_factory=None):
+    async def _exploding_initialize(self, server_name, client_session_factory=None, trigger_oauth=None):
+        del trigger_oauth
         raise RuntimeError("server crashed on startup")
         yield  # pragma: no cover — makes this a valid async generator
 
@@ -385,7 +520,8 @@ class _DummyInitializer:
     """Stub implementing only ServerInitializerProtocol, no connection_manager."""
 
     @asynccontextmanager
-    async def initialize_server(self, server_name, client_session_factory=None):
+    async def initialize_server(self, server_name, client_session_factory=None, trigger_oauth=None):
+        del trigger_oauth
         session = _DummySession()
         yield session
 
@@ -461,7 +597,8 @@ async def test_detach_server_clears_capabilities_cache(monkeypatch) -> None:
     expected_caps = ServerCapabilities(tools=ToolsCapability())
 
     @asynccontextmanager
-    async def _fake_initialize_server(self, server_name, client_session_factory=None):
+    async def _fake_initialize_server(self, server_name, client_session_factory=None, trigger_oauth=None):
+        del trigger_oauth
         self._init_results[server_name] = InitializeResult(
             protocolVersion="2025-03-26",
             capabilities=expected_caps,
@@ -526,8 +663,13 @@ async def test_attach_server_force_reconnect_refreshes_capabilities_cache() -> N
             self.initialize_count = 0
 
         @asynccontextmanager
-        async def initialize_server(self, server_name, client_session_factory=None):
-            del client_session_factory
+        async def initialize_server(
+            self,
+            server_name,
+            client_session_factory=None,
+            trigger_oauth=None,
+        ):
+            del client_session_factory, trigger_oauth
             capabilities = capability_generations[min(self.initialize_count, 1)]
             self.initialize_count += 1
             self._init_results[server_name] = InitializeResult(

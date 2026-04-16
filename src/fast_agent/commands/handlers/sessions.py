@@ -318,7 +318,7 @@ async def handle_resume_session(
 
     fallback_agent_name = ctx.agent_provider.resolve_target_agent_name(agent_name)
 
-    result = manager.resume_session_agents(
+    result = await manager.resume_session_agents_async(
         agents_map,
         session_id,
         fallback_agent_name=fallback_agent_name,
@@ -335,6 +335,7 @@ async def handle_resume_session(
     loaded = result.loaded
     missing_agents = result.missing_agents
     usage_notices = result.usage_notices
+    active_agent_name = result.active_agent or agent_name
     if loaded:
         loaded_list = ", ".join(sorted(loaded.keys()))
         outcome.add_message(
@@ -349,14 +350,19 @@ async def handle_resume_session(
             right_info="session",
         )
 
-    if isinstance(agent_obj, McpAgentProtocol) and agent_obj.shell_runtime_enabled:
-        notice = format_shell_notice(agent_obj.shell_access_modes, agent_obj.shell_runtime)
-        outcome.add_message(notice, right_info="session")
-
     if missing_agents:
         missing_list = ", ".join(sorted(missing_agents))
         outcome.add_message(
             f"Missing agents from session: {missing_list}",
+            channel="warning",
+            right_info="session",
+        )
+
+    for warning in result.warnings:
+        if warning.code == "missing-agent":
+            continue
+        outcome.add_message(
+            warning.message,
             channel="warning",
             right_info="session",
         )
@@ -377,16 +383,18 @@ async def handle_resume_session(
                 right_info="session",
             )
 
-    if len(loaded) == 1:
-        loaded_agent = next(iter(loaded.keys()))
-        if loaded_agent != agent_name:
-            outcome.switch_agent = loaded_agent
-            agent_obj = ctx.agent_provider._agent(loaded_agent)
-            outcome.add_message(
-                f"Switched to agent: {loaded_agent}",
-                channel="info",
-                right_info="session",
-            )
+    if active_agent_name != agent_name:
+        outcome.switch_agent = active_agent_name
+        agent_obj = ctx.agent_provider._agent(active_agent_name)
+        outcome.add_message(
+            f"Switched to agent: {active_agent_name}",
+            channel="info",
+            right_info="session",
+        )
+
+    if isinstance(agent_obj, McpAgentProtocol) and agent_obj.shell_runtime_enabled:
+        notice = format_shell_notice(agent_obj.shell_access_modes, agent_obj.shell_runtime)
+        outcome.add_message(notice, right_info="session")
 
     agent_obj = cast("AgentProtocol", agent_obj)
     usage = agent_obj.usage_accumulator

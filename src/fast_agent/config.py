@@ -39,8 +39,9 @@ class MCPServerAuthSettings(BaseModel):
     Minimal OAuth v2.1 support with sensible defaults.
     """
 
-    # Enable OAuth for SSE/HTTP transports. If None is provided for the auth block,
-    # the system will assume OAuth is enabled by default.
+    # Enable OAuth for SSE/HTTP transports when the auth block is present.
+    # If the auth block is omitted entirely, fast-agent starts unauthenticated
+    # and escalates to OAuth on a 401 challenge.
     oauth: bool = True
 
     # Local callback server configuration
@@ -1224,6 +1225,8 @@ class LoggerSettings(BaseModel):
 
     show_chat: bool = True
     """Show chat User/Assistant on the console"""
+    stream_reprint_banner: bool = True
+    """Show a bright banner before reprinted final streamed assistant responses"""
     show_tools: bool = True
     """Show MCP Sever tool calls on the console"""
     truncate_tools: bool = True

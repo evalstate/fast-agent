@@ -52,6 +52,7 @@ class StubAgent:
         render_markdown: bool | None = None,
         show_hook_indicator: bool = False,
         render_message: bool = True,
+        show_reprint_banner: bool = False,
     ) -> None:
         """Stub implementation with correct signature."""
         self.assistant_calls.append(
@@ -66,6 +67,7 @@ class StubAgent:
                 "render_markdown": render_markdown,
                 "show_hook_indicator": show_hook_indicator,
                 "render_message": render_message,
+                "show_reprint_banner": show_reprint_banner,
             }
         )
 

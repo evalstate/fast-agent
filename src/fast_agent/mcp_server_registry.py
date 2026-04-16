@@ -108,6 +108,7 @@ class ServerRegistry:
         self,
         server_name: str,
         client_session_factory: ClientSessionFactory | None = None,
+        trigger_oauth: bool | None = None,
     ) -> AsyncIterator[ClientSession]:
         """
         Create a temporary connection to a server, initialize the session, and yield it.
@@ -123,34 +124,59 @@ class ServerRegistry:
             client_session_factory: Optional factory for creating the ClientSession.
         """
         from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
-        from fast_agent.mcp.mcp_connection_manager import create_transport_context
+        from fast_agent.mcp.mcp_connection_manager import (
+            _is_http_auth_challenge_error,
+            _resolve_oauth_mode,
+            create_transport_context,
+        )
 
         config = self.get_server_config(server_name)
         if config is None:
             raise ValueError(f"Server '{server_name}' not found in registry.")
 
-        # transport_metrics intentionally omitted for temporary connections
-        transport_context = create_transport_context(server_name=server_name, config=config)
+        oauth_mode = _resolve_oauth_mode(config, trigger_oauth=trigger_oauth)
 
-        async with transport_context as (read_stream, write_stream, _get_session_id_cb):
-            read_timeout = (
-                timedelta(seconds=config.read_timeout_seconds)
-                if config.read_timeout_seconds
-                else None
+        @asynccontextmanager
+        async def _initialized_session(oauth_enabled: bool) -> AsyncIterator[ClientSession]:
+            transport_context = create_transport_context(
+                server_name=server_name,
+                config=config,
+                trigger_oauth=oauth_enabled,
             )
-            if client_session_factory is not None:
-                session = client_session_factory(
-                    read_stream,
-                    write_stream,
-                    read_timeout,
-                    server_config=config,
-                )
-            else:
-                session = MCPAgentClientSession(
-                    read_stream, write_stream, read_timeout, server_config=config
-                )
 
-            async with session:
-                result: "InitializeResult" = await session.initialize()
-                self._init_results[server_name] = result
+            async with transport_context as (read_stream, write_stream, _get_session_id_cb):
+                read_timeout = (
+                    timedelta(seconds=config.read_timeout_seconds)
+                    if config.read_timeout_seconds
+                    else None
+                )
+                if client_session_factory is not None:
+                    session = client_session_factory(
+                        read_stream,
+                        write_stream,
+                        read_timeout,
+                        server_config=config,
+                    )
+                else:
+                    session = MCPAgentClientSession(
+                        read_stream, write_stream, read_timeout, server_config=config
+                    )
+
+                async with session:
+                    result: "InitializeResult" = await session.initialize()
+                    self._init_results[server_name] = result
+                    yield session
+
+        try:
+            async with _initialized_session(oauth_mode == 'force') as session:
                 yield session
+        except Exception as exc:
+            if oauth_mode == 'auto' and _is_http_auth_challenge_error(exc):
+                logger.info(
+                    '%s: Received authentication challenge during probe; retrying with OAuth enabled',
+                    server_name,
+                )
+                async with _initialized_session(True) as session:
+                    yield session
+            else:
+                raise

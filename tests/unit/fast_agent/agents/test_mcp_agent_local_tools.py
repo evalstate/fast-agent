@@ -54,7 +54,18 @@ class CaptureDisplay(ConsoleDisplay):
         pre_content=None,
         render_markdown: bool | None = None,
         show_hook_indicator: bool = False,
+        show_reprint_banner: bool = False,
     ) -> None:
+        del (
+            message_text,
+            max_item_length,
+            name,
+            model,
+            pre_content,
+            render_markdown,
+            show_hook_indicator,
+            show_reprint_banner,
+        )
         self.calls.append(
             {
                 "bottom_items": bottom_items,

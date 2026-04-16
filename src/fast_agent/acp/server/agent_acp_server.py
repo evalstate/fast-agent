@@ -501,6 +501,14 @@ class AgentACPServer(ACPAgent):
     ) -> None:
         await self._session_runtime.refresh_session_state(session_state, instance)
 
+    async def _hydrate_session_state_from_persisted_session(
+        self,
+        session_state: ACPSessionState,
+    ) -> bool:
+        return await self._session_store.hydrate_session_state_from_persisted_session(
+            session_state
+        )
+
     async def _attach_mcp_server_for_session(
         self,
         session_state: ACPSessionState,
