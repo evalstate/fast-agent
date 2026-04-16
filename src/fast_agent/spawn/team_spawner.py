@@ -237,13 +237,13 @@ class TeamSession:
         lines.append("## Communication Tools")
         lines.append("Use `send_email(to=\"Agent Name\", body=\"...\", subject=\"...\")` to contact teammates.")
         lines.append("Emails from teammates are **auto-delivered** to your context — no need to poll.")
-        lines.append("Use `check_teammate_status(agent_name=\"Agent Name\")` to check if a teammate is done.")
+        lines.append("Team member results are **auto-delivered** to your inbox when ALL members finish. No polling needed.")
         lines.append("Use `create_meeting(participants=\"Agent Name 1, Agent Name 2\", agenda=\"...\")` for real-time discussions (use agent names, not role keys).")
         lines.append("")
         lines.append("## Waiting for Dependencies")
-        lines.append("If you need output from a teammate, send a request email specifying what you need:")
+        lines.append("If you need output from a teammate, send a request email or create a meeting:")
         lines.append("`send_email(to=\"Agent Name\", body=\"Please send me [deliverable] when ready\", subject=\"[WAITING] ...\")`")
-        lines.append("Then continue other work. When they deliver, the email will arrive in your context automatically.")
+        lines.append("Then continue other work. Results will be auto-delivered to your inbox when all members complete.")
 
         if is_orchestrator and available_roles:
             lines.append("")

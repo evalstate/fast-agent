@@ -1,6 +1,7 @@
 """Email MCP Server — async inter-agent messaging.
 
-Provides send_email and check_teammate_status tools.
+Provides send_email tool for inter-agent messaging.
+Teammate status is auto-delivered via consolidated team notifications.
 Email delivery to agents is handled automatically via RTAC (InboxWatcherHook)
 and the keep-alive loop — agents never need to poll their inbox.
 """
@@ -198,94 +199,6 @@ def _get_recent_activities(run_id: str, limit: int = 3) -> list[dict]:
         return []
 
 
-@mcp.tool()
-def check_teammate_status(agent_name: str) -> str:
-    """Check a teammate's current status and recent activity.
-
-    Use this to check if a dependency is met (e.g., "is SA done with
-    architecture?") before starting your own work. Also shows recent
-    tool activity so you can tell if the agent is actively working.
-
-    Args:
-        agent_name: The teammate to check (e.g. "Khang - SA").
-                    Use "all" to check all teammates at once.
-
-    Returns:
-        JSON with status: "not_spawned" | "running" | "idle" |
-                          "completed" | "error"
-        Plus: result summary if completed, recent_activities if running.
-        When agent_name="all", returns a dict of all teammate statuses.
-    """
-    try:
-        registry = get_project_registry()
-        if not registry:
-            logger.warning(
-                "check_teammate_status(%s): no registry found", agent_name
-            )
-            return json.dumps({
-                "agent_name": agent_name,
-                "status": "unknown",
-                "error": "No spawn registry found. Check SPAWN_PROJECT_DIR env.",
-            })
-
-        # Batch mode: check all teammates
-        if agent_name.strip().lower() == "all":
-            team_config = get_team_config()
-            my_name = get_my_name()
-            all_status: dict[str, dict] = {}
-            for _role, cfg in team_config.items():
-                name = cfg.get("agent_name", "")
-                if not name or name == my_name:
-                    continue
-                record = registry.find_by_name(name)
-                if not record:
-                    all_status[name] = {"status": "not_spawned"}
-                else:
-                    info: dict = {"status": record.status, "run_id": record.run_id}
-                    if record.status == "completed" and record.result:
-                        info["result_preview"] = record.result[:500]
-                    elif record.status in ("running", "idle"):
-                        activities = _get_recent_activities(record.run_id, limit=3)
-                        if activities:
-                            info["recent_activities"] = activities
-                            info["last_active"] = activities[0].get("ago", "unknown")
-                    all_status[name] = info
-            return json.dumps({"teammates": all_status, "count": len(all_status)})
-
-        # Single agent mode
-        record = registry.find_by_name(agent_name)
-
-        if not record:
-            return json.dumps({
-                "agent_name": agent_name,
-                "status": "not_spawned",
-            })
-
-        result_info: dict = {
-            "agent_name": agent_name,
-            "status": record.status,
-            "run_id": record.run_id,
-        }
-
-        if record.status == "completed" and record.result:
-            result_info["result_preview"] = record.result[:2000]
-        elif record.status in ("running", "idle"):
-            activities = _get_recent_activities(record.run_id, limit=3)
-            if activities:
-                result_info["recent_activities"] = activities
-                result_info["last_active"] = activities[0].get("ago", "unknown")
-
-        return json.dumps(result_info)
-
-    except Exception as e:
-        logger.error(
-            "check_teammate_status(%s) failed: %s", agent_name, e, exc_info=True
-        )
-        return json.dumps({
-            "agent_name": agent_name,
-            "status": "unknown",
-            "error": str(e),
-        })
 
 
 if __name__ == "__main__":

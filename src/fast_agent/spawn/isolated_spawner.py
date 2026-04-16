@@ -846,7 +846,7 @@ async def run_isolated_agent_background(
 ) -> str:
     """Spawn an isolated agent in the BACKGROUND (fire-and-forget).
 
-    Returns the run_id immediately. Use check_spawn_status to poll.
+    Returns the run_id immediately. Results are auto-delivered when complete.
     """
     run_id = uuid.uuid4().hex[:8]
 

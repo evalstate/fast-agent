@@ -4,7 +4,7 @@ Tools:
 1.  spawn_and_run_isolated — blocking spawn for short tasks
 2.  spawn_and_run_background — non-blocking spawn for long tasks
 3.  spawn_agent — create persistent agent card
-4.  check_spawn_status — poll status of background spawn
+4.  list_active_spawns — list all active spawns
 5.  get_spawn_result — retrieve completed spawn result
 6.  list_active_spawns — list all active spawns
 7.  cancel_spawn_tool — cancel a background spawn
@@ -397,8 +397,7 @@ async def spawn_and_run_background(
 ) -> str:
     """Spawn an agent in the BACKGROUND (non-blocking).
 
-    Returns a run_id immediately. Use ``check_spawn_status``
-    and ``get_spawn_result`` to poll.
+    Returns a run_id immediately. Results are auto-delivered when complete.
 
     Args:
         task: What the sub-agent should do.
@@ -446,7 +445,7 @@ async def spawn_and_run_background(
             "status": "spawned",
             "run_id": run_id,
             "message": (
-                f"Agent spawned in background. Use check_spawn_status(run_id='{run_id}') to poll."
+                f"Agent spawned in background. Results will be auto-delivered when complete."
             ),
         }
     )
@@ -457,37 +456,7 @@ async def spawn_and_run_background(
 # ───────────────────────────────────────────────────────────
 
 
-@mcp.tool()
-def check_spawn_status(run_id: str) -> str:
-    """Check the status and result of a background-spawned agent.
 
-    Returns status, progress info, and result if completed.
-    For oneshot spawns, auto-cleans after reading result.
-
-    Args:
-        run_id: The run_id from spawn_and_run_background.
-    """
-    record = _registry.get_latest(run_id)
-    if not record:
-        return json.dumps({"error": f"No spawn found with run_id '{run_id}'"})
-
-    info: dict[str, Any] = {
-        "run_id": record.run_id,
-        "role": record.role,
-        "status": record.status,
-        "lifecycle": record.lifecycle,
-        "task": record.task,
-        "duration_seconds": record.duration_seconds,
-        "error": record.error or None,
-    }
-
-    # Include result if terminal
-    if record.is_terminal and record.result:
-        info["result"] = record.result
-        if record.lifecycle == "oneshot":
-            _registry.remove(run_id)
-
-    return json.dumps(info)
 
 
 @mcp.tool()
@@ -579,7 +548,7 @@ async def restart_spawn(run_id: str) -> str:
             "original_run_id": run_id,
             "new_run_id": new_run_id,
             "restart_count": record.restart_count + 1,
-            "message": (f"Spawn restarted. Use check_spawn_status(run_id='{new_run_id}') to poll."),
+            "message": (f"Spawn restarted. Results will be auto-delivered when complete."),
         }
     )
 
@@ -699,7 +668,7 @@ async def resume_spawn(run_id: str, follow_up_task: str) -> str:
             "new_run_id": new_run_id,
             "agent_name": agent_name,
             "message": (
-                f"Agent '{agent_name}' resumed. Use check_spawn_status(run_id='{new_run_id}') to poll."
+                f"Agent '{agent_name}' resumed. Results will be auto-delivered when complete."
             ),
         }
     )
@@ -1073,7 +1042,7 @@ async def spawn_team_members(
             "spawned": results,
             "message": (
                 f"Spawned {len(results)} team members. "
-                "Use check_spawn_status(run_id) to monitor progress."
+                "Results will be auto-delivered to your inbox when members complete."
             ),
         })
     except ValueError as e:

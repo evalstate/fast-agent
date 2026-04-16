@@ -87,7 +87,7 @@ def get_server_env(
     if messages_dir:
         env["TEAM_MESSAGES_DIR"] = messages_dir
 
-    # SPAWN_REGISTRY_DB — SQLite registry path (critical for check_teammate_status)
+    # SPAWN_REGISTRY_DB — SQLite registry path (critical for team notifications and email tools)
     registry_db = os.environ.get("SPAWN_REGISTRY_DB", "")
     if registry_db:
         env["SPAWN_REGISTRY_DB"] = registry_db
