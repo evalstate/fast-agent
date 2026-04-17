@@ -18,7 +18,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlparse, urlunparse
 
 from mcp.client.auth import OAuthClientProvider, TokenStorage
 from mcp.shared.auth import (
@@ -316,33 +316,47 @@ def _select_preferred_redirect_port(preferred_port: int) -> int:
     )
 
 
-def _derive_base_server_url(url: str | None) -> str | None:
-    """Derive the base server URL for OAuth discovery from an MCP endpoint URL.
+def _normalize_oauth_server_url(url: str | None) -> str | None:
+    """Normalize an MCP endpoint URL for OAuth discovery and resource validation.
 
-    - Strips a trailing "/mcp" or "/sse" path segment
-    - Ignores query and fragment parts entirely
+    Preserves the MCP endpoint path (for example ``/mcp`` or ``/sse``) while
+    removing query/fragment parts so OAuth discovery operates on the canonical
+    protected resource URL.
     """
     if not url:
         return None
     try:
-        from urllib.parse import urlparse, urlunparse
-
         parsed = urlparse(url)
-        # Normalize path without trailing slash
+        path = (parsed.path or "").rstrip("/")
+        clean = parsed._replace(path=path or "/", params="", query="", fragment="")
+        normalized = urlunparse(clean)
+        if normalized.endswith("/") and normalized.count("/") > 2:
+            normalized = normalized[:-1]
+        return normalized
+    except Exception:
+        return url
+
+
+def _derive_base_server_url(url: str | None) -> str | None:
+    """Derive the token-storage identity URL from an MCP endpoint URL.
+
+    - Strips a trailing "/mcp" or "/sse" path segment
+    - Ignores query and fragment parts entirely
+    """
+    normalized_url = _normalize_oauth_server_url(url)
+    if not normalized_url:
+        return None
+    try:
+        parsed = urlparse(normalized_url)
         path = parsed.path or ""
-        path = path[:-1] if path.endswith("/") else path
-        # Remove one trailing segment if it is mcp or sse
         for suffix in ("/mcp", "/sse"):
             if path.endswith(suffix):
                 path = path[: -len(suffix)]
                 break
-        # Ensure path is at least '/'
         if not path:
             path = "/"
-        # Rebuild URL without query/fragment
         clean = parsed._replace(path=path, params="", query="", fragment="")
         base = urlunparse(clean)
-        # Drop trailing slash except for root
         if base.endswith("/") and base.count("/") > 2:
             base = base[:-1]
         return base
@@ -696,8 +710,8 @@ def build_oauth_provider(
     if not enable_oauth:
         return None
 
-    base_url = _derive_base_server_url(server_config.url)
-    if not base_url:
+    oauth_server_url = _normalize_oauth_server_url(server_config.url)
+    if not oauth_server_url:
         # No usable URL -> cannot build provider
         return None
 
@@ -963,7 +977,10 @@ def build_oauth_provider(
         storage = InMemoryTokenStorage()
 
     provider = OAuthClientProvider(
-        server_url=base_url,
+        # Keep the concrete MCP endpoint URL for OAuth resource discovery and
+        # protected-resource validation. Token storage identity is normalized
+        # separately via compute_server_identity().
+        server_url=oauth_server_url,
         client_metadata=client_metadata,
         storage=storage,
         redirect_handler=_redirect_handler,

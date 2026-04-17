@@ -49,17 +49,6 @@ class ModelInfo:
         ):
             return False
 
-        multimodal_tokens = [mime.lower() for mime in (self.tokenizes or [])]
-        has_multimodal_io = any(mime.startswith("image/") for mime in multimodal_tokens)
-
-        if self.provider in {
-            Provider.RESPONSES,
-            Provider.OPENRESPONSES,
-            Provider.CODEX_RESPONSES,
-            Provider.ANTHROPIC,
-        }:
-            return has_multimodal_io
-
         if self.provider in {
             Provider.OPENAI,
             Provider.AZURE,
