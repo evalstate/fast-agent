@@ -129,6 +129,42 @@ def test_model_info_supports_overlay_tokenizes() -> None:
     assert info.supports_vision
 
 
+def test_model_info_image_tokenizes_do_not_imply_document_support() -> None:
+    info = ModelInfo(
+        name="unsloth/gemma-4-E4B-it-GGUF",
+        provider=Provider.OPENRESPONSES,
+        context_window=131072,
+        max_output_tokens=2048,
+        tokenizes=["text/plain", "image/jpeg", "image/png", "image/webp"],
+        json_mode=None,
+        reasoning=None,
+    )
+
+    assert info.tdv_flags == (True, False, True)
+    assert not info.supports_document
+    assert not info.supports_mime("application/pdf")
+    assert not info.supports_mime(
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+
+
+def test_model_info_document_tokenizes_do_not_require_vision_support() -> None:
+    info = ModelInfo(
+        name="custom-docs-only",
+        provider=Provider.OPENRESPONSES,
+        context_window=131072,
+        max_output_tokens=2048,
+        tokenizes=["text/plain", "application/pdf"],
+        json_mode=None,
+        reasoning=None,
+    )
+
+    assert info.tdv_flags == (True, True, False)
+    assert info.supports_document
+    assert not info.supports_vision
+    assert info.supports_mime("application/pdf")
+
+
 def test_model_info_openai_chat_documents_remain_pdf_only() -> None:
     info = ModelInfo.from_name("gpt-4o", provider=Provider.OPENAI)
 
