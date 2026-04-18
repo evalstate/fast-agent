@@ -20,7 +20,24 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Literal
 from urllib.parse import parse_qs, urlparse, urlunparse
 
-from mcp.client.auth import OAuthClientProvider, TokenStorage
+from mcp.client.auth import OAuthClientProvider as _BaseOAuthClientProvider
+from mcp.client.auth import TokenStorage
+from mcp.client.auth.utils import (
+    build_oauth_authorization_server_metadata_discovery_urls,
+    build_protected_resource_metadata_discovery_urls,
+    create_client_info_from_metadata_url,
+    create_client_registration_request,
+    create_oauth_metadata_request,
+    extract_field_from_www_auth,
+    extract_resource_metadata_from_www_auth,
+    extract_scope_from_www_auth,
+    get_client_metadata_scopes,
+    handle_auth_metadata_response,
+    handle_protected_resource_response,
+    handle_registration_response,
+    should_use_client_metadata_url,
+)
+from mcp.client.streamable_http import MCP_PROTOCOL_VERSION
 from mcp.shared.auth import (
     OAuthClientInformationFull,
     OAuthClientMetadata,
@@ -33,6 +50,10 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.ui import console
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
+
+    import httpx
+
     from fast_agent.config import MCPServerSettings
 
 logger = get_logger(__name__)
@@ -375,6 +396,176 @@ def compute_server_identity(server_config: MCPServerSettings) -> str:
     if server_config.name:
         return server_config.name
     return "default"
+
+
+def _build_prm_discovery_urls(
+    *,
+    www_auth_resource_metadata_url: str | None,
+    server_url: str,
+    discovery_server_url: str,
+) -> list[str]:
+    """Build PRM discovery URLs without dropping endpoint-scoped lookups.
+
+    Order matters here:
+    1. Explicit ``resource_metadata`` from ``WWW-Authenticate``
+    2. Endpoint-path well-known URL for the concrete MCP resource
+    3. Parent-path well-known URL for deployments that publish at the base resource
+    4. Root well-known URL
+    """
+
+    ordered_urls: list[str] = []
+    seen: set[str] = set()
+    root_urls: list[str] = []
+
+    def _record(url: str) -> None:
+        if url not in seen:
+            ordered_urls.append(url)
+            seen.add(url)
+
+    if www_auth_resource_metadata_url:
+        _record(www_auth_resource_metadata_url)
+
+    for candidate_server_url in (server_url, discovery_server_url):
+        for url in build_protected_resource_metadata_discovery_urls(
+            None,
+            candidate_server_url,
+        ):
+            if url.endswith("/.well-known/oauth-protected-resource"):
+                if url not in seen and url not in root_urls:
+                    root_urls.append(url)
+                continue
+            _record(url)
+
+    for url in root_urls:
+        _record(url)
+
+    return ordered_urls
+
+
+class _ProtectedResourceDiscoveryOAuthClientProvider(_BaseOAuthClientProvider):
+    """Preserve endpoint validation while probing both endpoint and parent PRM URLs."""
+
+    def __init__(self, *args: Any, discovery_server_url: str, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self._discovery_server_url = discovery_server_url
+
+    async def async_auth_flow(
+        self,
+        request: httpx.Request,
+    ) -> AsyncGenerator[httpx.Request, httpx.Response]:
+        """Mirror SDK auth flow but scope PRM discovery to the base protected resource."""
+        async with self.context.lock:
+            if not self._initialized:
+                await self._initialize()  # pragma: no cover
+
+            self.context.protocol_version = request.headers.get(MCP_PROTOCOL_VERSION)
+
+            if not self.context.is_token_valid() and self.context.can_refresh_token():
+                refresh_request = await self._refresh_token()  # pragma: no cover
+                refresh_response = yield refresh_request  # pragma: no cover
+
+                if not await self._handle_refresh_response(refresh_response):  # pragma: no cover
+                    self._initialized = False
+
+            if self.context.is_token_valid():
+                self._add_auth_header(request)
+
+            response = yield request
+
+            if response.status_code == 401:
+                try:
+                    www_auth_resource_metadata_url = extract_resource_metadata_from_www_auth(response)
+                    prm_discovery_urls = _build_prm_discovery_urls(
+                        www_auth_resource_metadata_url=www_auth_resource_metadata_url,
+                        server_url=self.context.server_url,
+                        discovery_server_url=self._discovery_server_url,
+                    )
+
+                    for url in prm_discovery_urls:
+                        discovery_request = create_oauth_metadata_request(url)
+                        discovery_response = yield discovery_request
+
+                        prm = await handle_protected_resource_response(discovery_response)
+                        if prm:
+                            await self._validate_resource_match(prm)
+                            self.context.protected_resource_metadata = prm
+                            self.context.auth_server_url = str(prm.authorization_servers[0])
+                            break
+                        logger.debug(f"Protected resource metadata discovery failed: {url}")
+
+                    asm_discovery_urls = build_oauth_authorization_server_metadata_discovery_urls(
+                        self.context.auth_server_url,
+                        self._discovery_server_url,
+                    )
+
+                    for url in asm_discovery_urls:  # pragma: no cover
+                        oauth_metadata_request = create_oauth_metadata_request(url)
+                        oauth_metadata_response = yield oauth_metadata_request
+
+                        ok, asm = await handle_auth_metadata_response(oauth_metadata_response)
+                        if not ok:
+                            break
+                        if ok and asm:
+                            self.context.oauth_metadata = asm
+                            break
+                        logger.debug(f"OAuth metadata discovery failed: {url}")
+
+                    self.context.client_metadata.scope = get_client_metadata_scopes(
+                        extract_scope_from_www_auth(response),
+                        self.context.protected_resource_metadata,
+                        self.context.oauth_metadata,
+                    )
+
+                    if not self.context.client_info:
+                        if should_use_client_metadata_url(
+                            self.context.oauth_metadata, self.context.client_metadata_url
+                        ):
+                            logger.debug(f"Using URL-based client ID (CIMD): {self.context.client_metadata_url}")
+                            client_information = create_client_info_from_metadata_url(
+                                self.context.client_metadata_url,  # type: ignore[arg-type]
+                                redirect_uris=self.context.client_metadata.redirect_uris,
+                            )
+                            self.context.client_info = client_information
+                            await self.context.storage.set_client_info(client_information)
+                        else:
+                            registration_request = create_client_registration_request(
+                                self.context.oauth_metadata,
+                                self.context.client_metadata,
+                                self.context.get_authorization_base_url(self.context.server_url),
+                            )
+                            registration_response = yield registration_request
+                            client_information = await handle_registration_response(registration_response)
+                            self.context.client_info = client_information
+                            await self.context.storage.set_client_info(client_information)
+
+                    token_response = yield await self._perform_authorization()
+                    await self._handle_token_response(token_response)
+                except Exception:  # pragma: no cover
+                    logger.exception("OAuth flow error")
+                    raise
+
+                self._add_auth_header(request)
+                yield request
+            elif response.status_code == 403:
+                error = extract_field_from_www_auth(response, "error")
+
+                if error == "insufficient_scope":  # pragma: no branch
+                    try:
+                        self.context.client_metadata.scope = get_client_metadata_scopes(
+                            extract_scope_from_www_auth(response), self.context.protected_resource_metadata
+                        )
+
+                        token_response = yield await self._perform_authorization()
+                        await self._handle_token_response(token_response)
+
+                        self._add_auth_header(request)
+                        yield request
+                    except Exception:  # pragma: no cover
+                        logger.exception("OAuth step-up error")
+                        raise
+
+
+OAuthClientProvider = _ProtectedResourceDiscoveryOAuthClientProvider
 
 
 def keyring_token_present(identity: str, service: str = "fast-agent-mcp") -> bool:
@@ -976,11 +1167,14 @@ def build_oauth_provider(
     else:
         storage = InMemoryTokenStorage()
 
+    discovery_server_url = _derive_base_server_url(server_config.url) or oauth_server_url
+
     provider = OAuthClientProvider(
-        # Keep the concrete MCP endpoint URL for OAuth resource discovery and
-        # protected-resource validation. Token storage identity is normalized
-        # separately via compute_server_identity().
+        # Keep the concrete MCP endpoint URL for validation and OAuth resource
+        # selection, but scope path-based PRM discovery to the parent protected
+        # resource URL so `/api/mcp` can still discover metadata published at `/api`.
         server_url=oauth_server_url,
+        discovery_server_url=discovery_server_url,
         client_metadata=client_metadata,
         storage=storage,
         redirect_handler=_redirect_handler,

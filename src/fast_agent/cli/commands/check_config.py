@@ -14,6 +14,7 @@ import yaml
 from rich.table import Table
 
 from fast_agent.cli.env_helpers import resolve_environment_dir_option
+from fast_agent.cli.update_check import check_for_update_notice, should_run_update_check
 from fast_agent.config import resolve_config_search_root
 from fast_agent.constants import DEFAULT_ENVIRONMENT_DIR
 from fast_agent.core.agent_card_validation import AgentCardScanResult, scan_agent_card_directory
@@ -2147,6 +2148,26 @@ def _context_env_dir(ctx: typer.Context) -> Path | None:
     return None
 
 
+def _resolve_check_update_notice(
+    ctx: typer.Context,
+    env_dir: Path | None,
+) -> str | None:
+    if ctx.invoked_subcommand is not None:
+        return None
+
+    payload = ctx.obj
+    no_update_check = False
+    if isinstance(payload, dict):
+        raw_no_update_check = payload.get("no_update_check")
+        if isinstance(raw_no_update_check, bool):
+            no_update_check = raw_no_update_check
+
+    if not should_run_update_check(disabled=no_update_check):
+        return None
+
+    return check_for_update_notice(environment_dir=env_dir)
+
+
 @app.command("models")
 def models(
     ctx: typer.Context,
@@ -2222,6 +2243,10 @@ def main(
         ctx.obj["env_dir"] = env_dir
     else:
         ctx.obj = {"env_dir": env_dir}
+
+    update_notice = _resolve_check_update_notice(ctx, env_dir)
+    if update_notice:
+        console.print(update_notice)
 
     if ctx.invoked_subcommand is None:
         show_check_summary(env_dir=env_dir)

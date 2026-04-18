@@ -36,6 +36,7 @@ from fast_agent.llm.resolved_model import ResolvedModelSpec
 
 if TYPE_CHECKING:
     from fast_agent.interfaces import FastAgentLLMProtocol
+    from fast_agent.llm.model_overlays import LoadedModelOverlay
 
 
 class DummyLLM:
@@ -196,6 +197,44 @@ def test_model_info_anthropic_models_support_office_documents() -> None:
         resource_source="link",
     )
     assert info.supports_mime("image/png", resource_source="link")
+
+
+def test_anthropic_image_only_overlay_keeps_document_support_without_lighting_document_flag() -> None:
+    resolved_model = ResolvedModelSpec(
+        raw_input="visionoverlay",
+        selected_model_name="visionoverlay",
+        source="overlay",
+        model_config=ModelConfig(provider=Provider.ANTHROPIC, model_name="claude-sonnet-4-5"),
+        provider=Provider.ANTHROPIC,
+        wire_model_name="claude-sonnet-4-5",
+        model_params=None,
+        overlay=cast(
+            "LoadedModelOverlay",
+            SimpleNamespace(
+                manifest=SimpleNamespace(
+                    metadata=SimpleNamespace(
+                        context_window=None,
+                        max_output_tokens=None,
+                        tokenizes=["text/plain", "image/jpeg", "image/png", "image/webp"],
+                    )
+                )
+            ),
+        ),
+    )
+
+    info = ModelInfo.from_resolved_model(resolved_model)
+
+    assert info is not None
+    assert info.tdv_flags == (True, False, True)
+    assert info.supports_document
+    assert info.supports_mime("application/pdf")
+    assert info.supports_mime(
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    assert not info.supports_mime(
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        resource_source="link",
+    )
 
 
 def test_model_info_anthropic_vertex_models_do_not_support_office_documents() -> None:

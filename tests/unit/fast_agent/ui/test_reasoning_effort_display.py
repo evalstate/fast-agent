@@ -46,7 +46,20 @@ def test_effort_max_renders_highest_gauge() -> None:
     assert gauge == "<style bg='ansired'>⣿</style>"
 
 
-def test_effort_xhigh_uses_distinct_non_max_gauge() -> None:
+def test_effort_xhigh_renders_red_when_it_is_the_highest_allowed_effort() -> None:
+    spec = ReasoningEffortSpec(
+        kind="effort",
+        allowed_efforts=["minimal", "low", "medium", "high", "xhigh"],
+        default=ReasoningEffortSetting(kind="effort", value="medium"),
+    )
+    setting = ReasoningEffortSetting(kind="effort", value="xhigh")
+
+    gauge = render_reasoning_effort_gauge(setting, spec)
+
+    assert gauge == "<style bg='ansired'>⣿</style>"
+
+
+def test_effort_xhigh_uses_distinct_non_max_gauge_when_max_is_available() -> None:
     spec = ReasoningEffortSpec(
         kind="effort",
         allowed_efforts=["low", "medium", "high", "xhigh", "max"],

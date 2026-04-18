@@ -10,7 +10,7 @@ from typing import Any, Literal
 import typer
 
 from fast_agent.cards import service as card_service
-from fast_agent.cli.command_support import get_settings_or_exit
+from fast_agent.cli.command_support import ensure_context_object, get_settings_or_exit
 from fast_agent.cli.env_helpers import resolve_environment_dir_option
 from fast_agent.cli.runtime.agent_setup import run_agent_request
 from fast_agent.cli.runtime.request_builders import (
@@ -42,6 +42,7 @@ from fast_agent.cli.runtime.run_request import (
 )
 from fast_agent.cli.runtime.runner import run_request
 from fast_agent.cli.shared_options import CommonAgentOptions
+from fast_agent.cli.update_check import check_for_update_notice, should_run_update_check
 from fast_agent.constants import FAST_AGENT_SHELL_CHILD_ENV
 from fast_agent.paths import resolve_environment_paths
 
@@ -288,6 +289,29 @@ def _maybe_queue_pack_readme_notice(
     )
 
 
+def _resolve_request_update_notice(
+    *,
+    ctx: typer.Context,
+    request: AgentRunRequest,
+    environment_dir: Path | None,
+) -> str | None:
+    context_payload = ensure_context_object(ctx)
+    no_update_check_value = context_payload.get("no_update_check")
+    no_update_check = no_update_check_value if isinstance(no_update_check_value, bool) else False
+
+    if request.noenv:
+        return None
+    if not request.is_repl:
+        return None
+    if request.quiet:
+        return None
+    if not should_run_update_check(
+        disabled=no_update_check,
+    ):
+        return None
+    return check_for_update_notice(environment_dir=environment_dir)
+
+
 @app.callback(invoke_without_command=True, no_args_is_help=False)
 def go(
     ctx: typer.Context,
@@ -447,4 +471,15 @@ def go(
         watch=watch,
         quiet=quiet,
     )
+
+    update_notice = _resolve_request_update_notice(
+        ctx=ctx,
+        request=request,
+        environment_dir=effective_env_dir,
+    )
+    if update_notice and not request.quiet:
+        from fast_agent.ui.enhanced_prompt import queue_startup_notice
+
+        queue_startup_notice(update_notice)
+
     run_request(request)

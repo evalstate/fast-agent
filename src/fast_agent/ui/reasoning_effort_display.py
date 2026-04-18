@@ -42,12 +42,33 @@ EFFORT_COLOR_MAPPING = {
     "max": "ansired",
 }
 
+EFFORT_ORDER_MAPPING = {
+    "none": 0,
+    "minimal": 1,
+    "low": 2,
+    "medium": 3,
+    "high": 4,
+    "xhigh": 5,
+    "max": 6,
+}
+
 
 def _effort_to_level(value: str) -> int:
     return EFFORT_LEVEL_MAPPING.get(value, 0)
 
 
-def _effort_color(value: str) -> str:
+def _is_spec_highest_effort(value: str, spec: ReasoningEffortSpec) -> bool:
+    allowed_efforts = spec.allowed_efforts
+    if not allowed_efforts:
+        return False
+
+    highest_effort = max(allowed_efforts, key=lambda effort: EFFORT_ORDER_MAPPING.get(effort, -1))
+    return value == highest_effort and _effort_to_level(value) == MAX_LEVEL
+
+
+def _effort_color(value: str, spec: ReasoningEffortSpec) -> str:
+    if value == "xhigh" and _is_spec_highest_effort(value, spec):
+        return "ansired"
     return EFFORT_COLOR_MAPPING.get(value, "ansiyellow")
 
 
@@ -121,7 +142,7 @@ def render_reasoning_effort_gauge(
     if effective is None:
         color = INACTIVE_COLOR
     elif effective.kind == "effort":
-        color = _effort_color(effort_value)
+        color = _effort_color(effort_value, spec)
     elif effective.kind == "toggle":
         color = "ansigreen" if effective.value else INACTIVE_COLOR
     else:
