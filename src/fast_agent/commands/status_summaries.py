@@ -152,11 +152,12 @@ def _build_agent_model_summary(agent: "AgentProtocol") -> AgentModelSummary:
         provider = str(model_info.provider.value)
         provider_display = model_info.provider.display_name
         context_window = model_info.context_window
-        if model_info.supports_text:
+        supports_text, supports_document_indicator, supports_vision = model_info.tdv_flags
+        if supports_text:
             capabilities.append("Text")
-        if model_info.supports_document:
+        if supports_document_indicator:
             capabilities.append("Document")
-        if model_info.supports_vision:
+        if supports_vision:
             capabilities.append("Vision")
     if resolved_model:
         model_name = resolve_llm_display_name(agent.llm) or resolved_model.wire_model_name

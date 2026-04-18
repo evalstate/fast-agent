@@ -104,6 +104,10 @@ class ModelInfo:
     def supports_text(self) -> bool:
         return self.supports_mime("text/plain")
 
+    def _supports_document_indicator(self) -> bool:
+        tokenizes = {mime.lower() for mime in (self.tokenizes or [])}
+        return any(mime in tokenizes for mime in DOCUMENT_MIME_TYPES)
+
     @property
     def supports_document(self) -> bool:
         return self.supports_any_mime(list(DOCUMENT_MIME_TYPES))
@@ -115,7 +119,7 @@ class ModelInfo:
     @property
     def tdv_flags(self) -> tuple[bool, bool, bool]:
         """Convenience tuple: (text, document, vision)."""
-        return (self.supports_text, self.supports_document, self.supports_vision)
+        return (self.supports_text, self._supports_document_indicator(), self.supports_vision)
 
     @classmethod
     def from_llm(cls, llm: "FastAgentLLMProtocol") -> "ModelInfo" | None:

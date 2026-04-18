@@ -9,10 +9,12 @@ import typer
 import typer.main
 from typer.core import TyperGroup
 
+from fast_agent.cli.command_support import ensure_context_object
 from fast_agent.cli.constants import normalize_resume_flag_args
 from fast_agent.cli.display import print_section_header
 from fast_agent.cli.env_helpers import resolve_environment_dir_option
 from fast_agent.cli.terminal import Application
+from fast_agent.cli.update_check import check_for_update_notice, should_run_update_check
 from fast_agent.constants import FAST_AGENT_SHELL_CHILD_ENV
 from fast_agent.ui.console import console as shared_console
 
@@ -68,7 +70,7 @@ application = Application()
 console = shared_console
 
 
-def show_welcome() -> None:
+def show_welcome(update_notice: str | None = None) -> None:
     """Show a welcome message with available commands, using new styling."""
     from importlib.metadata import version
 
@@ -102,6 +104,10 @@ def show_welcome() -> None:
 
     console.print(table)
 
+    if update_notice:
+        console.print()
+        console.print(update_notice)
+
     console.print(
         "\nVisit [cyan][link=https://fast-agent.ai]fast-agent.ai[/link][/cyan] for more information."
     )
@@ -114,6 +120,11 @@ def main(
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Disable output"),
     color: bool = typer.Option(True, "--color/--no-color", help="Enable/disable color output"),
     version: bool = typer.Option(False, "--version", help="Show version and exit"),
+    no_update_check: bool = typer.Option(
+        False,
+        "--no-update-check",
+        help="Skip checking PyPI for newer fast-agent releases",
+    ),
     env: Path | None = typer.Option(
         None, "--env", help="Override the base fast-agent environment directory"
     ),
@@ -130,7 +141,11 @@ def main(
         )
         raise typer.Exit(1)
 
-    resolve_environment_dir_option(ctx, env)
+    context_payload = ensure_context_object(ctx)
+    context_payload["no_update_check"] = no_update_check
+
+    resolved_env_dir = resolve_environment_dir_option(ctx, env)
+    context_payload["env_dir"] = resolved_env_dir
 
     application.verbosity = 1 if verbose else 0 if not quiet else -1
     if not color:
@@ -140,6 +155,12 @@ def main(
 
         application.console = base_console.__class__(color_system=None)
         application.error_console = base_error_console.__class__(color_system=None, stderr=True)
+
+    update_notice: str | None = None
+    if not version and ctx.invoked_subcommand is None and should_run_update_check(
+        disabled=no_update_check,
+    ):
+        update_notice = check_for_update_notice(environment_dir=resolved_env_dir)
 
     # Handle version flag
     if version:
@@ -154,4 +175,4 @@ def main(
 
     # Show welcome message if no command was invoked
     if ctx.invoked_subcommand is None:
-        show_welcome()
+        show_welcome(update_notice=update_notice)
