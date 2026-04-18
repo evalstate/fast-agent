@@ -1173,6 +1173,8 @@ def build_oauth_provider(
         # Keep the concrete MCP endpoint URL for validation and OAuth resource
         # selection, but scope path-based PRM discovery to the parent protected
         # resource URL so `/api/mcp` can still discover metadata published at `/api`.
+        # Token storage identity is normalized separately via
+        # compute_server_identity().
         server_url=oauth_server_url,
         discovery_server_url=discovery_server_url,
         client_metadata=client_metadata,
