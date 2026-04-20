@@ -124,6 +124,13 @@ def test_model_query_instant_mode_toggle():
     config = ModelFactory.parse_model_string("hf.moonshotai/Kimi-K2.5?instant=off")
     assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=True)
 
+    config = ModelFactory.parse_model_string("hf.moonshotai/Kimi-K2.6?instant=on")
+    assert config.model_name == "moonshotai/Kimi-K2.6"
+    assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=False)
+
+    config = ModelFactory.parse_model_string("hf.moonshotai/Kimi-K2.6?instant=off")
+    assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=True)
+
 
 def test_model_query_structured_json():
     config = ModelFactory.parse_model_string("claude-sonnet-4-5?structured=json")
@@ -262,6 +269,26 @@ def test_kimi_alias_matches_kimi25_defaults() -> None:
     assert config.temperature == 1.0
     assert config.top_p == 0.95
     assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=True)
+
+
+def test_kimi26_alias_sets_thinking_sampling_defaults() -> None:
+    config = ModelFactory.parse_model_string("kimi26")
+
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == "moonshotai/Kimi-K2.6:novita"
+    assert config.temperature == 1.0
+    assert config.top_p == 0.95
+    assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=True)
+
+
+def test_kimi26instant_alias_sets_instant_sampling_defaults() -> None:
+    config = ModelFactory.parse_model_string("kimi26instant")
+
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == "moonshotai/Kimi-K2.6:novita"
+    assert config.temperature == 0.6
+    assert config.top_p == 0.95
+    assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=False)
 
 
 def test_minimax25_alias_sets_sampling_defaults() -> None:
@@ -896,3 +923,47 @@ def test_hf_kimi25instant_alias_disables_thinking_via_extra_body() -> None:
     extra_body = args.get("extra_body")
     assert isinstance(extra_body, dict)
     assert extra_body["thinking"] == {"type": "disabled"}
+
+
+def test_hf_kimi26_alias_does_not_emit_thinking_override_for_thinking_mode() -> None:
+    factory = ModelFactory.create_factory("kimi26")
+    agent = LlmAgent(AgentConfig(name="test"))
+    llm = factory(agent)
+
+    assert isinstance(llm, HuggingFaceLLM)
+
+    args = llm._prepare_api_request(
+        [{"role": "user", "content": "hi"}],
+        None,
+        llm.default_request_params,
+    )
+
+    assert args["temperature"] == 1.0
+    assert args["top_p"] == 0.95
+
+    extra_body = args.get("extra_body")
+    if isinstance(extra_body, dict):
+        assert "chat_template_kwargs" not in extra_body
+    else:
+        assert extra_body is None
+
+
+def test_hf_kimi26instant_alias_disables_thinking_via_chat_template_kwargs() -> None:
+    factory = ModelFactory.create_factory("kimi26instant")
+    agent = LlmAgent(AgentConfig(name="test"))
+    llm = factory(agent)
+
+    assert isinstance(llm, HuggingFaceLLM)
+
+    args = llm._prepare_api_request(
+        [{"role": "user", "content": "hi"}],
+        None,
+        llm.default_request_params,
+    )
+
+    assert args["temperature"] == 0.6
+    assert args["top_p"] == 0.95
+
+    extra_body = args.get("extra_body")
+    assert isinstance(extra_body, dict)
+    assert extra_body["chat_template_kwargs"] == {"thinking": False}

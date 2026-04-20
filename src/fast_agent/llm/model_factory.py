@@ -623,6 +623,11 @@ class ModelFactory:
         "deepseek31": "hf.deepseek-ai/DeepSeek-V3.1",
         "kimithink": "hf.moonshotai/Kimi-K2-Thinking:fireworks-ai",
         "deepseek32": "hf.deepseek-ai/DeepSeek-V3.2:fireworks-ai",
+        "kimi26": "hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on",
+        "kimi26instant": (
+            "hf.moonshotai/Kimi-K2.6:novita?temperature=0.6&top_p=0.95&reasoning=off"
+        ),
+        "kimi-2.6": "hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on",
         "kimi25": ("hf.moonshotai/Kimi-K2.5:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on"),
         "kimi25instant": (
             "hf.moonshotai/Kimi-K2.5:fireworks-ai?temperature=0.6&top_p=0.95&reasoning=off"
@@ -723,9 +728,10 @@ class ModelFactory:
                     f"Multiple reasoning settings provided for '{expanded_model_spec}'."
                 )
             base_model = model_name.rsplit(":", 1)[0].strip().lower()
-            if base_model != "moonshotai/kimi-k2.5":
+            if base_model not in {"moonshotai/kimi-k2.5", "moonshotai/kimi-k2.6"}:
                 raise ModelConfigError(
-                    f"Instant mode is only supported for moonshotai/kimi-k2.5, got '{model_name}'."
+                    "Instant mode is only supported for moonshotai/kimi-k2.5 "
+                    f"and moonshotai/kimi-k2.6, got '{model_name}'."
                 )
             reasoning_effort = ReasoningEffortSetting(
                 kind="toggle",

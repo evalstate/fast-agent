@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Iterator, Mapping, Union
 
 from mcp.types import CallToolResult
-from rich.console import Group
+from rich.console import Group, RenderableType
 from rich.markdown import Markdown
 from rich.markup import escape as escape_markup
 from rich.panel import Panel
@@ -867,12 +867,28 @@ class ConsoleDisplay:
 
         return Text(joined, style="dim italic")
 
-    @classmethod
-    def _extract_openai_phase_content(
-        cls,
-        message: "PromptMessageExtended",
+    def _render_markdown_body(
+        self,
+        text: str,
         *,
-        code_theme: str = DEFAULT_CODE_THEME,
+        cursor_suffix: str = "",
+        close_incomplete_fences: bool = False,
+    ) -> RenderableType:
+        from fast_agent.ui.markdown_renderables import build_markdown_renderable
+
+        return build_markdown_renderable(
+            text,
+            code_theme=self.code_style,
+            escape_xml=self._escape_xml,
+            cursor_suffix=cursor_suffix,
+            close_incomplete_fences=close_incomplete_fences,
+            render_fences_with_syntax=self.render_fences_with_syntax,
+            code_word_wrap=self.code_word_wrap,
+        )
+
+    def _extract_openai_phase_content(
+        self,
+        message: "PromptMessageExtended",
     ) -> str | Group | None:
         channels = message.channels or {}
         raw_blocks = (
@@ -925,12 +941,11 @@ class ConsoleDisplay:
                 label = Text()
                 label.append("▎", style="dim")
                 label.append(phase_label, style="dim")
-                if cls._looks_like_markdown(section_text):
-                    prepared_content = prepare_markdown_content(section_text, True)
+                if self._looks_like_markdown(section_text):
                     sections.append(
                         Group(
                             label,
-                            Markdown(prepared_content, code_theme=code_theme),
+                            self._render_markdown_body(section_text),
                         )
                     )
                 else:
@@ -997,7 +1012,7 @@ class ConsoleDisplay:
             # Prefer full assistant text so streamed/finalized multi-block responses
             # (e.g., provider-side web tool turns) are preserved after live refresh.
             display_text = (
-                self._extract_openai_phase_content(message_text, code_theme=self.code_style)
+                self._extract_openai_phase_content(message_text)
                 or message_text.all_text()
                 or message_text.last_text()
                 or ""

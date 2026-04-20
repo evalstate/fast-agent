@@ -7,6 +7,8 @@ import pytest
 
 from fast_agent.acp.slash.handlers import session as session_slash_handlers
 from fast_agent.acp.slash_commands import SlashCommandHandler
+from fast_agent.commands.results import CommandOutcome
+from fast_agent.commands.shared_command_intents import parse_session_command_intent
 from fast_agent.core.fastagent import AgentInstance
 
 if TYPE_CHECKING:
@@ -146,3 +148,62 @@ async def test_render_session_list_uses_app_session_store_when_configured(
 
     assert "# sessions" in output
     assert manager_calls == [None]
+
+
+@pytest.mark.asyncio
+async def test_handle_session_export_defaults_current_agent_for_latest_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app = _App()
+    instance = AgentInstance(
+        app=cast("AgentApp", app),
+        agents={"main": cast("AgentProtocol", _Agent())},
+        registry_version=0,
+    )
+    captured: dict[str, object | None] = {}
+
+    async def fake_handle_session_export(
+        ctx,
+        *,
+        target: str | None,
+        agent_name: str | None,
+        output_path: str | None,
+        hf_dataset: str | None,
+        hf_dataset_path: str | None,
+        current_session_id: str | None = None,
+        error: str | None = None,
+    ) -> CommandOutcome:
+        del ctx
+        captured["target"] = target
+        captured["agent_name"] = agent_name
+        captured["output_path"] = output_path
+        captured["hf_dataset"] = hf_dataset
+        captured["hf_dataset_path"] = hf_dataset_path
+        captured["current_session_id"] = current_session_id
+        captured["error"] = error
+        return CommandOutcome()
+
+    monkeypatch.setattr(
+        session_slash_handlers.session_export_handlers,
+        "handle_session_export",
+        fake_handle_session_export,
+    )
+
+    handler = SlashCommandHandler(
+        session_id="s1",
+        instance=instance,
+        primary_agent_name="main",
+    )
+    intent = parse_session_command_intent("export latest")
+
+    await session_slash_handlers.handle_session_export(handler, intent)
+
+    assert captured == {
+        "target": "latest",
+        "agent_name": "main",
+        "output_path": None,
+        "hf_dataset": None,
+        "hf_dataset_path": None,
+        "current_session_id": "s1",
+        "error": None,
+    }

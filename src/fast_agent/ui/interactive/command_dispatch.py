@@ -15,10 +15,12 @@ from fast_agent.commands.handlers import mcp_runtime as mcp_runtime_handlers
 from fast_agent.commands.handlers import model as model_handlers
 from fast_agent.commands.handlers import models_manager as models_manager_handlers
 from fast_agent.commands.handlers import prompts as prompt_handlers
+from fast_agent.commands.handlers import session_export as session_export_handlers
 from fast_agent.commands.handlers import sessions as sessions_handlers
 from fast_agent.commands.handlers import skills as skills_handlers
 from fast_agent.commands.handlers import tools as tools_handlers
 from fast_agent.commands.handlers.shared import clear_agent_histories
+from fast_agent.commands.shared_command_intents import should_default_export_agent
 from fast_agent.ui import enhanced_prompt
 from fast_agent.ui.command_payloads import (
     AgentCommand,
@@ -28,6 +30,7 @@ from fast_agent.ui.command_payloads import (
     ClearSessionsCommand,
     CommandPayload,
     CreateSessionCommand,
+    ExportSessionCommand,
     ForkSessionCommand,
     HashAgentCommand,
     HistoryFixCommand,
@@ -665,6 +668,33 @@ async def _dispatch_session_payload(
         case ForkSessionCommand(title=title):
             context = build_command_context(prompt_provider, agent)
             outcome = await sessions_handlers.handle_fork_session(context, title=title)
+            await emit_command_outcome(context, outcome)
+            return result
+        case ExportSessionCommand(
+            target=target,
+            agent_name=agent_name,
+            output_path=output_path,
+            hf_dataset=hf_dataset,
+            hf_dataset_path=hf_dataset_path,
+            error=error,
+        ):
+            context = build_command_context(prompt_provider, agent)
+            manager = context.resolve_session_manager()
+            current_session = manager.current_session
+            current_session_id = current_session.info.name if current_session is not None else None
+            resolved_agent_name = agent_name
+            if resolved_agent_name is None and should_default_export_agent(target):
+                resolved_agent_name = agent
+            outcome = await session_export_handlers.handle_session_export(
+                context,
+                target=target,
+                agent_name=resolved_agent_name,
+                output_path=output_path,
+                hf_dataset=hf_dataset,
+                hf_dataset_path=hf_dataset_path,
+                current_session_id=current_session_id,
+                error=error,
+            )
             await emit_command_outcome(context, outcome)
             return result
         case _:

@@ -582,6 +582,16 @@ class ModelDatabase:
         reasoning="reasoning_content",
         reasoning_effort_spec=KIMI_REASONING_TOGGLE_SPEC,
     )
+    KIMI_MOONSHOT_26 = ModelParameters(
+        context_window=262144,
+        max_output_tokens=16384,
+        # Kimi K2.6 is multimodal, but video remains experimental and is only
+        # supported in Moonshot's official API for now.
+        tokenizes=OPENAI_VISION,
+        json_mode="schema",
+        reasoning="reasoning_content",
+        reasoning_effort_spec=KIMI_REASONING_TOGGLE_SPEC,
+    )
     # FIXME: xAI has not documented the max output tokens for Grok 4. Using Grok 3 as a placeholder. Will need to update when available (if ever)
     GROK_4 = ModelParameters(
         context_window=256000,
@@ -819,6 +829,7 @@ class ModelDatabase:
         "moonshotai/kimi-k2-thinking": KIMI_MOONSHOT_THINKING,
         "moonshotai/kimi-k2-thinking-0905": KIMI_MOONSHOT_THINKING,
         "moonshotai/kimi-k2.5": KIMI_MOONSHOT_25,
+        "moonshotai/kimi-k2.6": KIMI_MOONSHOT_26,
         "qwen/qwen3-32b": QWEN3_REASONER,
         "deepseek-r1-distill-llama-70b": DEEPSEEK_DISTILL,
         "openai/gpt-oss-120b": OPENAI_GPT_OSS_SERIES,  # https://cookbook.openai.com/articles/openai-harmony

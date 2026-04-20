@@ -28,7 +28,8 @@ DEFAULT_SESSION_USAGE = "Usage: /session resume <id|number>"
 FULL_SESSION_USAGE = (
     "Usage: /session list | /session new [title] | /session resume [id|number] | "
     "/session title <text> | /session fork [title] | /session delete <id|number|all> | "
-    "/session pin [on|off|id|number]"
+    "/session pin [on|off|id|number] | /session export [latest|id|path] "
+    "[--agent name] [--output path] [--hf-dataset owner/name] [--hf-dataset-path path]"
 )
 
 

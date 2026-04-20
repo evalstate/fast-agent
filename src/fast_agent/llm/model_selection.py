@@ -112,9 +112,26 @@ class ModelSelectionCatalog:
             CatalogModelEntry(alias="qwen3-max", model="aliyun.qwen3-max"),
         ),
         Provider.HUGGINGFACE: (
-            CatalogModelEntry(alias="glm51", model="hf.zai-org/GLM-5.1:together"),
+            CatalogModelEntry(
+                alias="kimi26",
+                display_label="Kimi 2.6",
+                description="thinking mode",
+                model=("hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on"),
+                fast=True,
+            ),
+            CatalogModelEntry(
+                alias="kimi26instant",
+                display_label="Kimi 2.6 (instant)",
+                description="instant mode",
+                model=("hf.moonshotai/Kimi-K2.6:novita?temperature=0.6&top_p=0.95&reasoning=off"),
+                fast=True,
+            ),
+            CatalogModelEntry(
+                alias="glm51", display_label="GLM 5.1", model="hf.zai-org/GLM-5.1:together"
+            ),
             CatalogModelEntry(
                 alias="qwen35",
+                display_label="Qwen 3.5-397B-A17B",
                 model=(
                     "hf.Qwen/Qwen3.5-397B-A17B:novita"
                     "?temperature=0.6&top_p=0.95&top_k=20&min_p=0.0"
@@ -122,35 +139,41 @@ class ModelSelectionCatalog:
                 ),
             ),
             CatalogModelEntry(
-                alias="minimax25",
-                model="hf.MiniMaxAI/MiniMax-M2.5:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40",
-            ),
-            CatalogModelEntry(
-                alias="kimi25",
-                model=(
-                    "hf.moonshotai/Kimi-K2.5:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on"
-                ),
-                fast=True,
-            ),
-            CatalogModelEntry(
-                alias="kimi25instant",
-                model=(
-                    "hf.moonshotai/Kimi-K2.5:fireworks-ai?temperature=0.6&top_p=0.95&reasoning=off"
-                ),
-                fast=True,
-            ),
-            CatalogModelEntry(
-                alias="glm5",
-                model="hf.zai-org/GLM-5:novita",
-                current=False,
-            ),
-            CatalogModelEntry(
                 alias="qwen35instruct",
+                display_label="Qwen 3.5-397B-A17B (instruct)",
                 model=(
                     "hf.Qwen/Qwen3.5-397B-A17B:novita"
                     "?temperature=0.7&top_p=0.8&top_k=20&min_p=0.0"
                     "&presence_penalty=1.5&repetition_penalty=1.0&reasoning=off"
                 ),
+            ),
+            CatalogModelEntry(
+                alias="minimax25",
+                display_label="Minimax 2.5",
+                model="hf.MiniMaxAI/MiniMax-M2.5:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40",
+            ),
+            CatalogModelEntry(
+                alias="kimi25",
+                display_label="Kimi 2.5",
+                model=(
+                    "hf.moonshotai/Kimi-K2.5:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on"
+                ),
+                fast=True,
+                current=False,
+            ),
+            CatalogModelEntry(
+                alias="kimi25instant",
+                display_label="Kimi 2.5 (instant)",
+                model=(
+                    "hf.moonshotai/Kimi-K2.5:fireworks-ai?temperature=0.6&top_p=0.95&reasoning=off"
+                ),
+                fast=True,
+                current=False,
+            ),
+            CatalogModelEntry(
+                alias="glm5",
+                model="hf.zai-org/GLM-5:novita",
+                current=False,
             ),
             CatalogModelEntry(alias="gpt-oss", model="hf.openai/gpt-oss-120b:cerebras", fast=True),
             CatalogModelEntry(

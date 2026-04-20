@@ -26,6 +26,7 @@ from fast_agent.ui.command_payloads import (
     ClearSessionsCommand,
     CommandPayload,
     CreateSessionCommand,
+    ExportSessionCommand,
     ForkSessionCommand,
     HashAgentCommand,
     HistoryFixCommand,
@@ -301,6 +302,15 @@ def _parse_session_command(remainder: str) -> CommandPayload:
         return ForkSessionCommand(title=intent.argument)
     if intent.action == "delete":
         return ClearSessionsCommand(target=intent.argument)
+    if intent.action == "export":
+        return ExportSessionCommand(
+            target=intent.export_target,
+            agent_name=intent.export_agent,
+            output_path=intent.export_output,
+            hf_dataset=intent.export_hf_dataset,
+            hf_dataset_path=intent.export_hf_dataset_path,
+            error=intent.export_error,
+        )
     return PinSessionCommand(value=intent.pin_value, target=intent.pin_target)
 
 

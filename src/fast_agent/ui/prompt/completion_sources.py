@@ -379,6 +379,23 @@ def _session_command_completions(
     if text_lower.startswith("/session pin "):
         return _session_pin_completions(completer, text)
 
+    if text_lower.startswith("/session export "):
+        partial = text[len("/session export ") :]
+        if " --" not in partial and not partial.startswith("-"):
+            results = []
+            partial_lower = partial.lower()
+            if "latest".startswith(partial_lower):
+                results.append(
+                    Completion(
+                        "latest",
+                        start_position=-len(partial),
+                        display="latest",
+                        display_meta="Most recent session",
+                    )
+                )
+            results.extend(list(completer._complete_session_ids(partial)))
+            return results
+
     if not text_lower.startswith("/session "):
         return None
 
@@ -392,6 +409,7 @@ def _session_command_completions(
         "resume": "Resume a session",
         "title": "Set session title",
         "fork": "Fork current session",
+        "export": "Export a persisted session trace",
     }
     return _subcommand_completions(partial, subcommands)
 

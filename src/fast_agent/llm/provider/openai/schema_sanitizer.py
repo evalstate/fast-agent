@@ -19,7 +19,7 @@ _STRUCTURAL_SCHEMA_KEYS = frozenset(
     }
 )
 
-_STRICT_DEFAULT_MODELS = frozenset({"kimi25", "kimi-2.5"})
+_STRICT_DEFAULT_MODELS = frozenset({"kimi25", "kimi-2.5", "kimi26", "kimi-2.6"})
 
 
 def _infer_json_schema_type(value: Any) -> str | None:
@@ -75,4 +75,8 @@ def should_strip_tool_schema_defaults(model_name: str | None) -> bool:
         return False
 
     normalized = model_name.strip().lower()
-    return normalized in _STRICT_DEFAULT_MODELS or "kimi-k2.5" in normalized
+    return (
+        normalized in _STRICT_DEFAULT_MODELS
+        or "kimi-k2.5" in normalized
+        or "kimi-k2.6" in normalized
+    )

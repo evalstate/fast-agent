@@ -4,11 +4,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
+from fast_agent.commands.handlers import session_export as session_export_handlers
 from fast_agent.commands.handlers import sessions as sessions_handlers
 from fast_agent.commands.handlers.shared import clear_agent_histories
 from fast_agent.commands.renderers.session_markdown import render_session_list_markdown
 from fast_agent.commands.session_summaries import build_session_list_summary
-from fast_agent.commands.shared_command_intents import parse_session_command_intent
+from fast_agent.commands.shared_command_intents import (
+    parse_session_command_intent,
+    should_default_export_agent,
+)
 
 if TYPE_CHECKING:
     from fast_agent.acp.command_io import ACPCommandIO
@@ -43,13 +47,15 @@ async def handle_session(handler: "SlashCommandHandler", arguments: str | None =
         return await handle_session_delete(handler, intent.argument)
     if intent.action == "pin":
         return await handle_session_pin(handler, value=intent.pin_value, target=intent.pin_target)
+    if intent.action == "export":
+        return await handle_session_export(handler, intent)
 
     return "\n".join(
         [
             "# session",
             "",
             f"Unknown /session action: {intent.raw_subcommand or ''}",
-            "Usage: /session [list|new|resume|title|fork|delete|pin] [args]",
+            "Usage: /session [list|new|resume|title|fork|delete|pin|export] [args]",
         ]
     )
 
@@ -153,3 +159,22 @@ async def handle_session_pin(
         target=target,
     )
     return handler._format_outcome_as_markdown(outcome, "session pin", io=io)
+
+
+async def handle_session_export(handler: "SlashCommandHandler", intent) -> str:
+    ctx = handler._build_command_context()
+    io = cast("ACPCommandIO", ctx.io)
+    agent_name = intent.export_agent
+    if agent_name is None and should_default_export_agent(intent.export_target):
+        agent_name = handler.current_agent_name
+    outcome = await session_export_handlers.handle_session_export(
+        ctx,
+        target=intent.export_target,
+        agent_name=agent_name,
+        output_path=intent.export_output,
+        hf_dataset=intent.export_hf_dataset,
+        hf_dataset_path=intent.export_hf_dataset_path,
+        current_session_id=handler.session_id,
+        error=intent.export_error,
+    )
+    return handler._format_outcome_as_markdown(outcome, "session export", io=io)

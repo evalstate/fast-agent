@@ -69,8 +69,10 @@ def test_legacy_aliases_are_listed_but_not_curated() -> None:
 
     assert set(curated_aliases).isdisjoint(legacy_aliases)
     assert "glm51" in curated_aliases
-    assert "kimi25instant" in curated_aliases
+    assert "kimi26instant" in curated_aliases
     assert "kimi-k2-instruct" not in curated_aliases
+    assert "kimi25" in legacy_aliases
+    assert "kimi25instant" in legacy_aliases
     assert "glm5" not in curated_aliases
     assert "glm5" in legacy_aliases
     assert "glm47" in legacy_aliases
