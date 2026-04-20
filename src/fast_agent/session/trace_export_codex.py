@@ -40,21 +40,21 @@ if TYPE_CHECKING:
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 
-def _utc_timestamp(value: datetime) -> str:
+def _normalize_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    else:
-        value = value.astimezone(timezone.utc)
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _utc_timestamp(value: datetime) -> str:
+    value = _normalize_utc(value)
     return value.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 def _timestamp_or_none(value: datetime | None) -> int | None:
     if value is None:
         return None
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    else:
-        value = value.astimezone(timezone.utc)
+    value = _normalize_utc(value)
     return int(value.timestamp())
 
 
@@ -523,25 +523,31 @@ def _turn_context_payload(
     *,
     turn_id: str,
     meta: _TraceMeta,
+    turn_timestamp: datetime | None,
 ) -> dict[str, object]:
-    created_at = resolved.snapshot.created_at
     payload: dict[str, object] = {
         "turn_id": turn_id,
         "cwd": _session_cwd(resolved),
-        "current_date": created_at.date().isoformat(),
         "timezone": "UTC",
         "summary": "auto",
     }
+    if turn_timestamp is not None:
+        payload["current_date"] = _normalize_utc(turn_timestamp).date().isoformat()
     if meta.model is not None:
         payload["model"] = meta.model
     return payload
 
 
-def _turn_started_payload(turn_id: str, *, model_context_window: int | None) -> dict[str, object]:
+def _turn_started_payload(
+    turn_id: str,
+    *,
+    model_context_window: int | None,
+    started_at: datetime | None,
+) -> dict[str, object]:
     payload: dict[str, object] = {
         "type": "turn_started",
         "turn_id": turn_id,
-        "started_at": None,
+        "started_at": _timestamp_or_none(started_at),
         "collaboration_mode_kind": "default",
     }
     if model_context_window is not None:
@@ -604,12 +610,29 @@ class _TurnState:
 
 class _TimestampCursor:
     def __init__(self, start: datetime) -> None:
-        self._current = start
+        self._current = _normalize_utc(start)
 
-    def next(self) -> str:
+    def next(self, *, at: datetime | None = None) -> str:
+        if at is not None:
+            normalized = _normalize_utc(at)
+            if normalized > self._current:
+                self._current = normalized
         timestamp = _utc_timestamp(self._current)
         self._current += timedelta(milliseconds=1)
         return timestamp
+
+
+def _turn_timestamps(resolved: ResolvedSessionExport) -> list[datetime | None]:
+    turn_timestamps: list[datetime | None] = []
+    for message, message_timestamp in zip(
+        resolved.history, resolved.message_timestamps, strict=True
+    ):
+        if _is_turn_start(message) or not turn_timestamps:
+            turn_timestamps.append(message_timestamp)
+            continue
+        if turn_timestamps[-1] is None and message_timestamp is not None:
+            turn_timestamps[-1] = message_timestamp
+    return turn_timestamps
 
 
 class CodexTraceWriter:
@@ -633,6 +656,7 @@ class CodexTraceWriter:
     def _records(self, resolved: ResolvedSessionExport) -> list[dict[str, object]]:
         cursor = _TimestampCursor(resolved.snapshot.created_at)
         meta = _trace_meta(resolved)
+        turn_timestamps = _turn_timestamps(resolved)
         records: list[dict[str, object]] = []
         records.append(
             {
@@ -657,15 +681,19 @@ class CodexTraceWriter:
 
         def start_turn(user_message: PromptMessageExtended | None) -> None:
             nonlocal turn_counter, current_turn
+            turn_timestamp = (
+                turn_timestamps[turn_counter] if turn_counter < len(turn_timestamps) else None
+            )
             turn_counter += 1
             current_turn = _TurnState(turn_id=f"turn-{turn_counter}")
             records.append(
                 {
-                    "timestamp": cursor.next(),
+                    "timestamp": cursor.next(at=turn_timestamp),
                     "type": "event_msg",
                     "payload": _turn_started_payload(
                         current_turn.turn_id,
                         model_context_window=meta.model_context_window,
+                        started_at=turn_timestamp,
                     ),
                 }
             )
@@ -685,6 +713,7 @@ class CodexTraceWriter:
                         resolved,
                         turn_id=current_turn.turn_id,
                         meta=meta,
+                        turn_timestamp=turn_timestamp,
                     ),
                 }
             )
@@ -705,7 +734,9 @@ class CodexTraceWriter:
             )
             current_turn = None
 
-        for message in resolved.history:
+        for message, message_timestamp in zip(
+            resolved.history, resolved.message_timestamps, strict=True
+        ):
             if _is_turn_start(message):
                 finish_turn()
                 start_turn(message)
@@ -720,11 +751,12 @@ class CodexTraceWriter:
             for item in _response_items(message):
                 records.append(
                     {
-                        "timestamp": cursor.next(),
+                        "timestamp": cursor.next(at=message_timestamp),
                         "type": "response_item",
                         "payload": item,
                     }
                 )
+                message_timestamp = None
             if message.role == "assistant":
                 token_count = _token_count_payload(
                     message,
@@ -733,7 +765,7 @@ class CodexTraceWriter:
                 if token_count is not None:
                     records.append(
                         {
-                            "timestamp": cursor.next(),
+                            "timestamp": cursor.next(at=message_timestamp),
                             "type": "event_msg",
                             "payload": token_count,
                         }

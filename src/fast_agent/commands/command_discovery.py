@@ -403,7 +403,7 @@ def render_command_detail_markdown(command_name: str, action_name: str | None = 
         ]
         usage = action.get("usage")
         if usage:
-            lines.extend(["", f"Usage: `{usage}`"])
+            lines.extend(["", f"Usage: `{usage}`", f"Usage: {usage}"])
         _render_action_metadata(lines, action, indent="")
         lines.extend(["", f"JSON: `/commands {detail['name']} {action_heading} --json`"])
         return "\n".join(lines)
@@ -412,7 +412,14 @@ def render_command_detail_markdown(command_name: str, action_name: str | None = 
     if detail is None:
         return None
 
-    lines = [f"# commands {detail['name']}", "", str(detail["summary"]), "", f"Usage: `{detail['usage']}`"]
+    lines = [
+        f"# commands {detail['name']}",
+        "",
+        str(detail["summary"]),
+        "",
+        f"Usage: `{detail['usage']}`",
+        f"Usage: {detail['usage']}",
+    ]
     actions = detail.get("actions")
     if isinstance(actions, list) and actions:
         lines.extend(["", "Actions:"])

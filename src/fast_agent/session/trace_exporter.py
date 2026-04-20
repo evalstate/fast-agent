@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -33,6 +34,7 @@ from fast_agent.session.trace_export_models import (
 )
 
 if TYPE_CHECKING:
+    from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
     from fast_agent.session.session_manager import SessionManager
 
 
@@ -92,7 +94,7 @@ class SessionTraceExporter:
             requested_agent=request.agent_name,
         )
         try:
-            history = load_messages(str(history_path))
+            history, message_timestamps = self._load_history(history_path)
         except (AgentConfigError, OSError, ValueError, ValidationError) as exc:
             raise SessionExportReadError(
                 f"Failed to load session history for agent '{agent_name}' from {history_path}: {exc}"
@@ -104,6 +106,7 @@ class SessionTraceExporter:
             agent_name=agent_name,
             history_path=history_path,
             history=history,
+            message_timestamps=message_timestamps,
         )
 
     def _resolve_session_dir(
@@ -213,19 +216,49 @@ class SessionTraceExporter:
         request: ExportRequest,
         resolved: ResolvedSessionExport,
     ) -> Path:
+        workspace_dir = self._session_manager.workspace_dir.resolve()
         output_path = request.output_path
         if output_path is None:
             filename = (
                 f"{resolved.session_id}__{_sanitize_filename_component(resolved.agent_name)}__"
                 f"{request.format}.jsonl"
             )
-            return (Path.cwd() / filename).resolve()
+            return (workspace_dir / filename).resolve()
         output_path = output_path.expanduser()
         if not output_path.is_absolute():
-            output_path = (Path.cwd() / output_path).resolve()
+            output_path = (workspace_dir / output_path).resolve()
         else:
             output_path = output_path.resolve()
         return output_path
+
+    def _load_history(
+        self, history_path: Path
+    ) -> tuple[list[PromptMessageExtended], tuple[datetime | None, ...]]:
+        history = load_messages(str(history_path))
+        message_timestamps = self._load_message_timestamps(history_path)
+        if message_timestamps is None or len(message_timestamps) != len(history):
+            message_timestamps = tuple(None for _ in history)
+        return history, message_timestamps
+
+    def _load_message_timestamps(self, history_path: Path) -> tuple[datetime | None, ...] | None:
+        if history_path.suffix.lower() != ".json":
+            return None
+
+        with history_path.open(encoding="utf-8") as handle:
+            payload = json.load(handle)
+
+        if not isinstance(payload, dict):
+            return None
+        messages = payload.get("messages")
+        if not isinstance(messages, list):
+            return None
+
+        timestamps: list[datetime | None] = []
+        for item in messages:
+            if not isinstance(item, dict):
+                return None
+            timestamps.append(_message_timestamp(item))
+        return tuple(timestamps)
 
     def _writer_for_format(self, export_format: str):
         if export_format == "codex":
@@ -233,3 +266,32 @@ class SessionTraceExporter:
         raise UnsupportedTraceExportFormatError(
             f"Unsupported session export format: {export_format}"
         )
+
+
+def _message_timestamp(message: dict[object, object]) -> datetime | None:
+    for key in ("timestamp", "created_at", "started_at", "completed_at"):
+        value = message.get(key)
+        timestamp = _parse_timestamp(value)
+        if timestamp is not None:
+            return timestamp
+    return None
+
+
+def _parse_timestamp(value: object) -> datetime | None:
+    if isinstance(value, datetime):
+        return _normalize_utc(value)
+    if isinstance(value, str):
+        normalized = value.replace("Z", "+00:00")
+        try:
+            return _normalize_utc(datetime.fromisoformat(normalized))
+        except ValueError:
+            return None
+    if isinstance(value, int | float) and not isinstance(value, bool):
+        return datetime.fromtimestamp(value, tz=timezone.utc)
+    return None
+
+
+def _normalize_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)

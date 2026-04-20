@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
-from typing import TYPE_CHECKING
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 from mcp.types import (
@@ -37,9 +37,6 @@ from fast_agent.session.trace_export_errors import (
 )
 from fast_agent.session.trace_export_models import DatasetUploadResult, ExportRequest
 from fast_agent.types import LlmStopReason
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 def _write_session_snapshot(
@@ -80,6 +77,24 @@ def _write_history(path: Path, *, assistant_text: str) -> None:
         ),
     ]
     save_json(messages, str(path))
+
+
+def _write_history_with_timestamps(
+    path: Path,
+    *,
+    messages: list[PromptMessageExtended],
+    timestamps: list[datetime | None],
+) -> None:
+    payload_messages: list[dict[str, object]] = []
+    for message, timestamp in zip(messages, timestamps, strict=True):
+        payload = message.model_dump(mode="json", exclude_none=True)
+        if timestamp is not None:
+            payload["timestamp"] = timestamp.astimezone(timezone.utc).isoformat()
+        payload_messages.append(payload)
+    path.write_text(
+        json.dumps({"messages": payload_messages}, indent=2),
+        encoding="utf-8",
+    )
 
 
 def _build_manager(tmp_path: Path) -> SessionManager:
@@ -141,6 +156,7 @@ def test_session_trace_exporter_writes_codex_trace(tmp_path: Path) -> None:
     assert records[3]["payload"]["message"] == "hello"
     assert records[4]["type"] == "turn_context"
     assert records[4]["payload"]["turn_id"] == "turn-1"
+    assert "current_date" not in records[4]["payload"]
     assert "developer_instructions" not in records[4]["payload"]
     assert "approval_policy" not in records[4]["payload"]
     assert "sandbox_policy" not in records[4]["payload"]
@@ -163,6 +179,129 @@ def test_session_trace_exporter_writes_codex_trace(tmp_path: Path) -> None:
     assert records[8]["type"] == "event_msg"
     assert records[8]["payload"]["type"] == "turn_complete"
     assert records[8]["payload"]["last_agent_message"] == "done"
+
+
+def test_session_trace_exporter_uses_workspace_dir_for_relative_output_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    manager = _build_manager(workspace)
+    session_id = "2604201303-x5MNlH"
+    session_dir = manager.base_dir / session_id
+    session_dir.mkdir(parents=True)
+    _write_history(session_dir / "history_dev.json", assistant_text="done")
+    _write_session_snapshot(
+        session_dir,
+        session_id=session_id,
+        active_agent="dev",
+        agents={"dev": SessionAgentSnapshot(history_file="history_dev.json")},
+    )
+    other_cwd = tmp_path / "other-cwd"
+    other_cwd.mkdir()
+    monkeypatch.chdir(other_cwd)
+
+    exporter = SessionTraceExporter(session_manager=manager)
+    result = exporter.export(
+        ExportRequest(
+            target=session_dir,
+            agent_name="dev",
+            output_path=Path("trace.jsonl"),
+        )
+    )
+
+    assert result.output_path == workspace / "trace.jsonl"
+    assert result.output_path.is_file()
+    assert not (other_cwd / "trace.jsonl").exists()
+
+
+def test_session_trace_exporter_uses_workspace_dir_for_default_output_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    manager = _build_manager(workspace)
+    session_id = "2604201303-x5MNlH"
+    session_dir = manager.base_dir / session_id
+    session_dir.mkdir(parents=True)
+    _write_history(session_dir / "history_dev.json", assistant_text="done")
+    _write_session_snapshot(
+        session_dir,
+        session_id=session_id,
+        active_agent="dev",
+        agents={"dev": SessionAgentSnapshot(history_file="history_dev.json")},
+    )
+    other_cwd = tmp_path / "other-cwd"
+    other_cwd.mkdir()
+    monkeypatch.chdir(other_cwd)
+
+    exporter = SessionTraceExporter(session_manager=manager)
+    result = exporter.export(
+        ExportRequest(
+            target=session_dir,
+            agent_name="dev",
+            output_path=None,
+        )
+    )
+
+    expected_path = workspace / f"{session_id}__dev__codex.jsonl"
+    assert result.output_path == expected_path
+    assert result.output_path.is_file()
+    assert not (other_cwd / expected_path.name).exists()
+
+
+def test_session_trace_exporter_uses_message_timestamps_for_turn_date(tmp_path: Path) -> None:
+    manager = _build_manager(tmp_path)
+    session_id = "2604201303-x5MNlH"
+    session_dir = manager.base_dir / session_id
+    session_dir.mkdir(parents=True)
+    turn_started_at = datetime(2026, 4, 22, 9, 15, 0, tzinfo=timezone.utc)
+    messages = [
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="hello")],
+        ),
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="done")],
+            stop_reason=LlmStopReason.END_TURN,
+        ),
+    ]
+    _write_history_with_timestamps(
+        session_dir / "history_dev.json",
+        messages=messages,
+        timestamps=[turn_started_at, turn_started_at + timedelta(seconds=5)],
+    )
+    _write_session_snapshot(
+        session_dir,
+        session_id=session_id,
+        active_agent="dev",
+        agents={"dev": SessionAgentSnapshot(history_file="history_dev.json")},
+    )
+
+    exporter = SessionTraceExporter(session_manager=manager)
+    exporter.export(
+        ExportRequest(
+            target=session_dir,
+            agent_name="dev",
+            output_path=tmp_path / "trace.jsonl",
+        )
+    )
+
+    records = [
+        json.loads(line)
+        for line in (tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+
+    assert records[0]["payload"]["timestamp"] == "2026-04-20T13:03:00.000Z"
+    assert records[1]["payload"]["type"] == "turn_started"
+    assert records[1]["payload"]["started_at"] == int(turn_started_at.timestamp())
+    assert records[2]["payload"]["type"] == "user_message"
+    assert records[3]["type"] == "turn_context"
+    assert records[3]["payload"]["current_date"] == "2026-04-22"
+    assert records[1]["timestamp"] == "2026-04-22T09:15:00.000Z"
 
 
 def test_session_trace_exporter_writes_native_codex_tool_items(tmp_path: Path) -> None:

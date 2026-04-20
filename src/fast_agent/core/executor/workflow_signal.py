@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import uuid
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Generic, Protocol, TypeVar
@@ -104,7 +105,7 @@ class BaseSignalHandler(ABC, Generic[SignalValueT]):
 
             async def wrapped(value: SignalValueT) -> None:
                 try:
-                    if asyncio.iscoroutinefunction(func):
+                    if inspect.iscoroutinefunction(func):
                         await func(value)
                     else:
                         func(value)
@@ -164,7 +165,7 @@ class ConsoleSignalHandler(SignalHandler[str]):
     def on_signal(self, signal_name):
         def decorator(func):
             async def wrapped(value: SignalValueT) -> None:
-                if asyncio.iscoroutinefunction(func):
+                if inspect.iscoroutinefunction(func):
                     await func(value)
                 else:
                     func(value)
@@ -241,7 +242,7 @@ class AsyncioSignalHandler(BaseSignalHandler[SignalValueT]):
             unique_name = f"{signal_name}_{uuid.uuid4()}"
 
             async def wrapped(value: SignalValueT) -> None:
-                if asyncio.iscoroutinefunction(func):
+                if inspect.iscoroutinefunction(func):
                     await func(value)
                 else:
                     func(value)

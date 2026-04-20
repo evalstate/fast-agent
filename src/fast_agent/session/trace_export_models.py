@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
+    from datetime import datetime
     from pathlib import Path
 
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -47,6 +48,7 @@ class ResolvedSessionExport:
     agent_name: str
     history_path: Path
     history: list[PromptMessageExtended]
+    message_timestamps: tuple[datetime | None, ...]
 
 
 @dataclass(frozen=True, slots=True)

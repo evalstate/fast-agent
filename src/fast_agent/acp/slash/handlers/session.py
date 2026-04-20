@@ -168,6 +168,8 @@ async def handle_session_export(handler: "SlashCommandHandler", intent) -> str:
 
     ctx = handler._build_command_context()
     io = cast("ACPCommandIO", ctx.io)
+    manager = ctx.resolve_session_manager()
+    current_session = manager.current_session
     agent_name = intent.export_agent
     if agent_name is None and should_default_export_agent(intent.export_target):
         agent_name = handler.current_agent_name
@@ -178,7 +180,7 @@ async def handle_session_export(handler: "SlashCommandHandler", intent) -> str:
         output_path=intent.export_output,
         hf_dataset=intent.export_hf_dataset,
         hf_dataset_path=intent.export_hf_dataset_path,
-        current_session_id=handler.session_id,
+        current_session_id=current_session.info.name if current_session is not None else None,
         error=intent.export_error,
     )
     return handler._format_outcome_as_markdown(outcome, "session export", io=io)

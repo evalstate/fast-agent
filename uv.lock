@@ -713,7 +713,7 @@ requires-dist = [{ name = "fast-agent-mcp", editable = "." }]
 
 [[package]]
 name = "fast-agent-mcp"
-version = "0.6.19"
+version = "0.6.20"
 source = { editable = "." }
 dependencies = [
     { name = "a2a-sdk" },
@@ -725,6 +725,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "fastmcp" },
     { name = "google-genai" },
+    { name = "huggingface-hub" },
     { name = "jsonschema" },
     { name = "keyring" },
     { name = "mcp" },
@@ -773,7 +774,6 @@ textual = [
 [package.dev-dependencies]
 dev = [
     { name = "boto3" },
-    { name = "huggingface-hub" },
     { name = "ipdb" },
     { name = "multilspy" },
     { name = "pre-commit" },
@@ -802,6 +802,7 @@ requires-dist = [
     { name = "fastapi", specifier = "==0.136.0" },
     { name = "fastmcp", specifier = "==3.2.3" },
     { name = "google-genai", specifier = "==1.66.0" },
+    { name = "huggingface-hub", specifier = "==1.9.0" },
     { name = "jsonschema", specifier = "==4.25.1" },
     { name = "keyring", specifier = "==25.7.0" },
     { name = "mcp", specifier = "==1.27.0" },
@@ -835,7 +836,6 @@ provides-extras = ["azure", "bedrock", "tensorzero", "textual", "all-providers"]
 [package.metadata.requires-dev]
 dev = [
     { name = "boto3", specifier = ">=1.35.0" },
-    { name = "huggingface-hub", specifier = "==1.9.0" },
     { name = "ipdb", specifier = ">=0.13.13" },
     { name = "multilspy", specifier = ">=0.0.15" },
     { name = "pre-commit", specifier = ">=4.0.1" },

@@ -1,6 +1,7 @@
 import asyncio
 import contextvars
 import functools
+import inspect
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
 from datetime import timedelta
@@ -129,7 +130,7 @@ class Executor(ABC, ContextDependent):
 
     async def validate_task(self, task: Callable[..., R] | Coroutine[Any, Any, R]) -> None:
         """Validate a task before execution."""
-        if not (asyncio.iscoroutine(task) or asyncio.iscoroutinefunction(task)):
+        if not (asyncio.iscoroutine(task) or inspect.iscoroutinefunction(task)):
             raise TypeError(f"Task must be async: {task}")
 
     async def signal(
@@ -208,7 +209,7 @@ class AsyncioExecutor(Executor):
                 if asyncio.iscoroutine(task):
                     # iscoroutine doesn't narrow types, so cast the result
                     return cast("R", await task)
-                elif asyncio.iscoroutinefunction(task):
+                elif inspect.iscoroutinefunction(task):
                     return await task(**kwargs)
                 else:
                     # Execute the callable and await if it returns a coroutine
