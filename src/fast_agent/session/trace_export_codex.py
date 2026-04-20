@@ -565,12 +565,12 @@ def _turn_complete_payload(turn_id: str, last_agent_message: str | None) -> dict
 def _response_items(message: PromptMessageExtended) -> list[dict[str, object]]:
     items: list[dict[str, object]] = []
 
-    if message.role == "user" and message.tool_results:
-        return _function_call_output_items(message)
-
     if message.role == "user":
         user_item = _user_message_item(message)
-        return [user_item] if user_item is not None else []
+        if user_item is not None:
+            items.append(user_item)
+        items.extend(_function_call_output_items(message))
+        return items
 
     reasoning_item = _reasoning_item(message)
     if reasoning_item is not None:

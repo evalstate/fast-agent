@@ -6,6 +6,9 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from pydantic import ValidationError
+
+from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.mcp.prompt_serialization import load_messages
 from fast_agent.session.snapshot import SessionSnapshot, load_session_snapshot
 from fast_agent.session.trace_export_codex import CodexTraceWriter
@@ -15,6 +18,8 @@ from fast_agent.session.trace_export_errors import (
     SessionExportAmbiguousAgentError,
     SessionExportNoAgentsError,
     SessionExportNotFoundError,
+    SessionExportReadError,
+    SessionExportWriteError,
     UnsupportedTraceExportFormatError,
 )
 from fast_agent.session.trace_export_hf import (
@@ -52,7 +57,12 @@ class SessionTraceExporter:
         resolved = self._resolve_request(request)
         output_path = self._resolve_output_path(request, resolved)
         writer = self._writer_for_format(request.format)
-        result = writer.write(resolved, output_path)
+        try:
+            result = writer.write(resolved, output_path)
+        except OSError as exc:
+            raise SessionExportWriteError(
+                f"Failed to write trace export to {output_path}: {exc}"
+            ) from exc
         if request.hf_dataset is None:
             return result
         uploader = self._dataset_uploader or HuggingFaceDatasetTraceUploader()
@@ -81,7 +91,12 @@ class SessionTraceExporter:
             session_dir=session_dir,
             requested_agent=request.agent_name,
         )
-        history = load_messages(str(history_path))
+        try:
+            history = load_messages(str(history_path))
+        except (AgentConfigError, OSError, ValueError, ValidationError) as exc:
+            raise SessionExportReadError(
+                f"Failed to load session history for agent '{agent_name}' from {history_path}: {exc}"
+            ) from exc
         return ResolvedSessionExport(
             session_id=snapshot.session_id,
             session_dir=session_dir,
@@ -146,9 +161,14 @@ class SessionTraceExporter:
 
     def _load_snapshot(self, session_dir: Path) -> SessionSnapshot:
         metadata_path = session_dir / "session.json"
-        with metadata_path.open(encoding="utf-8") as handle:
-            payload = json.load(handle)
-        return load_session_snapshot(payload)
+        try:
+            with metadata_path.open(encoding="utf-8") as handle:
+                payload = json.load(handle)
+            return load_session_snapshot(payload)
+        except (OSError, ValueError, ValidationError, json.JSONDecodeError) as exc:
+            raise SessionExportReadError(
+                f"Failed to load session snapshot from {metadata_path}: {exc}"
+            ) from exc
 
     def _resolve_agent(
         self,

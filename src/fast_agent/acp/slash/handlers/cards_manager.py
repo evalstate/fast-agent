@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
+from fast_agent.commands.command_discovery import render_direct_command_help
 from fast_agent.commands.handlers import cards_manager as cards_handlers
 
 if TYPE_CHECKING:
@@ -12,6 +13,10 @@ if TYPE_CHECKING:
 
 
 async def handle_cards(handler: "SlashCommandHandler", arguments: str | None = None) -> str:
+    direct_help = render_direct_command_help("cards", arguments)
+    if direct_help is not None:
+        return direct_help
+
     tokens = (arguments or "").strip().split(maxsplit=1)
     action = tokens[0].lower() if tokens else "list"
     remainder = tokens[1] if len(tokens) > 1 else ""

@@ -87,3 +87,12 @@ def test_parse_session_command_intent_rejects_unknown_export_options() -> None:
 
     assert intent.action == "export"
     assert intent.export_error == "Unknown export option: --format"
+
+
+def test_parse_session_command_intent_supports_export_help() -> None:
+    intent = parse_session_command_intent("export latest --help")
+
+    assert intent.action == "export"
+    assert intent.export_target == "latest"
+    assert intent.export_help is True
+    assert intent.export_error is None

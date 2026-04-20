@@ -8,6 +8,7 @@ from fast_agent.commands.handlers import session_export as session_export_handle
 from fast_agent.commands.handlers import sessions as sessions_handlers
 from fast_agent.commands.handlers.shared import clear_agent_histories
 from fast_agent.commands.renderers.session_markdown import render_session_list_markdown
+from fast_agent.commands.session_export_help import render_session_export_help_markdown
 from fast_agent.commands.session_summaries import build_session_list_summary
 from fast_agent.commands.shared_command_intents import (
     parse_session_command_intent,
@@ -162,6 +163,9 @@ async def handle_session_pin(
 
 
 async def handle_session_export(handler: "SlashCommandHandler", intent) -> str:
+    if intent.export_help:
+        return render_session_export_help_markdown()
+
     ctx = handler._build_command_context()
     io = cast("ACPCommandIO", ctx.io)
     agent_name = intent.export_agent

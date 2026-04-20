@@ -30,7 +30,11 @@ from fast_agent.session import (
     SessionTraceExporter,
 )
 from fast_agent.session.session_manager import SessionManager
-from fast_agent.session.trace_export_errors import SessionExportAmbiguousAgentError
+from fast_agent.session.trace_export_errors import (
+    SessionExportAmbiguousAgentError,
+    SessionExportReadError,
+    SessionExportWriteError,
+)
 from fast_agent.session.trace_export_models import DatasetUploadResult, ExportRequest
 from fast_agent.types import LlmStopReason
 
@@ -527,6 +531,73 @@ def test_session_trace_exporter_preserves_non_text_tool_outputs(tmp_path: Path) 
     }
 
 
+def test_session_trace_exporter_preserves_user_content_alongside_tool_outputs(tmp_path: Path) -> None:
+    manager = _build_manager(tmp_path)
+    session_id = "2604201303-x5MNlH"
+    session_dir = manager.base_dir / session_id
+    session_dir.mkdir(parents=True)
+    messages = [
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="Using tools")],
+            tool_calls={
+                "call_1": CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(
+                        name="execute",
+                        arguments={"command": "pwd"},
+                    ),
+                )
+            },
+            stop_reason=LlmStopReason.TOOL_USE,
+        ),
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="Please also inspect the parent directory")],
+            tool_results={
+                "call_1": CallToolResult(
+                    content=[TextContent(type="text", text="process exit code was 0")],
+                    isError=False,
+                )
+            },
+        ),
+    ]
+    save_json(messages, str(session_dir / "history_dev.json"))
+    _write_session_snapshot(
+        session_dir,
+        session_id=session_id,
+        active_agent="dev",
+        agents={"dev": SessionAgentSnapshot(history_file="history_dev.json")},
+    )
+
+    exporter = SessionTraceExporter(session_manager=manager)
+    exporter.export(
+        ExportRequest(
+            target=session_dir,
+            agent_name="dev",
+            output_path=tmp_path / "trace.jsonl",
+        )
+    )
+
+    records = [
+        json.loads(line)
+        for line in (tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+
+    assert records[5]["type"] == "response_item"
+    assert records[5]["payload"] == {
+        "type": "message",
+        "role": "user",
+        "content": [{"type": "input_text", "text": "Please also inspect the parent directory"}],
+    }
+    assert records[6]["type"] == "response_item"
+    assert records[6]["payload"] == {
+        "type": "function_call_output",
+        "call_id": "call_1",
+        "output": "process exit code was 0",
+    }
+
+
 def test_session_trace_exporter_preserves_assistant_attachment_content(tmp_path: Path) -> None:
     manager = _build_manager(tmp_path)
     session_id = "2604201303-x5MNlH"
@@ -632,6 +703,77 @@ def test_session_trace_exporter_requires_agent_when_multiple_histories_exist(tmp
                 target=session_id,
                 agent_name=None,
                 output_path=tmp_path / "trace.jsonl",
+            )
+        )
+
+
+def test_session_trace_exporter_wraps_invalid_snapshot_as_export_error(tmp_path: Path) -> None:
+    manager = _build_manager(tmp_path)
+    session_id = "2604201303-x5MNlH"
+    session_dir = manager.base_dir / session_id
+    session_dir.mkdir(parents=True)
+    (session_dir / "session.json").write_text('{"schema_version": 2}', encoding="utf-8")
+
+    exporter = SessionTraceExporter(session_manager=manager)
+
+    with pytest.raises(SessionExportReadError, match="Failed to load session snapshot"):
+        exporter.export(
+            ExportRequest(
+                target=session_dir,
+                agent_name=None,
+                output_path=tmp_path / "trace.jsonl",
+            )
+        )
+
+
+def test_session_trace_exporter_wraps_invalid_history_as_export_error(tmp_path: Path) -> None:
+    manager = _build_manager(tmp_path)
+    session_id = "2604201303-x5MNlH"
+    session_dir = manager.base_dir / session_id
+    session_dir.mkdir(parents=True)
+    (session_dir / "history_dev.json").write_text("{", encoding="utf-8")
+    _write_session_snapshot(
+        session_dir,
+        session_id=session_id,
+        active_agent="dev",
+        agents={"dev": SessionAgentSnapshot(history_file="history_dev.json")},
+    )
+
+    exporter = SessionTraceExporter(session_manager=manager)
+
+    with pytest.raises(SessionExportReadError, match="Failed to load session history"):
+        exporter.export(
+            ExportRequest(
+                target=session_dir,
+                agent_name="dev",
+                output_path=tmp_path / "trace.jsonl",
+            )
+        )
+
+
+def test_session_trace_exporter_wraps_output_write_errors(tmp_path: Path) -> None:
+    manager = _build_manager(tmp_path)
+    session_id = "2604201303-x5MNlH"
+    session_dir = manager.base_dir / session_id
+    session_dir.mkdir(parents=True)
+    _write_history(session_dir / "history_dev.json", assistant_text="done")
+    _write_session_snapshot(
+        session_dir,
+        session_id=session_id,
+        active_agent="dev",
+        agents={"dev": SessionAgentSnapshot(history_file="history_dev.json")},
+    )
+    output_dir = tmp_path / "trace-dir"
+    output_dir.mkdir()
+
+    exporter = SessionTraceExporter(session_manager=manager)
+
+    with pytest.raises(SessionExportWriteError, match="Failed to write trace export"):
+        exporter.export(
+            ExportRequest(
+                target=session_dir,
+                agent_name="dev",
+                output_path=output_dir,
             )
         )
 

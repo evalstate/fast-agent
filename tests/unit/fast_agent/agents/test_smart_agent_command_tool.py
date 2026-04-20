@@ -132,7 +132,8 @@ async def test_run_slash_command_skills_help_returns_usage(tmp_path: Path) -> No
 
     result = await _run_slash_command_call(agent, "/skills --help")
 
-    assert "Usage: /skills [list|available|search|add|remove|update|registry|help]" in result
+    assert "# commands skills" in result
+    assert "Usage: `/skills [list|available|search|add|remove|update|registry|help] [args]`" in result
 
 
 @pytest.mark.asyncio
@@ -165,6 +166,7 @@ async def test_run_slash_command_commands_index(tmp_path: Path) -> None:
 
     assert "# commands" in result
     assert "`/skills`" in result
+    assert "`/session`" in result
 
 
 @pytest.mark.asyncio
@@ -185,4 +187,53 @@ async def test_run_slash_command_cards_help_returns_usage(tmp_path: Path) -> Non
 
     result = await _run_slash_command_call(agent, "/cards --help")
 
-    assert "Usage: /cards [list|add|remove|readme|update|publish|registry|help] [args]" in result
+    assert "# commands cards" in result
+    assert "Usage: `/cards [list|add|remove|readme|update|publish|registry|help] [args]`" in result
+
+
+@pytest.mark.asyncio
+async def test_run_slash_command_cards_publish_help(tmp_path: Path) -> None:
+    settings = Settings(environment_dir=str(tmp_path / ".fast-agent"))
+    agent = _SmartAgentStub(settings=settings)
+
+    result = await _run_slash_command_call(agent, "/cards publish --help")
+
+    assert "# commands cards publish" in result
+    assert "`--no-push`" in result
+
+
+@pytest.mark.asyncio
+async def test_run_slash_command_skills_add_help(tmp_path: Path) -> None:
+    settings = Settings(environment_dir=str(tmp_path / ".fast-agent"))
+    agent = _SmartAgentStub(settings=settings)
+
+    result = await _run_slash_command_call(agent, "/skills add --help")
+
+    assert "# commands skills add" in result
+    assert "`--skills-dir path`" in result
+
+
+@pytest.mark.asyncio
+async def test_run_slash_command_session_export_supports_hf_options(tmp_path: Path) -> None:
+    settings = Settings(environment_dir=str(tmp_path / ".fast-agent"))
+    agent = _SmartAgentStub(settings=settings)
+
+    result = await _run_slash_command_call(
+        agent,
+        "/session export latest --hf-dataset-path exports/",
+    )
+
+    assert "# session.export" in result
+    assert "--hf-dataset-path requires --hf-dataset." in result
+
+
+@pytest.mark.asyncio
+async def test_run_slash_command_session_export_help(tmp_path: Path) -> None:
+    settings = Settings(environment_dir=str(tmp_path / ".fast-agent"))
+    agent = _SmartAgentStub(settings=settings)
+
+    result = await _run_slash_command_call(agent, "/session export --help")
+
+    assert "# session export" in result
+    assert "file path, not a directory path" in result
+    assert "`--hf-dataset-path path`" in result

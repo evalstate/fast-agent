@@ -322,6 +322,7 @@ class ExportSessionCommand(CommandBase):
     output_path: str | None
     hf_dataset: str | None
     hf_dataset_path: str | None
+    show_help: bool
     error: str | None
     kind: Literal["export_session"] = "export_session"
 

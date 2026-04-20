@@ -294,7 +294,7 @@ class SlashCommandHandler:
                 description="List or manage sessions",
                 input=AvailableCommandInput(
                     root=UnstructuredCommandInput(
-                        hint="[list|new|resume|title|fork|clear] [args]"
+                        hint="[list|new|resume|title|fork|delete|pin|export] [args]"
                     )
                 ),
             ),

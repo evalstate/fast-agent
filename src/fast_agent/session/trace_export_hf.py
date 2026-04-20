@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
+from importlib import import_module
 from typing import TYPE_CHECKING, Protocol
 from urllib.parse import quote
-
-from huggingface_hub import HfApi
 
 from fast_agent.session.trace_export_errors import SessionExportUploadError
 from fast_agent.session.trace_export_models import DatasetUploadResult
@@ -33,7 +32,7 @@ class HuggingFaceDatasetTraceUploader:
     """Upload exported traces to a dataset repository on the Hugging Face Hub."""
 
     def __init__(self, *, api: HubApiProtocol | None = None) -> None:
-        self._api = api or HfApi()
+        self._api = api or _create_hf_api()
 
     def upload(
         self,
@@ -102,3 +101,15 @@ class HubApiProtocol(Protocol):
         repo_type: str,
         commit_message: str,
     ) -> object: ...
+
+
+def _create_hf_api() -> HubApiProtocol:
+    try:
+        module = import_module("huggingface_hub")
+        api_class = module.HfApi
+    except Exception as exc:
+        raise SessionExportUploadError(
+            "Uploading traces to Hugging Face datasets requires `huggingface_hub`. "
+            "Install it first, then retry the export."
+        ) from exc
+    return api_class()

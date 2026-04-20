@@ -16,6 +16,13 @@ from fast_agent.commands.context import (
 )
 from fast_agent.commands.handlers import session_export as session_export_handlers
 from fast_agent.commands.handlers import sessions as session_handlers
+from fast_agent.commands.session_export_help import (
+    SESSION_EXPORT_AGENT_HELP,
+    SESSION_EXPORT_HF_DATASET_HELP,
+    SESSION_EXPORT_HF_DATASET_PATH_HELP,
+    SESSION_EXPORT_OUTPUT_HELP,
+    SESSION_EXPORT_TARGET_HELP,
+)
 
 
 class _ExportCommandIO(NonInteractiveCommandIOBase):
@@ -48,27 +55,24 @@ def export(
     ctx: typer.Context,
     target: str | None = typer.Argument(
         None,
-        help="Session target: latest, session id, session dir, or session.json path.",
+        help=SESSION_EXPORT_TARGET_HELP,
     ),
     list_sessions: bool = typer.Option(
         False,
         "--list",
         help="List recent sessions instead of exporting.",
     ),
-    agent: str | None = typer.Option(None, "--agent", "-a", help="Agent name to export."),
-    output: Path | None = typer.Option(None, "--output", "-o", help="Write trace to this path."),
+    agent: str | None = typer.Option(None, "--agent", "-a", help=SESSION_EXPORT_AGENT_HELP),
+    output: Path | None = typer.Option(None, "--output", "-o", help=SESSION_EXPORT_OUTPUT_HELP),
     hf_dataset: str | None = typer.Option(
         None,
         "--hf-dataset",
-        help="Upload the exported trace to this Hugging Face dataset repo (owner/name).",
+        help=SESSION_EXPORT_HF_DATASET_HELP,
     ),
     hf_dataset_path: str | None = typer.Option(
         None,
         "--hf-dataset-path",
-        help=(
-            "Path in the dataset repo. Defaults to the root using the local filename. "
-            "If the value ends with '/', it is treated as a folder."
-        ),
+        help=SESSION_EXPORT_HF_DATASET_PATH_HELP,
     ),
 ) -> None:
     """Export a persisted session trace."""

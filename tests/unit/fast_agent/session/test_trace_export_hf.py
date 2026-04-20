@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
+
+from fast_agent.session.trace_export_errors import SessionExportUploadError
 from fast_agent.session.trace_export_hf import HuggingFaceDatasetTraceUploader
 
 if TYPE_CHECKING:
@@ -67,3 +70,13 @@ def test_hf_dataset_uploader_appends_filename_for_folder_path(tmp_path: Path) ->
 
     assert api.upload_file_calls[0][1] == "exports/trace.jsonl"
     assert result.path_in_repo == "exports/trace.jsonl"
+
+
+def test_hf_dataset_uploader_reports_missing_dependency(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _missing_module(module_name: str) -> object:
+        raise ModuleNotFoundError(module_name)
+
+    monkeypatch.setattr("fast_agent.session.trace_export_hf.import_module", _missing_module)
+
+    with pytest.raises(SessionExportUploadError, match="requires `huggingface_hub`"):
+        HuggingFaceDatasetTraceUploader()

@@ -89,6 +89,7 @@ class SessionCommandIntent:
     export_output: str | None = None
     export_hf_dataset: str | None = None
     export_hf_dataset_path: str | None = None
+    export_help: bool = False
     export_error: str | None = None
     raw_subcommand: str | None = None
 
@@ -136,7 +137,9 @@ def parse_session_command_intent(remainder: str) -> SessionCommandIntent:
             pin_target=target,
         )
     if subcmd == "export":
-        target, agent, output, hf_dataset, hf_dataset_path, error = _parse_export_argument(argument)
+        target, agent, output, hf_dataset, hf_dataset_path, show_help, error = (
+            _parse_export_argument(argument)
+        )
         return SessionCommandIntent(
             action="export",
             export_target=target,
@@ -144,6 +147,7 @@ def parse_session_command_intent(remainder: str) -> SessionCommandIntent:
             export_output=output,
             export_hf_dataset=hf_dataset,
             export_hf_dataset_path=hf_dataset_path,
+            export_help=show_help,
             export_error=error,
         )
 
@@ -185,27 +189,40 @@ def _parse_pin_argument(argument: str) -> tuple[str | None, str | None]:
 
 def _parse_export_argument(
     argument: str | None,
-) -> tuple[str | None, str | None, str | None, str | None, str | None, str | None]:
+) -> tuple[
+    str | None,
+    str | None,
+    str | None,
+    str | None,
+    str | None,
+    bool,
+    str | None,
+]:
     stripped = (argument or "").strip()
     if not stripped:
-        return None, None, None, None, None, None
+        return None, None, None, None, None, False, None
 
     try:
         tokens = _split_export_tokens(stripped)
     except ValueError as exc:
-        return None, None, None, None, None, f"Invalid export arguments: {exc}"
+        return None, None, None, None, None, False, f"Invalid export arguments: {exc}"
 
     target: str | None = None
     agent_name: str | None = None
     output_path: str | None = None
     hf_dataset: str | None = None
     hf_dataset_path: str | None = None
+    show_help = False
     index = 0
     while index < len(tokens):
         token = tokens[index]
+        if token in {"--help", "-h"}:
+            show_help = True
+            index += 1
+            continue
         if token in {"--agent", "-a"}:
             if index + 1 >= len(tokens):
-                return None, None, None, None, None, "Missing value for --agent"
+                return None, None, None, None, None, False, "Missing value for --agent"
             agent_name = tokens[index + 1]
             index += 2
             continue
@@ -215,7 +232,7 @@ def _parse_export_argument(
             continue
         if token in {"--output", "-o"}:
             if index + 1 >= len(tokens):
-                return None, None, None, None, None, "Missing value for --output"
+                return None, None, None, None, None, False, "Missing value for --output"
             output_path = tokens[index + 1]
             index += 2
             continue
@@ -225,7 +242,7 @@ def _parse_export_argument(
             continue
         if token == "--hf-dataset":
             if index + 1 >= len(tokens):
-                return None, None, None, None, None, "Missing value for --hf-dataset"
+                return None, None, None, None, None, False, "Missing value for --hf-dataset"
             hf_dataset = tokens[index + 1]
             index += 2
             continue
@@ -235,7 +252,7 @@ def _parse_export_argument(
             continue
         if token == "--hf-dataset-path":
             if index + 1 >= len(tokens):
-                return None, None, None, None, None, "Missing value for --hf-dataset-path"
+                return None, None, None, None, None, False, "Missing value for --hf-dataset-path"
             hf_dataset_path = tokens[index + 1]
             index += 2
             continue
@@ -244,14 +261,14 @@ def _parse_export_argument(
             index += 1
             continue
         if token.startswith("-"):
-            return None, None, None, None, None, f"Unknown export option: {token}"
+            return None, None, None, None, None, False, f"Unknown export option: {token}"
         if target is None:
             target = token
             index += 1
             continue
-        return None, None, None, None, None, f"Unexpected export argument: {token}"
+        return None, None, None, None, None, False, f"Unexpected export argument: {token}"
 
-    return target, agent_name, output_path, hf_dataset, hf_dataset_path, None
+    return target, agent_name, output_path, hf_dataset, hf_dataset_path, show_help, None
 
 
 def _split_export_tokens(argument: str) -> list[str]:

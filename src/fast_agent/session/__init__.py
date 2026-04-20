@@ -56,6 +56,8 @@ from .trace_export_errors import (
     SessionExportAmbiguousAgentError,
     SessionExportNoAgentsError,
     SessionExportNotFoundError,
+    SessionExportReadError,
+    SessionExportWriteError,
     TraceExportError,
     UnsupportedTraceExportFormatError,
 )
@@ -116,6 +118,8 @@ __all__ = [
     "SessionExportAmbiguousAgentError",
     "SessionExportNoAgentsError",
     "SessionExportNotFoundError",
+    "SessionExportReadError",
+    "SessionExportWriteError",
     "SessionTraceExporter",
     "TraceExportError",
     "UnsupportedTraceExportFormatError",

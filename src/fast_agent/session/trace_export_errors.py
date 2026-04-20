@@ -33,3 +33,11 @@ class UnsupportedTraceExportFormatError(TraceExportError):
 
 class SessionExportUploadError(TraceExportError):
     """Raised when an exported trace cannot be uploaded to a remote destination."""
+
+
+class SessionExportReadError(TraceExportError):
+    """Raised when a persisted session cannot be read for export."""
+
+
+class SessionExportWriteError(TraceExportError):
+    """Raised when an exported trace cannot be written to disk."""

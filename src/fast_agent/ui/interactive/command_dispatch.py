@@ -20,6 +20,8 @@ from fast_agent.commands.handlers import sessions as sessions_handlers
 from fast_agent.commands.handlers import skills as skills_handlers
 from fast_agent.commands.handlers import tools as tools_handlers
 from fast_agent.commands.handlers.shared import clear_agent_histories
+from fast_agent.commands.results import CommandOutcome
+from fast_agent.commands.session_export_help import render_session_export_help_markdown
 from fast_agent.commands.shared_command_intents import should_default_export_agent
 from fast_agent.ui import enhanced_prompt
 from fast_agent.ui.command_payloads import (
@@ -676,9 +678,15 @@ async def _dispatch_session_payload(
             output_path=output_path,
             hf_dataset=hf_dataset,
             hf_dataset_path=hf_dataset_path,
+            show_help=show_help,
             error=error,
         ):
             context = build_command_context(prompt_provider, agent)
+            if show_help:
+                outcome = CommandOutcome()
+                outcome.add_message(render_session_export_help_markdown(), render_markdown=True)
+                await emit_command_outcome(context, outcome)
+                return result
             manager = context.resolve_session_manager()
             current_session = manager.current_session
             current_session_id = current_session.info.name if current_session is not None else None

@@ -309,6 +309,7 @@ def _parse_session_command(remainder: str) -> CommandPayload:
             output_path=intent.export_output,
             hf_dataset=intent.export_hf_dataset,
             hf_dataset_path=intent.export_hf_dataset_path,
+            show_help=intent.export_help,
             error=intent.export_error,
         )
     return PinSessionCommand(value=intent.pin_value, target=intent.pin_target)
