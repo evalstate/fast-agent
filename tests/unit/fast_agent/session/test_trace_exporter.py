@@ -142,6 +142,8 @@ def test_session_trace_exporter_writes_codex_trace(tmp_path: Path) -> None:
     assert records[4]["type"] == "turn_context"
     assert records[4]["payload"]["turn_id"] == "turn-1"
     assert "developer_instructions" not in records[4]["payload"]
+    assert "approval_policy" not in records[4]["payload"]
+    assert "sandbox_policy" not in records[4]["payload"]
     assert records[5]["type"] == "response_item"
     assert records[5]["payload"]["type"] == "message"
     assert records[5]["payload"]["role"] == "user"
@@ -526,6 +528,96 @@ def test_session_trace_exporter_preserves_non_text_tool_outputs(tmp_path: Path) 
             {
                 "type": "input_file",
                 "file_data": "d2F2",
+            },
+        ],
+    }
+
+
+def test_session_trace_exporter_preserves_tool_output_item_order(tmp_path: Path) -> None:
+    manager = _build_manager(tmp_path)
+    session_id = "2604201303-x5MNlH"
+    session_dir = manager.base_dir / session_id
+    session_dir.mkdir(parents=True)
+    messages = [
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="Using tools")],
+            tool_calls={
+                "call_1": CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(
+                        name="download",
+                        arguments={"target": "report"},
+                    ),
+                )
+            },
+            stop_reason=LlmStopReason.TOOL_USE,
+        ),
+        PromptMessageExtended(
+            role="user",
+            content=[],
+            tool_results={
+                "call_1": CallToolResult(
+                    content=[
+                        TextContent(type="text", text="Fetched report"),
+                        EmbeddedResource(
+                            type="resource",
+                            resource=BlobResourceContents(
+                                uri=AnyUrl("file:///tmp/report-a.pdf"),
+                                mimeType="application/pdf",
+                                blob="YQ==",
+                            ),
+                        ),
+                        TextContent(type="text", text="Fetched audio"),
+                        ResourceLink(
+                            type="resource_link",
+                            uri=AnyUrl("https://example.com/audio.mp3"),
+                            mimeType="audio/mpeg",
+                            name="audio.mp3",
+                        ),
+                    ],
+                    isError=False,
+                )
+            },
+        ),
+    ]
+    save_json(messages, str(session_dir / "history_dev.json"))
+    _write_session_snapshot(
+        session_dir,
+        session_id=session_id,
+        active_agent="dev",
+        agents={"dev": SessionAgentSnapshot(history_file="history_dev.json")},
+    )
+
+    exporter = SessionTraceExporter(session_manager=manager)
+    exporter.export(
+        ExportRequest(
+            target=session_dir,
+            agent_name="dev",
+            output_path=tmp_path / "trace.jsonl",
+        )
+    )
+
+    records = [
+        json.loads(line)
+        for line in (tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+
+    assert records[5]["type"] == "response_item"
+    assert records[5]["payload"] == {
+        "type": "function_call_output",
+        "call_id": "call_1",
+        "output": [
+            {"type": "input_text", "text": "Fetched report"},
+            {
+                "type": "input_file",
+                "file_data": "YQ==",
+                "filename": "report-a.pdf",
+            },
+            {"type": "input_text", "text": "Fetched audio"},
+            {
+                "type": "input_file",
+                "file_url": "https://example.com/audio.mp3",
             },
         ],
     }

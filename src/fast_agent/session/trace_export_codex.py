@@ -294,30 +294,40 @@ def _function_call_item(call_id: str, call: CallToolRequest) -> dict[str, object
 
 
 def _tool_result_output(result: CallToolResult) -> object:
-    attachments: list[dict[str, object]] = []
-    texts: list[str] = []
+    items: list[dict[str, object]] = []
+    text_parts: list[str] = []
+
+    def flush_text_parts() -> None:
+        if not text_parts:
+            return
+        items.append({"type": "input_text", "text": "\n".join(text_parts)})
+        text_parts.clear()
 
     for block in canonicalize_tool_result_content_for_llm(result):
         if isinstance(block, TextContent):
-            texts.append(block.text)
+            text_parts.append(block.text)
             continue
+
+        flush_text_parts()
 
         if isinstance(block, EmbeddedResource):
             text_item = _embedded_text_item(block, output_text=False)
             if text_item is not None:
-                attachments.append(text_item)
+                items.append(text_item)
                 continue
 
         attachment = _tool_attachment_item(block)
         if attachment is not None:
-            attachments.append(attachment)
+            items.append(attachment)
 
-    if attachments:
-        if texts:
-            return [{"type": "input_text", "text": "\n".join(texts)}, *attachments]
-        return attachments
-    if texts:
-        return "\n".join(texts)
+    flush_text_parts()
+
+    if items:
+        if len(items) == 1 and items[0].get("type") == "input_text":
+            text = items[0].get("text")
+            if isinstance(text, str):
+                return text
+        return items
     return ""
 
 
@@ -520,8 +530,6 @@ def _turn_context_payload(
         "cwd": _session_cwd(resolved),
         "current_date": created_at.date().isoformat(),
         "timezone": "UTC",
-        "approval_policy": "never",
-        "sandbox_policy": {"type": "danger-full-access"},
         "summary": "auto",
     }
     if meta.model is not None:

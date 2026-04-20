@@ -95,7 +95,7 @@ class SessionCommandIntent:
 
 
 def should_default_export_agent(target: str | None) -> bool:
-    return target is None or target.lower() == "latest"
+    return target is None
 
 
 def parse_session_command_intent(remainder: str) -> SessionCommandIntent:

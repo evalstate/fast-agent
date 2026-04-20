@@ -151,7 +151,7 @@ async def test_render_session_list_uses_app_session_store_when_configured(
 
 
 @pytest.mark.asyncio
-async def test_handle_session_export_defaults_current_agent_for_latest_target(
+async def test_handle_session_export_leaves_agent_unset_for_latest_target(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     app = _App()
@@ -200,7 +200,7 @@ async def test_handle_session_export_defaults_current_agent_for_latest_target(
 
     assert captured == {
         "target": "latest",
-        "agent_name": "main",
+        "agent_name": None,
         "output_path": None,
         "hf_dataset": None,
         "hf_dataset_path": None,

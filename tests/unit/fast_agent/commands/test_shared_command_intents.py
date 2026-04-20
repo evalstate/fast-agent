@@ -68,10 +68,10 @@ def test_parse_session_command_intent_supports_escaped_spaces_in_export_options(
     assert intent.export_error is None
 
 
-def test_should_default_export_agent_for_latest_target() -> None:
+def test_should_default_export_agent_only_for_current_session_target() -> None:
     assert should_default_export_agent(None) is True
-    assert should_default_export_agent("latest") is True
-    assert should_default_export_agent("LATEST") is True
+    assert should_default_export_agent("latest") is False
+    assert should_default_export_agent("LATEST") is False
     assert should_default_export_agent("2604201303-x5MNlH") is False
 
 
