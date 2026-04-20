@@ -398,6 +398,57 @@ def test_session_trace_exporter_writes_native_codex_tool_items(tmp_path: Path) -
     assert records[6]["payload"]["last_agent_message"] == "Using tools"
 
 
+def test_session_trace_exporter_serializes_zero_argument_tool_calls_as_empty_object(
+    tmp_path: Path,
+) -> None:
+    manager = _build_manager(tmp_path)
+    session_id = "2604201303-x5MNlH"
+    session_dir = manager.base_dir / session_id
+    session_dir.mkdir(parents=True)
+    messages = [
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="Using tools")],
+            tool_calls={
+                "call_1": CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(name="tool_function"),
+                )
+            },
+            stop_reason=LlmStopReason.TOOL_USE,
+        ),
+    ]
+    save_json(messages, str(session_dir / "history_dev.json"))
+    _write_session_snapshot(
+        session_dir,
+        session_id=session_id,
+        active_agent="dev",
+        agents={"dev": SessionAgentSnapshot(history_file="history_dev.json")},
+    )
+
+    exporter = SessionTraceExporter(session_manager=manager)
+    exporter.export(
+        ExportRequest(
+            target=session_dir,
+            agent_name="dev",
+            output_path=tmp_path / "trace.jsonl",
+        )
+    )
+
+    records = [
+        json.loads(line)
+        for line in (tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+
+    assert records[4]["type"] == "response_item"
+    assert records[4]["payload"] == {
+        "type": "function_call",
+        "name": "tool_function",
+        "arguments": "{}",
+        "call_id": "call_1",
+    }
+
+
 def test_session_trace_exporter_uses_usage_metadata_for_model_and_token_count(tmp_path: Path) -> None:
     manager = _build_manager(tmp_path)
     session_id = "2604201303-x5MNlH"

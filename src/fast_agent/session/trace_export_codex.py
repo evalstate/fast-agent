@@ -66,6 +66,8 @@ def _package_version() -> str:
 
 
 def _json_arguments(arguments: object) -> str:
+    if arguments is None:
+        arguments = {}
     return json.dumps(arguments, ensure_ascii=False, separators=(",", ":"))
 
 
