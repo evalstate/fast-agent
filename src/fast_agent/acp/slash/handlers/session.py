@@ -177,8 +177,7 @@ async def handle_session_export(handler: "SlashCommandHandler", intent) -> str:
             handler_session = manager.get_session(handler.session_id)
         except AttributeError:
             handler_session = None
-        if handler_session is not None:
-            current_session_id = handler_session.info.name
+        current_session_id = handler_session.info.name if handler_session is not None else None
     if intent.export_target is None and current_session_id is None:
         outcome = CommandOutcome()
         outcome.add_message(

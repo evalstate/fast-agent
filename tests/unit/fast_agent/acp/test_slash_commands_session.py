@@ -199,7 +199,7 @@ async def test_handle_session_export_leaves_agent_unset_for_latest_target(
     monkeypatch.setattr("fast_agent.session.get_session_manager", lambda **kwargs: _Manager())
 
     handler = SlashCommandHandler(
-        session_id="s1",
+        session_id="persisted-1",
         instance=instance,
         primary_agent_name="main",
     )
@@ -271,7 +271,7 @@ async def test_handle_session_export_defaults_agent_only_with_current_session(
     monkeypatch.setattr("fast_agent.session.get_session_manager", lambda **kwargs: _Manager())
 
     handler = SlashCommandHandler(
-        session_id="s1",
+        session_id="persisted-1",
         instance=instance,
         primary_agent_name="main",
     )
@@ -294,7 +294,82 @@ async def test_handle_session_export_defaults_agent_only_with_current_session(
 
 
 @pytest.mark.asyncio
-async def test_handle_session_export_requires_current_session_for_implicit_target(
+async def test_handle_session_export_uses_handler_session_when_manager_current_is_unset(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    app = _App()
+    instance = AgentInstance(
+        app=cast("AgentApp", app),
+        agents={"main": cast("AgentProtocol", _Agent())},
+        registry_version=0,
+    )
+    captured: dict[str, object | None] = {}
+
+    async def fake_handle_session_export(
+        ctx,
+        *,
+        target: str | None,
+        agent_name: str | None,
+        output_path: str | None,
+        hf_dataset: str | None,
+        hf_dataset_path: str | None,
+        current_session_id: str | None = None,
+        error: str | None = None,
+    ) -> CommandOutcome:
+        del ctx, output_path, hf_dataset, hf_dataset_path, error
+        captured["target"] = target
+        captured["agent_name"] = agent_name
+        captured["current_session_id"] = current_session_id
+        return CommandOutcome()
+
+    monkeypatch.setattr(
+        session_slash_handlers.session_export_handlers,
+        "handle_session_export",
+        fake_handle_session_export,
+    )
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    class _Manager:
+        current_session = None
+
+        def get_session(self, name: str):
+            if name == "persisted-1":
+                return SimpleNamespace(info=SimpleNamespace(name="persisted-1"))
+            return None
+
+    monkeypatch.setattr("fast_agent.session.get_session_manager", lambda **kwargs: _Manager())
+
+    handler = SlashCommandHandler(
+        session_id="persisted-1",
+        instance=instance,
+        primary_agent_name="main",
+    )
+    handler._acp_context = cast(
+        "Any",
+        SimpleNamespace(
+            session_cwd=str(workspace.resolve()),
+            session_store_scope="workspace",
+            session_store_cwd=None,
+        ),
+    )
+
+    await session_slash_handlers.handle_session_export(
+        handler,
+        parse_session_command_intent("export"),
+    )
+
+    assert captured == {
+        "target": None,
+        "agent_name": "main",
+        "current_session_id": "persisted-1",
+    }
+
+
+@pytest.mark.asyncio
+async def test_handle_session_export_rejects_stale_manager_current_session(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -318,12 +393,16 @@ async def test_handle_session_export_requires_current_session_for_implicit_targe
     workspace.mkdir()
 
     class _Manager:
-        current_session = None
+        current_session = SimpleNamespace(info=SimpleNamespace(name="other-session"))
+
+        def get_session(self, name: str):
+            del name
+            return None
 
     monkeypatch.setattr("fast_agent.session.get_session_manager", lambda **kwargs: _Manager())
 
     handler = SlashCommandHandler(
-        session_id="s1",
+        session_id="new-session",
         instance=instance,
         primary_agent_name="main",
     )
