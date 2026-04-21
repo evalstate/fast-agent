@@ -17,6 +17,12 @@ _UVLOOP_PROMPT_TOOLKIT_DEPRECATION_MESSAGE = (
     r"'asyncio\.iscoroutinefunction' is deprecated and slated for removal in Python 3\.16; "
     r"use inspect\.iscoroutinefunction\(\) instead"
 )
+_ASYNCIO_SET_EVENT_LOOP_POLICY_DEPRECATION_MESSAGE = (
+    r"'asyncio\.set_event_loop_policy' is deprecated and slated for removal in Python 3\.16"
+)
+_ASYNCIO_ABSTRACT_EVENT_LOOP_POLICY_DEPRECATION_MESSAGE = (
+    r"'asyncio\.AbstractEventLoopPolicy' is deprecated and slated for removal in Python 3\.16"
+)
 
 
 def install_known_runtime_warning_filters(
@@ -25,6 +31,7 @@ def install_known_runtime_warning_filters(
 ) -> None:
     """Install targeted runtime warning filters for supported fast-agent runtimes."""
     _suppress_known_uvloop_prompt_toolkit_deprecation(version_info=version_info)
+    _suppress_known_uvloop_event_loop_policy_deprecations(version_info=version_info)
 
 
 @contextlib.contextmanager
@@ -55,6 +62,27 @@ def _suppress_known_uvloop_prompt_toolkit_deprecation(
     warnings.filterwarnings(
         "ignore",
         message=_UVLOOP_PROMPT_TOOLKIT_DEPRECATION_MESSAGE,
+        category=DeprecationWarning,
+    )
+
+
+def _suppress_known_uvloop_event_loop_policy_deprecations(
+    *,
+    version_info: tuple[int, ...] | None = None,
+) -> None:
+    """Hide Python 3.14 asyncio event-loop-policy deprecations from uvloop startup."""
+    current_version = sys.version_info if version_info is None else version_info
+    if current_version < (3, 14):
+        return
+
+    warnings.filterwarnings(
+        "ignore",
+        message=_ASYNCIO_SET_EVENT_LOOP_POLICY_DEPRECATION_MESSAGE,
+        category=DeprecationWarning,
+    )
+    warnings.filterwarnings(
+        "ignore",
+        message=_ASYNCIO_ABSTRACT_EVENT_LOOP_POLICY_DEPRECATION_MESSAGE,
         category=DeprecationWarning,
     )
 
@@ -115,14 +143,13 @@ def ensure_event_loop() -> asyncio.AbstractEventLoop:
     try:
         return asyncio.get_running_loop()
     except RuntimeError:
-        policy = asyncio.get_event_loop_policy()
-        local = getattr(policy, "_local", None)
-        loop = getattr(local, "_loop", None) if local is not None else None
-        if isinstance(loop, asyncio.AbstractEventLoop):
-            if loop.is_closed():
-                return create_event_loop()
-            return loop
-        return create_event_loop()
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            return create_event_loop()
+        if loop.is_closed():
+            return create_event_loop()
+        return loop
 
 
 def run_sync(

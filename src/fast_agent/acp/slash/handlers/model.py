@@ -6,6 +6,7 @@ import shlex
 from typing import TYPE_CHECKING, cast
 
 from fast_agent.acp.command_io import ACPCommandIO
+from fast_agent.commands.command_discovery import render_direct_command_help
 from fast_agent.commands.context import CommandContext, StaticAgentProvider
 from fast_agent.commands.handlers import model as model_handlers
 from fast_agent.commands.handlers import models_manager as models_manager_handlers
@@ -27,6 +28,10 @@ async def _handle_model_like(
     *,
     heading_prefix: str,
 ) -> str:
+    direct_help = render_direct_command_help(heading_prefix, arguments)
+    if direct_help is not None:
+        return direct_help
+
     remainder = (arguments or "").strip()
     value = None
     command_kind = "reasoning" if heading_prefix == "model" else "doctor"

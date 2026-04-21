@@ -15,6 +15,7 @@ from acp.schema import (
     ToolCallStart,
 )
 
+from fast_agent.commands.command_discovery import render_direct_command_help
 from fast_agent.commands.handlers import skills as skills_handlers
 from fast_agent.commands.renderers.skills_markdown import (
     render_marketplace_skills,
@@ -112,6 +113,10 @@ async def handle_skills_available(
 
 
 async def handle_skills(handler: "SlashCommandHandler", arguments: str | None = None) -> str:
+    direct_help = render_direct_command_help("skills", arguments)
+    if direct_help is not None:
+        return direct_help
+
     tokens = (arguments or "").strip().split(maxsplit=1)
     action = tokens[0].lower() if tokens else "list"
     remainder = tokens[1] if len(tokens) > 1 else ""

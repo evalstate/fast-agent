@@ -7,6 +7,7 @@ import os
 import sys
 import tempfile
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -28,7 +29,16 @@ from fast_agent.constants import (
 )
 from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
-from fast_agent.session import display_session_name, get_session_manager, reset_session_manager
+from fast_agent.mcp.prompt_serialization import save_json
+from fast_agent.session import (
+    SessionAgentSnapshot,
+    SessionContinuationSnapshot,
+    SessionRequestSettingsSnapshot,
+    SessionSnapshot,
+    display_session_name,
+    get_session_manager,
+    reset_session_manager,
+)
 from fast_agent.session import session_manager as session_manager_module
 
 if TYPE_CHECKING:
@@ -928,6 +938,86 @@ async def test_slash_command_session_pin_sets_metadata(tmp_path: Path) -> None:
         list_response = await handler.execute_command("session", "list")
         assert "pin" in list_response.lower()
         assert label in list_response
+    finally:
+        update_global_settings(old_settings)
+        reset_session_manager()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_session_export_writes_trace_for_current_session(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    old_settings = get_settings()
+    env_dir = tmp_path / "env"
+    monkeypatch.setenv("ENVIRONMENT_DIR", str(env_dir))
+    override = old_settings.model_copy(update={"environment_dir": str(env_dir)})
+    update_global_settings(override)
+    reset_session_manager()
+
+    try:
+        session_id = "2604201303-x5MNlH"
+        session_dir = env_dir / "sessions" / session_id
+        session_dir.mkdir(parents=True)
+
+        save_json(
+            [
+                PromptMessageExtended(
+                    role="user",
+                    content=[TextContent(type="text", text="hello")],
+                ),
+                PromptMessageExtended(
+                    role="assistant",
+                    content=[TextContent(type="text", text="done")],
+                ),
+            ],
+            str(session_dir / "history_test-agent.json"),
+        )
+        snapshot = SessionSnapshot(
+            session_id=session_id,
+            created_at=datetime(2026, 4, 20, 13, 3, 0),
+            last_activity=datetime(2026, 4, 20, 13, 8, 0),
+            continuation=SessionContinuationSnapshot(
+                active_agent="test-agent",
+                agents={
+                    "test-agent": SessionAgentSnapshot(
+                        history_file="history_test-agent.json",
+                        resolved_prompt="You are test-agent.",
+                        model="gpt-5.4",
+                        provider="codexresponses",
+                        request_settings=SessionRequestSettingsSnapshot(use_history=True),
+                    )
+                },
+            ),
+        )
+        (session_dir / "session.json").write_text(
+            json.dumps(snapshot.model_dump(mode="json"), indent=2),
+            encoding="utf-8",
+        )
+
+        output_path = tmp_path / "slash-trace.jsonl"
+        instance = StubAgentInstance(agents={"test-agent": StubAgent(message_history=[])})
+        handler = SlashCommandHandler(
+            session_id,
+            cast("AgentInstance", instance),
+            "test-agent",
+        )
+
+        response = await handler.execute_command(
+            "session",
+            f'export --output "{output_path}"',
+        )
+
+        assert "Exported codex trace" in response
+        assert output_path.is_file()
+        records = [
+            json.loads(line)
+            for line in output_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        assert records[0]["type"] == "session_meta"
+        assert records[0]["payload"]["id"] == session_id
     finally:
         update_global_settings(old_settings)
         reset_session_manager()

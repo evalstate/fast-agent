@@ -50,6 +50,19 @@ from .snapshot import (
     snapshot_from_session_info,
     synthesize_legacy_session_snapshot,
 )
+from .trace_export_errors import (
+    InvalidSessionExportTargetError,
+    SessionExportAgentNotFoundError,
+    SessionExportAmbiguousAgentError,
+    SessionExportNoAgentsError,
+    SessionExportNotFoundError,
+    SessionExportReadError,
+    SessionExportWriteError,
+    TraceExportError,
+    UnsupportedTraceExportFormatError,
+)
+from .trace_export_models import ExportFormat, ExportRequest, ExportResult, ResolvedSessionExport
+from .trace_exporter import SessionTraceExporter
 
 __all__ = [
     "ResumeSessionAgentsResult",
@@ -96,4 +109,18 @@ __all__ = [
     "snapshot_from_session_info",
     "summarize_session_histories",
     "synthesize_legacy_session_snapshot",
+    "ExportFormat",
+    "ExportRequest",
+    "ExportResult",
+    "InvalidSessionExportTargetError",
+    "ResolvedSessionExport",
+    "SessionExportAgentNotFoundError",
+    "SessionExportAmbiguousAgentError",
+    "SessionExportNoAgentsError",
+    "SessionExportNotFoundError",
+    "SessionExportReadError",
+    "SessionExportWriteError",
+    "SessionTraceExporter",
+    "TraceExportError",
+    "UnsupportedTraceExportFormatError",
 ]

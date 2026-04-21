@@ -693,6 +693,29 @@ def test_get_completions_for_session_pin(tmp_path: Path) -> None:
         reset_session_manager()
 
 
+def test_get_completions_for_session_export(tmp_path: Path) -> None:
+    old_settings = get_settings()
+    env_dir = tmp_path / "env"
+    override = old_settings.model_copy(update={"environment_dir": str(env_dir)})
+    update_global_settings(override)
+    reset_session_manager()
+
+    try:
+        manager = get_session_manager()
+        session = manager.create_session()
+
+        completer = AgentCompleter(agents=["agent1"])
+        doc = Document("/session export ", cursor_position=len("/session export "))
+        completions = list(completer.get_completions(doc, None))
+        names = [c.text for c in completions]
+
+        assert "latest" in names
+        assert session.info.name in names
+    finally:
+        update_global_settings(old_settings)
+        reset_session_manager()
+
+
 def test_noenv_session_completion_does_not_create_session_storage(tmp_path: Path) -> None:
     old_settings = get_settings()
     env_dir = tmp_path / "env"

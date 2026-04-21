@@ -3,6 +3,7 @@ import json
 
 from mcp.types import CallToolResult, TextContent
 from rich.console import Group
+from rich.syntax import Syntax
 from rich.text import Text
 
 from fast_agent.config import LoggerSettings, Settings
@@ -12,6 +13,16 @@ from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui import console
 from fast_agent.ui.console_display import ConsoleDisplay
 from fast_agent.ui.message_primitives import MessageType
+
+
+def _contains_renderable_type(renderable: object, renderable_type: type[object]) -> bool:
+    if isinstance(renderable, renderable_type):
+        return True
+    if isinstance(renderable, Group):
+        return any(
+            _contains_renderable_type(child, renderable_type) for child in renderable.renderables
+        )
+    return False
 
 
 class _CaptureContentDisplay(ConsoleDisplay):
@@ -321,6 +332,7 @@ def test_openai_phase_blocks_render_with_friendly_labels_in_assistant_output() -
 
 
 def test_openai_phase_blocks_use_renderable_group_for_dim_labels() -> None:
+    display = ConsoleDisplay(config=None)
     message = PromptMessageExtended(
         role="assistant",
         content=[TextContent(type="text", text="Final answer")],
@@ -341,9 +353,42 @@ def test_openai_phase_blocks_use_renderable_group_for_dim_labels() -> None:
         stop_reason=LlmStopReason.END_TURN,
     )
 
-    extracted = ConsoleDisplay._extract_openai_phase_content(message)
+    extracted = display._extract_openai_phase_content(message)
 
     assert isinstance(extracted, Group)
+
+
+def test_openai_phase_blocks_render_code_fences_with_syntax() -> None:
+    display = ConsoleDisplay(config=None)
+    message = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="```python\nprint('hi')\n```")],
+        channels={
+            OPENAI_ASSISTANT_MESSAGE_ITEMS: [
+                TextContent(
+                    type="text",
+                    text=json.dumps(
+                        {
+                            "type": "message",
+                            "phase": "final_answer",
+                            "content": [
+                                {
+                                    "type": "output_text",
+                                    "text": "```python\nprint('hi')\n```",
+                                }
+                            ],
+                        }
+                    ),
+                ),
+            ]
+        },
+        stop_reason=LlmStopReason.END_TURN,
+    )
+
+    extracted = display._extract_openai_phase_content(message)
+
+    assert isinstance(extracted, Group)
+    assert _contains_renderable_type(extracted, Syntax)
 
 
 def test_user_message_header_uses_rule_fill_for_turn_info() -> None:

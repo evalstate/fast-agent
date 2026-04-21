@@ -39,7 +39,9 @@ def test_sanitize_tool_input_schema_removes_default_recursively() -> None:
 
 def test_should_strip_tool_schema_defaults_known_kimi_variants() -> None:
     assert should_strip_tool_schema_defaults("kimi25")
+    assert should_strip_tool_schema_defaults("kimi26")
     assert should_strip_tool_schema_defaults("hf.moonshotai/Kimi-K2.5:fireworks-ai")
+    assert should_strip_tool_schema_defaults("hf.moonshotai/Kimi-K2.6:novita")
     assert not should_strip_tool_schema_defaults("gpt-5-mini")
 
 

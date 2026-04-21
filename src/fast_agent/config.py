@@ -476,7 +476,9 @@ class MCPServerSettings(BaseModel):
             has_url = bool(self.url)
             has_connector_id = self.connector_id is not None
             if has_url == has_connector_id:
-                raise ValueError("Provider-managed MCP servers require exactly one of url or connector_id")
+                raise ValueError(
+                    "Provider-managed MCP servers require exactly one of url or connector_id"
+                )
 
             invalid_fields: list[str] = []
             if self.command is not None:
@@ -1581,7 +1583,9 @@ def load_layered_model_settings(
     return layered
 
 
-def _lookup_nested_mapping_value(mapping: dict[str, Any], path: tuple[str, ...]) -> tuple[bool, Any]:
+def _lookup_nested_mapping_value(
+    mapping: dict[str, Any], path: tuple[str, ...]
+) -> tuple[bool, Any]:
     """Return whether a nested mapping path exists plus its value."""
     current: Any = mapping
     for key in path:
@@ -1711,10 +1715,10 @@ class Settings(BaseSettings):
     shell_execution: ShellSettings = ShellSettings()
     """Shell execution timeout and warning settings."""
 
-    llm_retries: int = 1
+    llm_retries: int = 2
     """
     Number of times to retry transient LLM API errors.
-    Defaults to 1; can be overridden via config or FAST_AGENT_RETRIES env.
+    Defaults to 2; can be overridden via config or FAST_AGENT_RETRIES env.
     """
 
     _config_file: str | None = PrivateAttr(default=None)
@@ -1732,7 +1736,9 @@ class Settings(BaseSettings):
 
         for namespace, entries in value.items():
             if not valid_name.fullmatch(namespace):
-                raise ValueError("model_references namespace names must match [A-Za-z_][A-Za-z0-9_-]*")
+                raise ValueError(
+                    "model_references namespace names must match [A-Za-z_][A-Za-z0-9_-]*"
+                )
 
             normalized_entries: dict[str, str] = {}
             for key, model in entries.items():

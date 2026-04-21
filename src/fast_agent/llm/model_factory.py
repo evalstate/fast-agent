@@ -355,7 +355,9 @@ def _parse_query_overrides(
         try:
             task_budget_tokens = validate_task_budget_tokens(parse_task_budget_tokens(raw_value))
         except ValueError as exc:
-            raise ModelConfigError(f"Invalid task_budget query value: '{raw_value}' in '{model_spec}'") from exc
+            raise ModelConfigError(
+                f"Invalid task_budget query value: '{raw_value}' in '{model_spec}'"
+            ) from exc
         task_budget_configured = True
 
     return ModelQueryOverrides(
@@ -612,7 +614,7 @@ class ModelFactory:
         "minimax25": "hf.MiniMaxAI/MiniMax-M2.5:fireworks-ai?temperature=1.0&top_p=0.95&top_k=40",
         "minimax2.5": "hf.MiniMaxAI/MiniMax-M2.5:novita?temperature=1.0&top_p=0.95&top_k=40",
         "minimax21": "hf.MiniMaxAI/MiniMax-M2.1:novita",
-        "kimi": ("hf.moonshotai/Kimi-K2.5:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on"),
+        "kimi": ("hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on"),
         "gpt-oss": "hf.openai/gpt-oss-120b:cerebras",
         "gpt-oss-20b": "hf.openai/gpt-oss-20b",
         "glm47": "hf.zai-org/GLM-4.7:cerebras",
@@ -623,6 +625,11 @@ class ModelFactory:
         "deepseek31": "hf.deepseek-ai/DeepSeek-V3.1",
         "kimithink": "hf.moonshotai/Kimi-K2-Thinking:fireworks-ai",
         "deepseek32": "hf.deepseek-ai/DeepSeek-V3.2:fireworks-ai",
+        "kimi26": "hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on",
+        "kimi26instant": (
+            "hf.moonshotai/Kimi-K2.6:novita?temperature=0.6&top_p=0.95&reasoning=off"
+        ),
+        "kimi-2.6": "hf.moonshotai/Kimi-K2.6:novita?temperature=1.0&top_p=0.95&reasoning=on",
         "kimi25": ("hf.moonshotai/Kimi-K2.5:fireworks-ai?temperature=1.0&top_p=0.95&reasoning=on"),
         "kimi25instant": (
             "hf.moonshotai/Kimi-K2.5:fireworks-ai?temperature=0.6&top_p=0.95&reasoning=off"
@@ -723,9 +730,10 @@ class ModelFactory:
                     f"Multiple reasoning settings provided for '{expanded_model_spec}'."
                 )
             base_model = model_name.rsplit(":", 1)[0].strip().lower()
-            if base_model != "moonshotai/kimi-k2.5":
+            if base_model not in {"moonshotai/kimi-k2.5", "moonshotai/kimi-k2.6"}:
                 raise ModelConfigError(
-                    f"Instant mode is only supported for moonshotai/kimi-k2.5, got '{model_name}'."
+                    "Instant mode is only supported for moonshotai/kimi-k2.5 "
+                    f"and moonshotai/kimi-k2.6, got '{model_name}'."
                 )
             reasoning_effort = ReasoningEffortSetting(
                 kind="toggle",

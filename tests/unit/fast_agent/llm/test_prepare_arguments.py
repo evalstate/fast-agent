@@ -237,3 +237,10 @@ class TestRequestParamsInLLM:
         # None values should be excluded
         assert "temperature" not in result
         assert result["top_p"] == 0.9
+
+
+class TestRetryCountResolution:
+    def test_retry_count_defaults_to_two_when_context_config_is_unavailable(self) -> None:
+        llm = StubLLM(context=None)
+
+        assert llm._resolve_retry_count() == 2

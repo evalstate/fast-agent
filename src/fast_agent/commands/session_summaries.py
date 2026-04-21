@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from fast_agent.commands.session_export_help import SESSION_EXPORT_USAGE
 from fast_agent.session import (
     SessionEntrySummary,
     apply_session_window,
@@ -28,7 +29,7 @@ DEFAULT_SESSION_USAGE = "Usage: /session resume <id|number>"
 FULL_SESSION_USAGE = (
     "Usage: /session list | /session new [title] | /session resume [id|number] | "
     "/session title <text> | /session fork [title] | /session delete <id|number|all> | "
-    "/session pin [on|off|id|number]"
+    f"/session pin [on|off|id|number] | {SESSION_EXPORT_USAGE}"
 )
 
 

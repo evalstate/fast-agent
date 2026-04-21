@@ -216,7 +216,7 @@ class SlashCommandHandler:
         self._acp_context: ACPContext | None = None
 
         cards_action_hint = "|".join(
-            action for action in command_action_names("cards") if action != "list"
+            action for action in command_action_names("cards") if action not in {"list", "readme", "help"}
         ) or "add|remove|update|publish|registry"
 
         # Session-level commands (always available, operate on current agent)
@@ -294,7 +294,7 @@ class SlashCommandHandler:
                 description="List or manage sessions",
                 input=AvailableCommandInput(
                     root=UnstructuredCommandInput(
-                        hint="[list|new|resume|title|fork|clear] [args]"
+                        hint="[list|new|resume|title|fork|delete|pin|export] [args]"
                     )
                 ),
             ),

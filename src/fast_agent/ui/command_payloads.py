@@ -316,6 +316,18 @@ class PinSessionCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class ExportSessionCommand(CommandBase):
+    target: str | None
+    agent_name: str | None
+    output_path: str | None
+    hf_dataset: str | None
+    hf_dataset_path: str | None
+    show_help: bool
+    error: str | None
+    kind: Literal["export_session"] = "export_session"
+
+
+@dataclass(frozen=True, slots=True)
 class ShellCommand(CommandBase):
     """Execute a shell command directly."""
 
@@ -426,6 +438,7 @@ CommandPayload = (
     | ForkSessionCommand
     | ClearSessionsCommand
     | PinSessionCommand
+    | ExportSessionCommand
     | ShellCommand
     | AttachCommand
     | ModelReasoningCommand

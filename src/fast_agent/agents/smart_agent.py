@@ -31,6 +31,7 @@ from fast_agent.commands.command_discovery import (
     render_command_detail_markdown,
     render_commands_index_markdown,
     render_commands_json,
+    render_direct_command_help,
 )
 from fast_agent.commands.context import (
     CommandContext,
@@ -43,12 +44,18 @@ from fast_agent.commands.handlers import mcp_runtime as mcp_runtime_handlers
 from fast_agent.commands.handlers import model as model_handlers
 from fast_agent.commands.handlers import models_manager as models_handlers
 from fast_agent.commands.handlers import prompts as prompt_handlers
+from fast_agent.commands.handlers import session_export as session_export_handlers
 from fast_agent.commands.handlers import sessions as sessions_handlers
 from fast_agent.commands.handlers import skills as skills_handlers
 from fast_agent.commands.handlers import tools as tools_handlers
 from fast_agent.commands.handlers.shared import clear_agent_histories
 from fast_agent.commands.renderers.command_markdown import render_command_outcome_markdown
 from fast_agent.commands.results import CommandMessage, CommandOutcome
+from fast_agent.commands.session_export_help import render_session_export_help_markdown
+from fast_agent.commands.shared_command_intents import (
+    parse_session_command_intent,
+    should_default_export_agent,
+)
 from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.agent_card_loader import load_agent_cards
 from fast_agent.core.agent_card_validation import AgentCardScanResult, scan_agent_card_path
@@ -532,6 +539,101 @@ def _model_usage_text() -> str:
     )
 
 
+async def _run_session_slash_command_call(agent: Any, arguments: str) -> str:
+    context, io = _build_command_context(agent)
+    agent_name = context.current_agent_name
+    intent = parse_session_command_intent(arguments)
+
+    if intent.action in {"help", "unknown"}:
+        outcome = await sessions_handlers.handle_list_sessions(context, show_help=True)
+        return _render_smart_slash_outcome(outcome, heading="session", io=io)
+
+    if intent.action == "list":
+        outcome = await sessions_handlers.handle_list_sessions(context)
+        return _render_smart_slash_outcome(outcome, heading="session.list", io=io)
+
+    if intent.action == "new":
+        outcome = await sessions_handlers.handle_create_session(
+            context,
+            session_name=intent.argument,
+        )
+        cleared = clear_agent_histories(context.agent_provider.registered_agents())
+        if cleared:
+            outcome.add_message(
+                f"Cleared agent history: {', '.join(sorted(cleared))}",
+                channel="info",
+            )
+        return _render_smart_slash_outcome(outcome, heading="session.new", io=io)
+
+    if intent.action == "resume":
+        outcome = await sessions_handlers.handle_resume_session(
+            context,
+            agent_name=agent_name,
+            session_id=intent.argument,
+        )
+        return _render_smart_slash_outcome(outcome, heading="session.resume", io=io)
+
+    if intent.action == "title":
+        outcome = await sessions_handlers.handle_title_session(
+            context,
+            title=intent.argument,
+        )
+        return _render_smart_slash_outcome(outcome, heading="session.title", io=io)
+
+    if intent.action == "fork":
+        outcome = await sessions_handlers.handle_fork_session(
+            context,
+            title=intent.argument,
+        )
+        return _render_smart_slash_outcome(outcome, heading="session.fork", io=io)
+
+    if intent.action == "delete":
+        outcome = await sessions_handlers.handle_clear_sessions(
+            context,
+            target=intent.argument,
+        )
+        return _render_smart_slash_outcome(outcome, heading="session.delete", io=io)
+
+    if intent.action == "pin":
+        outcome = await sessions_handlers.handle_pin_session(
+            context,
+            value=intent.pin_value,
+            target=intent.pin_target,
+        )
+        return _render_smart_slash_outcome(outcome, heading="session.pin", io=io)
+    if intent.export_help:
+        return render_session_export_help_markdown()
+
+    manager = context.resolve_session_manager()
+    current_session = manager.current_session
+    current_session_id = current_session.info.name if current_session is not None else None
+    if intent.export_target is None and current_session_id is None:
+        outcome = CommandOutcome()
+        outcome.add_message(
+            "No active session to export.",
+            channel="error",
+            right_info="session",
+        )
+        return _render_smart_slash_outcome(outcome, heading="session.export", io=io)
+    resolved_agent_name = intent.export_agent
+    if resolved_agent_name is None and should_default_export_agent(
+        intent.export_target,
+        current_session_id=current_session_id,
+    ):
+        resolved_agent_name = agent_name
+    outcome = await session_export_handlers.handle_session_export(
+        context,
+        target=intent.export_target,
+        agent_name=resolved_agent_name,
+        output_path=intent.export_output,
+        hf_dataset=intent.export_hf_dataset,
+        hf_dataset_path=intent.export_hf_dataset_path,
+        current_session_id=current_session_id,
+        error=intent.export_error,
+    )
+    return _render_smart_slash_outcome(outcome, heading="session.export", io=io)
+
+
 def _run_commands_slash_command_call(arguments: str) -> str:
     try:
         request = parse_commands_discovery_arguments(arguments)
@@ -539,12 +641,15 @@ def _run_commands_slash_command_call(arguments: str) -> str:
         raise AgentConfigError("Invalid /commands arguments", str(exc)) from exc
 
     if request.as_json:
-        return render_commands_json(command_name=request.command_name)
+        return render_commands_json(
+            command_name=request.command_name,
+            action_name=request.action_name,
+        )
 
     if request.command_name is None:
         return render_commands_index_markdown(command_names=command_discovery_names())
 
-    detail = render_command_detail_markdown(request.command_name)
+    detail = render_command_detail_markdown(request.command_name, request.action_name)
     if detail is not None:
         return detail
 
@@ -797,6 +902,11 @@ async def _run_slash_command_call(agent: Any, command: str) -> str:
     if command_name == "commands":
         return _run_commands_slash_command_call(arguments)
 
+    if command_name in {"skills", "cards", "model", "models", "check"}:
+        direct_help = render_direct_command_help(command_name, arguments)
+        if direct_help is not None:
+            return direct_help
+
     if command_name in {"skills", "cards", "model"}:
         action, argument = _parse_family_command_action(command_name, arguments)
         normalized_action = action
@@ -822,6 +932,9 @@ async def _run_slash_command_call(agent: Any, command: str) -> str:
 
     if command_name == "mcp":
         return await _run_mcp_slash_command_call(agent, arguments)
+
+    if command_name == "session":
+        return await _run_session_slash_command_call(agent, arguments)
 
     context, io = _build_command_context(agent)
     agent_name = context.current_agent_name
@@ -1445,8 +1558,8 @@ def _slash_command_tool_description() -> str:
     return (
         "Execute a fast-agent slash command using native `/...` syntax. "
         "Use `/commands` or `/commands --json` to discover capabilities. "
-        "Supports `/skills` (including available/search/registry/help), `/cards`, `/model`, `/mcp`, "
-        "`/tools`, `/prompts`, "
+        "Supports `/skills` (including available/search/registry/help), `/cards`, `/model`, `/session`, "
+        "`/mcp`, `/tools`, `/prompts`, "
         "`/usage`, `/system`, `/markdown`, and `/check`."
     )
 

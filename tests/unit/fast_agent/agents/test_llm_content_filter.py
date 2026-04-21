@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 
 import pytest
 from mcp.types import (
@@ -352,3 +353,20 @@ async def test_history_persists_alert_channel_but_strips_removed_metadata():
     assert FAST_AGENT_ALERT_CHANNEL in channels
     assert _parse_alert_flags(channels[FAST_AGENT_ALERT_CHANNEL]) == {"V"}
     assert FAST_AGENT_REMOVED_METADATA_CHANNEL not in channels
+
+
+@pytest.mark.asyncio
+async def test_history_persists_wall_clock_timestamps_for_user_and_assistant_messages():
+    decorator, _ = make_decorator("passthrough")
+
+    message = PromptMessageExtended(role="user", content=[text_content("hello")])
+
+    await decorator.generate_impl([message])
+
+    assert len(decorator.message_history) == 2
+    persisted_user_message = decorator.message_history[0]
+    persisted_assistant_message = decorator.message_history[1]
+
+    assert isinstance(persisted_user_message.timestamp, datetime)
+    assert isinstance(persisted_assistant_message.timestamp, datetime)
+    assert persisted_user_message.timestamp <= persisted_assistant_message.timestamp

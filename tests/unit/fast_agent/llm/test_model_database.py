@@ -37,6 +37,7 @@ def test_model_database_context_windows():
     assert ModelDatabase.get_context_window("gpt-4o") == 128000
     assert ModelDatabase.get_context_window("gemini-2.0-flash") == 1048576
     assert ModelDatabase.get_context_window("Qwen/Qwen3.5-397B-A17B") == 262144
+    assert ModelDatabase.get_context_window("moonshotai/Kimi-K2.6") == 262144
 
     # Test unknown model
     assert ModelDatabase.get_context_window("unknown-model") is None
@@ -536,6 +537,26 @@ def test_huggingface_kimi25_default_reasoning_toggle_enabled():
     extra_body = args.get("extra_body")
     if isinstance(extra_body, dict):
         assert "thinking" not in extra_body
+    else:
+        assert extra_body is None
+
+
+def test_huggingface_kimi26_disable_reasoning_toggle():
+    llm = _make_hf_llm_with_reasoning("moonshotai/kimi-k2.6", reasoning=False)
+
+    args = _hf_request_args(llm)
+    extra_body = args.get("extra_body")
+    assert isinstance(extra_body, dict)
+    assert extra_body["chat_template_kwargs"] == {"thinking": False}
+
+
+def test_huggingface_kimi26_default_reasoning_toggle_enabled():
+    llm = _make_hf_llm("moonshotai/kimi-k2.6")
+
+    args = _hf_request_args(llm)
+    extra_body = args.get("extra_body")
+    if isinstance(extra_body, dict):
+        assert "chat_template_kwargs" not in extra_body
     else:
         assert extra_body is None
 

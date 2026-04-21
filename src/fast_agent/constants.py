@@ -73,6 +73,8 @@ DEFAULT_AGENT_INSTRUCTION = """You are a helpful AI Agent.
 {{file_silent:AGENTS.md}}
 {{env}}
 
+Mermaid diagrams between code fences are supported.
+
 The current date is {{currentDate}}."""
 
 
