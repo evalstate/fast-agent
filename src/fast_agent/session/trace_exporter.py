@@ -235,9 +235,22 @@ class SessionTraceExporter:
         self, history_path: Path
     ) -> tuple[list[PromptMessageExtended], tuple[datetime | None, ...]]:
         history = load_messages(str(history_path))
-        message_timestamps = self._load_message_timestamps(history_path)
-        if message_timestamps is None or len(message_timestamps) != len(history):
-            message_timestamps = tuple(None for _ in history)
+        model_timestamps = tuple(
+            _normalize_utc(message.timestamp) if message.timestamp is not None else None
+            for message in history
+        )
+        raw_timestamps = self._load_message_timestamps(history_path)
+        if raw_timestamps is not None and len(raw_timestamps) == len(history):
+            message_timestamps = tuple(
+                model_timestamp or raw_timestamp
+                for model_timestamp, raw_timestamp in zip(
+                    model_timestamps,
+                    raw_timestamps,
+                    strict=True,
+                )
+            )
+        else:
+            message_timestamps = model_timestamps
         return history, message_timestamps
 
     def _load_message_timestamps(self, history_path: Path) -> tuple[datetime | None, ...] | None:

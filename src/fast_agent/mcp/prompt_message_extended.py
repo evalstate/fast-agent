@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Mapping, Sequence
 
 from mcp.types import (
@@ -32,6 +33,13 @@ class PromptMessageExtended(BaseModel):
     stop_reason: LlmStopReason | None = None
     phase: AssistantMessagePhase | None = None
     is_template: bool = False
+    timestamp: datetime | None = None
+
+    def ensure_timestamp(self, *, at: datetime | None = None) -> "PromptMessageExtended":
+        """Stamp the message with a UTC wall-clock timestamp when one is missing."""
+        if self.timestamp is None:
+            self.timestamp = at or datetime.now(timezone.utc)
+        return self
 
 
     @classmethod

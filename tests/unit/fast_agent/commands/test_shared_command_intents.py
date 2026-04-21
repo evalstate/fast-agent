@@ -69,10 +69,14 @@ def test_parse_session_command_intent_supports_escaped_spaces_in_export_options(
 
 
 def test_should_default_export_agent_only_for_current_session_target() -> None:
-    assert should_default_export_agent(None) is True
-    assert should_default_export_agent("latest") is False
-    assert should_default_export_agent("LATEST") is False
-    assert should_default_export_agent("2604201303-x5MNlH") is False
+    assert should_default_export_agent(None, current_session_id="2604201303-x5MNlH") is True
+    assert should_default_export_agent(None, current_session_id=None) is False
+    assert should_default_export_agent("latest", current_session_id="2604201303-x5MNlH") is False
+    assert should_default_export_agent("LATEST", current_session_id="2604201303-x5MNlH") is False
+    assert (
+        should_default_export_agent("2604201303-x5MNlH", current_session_id="2604201303-x5MNlH")
+        is False
+    )
 
 
 def test_parse_session_command_intent_reports_export_option_errors() -> None:

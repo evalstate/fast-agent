@@ -94,8 +94,8 @@ class SessionCommandIntent:
     raw_subcommand: str | None = None
 
 
-def should_default_export_agent(target: str | None) -> bool:
-    return target is None
+def should_default_export_agent(target: str | None, *, current_session_id: str | None) -> bool:
+    return target is None and current_session_id is not None
 
 
 def parse_session_command_intent(remainder: str) -> SessionCommandIntent:

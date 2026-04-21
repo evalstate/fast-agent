@@ -140,31 +140,39 @@ def test_session_trace_exporter_writes_codex_trace(tmp_path: Path) -> None:
 
     assert result.record_count == 9
     assert records[0]["type"] == "session_meta"
+    assert records[0]["timestamp"] == "2026-04-20T13:03:00.000Z"
     assert records[0]["payload"]["id"] == session_id
     assert records[0]["payload"]["base_instructions"]["text"] == "You are dev."
     assert "harness" not in records[0]
     assert records[1]["type"] == "response_item"
+    assert "timestamp" not in records[1]
     assert records[1]["payload"] == {
         "type": "message",
         "role": "developer",
         "content": [{"type": "input_text", "text": "You are dev."}],
     }
     assert records[2]["type"] == "event_msg"
+    assert "timestamp" not in records[2]
     assert records[2]["payload"]["type"] == "turn_started"
+    assert "started_at" not in records[2]["payload"]
     assert records[3]["type"] == "event_msg"
+    assert "timestamp" not in records[3]
     assert records[3]["payload"]["type"] == "user_message"
     assert records[3]["payload"]["message"] == "hello"
     assert records[4]["type"] == "turn_context"
+    assert "timestamp" not in records[4]
     assert records[4]["payload"]["turn_id"] == "turn-1"
     assert "current_date" not in records[4]["payload"]
     assert "developer_instructions" not in records[4]["payload"]
     assert "approval_policy" not in records[4]["payload"]
     assert "sandbox_policy" not in records[4]["payload"]
     assert records[5]["type"] == "response_item"
+    assert "timestamp" not in records[5]
     assert records[5]["payload"]["type"] == "message"
     assert records[5]["payload"]["role"] == "user"
     assert records[5]["payload"]["content"] == [{"type": "input_text", "text": "hello"}]
     assert records[6]["type"] == "response_item"
+    assert "timestamp" not in records[6]
     assert records[6]["payload"] == {
         "type": "reasoning",
         "summary": [{"type": "summary_text", "text": "thinking"}],
@@ -172,11 +180,13 @@ def test_session_trace_exporter_writes_codex_trace(tmp_path: Path) -> None:
     assert "content" not in records[6]["payload"]
     assert "encrypted_content" not in records[6]["payload"]
     assert records[7]["type"] == "response_item"
+    assert "timestamp" not in records[7]
     assert records[7]["payload"]["type"] == "message"
     assert records[7]["payload"]["role"] == "assistant"
     assert records[7]["payload"]["content"] == [{"type": "output_text", "text": "done"}]
     assert records[7]["payload"]["end_turn"] is True
     assert records[8]["type"] == "event_msg"
+    assert "timestamp" not in records[8]
     assert records[8]["payload"]["type"] == "turn_complete"
     assert records[8]["payload"]["last_agent_message"] == "done"
 
@@ -298,10 +308,16 @@ def test_session_trace_exporter_uses_message_timestamps_for_turn_date(tmp_path: 
     assert records[0]["payload"]["timestamp"] == "2026-04-20T13:03:00.000Z"
     assert records[1]["payload"]["type"] == "turn_started"
     assert records[1]["payload"]["started_at"] == int(turn_started_at.timestamp())
-    assert records[2]["payload"]["type"] == "user_message"
-    assert records[3]["type"] == "turn_context"
-    assert records[3]["payload"]["current_date"] == "2026-04-22"
     assert records[1]["timestamp"] == "2026-04-22T09:15:00.000Z"
+    assert records[2]["payload"]["type"] == "user_message"
+    assert records[2]["timestamp"] == "2026-04-22T09:15:00.000Z"
+    assert records[3]["type"] == "turn_context"
+    assert "timestamp" not in records[3]
+    assert records[3]["payload"]["current_date"] == "2026-04-22"
+    assert records[4]["payload"]["role"] == "user"
+    assert records[4]["timestamp"] == "2026-04-22T09:15:00.000Z"
+    assert records[5]["payload"]["role"] == "assistant"
+    assert records[5]["timestamp"] == "2026-04-22T09:15:05.000Z"
 
 
 def test_session_trace_exporter_writes_native_codex_tool_items(tmp_path: Path) -> None:

@@ -2,6 +2,8 @@
 Tests for serializing PromptMessageExtended objects to delimited format.
 """
 
+from datetime import datetime, timezone
+
 import pytest
 from mcp.types import EmbeddedResource, ImageContent, TextContent, TextResourceContents
 from pydantic import AnyUrl
@@ -109,6 +111,22 @@ class TestPromptSerialization:
         assert len(parsed_messages) == 1
         assert parsed_messages[0].phase == COMMENTARY_PHASE
         assert parsed_messages[0].all_text() == "Planning next action."
+
+    def test_enhanced_json_round_trips_message_timestamp(self):
+        timestamp = datetime(2026, 4, 20, 23, 42, 9, 871720, tzinfo=timezone.utc)
+        original_messages = [
+            PromptMessageExtended(
+                role="user",
+                content=[TextContent(type="text", text="hello")],
+                timestamp=timestamp,
+            )
+        ]
+
+        json_str = to_json(original_messages)
+        parsed_messages = from_json(json_str)
+
+        assert len(parsed_messages) == 1
+        assert parsed_messages[0].timestamp == timestamp
 
     def test_multipart_to_delimited_format(self):
         """Test converting PromptMessageExtended to delimited format for saving."""

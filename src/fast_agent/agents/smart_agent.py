@@ -607,8 +607,19 @@ async def _run_session_slash_command_call(agent: Any, arguments: str) -> str:
     manager = context.resolve_session_manager()
     current_session = manager.current_session
     current_session_id = current_session.info.name if current_session is not None else None
+    if intent.export_target is None and current_session_id is None:
+        outcome = CommandOutcome()
+        outcome.add_message(
+            "No active session to export.",
+            channel="error",
+            right_info="session",
+        )
+        return _render_smart_slash_outcome(outcome, heading="session.export", io=io)
     resolved_agent_name = intent.export_agent
-    if resolved_agent_name is None and should_default_export_agent(intent.export_target):
+    if resolved_agent_name is None and should_default_export_agent(
+        intent.export_target,
+        current_session_id=current_session_id,
+    ):
         resolved_agent_name = agent_name
     outcome = await session_export_handlers.handle_session_export(
         context,

@@ -8,6 +8,7 @@ from fast_agent.commands.handlers import session_export as session_export_handle
 from fast_agent.commands.handlers import sessions as sessions_handlers
 from fast_agent.commands.handlers.shared import clear_agent_histories
 from fast_agent.commands.renderers.session_markdown import render_session_list_markdown
+from fast_agent.commands.results import CommandOutcome
 from fast_agent.commands.session_export_help import render_session_export_help_markdown
 from fast_agent.commands.session_summaries import build_session_list_summary
 from fast_agent.commands.shared_command_intents import (
@@ -170,8 +171,20 @@ async def handle_session_export(handler: "SlashCommandHandler", intent) -> str:
     io = cast("ACPCommandIO", ctx.io)
     manager = ctx.resolve_session_manager()
     current_session = manager.current_session
+    current_session_id = current_session.info.name if current_session is not None else None
+    if intent.export_target is None and current_session_id is None:
+        outcome = CommandOutcome()
+        outcome.add_message(
+            "No active session to export.",
+            channel="error",
+            right_info="session",
+        )
+        return handler._format_outcome_as_markdown(outcome, "session export", io=io)
     agent_name = intent.export_agent
-    if agent_name is None and should_default_export_agent(intent.export_target):
+    if agent_name is None and should_default_export_agent(
+        intent.export_target,
+        current_session_id=current_session_id,
+    ):
         agent_name = handler.current_agent_name
     outcome = await session_export_handlers.handle_session_export(
         ctx,
@@ -180,7 +193,7 @@ async def handle_session_export(handler: "SlashCommandHandler", intent) -> str:
         output_path=intent.export_output,
         hf_dataset=intent.export_hf_dataset,
         hf_dataset_path=intent.export_hf_dataset_path,
-        current_session_id=current_session.info.name if current_session is not None else None,
+        current_session_id=current_session_id,
         error=intent.export_error,
     )
     return handler._format_outcome_as_markdown(outcome, "session export", io=io)

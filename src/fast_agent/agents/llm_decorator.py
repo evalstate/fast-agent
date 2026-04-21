@@ -7,6 +7,7 @@ import json
 from collections import Counter, defaultdict
 from copy import deepcopy
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -847,6 +848,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
     ) -> _CallContext:
         """Normalize template/history handling for both generate and structured."""
         sanitized_messages, summary = self._sanitize_messages_for_llm(messages)
+        self._timestamp_messages(sanitized_messages)
         final_request_params = self._require_llm().get_request_params(request_params)
 
         use_history = final_request_params.use_history if final_request_params else True
@@ -916,8 +918,16 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             return
 
         history_messages = [self._strip_removed_metadata(msg) for msg in sanitized_messages]
+        assistant_message.ensure_timestamp()
         self._message_history.extend(history_messages)
         self._message_history.append(assistant_message)
+
+    @staticmethod
+    def _timestamp_messages(messages: list[PromptMessageExtended]) -> None:
+        """Attach UTC wall-clock timestamps to new turn messages before LLM execution."""
+        for message in messages:
+            if message.timestamp is None:
+                message.timestamp = datetime.now(timezone.utc)
 
     @staticmethod
     def _strip_removed_metadata(message: PromptMessageExtended) -> PromptMessageExtended:

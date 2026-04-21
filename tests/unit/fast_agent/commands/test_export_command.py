@@ -94,6 +94,37 @@ def test_export_command_exports_latest_session(tmp_path: Path, monkeypatch) -> N
     assert records[0]["payload"]["id"] == session_id
 
 
+def test_export_command_implicit_target_uses_latest_session(tmp_path: Path, monkeypatch) -> None:
+    env_dir = tmp_path / "env"
+    session_id = "2604201303-x5MNlH"
+    _write_session_fixture(env_dir, session_id=session_id)
+    output_path = tmp_path / "implicit-trace.jsonl"
+    monkeypatch.chdir(tmp_path)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "--env",
+            str(env_dir),
+            "export",
+            "--output",
+            str(output_path),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Exported codex trace" in result.output
+    assert output_path.is_file()
+    records = [
+        json.loads(line)
+        for line in output_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert records[0]["type"] == "session_meta"
+    assert records[0]["payload"]["id"] == session_id
+
+
 def test_export_command_lists_sessions(tmp_path: Path) -> None:
     env_dir = tmp_path / "env"
     _write_session_fixture(env_dir, session_id="2604201303-x5MNlH")

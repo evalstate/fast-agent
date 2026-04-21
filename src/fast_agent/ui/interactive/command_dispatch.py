@@ -690,8 +690,20 @@ async def _dispatch_session_payload(
             manager = context.resolve_session_manager()
             current_session = manager.current_session
             current_session_id = current_session.info.name if current_session is not None else None
+            if target is None and current_session_id is None:
+                outcome = CommandOutcome()
+                outcome.add_message(
+                    "No active session to export.",
+                    channel="error",
+                    right_info="session",
+                )
+                await emit_command_outcome(context, outcome)
+                return result
             resolved_agent_name = agent_name
-            if resolved_agent_name is None and should_default_export_agent(target):
+            if resolved_agent_name is None and should_default_export_agent(
+                target,
+                current_session_id=current_session_id,
+            ):
                 resolved_agent_name = agent
             outcome = await session_export_handlers.handle_session_export(
                 context,

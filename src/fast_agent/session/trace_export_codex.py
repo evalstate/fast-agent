@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
 from typing import TYPE_CHECKING
 
@@ -56,6 +56,21 @@ def _timestamp_or_none(value: datetime | None) -> int | None:
         return None
     value = _normalize_utc(value)
     return int(value.timestamp())
+
+
+def _record(
+    record_type: str,
+    payload: dict[str, object],
+    *,
+    timestamp: datetime | None = None,
+) -> dict[str, object]:
+    record: dict[str, object] = {
+        "type": record_type,
+        "payload": payload,
+    }
+    if timestamp is not None:
+        record["timestamp"] = _utc_timestamp(timestamp)
+    return record
 
 
 def _package_version() -> str:
@@ -549,9 +564,11 @@ def _turn_started_payload(
     payload: dict[str, object] = {
         "type": "turn_started",
         "turn_id": turn_id,
-        "started_at": _timestamp_or_none(started_at),
         "collaboration_mode_kind": "default",
     }
+    started_at_timestamp = _timestamp_or_none(started_at)
+    if started_at_timestamp is not None:
+        payload["started_at"] = started_at_timestamp
     if model_context_window is not None:
         payload["model_context_window"] = model_context_window
     return payload
@@ -609,21 +626,6 @@ class _TurnState:
     turn_id: str
     last_agent_message: str | None = None
 
-
-class _TimestampCursor:
-    def __init__(self, start: datetime) -> None:
-        self._current = _normalize_utc(start)
-
-    def next(self, *, at: datetime | None = None) -> str:
-        if at is not None:
-            normalized = _normalize_utc(at)
-            if normalized > self._current:
-                self._current = normalized
-        timestamp = _utc_timestamp(self._current)
-        self._current += timedelta(milliseconds=1)
-        return timestamp
-
-
 def _turn_timestamps(resolved: ResolvedSessionExport) -> list[datetime | None]:
     turn_timestamps: list[datetime | None] = []
     for message, message_timestamp in zip(
@@ -656,26 +658,24 @@ class CodexTraceWriter:
         )
 
     def _records(self, resolved: ResolvedSessionExport) -> list[dict[str, object]]:
-        cursor = _TimestampCursor(resolved.snapshot.created_at)
         meta = _trace_meta(resolved)
         turn_timestamps = _turn_timestamps(resolved)
         records: list[dict[str, object]] = []
         records.append(
-            {
-                "timestamp": cursor.next(),
-                "type": "session_meta",
-                "payload": _session_meta_payload(resolved, meta),
-            }
+            _record(
+                "session_meta",
+                _session_meta_payload(resolved, meta),
+                timestamp=resolved.snapshot.created_at,
+            )
         )
 
         agent_snapshot = resolved.snapshot.continuation.agents[resolved.agent_name]
         if agent_snapshot.resolved_prompt:
             records.append(
-                {
-                    "timestamp": cursor.next(),
-                    "type": "response_item",
-                    "payload": _developer_message_item(agent_snapshot.resolved_prompt),
-                }
+                _record(
+                    "response_item",
+                    _developer_message_item(agent_snapshot.resolved_prompt),
+                )
             )
 
         turn_counter = 0
@@ -689,35 +689,34 @@ class CodexTraceWriter:
             turn_counter += 1
             current_turn = _TurnState(turn_id=f"turn-{turn_counter}")
             records.append(
-                {
-                    "timestamp": cursor.next(at=turn_timestamp),
-                    "type": "event_msg",
-                    "payload": _turn_started_payload(
+                _record(
+                    "event_msg",
+                    _turn_started_payload(
                         current_turn.turn_id,
                         model_context_window=meta.model_context_window,
                         started_at=turn_timestamp,
                     ),
-                }
+                    timestamp=turn_timestamp,
+                )
             )
             if user_message is not None:
                 records.append(
-                    {
-                        "timestamp": cursor.next(),
-                        "type": "event_msg",
-                        "payload": _user_event_payload(user_message),
-                    }
+                    _record(
+                        "event_msg",
+                        _user_event_payload(user_message),
+                        timestamp=turn_timestamp,
+                    )
                 )
             records.append(
-                {
-                    "timestamp": cursor.next(),
-                    "type": "turn_context",
-                    "payload": _turn_context_payload(
+                _record(
+                    "turn_context",
+                    _turn_context_payload(
                         resolved,
                         turn_id=current_turn.turn_id,
                         meta=meta,
                         turn_timestamp=turn_timestamp,
                     ),
-                }
+                )
             )
 
         def finish_turn() -> None:
@@ -725,14 +724,13 @@ class CodexTraceWriter:
             if current_turn is None:
                 return
             records.append(
-                {
-                    "timestamp": cursor.next(),
-                    "type": "event_msg",
-                    "payload": _turn_complete_payload(
+                _record(
+                    "event_msg",
+                    _turn_complete_payload(
                         current_turn.turn_id,
                         current_turn.last_agent_message,
                     ),
-                }
+                )
             )
             current_turn = None
 
@@ -752,13 +750,12 @@ class CodexTraceWriter:
 
             for item in _response_items(message):
                 records.append(
-                    {
-                        "timestamp": cursor.next(at=message_timestamp),
-                        "type": "response_item",
-                        "payload": item,
-                    }
+                    _record(
+                        "response_item",
+                        item,
+                        timestamp=message_timestamp,
+                    )
                 )
-                message_timestamp = None
             if message.role == "assistant":
                 token_count = _token_count_payload(
                     message,
@@ -766,11 +763,11 @@ class CodexTraceWriter:
                 )
                 if token_count is not None:
                     records.append(
-                        {
-                            "timestamp": cursor.next(at=message_timestamp),
-                            "type": "event_msg",
-                            "payload": token_count,
-                        }
+                        _record(
+                            "event_msg",
+                            token_count,
+                            timestamp=message_timestamp,
+                        )
                     )
 
         finish_turn()
