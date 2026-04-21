@@ -2,10 +2,12 @@ import asyncio
 import inspect
 import json
 import os
+import sys
 import time
 import traceback
 from abc import abstractmethod
 from collections.abc import Mapping
+from contextlib import nullcontext
 from contextvars import ContextVar
 from typing import (
     TYPE_CHECKING,
@@ -28,7 +30,6 @@ from mcp.types import (
 from openai import NotGiven
 from openai.lib._parsing import type_to_response_format_param as _type_to_response_format
 from pydantic_core import from_json
-from rich import print as rich_print
 
 from fast_agent.constants import (
     CONTROL_MESSAGE_SAVE_HISTORY,
@@ -78,6 +79,7 @@ from fast_agent.llm.usage_tracking import TurnUsage, UsageAccumulator
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.provider_management import ProviderManagedMCPState
 from fast_agent.types import PromptMessageExtended, RequestParams
+from fast_agent.ui.console import error_console
 
 # Define type variables locally
 MessageParamT = TypeVar("MessageParamT")
@@ -581,22 +583,23 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
                         print(
                             "[webdebug] provider call failed "
                             f"attempt={attempt + 1}/{retries + 1} "
-                            f"error_type={type(e).__name__}"
+                            f"error_type={type(e).__name__}",
+                            file=sys.stderr,
                         )
                         traceback.print_exception(type(e), e, e.__traceback__)
 
-                    # Try to import progress_display safely
                     try:
                         from fast_agent.ui.progress_display import progress_display
-
-                        with progress_display.paused():
-                            rich_print(f"\n[yellow]▲ Provider Error: {str(e)[:300]}...[/yellow]")
-                            rich_print(
-                                f"[dim]⟳ Retrying in {wait_time}s... (Attempt {attempt + 1}/{retries})[/dim]"
-                            )
                     except ImportError:
-                        print(f"▲ Provider Error: {str(e)[:300]}...")
-                        print(f"⟳ Retrying in {wait_time}s... (Attempt {attempt + 1}/{retries})")
+                        paused_progress = nullcontext()
+                    else:
+                        paused_progress = progress_display.paused()
+
+                    with paused_progress:
+                        error_console.print(f"\n[yellow]▲ Provider Error: {str(e)[:300]}...[/yellow]")
+                        error_console.print(
+                            f"[dim]⟳ Retrying in {wait_time}s... (Attempt {attempt + 1}/{retries})[/dim]"
+                        )
 
                     await asyncio.sleep(wait_time)
 

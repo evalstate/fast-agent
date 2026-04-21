@@ -256,6 +256,7 @@ class Session:
         *,
         agent_registry: Mapping[str, AgentProtocol] | None = None,
         identity: "SessionSaveIdentity | None" = None,
+        resolved_prompts: Mapping[str, str] | None = None,
     ) -> str:
         """Save agent history to this session."""
         from fast_agent.history.history_exporter import HistoryExporter
@@ -318,6 +319,7 @@ class Session:
             active_agent=agent,
             agent_registry=agent_registry,
             identity=identity or self._default_save_identity(),
+            resolved_prompts=resolved_prompts,
         )
         self._save_snapshot(snapshot)
         return result
@@ -732,6 +734,7 @@ class SessionManager:
         *,
         agent_registry: Mapping[str, AgentProtocol] | None = None,
         identity: "SessionSaveIdentity | None" = None,
+        resolved_prompts: Mapping[str, str] | None = None,
     ) -> str | None:
         """Save history to the current session."""
         if identity is not None:
@@ -766,6 +769,7 @@ class SessionManager:
             filename,
             agent_registry=agent_registry,
             identity=identity,
+            resolved_prompts=resolved_prompts,
         )
 
     def load_latest_session(self) -> Session | None:

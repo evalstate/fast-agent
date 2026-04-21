@@ -290,6 +290,7 @@ def capture_session_snapshot(
     active_agent: "AgentProtocol",
     agent_registry: Mapping[str, "AgentProtocol"] | None,
     identity: "SessionSaveIdentity",
+    resolved_prompts: Mapping[str, str] | None = None,
 ) -> SessionSnapshot:
     """Capture the authoritative persisted snapshot for the current runtime state."""
     snapshot = snapshot_from_session_info(session.info)
@@ -312,6 +313,7 @@ def capture_session_snapshot(
         agent_registry=agent_registry,
         compatibility_snapshot=snapshot,
         existing_snapshot=existing_snapshot,
+        resolved_prompts=resolved_prompts,
     )
     snapshot.analysis = SessionAnalysisSnapshot(
         usage_summary=_capture_usage_summary(active_agent),
@@ -614,6 +616,7 @@ def _capture_agent_snapshots(
     agent_registry: Mapping[str, "AgentProtocol"] | None,
     compatibility_snapshot: SessionSnapshot,
     existing_snapshot: SessionSnapshot | None,
+    resolved_prompts: Mapping[str, str] | None,
 ) -> dict[str, SessionAgentSnapshot]:
     agents = dict(agent_registry or {})
     agents[active_agent.name] = active_agent
@@ -631,6 +634,7 @@ def _capture_agent_snapshots(
             agent=agent,
             compatibility_snapshot=compatibility_agents.get(agent_name),
             existing_snapshot=existing_agents.get(agent_name),
+            resolved_prompt=resolved_prompts.get(agent_name) if resolved_prompts is not None else None,
         )
     return snapshots
 
@@ -641,6 +645,7 @@ def _capture_agent_snapshot(
     agent: "AgentProtocol",
     compatibility_snapshot: SessionAgentSnapshot | None,
     existing_snapshot: SessionAgentSnapshot | None,
+    resolved_prompt: str | None,
 ) -> SessionAgentSnapshot:
     llm = agent.llm
     request_settings = _capture_request_settings_snapshot(agent)
@@ -651,7 +656,7 @@ def _capture_agent_snapshot(
             compatibility_snapshot=compatibility_snapshot,
             existing_snapshot=existing_snapshot,
         ),
-        resolved_prompt=agent.instruction,
+        resolved_prompt=resolved_prompt if resolved_prompt is not None else agent.instruction,
         model=(
             llm.model_name
             if llm is not None and llm.model_name is not None

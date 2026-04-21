@@ -34,6 +34,7 @@ class _Manager:
         self.current_session: _Session | None = None
         self.saved_agents: list[object] = []
         self.saved_identities: list[SessionSaveIdentity | None] = []
+        self.saved_resolved_prompts: list[dict[str, str] | None] = []
 
     def get_session(self, name: str) -> object | None:
         del name
@@ -56,10 +57,12 @@ class _Manager:
         *,
         agent_registry=None,
         identity: SessionSaveIdentity | None = None,
+        resolved_prompts: dict[str, str] | None = None,
     ) -> str:
         del filename, agent_registry
         self.saved_agents.append(agent)
         self.saved_identities.append(identity)
+        self.saved_resolved_prompts.append(resolved_prompts)
         return "history.json"
 
 
@@ -124,6 +127,7 @@ async def test_save_session_history_uses_app_store_for_app_scoped_acp_session(
         session_cwd=str(workspace.resolve()),
         session_store_scope="app",
         session_store_cwd=None,
+        resolved_instructions_snapshot=lambda: {"main": "Resolved ACP prompt"},
         send_session_info_update=fake_send_session_info_update,
     )
     history = [
@@ -155,4 +159,5 @@ async def test_save_session_history_uses_app_store_for_app_scoped_acp_session(
     assert identity is not None
     assert identity.session_store_scope == "app"
     assert identity.session_cwd == workspace.resolve()
+    assert app_manager.saved_resolved_prompts == [{"main": "Resolved ACP prompt"}]
     assert session_info_updates == [{"updated_at": "2024-01-01T00:00:00"}]
