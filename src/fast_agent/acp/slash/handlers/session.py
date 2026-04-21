@@ -172,6 +172,13 @@ async def handle_session_export(handler: "SlashCommandHandler", intent) -> str:
     manager = ctx.resolve_session_manager()
     current_session = manager.current_session
     current_session_id = current_session.info.name if current_session is not None else None
+    if current_session_id != handler.session_id:
+        try:
+            handler_session = manager.get_session(handler.session_id)
+        except AttributeError:
+            handler_session = None
+        if handler_session is not None:
+            current_session_id = handler_session.info.name
     if intent.export_target is None and current_session_id is None:
         outcome = CommandOutcome()
         outcome.add_message(

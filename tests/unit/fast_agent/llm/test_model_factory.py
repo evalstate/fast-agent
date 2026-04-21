@@ -261,14 +261,8 @@ def test_kimi25instant_alias_sets_instant_sampling_defaults() -> None:
     assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=False)
 
 
-def test_kimi_alias_matches_kimi25_defaults() -> None:
-    config = ModelFactory.parse_model_string("kimi")
-
-    assert config.provider == Provider.HUGGINGFACE
-    assert config.model_name == "moonshotai/Kimi-K2.5:fireworks-ai"
-    assert config.temperature == 1.0
-    assert config.top_p == 0.95
-    assert config.reasoning_effort == ReasoningEffortSetting(kind="toggle", value=True)
+def test_kimi_alias_matches_current_promoted_kimi_defaults() -> None:
+    assert ModelFactory.parse_model_string("kimi") == ModelFactory.parse_model_string("kimi26")
 
 
 def test_kimi26_alias_sets_thinking_sampling_defaults() -> None:
