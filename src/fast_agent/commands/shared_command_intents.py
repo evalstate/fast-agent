@@ -263,12 +263,18 @@ def _parse_export_argument(
         if token.startswith("-"):
             return None, None, None, None, None, False, f"Unknown export option: {token}"
         if target is None:
-            target = token
+            target = _normalize_export_target(token)
             index += 1
             continue
         return None, None, None, None, None, False, f"Unexpected export argument: {token}"
 
     return target, agent_name, output_path, hf_dataset, hf_dataset_path, show_help, None
+
+
+def _normalize_export_target(target: str) -> str:
+    if target.lower() == "latest":
+        return "latest"
+    return target
 
 
 def _split_export_tokens(argument: str) -> list[str]:

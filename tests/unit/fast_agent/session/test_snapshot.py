@@ -475,6 +475,45 @@ def test_capture_session_snapshot_preserves_existing_v2_fallback_values(tmp_path
     assert bar_snapshot.resolved_prompt == "persisted bar prompt"
 
 
+def test_capture_session_snapshot_prefers_explicit_resolved_prompts(tmp_path: Path) -> None:
+    manager = SessionManager(
+        cwd=tmp_path,
+        environment_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    session = manager.create_session()
+    foo_agent = _Agent(
+        name="foo",
+        instruction="agent instruction foo",
+        config=AgentConfig("foo", instruction="template foo", model=None),
+    )
+    bar_agent = _Agent(
+        name="bar",
+        instruction="agent instruction bar",
+        config=AgentConfig("bar", instruction="template bar", model=None),
+    )
+    identity = SessionSaveIdentity(
+        manager=manager,
+        session=session,
+        created=False,
+        acp_session_id="acp-123",
+        session_cwd=tmp_path / "workspace",
+        session_store_scope="workspace",
+        session_store_cwd=tmp_path,
+    )
+
+    snapshot = capture_session_snapshot(
+        session=session,
+        active_agent=cast("AgentProtocol", foo_agent),
+        agent_registry=cast("dict[str, AgentProtocol]", {"foo": foo_agent, "bar": bar_agent}),
+        identity=identity,
+        resolved_prompts={"foo": "resolved foo from acp", "bar": "resolved bar from acp"},
+    )
+
+    assert snapshot.continuation.agents["foo"].resolved_prompt == "resolved foo from acp"
+    assert snapshot.continuation.agents["bar"].resolved_prompt == "resolved bar from acp"
+
+
 @pytest.mark.asyncio
 async def test_save_history_writes_captured_snapshot_payload(tmp_path: Path) -> None:
     manager = SessionManager(
@@ -528,6 +567,44 @@ async def test_save_history_writes_captured_snapshot_payload(tmp_path: Path) -> 
         "output_tokens": 7,
         "total_tokens": 18,
     }
+
+
+@pytest.mark.asyncio
+async def test_save_history_persists_explicit_resolved_prompts(tmp_path: Path) -> None:
+    manager = SessionManager(
+        cwd=tmp_path,
+        environment_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    session = manager.create_session()
+    agent = _Agent(
+        name="main",
+        instruction="Template-like {{env}} prompt",
+        config=AgentConfig("main", instruction="Template prompt", model="passthrough"),
+        llm=_Llm(
+            model_name="passthrough",
+            provider_name="fast-agent",
+            request_params=RequestParams(maxTokens=123),
+        ),
+        message_history=[
+            PromptMessageExtended(
+                role="user",
+                content=[TextContent(type="text", text="hello save path")],
+            ),
+            PromptMessageExtended(
+                role="assistant",
+                content=[TextContent(type="text", text="saved")],
+            ),
+        ],
+    )
+
+    await session.save_history(
+        cast("AgentProtocol", agent),
+        resolved_prompts={"main": "Resolved ACP prompt"},
+    )
+
+    payload = json.loads((session.directory / "session.json").read_text(encoding="utf-8"))
+    assert payload["continuation"]["agents"]["main"]["resolved_prompt"] == "Resolved ACP prompt"
 
 
 @pytest.mark.asyncio

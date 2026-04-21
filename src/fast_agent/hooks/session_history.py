@@ -52,6 +52,7 @@ async def save_session_history(ctx: "HookContext") -> None:
     session_cwd: Path | None = None
     session_store_scope: Literal["workspace", "app"] = "workspace"
     session_store_cwd: Path | None = None
+    resolved_prompts: dict[str, str] | None = None
     agent_context = ctx.context
     acp_context = agent_context.acp if agent_context else None
     if acp_context is not None:
@@ -67,6 +68,7 @@ async def save_session_history(ctx: "HookContext") -> None:
         raw_session_store_cwd = acp_context.session_store_cwd
         if raw_session_store_cwd:
             session_store_cwd = Path(str(raw_session_store_cwd)).expanduser().resolve()
+        resolved_prompts = acp_context.resolved_instructions_snapshot() or None
 
     metadata: dict[str, object] = {"agent_name": ctx.agent_name}
     model_name = agent_config.model
@@ -93,6 +95,7 @@ async def save_session_history(ctx: "HookContext") -> None:
             cast("AgentProtocol", history_agent),
             agent_registry=ctx.agent_registry,
             identity=identity,
+            resolved_prompts=resolved_prompts,
         )
     except Exception as exc:
         logger.warning(

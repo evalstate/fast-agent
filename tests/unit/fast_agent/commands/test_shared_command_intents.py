@@ -34,6 +34,14 @@ def test_parse_session_command_intent_parses_export_options() -> None:
     assert intent.export_error is None
 
 
+def test_parse_session_command_intent_normalizes_latest_export_target() -> None:
+    intent = parse_session_command_intent("export LATEST")
+
+    assert intent.action == "export"
+    assert intent.export_target == "latest"
+    assert intent.export_error is None
+
+
 def test_parse_session_command_intent_preserves_windows_export_paths() -> None:
     intent = parse_session_command_intent(
         r"export C:\tmp\session.json --output C:\tmp\trace.jsonl"

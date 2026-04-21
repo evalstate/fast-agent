@@ -412,6 +412,10 @@ class ACPContext:
         """
         self._resolved_instructions = resolved_instructions
 
+    def resolved_instructions_snapshot(self) -> dict[str, str]:
+        """Return a copy of the current session-resolved instruction cache."""
+        return dict(self._resolved_instructions or {})
+
     # =========================================================================
     # Slash Command Updates
     # =========================================================================
