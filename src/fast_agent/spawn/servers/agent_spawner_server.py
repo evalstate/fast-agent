@@ -1005,6 +1005,7 @@ async def spawn_team_tool(
 async def spawn_team_members(
     roles: str,
     team_session_id: str = "",
+    first_task: str = "",
 ) -> str:
     """Spawn specific team members from an active team session.
 
@@ -1015,6 +1016,10 @@ async def spawn_team_members(
         roles: Comma-separated role keys to spawn (e.g. "ba,dev,qe").
         team_session_id: The session_id from spawn_team_tool.
                          Auto-detected from TEAM_SESSION_ID env if empty.
+        first_task: Optional task description delivered to every spawned
+                    role as their immediate priority. Without this the
+                    delegated agent receives only its role template with
+                    no concrete instructions.
     """
     from fast_agent.spawn.team_spawner import spawn_team_members_for_session
 
@@ -1033,6 +1038,7 @@ async def spawn_team_members(
             registry=_registry,
             display_manager=_display,
             project_dir=str(_PROJECT_DIR),
+            first_task=first_task,
             spawn_lifecycle_hooks=_spawn_hooks,
         )
 
