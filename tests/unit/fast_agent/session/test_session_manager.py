@@ -234,6 +234,38 @@ def test_load_session_marks_loaded_session_as_latest(tmp_path) -> None:
         reset_session_manager()
 
 
+def test_list_sessions_normalizes_timezone_aware_timestamps(tmp_path) -> None:
+    manager = SessionManager(
+        cwd=tmp_path,
+        environment_override=tmp_path / ".fast-agent",
+        respect_env_override=False,
+    )
+    older = manager.create_session()
+    newer = manager.create_session()
+
+    older_payload = json.loads((older.directory / "session.json").read_text(encoding="utf-8"))
+    older_payload["created_at"] = "2026-04-22T21:00:41.016804"
+    older_payload["last_activity"] = "2026-04-22T21:00:41.016804"
+    (older.directory / "session.json").write_text(
+        json.dumps(older_payload, indent=2),
+        encoding="utf-8",
+    )
+
+    newer_payload = json.loads((newer.directory / "session.json").read_text(encoding="utf-8"))
+    newer_payload["created_at"] = "2026-04-22T21:01:41.016804Z"
+    newer_payload["last_activity"] = "2026-04-22T21:01:41.016804Z"
+    (newer.directory / "session.json").write_text(
+        json.dumps(newer_payload, indent=2),
+        encoding="utf-8",
+    )
+
+    sessions = manager.list_sessions()
+
+    assert [session.name for session in sessions] == [newer.info.name, older.info.name]
+    assert sessions[0].created_at.tzinfo is None
+    assert sessions[0].last_activity.tzinfo is None
+
+
 @pytest.mark.asyncio
 async def test_resume_session_agents_uses_hydrator_active_agent_and_prompt_restore(
     tmp_path,
