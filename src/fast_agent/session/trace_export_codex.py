@@ -348,6 +348,10 @@ def _tool_result_output(result: CallToolResult) -> object:
     return ""
 
 
+def _tool_result_status(result: CallToolResult) -> str:
+    return "error" if result.isError else "success"
+
+
 def _object_mapping(value: object) -> dict[str, object] | None:
     if not isinstance(value, dict):
         return None
@@ -508,6 +512,7 @@ def _function_call_output_items(message: PromptMessageExtended) -> list[dict[str
                 "type": "function_call_output",
                 "call_id": call_id,
                 "output": _tool_result_output(result),
+                "status": _tool_result_status(result),
             }
         )
     return items
