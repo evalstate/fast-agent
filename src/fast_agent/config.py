@@ -424,6 +424,14 @@ class MCPServerSettings(BaseModel):
     include_instructions: bool = True
     """Whether to include this server's instructions in the system prompt (default: True)."""
 
+    mcp_skills: bool = True
+    """Whether to discover and load Skills-over-MCP (io.modelcontextprotocol/skills)
+    skills from this server (default: True). Set False to suppress reading
+    `skill://index.json` and its entries from this server. Independent of
+    `include_instructions`: disabling server instructions does not suppress
+    Skills-over-MCP discovery — set `mcp_skills: false` separately if you
+    want that too."""
+
     reconnect_on_disconnect: bool = True
     """Whether to automatically reconnect when the server session is terminated (e.g., 404).
 

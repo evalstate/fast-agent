@@ -71,6 +71,10 @@ from fast_agent.mcp.mcp_aggregator import (
     NamespacedTool,
     ServerStatus,
 )
+from fast_agent.mcp.mcp_skills_loader import (
+    load_mcp_skill_manifests,
+    merge_filesystem_and_mcp_manifests,
+)
 from fast_agent.mcp.prompt_metadata import prompt_display_name
 from fast_agent.mcp.provider_management import (
     ProviderManagedMCPState,
@@ -233,15 +237,16 @@ class McpAgent(ABC, ToolAgent):
             else:
                 self._shell_runtime_activation_reason = "via " + " and ".join(reasons)
 
-        # Derive skills directory from this agent's manifests (respects per-agent config)
+        # Derive skills directory from this agent's manifests (respects per-agent config).
+        # URI-backed (Skills-over-MCP) manifests have no filesystem path, so pick
+        # the first filesystem-backed manifest rather than indexing [0] blindly.
         skills_directory = None
-        if self._skill_manifests:
-            # Get the skills directory from the first manifest's path
-            # Path structure: <env>/skills/skill-name/SKILL.md
-            # So we need parent.parent of the manifest path
-            first_manifest = self._skill_manifests[0]
-            if first_manifest.path:
-                skills_directory = first_manifest.path.parent.parent
+        first_fs_manifest = next(
+            (m for m in self._skill_manifests if m.path is not None), None
+        )
+        if first_fs_manifest is not None:
+            # Path structure: <env>/skills/skill-name/SKILL.md -> parent.parent
+            skills_directory = first_fs_manifest.path.parent.parent
 
         self._shell_access_modes: tuple[str, ...] = ()
         if self._shell_runtime_activation_reason is not None:
@@ -320,6 +325,11 @@ class McpAgent(ABC, ToolAgent):
         NOTE: This method is called automatically when the agent is used as an async context manager.
         """
         await self.__aenter__()
+
+        # Discover Skills-over-MCP skills from connected servers and merge
+        # them with any filesystem manifests before the instruction template
+        # is built (so the frontmatter lands in {{agentSkills}}).
+        await self._load_mcp_skill_manifests()
 
         # Apply template substitution to the instruction with server instructions
         await self._apply_instruction_templates()
@@ -503,7 +513,9 @@ class McpAgent(ABC, ToolAgent):
 
     @property
     def skill_read_tool_name(self) -> str:
-        """Return the tool name that should be referenced for reading skill content."""
+        """Tool the model uses to read skill content. Forced to ``read_skill`` when any manifest is URI-backed (only it accepts both filesystem paths and resource URIs)."""
+        if any(manifest.uri for manifest in self._skill_manifests):
+            return "read_skill"
         return "read_text_file" if self.has_filesystem_read_text_file_tool else "read_skill"
 
     @property
@@ -594,11 +606,68 @@ class McpAgent(ABC, ToolAgent):
                 surface="startup_once",
             )
 
+    async def _load_mcp_skill_manifests(self) -> None:
+        """Fetch skills served by connected MCP servers per the Skills-over-MCP SEP.
+
+        Merges discovered MCP manifests with any pre-existing filesystem
+        manifests and updates the skill reader. On name collision, the
+        filesystem manifest wins (consistent with SkillRegistry dedup).
+        Disabled per-server via MCPServerSettings.mcp_skills.
+        """
+        server_names = tuple(self._aggregator.server_names or ())
+        if not server_names:
+            return
+
+        # Collect per-server opt-out from config (default: enabled).
+        enabled_servers: set[str] | None = None
+        if self._context and self._context.config and self._context.config.mcp:
+            server_settings = self._context.config.mcp.servers or {}
+            enabled_servers = {
+                name
+                for name in server_names
+                if getattr(server_settings.get(name), "mcp_skills", True)
+            }
+            if not enabled_servers:
+                return
+
+        try:
+            mcp_manifests = await load_mcp_skill_manifests(
+                self._aggregator,
+                server_names,
+                enabled_servers=enabled_servers,
+            )
+        except Exception as exc:
+            # Discovery must not break agent startup.
+            self.logger.error(
+                "Failed to load MCP skills",
+                data={"error": str(exc)},
+                exc_info=True,
+            )
+            return
+
+        if not mcp_manifests:
+            return
+
+        merged, warnings = merge_filesystem_and_mcp_manifests(
+            self._skill_manifests, mcp_manifests
+        )
+        for message in warnings:
+            self._record_warning(f"[dim]{message}[/dim]", surface="startup_once")
+
+        self.set_skill_manifests(merged)
+
     def set_skill_manifests(self, manifests: Sequence[SkillManifest]) -> None:
         self._skill_manifests = list(manifests)
         self._skill_map = {manifest.name: manifest for manifest in self._skill_manifests}
         if self._skill_manifests:
-            self._skill_reader = SkillReader(self._skill_manifests, self.logger)
+            # The aggregator is only needed when any manifest is URI-backed
+            # (Skills-over-MCP), but passing it unconditionally is cheap and
+            # keeps the reader uniform.
+            self._skill_reader = SkillReader(
+                self._skill_manifests,
+                self.logger,
+                aggregator=self._aggregator,
+            )
             self._ensure_shell_runtime_for_skills()
         else:
             self._skill_reader = None
@@ -611,12 +680,14 @@ class McpAgent(ABC, ToolAgent):
         if self._external_runtime is not None:
             return
 
-        # Derive skills directory from manifests (respects per-agent config)
+        # Derive skills directory from manifests (respects per-agent config).
+        # Skip URI-backed manifests — they have no filesystem root to anchor the shell runtime.
         skills_directory = None
-        if self._skill_manifests:
-            first_manifest = self._skill_manifests[0]
-            if first_manifest.path:
-                skills_directory = first_manifest.path.parent.parent
+        first_fs_manifest = next(
+            (m for m in self._skill_manifests if m.path is not None), None
+        )
+        if first_fs_manifest is not None:
+            skills_directory = first_fs_manifest.path.parent.parent
 
         self._activate_shell_runtime(
             "because agent skills are configured",
