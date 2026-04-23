@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
+from urllib.parse import parse_qsl, urlencode
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -111,6 +112,7 @@ class SessionAgentSnapshot(BaseModel):
     history_file: str | None = None
     resolved_prompt: str | None = None
     model: str | None = None
+    model_spec: str | None = None
     provider: str | None = None
     request_settings: SessionRequestSettingsSnapshot | None = None
     card_provenance: list[SessionCardProvenanceRef] = Field(default_factory=list)
@@ -194,6 +196,12 @@ class _AttachedMcpServerProvider(Protocol):
 class _AgentBackedToolRefProvider(Protocol):
     @property
     def agent_backed_tools(self) -> Mapping[str, object]: ...
+
+
+@runtime_checkable
+class _SelectedModelNameProvider(Protocol):
+    @property
+    def selected_model_name(self) -> str: ...
 
 
 def load_session_snapshot(payload: object) -> SessionSnapshot:
@@ -658,6 +666,11 @@ def _capture_agent_snapshot(
 ) -> SessionAgentSnapshot:
     llm = agent.llm
     request_settings = _capture_request_settings_snapshot(agent)
+    model_spec = _capture_model_spec(
+        agent=agent,
+        request_settings=request_settings,
+        existing_snapshot=existing_snapshot,
+    )
     return SessionAgentSnapshot(
         history_file=_capture_history_file(
             session=session,
@@ -675,6 +688,7 @@ def _capture_agent_snapshot(
                 else (existing_snapshot.model if existing_snapshot is not None else None)
             )
         ),
+        model_spec=model_spec,
         provider=(
             llm.provider.config_name
             if llm is not None
@@ -689,6 +703,29 @@ def _capture_agent_snapshot(
         attachment_refs=_capture_attachment_refs(agent),
         model_overlay_refs=_capture_model_overlay_refs(agent),
     )
+
+
+def _capture_model_spec(
+    *,
+    agent: "AgentProtocol",
+    request_settings: SessionRequestSettingsSnapshot | None,
+    existing_snapshot: SessionAgentSnapshot | None,
+) -> str | None:
+    llm = agent.llm
+    base_model_spec: str | None = None
+    if llm is not None:
+        resolved_model = llm.resolved_model
+        if isinstance(resolved_model, _SelectedModelNameProvider):
+            selected_model_name = resolved_model.selected_model_name.strip()
+            if selected_model_name:
+                base_model_spec = selected_model_name
+        if base_model_spec is None and llm.model_name is not None:
+            base_model_spec = llm.model_name
+    if base_model_spec is None:
+        base_model_spec = agent.config.model
+    if base_model_spec is None and existing_snapshot is not None:
+        base_model_spec = existing_snapshot.model_spec or existing_snapshot.model
+    return _apply_request_settings_to_model_spec(base_model_spec, request_settings)
 
 
 def _capture_history_file(
@@ -743,6 +780,29 @@ def _request_settings_snapshot_from_params(
         service_tier=params.service_tier,
     )
     return snapshot if snapshot.model_dump(exclude_none=True) else None
+
+
+def _apply_request_settings_to_model_spec(
+    model_spec: str | None,
+    request_settings: SessionRequestSettingsSnapshot | None,
+) -> str | None:
+    if model_spec is None:
+        return None
+
+    normalized_model_spec = model_spec.strip()
+    if not normalized_model_spec:
+        return None
+
+    if request_settings is None or request_settings.service_tier is None:
+        return normalized_model_spec
+
+    base_model_spec, _, query = normalized_model_spec.partition("?")
+    query_params = dict(parse_qsl(query, keep_blank_values=True))
+    query_params["service_tier"] = request_settings.service_tier
+    encoded_query = urlencode(query_params)
+    if not encoded_query:
+        return base_model_spec
+    return f"{base_model_spec}?{encoded_query}"
 
 
 def _capture_card_provenance(agent: "AgentProtocol") -> list[SessionCardProvenanceRef]:

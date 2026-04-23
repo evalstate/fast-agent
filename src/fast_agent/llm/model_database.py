@@ -748,6 +748,9 @@ class ModelDatabase:
         "gpt-5.4": OPENAI_GPT_CODEX.model_copy(
             update={"reasoning_effort_spec": OPENAI_GPT_51_CLASS_REASONING}
         ),
+        "gpt-5.5": OPENAI_GPT_CODEX.model_copy(
+            update={"reasoning_effort_spec": OPENAI_GPT_51_CLASS_REASONING}
+        ),
         "gpt-5.4-mini": OPENAI_GPT_54_SMALL,
         "gpt-5.4-nano": OPENAI_GPT_54_SMALL.model_copy(
             update={"response_websocket_providers": (Provider.RESPONSES,)}

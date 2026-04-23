@@ -44,8 +44,14 @@ class _Overlay:
 
 
 class _ResolvedModel:
-    def __init__(self, overlay: _Overlay | None = None) -> None:
+    def __init__(
+        self,
+        overlay: _Overlay | None = None,
+        *,
+        selected_model_name: str | None = None,
+    ) -> None:
         self.overlay = overlay
+        self.selected_model_name = selected_model_name or ""
 
 
 class _Llm:
@@ -61,7 +67,8 @@ class _Llm:
         self.provider = SimpleNamespace(config_name=provider_name)
         self.default_request_params = request_params
         self.resolved_model = _ResolvedModel(
-            _Overlay(overlay_manifest_path) if overlay_manifest_path is not None else None
+            _Overlay(overlay_manifest_path) if overlay_manifest_path is not None else None,
+            selected_model_name=model_name,
         )
 
 
@@ -357,6 +364,7 @@ def test_capture_session_snapshot_maps_runtime_state_for_all_known_agents(tmp_pa
     assert foo_snapshot.history_file == "history_foo.json"
     assert foo_snapshot.resolved_prompt == "resolved foo prompt"
     assert foo_snapshot.model == "config-foo"
+    assert foo_snapshot.model_spec == "config-foo"
     assert foo_snapshot.provider is None
     foo_params = foo_config.default_request_params
     assert foo_params is not None
@@ -373,6 +381,7 @@ def test_capture_session_snapshot_maps_runtime_state_for_all_known_agents(tmp_pa
     assert bar_snapshot.history_file == "history_bar.json"
     assert bar_snapshot.resolved_prompt == "resolved bar prompt"
     assert bar_snapshot.model == "runtime-bar"
+    assert bar_snapshot.model_spec == "runtime-bar?service_tier=flex"
     assert bar_snapshot.provider == "anthropic"
     assert bar_snapshot.request_settings == SessionRequestSettingsSnapshot(
         max_tokens=4096,
@@ -470,6 +479,7 @@ def test_capture_session_snapshot_preserves_existing_v2_fallback_values(tmp_path
     assert snapshot.continuation.lineage.acp_session_id == "persisted-acp"
     assert foo_snapshot.history_file == "history_foo.json"
     assert foo_snapshot.model == "persisted-model"
+    assert foo_snapshot.model_spec == "persisted-model"
     assert foo_snapshot.provider == "persisted-provider"
     assert bar_snapshot.history_file == "history_bar.json"
     assert bar_snapshot.resolved_prompt == "persisted bar prompt"
