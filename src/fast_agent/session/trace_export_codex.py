@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
 from typing import TYPE_CHECKING
+from urllib.parse import parse_qsl, urlencode
 
 from mcp.types import (
     AudioContent,
@@ -38,6 +39,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+    from fast_agent.session.snapshot import SessionAgentSnapshot
 
 
 def _normalize_utc(value: datetime) -> datetime:
@@ -414,32 +416,90 @@ def _usage_summary_payload(message: PromptMessageExtended) -> dict[str, object] 
 @dataclass(frozen=True, slots=True)
 class _TraceMeta:
     model: str | None
+    model_spec: str | None
     provider: str | None
     model_context_window: int | None
+
+
+def _service_tier_model_spec(
+    model_spec: str | None,
+    agent_snapshot: "SessionAgentSnapshot",
+) -> str | None:
+    if model_spec is None:
+        return None
+    request_settings = agent_snapshot.request_settings
+    service_tier = None if request_settings is None else request_settings.service_tier
+    if service_tier is None:
+        return model_spec
+
+    base_model_spec, _, query = model_spec.partition("?")
+    query_params = dict(parse_qsl(query, keep_blank_values=True))
+    query_params["service_tier"] = service_tier
+    encoded_query = urlencode(query_params)
+    if not encoded_query:
+        return base_model_spec
+    return f"{base_model_spec}?{encoded_query}"
+
+
+def _full_model_spec(agent_snapshot: "SessionAgentSnapshot") -> str | None:
+    model_spec = agent_snapshot.model_spec
+    if model_spec is not None:
+        stripped = model_spec.strip()
+        if stripped:
+            model_spec = stripped
+        else:
+            model_spec = None
+    model = agent_snapshot.model
+    if model_spec is None and model is not None:
+        stripped = model.strip()
+        if stripped:
+            model_spec = stripped
+    return _service_tier_model_spec(model_spec, agent_snapshot)
+
+
+def _model_context_window(model_spec: str | None, model: str | None) -> int | None:
+    if model_spec is not None:
+        context_window = ModelDatabase.get_context_window(model_spec)
+        if context_window is not None:
+            return context_window
+    if model is not None:
+        return ModelDatabase.get_context_window(model)
+    return None
 
 
 def _trace_meta(resolved: ResolvedSessionExport) -> _TraceMeta:
     agent_snapshot = resolved.snapshot.continuation.agents[resolved.agent_name]
     model = agent_snapshot.model
+    model_spec = _full_model_spec(agent_snapshot)
     provider = agent_snapshot.provider
-    model_context_window = ModelDatabase.get_context_window(model) if model else None
+    model_context_window = _model_context_window(model_spec, model)
 
     for message in resolved.history:
         turn_payload = _usage_turn_payload(message)
         summary_payload = _usage_summary_payload(message)
         if model is None:
             model = _string_field(turn_payload, "model")
+        if model_spec is None:
+            model_spec = _string_field(turn_payload, "model")
         if provider is None:
             provider = _string_field(turn_payload, "provider")
         if model_context_window is None:
             model_context_window = _int_field(summary_payload, "context_window_size")
-        if model_context_window is None and model is not None:
-            model_context_window = ModelDatabase.get_context_window(model)
-        if model is not None and provider is not None and model_context_window is not None:
+        if model_context_window is None:
+            model_context_window = _model_context_window(model_spec, model)
+        if (
+            model is not None
+            and model_spec is not None
+            and provider is not None
+            and model_context_window is not None
+        ):
             break
+
+    model_spec = _service_tier_model_spec(model_spec or model, agent_snapshot)
 
     return _TraceMeta(
         model=model,
+        model_spec=model_spec,
         provider=provider,
         model_context_window=model_context_window,
     )
@@ -535,6 +595,8 @@ def _session_meta_payload(resolved: ResolvedSessionExport, meta: _TraceMeta) -> 
     }
     if meta.provider is not None:
         payload["model_provider"] = meta.provider
+    if meta.model_spec is not None:
+        payload["model_spec"] = meta.model_spec
     if agent_snapshot.resolved_prompt:
         payload["base_instructions"] = {"text": agent_snapshot.resolved_prompt}
     return payload
@@ -557,6 +619,8 @@ def _turn_context_payload(
         payload["current_date"] = _normalize_utc(turn_timestamp).date().isoformat()
     if meta.model is not None:
         payload["model"] = meta.model
+    if meta.model_spec is not None:
+        payload["model_spec"] = meta.model_spec
     return payload
 
 

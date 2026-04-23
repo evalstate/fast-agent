@@ -142,6 +142,7 @@ def test_session_trace_exporter_writes_codex_trace(tmp_path: Path) -> None:
     assert records[0]["type"] == "session_meta"
     assert records[0]["timestamp"] == "2026-04-20T13:03:00.000Z"
     assert records[0]["payload"]["id"] == session_id
+    assert records[0]["payload"]["model_spec"] == "gpt-5.4"
     assert records[0]["payload"]["base_instructions"]["text"] == "You are dev."
     assert "harness" not in records[0]
     assert records[1]["type"] == "response_item"
@@ -163,6 +164,7 @@ def test_session_trace_exporter_writes_codex_trace(tmp_path: Path) -> None:
     assert "timestamp" not in records[4]
     assert records[4]["payload"]["turn_id"] == "turn-1"
     assert "current_date" not in records[4]["payload"]
+    assert records[4]["payload"]["model_spec"] == "gpt-5.4"
     assert "developer_instructions" not in records[4]["payload"]
     assert "approval_policy" not in records[4]["payload"]
     assert "sandbox_policy" not in records[4]["payload"]
@@ -192,6 +194,49 @@ def test_session_trace_exporter_writes_codex_trace(tmp_path: Path) -> None:
     assert records[8]["payload"]["last_agent_message"] == "done"
 
 
+def test_session_trace_exporter_context_window_falls_back_to_model(
+    tmp_path: Path,
+) -> None:
+    manager = _build_manager(tmp_path)
+    session_id = "2604201303-overlay"
+    session_dir = manager.base_dir / session_id
+    session_dir.mkdir(parents=True)
+    _write_history(session_dir / "history_dev.json", assistant_text="done")
+    _write_session_snapshot(
+        session_dir,
+        session_id=session_id,
+        active_agent="dev",
+        agents={
+            "dev": SessionAgentSnapshot(
+                history_file="history_dev.json",
+                model="gpt-5.4",
+                model_spec="custom-overlay",
+                provider="codexresponses",
+            )
+        },
+    )
+
+    exporter = SessionTraceExporter(session_manager=manager)
+    exporter.export(
+        ExportRequest(
+            target=session_dir / "session.json",
+            agent_name=None,
+            output_path=tmp_path / "trace.jsonl",
+        )
+    )
+
+    records = [
+        json.loads(line)
+        for line in (tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+
+    assert records[0]["payload"]["model_spec"] == "custom-overlay"
+    assert records[1]["payload"]["type"] == "turn_started"
+    assert records[1]["payload"]["model_context_window"] == 400000
+    assert records[3]["payload"]["model"] == "gpt-5.4"
+    assert records[3]["payload"]["model_spec"] == "custom-overlay"
+
+
 def test_session_trace_exporter_preserves_assistant_commentary_phase(tmp_path: Path) -> None:
     manager = _build_manager(tmp_path)
     session_id = "2604201303-x5MNlH"
@@ -214,7 +259,12 @@ def test_session_trace_exporter_preserves_assistant_commentary_phase(tmp_path: P
         session_dir,
         session_id=session_id,
         active_agent="dev",
-        agents={"dev": SessionAgentSnapshot(history_file="history_dev.json")},
+        agents={
+            "dev": SessionAgentSnapshot(
+                history_file="history_dev.json",
+                request_settings=SessionRequestSettingsSnapshot(service_tier="flex"),
+            )
+        },
     )
 
     exporter = SessionTraceExporter(session_manager=manager)
@@ -264,7 +314,12 @@ def test_session_trace_exporter_uses_workspace_dir_for_relative_output_paths(
         session_dir,
         session_id=session_id,
         active_agent="dev",
-        agents={"dev": SessionAgentSnapshot(history_file="history_dev.json")},
+        agents={
+            "dev": SessionAgentSnapshot(
+                history_file="history_dev.json",
+                request_settings=SessionRequestSettingsSnapshot(service_tier="flex"),
+            )
+        },
     )
     other_cwd = tmp_path / "other-cwd"
     other_cwd.mkdir()
@@ -299,7 +354,12 @@ def test_session_trace_exporter_uses_workspace_dir_for_default_output_path(
         session_dir,
         session_id=session_id,
         active_agent="dev",
-        agents={"dev": SessionAgentSnapshot(history_file="history_dev.json")},
+        agents={
+            "dev": SessionAgentSnapshot(
+                history_file="history_dev.json",
+                request_settings=SessionRequestSettingsSnapshot(service_tier="flex"),
+            )
+        },
     )
     other_cwd = tmp_path / "other-cwd"
     other_cwd.mkdir()
@@ -428,7 +488,12 @@ def test_session_trace_exporter_writes_native_codex_tool_items(tmp_path: Path) -
         session_dir,
         session_id=session_id,
         active_agent="dev",
-        agents={"dev": SessionAgentSnapshot(history_file="history_dev.json")},
+        agents={
+            "dev": SessionAgentSnapshot(
+                history_file="history_dev.json",
+                request_settings=SessionRequestSettingsSnapshot(service_tier="flex"),
+            )
+        },
     )
 
     exporter = SessionTraceExporter(session_manager=manager)
@@ -681,7 +746,12 @@ def test_session_trace_exporter_uses_usage_metadata_for_model_and_token_count(
         session_dir,
         session_id=session_id,
         active_agent="dev",
-        agents={"dev": SessionAgentSnapshot(history_file="history_dev.json")},
+        agents={
+            "dev": SessionAgentSnapshot(
+                history_file="history_dev.json",
+                request_settings=SessionRequestSettingsSnapshot(service_tier="flex"),
+            )
+        },
     )
 
     exporter = SessionTraceExporter(session_manager=manager)
@@ -699,11 +769,13 @@ def test_session_trace_exporter_uses_usage_metadata_for_model_and_token_count(
     ]
 
     assert records[0]["payload"]["model_provider"] == "codexresponses"
+    assert records[0]["payload"]["model_spec"] == "gpt-5.3-codex?service_tier=flex"
     assert records[1]["type"] == "event_msg"
     assert records[1]["payload"]["type"] == "turn_started"
     assert records[1]["payload"]["model_context_window"] == 400000
     assert records[3]["type"] == "turn_context"
     assert records[3]["payload"]["model"] == "gpt-5.3-codex"
+    assert records[3]["payload"]["model_spec"] == "gpt-5.3-codex?service_tier=flex"
     assert records[6]["type"] == "event_msg"
     assert records[6]["payload"] == {
         "type": "token_count",

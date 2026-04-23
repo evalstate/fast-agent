@@ -354,11 +354,13 @@ def test_model_database_response_transports():
 
 def test_model_database_response_service_tiers() -> None:
     assert ModelDatabase.get_response_service_tiers("gpt-5.4") == ("fast", "flex")
+    assert ModelDatabase.get_response_service_tiers("gpt-5.5") == ("fast", "flex")
     assert ModelDatabase.get_response_service_tiers("gpt-5.3-chat-latest") == ("fast",)
     assert ModelDatabase.get_response_service_tiers("gpt-5.1-codex") == ("fast",)
     assert ModelDatabase.get_response_service_tiers("gpt-5.2-codex") == ("fast", "flex")
     assert ModelDatabase.supports_response_service_tier("gpt-5.3-chat-latest", "flex") is False
     assert ModelDatabase.supports_response_service_tier("gpt-5.4", "flex") is True
+    assert ModelDatabase.supports_response_service_tier("gpt-5.5", "flex") is True
     assert ModelDatabase.supports_response_service_tier("gpt-4o", "flex") is None
 
 
@@ -368,7 +370,15 @@ def test_model_database_response_websocket_provider_support() -> None:
         is True
     )
     assert (
+        ModelDatabase.supports_response_websocket_provider("gpt-5.5", Provider.CODEX_RESPONSES)
+        is True
+    )
+    assert (
         ModelDatabase.supports_response_websocket_provider("gpt-5.4", Provider.RESPONSES)
+        is True
+    )
+    assert (
+        ModelDatabase.supports_response_websocket_provider("gpt-5.5", Provider.RESPONSES)
         is True
     )
     assert (

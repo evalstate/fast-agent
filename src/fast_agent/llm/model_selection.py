@@ -197,6 +197,10 @@ class ModelSelectionCatalog:
                 model="codexresponses.gpt-5.4?reasoning=high",
             ),
             CatalogModelEntry(
+                alias="gpt-5.5",
+                model="codexresponses.gpt-5.5?reasoning=high",
+            ),
+            CatalogModelEntry(
                 alias="codexplan53",
                 model="codexresponses.gpt-5.3-codex?reasoning=high",
             ),
