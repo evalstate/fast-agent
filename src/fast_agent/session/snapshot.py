@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import warnings
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 
@@ -207,7 +207,10 @@ def load_session_snapshot(payload: object) -> SessionSnapshot:
         return synthesize_legacy_session_snapshot(payload_mapping)
     if raw_schema_version != SESSION_SNAPSHOT_SCHEMA_VERSION:
         raise ValueError(f"Unsupported session snapshot schema version: {raw_schema_version!r}")
-    return SessionSnapshot.model_validate(payload_mapping)
+    snapshot = SessionSnapshot.model_validate(payload_mapping)
+    snapshot.created_at = _normalize_session_timestamp(snapshot.created_at)
+    snapshot.last_activity = _normalize_session_timestamp(snapshot.last_activity)
+    return snapshot
 
 
 def synthesize_legacy_session_snapshot(payload: Mapping[str, object]) -> SessionSnapshot:
@@ -411,10 +414,10 @@ def _legacy_timestamp(
     fallback: datetime,
 ) -> datetime:
     if isinstance(value, datetime):
-        return value
+        return _normalize_session_timestamp(value)
     if isinstance(value, str):
         try:
-            return datetime.fromisoformat(value)
+            return _normalize_session_timestamp(datetime.fromisoformat(value))
         except ValueError:
             _warn_legacy_issue(
                 session_id,
@@ -427,6 +430,12 @@ def _legacy_timestamp(
             f"legacy session {field_name!r} must be a string timestamp; using current time",
         )
     return fallback
+
+
+def _normalize_session_timestamp(value: datetime) -> datetime:
+    if value.tzinfo is None or value.utcoffset() is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def _legacy_metadata_extras(

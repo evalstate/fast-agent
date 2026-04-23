@@ -36,7 +36,7 @@ from fast_agent.session.trace_export_errors import (
     SessionExportWriteError,
 )
 from fast_agent.session.trace_export_models import DatasetUploadResult, ExportRequest
-from fast_agent.types import COMMENTARY_PHASE, LlmStopReason
+from fast_agent.types import COMMENTARY_PHASE, FINAL_ANSWER_PHASE, LlmStopReason
 
 
 def _write_session_snapshot(
@@ -185,6 +185,7 @@ def test_session_trace_exporter_writes_codex_trace(tmp_path: Path) -> None:
     assert records[7]["payload"]["role"] == "assistant"
     assert records[7]["payload"]["content"] == [{"type": "output_text", "text": "done"}]
     assert records[7]["payload"]["end_turn"] is True
+    assert "phase" not in records[7]["payload"]
     assert records[8]["type"] == "event_msg"
     assert "timestamp" not in records[8]
     assert records[8]["payload"]["type"] == "turn_complete"
@@ -465,10 +466,117 @@ def test_session_trace_exporter_writes_native_codex_tool_items(tmp_path: Path) -
         "type": "function_call_output",
         "call_id": "call_1",
         "output": "process exit code was 0",
+        "status": "success",
     }
     assert records[6]["type"] == "event_msg"
     assert records[6]["payload"]["type"] == "turn_complete"
     assert records[6]["payload"]["last_agent_message"] == "Using tools"
+
+
+def test_session_trace_exporter_marks_tool_errors_in_codex_output(tmp_path: Path) -> None:
+    manager = _build_manager(tmp_path)
+    session_id = "2604201303-x5MNlH"
+    session_dir = manager.base_dir / session_id
+    session_dir.mkdir(parents=True)
+    messages = [
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="Using tools")],
+            tool_calls={
+                "call_1": CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(
+                        name="execute",
+                        arguments={"command": "false"},
+                    ),
+                )
+            },
+            stop_reason=LlmStopReason.TOOL_USE,
+        ),
+        PromptMessageExtended(
+            role="user",
+            content=[],
+            tool_results={
+                "call_1": CallToolResult(
+                    content=[TextContent(type="text", text="process exit code was 1")],
+                    isError=True,
+                )
+            },
+        ),
+    ]
+    save_json(messages, str(session_dir / "history_dev.json"))
+    _write_session_snapshot(
+        session_dir,
+        session_id=session_id,
+        active_agent="dev",
+        agents={"dev": SessionAgentSnapshot(history_file="history_dev.json")},
+    )
+
+    exporter = SessionTraceExporter(session_manager=manager)
+    exporter.export(
+        ExportRequest(
+            target=session_dir,
+            agent_name="dev",
+            output_path=tmp_path / "trace.jsonl",
+        )
+    )
+
+    records = [
+        json.loads(line)
+        for line in (tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+
+    assert records[5]["type"] == "response_item"
+    assert records[5]["payload"] == {
+        "type": "function_call_output",
+        "call_id": "call_1",
+        "output": "process exit code was 1",
+        "status": "error",
+    }
+
+
+def test_session_trace_exporter_preserves_explicit_assistant_phase(tmp_path: Path) -> None:
+    manager = _build_manager(tmp_path)
+    session_id = "2604201303-x5MNlH"
+    session_dir = manager.base_dir / session_id
+    session_dir.mkdir(parents=True)
+    messages = [
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="hello")],
+        ),
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="done")],
+            phase=FINAL_ANSWER_PHASE,
+            stop_reason=LlmStopReason.END_TURN,
+        ),
+    ]
+    save_json(messages, str(session_dir / "history_dev.json"))
+    _write_session_snapshot(
+        session_dir,
+        session_id=session_id,
+        active_agent="dev",
+        agents={"dev": SessionAgentSnapshot(history_file="history_dev.json")},
+    )
+
+    exporter = SessionTraceExporter(session_manager=manager)
+    exporter.export(
+        ExportRequest(
+            target=session_dir,
+            agent_name="dev",
+            output_path=tmp_path / "trace.jsonl",
+        )
+    )
+
+    records = [
+        json.loads(line)
+        for line in (tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+
+    assert records[5]["payload"]["type"] == "message"
+    assert records[5]["payload"]["role"] == "assistant"
+    assert records[5]["payload"]["phase"] == FINAL_ANSWER_PHASE
 
 
 def test_session_trace_exporter_serializes_zero_argument_tool_calls_as_empty_object(
@@ -522,7 +630,9 @@ def test_session_trace_exporter_serializes_zero_argument_tool_calls_as_empty_obj
     }
 
 
-def test_session_trace_exporter_uses_usage_metadata_for_model_and_token_count(tmp_path: Path) -> None:
+def test_session_trace_exporter_uses_usage_metadata_for_model_and_token_count(
+    tmp_path: Path,
+) -> None:
     manager = _build_manager(tmp_path)
     session_id = "2604201303-x5MNlH"
     session_dir = manager.base_dir / session_id
@@ -793,6 +903,7 @@ def test_session_trace_exporter_preserves_non_text_tool_outputs(tmp_path: Path) 
                 "file_data": "d2F2",
             },
         ],
+        "status": "success",
     }
 
 
@@ -883,10 +994,13 @@ def test_session_trace_exporter_preserves_tool_output_item_order(tmp_path: Path)
                 "file_url": "https://example.com/audio.mp3",
             },
         ],
+        "status": "success",
     }
 
 
-def test_session_trace_exporter_preserves_user_content_alongside_tool_outputs(tmp_path: Path) -> None:
+def test_session_trace_exporter_preserves_user_content_alongside_tool_outputs(
+    tmp_path: Path,
+) -> None:
     manager = _build_manager(tmp_path)
     session_id = "2604201303-x5MNlH"
     session_dir = manager.base_dir / session_id
@@ -950,6 +1064,7 @@ def test_session_trace_exporter_preserves_user_content_alongside_tool_outputs(tm
         "type": "function_call_output",
         "call_id": "call_1",
         "output": "process exit code was 0",
+        "status": "success",
     }
 
 
@@ -1033,7 +1148,9 @@ def test_session_trace_exporter_preserves_assistant_attachment_content(tmp_path:
     }
 
 
-def test_session_trace_exporter_requires_agent_when_multiple_histories_exist(tmp_path: Path) -> None:
+def test_session_trace_exporter_requires_agent_when_multiple_histories_exist(
+    tmp_path: Path,
+) -> None:
     manager = _build_manager(tmp_path)
     session_id = "2604201303-x5MNlH"
     session_dir = manager.base_dir / session_id
