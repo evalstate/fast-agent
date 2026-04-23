@@ -20,6 +20,7 @@ from fast_agent.spawn.isolated_spawner import (
     run_isolated_agent,
     run_isolated_agent_background,
 )
+from fast_agent.spawn.registry_backends import TeamSessionStore, create_team_store
 from fast_agent.spawn.spawn_hooks import SpawnLifecycleHooks
 from fast_agent.spawn.runtime_paths import get_runtime_paths
 from fast_agent.spawn.workspace_manager import (
@@ -31,8 +32,18 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Global team sessions store
+# In-memory cache: session_id → TeamSession
 _team_sessions: dict[str, TeamSession] = {}
+
+# SQLite store — lazily initialised on first use
+_team_store: TeamSessionStore | None = None
+
+
+def _get_store() -> TeamSessionStore:
+    global _team_store  # noqa: PLW0603
+    if _team_store is None:
+        _team_store = create_team_store()
+    return _team_store
 
 # ───────────────────────────────────────────────────────────
 # Random Agent Naming
@@ -155,6 +166,7 @@ class TeamSession:
         session_id: str,
         template: dict[str, Any],
         workspace: Path,
+        project_brief: str,
         parent_session_id: str = "",
         team_name: str = "",
         conversation_id: str = "",
@@ -162,6 +174,7 @@ class TeamSession:
         self.session_id = session_id
         self.template = template
         self.workspace = workspace
+        self.project_brief = project_brief
         self.parent_session_id = parent_session_id
         self.team_name = team_name or template.get("name", "team")
         self.conversation_id = conversation_id  # originating chat session
@@ -173,12 +186,29 @@ class TeamSession:
             "session_id": self.session_id,
             "template": self.template,
             "workspace": str(self.workspace),
+            "project_brief": self.project_brief,
             "parent_session_id": self.parent_session_id,
             "team_name": self.team_name,
             "conversation_id": self.conversation_id,
             "agents": self.agents,
             "sprint_status": self.sprint_status,
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "TeamSession":
+        """Deserialise from a stored dict. Raises KeyError if required fields missing."""
+        session = cls(
+            session_id=data["session_id"],
+            template=data["template"],
+            workspace=Path(data["workspace"]),
+            project_brief=data["project_brief"],
+            parent_session_id=data.get("parent_session_id", ""),
+            team_name=data.get("team_name", ""),
+            conversation_id=data.get("conversation_id", ""),
+        )
+        session.agents = data["agents"]
+        session.sprint_status = data["sprint_status"]
+        return session
 
     # ── Roster ───────────────────────────────────────────
 
@@ -254,45 +284,6 @@ class TeamSession:
 
         return "\n".join(lines)
 
-    # ── Persistence ──────────────────────────────────────
-
-    def save(self, sessions_dir: str | Path | None = None) -> Path:
-        """Persist session state to JSON file."""
-        if sessions_dir:
-            sdir = Path(sessions_dir)
-        else:
-            sdir = self.workspace.parent / "team_sessions"
-        sdir.mkdir(parents=True, exist_ok=True)
-        path = sdir / f"{self.session_id}.json"
-        path.write_text(json.dumps(self.to_dict(), indent=2))
-        return path
-
-    @classmethod
-    def load(
-        cls,
-        session_id: str,
-        sessions_dir: str | Path,
-    ) -> TeamSession | None:
-        """Load a previously saved team session."""
-        path = Path(sessions_dir) / f"{session_id}.json"
-        if not path.exists():
-            return None
-        data = json.loads(path.read_text())
-        # Support both old format (template as string) and new (template as dict)
-        template_data = data.get("template", {})
-        if isinstance(template_data, str):
-            template_data = {"name": template_data}
-        session = cls(
-            session_id=data["session_id"],
-            template=template_data,
-            workspace=Path(data["workspace"]),
-            parent_session_id=data.get("parent_session_id", ""),
-            team_name=data.get("team_name", ""),
-            conversation_id=data.get("conversation_id", ""),
-        )
-        session.agents = data.get("agents", {})
-        session.sprint_status = data.get("sprint_status", "unknown")
-        return session
 
 
 # ───────────────────────────────────────────────────────────
@@ -464,6 +455,7 @@ async def spawn_team(
         session_id=session_id,
         template=template,
         workspace=workspace,
+        project_brief=project_brief,
         parent_session_id=parent_session_id,
         team_name=team_name,
         conversation_id=conversation_id,
@@ -529,7 +521,7 @@ async def spawn_team(
     )
 
     session.sprint_status = "orchestrator_running"
-    session.save(sessions_dir=paths["workspaces"] / "team_sessions")
+    _get_store().upsert(session_id, session.to_dict())
     return session
 
 
@@ -672,7 +664,6 @@ async def spawn_team_members_for_session(
     sdir = Path(
         os.environ.get("SPAWN_SKILLS_DIR", str(pdir / ".fast-agent" / "skills"))
     )
-    paths = get_runtime_paths(str(pdir))
 
     results: dict[str, dict[str, Any]] = {}
 
@@ -705,11 +696,12 @@ async def spawn_team_members_for_session(
             continue
 
         roster_ctx = session.roster_context(for_role=role_name)
-        # Get project_brief from session workspace
-        project_brief = ""
-        brief_file = session.workspace / "project_brief.txt"
-        if brief_file.exists():
-            project_brief = brief_file.read_text(encoding="utf-8")
+        project_brief = session.project_brief
+        if not project_brief and not first_task:
+            raise ValueError(
+                f"Cannot spawn team member '{role_name}': session '{session_id}' has no "
+                "project_brief and no first_task was provided."
+            )
 
         run_id = await _spawn_single_agent(
             session=session,
@@ -733,7 +725,7 @@ async def spawn_team_members_for_session(
             "status": "running",
         }
 
-    session.save(sessions_dir=paths["workspaces"] / "team_sessions")
+    _get_store().upsert(session_id, session.to_dict())
     return results
 
 
@@ -747,67 +739,30 @@ async def spawn_team_members_for_session(
 def get_team_session(session_id: str) -> TeamSession | None:
     """Get a team session by ID.
 
-    First checks in-memory cache, then falls back to loading from disk.
-    This is critical for child processes (e.g. PM subprocess) that have
-    their own empty _team_sessions dict but need to access sessions
-    created by the parent process.
+    Checks in-memory cache first, then SQLite. Invalid/corrupt records
+    are deleted from the store rather than returned.
     """
-    session = _team_sessions.get(session_id)
-    if session:
-        return session
+    if session_id in _team_sessions:
+        return _team_sessions[session_id]
 
-    # Fall back: try loading from disk
-    # Try common project dirs: SPAWN_PROJECT_DIR, cwd
-    import os
-    for project_dir in [
-        os.environ.get("SPAWN_PROJECT_DIR", ""),
-        os.getcwd(),
-    ]:
-        if not project_dir:
-            continue
-        sessions_dir = Path(project_dir) / ".runtime" / "data" / "workspaces" / "team_sessions"
-        loaded = TeamSession.load(session_id, sessions_dir)
-        if loaded:
-            _team_sessions[session_id] = loaded  # Cache for future calls
-            return loaded
+    data = _get_store().get(session_id)
+    if not data:
+        return None
+    try:
+        session = TeamSession.from_dict(data)
+    except (KeyError, TypeError) as e:
+        logger.warning("Corrupt team session '%s' deleted from store: %s", session_id, e)
+        _get_store().delete(session_id)
+        return None
 
-    return None
+    _team_sessions[session_id] = session
+    return session
 
 
 def list_team_sessions() -> list[dict[str, Any]]:
-    """List all team sessions (in-memory + disk-persisted).
-
-    After server restart, in-memory cache is empty. This scans the
-    disk-persisted session files so Jarvis can discover and resume
-    old team sessions.
-    """
-    import os
-
-    # Start with in-memory sessions
-    seen_ids = set(_team_sessions.keys())
-    results = [s.to_dict() for s in _team_sessions.values()]
-
-    # Also scan disk for persisted sessions not yet in memory
-    for project_dir in [
-        os.environ.get("SPAWN_PROJECT_DIR", ""),
-        os.getcwd(),
-    ]:
-        if not project_dir:
-            continue
-        sessions_dir = Path(project_dir) / ".runtime" / "data" / "workspaces" / "team_sessions"
-        if not sessions_dir.exists():
-            continue
-        for session_file in sessions_dir.glob("*.json"):
-            sid = session_file.stem
-            if sid in seen_ids:
-                continue
-            try:
-                loaded = TeamSession.load(sid, sessions_dir)
-                if loaded:
-                    _team_sessions[sid] = loaded  # Cache for future calls
-                    results.append(loaded.to_dict())
-                    seen_ids.add(sid)
-            except Exception:
-                continue
-
-    return results
+    """List all team sessions from SQLite, merged with in-memory cache."""
+    stored = {d["session_id"]: d for d in _get_store().list_all() if "session_id" in d}
+    # In-memory sessions are always authoritative (may have unsaved state)
+    for session in _team_sessions.values():
+        stored[session.session_id] = session.to_dict()
+    return list(stored.values())

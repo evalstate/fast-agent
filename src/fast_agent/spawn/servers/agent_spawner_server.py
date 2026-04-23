@@ -61,6 +61,7 @@ from fast_agent.spawn.message_bus import MessageBus
 from fast_agent.spawn.spawn_display import get_display_manager
 from fast_agent.spawn.spawn_registry import SpawnRegistry
 from fast_agent.spawn.team_spawner import (
+    _get_store as _get_team_store,
     get_team_session,
     list_team_sessions,
 )
@@ -201,6 +202,23 @@ def _write_spawn_event_to_socket(event: Any) -> None:
 
 
 _display.set_event_callback(_write_spawn_event_to_socket)
+
+
+def _emit_team_event(event_type: str, session_id: str, team_name: str, data: dict) -> None:
+    """Emit a team-level event to the bridge via socket."""
+    try:
+        import time as _time
+
+        line = json.dumps({
+            "timestamp": _time.time(),
+            "agent_name": "system",
+            "event_type": event_type,
+            "run_id": "",
+            "data": {"session_id": session_id, "team_name": team_name, **data},
+        })
+        _send_event_line(line)
+    except Exception as e:
+        _dbg(f"TEAM EVENT FAILED: {event_type} → {e}")
 
 
 def _emit_removal_event(agent_names: list[str], run_ids: list[str]) -> None:
@@ -994,6 +1012,12 @@ async def spawn_team_tool(
             f"session_id='{session.session_id}'"
         )
 
+        _emit_team_event("team_spawned", session.session_id, team_name, {
+            "template": session.template.get("name", template),
+            "workspace": str(session.workspace),
+            "available_roles": available_roles,
+        })
+
         return json.dumps(result)
     except ValueError as e:
         return json.dumps({"error": str(e)})
@@ -1041,6 +1065,16 @@ async def spawn_team_members(
             first_task=first_task,
             spawn_lifecycle_hooks=_spawn_hooks,
         )
+
+        session = get_team_session(team_session_id)
+        team_name = session.team_name if session else team_session_id
+        for role_name, info in results.items():
+            if "run_id" in info:
+                _emit_team_event("team_member_spawned", team_session_id, team_name, {
+                    "role": role_name,
+                    "agent_name": info.get("agent_name", ""),
+                    "run_id": info["run_id"],
+                })
 
         return json.dumps({
             "status": "spawned",
@@ -1365,10 +1399,8 @@ async def resume_team_tool(
             results[agent_name] = {"status": "error", "reason": str(e)}
             skipped_count += 1
 
-    # Update session status
     session.sprint_status = "running"
-    paths = get_runtime_paths(str(_PROJECT_DIR))
-    session.save(sessions_dir=paths["workspaces"] / "team_sessions")
+    _get_team_store().upsert(session_id, session.to_dict())
 
     logger.info(
         "Team %s resumed: %d agents restarted, %d skipped",
