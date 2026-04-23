@@ -36,7 +36,7 @@ from fast_agent.session.trace_export_errors import (
     SessionExportWriteError,
 )
 from fast_agent.session.trace_export_models import DatasetUploadResult, ExportRequest
-from fast_agent.types import LlmStopReason
+from fast_agent.types import COMMENTARY_PHASE, LlmStopReason
 
 
 def _write_session_snapshot(
@@ -189,6 +189,63 @@ def test_session_trace_exporter_writes_codex_trace(tmp_path: Path) -> None:
     assert "timestamp" not in records[8]
     assert records[8]["payload"]["type"] == "turn_complete"
     assert records[8]["payload"]["last_agent_message"] == "done"
+
+
+def test_session_trace_exporter_preserves_assistant_commentary_phase(tmp_path: Path) -> None:
+    manager = _build_manager(tmp_path)
+    session_id = "2604201303-x5MNlH"
+    session_dir = manager.base_dir / session_id
+    session_dir.mkdir(parents=True)
+    messages = [
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="hello")],
+        ),
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="Planning next action.")],
+            phase=COMMENTARY_PHASE,
+            stop_reason=LlmStopReason.END_TURN,
+        ),
+    ]
+    save_json(messages, str(session_dir / "history_dev.json"))
+    _write_session_snapshot(
+        session_dir,
+        session_id=session_id,
+        active_agent="dev",
+        agents={"dev": SessionAgentSnapshot(history_file="history_dev.json")},
+    )
+
+    exporter = SessionTraceExporter(session_manager=manager)
+    exporter.export(
+        ExportRequest(
+            target=session_dir,
+            agent_name="dev",
+            output_path=tmp_path / "trace.jsonl",
+        )
+    )
+
+    records = [
+        json.loads(line)
+        for line in (tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    commentary_messages = [
+        record["payload"]
+        for record in records
+        if record["type"] == "response_item"
+        and record["payload"].get("type") == "message"
+        and record["payload"].get("role") == "assistant"
+    ]
+
+    assert commentary_messages == [
+        {
+            "type": "message",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": "Planning next action."}],
+            "end_turn": True,
+            "phase": "commentary",
+        }
+    ]
 
 
 def test_session_trace_exporter_uses_workspace_dir_for_relative_output_paths(
