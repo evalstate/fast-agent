@@ -1,11 +1,11 @@
-"""Storage backends for SpawnRegistry.
+"""Storage backends for SpawnRegistry and TeamSessionStore.
 
 Provides pluggable persistence for the spawn registry:
 - JsonFileBackend: JSON file (default for standalone fast-agent)
 - SqliteBackend:   SQLite DB (activated via SPAWN_REGISTRY_DB env var)
 
-The factory function ``create_backend()`` auto-selects the right backend
-based on environment, making this transparent to SpawnRegistry callers.
+Also provides TeamSessionStore — SQLite-only storage for TeamSession state.
+TeamSession requires SPAWN_REGISTRY_DB; raises RuntimeError if not configured.
 """
 
 from __future__ import annotations
@@ -163,3 +163,80 @@ def create_backend(registry_file: str | Path) -> RegistryBackend:
     if db_path:
         return SqliteBackend(db_path)
     return JsonFileBackend(registry_file)
+
+
+class TeamSessionStore:
+    """SQLite-backed store for TeamSession state.
+
+    Uses the same DB as spawn_registry (SPAWN_REGISTRY_DB env var).
+    Schema::
+
+        CREATE TABLE team_sessions (
+            session_id TEXT PRIMARY KEY,
+            data_json  TEXT NOT NULL
+        )
+
+    WAL mode inherited from the shared connection settings.
+    """
+
+    def __init__(self, db_path: str) -> None:
+        self._db_path = db_path
+        self._init_table()
+
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self._db_path, timeout=10)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
+        return conn
+
+    def _init_table(self) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """CREATE TABLE IF NOT EXISTS team_sessions (
+                    session_id TEXT PRIMARY KEY,
+                    data_json  TEXT NOT NULL
+                )"""
+            )
+
+    def upsert(self, session_id: str, data: dict[str, Any]) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO team_sessions (session_id, data_json) VALUES (?, ?)",
+                (session_id, json.dumps(data, ensure_ascii=False)),
+            )
+
+    def get(self, session_id: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT data_json FROM team_sessions WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def list_all(self) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT data_json FROM team_sessions ORDER BY session_id DESC"
+            ).fetchall()
+        return [json.loads(r[0]) for r in rows]
+
+    def delete(self, session_id: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "DELETE FROM team_sessions WHERE session_id = ?", (session_id,)
+            )
+
+
+def create_team_store() -> TeamSessionStore:
+    """Create TeamSessionStore from SPAWN_REGISTRY_DB env var.
+
+    Raises RuntimeError if SPAWN_REGISTRY_DB is not set — TeamSession
+    persistence requires SQLite; there is no JSON fallback.
+    """
+    db_path = os.environ.get("SPAWN_REGISTRY_DB")
+    if not db_path:
+        raise RuntimeError(
+            "SPAWN_REGISTRY_DB env var is not set. "
+            "TeamSession persistence requires SQLite."
+        )
+    return TeamSessionStore(db_path)
