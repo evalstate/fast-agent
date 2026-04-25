@@ -561,6 +561,11 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         """
         request_params = self.get_request_params(request_params=request_params)
         responses: list[ContentBlock] = []
+        if request_params.structured_schema and response_schema is None:
+            response_mime_type = response_mime_type or "application/json"
+            response_schema = self._converter._clean_schema_for_google(
+                request_params.structured_schema
+            )
 
         # Caller supplies the full set of messages to send (history + turn)
         conversation_history: list[types.Content] = list(message or [])
@@ -680,6 +685,11 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                     continue
                 tool_calls_to_execute.append(part)  # Collect tool calls to execute
 
+        if not responses and (response_schema or response_mime_type):
+            structured_text = self._extract_structured_response_text(api_response)
+            if structured_text:
+                responses.append(TextContent(type="text", text=structured_text))
+
         if tool_calls_to_execute:
             stop_reason = LlmStopReason.TOOL_USE
             tool_calls = {}
@@ -701,6 +711,42 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         return Prompt.assistant(*responses, stop_reason=stop_reason, tool_calls=tool_calls)
 
     #        return responses  # Return the accumulated responses (fast-agent content types)
+
+    @staticmethod
+    def _extract_structured_response_text(
+        api_response: types.GenerateContentResponse,
+    ) -> str | None:
+        try:
+            text = api_response.text
+        except Exception:
+            text = None
+        if text:
+            return text
+
+        try:
+            parsed = api_response.parsed
+        except Exception:
+            parsed = None
+        if parsed is None:
+            return None
+        if isinstance(parsed, str):
+            return parsed
+        try:
+            return json.dumps(parsed)
+        except Exception:
+            return str(parsed)
+
+    def _prepare_structured_request(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams,
+        tools: list[McpTool] | None = None,
+    ) -> tuple[list[PromptMessageExtended], RequestParams]:
+        if not request_params.structured_schema or not tools:
+            return messages, request_params
+        if any(message.tool_results for message in messages):
+            return messages, request_params
+        return messages, request_params.model_copy(update={"structured_schema": None})
 
     async def _apply_prompt_provider_specific(
         self,

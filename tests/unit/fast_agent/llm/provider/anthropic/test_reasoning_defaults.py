@@ -1,19 +1,26 @@
 """Tests for Anthropic reasoning defaults and adaptive thinking behavior."""
 
+import json
+
 import pytest
+from mcp import Tool
 from pydantic import BaseModel
 
 from fast_agent.config import AnthropicSettings, Settings
 from fast_agent.context import Context
 from fast_agent.llm.model_database import ModelDatabase
+from fast_agent.llm.provider.anthropic.beta_types import Message, ToolUseBlock, Usage
 from fast_agent.llm.provider.anthropic.llm_anthropic import (
     FINE_GRAINED_TOOL_STREAMING_BETA,
     STRUCTURED_OUTPUT_BETA,
+    STRUCTURED_OUTPUT_TOOL_NAME,
     AnthropicLLM,
 )
 from fast_agent.llm.provider.anthropic.llm_anthropic_vertex import AnthropicVertexLLM
 from fast_agent.llm.reasoning_effort import is_auto_reasoning
 from fast_agent.llm.request_params import RequestParams
+from fast_agent.mcp.prompt import Prompt
+from fast_agent.types.llm_stop_reason import LlmStopReason
 
 
 def _make_llm(
@@ -345,6 +352,48 @@ def test_auto_structured_output_mode_prefers_json_when_direct_beta_supported():
     assert structured_mode == "json"
 
 
+def test_auto_structured_output_mode_falls_back_to_tool_use_for_legacy_model():
+    llm = _make_llm("claude-sonnet-4-0", reasoning=False)
+
+    structured_mode = llm._resolve_structured_output_mode(
+        "claude-sonnet-4-0",
+        _StructuredResponse,
+    )
+
+    assert structured_mode == "tool_use"
+
+
+def test_auto_tool_use_structured_fallback_detects_legacy_model():
+    llm = _make_llm("claude-sonnet-4-0", reasoning=False)
+
+    assert llm._is_auto_tool_use_structured_fallback(
+        "claude-sonnet-4-0",
+        "tool_use",
+        _StructuredResponse,
+    )
+
+
+def test_explicit_tool_use_mode_is_not_treated_as_auto_fallback():
+    settings = Settings()
+    settings.anthropic = AnthropicSettings(
+        api_key="test-key",
+        reasoning=False,
+        structured_output_mode="tool_use",
+    )
+    context = Context(config=settings)
+    llm = AnthropicLLM(
+        context=context,
+        model="claude-opus-4-6",
+        name="test-agent",
+    )
+
+    assert not llm._is_auto_tool_use_structured_fallback(
+        "claude-opus-4-6",
+        "tool_use",
+        _StructuredResponse,
+    )
+
+
 def test_json_structured_output_merges_with_adaptive_effort():
     llm = _make_llm("claude-opus-4-6", reasoning="max")
 
@@ -408,6 +457,63 @@ def test_json_structured_output_uses_raw_schema_when_supplied() -> None:
 
 
 @pytest.mark.asyncio
+async def test_json_structured_output_preserves_regular_tools() -> None:
+    llm = _make_llm("claude-opus-4-6", reasoning=False)
+    schema = {
+        "type": "object",
+        "properties": {"answer": {"type": "string"}},
+        "required": ["answer"],
+        "additionalProperties": False,
+    }
+    tool = Tool(
+        name="lookup_probe_payload",
+        description="Return the probe payload for validation.",
+        inputSchema={
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
+    )
+
+    tools = await llm._prepare_tools(
+        "claude-opus-4-6",
+        structured_model=None,
+        structured_schema=schema,
+        tools=[tool],
+        structured_mode="json",
+    )
+
+    assert len(tools) == 1
+    assert tools[0]["name"] == "lookup_probe_payload"
+    input_schema = dict(tools[0]["input_schema"])
+    assert input_schema.get("additionalProperties") is False
+
+
+def test_structured_schema_with_tools_is_deferred_until_tool_result() -> None:
+    llm = _make_llm("claude-sonnet-4-6", reasoning=False)
+    schema = {
+        "type": "object",
+        "properties": {"answer": {"type": "string"}},
+        "required": ["answer"],
+    }
+    tool = Tool(
+        name="lookup_probe_payload",
+        description="Return the probe payload for validation.",
+        inputSchema={"type": "object", "properties": {}},
+    )
+    params = RequestParams(structured_schema=schema)
+
+    _, prepared_params = llm._prepare_structured_request(
+        [Prompt.user("call the tool, then return json")],
+        params,
+        [tool],
+    )
+
+    assert params.structured_schema == schema
+    assert prepared_params.structured_schema is None
+
+
+@pytest.mark.asyncio
 async def test_tool_use_structured_output_uses_raw_schema_when_supplied() -> None:
     llm = _make_llm("claude-opus-4-6", reasoning=False)
     schema = {
@@ -417,6 +523,7 @@ async def test_tool_use_structured_output_uses_raw_schema_when_supplied() -> Non
     }
 
     tools = await llm._prepare_tools(
+        "claude-opus-4-6",
         structured_model=None,
         structured_schema=schema,
         tools=None,
@@ -432,6 +539,47 @@ async def test_tool_use_structured_output_uses_raw_schema_when_supplied() -> Non
     assert isinstance(answer_schema, dict)
     normalized_answer_schema = {str(key): value for key, value in answer_schema.items()}
     assert normalized_answer_schema.get("type") == "string"
+
+
+@pytest.mark.asyncio
+async def test_tool_use_structured_schema_response_is_finalized_without_model() -> None:
+    llm = _make_llm("claude-sonnet-4-6", reasoning=False)
+    schema = {
+        "type": "object",
+        "properties": {"answer": {"type": "string"}},
+        "required": ["answer"],
+    }
+    response = Message(
+        id="msg_structured",
+        type="message",
+        role="assistant",
+        content=[
+            ToolUseBlock(
+                type="tool_use",
+                id="toolu_structured",
+                name=STRUCTURED_OUTPUT_TOOL_NAME,
+                input={"answer": "ok"},
+            )
+        ],
+        model="claude-sonnet-4-6",
+        stop_reason="tool_use",
+        usage=Usage(input_tokens=10, output_tokens=20),
+    )
+
+    result = await llm._finalize_anthropic_response(
+        response=response,
+        model="claude-sonnet-4-6",
+        messages=[],
+        thinking_segments=[],
+        streamed_text_segments=[],
+        structured_mode="tool_use",
+        structured_model=None,
+        structured_schema=schema,
+    )
+
+    assert result.stop_reason == LlmStopReason.END_TURN
+    assert result.tool_calls is None
+    assert json.loads(result.last_text() or "{}") == {"answer": "ok"}
 
 
 def test_structured_output_json_adds_structured_output_beta() -> None:

@@ -685,18 +685,24 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             await self._save_history(filename, messages)
             return Prompt.assistant(f"History saved to {filename}")
 
-        # Store MCP metadata in context variable
         final_request_params = self.get_request_params(request_params)
-        if final_request_params.mcp_metadata:
-            _mcp_metadata_var.set(final_request_params.mcp_metadata)
+        prepared_messages, prepared_request_params = self._prepare_structured_request(
+            messages,
+            final_request_params,
+            tools,
+        )
+
+        # Store MCP metadata in context variable
+        if prepared_request_params.mcp_metadata:
+            _mcp_metadata_var.set(prepared_request_params.mcp_metadata)
 
         # The caller supplies the full conversation to send
-        full_history = messages
+        full_history = prepared_messages
 
         timing_capture, cleanup_timing_capture = self._start_request_timing_capture()
         try:
             assistant_response = await self._execute_with_retry(
-                self._apply_prompt_provider_specific, full_history, request_params, tools
+                self._apply_prompt_provider_specific, full_history, prepared_request_params, tools
             )
         finally:
             cleanup_timing_capture()
@@ -796,44 +802,20 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         Returns:
             Tuple of (parsed model instance or None, assistant response message)
         """
-
-        # Store MCP metadata in context variable
-        final_request_params = self.get_request_params(request_params)
-
-        # TODO -- this doesn't need to go here anymore.
-        if final_request_params.mcp_metadata:
-            _mcp_metadata_var.set(final_request_params.mcp_metadata)
-
-        full_history = messages
-
-        timing_capture, cleanup_timing_capture = self._start_request_timing_capture()
-        try:
-            result_or_response = await self._execute_with_retry(
-                self._apply_prompt_provider_specific_structured,
-                full_history,
-                model,
-                request_params,
-                on_final_error=self._handle_retry_failure,
-            )
-        finally:
-            cleanup_timing_capture()
-        if isinstance(result_or_response, PromptMessageExtended):
-            result, assistant_response = self._structured_from_multipart(result_or_response, model)
-        else:
-            result, assistant_response = result_or_response
-        end_time = time.perf_counter()
-        self._add_timing_channel(
-            assistant_response,
-            timing_capture.start_time,
-            end_time,
-            ttft_ms=timing_capture.ttft_ms,
-            time_to_response_ms=timing_capture.time_to_response_ms,
+        schema = validate_json_schema_definition(model.model_json_schema())
+        parsed_json, assistant_response = await self.structured_schema(
+            messages,
+            schema,
+            request_params,
         )
-
-        self.usage_accumulator.count_tools(len(assistant_response.tool_calls or {}))
-        self._append_usage_channel(assistant_response)
-
-        return result, assistant_response
+        if parsed_json is None:
+            return None, assistant_response
+        try:
+            return model.model_validate(parsed_json), assistant_response
+        except Exception as e:
+            logger = get_logger(__name__)
+            logger.warning(f"Failed to validate structured response: {str(e)}")
+            return None, assistant_response
 
     async def structured_schema(
         self,
@@ -858,42 +840,11 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             update={"structured_schema": normalized_schema}
         )
 
-        if final_request_params.mcp_metadata:
-            _mcp_metadata_var.set(final_request_params.mcp_metadata)
-
-        timing_capture, cleanup_timing_capture = self._start_request_timing_capture()
-        try:
-            result_or_response = await self._execute_with_retry(
-                self._apply_prompt_provider_specific_structured_schema,
-                messages,
-                normalized_schema,
-                final_request_params,
-                on_final_error=self._handle_retry_failure,
-            )
-        finally:
-            cleanup_timing_capture()
-
-        if isinstance(result_or_response, PromptMessageExtended):
-            result, assistant_response = self._structured_schema_from_multipart(
-                result_or_response,
-                normalized_schema,
-            )
-        else:
-            result, assistant_response = result_or_response
-
-        end_time = time.perf_counter()
-        self._add_timing_channel(
+        assistant_response = await self.generate(messages, final_request_params)
+        return self._structured_schema_from_multipart(
             assistant_response,
-            timing_capture.start_time,
-            end_time,
-            ttft_ms=timing_capture.ttft_ms,
-            time_to_response_ms=timing_capture.time_to_response_ms,
+            normalized_schema,
         )
-
-        self.usage_accumulator.count_tools(len(assistant_response.tool_calls or {}))
-        self._append_usage_channel(assistant_response)
-
-        return result, assistant_response
 
     @staticmethod
     def model_to_response_format(
@@ -1031,6 +982,16 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     def _prepare_structured_text(self, text: str) -> str:
         """Hook for subclasses to adjust structured output text before parsing."""
         return text
+
+    def _prepare_structured_request(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams,
+        tools: list[Tool] | None = None,
+    ) -> tuple[list[PromptMessageExtended], RequestParams]:
+        """Hook for providers to adapt structured-output intent before generation."""
+        del tools
+        return messages, request_params
 
     def record_templates(self, templates: list[PromptMessageExtended]) -> None:
         """Hook for providers that need template visibility (e.g., caching)."""

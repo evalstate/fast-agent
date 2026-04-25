@@ -1181,6 +1181,23 @@ class OpenAILLM(
 
         return await self._openai_completion(converted_messages, req_params, tools)
 
+    def _prepare_structured_request(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams,
+        tools: list[Tool] | None = None,
+    ) -> tuple[list[PromptMessageExtended], RequestParams]:
+        del tools
+        if not request_params.structured_schema or request_params.response_format:
+            return messages, request_params
+        return messages, request_params.model_copy(
+            update={
+                "response_format": self.schema_to_response_format(
+                    request_params.structured_schema
+                )
+            }
+        )
+
     async def _apply_prompt_provider_specific_structured_schema(
         self,
         multipart_messages: list["PromptMessageExtended"],

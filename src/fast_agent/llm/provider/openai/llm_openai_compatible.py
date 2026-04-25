@@ -1,5 +1,7 @@
 from typing import Any, Type
 
+from mcp import Tool
+
 from fast_agent.interfaces import ModelT
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
@@ -19,6 +21,41 @@ IMPORTANT RULES:
 - Do NOT use code fences or markdown
 - The response must be valid JSON that matches the format above
 - All required fields must be included"""
+
+    def _prepare_structured_request(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams,
+        tools: list[Tool] | None = None,
+    ) -> tuple[list[PromptMessageExtended], RequestParams]:
+        if not request_params.structured_schema:
+            return messages, request_params
+        if not self._supports_structured_prompt():
+            return messages, request_params
+        if tools and not any(message.tool_results for message in messages):
+            return messages, request_params
+
+        prepared_params = request_params
+        prompt_format = self._structured_prompt_format()
+        if prompt_format == "json_object" and not request_params.response_format:
+            prepared_params = request_params.model_copy(
+                update={"response_format": {"type": "json_object"}}
+            )
+
+        if not messages or messages[-1].role != "user":
+            return messages, prepared_params
+
+        instructions = self._build_structured_prompt_instruction_from_schema(
+            request_params.structured_schema
+        )
+        if not instructions:
+            return messages, prepared_params
+
+        prepared_messages = list(messages)
+        last_message = prepared_messages[-1].model_copy(deep=True)
+        last_message.add_text(instructions)
+        prepared_messages[-1] = last_message
+        return prepared_messages, prepared_params
 
     async def _apply_prompt_provider_specific_structured(
         self,

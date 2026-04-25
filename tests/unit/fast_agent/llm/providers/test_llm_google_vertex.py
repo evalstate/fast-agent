@@ -1,9 +1,16 @@
 import types
+from typing import cast
+
+import pytest
+from google.genai import types as google_types
+from mcp import Tool
 
 from fast_agent.config import GoogleSettings, Settings
 from fast_agent.context import Context
 from fast_agent.llm.provider.google.llm_google_native import GoogleNativeLLM
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
+from fast_agent.mcp.prompt import Prompt
+from fast_agent.types import RequestParams
 
 
 def _build_llm(config: Settings) -> GoogleNativeLLM:
@@ -141,3 +148,94 @@ def test_initialize_google_client_prefers_vertex_with_dict_config(monkeypatch) -
     assert called["kwargs"]["vertexai"] is True
     assert called["kwargs"]["project"] == "proj"
     assert called["kwargs"]["location"] == "europe-west4"
+
+
+def test_structured_schema_with_tools_is_deferred_until_tool_result() -> None:
+    llm = _build_llm(Settings())
+    schema = {
+        "type": "object",
+        "properties": {"answer": {"type": "string"}},
+        "required": ["answer"],
+    }
+    tool = Tool(
+        name="lookup_probe_payload",
+        description="Return the probe payload for validation.",
+        inputSchema={"type": "object", "properties": {}},
+    )
+    params = RequestParams(structured_schema=schema)
+
+    _, prepared_params = llm._prepare_structured_request(
+        [Prompt.user("call the tool, then return json")],
+        params,
+        [tool],
+    )
+
+    assert params.structured_schema == schema
+    assert prepared_params.structured_schema is None
+
+
+@pytest.mark.asyncio
+async def test_structured_schema_in_generate_path_uses_google_response_schema() -> None:
+    schema = {
+        "type": "object",
+        "properties": {"answer": {"type": "string"}},
+        "required": ["answer"],
+    }
+    captured: dict[str, object] = {}
+
+    class FakeModels:
+        async def generate_content(self, **kwargs):
+            captured.update(kwargs)
+            return google_types.GenerateContentResponse.model_validate(
+                {
+                    "candidates": [
+                        {
+                            "content": {
+                                "role": "model",
+                                "parts": [{"text": '{"answer":"ok"}'}],
+                            },
+                            "finish_reason": "STOP",
+                        }
+                    ]
+                }
+            )
+
+    class FakeAio:
+        def __init__(self) -> None:
+            self.models = FakeModels()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            return None
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.aio = FakeAio()
+
+    class Harness(GoogleNativeLLM):
+        def _initialize_google_client(self):
+            return FakeClient()
+
+    llm = Harness(context=Context(config=Settings()), model="gemini-2.0-flash")
+    response = await llm._google_completion(
+        [google_types.Content(role="user", parts=[google_types.Part.from_text(text="answer")])],
+        request_params=RequestParams(
+            model="gemini-2.0-flash",
+            structured_schema=schema,
+        ),
+        tools=[
+            Tool(
+                name="lookup_probe_payload",
+                description="Return the probe payload for validation.",
+                inputSchema={"type": "object", "properties": {}},
+            )
+        ],
+    )
+
+    config = cast("google_types.GenerateContentConfig", captured["config"])
+    assert config.response_mime_type == "application/json"
+    assert config.response_schema is not None
+    assert config.tools is None
+    assert response.last_text() == '{"answer":"ok"}'

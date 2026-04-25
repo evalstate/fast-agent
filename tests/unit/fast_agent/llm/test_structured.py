@@ -1,9 +1,11 @@
 from typing import Literal
 
 import pytest
+from mcp import Tool
 from pydantic import BaseModel
 
 from fast_agent.llm.internal.passthrough import PassthroughLLM
+from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.provider.openai.llm_openai_compatible import OpenAICompatibleLLM
 from fast_agent.mcp.prompt import Prompt
 from fast_agent.types import PromptMessageExtended, RequestParams
@@ -40,6 +42,36 @@ class _CompatibleStructuredHarness(OpenAICompatibleLLM):
 
     def _structured_reasoning_mode(self) -> str | None:
         return None
+
+
+class _GeneratePrepareHarness(PassthroughLLM):
+    def __init__(self) -> None:
+        super().__init__(name="generate-prepare")
+        self.prepare_called = False
+        self.applied_params: RequestParams | None = None
+
+    def _prepare_structured_request(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams,
+        tools=None,
+    ) -> tuple[list[PromptMessageExtended], RequestParams]:
+        del tools
+        self.prepare_called = True
+        return messages, request_params.model_copy(
+            update={"response_format": {"type": "json_object"}}
+        )
+
+    async def _apply_prompt_provider_specific(
+        self,
+        multipart_messages,
+        request_params=None,
+        tools=None,
+        is_template: bool = False,
+    ):
+        del multipart_messages, tools, is_template
+        self.applied_params = request_params
+        return Prompt.assistant('{"value":"ok"}')
 
 
 @pytest.mark.asyncio
@@ -151,6 +183,87 @@ async def test_structured_schema_with_schema_mismatch():
     result, _ = await llm.structured_schema([Prompt.user(json_str)], schema=schema)
 
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_structured_schema_delegates_through_generate_prepare_hook():
+    schema = {
+        "type": "object",
+        "properties": {"value": {"type": "string"}},
+        "required": ["value"],
+    }
+    llm = _GeneratePrepareHarness()
+
+    result, response = await llm.structured_schema([Prompt.user("ignored")], schema)
+
+    assert result == {"value": "ok"}
+    assert response.last_text() == '{"value":"ok"}'
+    assert llm.prepare_called
+    assert llm.applied_params is not None
+    assert llm.applied_params.structured_schema == schema
+    assert llm.applied_params.response_format == {"type": "json_object"}
+
+
+def test_openai_prepare_structured_request_sets_native_response_format():
+    schema = {
+        "type": "object",
+        "properties": {"value": {"type": "string"}},
+        "required": ["value"],
+    }
+    llm = OpenAILLM(model="gpt-4.1")
+    messages = [Prompt.user("return json")]
+    params = RequestParams(structured_schema=schema)
+
+    prepared_messages, prepared_params = llm._prepare_structured_request(messages, params)
+
+    assert prepared_messages is messages
+    assert params.response_format is None
+    assert prepared_params.response_format == llm.schema_to_response_format(schema)
+
+
+def test_openai_compatible_prepare_structured_request_prompts_without_mutating_history():
+    schema = {
+        "type": "object",
+        "properties": {"value": {"type": "string"}},
+        "required": ["value"],
+    }
+    llm = _CompatibleStructuredHarness()
+    original = Prompt.user("return json")
+    params = RequestParams(structured_schema=schema)
+
+    prepared_messages, prepared_params = llm._prepare_structured_request([original], params)
+
+    assert original.all_text() == "return json"
+    assert prepared_messages[0].all_text() != original.all_text()
+    assert "YOU MUST RESPOND WITH A JSON OBJECT" in prepared_messages[0].all_text()
+    assert params.response_format is None
+    assert prepared_params.response_format == {"type": "json_object"}
+
+
+def test_openai_compatible_prepare_structured_request_defers_until_tool_result():
+    schema = {
+        "type": "object",
+        "properties": {"value": {"type": "string"}},
+        "required": ["value"],
+    }
+    tool = Tool(
+        name="lookup",
+        description="Lookup data.",
+        inputSchema={"type": "object", "properties": {}},
+    )
+    llm = _CompatibleStructuredHarness()
+    original = Prompt.user("call the tool")
+    params = RequestParams(structured_schema=schema)
+
+    prepared_messages, prepared_params = llm._prepare_structured_request(
+        [original],
+        params,
+        [tool],
+    )
+
+    assert prepared_messages[0].all_text() == "call the tool"
+    assert prepared_params is params
+    assert prepared_params.response_format is None
 
 
 @pytest.mark.asyncio

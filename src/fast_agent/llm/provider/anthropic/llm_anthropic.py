@@ -898,6 +898,24 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             return "tool_use"
         return "tool_use"
 
+    def _is_auto_tool_use_structured_fallback(
+        self,
+        model: str,
+        structured_mode: StructuredOutputMode | None,
+        structured_model: Type[ModelT] | None,
+        structured_schema: dict[str, Any] | None = None,
+    ) -> bool:
+        if structured_mode != "tool_use":
+            return False
+        if structured_model is None and structured_schema is None:
+            return False
+        if self._structured_output_mode_override is not None:
+            return False
+        config = self.context.config.anthropic if self.context and self.context.config else None
+        if config and config.structured_output_mode != "auto":
+            return False
+        return self._get_model_json_mode(model) != "schema"
+
     def _build_output_format(
         self,
         structured_model: Type[ModelT] | None,
@@ -916,13 +934,31 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     async def _prepare_tools(
         self,
+        model: str,
         structured_model: Type[ModelT] | None = None,
         structured_schema: dict[str, Any] | None = None,
         tools: list[Tool] | None = None,
         structured_mode: StructuredOutputMode | None = None,
+        auto_tool_use_fallback: bool = False,
     ) -> list[ToolParam]:
         """Prepare tools based on whether we're in structured output mode."""
+        regular_tools = [
+            ToolParam(
+                name=tool.name,
+                description=tool.description or "",
+                input_schema=tool.inputSchema,
+            )
+            for tool in tools or []
+        ]
         if (structured_model or structured_schema) and structured_mode == "tool_use":
+            if auto_tool_use_fallback and regular_tools:
+                logger.warning(
+                    "Anthropic structured output fell back to legacy tool_use mode; "
+                    "normal tools will be suppressed for this structured request.",
+                    model=model,
+                    structured_mode=structured_mode,
+                    tool_count=len(regular_tools),
+                )
             schema: dict[str, object]
             if structured_schema is not None:
                 schema = cast(
@@ -945,16 +981,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                 )
             ]
         if structured_model or structured_schema:
-            return []
-        # Regular mode - use tools from aggregator
-        return [
-            ToolParam(
-                name=tool.name,
-                description=tool.description or "",
-                input_schema=tool.inputSchema,
-            )
-            for tool in tools or []
-        ]
+            return regular_tools
+        return regular_tools
 
     def _prepare_web_tools(self, model: str) -> tuple[list[ToolParam], tuple[str, ...]]:
         if not self.supports_web_tools():
@@ -1112,7 +1140,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
     async def _handle_structured_output_response(
         self,
         tool_use_block: ToolUseBlock,
-        structured_model: Type[ModelT],
+        structured_model: Type[ModelT] | None,
         messages: list[MessageParam],
     ) -> tuple[LlmStopReason, list[ContentBlock]]:
         """
@@ -1128,7 +1156,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
         Args:
             tool_use_block: The tool use block containing structured output
-            structured_model: The model class for structured output
+            structured_model: The model class for structured output, when one was supplied
             messages: The message list to append tool results to
 
         Returns:
@@ -1685,6 +1713,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         structured_mode: StructuredOutputMode | None,
         structured_model: Type[ModelT] | None,
         structured_schema: dict[str, Any] | None = None,
+        auto_tool_use_fallback: bool = False,
     ) -> tuple[dict[str, Any], bool]:
         base_args: dict[str, Any] = {
             "model": model,
@@ -1704,10 +1733,18 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         if structured_mode:
             if structured_mode == "tool_use":
                 if self._is_thinking_enabled(model):
-                    logger.warning(
-                        "Extended thinking is incompatible with tool-forced structured output. "
-                        "Disabling thinking for this request."
-                    )
+                    if auto_tool_use_fallback:
+                        logger.warning(
+                            "Anthropic structured output fell back to legacy tool_use mode; "
+                            "extended thinking is not compatible and will be disabled for this request.",
+                            model=model,
+                            structured_mode=structured_mode,
+                        )
+                    else:
+                        logger.warning(
+                            "Extended thinking is incompatible with tool-forced structured output. "
+                            "Disabling thinking for this request."
+                        )
                 base_args["tool_choice"] = {
                     "type": "tool",
                     "name": STRUCTURED_OUTPUT_TOOL_NAME,
@@ -1881,6 +1918,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         streamed_text_segments: list[str],
         structured_mode: StructuredOutputMode | None,
         structured_model: Type[ModelT] | None,
+        structured_schema: dict[str, Any] | None = None,
     ) -> PromptMessageExtended:
         response_content_blocks: list[ContentBlock] = []
         tool_calls: dict[str, CallToolRequest] | None = None
@@ -1935,7 +1973,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                 ]
                 if (
                     structured_mode == "tool_use"
-                    and structured_model
+                    and (structured_model is not None or structured_schema is not None)
                     and self._is_structured_output_request(tool_uses)
                 ):
                     stop_reason, structured_blocks = await self._handle_structured_output_response(
@@ -2103,11 +2141,19 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             structured_model,
             effective_structured_schema,
         )
+        auto_tool_use_fallback = self._is_auto_tool_use_structured_fallback(
+            model,
+            structured_mode,
+            structured_model,
+            effective_structured_schema,
+        )
         available_tools = await self._prepare_tools(
+            model,
             structured_model,
             effective_structured_schema,
             tools,
             structured_mode=structured_mode,
+            auto_tool_use_fallback=auto_tool_use_fallback,
         )
         web_tools, web_tool_betas = self._prepare_web_tools(model)
         request_tools = [*available_tools, *web_tools]
@@ -2127,6 +2173,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             structured_mode=structured_mode,
             structured_model=structured_model,
             structured_schema=effective_structured_schema,
+            auto_tool_use_fallback=auto_tool_use_fallback,
         )
 
         beta_flags = self._resolve_anthropic_beta_flags(
@@ -2220,6 +2267,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             streamed_text_segments=streamed_text_segments,
             structured_mode=structured_mode,
             structured_model=structured_model,
+            structured_schema=effective_structured_schema,
         )
 
         # Update diagnostic snapshot (never read again)
@@ -2228,6 +2276,18 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
         self._log_chat_finished(model=model)
         return result
+
+    def _prepare_structured_request(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams,
+        tools: list[Tool] | None = None,
+    ) -> tuple[list[PromptMessageExtended], RequestParams]:
+        if not request_params.structured_schema or not tools:
+            return messages, request_params
+        if any(message.tool_results for message in messages):
+            return messages, request_params
+        return messages, request_params.model_copy(update={"structured_schema": None})
 
     async def _apply_prompt_provider_specific(
         self,
