@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from acp.exceptions import RequestError
 from acp.helpers import text_block
 
 TEST_DIR = Path(__file__).parent
@@ -21,6 +22,27 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 END_TURN: StopReason = "end_turn"
+
+STRUCTURED_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "answer": {"type": "string"},
+    },
+    "required": ["answer"],
+    "additionalProperties": False,
+}
+
+
+def _structured_meta(schema: dict[str, Any] | None = None) -> dict[str, Any]:
+    schema = schema or STRUCTURED_SCHEMA
+    return {
+        "co.huggingface": {
+            "structuredOutput": {
+                "schema": schema,
+                "mode": "bestEffort",
+            }
+        }
+    }
 
 
 def _get_session_update_type(update: Any) -> str | None:
@@ -62,6 +84,9 @@ async def test_acp_initialize_and_prompt_roundtrip(
 
     assert init_response.protocol_version == 1
     assert init_response.agent_capabilities is not None
+    capability_meta = init_response.agent_capabilities.field_meta
+    assert capability_meta is not None
+    assert capability_meta["co.huggingface"]["structuredOutput"] is True
     agent_info = getattr(init_response, "agent_info", None) or getattr(
         init_response, "agentInfo", None
     )
@@ -109,6 +134,110 @@ async def test_acp_initialize_and_prompt_roundtrip(
     # Passthrough model mirrors user input, so the agent content should match the prompt.
     content = update.content if hasattr(update, "content") else update.get("content")
     assert getattr(content, "text", None) == prompt_text
+
+
+@pytest.mark.integration
+async def test_acp_structured_output_prompt_uses_normal_text_transport(
+    acp_basic: tuple[ClientSideConnection, TestClient, InitializeResponse],
+) -> None:
+    """Structured-output ACP prompts still emit ordinary agent_message_chunk text."""
+    connection, client, _init_response = acp_basic
+
+    session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
+    session_id = session_response.session_id
+    assert session_id
+
+    prompt_text = '{"answer":"ok"}'
+    structured_meta: dict[str, Any] = _structured_meta()
+    prompt_response = await connection.prompt(
+        session_id=session_id,
+        prompt=[text_block(prompt_text)],
+        **structured_meta,
+    )
+    assert prompt_response.stop_reason == END_TURN
+
+    await _wait_for_session_update_type(client, session_id, "agent_message_chunk")
+    message_updates = [
+        n
+        for n in client.notifications
+        if n["session_id"] == session_id
+        and _get_session_update_type(n["update"]) == "agent_message_chunk"
+    ]
+    assert message_updates
+    update = message_updates[-1]["update"]
+    content = update.content if hasattr(update, "content") else update.get("content")
+    assert getattr(content, "text", None) == prompt_text
+
+
+@pytest.mark.integration
+async def test_acp_structured_output_invalid_model_text_remains_best_effort(
+    acp_basic: tuple[ClientSideConnection, TestClient, InitializeResponse],
+) -> None:
+    connection, client, _init_response = acp_basic
+
+    session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
+    session_id = session_response.session_id
+    assert session_id
+
+    structured_meta: dict[str, Any] = _structured_meta()
+    prompt_response = await connection.prompt(
+        session_id=session_id,
+        prompt=[text_block("not json")],
+        **structured_meta,
+    )
+    assert prompt_response.stop_reason == END_TURN
+
+    await _wait_for_session_update_type(client, session_id, "agent_message_chunk")
+    message_updates = [
+        n
+        for n in client.notifications
+        if n["session_id"] == session_id
+        and _get_session_update_type(n["update"]) == "agent_message_chunk"
+    ]
+    assert message_updates
+    update = message_updates[-1]["update"]
+    content = update.content if hasattr(update, "content") else update.get("content")
+    assert getattr(content, "text", None) == "not json"
+
+
+@pytest.mark.integration
+async def test_acp_structured_output_rejects_malformed_extension(
+    acp_basic: tuple[ClientSideConnection, TestClient, InitializeResponse],
+) -> None:
+    connection, _client, _init_response = acp_basic
+
+    session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
+    session_id = session_response.session_id
+    assert session_id
+
+    malformed_meta: dict[str, Any] = {
+        "co.huggingface": {"structuredOutput": {"mode": "bestEffort"}}
+    }
+    with pytest.raises(RequestError):
+        await connection.prompt(
+            session_id=session_id,
+            prompt=[text_block('{"answer":"ok"}')],
+            **malformed_meta,
+        )
+
+
+@pytest.mark.integration
+async def test_acp_structured_output_rejects_slash_commands(
+    acp_basic: tuple[ClientSideConnection, TestClient, InitializeResponse],
+) -> None:
+    connection, _client, _init_response = acp_basic
+
+    session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
+    session_id = session_response.session_id
+    assert session_id
+
+    structured_meta: dict[str, Any] = _structured_meta()
+    with pytest.raises(RequestError):
+        await connection.prompt(
+            session_id=session_id,
+            prompt=[text_block("/tools")],
+            **structured_meta,
+        )
 
 
 async def _wait_for_notifications(client: TestClient, timeout: float = 2.0) -> None:

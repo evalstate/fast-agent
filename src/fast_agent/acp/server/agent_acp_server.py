@@ -336,6 +336,11 @@ class AgentACPServer(ACPAgent):
 
             # Build our capabilities
             agent_capabilities = AgentCapabilities(
+                field_meta={
+                    "co.huggingface": {
+                        "structuredOutput": True,
+                    }
+                },
                 prompt_capabilities=PromptCapabilities(
                     image=True,  # Support image content
                     embedded_context=True,  # Support embedded resources

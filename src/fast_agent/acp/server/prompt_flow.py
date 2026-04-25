@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any, Callable, Protocol
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Callable, Final, Literal, Protocol
 
 from acp.exceptions import RequestError
 from acp.helpers import ContentBlock as ACPContentBlock
@@ -23,6 +24,7 @@ from fast_agent.agents.tool_runner import ToolRunnerHooks
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import AgentProtocol, StreamingAgentProtocol, ToolRunnerHookCapable
+from fast_agent.llm.structured_schema import validate_json_schema_definition
 from fast_agent.mcp.helpers.content_helpers import is_text_content
 from fast_agent.types import LlmStopReason, PromptMessageExtended
 from fast_agent.ui.interactive_diagnostics import write_interactive_trace
@@ -33,6 +35,21 @@ if TYPE_CHECKING:
     from fast_agent.llm.stream_types import StreamChunk
 
 logger = get_logger(__name__)
+
+HUGGINGFACE_META_KEY: Final[str] = "co.huggingface"
+STRUCTURED_OUTPUT_KEY: Final[str] = "structuredOutput"
+STRUCTURED_OUTPUT_MODE_BEST_EFFORT: Final[str] = "bestEffort"
+
+
+@dataclass(frozen=True)
+class StructuredOutputRequest:
+    schema: dict[str, Any]
+    mode: Literal["bestEffort"] = "bestEffort"
+
+
+@dataclass
+class StreamState:
+    assistant_text_seen: bool = False
 
 
 class PromptFlowHost(Protocol):
@@ -113,11 +130,12 @@ class ACPPromptFlow:
 
         Per ACP protocol, only one prompt can be active per session at a time.
         """
-        _ = kwargs
+        structured_output = self._parse_structured_output_request(kwargs)
         logger.info(
             "ACP prompt request",
             name="acp_prompt",
             session_id=session_id,
+            structured_output=structured_output is not None,
         )
         write_interactive_trace("acp.prompt.start", session_id=session_id)
 
@@ -166,6 +184,13 @@ class ACPPromptFlow:
                 and is_single_text_block
                 and slash_handler.is_slash_command(prompt_text)
             ):
+                if structured_output is not None:
+                    raise RequestError.invalid_params(
+                        {
+                            "extension": f"{HUGGINGFACE_META_KEY}.{STRUCTURED_OUTPUT_KEY}",
+                            "reason": "structured output is not supported for slash commands",
+                        }
+                    )
                 return await self._handle_slash_command(
                     slash_handler=slash_handler,
                     session_id=session_id,
@@ -208,22 +233,32 @@ class ACPPromptFlow:
                             turn_start_index=turn_start_index,
                             prompt_message=prompt_message,
                             session_request_params=session_request_params,
+                            structured_output=structured_output,
                         )
                         result = with_status_hooks["result"]
-                        response_text = result.last_text() or "No content generated"
+                        response_text = result.last_text() or ""
                         status_line_meta = self._host._build_status_line_meta(
                             agent, turn_start_index
                         )
 
-                        try:
-                            acp_stop_reason = map_llm_stop_reason_to_acp(result.stop_reason)
-                        except Exception as e:
-                            logger.error(
-                                f"Error mapping stop reason: {e}",
-                                name="acp_stop_reason_error",
-                                exc_info=True,
-                            )
-                            acp_stop_reason = END_TURN
+                        if (
+                            structured_output is not None
+                            and not response_text
+                            and not stream_context["stream_state"].assistant_text_seen
+                        ):
+                            acp_stop_reason = REFUSAL
+                        else:
+                            if not response_text and structured_output is None:
+                                response_text = "No content generated"
+                            try:
+                                acp_stop_reason = map_llm_stop_reason_to_acp(result.stop_reason)
+                            except Exception as e:
+                                logger.error(
+                                    f"Error mapping stop reason: {e}",
+                                    name="acp_stop_reason_error",
+                                    exc_info=True,
+                                )
+                                acp_stop_reason = END_TURN
 
                         logger.info(
                             "Received complete response from fast-agent",
@@ -238,6 +273,9 @@ class ACPPromptFlow:
                             session_id=session_id,
                             response_text=response_text,
                             streaming_tasks=stream_context["streaming_tasks"],
+                            assistant_text_streamed=stream_context[
+                                "stream_state"
+                            ].assistant_text_seen,
                             status_line_meta=status_line_meta,
                         )
                     except Exception as send_error:
@@ -307,6 +345,78 @@ class ACPPromptFlow:
                 session_id=session_id,
             )
 
+    def _parse_structured_output_request(
+        self,
+        kwargs: dict[str, Any],
+    ) -> StructuredOutputRequest | None:
+        hf_meta = self._extract_huggingface_meta(kwargs)
+        if hf_meta is None:
+            return None
+
+        if STRUCTURED_OUTPUT_KEY not in hf_meta:
+            return None
+
+        structured_payload = hf_meta[STRUCTURED_OUTPUT_KEY]
+        if not isinstance(structured_payload, dict):
+            raise self._structured_output_invalid_params("structuredOutput must be an object")
+
+        if "schema" not in structured_payload:
+            raise self._structured_output_invalid_params("schema is required")
+
+        schema = structured_payload["schema"]
+        if not isinstance(schema, dict):
+            raise self._structured_output_invalid_params("schema must be a JSON object")
+
+        mode = structured_payload.get("mode", STRUCTURED_OUTPUT_MODE_BEST_EFFORT)
+        if mode != STRUCTURED_OUTPUT_MODE_BEST_EFFORT:
+            raise self._structured_output_invalid_params("mode must be 'bestEffort'")
+
+        try:
+            normalized_schema = validate_json_schema_definition(schema)
+        except Exception as exc:
+            raise self._structured_output_invalid_params(
+                "schema must be a valid JSON Schema definition",
+                detail=str(exc),
+            ) from exc
+
+        return StructuredOutputRequest(schema=normalized_schema)
+
+    def _extract_huggingface_meta(self, kwargs: dict[str, Any]) -> dict[str, Any] | None:
+        if HUGGINGFACE_META_KEY in kwargs:
+            return self._validate_huggingface_meta(kwargs[HUGGINGFACE_META_KEY])
+
+        for meta_key in ("field_meta", "_meta"):
+            if meta_key not in kwargs:
+                continue
+            meta = kwargs[meta_key]
+            if not isinstance(meta, dict):
+                raise self._structured_output_invalid_params(f"{meta_key} must be an object")
+            if HUGGINGFACE_META_KEY in meta:
+                return self._validate_huggingface_meta(meta[HUGGINGFACE_META_KEY])
+
+        return None
+
+    def _validate_huggingface_meta(self, value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            raise self._structured_output_invalid_params(
+                f"{HUGGINGFACE_META_KEY} must be an object"
+            )
+        return value
+
+    @staticmethod
+    def _structured_output_invalid_params(
+        reason: str,
+        *,
+        detail: str | None = None,
+    ) -> RequestError:
+        data: dict[str, Any] = {
+            "extension": f"{HUGGINGFACE_META_KEY}.{STRUCTURED_OUTPUT_KEY}",
+            "reason": reason,
+        }
+        if detail:
+            data["detail"] = detail
+        return RequestError.invalid_params(data)
+
     async def _handle_slash_command(
         self,
         *,
@@ -359,6 +469,7 @@ class ACPPromptFlow:
         stream_listener = None
         remove_listener: Callable[[], None] | None = None
         streaming_tasks: list[asyncio.Task] = []
+        stream_state = StreamState()
         if self._host._connection and isinstance(agent, StreamingAgentProtocol):
             connection = self._host._connection
             update_lock = asyncio.Lock()
@@ -386,6 +497,8 @@ class ACPPromptFlow:
             def on_stream_chunk(chunk: StreamChunk) -> None:
                 if not chunk or not chunk.text:
                     return
+                if not chunk.is_reasoning:
+                    stream_state.assistant_text_seen = True
                 task = asyncio.create_task(send_stream_update(chunk))
                 streaming_tasks.append(task)
 
@@ -402,6 +515,7 @@ class ACPPromptFlow:
             "stream_listener": stream_listener,
             "remove_listener": remove_listener,
             "streaming_tasks": streaming_tasks,
+            "stream_state": stream_state,
         }
 
     async def _run_with_status_hooks(
@@ -412,6 +526,7 @@ class ACPPromptFlow:
         turn_start_index: int | None,
         prompt_message: PromptMessageExtended,
         session_request_params: Any,
+        structured_output: StructuredOutputRequest | None = None,
     ) -> dict[str, Any]:
         previous_hooks = None
         restore_hooks = False
@@ -442,15 +557,23 @@ class ACPPromptFlow:
                 restore_hooks = False
 
         try:
-            result = await agent.generate(
-                prompt_message,
-                request_params=session_request_params,
-            )
+            if structured_output is None:
+                result = await agent.generate(
+                    prompt_message,
+                    request_params=session_request_params,
+                )
+                parsed = None
+            else:
+                parsed, result = await agent.structured_schema(
+                    prompt_message,
+                    structured_output.schema,
+                    request_params=session_request_params,
+                )
         finally:
             if restore_hooks and tool_hook_agent is not None:
                 tool_hook_agent.tool_runner_hooks = previous_hooks
 
-        return {"result": result}
+        return {"result": result, "structured_parsed": parsed}
 
     async def _finalize_prompt_delivery(
         self,
@@ -458,7 +581,9 @@ class ACPPromptFlow:
         session_id: str,
         response_text: str,
         streaming_tasks: list[asyncio.Task],
+        assistant_text_streamed: bool,
         status_line_meta: dict[str, Any] | None,
+        emit_empty_status_update: bool = True,
     ) -> None:
         if streaming_tasks:
             try:
@@ -476,7 +601,7 @@ class ACPPromptFlow:
                     exc_info=True,
                 )
 
-        if not streaming_tasks and self._host._connection and response_text:
+        if not assistant_text_streamed and self._host._connection and response_text:
             try:
                 message_chunk = update_agent_message_text(response_text)
                 if status_line_meta:
@@ -501,7 +626,12 @@ class ACPPromptFlow:
                     name="acp_final_update_error",
                     exc_info=True,
                 )
-        elif streaming_tasks and self._host._connection and status_line_meta:
+        elif (
+            (assistant_text_streamed or bool(streaming_tasks))
+            and self._host._connection
+            and status_line_meta
+            and emit_empty_status_update
+        ):
             try:
                 message_chunk = update_agent_message_text("")
                 await self._host._connection.session_update(
