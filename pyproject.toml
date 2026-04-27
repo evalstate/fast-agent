@@ -71,6 +71,11 @@ privacy = [
     "tokenizers>=0.22",
     "numpy>=2",
 ]
+privacy-gpu = [
+    "onnxruntime-gpu>=1.25",
+    "tokenizers>=0.22",
+    "numpy>=2",
+]
 # For all provider support, install with: uv pip install fast-agent-mcp[all-providers]
 all-providers = [
     "azure-identity>=1.14.0",

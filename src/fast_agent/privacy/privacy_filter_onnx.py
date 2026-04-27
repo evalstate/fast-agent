@@ -6,7 +6,7 @@ import json
 import os
 from dataclasses import dataclass
 from importlib import import_module
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Literal
 
 from fast_agent.privacy.model_resolver import (
     DEFAULT_PRIVACY_FILTER_REPO,
@@ -35,8 +35,10 @@ _PLACEHOLDERS = {
     "private_url": "<PRIVATE_URL>",
     "secret": "<SECRET>",
 }
-_DEFAULT_MAX_WINDOW_TOKENS = 1024
-_DEFAULT_WINDOW_OVERLAP_TOKENS = 32
+_DEFAULT_MAX_WINDOW_TOKENS = 8192
+_DEFAULT_WINDOW_OVERLAP_TOKENS = 128
+_DEFAULT_DEVICE: Literal["auto"] = "auto"
+_SUPPORTED_DEVICES = ("auto", "cpu", "cuda")
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,17 +56,26 @@ class OpenAIPrivacyFilterOnnxSanitizer(TraceSanitizer):
         model_dir: Path,
         *,
         variant: str = DEFAULT_PRIVACY_FILTER_VARIANT,
+        device: str | None = None,
         progress_callback: Callable[[str], None] | None = None,
         show_redactions: bool = False,
     ) -> None:
         self._model_dir = model_dir
         self._variant = variant
+        self._device = _privacy_filter_device(device)
+        self._cuda_device_id = _env_int(
+            "FAST_AGENT_PRIVACY_FILTER_CUDA_DEVICE_ID",
+            default=0,
+            minimum=0,
+        )
         self._progress_callback = progress_callback
         self._show_redactions = show_redactions
         self._files = _model_files(model_dir, variant=variant)
         self._config = _load_json(self._files.config)
         self._labels = _load_labels(self._config)
         self._tokenizer, self._session, self._np = self._load_runtime()
+        session_providers = list(self._session.get_providers())
+        self._active_provider = session_providers[0] if session_providers else None
         self._max_window_tokens = _env_int(
             "FAST_AGENT_PRIVACY_FILTER_MAX_WINDOW_TOKENS",
             default=_DEFAULT_MAX_WINDOW_TOKENS,
@@ -85,8 +96,13 @@ class OpenAIPrivacyFilterOnnxSanitizer(TraceSanitizer):
 
     @property
     def model_info(self) -> PrivacyFilterModelInfo:
+        backend = (
+            "onnxruntime-cuda"
+            if self._active_provider == "CUDAExecutionProvider"
+            else "onnxruntime"
+        )
         return PrivacyFilterModelInfo(
-            backend="onnxruntime",
+            backend=backend,
             repo_id=DEFAULT_PRIVACY_FILTER_REPO,
             revision=DEFAULT_PRIVACY_FILTER_REVISION,
             variant=self._variant,
@@ -114,7 +130,7 @@ class OpenAIPrivacyFilterOnnxSanitizer(TraceSanitizer):
         window_starts = list(range(0, len(real_token_indices), step))
         total_windows = len(window_starts)
         self._emit_progress(
-            f"Privacy filter scanning {len(text):,} characters in {total_windows} windows..."
+            f"Privacy filter: scanning large text ({len(text):,} chars, {total_windows:,} windows)..."
         )
         for window_number, start in enumerate(window_starts, start=1):
             window_indices = real_token_indices[start : start + self._max_window_tokens]
@@ -122,7 +138,7 @@ class OpenAIPrivacyFilterOnnxSanitizer(TraceSanitizer):
                 continue
             if _should_emit_window_progress(window_number, total_windows):
                 self._emit_progress(
-                    f"Privacy filter window {window_number}/{total_windows} "
+                    f"Privacy filter: large text window {window_number:,}/{total_windows:,} "
                     f"({_percent(window_number, total_windows)}%)..."
                 )
             char_start = encoding.offsets[window_indices[0]][0]
@@ -143,7 +159,7 @@ class OpenAIPrivacyFilterOnnxSanitizer(TraceSanitizer):
         for span in spans:
             snippet = _redaction_snippet(text[span.start : span.end])
             self._emit_progress(
-                f"Privacy filter redaction: {span.label} {span.start}:{span.end} {snippet!r}"
+                f"Privacy filter: redaction {span.label} {span.start}:{span.end} {snippet!r}"
             )
 
     def _detect_spans_single(self, text: str, *, char_offset: int) -> list[RedactionSpan]:
@@ -172,8 +188,10 @@ class OpenAIPrivacyFilterOnnxSanitizer(TraceSanitizer):
             raise SessionExportPrivacyFilterError(
                 "Privacy filter label count does not match ONNX logits dimension."
             )
-        log_probs = _log_softmax(self._np, logits[0]).tolist()
-        path = constrained_viterbi(log_probs, self._labels)
+        # Softmax normalization is unnecessary for Viterbi: subtracting the
+        # per-token logsumexp adds the same constant to every label score for
+        # that token and cannot change the best path.
+        path = constrained_viterbi(logits[0].tolist(), self._labels)
         spans: list[RedactionSpan] = []
         for token_span in token_spans_from_path(path, self._labels):
             start, _ = offsets[token_span.start]
@@ -200,25 +218,42 @@ class OpenAIPrivacyFilterOnnxSanitizer(TraceSanitizer):
         except Exception as exc:
             raise SessionExportPrivacyFilterError(
                 "Privacy filtering requires optional dependencies. "
-                'Install with `fast-agent-mcp[privacy]`.'
+                "Install with `fast-agent-mcp[privacy]`."
             ) from exc
 
         tokenizer = tokenizers.Tokenizer.from_file(str(self._files.tokenizer))
         options = ort.SessionOptions()
         options.intra_op_num_threads = _env_int(
             "FAST_AGENT_PRIVACY_FILTER_INTRA_OP_THREADS",
-            default=1,
+            default=0,
             minimum=1,
         )
-        options.inter_op_num_threads = _env_int(
-            "FAST_AGENT_PRIVACY_FILTER_INTER_OP_THREADS",
-            default=1,
-            minimum=1,
+        options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+
+        # options.inter_op_num_threads = _env_int(
+        #     "FAST_AGENT_PRIVACY_FILTER_INTER_OP_THREADS",
+        #     default=1,
+        #     minimum=1,
+        # )
+
+        available_providers = list(ort.get_available_providers())
+        requested_providers = _resolve_onnx_execution_providers(
+            available_providers=available_providers,
+            device=self._device,
+            cuda_device_id=self._cuda_device_id,
         )
         session = ort.InferenceSession(
             str(self._files.model),
             sess_options=options,
-            providers=["CPUExecutionProvider"],
+            providers=requested_providers,
+        )
+        self._emit_progress(
+            _provider_status_message(
+                device=self._device,
+                available_providers=available_providers,
+                requested_providers=requested_providers,
+                active_providers=list(session.get_providers()),
+            )
         )
         return tokenizer, session, np
 
@@ -273,20 +308,15 @@ def _validate_labels(labels: list[str]) -> list[str]:
     return labels
 
 
-def _log_softmax(np: Any, logits: Any) -> Any:
-    maximum = np.max(logits, axis=-1, keepdims=True)
-    shifted = logits - maximum
-    return shifted - np.log(np.sum(np.exp(shifted), axis=-1, keepdims=True))
-
-
 def _real_token_indices(offsets: list[tuple[int, int]]) -> list[int]:
     return [index for index, (start, end) in enumerate(offsets) if end > start]
 
 
 def _should_emit_window_progress(window_number: int, total_windows: int) -> bool:
-    if total_windows <= 20:
+    if total_windows <= 5:
         return True
-    return window_number == 1 or window_number == total_windows or window_number % 10 == 0
+    step = max(1, total_windows // 10)
+    return window_number == 1 or window_number == total_windows or window_number % step == 0
 
 
 def _percent(value: int, total: int) -> int:
@@ -319,7 +349,7 @@ def _merge_spans(spans: list[RedactionSpan]) -> list[RedactionSpan]:
     ordered = sorted(spans, key=lambda span: (span.start, span.end))
     merged: list[RedactionSpan] = []
     for span in ordered:
-        if not merged or span.start > merged[-1].end:
+        if not merged or span.start >= merged[-1].end:
             merged.append(span)
             continue
         previous = merged[-1]
@@ -336,6 +366,74 @@ def _redaction_snippet(text: str, *, limit: int = 160) -> str:
     if len(snippet) <= limit:
         return snippet
     return f"{snippet[: limit - 1]}…"
+
+
+def _privacy_filter_device(value: str | None) -> Literal["auto", "cpu", "cuda"]:
+    if value is None:
+        value = os.getenv("FAST_AGENT_PRIVACY_FILTER_DEVICE", _DEFAULT_DEVICE)
+    normalized = value.strip().lower()
+    if normalized == "auto":
+        return "auto"
+    if normalized == "cpu":
+        return "cpu"
+    if normalized == "cuda":
+        return "cuda"
+    supported = ", ".join(_SUPPORTED_DEVICES)
+    raise SessionExportPrivacyFilterError(
+        f"Unsupported privacy filter device '{value}'. Supported devices: {supported}."
+    )
+
+
+def _resolve_onnx_execution_providers(
+    *,
+    available_providers: list[str],
+    device: Literal["auto", "cpu", "cuda"],
+    cuda_device_id: int = 0,
+) -> list[Any]:
+    if device == "cpu":
+        return ["CPUExecutionProvider"]
+    if "CUDAExecutionProvider" in set(available_providers):
+        return [
+            ("CUDAExecutionProvider", {"device_id": str(cuda_device_id)}),
+            "CPUExecutionProvider",
+        ]
+    if device == "cuda":
+        raise SessionExportPrivacyFilterError(
+            "CUDA was requested for the privacy filter, but ONNX Runtime does not "
+            "expose CUDAExecutionProvider. Install `fast-agent-mcp[privacy-gpu]` "
+            "or a compatible `onnxruntime-gpu`, then ensure CUDA/cuDNN are available; "
+            "or set FAST_AGENT_PRIVACY_FILTER_DEVICE=cpu."
+        )
+    return ["CPUExecutionProvider"]
+
+
+def _provider_status_message(
+    *,
+    device: Literal["auto", "cpu", "cuda"],
+    available_providers: list[str],
+    requested_providers: list[Any],
+    active_providers: list[str],
+) -> str:
+    active_text = ", ".join(active_providers) or "unknown"
+    if "CUDAExecutionProvider" in active_providers:
+        return "Privacy filter: provider CUDAExecutionProvider (GPU; fallback: CPUExecutionProvider)."
+    if _requested_cuda_provider(requested_providers):
+        return (
+            "Privacy filter: provider "
+            f"{active_text} (CUDA was available but failed to initialize; using CPU fallback)."
+        )
+    if device == "auto" and "CUDAExecutionProvider" not in available_providers:
+        return f"Privacy filter: provider {active_text} (CUDA provider not available)."
+    return f"Privacy filter: provider {active_text}."
+
+
+def _requested_cuda_provider(providers: list[Any]) -> bool:
+    for provider in providers:
+        if provider == "CUDAExecutionProvider":
+            return True
+        if isinstance(provider, tuple) and provider and provider[0] == "CUDAExecutionProvider":
+            return True
+    return False
 
 
 def _env_int(name: str, *, default: int, minimum: int) -> int:

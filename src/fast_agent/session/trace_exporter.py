@@ -35,6 +35,8 @@ from fast_agent.session.trace_export_models import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
     from fast_agent.privacy.sanitizer import TraceSanitizer
     from fast_agent.session.session_manager import SessionManager
@@ -43,6 +45,33 @@ if TYPE_CHECKING:
 def _sanitize_filename_component(value: str) -> str:
     sanitized = "".join(char if char.isalnum() or char in {"-", "_", "."} else "_" for char in value)
     return sanitized or "agent"
+
+
+def _export_summary_message(
+    resolved: ResolvedSessionExport,
+    *,
+    export_format: str,
+) -> str:
+    user_messages = 0
+    assistant_messages = 0
+    tool_calls = 0
+    tool_results = 0
+    for message in resolved.history:
+        if message.role == "user":
+            user_messages += 1
+        elif message.role == "assistant":
+            assistant_messages += 1
+        if message.tool_calls is not None:
+            tool_calls += len(message.tool_calls)
+        if message.tool_results is not None:
+            tool_results += len(message.tool_results)
+
+    return (
+        f"Export: preparing {export_format} trace for agent '{resolved.agent_name}' "
+        f"from {len(resolved.history):,} message(s): "
+        f"{user_messages:,} user, {assistant_messages:,} assistant, "
+        f"{tool_calls:,} tool call(s), {tool_results:,} tool result(s)."
+    )
 
 
 class SessionTraceExporter:
@@ -54,14 +83,17 @@ class SessionTraceExporter:
         session_manager: SessionManager,
         dataset_uploader: DatasetTraceUploader | None = None,
         privacy_sanitizer: TraceSanitizer | None = None,
+        progress_callback: Callable[[str], None] | None = None,
     ) -> None:
         self._session_manager = session_manager
         self._dataset_uploader = dataset_uploader
         self._privacy_sanitizer = privacy_sanitizer
+        self._progress_callback = progress_callback
 
     def export(self, request: ExportRequest) -> ExportResult:
         resolved = self._resolve_request(request)
         output_path = self._resolve_output_path(request, resolved)
+        self._emit_progress(_export_summary_message(resolved, export_format=request.format))
         writer = self._writer_for_format(request.format, privacy_filter=request.privacy_filter)
         try:
             result = writer.write(resolved, output_path)
@@ -86,6 +118,10 @@ class SessionTraceExporter:
             upload=upload,
             redaction=result.redaction,
         )
+
+    def _emit_progress(self, message: str) -> None:
+        if self._progress_callback is not None:
+            self._progress_callback(message)
 
     def _resolve_request(self, request: ExportRequest) -> ResolvedSessionExport:
         session_dir = self._resolve_session_dir(
@@ -288,7 +324,7 @@ class SessionTraceExporter:
                 raise SessionExportPrivacyFilterError(
                     "Privacy filtering was requested, but no privacy filter backend is configured."
                 )
-            return CodexTraceWriter(sanitizer=sanitizer)
+            return CodexTraceWriter(sanitizer=sanitizer, progress_callback=self._progress_callback)
         raise UnsupportedTraceExportFormatError(
             f"Unsupported session export format: {export_format}"
         )

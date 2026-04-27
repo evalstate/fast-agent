@@ -16,34 +16,43 @@ class DecodedTokenSpan:
     end: int
 
 
-def constrained_viterbi(log_probs: list[list[float]], labels: list[str]) -> list[int]:
-    """Decode a valid BIOES path from per-token log probabilities."""
+def constrained_viterbi(token_scores: list[list[float]], labels: list[str]) -> list[int]:
+    """Decode a valid BIOES path from per-token label scores."""
 
-    if not log_probs:
+    if not token_scores:
         return []
     label_count = len(labels)
     if label_count == 0:
         return []
 
+    valid_start = [_valid_start(label) for label in labels]
+    valid_end = [_valid_end(label) for label in labels]
+    predecessors = [
+        [
+            previous_index
+            for previous_index, previous_label in enumerate(labels)
+            if _valid_transition(previous_label, label)
+        ]
+        for label in labels
+    ]
+
     scores: list[list[float]] = [
         [
-            log_probs[0][label_index] if _valid_start(labels[label_index]) else IMPOSSIBLE
+            token_scores[0][label_index] if valid_start[label_index] else IMPOSSIBLE
             for label_index in range(label_count)
         ]
     ]
     backpointers: list[list[int]] = [[0] * label_count]
 
-    for token_index in range(1, len(log_probs)):
+    for token_index in range(1, len(token_scores)):
         previous = scores[-1]
         current: list[float] = []
         current_backpointers: list[int] = []
-        for label_index, label in enumerate(labels):
+        for label_index in range(label_count):
             best_score = IMPOSSIBLE
             best_previous = 0
-            for previous_index, previous_label in enumerate(labels):
-                if not _valid_transition(previous_label, label):
-                    continue
-                score = previous[previous_index] + log_probs[token_index][label_index]
+            for previous_index in predecessors[label_index]:
+                score = previous[previous_index] + token_scores[token_index][label_index]
                 if score > best_score:
                     best_score = score
                     best_previous = previous_index
@@ -53,12 +62,12 @@ def constrained_viterbi(log_probs: list[list[float]], labels: list[str]) -> list
         backpointers.append(current_backpointers)
 
     final_scores = [
-        score if _valid_end(labels[index]) else IMPOSSIBLE
+        score if valid_end[index] else IMPOSSIBLE
         for index, score in enumerate(scores[-1])
     ]
     last = max(range(label_count), key=lambda index: final_scores[index])
     path = [last]
-    for token_index in range(len(log_probs) - 1, 0, -1):
+    for token_index in range(len(token_scores) - 1, 0, -1):
         last = backpointers[token_index][last]
         path.append(last)
     path.reverse()

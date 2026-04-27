@@ -90,9 +90,9 @@ async def handle_session_export(
         if show_redactions:
             _emit_export_progress(
                 progress_callback,
-                "Warning: --show-redactions prints detected sensitive text to stderr.",
+                "Privacy filter: warning: --show-redactions prints detected sensitive text.",
             )
-        _emit_export_progress(progress_callback, "Checking privacy filter dependencies...")
+        _emit_export_progress(progress_callback, "Privacy filter: checking dependencies...")
         missing = missing_privacy_dependencies()
         if missing:
             outcome.add_message(
@@ -102,18 +102,18 @@ async def handle_session_export(
             )
             return outcome
         try:
-            _emit_export_progress(progress_callback, "Resolving privacy filter model...")
+            _emit_export_progress(progress_callback, "Privacy filter: resolving model...")
             model_dir = resolve_privacy_filter_model_dir(
                 model_path=Path(privacy_filter_path) if privacy_filter_path else None,
                 allow_download=download_privacy_filter,
             )
-            _emit_export_progress(progress_callback, f"Loading privacy filter model from {model_dir}...")
+            _emit_export_progress(progress_callback, f"Privacy filter: loading model from {model_dir}...")
             privacy_sanitizer = OpenAIPrivacyFilterOnnxSanitizer(
                 model_dir,
                 progress_callback=progress_callback,
                 show_redactions=show_redactions,
             )
-            _emit_export_progress(progress_callback, "Privacy filter model loaded.")
+            _emit_export_progress(progress_callback, "Privacy filter: model loaded.")
         except TraceExportError as exc:
             outcome.add_message(str(exc), channel="error", right_info="session")
             return outcome
@@ -132,9 +132,10 @@ async def handle_session_export(
     exporter = SessionTraceExporter(
         session_manager=ctx.resolve_session_manager(),
         privacy_sanitizer=privacy_sanitizer,
+        progress_callback=progress_callback,
     )
     try:
-        _emit_export_progress(progress_callback, "Exporting session trace...")
+        _emit_export_progress(progress_callback, "Export: starting session trace export...")
         result = exporter.export(request)
     except TraceExportError as exc:
         outcome.add_message(str(exc), channel="error", right_info="session")

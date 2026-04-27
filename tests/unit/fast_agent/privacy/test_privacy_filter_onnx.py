@@ -2,8 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from fast_agent.privacy.privacy_filter_onnx import OpenAIPrivacyFilterOnnxSanitizer
+import pytest
+
+from fast_agent.privacy.privacy_filter_onnx import (
+    OpenAIPrivacyFilterOnnxSanitizer,
+    _merge_spans,
+    _provider_status_message,
+    _resolve_onnx_execution_providers,
+)
 from fast_agent.privacy.sanitizer import RedactionSpan
+from fast_agent.session.trace_export_errors import SessionExportPrivacyFilterError
 
 
 @dataclass(slots=True)
@@ -57,3 +65,80 @@ def test_onnx_sanitizer_chunks_long_text_with_overlap() -> None:
         ("Alice five six seven", 14),
     ]
     assert spans == [RedactionSpan(label="private_person", start=14, end=19)]
+
+
+def test_merge_spans_preserves_adjacent_entities() -> None:
+    spans = _merge_spans(
+        [
+            RedactionSpan(label="private_email", start=0, end=5),
+            RedactionSpan(label="private_phone", start=5, end=10),
+        ]
+    )
+
+    assert spans == [
+        RedactionSpan(label="private_email", start=0, end=5),
+        RedactionSpan(label="private_phone", start=5, end=10),
+    ]
+
+
+def test_resolve_onnx_execution_providers_prefers_cuda_for_auto() -> None:
+    providers = _resolve_onnx_execution_providers(
+        available_providers=["CPUExecutionProvider", "CUDAExecutionProvider"],
+        device="auto",
+        cuda_device_id=2,
+    )
+
+    assert providers == [
+        ("CUDAExecutionProvider", {"device_id": "2"}),
+        "CPUExecutionProvider",
+    ]
+
+
+def test_resolve_onnx_execution_providers_allows_cpu_override() -> None:
+    providers = _resolve_onnx_execution_providers(
+        available_providers=["CPUExecutionProvider", "CUDAExecutionProvider"],
+        device="cpu",
+    )
+
+    assert providers == ["CPUExecutionProvider"]
+
+
+def test_resolve_onnx_execution_providers_requires_cuda_when_requested() -> None:
+    with pytest.raises(SessionExportPrivacyFilterError):
+        _resolve_onnx_execution_providers(
+            available_providers=["CPUExecutionProvider"],
+            device="cuda",
+        )
+
+
+def test_provider_status_reports_cuda_fallback() -> None:
+    message = _provider_status_message(
+        device="auto",
+        available_providers=["CPUExecutionProvider", "CUDAExecutionProvider"],
+        requested_providers=[
+            ("CUDAExecutionProvider", {"device_id": "0"}),
+            "CPUExecutionProvider",
+        ],
+        active_providers=["CPUExecutionProvider"],
+    )
+
+    assert message == (
+        "Privacy filter: provider CPUExecutionProvider "
+        "(CUDA was available but failed to initialize; using CPU fallback)."
+    )
+
+
+def test_provider_status_reports_cuda_active() -> None:
+    message = _provider_status_message(
+        device="auto",
+        available_providers=["CPUExecutionProvider", "CUDAExecutionProvider"],
+        requested_providers=[
+            ("CUDAExecutionProvider", {"device_id": "0"}),
+            "CPUExecutionProvider",
+        ],
+        active_providers=["CUDAExecutionProvider", "CPUExecutionProvider"],
+    )
+
+    assert message == (
+        "Privacy filter: provider CUDAExecutionProvider (GPU; fallback: CPUExecutionProvider)."
+    )

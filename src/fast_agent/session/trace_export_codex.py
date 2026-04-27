@@ -7,7 +7,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from importlib.metadata import PackageNotFoundError, version
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Protocol, cast
 from urllib.parse import parse_qsl, urlencode
 
 from mcp.types import (
@@ -37,7 +37,7 @@ from fast_agent.privacy.sanitizer import RedactionAccumulator, RedactionSummary,
 from fast_agent.session.trace_export_models import ExportResult, ResolvedSessionExport
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
     from pathlib import Path
 
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -92,17 +92,38 @@ def _json_arguments(arguments: object) -> str:
 
 
 class _TraceSanitization:
-    def __init__(self, sanitizer: TraceSanitizer) -> None:
+    def __init__(
+        self,
+        sanitizer: TraceSanitizer,
+        *,
+        total_texts: int = 0,
+        total_characters: int = 0,
+        progress_callback: Callable[[str], None] | None = None,
+    ) -> None:
         self._sanitizer = sanitizer
         self._redactions = RedactionAccumulator(model=sanitizer.model_info)
         self._cache: dict[str, SanitizedText] = {}
         self._started = time.perf_counter()
+        self._total_texts = total_texts
+        self._total_characters = total_characters
+        self._processed_texts = 0
+        self._processed_characters = 0
+        self._last_progress_percent = -1
+        self._progress_callback = progress_callback
+        if total_texts > 0:
+            self._emit_progress(
+                "Privacy filter: sanitizing "
+                f"{total_texts:,} text value(s), {total_characters:,} characters total..."
+            )
 
     def text(self, value: str) -> str:
         sanitized = self._cache.get(value)
         if sanitized is None:
             sanitized = self._sanitizer.sanitize_text(value)
             self._cache[value] = sanitized
+            self._processed_texts += 1
+            self._processed_characters += len(value)
+            self._emit_overall_progress()
         self._redactions.add(sanitized.spans)
         return sanitized.text
 
@@ -110,8 +131,47 @@ class _TraceSanitization:
         self._redactions.elapsed = timedelta(seconds=time.perf_counter() - self._started)
         return self._redactions.summary()
 
+    def _emit_overall_progress(self) -> None:
+        if self._progress_callback is None or self._total_texts <= 0:
+            return
+        percent = min(100, round((self._processed_texts / self._total_texts) * 100))
+        if (
+            self._processed_texts != 1
+            and self._processed_texts != self._total_texts
+            and percent < self._last_progress_percent + 5
+        ):
+            return
+        self._last_progress_percent = percent
+        self._emit_progress(
+            "Privacy filter: overall "
+            f"{self._processed_texts:,}/{self._total_texts:,} text value(s) "
+            f"({percent}%, {self._processed_characters:,}/{self._total_characters:,} chars)..."
+        )
 
-def _sanitize_text(sanitization: _TraceSanitization | None, text: str) -> str:
+    def _emit_progress(self, message: str) -> None:
+        if self._progress_callback is not None:
+            self._progress_callback(message)
+
+
+class _TraceSanitizationPlan:
+    def __init__(self) -> None:
+        self._seen: set[str] = set()
+        self.unique_text_count = 0
+        self.total_characters = 0
+
+    def text(self, value: str) -> str:
+        if value not in self._seen:
+            self._seen.add(value)
+            self.unique_text_count += 1
+            self.total_characters += len(value)
+        return value
+
+
+class _TextSanitization(Protocol):
+    def text(self, value: str) -> str: ...
+
+
+def _sanitize_text(sanitization: _TextSanitization | None, text: str) -> str:
     if sanitization is None or not text:
         return text
     return sanitization.text(text)
@@ -154,7 +214,7 @@ def _embedded_text_item(
     block: EmbeddedResource,
     *,
     output_text: bool,
-    sanitization: _TraceSanitization | None = None,
+    sanitization: _TextSanitization | None = None,
 ) -> dict[str, object] | None:
     resource = block.resource
     if not isinstance(resource, TextResourceContents):
@@ -178,7 +238,7 @@ def _text_item(
     text: str,
     *,
     output_text: bool,
-    sanitization: _TraceSanitization | None = None,
+    sanitization: _TextSanitization | None = None,
 ) -> dict[str, object]:
     return {
         "type": "output_text" if output_text else "input_text",
@@ -244,7 +304,7 @@ def _message_attachment_item(
     block: ContentBlock,
     *,
     output_text: bool,
-    sanitization: _TraceSanitization | None = None,
+    sanitization: _TextSanitization | None = None,
 ) -> dict[str, object] | None:
     attachment = _tool_attachment_item(block)
     if attachment is None:
@@ -260,7 +320,7 @@ def _message_attachment_item(
 
 def _message_content_items(
     message: PromptMessageExtended,
-    sanitization: _TraceSanitization | None = None,
+    sanitization: _TextSanitization | None = None,
 ) -> list[dict[str, object]]:
     items: list[dict[str, object]] = []
     output_text = message.role != "user"
@@ -302,7 +362,7 @@ def _reasoning_texts(message: PromptMessageExtended) -> list[str]:
 
 def _reasoning_item(
     message: PromptMessageExtended,
-    sanitization: _TraceSanitization | None = None,
+    sanitization: _TextSanitization | None = None,
 ) -> dict[str, object] | None:
     texts = _reasoning_texts(message)
     if not texts:
@@ -318,7 +378,7 @@ def _reasoning_item(
 
 def _developer_message_item(
     system_prompt: str,
-    sanitization: _TraceSanitization | None = None,
+    sanitization: _TextSanitization | None = None,
 ) -> dict[str, object]:
     return {
         "type": "message",
@@ -329,7 +389,7 @@ def _developer_message_item(
 
 def _assistant_message_item(
     message: PromptMessageExtended,
-    sanitization: _TraceSanitization | None = None,
+    sanitization: _TextSanitization | None = None,
 ) -> dict[str, object] | None:
     content = _message_content_items(message, sanitization=sanitization)
     if not content:
@@ -349,7 +409,7 @@ def _assistant_message_item(
 
 def _user_message_item(
     message: PromptMessageExtended,
-    sanitization: _TraceSanitization | None = None,
+    sanitization: _TextSanitization | None = None,
 ) -> dict[str, object] | None:
     content = _message_content_items(message, sanitization=sanitization)
     if not content:
@@ -363,7 +423,7 @@ def _user_message_item(
 
 def _function_call_items(
     message: PromptMessageExtended,
-    sanitization: _TraceSanitization | None = None,
+    sanitization: _TextSanitization | None = None,
 ) -> list[dict[str, object]]:
     if message.tool_calls is None:
         return []
@@ -377,7 +437,7 @@ def _function_call_items(
 def _function_call_item(
     call_id: str,
     call: CallToolRequest,
-    sanitization: _TraceSanitization | None = None,
+    sanitization: _TextSanitization | None = None,
 ) -> dict[str, object]:
     return {
         "type": "function_call",
@@ -389,7 +449,7 @@ def _function_call_item(
 
 def _tool_result_output(
     result: CallToolResult,
-    sanitization: _TraceSanitization | None = None,
+    sanitization: _TextSanitization | None = None,
 ) -> object:
     items: list[dict[str, object]] = []
     text_parts: list[str] = []
@@ -646,7 +706,7 @@ def _token_count_payload(
 
 def _function_call_output_items(
     message: PromptMessageExtended,
-    sanitization: _TraceSanitization | None = None,
+    sanitization: _TextSanitization | None = None,
 ) -> list[dict[str, object]]:
     if message.tool_results is None:
         return []
@@ -672,7 +732,7 @@ def _session_cwd(resolved: ResolvedSessionExport) -> str:
 def _session_meta_payload(
     resolved: ResolvedSessionExport,
     meta: _TraceMeta,
-    sanitization: _TraceSanitization | None = None,
+    sanitization: _TextSanitization | None = None,
 ) -> dict[str, object]:
     agent_snapshot = resolved.snapshot.continuation.agents[resolved.agent_name]
     payload: dict[str, object] = {
@@ -737,7 +797,7 @@ def _turn_started_payload(
 
 def _user_event_payload(
     message: PromptMessageExtended,
-    sanitization: _TraceSanitization | None = None,
+    sanitization: _TextSanitization | None = None,
 ) -> dict[str, object]:
     payload: dict[str, object] = {
         "type": "user_message",
@@ -754,7 +814,7 @@ def _user_event_payload(
 def _turn_complete_payload(
     turn_id: str,
     last_agent_message: str | None,
-    sanitization: _TraceSanitization | None = None,
+    sanitization: _TextSanitization | None = None,
 ) -> dict[str, object]:
     return {
         "type": "turn_complete",
@@ -769,7 +829,7 @@ def _turn_complete_payload(
 
 def _response_items(
     message: PromptMessageExtended,
-    sanitization: _TraceSanitization | None = None,
+    sanitization: _TextSanitization | None = None,
 ) -> list[dict[str, object]]:
     items: list[dict[str, object]] = []
 
@@ -867,13 +927,26 @@ def _turn_timestamps(resolved: ResolvedSessionExport) -> list[datetime | None]:
 class CodexTraceWriter:
     """Write a resolved session export as native Codex rollout JSONL."""
 
-    def __init__(self, sanitizer: TraceSanitizer | None = None) -> None:
+    def __init__(
+        self,
+        sanitizer: TraceSanitizer | None = None,
+        *,
+        progress_callback: Callable[[str], None] | None = None,
+    ) -> None:
         self._sanitizer = sanitizer
+        self._progress_callback = progress_callback
 
     def write(self, resolved: ResolvedSessionExport, output_path: Path) -> ExportResult:
-        sanitization = (
-            _TraceSanitization(self._sanitizer) if self._sanitizer is not None else None
-        )
+        sanitization = None
+        if self._sanitizer is not None:
+            plan = _TraceSanitizationPlan()
+            self._records(resolved, sanitization=plan)
+            sanitization = _TraceSanitization(
+                self._sanitizer,
+                total_texts=plan.unique_text_count,
+                total_characters=plan.total_characters,
+                progress_callback=self._progress_callback,
+            )
         records = list(self._records(resolved, sanitization=sanitization))
         redaction = sanitization.summary() if sanitization is not None else None
         if redaction is not None:
@@ -896,7 +969,7 @@ class CodexTraceWriter:
         self,
         resolved: ResolvedSessionExport,
         *,
-        sanitization: _TraceSanitization | None = None,
+        sanitization: _TextSanitization | None = None,
     ) -> list[dict[str, object]]:
         meta = _trace_meta(resolved)
         turn_timestamps = _turn_timestamps(resolved)

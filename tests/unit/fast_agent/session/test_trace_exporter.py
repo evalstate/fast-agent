@@ -150,7 +150,8 @@ def test_session_trace_exporter_writes_codex_trace(tmp_path: Path) -> None:
         },
     )
 
-    exporter = SessionTraceExporter(session_manager=manager)
+    progress: list[str] = []
+    exporter = SessionTraceExporter(session_manager=manager, progress_callback=progress.append)
     result = exporter.export(
         ExportRequest(
             target=session_dir / "session.json",
@@ -159,6 +160,10 @@ def test_session_trace_exporter_writes_codex_trace(tmp_path: Path) -> None:
         )
     )
 
+    assert progress == [
+        "Export: preparing codex trace for agent 'dev' from 2 message(s): "
+        "1 user, 1 assistant, 0 tool call(s), 0 tool result(s)."
+    ]
     lines = (tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()
     records = [json.loads(line) for line in lines]
 
@@ -699,6 +704,44 @@ def test_session_trace_exporter_requires_privacy_sanitizer_for_privacy_filter(
             )
         )
     assert not (tmp_path / "trace.jsonl").exists()
+
+
+def test_session_trace_exporter_reports_privacy_filter_progress(tmp_path: Path) -> None:
+    manager = _build_manager(tmp_path)
+    session_id = "2604201303-x5MNlH"
+    session_dir = manager.base_dir / session_id
+    session_dir.mkdir(parents=True)
+    _write_history(session_dir / "history_dev.json", assistant_text="done for Alice")
+    _write_session_snapshot(
+        session_dir,
+        session_id=session_id,
+        active_agent="dev",
+        agents={
+            "dev": SessionAgentSnapshot(
+                history_file="history_dev.json",
+                resolved_prompt="Help Alice safely.",
+            )
+        },
+    )
+    progress: list[str] = []
+    exporter = SessionTraceExporter(
+        session_manager=manager,
+        privacy_sanitizer=_FakePrivacySanitizer(),
+        progress_callback=progress.append,
+    )
+
+    exporter.export(
+        ExportRequest(
+            target=session_dir,
+            agent_name="dev",
+            output_path=tmp_path / "trace.jsonl",
+            privacy_filter=True,
+        )
+    )
+
+    assert any(message.startswith("Privacy filter: sanitizing ") for message in progress)
+    assert any(message.startswith("Privacy filter: overall ") for message in progress)
+    assert any("100%" in message for message in progress)
 
 
 def test_session_trace_exporter_uploads_sanitized_trace_to_hf_dataset(
