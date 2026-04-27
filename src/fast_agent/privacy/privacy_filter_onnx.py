@@ -12,6 +12,7 @@ from fast_agent.privacy.model_resolver import (
     DEFAULT_PRIVACY_FILTER_REPO,
     DEFAULT_PRIVACY_FILTER_REVISION,
     DEFAULT_PRIVACY_FILTER_VARIANT,
+    PRIVACY_FILTER_VARIANTS,
 )
 from fast_agent.privacy.sanitizer import (
     PrivacyFilterModelInfo,
@@ -19,7 +20,12 @@ from fast_agent.privacy.sanitizer import (
     SanitizedText,
     TraceSanitizer,
 )
-from fast_agent.privacy.viterbi import constrained_viterbi, token_spans_from_path
+from fast_agent.privacy.viterbi import (
+    ViterbiTables,
+    build_viterbi_tables,
+    constrained_viterbi_np,
+    token_spans_from_path,
+)
 from fast_agent.session.trace_export_errors import SessionExportPrivacyFilterError
 
 if TYPE_CHECKING:
@@ -35,7 +41,7 @@ _PLACEHOLDERS = {
     "private_url": "<PRIVATE_URL>",
     "secret": "<SECRET>",
 }
-_DEFAULT_MAX_WINDOW_TOKENS = 8192
+_DEFAULT_MAX_WINDOW_TOKENS = 4096
 _DEFAULT_WINDOW_OVERLAP_TOKENS = 128
 _DEFAULT_DEVICE: Literal["auto"] = "auto"
 _SUPPORTED_DEVICES = ("auto", "cpu", "cuda")
@@ -74,6 +80,7 @@ class OpenAIPrivacyFilterOnnxSanitizer(TraceSanitizer):
         self._config = _load_json(self._files.config)
         self._labels = _load_labels(self._config)
         self._tokenizer, self._session, self._np = self._load_runtime()
+        self._viterbi_tables: ViterbiTables = build_viterbi_tables(self._labels, self._np)
         session_providers = list(self._session.get_providers())
         self._active_provider = session_providers[0] if session_providers else None
         self._max_window_tokens = _env_int(
@@ -120,53 +127,76 @@ class OpenAIPrivacyFilterOnnxSanitizer(TraceSanitizer):
         )
 
     def detect_spans(self, text: str) -> list[RedactionSpan]:
+        if not text:
+            return []
         encoding = self._tokenizer.encode(text)
-        real_token_indices = _real_token_indices(list(encoding.offsets))
-        if len(real_token_indices) <= self._max_window_tokens:
-            return self._detect_spans_single(text, char_offset=0)
+        ids = list(encoding.ids)
+        attention = list(encoding.attention_mask)
+        offsets = list(encoding.offsets)
+        if not ids:
+            return []
+        real_token_indices = _real_token_indices(offsets)
+        if not real_token_indices:
+            return []
 
+        # Single-window fast path.
+        if len(real_token_indices) <= self._max_window_tokens:
+            return self._run_window(
+                ids=ids,
+                attention=attention,
+                offsets=offsets,
+                text=text,
+            )
+
+        # Slide over real-token positions; slice the *already tokenized* sequence
+        # rather than re-encoding substrings (which doubles tokenizer cost and
+        # changes BPE boundaries at window seams).
         spans: list[RedactionSpan] = []
         step = self._max_window_tokens - self._window_overlap_tokens
         window_starts = list(range(0, len(real_token_indices), step))
         total_windows = len(window_starts)
         self._emit_progress(
-            f"Privacy filter: scanning large text ({len(text):,} chars, {total_windows:,} windows)..."
+            f"Privacy filter: scanning large text ({len(text):,} chars, "
+            f"{total_windows:,} windows)..."
         )
-        for window_number, start in enumerate(window_starts, start=1):
-            window_indices = real_token_indices[start : start + self._max_window_tokens]
-            if not window_indices:
+        for window_number, start_real in enumerate(window_starts, start=1):
+            end_real = min(start_real + self._max_window_tokens, len(real_token_indices))
+            if start_real >= end_real:
                 continue
             if _should_emit_window_progress(window_number, total_windows):
                 self._emit_progress(
                     f"Privacy filter: large text window {window_number:,}/{total_windows:,} "
                     f"({_percent(window_number, total_windows)}%)..."
                 )
-            char_start = encoding.offsets[window_indices[0]][0]
-            char_end = encoding.offsets[window_indices[-1]][1]
-            if char_start >= char_end:
-                continue
-            chunk = text[char_start:char_end]
-            spans.extend(self._detect_spans_single(chunk, char_offset=char_start))
-            if start + self._max_window_tokens >= len(real_token_indices):
+            # Map real-token indices to absolute positions in the tokenized
+            # sequence. Include any leading/trailing special tokens at the
+            # boundaries of the full encoding so the model still sees them.
+            token_start = real_token_indices[start_real] if start_real > 0 else 0
+            token_end = (
+                real_token_indices[end_real - 1] + 1
+                if end_real < len(real_token_indices)
+                else len(ids)
+            )
+            spans.extend(
+                self._run_window(
+                    ids=ids[token_start:token_end],
+                    attention=attention[token_start:token_end],
+                    offsets=offsets[token_start:token_end],
+                    text=text,
+                )
+            )
+            if end_real == len(real_token_indices):
                 break
         return _merge_spans(spans)
 
-    def _emit_progress(self, message: str) -> None:
-        if self._progress_callback is not None:
-            self._progress_callback(message)
-
-    def _emit_redactions(self, text: str, spans: list[RedactionSpan]) -> None:
-        for span in spans:
-            snippet = _redaction_snippet(text[span.start : span.end])
-            self._emit_progress(
-                f"Privacy filter: redaction {span.label} {span.start}:{span.end} {snippet!r}"
-            )
-
-    def _detect_spans_single(self, text: str, *, char_offset: int) -> list[RedactionSpan]:
-        encoding = self._tokenizer.encode(text)
-        ids = list(encoding.ids)
-        offsets = list(encoding.offsets)
-        attention = list(encoding.attention_mask)
+    def _run_window(
+        self,
+        *,
+        ids: list[int],
+        attention: list[int],
+        offsets: list[tuple[int, int]],
+        text: str,
+    ) -> list[RedactionSpan]:
         if not ids:
             return []
 
@@ -188,27 +218,46 @@ class OpenAIPrivacyFilterOnnxSanitizer(TraceSanitizer):
             raise SessionExportPrivacyFilterError(
                 "Privacy filter label count does not match ONNX logits dimension."
             )
+        if logits.shape[1] != len(ids):
+            raise SessionExportPrivacyFilterError(
+                "Privacy filter logits length does not match window token count "
+                f"(got {logits.shape[1]}, expected {len(ids)})."
+            )
         # Softmax normalization is unnecessary for Viterbi: subtracting the
         # per-token logsumexp adds the same constant to every label score for
         # that token and cannot change the best path.
-        path = constrained_viterbi(logits[0].tolist(), self._labels)
+        path = constrained_viterbi_np(logits[0], self._viterbi_tables, self._np)
         spans: list[RedactionSpan] = []
         for token_span in token_spans_from_path(path, self._labels):
-            start, _ = offsets[token_span.start]
-            _, end = offsets[token_span.end - 1]
-            if start == end:
+            start_char, _ = offsets[token_span.start]
+            _, end_char = offsets[token_span.end - 1]
+            if start_char >= end_char:
+                # Span landed on special / zero-offset tokens; skip.
                 continue
-            trimmed = _trim_span(text, start, end)
+            trimmed = _trim_span(text, start_char, end_char)
             if trimmed is None:
                 continue
             spans.append(
                 RedactionSpan(
                     label=token_span.label,
-                    start=char_offset + trimmed[0],
-                    end=char_offset + trimmed[1],
+                    start=trimmed[0],
+                    end=trimmed[1],
                 )
             )
         return _merge_spans(spans)
+
+    def _emit_progress(self, message: str) -> None:
+        if self._progress_callback is not None:
+            self._progress_callback(message)
+
+    def _emit_redactions(self, text: str, spans: list[RedactionSpan]) -> None:
+        if self._progress_callback is None:
+            return
+        for span in spans:
+            snippet = _redaction_snippet(text[span.start : span.end])
+            self._emit_progress(
+                f"Privacy filter: redaction {span.label} {span.start}:{span.end} {snippet!r}"
+            )
 
     def _load_runtime(self) -> tuple[Any, Any, Any]:
         try:
@@ -221,8 +270,21 @@ class OpenAIPrivacyFilterOnnxSanitizer(TraceSanitizer):
                 "Install with `fast-agent-mcp[privacy]`."
             ) from exc
 
+        # Only try to preload CUDA / cuDNN DLLs when CUDA is actually in play.
+        # On CPU-only "auto" runs this avoids spurious ORT warnings about
+        # missing libcudart / libcudnn.
+        available_providers = list(ort.get_available_providers())
+        if self._device == "cuda" or "CUDAExecutionProvider" in available_providers:
+            ort.preload_dlls(cuda=True, cudnn=True, msvc=True)
+            available_providers = list(ort.get_available_providers())
+
         tokenizer = tokenizers.Tokenizer.from_file(str(self._files.tokenizer))
         options = ort.SessionOptions()
+        options.log_severity_level = _env_int(
+            "FAST_AGENT_PRIVACY_FILTER_LOG_SEVERITY",
+            default=3,
+            minimum=0,
+        )
         options.intra_op_num_threads = _env_int(
             "FAST_AGENT_PRIVACY_FILTER_INTRA_OP_THREADS",
             default=0,
@@ -230,13 +292,6 @@ class OpenAIPrivacyFilterOnnxSanitizer(TraceSanitizer):
         )
         options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
 
-        # options.inter_op_num_threads = _env_int(
-        #     "FAST_AGENT_PRIVACY_FILTER_INTER_OP_THREADS",
-        #     default=1,
-        #     minimum=1,
-        # )
-
-        available_providers = list(ort.get_available_providers())
         requested_providers = _resolve_onnx_execution_providers(
             available_providers=available_providers,
             device=self._device,
@@ -259,14 +314,21 @@ class OpenAIPrivacyFilterOnnxSanitizer(TraceSanitizer):
 
 
 def _model_files(model_dir: Path, *, variant: str) -> _ModelFiles:
-    if variant != "q4":
+    if variant not in PRIVACY_FILTER_VARIANTS:
+        supported = ", ".join(PRIVACY_FILTER_VARIANTS)
         raise SessionExportPrivacyFilterError(
-            f"Unsupported privacy filter variant '{variant}'. Supported variants: q4."
+            f"Unsupported privacy filter variant '{variant}'. Supported variants: {supported}."
         )
+    model_name = {
+        "q4": "model_q4.onnx",
+        "q4f16": "model_q4f16.onnx",
+        "q8": "model_quantized.onnx",
+        "fp16": "model_fp16.onnx",
+    }[variant]
     return _ModelFiles(
         config=model_dir / "config.json",
         tokenizer=model_dir / "tokenizer.json",
-        model=model_dir / "onnx" / "model_q4.onnx",
+        model=model_dir / "onnx" / model_name,
     )
 
 
@@ -283,11 +345,13 @@ def _load_json(path: Path) -> dict[str, Any]:
 def _load_labels(config: dict[str, Any]) -> list[str]:
     id2label = config.get("id2label")
     if isinstance(id2label, list):
-        labels = [label for label in id2label if isinstance(label, str) and label]
-        if len(labels) != len(id2label):
-            raise SessionExportPrivacyFilterError(
-                "Privacy filter config has invalid id2label entries."
-            )
+        labels: list[str] = []
+        for entry in id2label:
+            if not isinstance(entry, str) or not entry:
+                raise SessionExportPrivacyFilterError(
+                    "Privacy filter config has invalid id2label entries."
+                )
+            labels.append(entry)
         return _validate_labels(labels)
     if not isinstance(id2label, dict):
         raise SessionExportPrivacyFilterError("Privacy filter config is missing id2label.")
@@ -326,11 +390,22 @@ def _percent(value: int, total: int) -> int:
 
 
 def _replace_spans(text: str, spans: list[RedactionSpan]) -> str:
-    redacted = text
-    for span in sorted(spans, key=lambda item: item.start, reverse=True):
+    if not spans:
+        return text
+    parts: list[str] = []
+    cursor = 0
+    for span in sorted(spans, key=lambda item: item.start):
+        if span.start < cursor:
+            # Overlap with a previous span (different-label cases handled in
+            # _merge_spans, but defend in case callers feed raw spans).
+            continue
+        if span.start > cursor:
+            parts.append(text[cursor : span.start])
         placeholder = _PLACEHOLDERS.get(span.label, f"<{span.label.upper()}>")
-        redacted = redacted[: span.start] + placeholder + redacted[span.end :]
-    return redacted
+        parts.append(placeholder)
+        cursor = span.end
+    parts.append(text[cursor:])
+    return "".join(parts)
 
 
 def _trim_span(text: str, start: int, end: int) -> tuple[int, int] | None:
@@ -344,20 +419,33 @@ def _trim_span(text: str, start: int, end: int) -> tuple[int, int] | None:
 
 
 def _merge_spans(spans: list[RedactionSpan]) -> list[RedactionSpan]:
+    """Merge overlapping same-label spans; keep distinct-label spans separate.
+
+    Different-label overlaps drop the later span — replacement requires
+    non-overlapping intervals, and `(start, end)` ordering picks the earlier
+    detection deterministically.
+    """
+
     if not spans:
         return []
     ordered = sorted(spans, key=lambda span: (span.start, span.end))
     merged: list[RedactionSpan] = []
     for span in ordered:
-        if not merged or span.start >= merged[-1].end:
+        if not merged:
             merged.append(span)
             continue
         previous = merged[-1]
-        merged[-1] = RedactionSpan(
-            label=previous.label,
-            start=previous.start,
-            end=max(previous.end, span.end),
-        )
+        if span.start >= previous.end:
+            merged.append(span)
+            continue
+        # Overlap.
+        if span.label == previous.label:
+            merged[-1] = RedactionSpan(
+                label=previous.label,
+                start=previous.start,
+                end=max(previous.end, span.end),
+            )
+        # else: drop the overlapping later span.
     return merged
 
 
@@ -416,7 +504,9 @@ def _provider_status_message(
 ) -> str:
     active_text = ", ".join(active_providers) or "unknown"
     if "CUDAExecutionProvider" in active_providers:
-        return "Privacy filter: provider CUDAExecutionProvider (GPU; fallback: CPUExecutionProvider)."
+        return (
+            "Privacy filter: provider CUDAExecutionProvider (GPU; fallback: CPUExecutionProvider)."
+        )
     if _requested_cuda_provider(requested_providers):
         return (
             "Privacy filter: provider "

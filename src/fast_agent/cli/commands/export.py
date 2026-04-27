@@ -22,9 +22,11 @@ from fast_agent.commands.session_export_help import (
     SESSION_EXPORT_HF_DATASET_HELP,
     SESSION_EXPORT_HF_DATASET_PATH_HELP,
     SESSION_EXPORT_OUTPUT_HELP,
+    SESSION_EXPORT_PRIVACY_DEVICE_HELP,
     SESSION_EXPORT_PRIVACY_DOWNLOAD_HELP,
     SESSION_EXPORT_PRIVACY_FILTER_HELP,
     SESSION_EXPORT_PRIVACY_PATH_HELP,
+    SESSION_EXPORT_PRIVACY_VARIANT_HELP,
     SESSION_EXPORT_SHOW_REDACTIONS_HELP,
     SESSION_EXPORT_TARGET_HELP,
 )
@@ -95,6 +97,17 @@ def export(
         "--download-privacy-filter",
         help=SESSION_EXPORT_PRIVACY_DOWNLOAD_HELP,
     ),
+    privacy_filter_device: str | None = typer.Option(
+        None,
+        "--privacy-filter-device",
+        help=SESSION_EXPORT_PRIVACY_DEVICE_HELP,
+    ),
+    privacy_filter_variant: str | None = typer.Option(
+        None,
+        "--privacy-filter-variant",
+        "--privacy-filter-quant",
+        help=SESSION_EXPORT_PRIVACY_VARIANT_HELP,
+    ),
     show_redactions: bool = typer.Option(
         False,
         "--show-redactions",
@@ -122,6 +135,8 @@ def export(
             or privacy_filter
             or privacy_filter_path is not None
             or download_privacy_filter
+            or privacy_filter_device is not None
+            or privacy_filter_variant is not None
             or show_redactions
         ):
             raise typer.BadParameter("Cannot combine --list with export options.")
@@ -147,6 +162,8 @@ def export(
                 str(privacy_filter_path) if privacy_filter_path is not None else None
             ),
             download_privacy_filter=download_privacy_filter,
+            privacy_filter_device=privacy_filter_device,
+            privacy_filter_variant=privacy_filter_variant,
             show_redactions=show_redactions,
             progress_callback=lambda message: typer.echo(message, err=True),
         )

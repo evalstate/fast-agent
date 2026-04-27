@@ -6,7 +6,8 @@ from typing import cast
 
 SESSION_EXPORT_USAGE = (
     "/session export [latest|id|path] [--agent name] [--output path] "
-    "[--hf-dataset owner/name] [--hf-dataset-path path] [--privacy-filter]"
+    "[--hf-dataset owner/name] [--hf-dataset-path path] [--privacy-filter] "
+    "[--privacy-filter-variant q4|q4f16|q8|fp16]"
 )
 
 SESSION_EXPORT_TARGET_HELP = (
@@ -28,6 +29,12 @@ SESSION_EXPORT_PRIVACY_FILTER_HELP = "Redact exported text content with the loca
 SESSION_EXPORT_PRIVACY_PATH_HELP = "Local OpenAI Privacy Filter model directory."
 SESSION_EXPORT_PRIVACY_DOWNLOAD_HELP = (
     "Download the default privacy-filter model if it is not already cached."
+)
+SESSION_EXPORT_PRIVACY_DEVICE_HELP = (
+    "Privacy filter device: auto, cpu, or cuda. Defaults to auto."
+)
+SESSION_EXPORT_PRIVACY_VARIANT_HELP = (
+    "Privacy filter model variant: q4, q4f16, q8, or fp16. Defaults to q8."
 )
 SESSION_EXPORT_SHOW_REDACTIONS_HELP = (
     "Print detected redaction labels and original text to stderr. Use only for local review."
@@ -108,6 +115,18 @@ def build_session_export_action_detail() -> dict[str, object]:
                 "aliases": [],
                 "value_name": None,
                 "summary": SESSION_EXPORT_PRIVACY_DOWNLOAD_HELP,
+            },
+            {
+                "name": "--privacy-filter-device",
+                "aliases": [],
+                "value_name": "auto|cpu|cuda",
+                "summary": SESSION_EXPORT_PRIVACY_DEVICE_HELP,
+            },
+            {
+                "name": "--privacy-filter-variant",
+                "aliases": ["--privacy-filter-quant"],
+                "value_name": "q4|q4f16|q8|fp16",
+                "summary": SESSION_EXPORT_PRIVACY_VARIANT_HELP,
             },
             {
                 "name": "--show-redactions",

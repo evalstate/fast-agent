@@ -24,7 +24,8 @@ def test_parse_session_command_intent_parses_export_options() -> None:
     intent = parse_session_command_intent(
         'export latest --agent dev --output "trace file.jsonl" --hf-dataset owner/dataset '
         '--hf-dataset-path exports/ --privacy-filter --privacy-filter-path /tmp/model '
-        '--download-privacy-filter --show-redactions'
+        '--download-privacy-filter --privacy-filter-device cpu '
+        '--privacy-filter-variant q4f16 --show-redactions'
     )
 
     assert intent.action == "export"
@@ -36,7 +37,18 @@ def test_parse_session_command_intent_parses_export_options() -> None:
     assert intent.export_privacy_filter is True
     assert intent.export_privacy_filter_path == "/tmp/model"
     assert intent.export_download_privacy_filter is True
+    assert intent.export_privacy_filter_device == "cpu"
+    assert intent.export_privacy_filter_variant == "q4f16"
     assert intent.export_show_redactions is True
+    assert intent.export_error is None
+
+
+def test_parse_session_command_intent_accepts_privacy_filter_quant_alias() -> None:
+    intent = parse_session_command_intent("export latest --privacy-filter --privacy-filter-quant=q8")
+
+    assert intent.action == "export"
+    assert intent.export_privacy_filter is True
+    assert intent.export_privacy_filter_variant == "q8"
     assert intent.export_error is None
 
 

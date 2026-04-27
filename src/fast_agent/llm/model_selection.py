@@ -47,6 +47,10 @@ class ModelSelectionCatalog:
 
     CATALOG_ENTRIES_BY_PROVIDER: dict[Provider, tuple[CatalogModelEntry, ...]] = {
         Provider.RESPONSES: (
+            CatalogModelEntry(
+                alias="gpt-5.5",
+                model="responses.gpt-5.5?reasoning=medium",
+            ),
             CatalogModelEntry(alias="gpt-5.4", model="responses.gpt-5.4?reasoning=medium"),
             CatalogModelEntry(
                 alias="gpt-5.4-mini",
@@ -194,11 +198,11 @@ class ModelSelectionCatalog:
         Provider.CODEX_RESPONSES: (
             CatalogModelEntry(
                 alias="codexplan",
-                model="codexresponses.gpt-5.4?reasoning=high",
+                model="codexresponses.gpt-5.5?reasoning=medium",
             ),
             CatalogModelEntry(
-                alias="gpt-5.5",
-                model="codexresponses.gpt-5.5?reasoning=high",
+                alias="codexplan54",
+                model="codexresponses.gpt-5.4?reasoning=high",
             ),
             CatalogModelEntry(
                 alias="codexplan53",

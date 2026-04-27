@@ -13,7 +13,16 @@ if TYPE_CHECKING:
 
 DEFAULT_PRIVACY_FILTER_REPO = "openai/privacy-filter"
 DEFAULT_PRIVACY_FILTER_REVISION = "7ffa9a043d54d1be65afb281eddf0ffbe629385b"
-DEFAULT_PRIVACY_FILTER_VARIANT = "q4"
+# Default to int8 (q8). On CPU — the dominant deployment for trace export —
+# ORT's int8 GEMM kernels are typically faster than the q4 MatMulNBits path.
+# CUDA users should pick `q4f16` or `fp16` explicitly.
+DEFAULT_PRIVACY_FILTER_VARIANT = "q8"
+PRIVACY_FILTER_VARIANTS = ("q4", "q4f16", "q8", "fp16")
+
+# When the user does not specify a variant, prefer these in order if cached.
+# `q8` first matches the documented CPU default; `q4` is a common pre-existing
+# cache from earlier releases; remaining variants act as best-effort fallbacks.
+_VARIANT_FALLBACK_ORDER = ("q8", "q4", "q4f16", "fp16")
 
 COMMON_FILES = [
     "config.json",
@@ -27,6 +36,19 @@ VARIANT_FILES = {
         "onnx/model_q4.onnx",
         "onnx/model_q4.onnx_data",
     ],
+    "q4f16": [
+        "onnx/model_q4f16.onnx",
+        "onnx/model_q4f16.onnx_data",
+    ],
+    "q8": [
+        "onnx/model_quantized.onnx",
+        "onnx/model_quantized.onnx_data",
+    ],
+    "fp16": [
+        "onnx/model_fp16.onnx",
+        "onnx/model_fp16.onnx_data",
+        "onnx/model_fp16.onnx_data_1",
+    ],
 }
 
 
@@ -37,37 +59,54 @@ def resolve_privacy_filter_model_dir(
     revision: str = DEFAULT_PRIVACY_FILTER_REVISION,
     variant: str = DEFAULT_PRIVACY_FILTER_VARIANT,
     allow_download: bool = False,
-) -> Path:
-    """Resolve and validate a privacy-filter model directory."""
+    variant_explicit: bool = True,
+) -> tuple[Path, str]:
+    """Resolve and validate a privacy-filter model directory.
+
+    Returns ``(model_dir, effective_variant)``. When ``variant_explicit`` is
+    ``False`` and the requested variant is not cached, falls back to any other
+    cached variant before considering a download — this avoids forcing an
+    unnecessary re-download when the default variant changes between releases.
+    """
 
     if model_path is not None:
-        return _validate_model_dir(model_path.expanduser(), variant=variant)
+        return _validate_model_dir(model_path.expanduser(), variant=variant), variant
 
-    allow_patterns = COMMON_FILES + _variant_files(variant)
-    try:
-        cached = _snapshot_download(
-            repo_id=repo_id,
-            revision=revision,
-            allow_patterns=allow_patterns,
-            local_files_only=True,
-        )
-        return _validate_model_dir(Path(cached), variant=variant)
-    except Exception as cached_exc:
-        if not allow_download:
-            raise SessionExportPrivacyFilterError(_uncached_model_message()) from cached_exc
+    candidates: list[str] = [variant]
+    if not variant_explicit:
+        for fallback in _VARIANT_FALLBACK_ORDER:
+            if fallback != variant and fallback not in candidates:
+                candidates.append(fallback)
+
+    last_error: Exception | None = None
+    for candidate in candidates:
+        try:
+            cached = _snapshot_download(
+                repo_id=repo_id,
+                revision=revision,
+                allow_patterns=COMMON_FILES + _variant_files(candidate),
+                local_files_only=True,
+            )
+            return _validate_model_dir(Path(cached), variant=candidate), candidate
+        except Exception as exc:
+            last_error = exc
+            continue
+
+    if not allow_download:
+        raise SessionExportPrivacyFilterError(_uncached_model_message()) from last_error
 
     try:
         downloaded = _snapshot_download(
             repo_id=repo_id,
             revision=revision,
-            allow_patterns=allow_patterns,
+            allow_patterns=COMMON_FILES + _variant_files(variant),
             local_files_only=False,
         )
     except Exception as exc:
         raise SessionExportPrivacyFilterError(
             f"Failed to download privacy filter model '{repo_id}' at revision '{revision}': {exc}"
         ) from exc
-    return _validate_model_dir(Path(downloaded), variant=variant)
+    return _validate_model_dir(Path(downloaded), variant=variant), variant
 
 
 def _snapshot_download(
@@ -90,7 +129,7 @@ def _snapshot_download(
 def _variant_files(variant: str) -> list[str]:
     files = VARIANT_FILES.get(variant)
     if files is None:
-        supported = ", ".join(sorted(VARIANT_FILES))
+        supported = ", ".join(PRIVACY_FILTER_VARIANTS)
         raise SessionExportPrivacyFilterError(
             f"Unsupported privacy filter variant '{variant}'. Supported variants: {supported}."
         )

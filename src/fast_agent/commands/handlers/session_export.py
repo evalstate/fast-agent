@@ -11,7 +11,11 @@ from fast_agent.privacy.dependencies import (
     format_missing_privacy_dependencies,
     missing_privacy_dependencies,
 )
-from fast_agent.privacy.model_resolver import resolve_privacy_filter_model_dir
+from fast_agent.privacy.model_resolver import (
+    DEFAULT_PRIVACY_FILTER_VARIANT,
+    PRIVACY_FILTER_VARIANTS,
+    resolve_privacy_filter_model_dir,
+)
 from fast_agent.privacy.privacy_filter_onnx import OpenAIPrivacyFilterOnnxSanitizer
 from fast_agent.session.trace_export_errors import TraceExportError
 from fast_agent.session.trace_export_models import ExportRequest
@@ -20,6 +24,8 @@ from fast_agent.session.trace_exporter import SessionTraceExporter
 if TYPE_CHECKING:
     from fast_agent.commands.context import CommandContext
     from fast_agent.privacy.sanitizer import RedactionSummary
+
+_PRIVACY_FILTER_DEVICES = ("auto", "cpu", "cuda")
 
 
 def _redaction_summary_text(summary: "RedactionSummary") -> str:
@@ -55,6 +61,8 @@ async def handle_session_export(
     privacy_filter: bool = False,
     privacy_filter_path: str | None = None,
     download_privacy_filter: bool = False,
+    privacy_filter_device: str | None = None,
+    privacy_filter_variant: str | None = None,
     show_redactions: bool = False,
     progress_callback: Callable[[str], None] | None = None,
     current_session_id: str | None = None,
@@ -77,9 +85,36 @@ async def handle_session_export(
             right_info="session",
         )
         return outcome
-    if not privacy_filter and (privacy_filter_path is not None or download_privacy_filter):
+    if not privacy_filter and (
+        privacy_filter_path is not None
+        or download_privacy_filter
+        or privacy_filter_device is not None
+        or privacy_filter_variant is not None
+    ):
         outcome.add_message(
-            "--privacy-filter-path and --download-privacy-filter require --privacy-filter.",
+            "--privacy-filter-path, --download-privacy-filter, "
+            "--privacy-filter-device, and --privacy-filter-variant require --privacy-filter.",
+            channel="error",
+            right_info="session",
+        )
+        return outcome
+    if privacy_filter_device is not None and privacy_filter_device.lower() not in _PRIVACY_FILTER_DEVICES:
+        supported = ", ".join(_PRIVACY_FILTER_DEVICES)
+        outcome.add_message(
+            f"Unsupported --privacy-filter-device '{privacy_filter_device}'. "
+            f"Supported devices: {supported}.",
+            channel="error",
+            right_info="session",
+        )
+        return outcome
+    if (
+        privacy_filter_variant is not None
+        and privacy_filter_variant.lower() not in PRIVACY_FILTER_VARIANTS
+    ):
+        supported = ", ".join(PRIVACY_FILTER_VARIANTS)
+        outcome.add_message(
+            f"Unsupported --privacy-filter-variant '{privacy_filter_variant}'. "
+            f"Supported variants: {supported}.",
             channel="error",
             right_info="session",
         )
@@ -87,6 +122,11 @@ async def handle_session_export(
 
     privacy_sanitizer = None
     if privacy_filter:
+        variant = (
+            DEFAULT_PRIVACY_FILTER_VARIANT
+            if privacy_filter_variant is None
+            else privacy_filter_variant.lower()
+        )
         if show_redactions:
             _emit_export_progress(
                 progress_callback,
@@ -103,13 +143,25 @@ async def handle_session_export(
             return outcome
         try:
             _emit_export_progress(progress_callback, "Privacy filter: resolving model...")
-            model_dir = resolve_privacy_filter_model_dir(
+            model_dir, resolved_variant = resolve_privacy_filter_model_dir(
                 model_path=Path(privacy_filter_path) if privacy_filter_path else None,
+                variant=variant,
                 allow_download=download_privacy_filter,
+                variant_explicit=privacy_filter_variant is not None,
             )
+            if resolved_variant != variant:
+                _emit_export_progress(
+                    progress_callback,
+                    (
+                        f"Privacy filter: variant '{variant}' not cached; "
+                        f"using cached variant '{resolved_variant}'."
+                    ),
+                )
             _emit_export_progress(progress_callback, f"Privacy filter: loading model from {model_dir}...")
             privacy_sanitizer = OpenAIPrivacyFilterOnnxSanitizer(
                 model_dir,
+                variant=resolved_variant,
+                device=privacy_filter_device,
                 progress_callback=progress_callback,
                 show_redactions=show_redactions,
             )
@@ -128,6 +180,7 @@ async def handle_session_export(
         privacy_filter=privacy_filter,
         privacy_filter_path=Path(privacy_filter_path) if privacy_filter_path else None,
         download_privacy_filter=download_privacy_filter,
+        privacy_filter_variant=privacy_filter_variant,
     )
     exporter = SessionTraceExporter(
         session_manager=ctx.resolve_session_manager(),

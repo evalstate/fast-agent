@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 IMPOSSIBLE = -1_000_000_000.0
 
@@ -16,8 +17,75 @@ class DecodedTokenSpan:
     end: int
 
 
+@dataclass(frozen=True, slots=True)
+class ViterbiTables:
+    """Precomputed BIOES transition / start / end masks as numpy arrays.
+
+    `transitions[i, j]` is `0` for valid `prev=i -> cur=j` transitions and
+    `IMPOSSIBLE` otherwise. `start_mask` / `end_mask` likewise gate the
+    first / last timestep.
+    """
+
+    transitions: Any  # ndarray (L, L)
+    start_mask: Any  # ndarray (L,)
+    end_mask: Any  # ndarray (L,)
+
+
+def build_viterbi_tables(labels: list[str], np_module: Any) -> ViterbiTables:
+    """Build numpy transition tables for a label set. Call once per session."""
+
+    label_count = len(labels)
+    transitions = np_module.full((label_count, label_count), IMPOSSIBLE, dtype=np_module.float32)
+    for previous_index, previous_label in enumerate(labels):
+        for current_index, current_label in enumerate(labels):
+            if _valid_transition(previous_label, current_label):
+                transitions[previous_index, current_index] = 0.0
+    start_mask = np_module.array(
+        [0.0 if _valid_start(label) else IMPOSSIBLE for label in labels],
+        dtype=np_module.float32,
+    )
+    end_mask = np_module.array(
+        [0.0 if _valid_end(label) else IMPOSSIBLE for label in labels],
+        dtype=np_module.float32,
+    )
+    return ViterbiTables(transitions=transitions, start_mask=start_mask, end_mask=end_mask)
+
+
+def constrained_viterbi_np(
+    logits: Any,
+    tables: ViterbiTables,
+    np_module: Any,
+) -> list[int]:
+    """Vectorized Viterbi over a `(T, L)` logit array. Returns a path of length T."""
+
+    timesteps, label_count = logits.shape
+    if timesteps == 0 or label_count == 0:
+        return []
+
+    transitions = tables.transitions
+    scores = logits[0] + tables.start_mask
+    backpointers = np_module.empty((timesteps, label_count), dtype=np_module.int64)
+    backpointers[0] = 0
+    label_arange = np_module.arange(label_count)
+    for token_index in range(1, timesteps):
+        # candidates[i, j] = scores[i] + transitions[i, j]; pick best i per j.
+        candidates = scores[:, None] + transitions
+        best_previous = np_module.argmax(candidates, axis=0)
+        scores = candidates[best_previous, label_arange] + logits[token_index]
+        backpointers[token_index] = best_previous
+
+    final_scores = scores + tables.end_mask
+    last = int(np_module.argmax(final_scores))
+    path = [0] * timesteps
+    path[-1] = last
+    for token_index in range(timesteps - 1, 0, -1):
+        last = int(backpointers[token_index, last])
+        path[token_index - 1] = last
+    return path
+
+
 def constrained_viterbi(token_scores: list[list[float]], labels: list[str]) -> list[int]:
-    """Decode a valid BIOES path from per-token label scores."""
+    """Reference pure-Python decoder. Used by tests; runtime path uses numpy."""
 
     if not token_scores:
         return []

@@ -79,9 +79,16 @@ async def test_handle_session_export_leaves_agent_unset_for_exporter_inference(
     session_manager = object()
 
     class _Exporter:
-        def __init__(self, *, session_manager, privacy_sanitizer=None) -> None:
+        def __init__(
+            self,
+            *,
+            session_manager,
+            privacy_sanitizer=None,
+            progress_callback=None,
+        ) -> None:
             captured["session_manager"] = session_manager
             captured["privacy_sanitizer"] = privacy_sanitizer
+            captured["progress_callback"] = progress_callback
 
         def export(self, request):
             captured["request"] = request
@@ -195,5 +202,32 @@ async def test_handle_session_export_requires_privacy_filter_for_privacy_options
     )
 
     assert [str(message.text) for message in outcome.messages] == [
-        "--privacy-filter-path and --download-privacy-filter require --privacy-filter."
+        "--privacy-filter-path, --download-privacy-filter, "
+        "--privacy-filter-device, and --privacy-filter-variant require --privacy-filter."
+    ]
+
+
+@pytest.mark.asyncio
+async def test_handle_session_export_rejects_unknown_privacy_filter_variant(
+    tmp_path: Path,
+) -> None:
+    ctx = CommandContext(
+        agent_provider=_StubAgentProvider(),
+        current_agent_name="alpha",
+        io=_StubIO(),
+    )
+
+    outcome = await handle_session_export(
+        ctx,
+        target="latest",
+        agent_name=None,
+        output_path=str(tmp_path / "trace.jsonl"),
+        hf_dataset=None,
+        hf_dataset_path=None,
+        privacy_filter=True,
+        privacy_filter_variant="int2",
+    )
+
+    assert [str(message.text) for message in outcome.messages] == [
+        "Unsupported --privacy-filter-variant 'int2'. Supported variants: q4, q4f16, q8, fp16."
     ]

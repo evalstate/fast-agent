@@ -30,6 +30,7 @@ class ExportRequest:
     privacy_filter: bool = False
     privacy_filter_path: Path | None = None
     download_privacy_filter: bool = False
+    privacy_filter_variant: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

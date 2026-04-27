@@ -92,6 +92,8 @@ class SessionCommandIntent:
     export_privacy_filter: bool = False
     export_privacy_filter_path: str | None = None
     export_download_privacy_filter: bool = False
+    export_privacy_filter_device: str | None = None
+    export_privacy_filter_variant: str | None = None
     export_show_redactions: bool = False
     export_help: bool = False
     export_error: str | None = None
@@ -150,6 +152,8 @@ def parse_session_command_intent(remainder: str) -> SessionCommandIntent:
             privacy_filter,
             privacy_filter_path,
             download_privacy_filter,
+            privacy_filter_device,
+            privacy_filter_variant,
             show_redactions,
             show_help,
             error,
@@ -164,6 +168,8 @@ def parse_session_command_intent(remainder: str) -> SessionCommandIntent:
             export_privacy_filter=privacy_filter,
             export_privacy_filter_path=privacy_filter_path,
             export_download_privacy_filter=download_privacy_filter,
+            export_privacy_filter_device=privacy_filter_device,
+            export_privacy_filter_variant=privacy_filter_variant,
             export_show_redactions=show_redactions,
             export_help=show_help,
             export_error=error,
@@ -216,13 +222,15 @@ def _parse_export_argument(
     bool,
     str | None,
     bool,
+    str | None,
+    str | None,
     bool,
     bool,
     str | None,
 ]:
     stripped = (argument or "").strip()
     if not stripped:
-        return None, None, None, None, None, False, None, False, False, False, None
+        return None, None, None, None, None, False, None, False, None, None, False, False, None
 
     try:
         tokens = _split_export_tokens(stripped)
@@ -236,6 +244,8 @@ def _parse_export_argument(
             False,
             None,
             False,
+            None,
+            None,
             False,
             False,
             f"Invalid export arguments: {exc}",
@@ -249,6 +259,8 @@ def _parse_export_argument(
     privacy_filter = False
     privacy_filter_path: str | None = None
     download_privacy_filter = False
+    privacy_filter_device: str | None = None
+    privacy_filter_variant: str | None = None
     show_redactions = False
     show_help = False
     index = 0
@@ -316,6 +328,28 @@ def _parse_export_argument(
             download_privacy_filter = True
             index += 1
             continue
+        if token == "--privacy-filter-device":
+            if index + 1 >= len(tokens):
+                return _export_parse_error("Missing value for --privacy-filter-device")
+            privacy_filter_device = tokens[index + 1]
+            index += 2
+            continue
+        if token.startswith("--privacy-filter-device="):
+            privacy_filter_device = token.partition("=")[2] or None
+            index += 1
+            continue
+        if token in {"--privacy-filter-variant", "--privacy-filter-quant"}:
+            if index + 1 >= len(tokens):
+                return _export_parse_error(f"Missing value for {token}")
+            privacy_filter_variant = tokens[index + 1]
+            index += 2
+            continue
+        if token.startswith("--privacy-filter-variant=") or token.startswith(
+            "--privacy-filter-quant="
+        ):
+            privacy_filter_variant = token.partition("=")[2] or None
+            index += 1
+            continue
         if token == "--show-redactions":
             show_redactions = True
             index += 1
@@ -337,6 +371,8 @@ def _parse_export_argument(
         privacy_filter,
         privacy_filter_path,
         download_privacy_filter,
+        privacy_filter_device,
+        privacy_filter_variant,
         show_redactions,
         show_help,
         None,
@@ -354,11 +390,13 @@ def _export_parse_error(
     bool,
     str | None,
     bool,
+    str | None,
+    str | None,
     bool,
     bool,
     str | None,
 ]:
-    return None, None, None, None, None, False, None, False, False, False, message
+    return None, None, None, None, None, False, None, False, None, None, False, False, message
 
 
 def _normalize_export_target(target: str) -> str:

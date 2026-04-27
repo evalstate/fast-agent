@@ -174,11 +174,21 @@ async def test_handle_session_export_leaves_agent_unset_for_latest_target(
         privacy_filter: bool = False,
         privacy_filter_path: str | None = None,
         download_privacy_filter: bool = False,
+        privacy_filter_device: str | None = None,
+        privacy_filter_variant: str | None = None,
         show_redactions: bool = False,
         current_session_id: str | None = None,
         error: str | None = None,
     ) -> CommandOutcome:
-        del ctx, privacy_filter, privacy_filter_path, download_privacy_filter, show_redactions
+        del (
+            ctx,
+            privacy_filter,
+            privacy_filter_path,
+            download_privacy_filter,
+            privacy_filter_device,
+            privacy_filter_variant,
+            show_redactions,
+        )
         captured["target"] = target
         captured["agent_name"] = agent_name
         captured["output_path"] = output_path
@@ -254,6 +264,8 @@ async def test_handle_session_export_defaults_agent_only_with_current_session(
         privacy_filter: bool = False,
         privacy_filter_path: str | None = None,
         download_privacy_filter: bool = False,
+        privacy_filter_device: str | None = None,
+        privacy_filter_variant: str | None = None,
         show_redactions: bool = False,
         current_session_id: str | None = None,
         error: str | None = None,
@@ -266,6 +278,8 @@ async def test_handle_session_export_defaults_agent_only_with_current_session(
             privacy_filter,
             privacy_filter_path,
             download_privacy_filter,
+            privacy_filter_device,
+            privacy_filter_variant,
             show_redactions,
             error,
         )
@@ -335,6 +349,8 @@ async def test_handle_session_export_uses_handler_session_when_manager_current_i
         privacy_filter: bool = False,
         privacy_filter_path: str | None = None,
         download_privacy_filter: bool = False,
+        privacy_filter_device: str | None = None,
+        privacy_filter_variant: str | None = None,
         show_redactions: bool = False,
         current_session_id: str | None = None,
         error: str | None = None,
@@ -347,6 +363,8 @@ async def test_handle_session_export_uses_handler_session_when_manager_current_i
             privacy_filter,
             privacy_filter_path,
             download_privacy_filter,
+            privacy_filter_device,
+            privacy_filter_variant,
             show_redactions,
             error,
         )
