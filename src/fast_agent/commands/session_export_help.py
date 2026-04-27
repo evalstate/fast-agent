@@ -6,7 +6,7 @@ from typing import cast
 
 SESSION_EXPORT_USAGE = (
     "/session export [latest|id|path] [--agent name] [--output path] "
-    "[--hf-dataset owner/name] [--hf-dataset-path path]"
+    "[--hf-dataset owner/name] [--hf-dataset-path path] [--privacy-filter]"
 )
 
 SESSION_EXPORT_TARGET_HELP = (
@@ -24,10 +24,19 @@ SESSION_EXPORT_HF_DATASET_PATH_HELP = (
     "Path in the dataset repo. Defaults to the root using the local filename. "
     "If the value ends with '/', it is treated as a folder. Requires --hf-dataset."
 )
+SESSION_EXPORT_PRIVACY_FILTER_HELP = "Redact exported text content with the local privacy filter."
+SESSION_EXPORT_PRIVACY_PATH_HELP = "Local OpenAI Privacy Filter model directory."
+SESSION_EXPORT_PRIVACY_DOWNLOAD_HELP = (
+    "Download the default privacy-filter model if it is not already cached."
+)
+SESSION_EXPORT_SHOW_REDACTIONS_HELP = (
+    "Print detected redaction labels and original text to stderr. Use only for local review."
+)
 
 SESSION_EXPORT_EXAMPLES: tuple[str, ...] = (
     "/session export latest --output trace.jsonl",
     "/session export latest --hf-dataset owner/name",
+    "/session export latest --privacy-filter",
     "/session export latest --help",
 )
 
@@ -37,6 +46,7 @@ SESSION_EXPORT_NOTES: tuple[str, ...] = (
     "`{session_id}__{agent_name}__codex.jsonl` in the current working directory.",
     "--output is a file path, not a directory path.",
     "If --agent is omitted, the current agent is used only for the current or latest session target.",
+    "Privacy filtering is best-effort and requires the optional `privacy` extra.",
 )
 
 
@@ -80,6 +90,30 @@ def build_session_export_action_detail() -> dict[str, object]:
                 "aliases": [],
                 "value_name": "path",
                 "summary": SESSION_EXPORT_HF_DATASET_PATH_HELP,
+            },
+            {
+                "name": "--privacy-filter",
+                "aliases": [],
+                "value_name": None,
+                "summary": SESSION_EXPORT_PRIVACY_FILTER_HELP,
+            },
+            {
+                "name": "--privacy-filter-path",
+                "aliases": [],
+                "value_name": "path",
+                "summary": SESSION_EXPORT_PRIVACY_PATH_HELP,
+            },
+            {
+                "name": "--download-privacy-filter",
+                "aliases": [],
+                "value_name": None,
+                "summary": SESSION_EXPORT_PRIVACY_DOWNLOAD_HELP,
+            },
+            {
+                "name": "--show-redactions",
+                "aliases": [],
+                "value_name": None,
+                "summary": SESSION_EXPORT_SHOW_REDACTIONS_HELP,
             },
             {
                 "name": "--help",

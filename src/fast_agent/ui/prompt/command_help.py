@@ -77,7 +77,7 @@ def render_help_lines(*, show_webclear_help: bool) -> list[str]:
             "  /session fork [title] - Fork the current session",
             "  /session delete <id|number|all> - Delete a session or all sessions",
             "  /session pin [on|off|id|number] - Pin or unpin a session",
-            "  /session export [latest|id|path] [--agent name] [--output path] [--hf-dataset owner/name] [--hf-dataset-path path] - Export a session trace",
+            "  /session export [latest|id|path] [--agent name] [--output path] [--hf-dataset owner/name] [--hf-dataset-path path] [--privacy-filter] - Export a session trace",
             "  /card <filename> [--tool [remove]] - Load an AgentCard (attach/remove as tool)",
             "  /agent <name> --tool [remove] - Attach/remove an agent as a tool",
             "  /agent [name] --dump - Print an AgentCard to screen",

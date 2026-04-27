@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import typer
 
@@ -21,12 +22,19 @@ from fast_agent.commands.session_export_help import (
     SESSION_EXPORT_HF_DATASET_HELP,
     SESSION_EXPORT_HF_DATASET_PATH_HELP,
     SESSION_EXPORT_OUTPUT_HELP,
+    SESSION_EXPORT_PRIVACY_DOWNLOAD_HELP,
+    SESSION_EXPORT_PRIVACY_FILTER_HELP,
+    SESSION_EXPORT_PRIVACY_PATH_HELP,
+    SESSION_EXPORT_SHOW_REDACTIONS_HELP,
     SESSION_EXPORT_TARGET_HELP,
 )
 
+if TYPE_CHECKING:
+    from fast_agent.commands.results import CommandMessage
+
 
 class _ExportCommandIO(NonInteractiveCommandIOBase):
-    async def emit(self, message) -> None:
+    async def emit(self, message: "CommandMessage") -> None:
         del message
 
 
@@ -38,15 +46,13 @@ app = typer.Typer(
 
 
 def _render_outcome(outcome) -> None:
-    has_error = False
     for message in outcome.messages:
         text = str(message.text)
-        if message.channel == "error":
-            has_error = True
+        if message.channel in {"error", "warning"}:
             typer.echo(text, err=True)
         else:
             typer.echo(text)
-    if has_error:
+    if any(message.channel == "error" for message in outcome.messages):
         raise typer.Exit(1)
 
 
@@ -74,6 +80,26 @@ def export(
         "--hf-dataset-path",
         help=SESSION_EXPORT_HF_DATASET_PATH_HELP,
     ),
+    privacy_filter: bool = typer.Option(
+        False,
+        "--privacy-filter",
+        help=SESSION_EXPORT_PRIVACY_FILTER_HELP,
+    ),
+    privacy_filter_path: Path | None = typer.Option(
+        None,
+        "--privacy-filter-path",
+        help=SESSION_EXPORT_PRIVACY_PATH_HELP,
+    ),
+    download_privacy_filter: bool = typer.Option(
+        False,
+        "--download-privacy-filter",
+        help=SESSION_EXPORT_PRIVACY_DOWNLOAD_HELP,
+    ),
+    show_redactions: bool = typer.Option(
+        False,
+        "--show-redactions",
+        help=SESSION_EXPORT_SHOW_REDACTIONS_HELP,
+    ),
 ) -> None:
     """Export a persisted session trace."""
     context_payload = ensure_context_object(ctx)
@@ -93,6 +119,10 @@ def export(
             or output is not None
             or hf_dataset is not None
             or hf_dataset_path is not None
+            or privacy_filter
+            or privacy_filter_path is not None
+            or download_privacy_filter
+            or show_redactions
         ):
             raise typer.BadParameter("Cannot combine --list with export options.")
         outcome = asyncio.run(
@@ -112,6 +142,13 @@ def export(
             output_path=str(output) if output is not None else None,
             hf_dataset=hf_dataset,
             hf_dataset_path=hf_dataset_path,
+            privacy_filter=privacy_filter,
+            privacy_filter_path=(
+                str(privacy_filter_path) if privacy_filter_path is not None else None
+            ),
+            download_privacy_filter=download_privacy_filter,
+            show_redactions=show_redactions,
+            progress_callback=lambda message: typer.echo(message, err=True),
         )
     )
     _render_outcome(outcome)

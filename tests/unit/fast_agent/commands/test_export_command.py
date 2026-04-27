@@ -155,6 +155,8 @@ def test_export_help_hides_completion_and_format_options() -> None:
     assert "--list" in output
     assert "--hf-dataset" in output
     assert "--hf-dataset-path" in output
+    assert "--privacy-filter" in output
+    assert "--show-redactions" in output
     assert "--format" not in output
     assert "--install-completion" not in output
     assert "--show-completion" not in output

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from importlib.metadata import PackageNotFoundError, version
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from urllib.parse import parse_qsl, urlencode
 
 from mcp.types import (
@@ -32,6 +33,7 @@ from fast_agent.mcp.helpers.content_helpers import (
     is_text_content,
 )
 from fast_agent.mcp.mime_utils import is_image_mime_type, is_text_mime_type
+from fast_agent.privacy.sanitizer import RedactionAccumulator, RedactionSummary, TraceSanitizer
 from fast_agent.session.trace_export_models import ExportResult, ResolvedSessionExport
 
 if TYPE_CHECKING:
@@ -39,6 +41,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+    from fast_agent.privacy.sanitizer import SanitizedText
     from fast_agent.session.snapshot import SessionAgentSnapshot
 
 
@@ -88,6 +91,32 @@ def _json_arguments(arguments: object) -> str:
     return json.dumps(arguments, ensure_ascii=False, separators=(",", ":"))
 
 
+class _TraceSanitization:
+    def __init__(self, sanitizer: TraceSanitizer) -> None:
+        self._sanitizer = sanitizer
+        self._redactions = RedactionAccumulator(model=sanitizer.model_info)
+        self._cache: dict[str, SanitizedText] = {}
+        self._started = time.perf_counter()
+
+    def text(self, value: str) -> str:
+        sanitized = self._cache.get(value)
+        if sanitized is None:
+            sanitized = self._sanitizer.sanitize_text(value)
+            self._cache[value] = sanitized
+        self._redactions.add(sanitized.spans)
+        return sanitized.text
+
+    def summary(self) -> RedactionSummary:
+        self._redactions.elapsed = timedelta(seconds=time.perf_counter() - self._started)
+        return self._redactions.summary()
+
+
+def _sanitize_text(sanitization: _TraceSanitization | None, text: str) -> str:
+    if sanitization is None or not text:
+        return text
+    return sanitization.text(text)
+
+
 def _data_url(image: ImageContent) -> str:
     return f"data:{image.mimeType};base64,{image.data}"
 
@@ -121,7 +150,12 @@ def _content_filename(block: ContentBlock) -> str | None:
     return filename or None
 
 
-def _embedded_text_item(block: EmbeddedResource, *, output_text: bool) -> dict[str, object] | None:
+def _embedded_text_item(
+    block: EmbeddedResource,
+    *,
+    output_text: bool,
+    sanitization: _TraceSanitization | None = None,
+) -> dict[str, object] | None:
     resource = block.resource
     if not isinstance(resource, TextResourceContents):
         return None
@@ -132,20 +166,23 @@ def _embedded_text_item(block: EmbeddedResource, *, output_text: bool) -> dict[s
 
     filename = _content_filename(block) or "resource"
     item_type = "output_text" if output_text else "input_text"
-    return {
-        "type": item_type,
-        "text": (
-            f'<fastagent:file title="{filename}" mimetype="{mime_type}">\n'
-            f"{resource.text}\n"
-            "</fastagent:file>"
-        ),
-    }
+    text = (
+        f'<fastagent:file title="{filename}" mimetype="{mime_type}">\n'
+        f"{resource.text}\n"
+        "</fastagent:file>"
+    )
+    return {"type": item_type, "text": _sanitize_text(sanitization, text)}
 
 
-def _text_item(text: str, *, output_text: bool) -> dict[str, object]:
+def _text_item(
+    text: str,
+    *,
+    output_text: bool,
+    sanitization: _TraceSanitization | None = None,
+) -> dict[str, object]:
     return {
         "type": "output_text" if output_text else "input_text",
-        "text": text,
+        "text": _sanitize_text(sanitization, text),
     }
 
 
@@ -203,7 +240,12 @@ def _tool_attachment_item(block: ContentBlock) -> dict[str, object] | None:
     return None
 
 
-def _message_attachment_item(block: ContentBlock, *, output_text: bool) -> dict[str, object] | None:
+def _message_attachment_item(
+    block: ContentBlock,
+    *,
+    output_text: bool,
+    sanitization: _TraceSanitization | None = None,
+) -> dict[str, object] | None:
     attachment = _tool_attachment_item(block)
     if attachment is None:
         return None
@@ -213,25 +255,36 @@ def _message_attachment_item(block: ContentBlock, *, output_text: bool) -> dict[
     summary = _attachment_summary_text(block)
     if summary is None:
         return None
-    return _text_item(summary, output_text=output_text)
+    return _text_item(summary, output_text=output_text, sanitization=sanitization)
 
 
-def _message_content_items(message: PromptMessageExtended) -> list[dict[str, object]]:
+def _message_content_items(
+    message: PromptMessageExtended,
+    sanitization: _TraceSanitization | None = None,
+) -> list[dict[str, object]]:
     items: list[dict[str, object]] = []
     output_text = message.role != "user"
     for block in message.content:
         if is_text_content(block):
             text = get_text(block) or ""
-            items.append(_text_item(text, output_text=output_text))
+            items.append(_text_item(text, output_text=output_text, sanitization=sanitization))
             continue
 
         if isinstance(block, EmbeddedResource):
-            text_item = _embedded_text_item(block, output_text=output_text)
+            text_item = _embedded_text_item(
+                block,
+                output_text=output_text,
+                sanitization=sanitization,
+            )
             if text_item is not None:
                 items.append(text_item)
                 continue
 
-        input_item = _message_attachment_item(block, output_text=output_text)
+        input_item = _message_attachment_item(
+            block,
+            output_text=output_text,
+            sanitization=sanitization,
+        )
         if input_item is not None:
             items.append(input_item)
     return items
@@ -247,26 +300,38 @@ def _reasoning_texts(message: PromptMessageExtended) -> list[str]:
     return _message_texts(blocks)
 
 
-def _reasoning_item(message: PromptMessageExtended) -> dict[str, object] | None:
+def _reasoning_item(
+    message: PromptMessageExtended,
+    sanitization: _TraceSanitization | None = None,
+) -> dict[str, object] | None:
     texts = _reasoning_texts(message)
     if not texts:
         return None
     return {
         "type": "reasoning",
-        "summary": [{"type": "summary_text", "text": text} for text in texts],
+        "summary": [
+            {"type": "summary_text", "text": _sanitize_text(sanitization, text)}
+            for text in texts
+        ],
     }
 
 
-def _developer_message_item(system_prompt: str) -> dict[str, object]:
+def _developer_message_item(
+    system_prompt: str,
+    sanitization: _TraceSanitization | None = None,
+) -> dict[str, object]:
     return {
         "type": "message",
         "role": "developer",
-        "content": [{"type": "input_text", "text": system_prompt}],
+        "content": [{"type": "input_text", "text": _sanitize_text(sanitization, system_prompt)}],
     }
 
 
-def _assistant_message_item(message: PromptMessageExtended) -> dict[str, object] | None:
-    content = _message_content_items(message)
+def _assistant_message_item(
+    message: PromptMessageExtended,
+    sanitization: _TraceSanitization | None = None,
+) -> dict[str, object] | None:
+    content = _message_content_items(message, sanitization=sanitization)
     if not content:
         return None
 
@@ -282,8 +347,11 @@ def _assistant_message_item(message: PromptMessageExtended) -> dict[str, object]
     return payload
 
 
-def _user_message_item(message: PromptMessageExtended) -> dict[str, object] | None:
-    content = _message_content_items(message)
+def _user_message_item(
+    message: PromptMessageExtended,
+    sanitization: _TraceSanitization | None = None,
+) -> dict[str, object] | None:
+    content = _message_content_items(message, sanitization=sanitization)
     if not content:
         return None
     return {
@@ -293,33 +361,44 @@ def _user_message_item(message: PromptMessageExtended) -> dict[str, object] | No
     }
 
 
-def _function_call_items(message: PromptMessageExtended) -> list[dict[str, object]]:
+def _function_call_items(
+    message: PromptMessageExtended,
+    sanitization: _TraceSanitization | None = None,
+) -> list[dict[str, object]]:
     if message.tool_calls is None:
         return []
 
     items: list[dict[str, object]] = []
     for call_id, call in message.tool_calls.items():
-        items.append(_function_call_item(call_id, call))
+        items.append(_function_call_item(call_id, call, sanitization=sanitization))
     return items
 
 
-def _function_call_item(call_id: str, call: CallToolRequest) -> dict[str, object]:
+def _function_call_item(
+    call_id: str,
+    call: CallToolRequest,
+    sanitization: _TraceSanitization | None = None,
+) -> dict[str, object]:
     return {
         "type": "function_call",
         "name": call.params.name,
-        "arguments": _json_arguments(call.params.arguments),
+        "arguments": _sanitize_text(sanitization, _json_arguments(call.params.arguments)),
         "call_id": call_id,
     }
 
 
-def _tool_result_output(result: CallToolResult) -> object:
+def _tool_result_output(
+    result: CallToolResult,
+    sanitization: _TraceSanitization | None = None,
+) -> object:
     items: list[dict[str, object]] = []
     text_parts: list[str] = []
 
     def flush_text_parts() -> None:
         if not text_parts:
             return
-        items.append({"type": "input_text", "text": "\n".join(text_parts)})
+        text = _sanitize_text(sanitization, "\n".join(text_parts))
+        items.append({"type": "input_text", "text": text})
         text_parts.clear()
 
     for block in canonicalize_tool_result_content_for_llm(result):
@@ -330,7 +409,11 @@ def _tool_result_output(result: CallToolResult) -> object:
         flush_text_parts()
 
         if isinstance(block, EmbeddedResource):
-            text_item = _embedded_text_item(block, output_text=False)
+            text_item = _embedded_text_item(
+                block,
+                output_text=False,
+                sanitization=sanitization,
+            )
             if text_item is not None:
                 items.append(text_item)
                 continue
@@ -561,7 +644,10 @@ def _token_count_payload(
     }
 
 
-def _function_call_output_items(message: PromptMessageExtended) -> list[dict[str, object]]:
+def _function_call_output_items(
+    message: PromptMessageExtended,
+    sanitization: _TraceSanitization | None = None,
+) -> list[dict[str, object]]:
     if message.tool_results is None:
         return []
 
@@ -571,7 +657,7 @@ def _function_call_output_items(message: PromptMessageExtended) -> list[dict[str
             {
                 "type": "function_call_output",
                 "call_id": call_id,
-                "output": _tool_result_output(result),
+                "output": _tool_result_output(result, sanitization=sanitization),
                 "status": _tool_result_status(result),
             }
         )
@@ -583,7 +669,11 @@ def _session_cwd(resolved: ResolvedSessionExport) -> str:
     return cwd if isinstance(cwd, str) and cwd else "."
 
 
-def _session_meta_payload(resolved: ResolvedSessionExport, meta: _TraceMeta) -> dict[str, object]:
+def _session_meta_payload(
+    resolved: ResolvedSessionExport,
+    meta: _TraceMeta,
+    sanitization: _TraceSanitization | None = None,
+) -> dict[str, object]:
     agent_snapshot = resolved.snapshot.continuation.agents[resolved.agent_name]
     payload: dict[str, object] = {
         "id": resolved.session_id,
@@ -598,7 +688,9 @@ def _session_meta_payload(resolved: ResolvedSessionExport, meta: _TraceMeta) -> 
     if meta.model_spec is not None:
         payload["model_spec"] = meta.model_spec
     if agent_snapshot.resolved_prompt:
-        payload["base_instructions"] = {"text": agent_snapshot.resolved_prompt}
+        payload["base_instructions"] = {
+            "text": _sanitize_text(sanitization, agent_snapshot.resolved_prompt)
+        }
     return payload
 
 
@@ -643,10 +735,13 @@ def _turn_started_payload(
     return payload
 
 
-def _user_event_payload(message: PromptMessageExtended) -> dict[str, object]:
+def _user_event_payload(
+    message: PromptMessageExtended,
+    sanitization: _TraceSanitization | None = None,
+) -> dict[str, object]:
     payload: dict[str, object] = {
         "type": "user_message",
-        "message": "\n".join(_message_texts(message.content)),
+        "message": _sanitize_text(sanitization, "\n".join(_message_texts(message.content))),
         "local_images": [],
         "text_elements": [],
     }
@@ -656,33 +751,44 @@ def _user_event_payload(message: PromptMessageExtended) -> dict[str, object]:
     return payload
 
 
-def _turn_complete_payload(turn_id: str, last_agent_message: str | None) -> dict[str, object]:
+def _turn_complete_payload(
+    turn_id: str,
+    last_agent_message: str | None,
+    sanitization: _TraceSanitization | None = None,
+) -> dict[str, object]:
     return {
         "type": "turn_complete",
         "turn_id": turn_id,
-        "last_agent_message": last_agent_message,
+        "last_agent_message": (
+            None
+            if last_agent_message is None
+            else _sanitize_text(sanitization, last_agent_message)
+        ),
     }
 
 
-def _response_items(message: PromptMessageExtended) -> list[dict[str, object]]:
+def _response_items(
+    message: PromptMessageExtended,
+    sanitization: _TraceSanitization | None = None,
+) -> list[dict[str, object]]:
     items: list[dict[str, object]] = []
 
     if message.role == "user":
-        user_item = _user_message_item(message)
+        user_item = _user_message_item(message, sanitization=sanitization)
         if user_item is not None:
             items.append(user_item)
-        items.extend(_function_call_output_items(message))
+        items.extend(_function_call_output_items(message, sanitization=sanitization))
         return items
 
-    reasoning_item = _reasoning_item(message)
+    reasoning_item = _reasoning_item(message, sanitization=sanitization)
     if reasoning_item is not None:
         items.append(reasoning_item)
 
-    assistant_item = _assistant_message_item(message)
+    assistant_item = _assistant_message_item(message, sanitization=sanitization)
     if assistant_item is not None:
         items.append(assistant_item)
 
-    items.extend(_function_call_items(message))
+    items.extend(_function_call_items(message, sanitization=sanitization))
     return items
 
 
@@ -694,6 +800,56 @@ def _is_turn_start(message: PromptMessageExtended) -> bool:
 class _TurnState:
     turn_id: str
     last_agent_message: str | None = None
+
+
+_PRIVACY_FILTER_LIMITATIONS = [
+    "file_paths_not_redacted",
+    "directory_names_not_redacted",
+    "filenames_not_redacted",
+    "resource_urls_not_redacted",
+    "binary_payloads_not_redacted",
+    "images_audio_not_redacted",
+]
+
+
+def _privacy_filter_metadata(summary: RedactionSummary) -> dict[str, object]:
+    redactions: dict[str, object] = {
+        "total": summary.total,
+        "by_label": summary.by_label,
+    }
+    if summary.elapsed is not None:
+        redactions["elapsed_seconds"] = round(summary.elapsed.total_seconds(), 3)
+    metadata: dict[str, object] = {
+        "applied": True,
+        "mode": "content-only",
+        "redactions": redactions,
+        "limitations": list(_PRIVACY_FILTER_LIMITATIONS),
+    }
+    if summary.model is not None:
+        metadata["backend"] = summary.model.backend
+        model: dict[str, object] = {}
+        if summary.model.repo_id is not None:
+            model["repo_id"] = summary.model.repo_id
+        if summary.model.revision is not None:
+            model["revision"] = summary.model.revision
+        if summary.model.variant is not None:
+            model["variant"] = summary.model.variant
+        if model:
+            metadata["model"] = model
+    return metadata
+
+
+def _add_privacy_filter_metadata(
+    records: list[dict[str, object]],
+    summary: RedactionSummary,
+) -> None:
+    if not records:
+        return
+    payload = records[0].get("payload")
+    if isinstance(payload, dict):
+        payload_map = cast("dict[str, object]", payload)
+        payload_map["privacy_filter"] = _privacy_filter_metadata(summary)
+
 
 def _turn_timestamps(resolved: ResolvedSessionExport) -> list[datetime | None]:
     turn_timestamps: list[datetime | None] = []
@@ -711,8 +867,17 @@ def _turn_timestamps(resolved: ResolvedSessionExport) -> list[datetime | None]:
 class CodexTraceWriter:
     """Write a resolved session export as native Codex rollout JSONL."""
 
+    def __init__(self, sanitizer: TraceSanitizer | None = None) -> None:
+        self._sanitizer = sanitizer
+
     def write(self, resolved: ResolvedSessionExport, output_path: Path) -> ExportResult:
-        records = list(self._records(resolved))
+        sanitization = (
+            _TraceSanitization(self._sanitizer) if self._sanitizer is not None else None
+        )
+        records = list(self._records(resolved, sanitization=sanitization))
+        redaction = sanitization.summary() if sanitization is not None else None
+        if redaction is not None:
+            _add_privacy_filter_metadata(records, redaction)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with output_path.open("w", encoding="utf-8") as handle:
             for record in records:
@@ -724,16 +889,22 @@ class CodexTraceWriter:
             format="codex",
             output_path=output_path,
             record_count=len(records),
+            redaction=redaction,
         )
 
-    def _records(self, resolved: ResolvedSessionExport) -> list[dict[str, object]]:
+    def _records(
+        self,
+        resolved: ResolvedSessionExport,
+        *,
+        sanitization: _TraceSanitization | None = None,
+    ) -> list[dict[str, object]]:
         meta = _trace_meta(resolved)
         turn_timestamps = _turn_timestamps(resolved)
         records: list[dict[str, object]] = []
         records.append(
             _record(
                 "session_meta",
-                _session_meta_payload(resolved, meta),
+                _session_meta_payload(resolved, meta, sanitization=sanitization),
                 timestamp=resolved.snapshot.created_at,
             )
         )
@@ -743,7 +914,10 @@ class CodexTraceWriter:
             records.append(
                 _record(
                     "response_item",
-                    _developer_message_item(agent_snapshot.resolved_prompt),
+                    _developer_message_item(
+                        agent_snapshot.resolved_prompt,
+                        sanitization=sanitization,
+                    ),
                 )
             )
 
@@ -772,7 +946,7 @@ class CodexTraceWriter:
                 records.append(
                     _record(
                         "event_msg",
-                        _user_event_payload(user_message),
+                        _user_event_payload(user_message, sanitization=sanitization),
                         timestamp=turn_timestamp,
                     )
                 )
@@ -798,6 +972,7 @@ class CodexTraceWriter:
                     _turn_complete_payload(
                         current_turn.turn_id,
                         current_turn.last_agent_message,
+                        sanitization=sanitization,
                     ),
                 )
             )
@@ -817,7 +992,7 @@ class CodexTraceWriter:
                 if texts:
                     current_turn.last_agent_message = texts[-1]
 
-            for item in _response_items(message):
+            for item in _response_items(message, sanitization=sanitization):
                 records.append(
                     _record(
                         "response_item",

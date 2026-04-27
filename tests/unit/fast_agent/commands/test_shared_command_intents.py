@@ -22,7 +22,9 @@ def test_parse_current_agent_history_intent_unquotes_quoted_arguments() -> None:
 
 def test_parse_session_command_intent_parses_export_options() -> None:
     intent = parse_session_command_intent(
-        'export latest --agent dev --output "trace file.jsonl" --hf-dataset owner/dataset --hf-dataset-path exports/'
+        'export latest --agent dev --output "trace file.jsonl" --hf-dataset owner/dataset '
+        '--hf-dataset-path exports/ --privacy-filter --privacy-filter-path /tmp/model '
+        '--download-privacy-filter --show-redactions'
     )
 
     assert intent.action == "export"
@@ -31,6 +33,10 @@ def test_parse_session_command_intent_parses_export_options() -> None:
     assert intent.export_output == "trace file.jsonl"
     assert intent.export_hf_dataset == "owner/dataset"
     assert intent.export_hf_dataset_path == "exports/"
+    assert intent.export_privacy_filter is True
+    assert intent.export_privacy_filter_path == "/tmp/model"
+    assert intent.export_download_privacy_filter is True
+    assert intent.export_show_redactions is True
     assert intent.export_error is None
 
 

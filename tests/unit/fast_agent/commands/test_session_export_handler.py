@@ -79,8 +79,9 @@ async def test_handle_session_export_leaves_agent_unset_for_exporter_inference(
     session_manager = object()
 
     class _Exporter:
-        def __init__(self, *, session_manager) -> None:
+        def __init__(self, *, session_manager, privacy_sanitizer=None) -> None:
             captured["session_manager"] = session_manager
+            captured["privacy_sanitizer"] = privacy_sanitizer
 
         def export(self, request):
             captured["request"] = request
@@ -139,4 +140,60 @@ async def test_handle_session_export_requires_dataset_for_dataset_path(tmp_path:
 
     assert [str(message.text) for message in outcome.messages] == [
         "--hf-dataset-path requires --hf-dataset."
+    ]
+
+
+@pytest.mark.asyncio
+async def test_handle_session_export_reports_missing_privacy_dependencies(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        "fast_agent.commands.handlers.session_export.missing_privacy_dependencies",
+        lambda: ["onnxruntime", "tokenizers"],
+    )
+    ctx = CommandContext(
+        agent_provider=_StubAgentProvider(),
+        current_agent_name="alpha",
+        io=_StubIO(),
+    )
+
+    outcome = await handle_session_export(
+        ctx,
+        target="latest",
+        agent_name=None,
+        output_path=str(tmp_path / "trace.jsonl"),
+        hf_dataset=None,
+        hf_dataset_path=None,
+        privacy_filter=True,
+    )
+
+    assert outcome.messages
+    assert outcome.messages[0].channel == "error"
+    assert "onnxruntime" in str(outcome.messages[0].text)
+    assert "fast-agent-mcp[privacy]" in str(outcome.messages[0].text)
+
+
+@pytest.mark.asyncio
+async def test_handle_session_export_requires_privacy_filter_for_privacy_options(
+    tmp_path: Path,
+) -> None:
+    ctx = CommandContext(
+        agent_provider=_StubAgentProvider(),
+        current_agent_name="alpha",
+        io=_StubIO(),
+    )
+
+    outcome = await handle_session_export(
+        ctx,
+        target="latest",
+        agent_name=None,
+        output_path=str(tmp_path / "trace.jsonl"),
+        hf_dataset=None,
+        hf_dataset_path=None,
+        privacy_filter_path="/tmp/model",
+    )
+
+    assert [str(message.text) for message in outcome.messages] == [
+        "--privacy-filter-path and --download-privacy-filter require --privacy-filter."
     ]
