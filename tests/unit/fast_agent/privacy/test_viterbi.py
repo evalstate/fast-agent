@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import numpy as np
 import pytest
 
 from fast_agent.privacy.viterbi import (
@@ -11,6 +10,8 @@ from fast_agent.privacy.viterbi import (
     constrained_viterbi_np,
     token_spans_from_path,
 )
+
+np = pytest.importorskip("numpy")
 
 # Mirrors the privacy-filter label schema (subset is fine — the constraint
 # logic is the same shape).
@@ -27,7 +28,7 @@ _LABELS = [
 ]
 
 
-def _random_logits(timesteps: int, label_count: int, *, seed: int) -> np.ndarray:
+def _random_logits(timesteps: int, label_count: int, *, seed: int):
     rng = np.random.default_rng(seed)
     return rng.standard_normal((timesteps, label_count)).astype(np.float32)
 
