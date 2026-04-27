@@ -306,7 +306,7 @@ def test_cross_provider_overlay_alias_does_not_hide_curated_model(tmp_path: Path
 def test_codexresponses_curated_entries_use_explicit_transports() -> None:
     curated = ModelSelectionCatalog.list_curated_models(Provider.CODEX_RESPONSES)
     assert "codexresponses.gpt-5.4?reasoning=high" in curated
-    assert "codexresponses.gpt-5.5?reasoning=high" in curated
+    assert "codexresponses.gpt-5.5?reasoning=medium" in curated
     assert "codexresponses.gpt-5.3-codex-spark" in curated
 
 

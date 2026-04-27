@@ -309,6 +309,12 @@ def _parse_session_command(remainder: str) -> CommandPayload:
             output_path=intent.export_output,
             hf_dataset=intent.export_hf_dataset,
             hf_dataset_path=intent.export_hf_dataset_path,
+            privacy_filter=intent.export_privacy_filter,
+            privacy_filter_path=intent.export_privacy_filter_path,
+            download_privacy_filter=intent.export_download_privacy_filter,
+            privacy_filter_device=intent.export_privacy_filter_device,
+            privacy_filter_variant=intent.export_privacy_filter_variant,
+            show_redactions=intent.export_show_redactions,
             show_help=intent.export_help,
             error=intent.export_error,
         )

@@ -19,6 +19,7 @@ from fast_agent.session.trace_export_errors import (
     SessionExportAmbiguousAgentError,
     SessionExportNoAgentsError,
     SessionExportNotFoundError,
+    SessionExportPrivacyFilterError,
     SessionExportReadError,
     SessionExportWriteError,
     UnsupportedTraceExportFormatError,
@@ -34,13 +35,43 @@ from fast_agent.session.trace_export_models import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+    from fast_agent.privacy.sanitizer import TraceSanitizer
     from fast_agent.session.session_manager import SessionManager
 
 
 def _sanitize_filename_component(value: str) -> str:
     sanitized = "".join(char if char.isalnum() or char in {"-", "_", "."} else "_" for char in value)
     return sanitized or "agent"
+
+
+def _export_summary_message(
+    resolved: ResolvedSessionExport,
+    *,
+    export_format: str,
+) -> str:
+    user_messages = 0
+    assistant_messages = 0
+    tool_calls = 0
+    tool_results = 0
+    for message in resolved.history:
+        if message.role == "user":
+            user_messages += 1
+        elif message.role == "assistant":
+            assistant_messages += 1
+        if message.tool_calls is not None:
+            tool_calls += len(message.tool_calls)
+        if message.tool_results is not None:
+            tool_results += len(message.tool_results)
+
+    return (
+        f"Export: preparing {export_format} trace for agent '{resolved.agent_name}' "
+        f"from {len(resolved.history):,} message(s): "
+        f"{user_messages:,} user, {assistant_messages:,} assistant, "
+        f"{tool_calls:,} tool call(s), {tool_results:,} tool result(s)."
+    )
 
 
 class SessionTraceExporter:
@@ -51,14 +82,19 @@ class SessionTraceExporter:
         *,
         session_manager: SessionManager,
         dataset_uploader: DatasetTraceUploader | None = None,
+        privacy_sanitizer: TraceSanitizer | None = None,
+        progress_callback: Callable[[str], None] | None = None,
     ) -> None:
         self._session_manager = session_manager
         self._dataset_uploader = dataset_uploader
+        self._privacy_sanitizer = privacy_sanitizer
+        self._progress_callback = progress_callback
 
     def export(self, request: ExportRequest) -> ExportResult:
         resolved = self._resolve_request(request)
         output_path = self._resolve_output_path(request, resolved)
-        writer = self._writer_for_format(request.format)
+        self._emit_progress(_export_summary_message(resolved, export_format=request.format))
+        writer = self._writer_for_format(request.format, privacy_filter=request.privacy_filter)
         try:
             result = writer.write(resolved, output_path)
         except OSError as exc:
@@ -80,7 +116,12 @@ class SessionTraceExporter:
             output_path=result.output_path,
             record_count=result.record_count,
             upload=upload,
+            redaction=result.redaction,
         )
+
+    def _emit_progress(self, message: str) -> None:
+        if self._progress_callback is not None:
+            self._progress_callback(message)
 
     def _resolve_request(self, request: ExportRequest) -> ResolvedSessionExport:
         session_dir = self._resolve_session_dir(
@@ -219,9 +260,12 @@ class SessionTraceExporter:
         workspace_dir = self._session_manager.workspace_dir.resolve()
         output_path = request.output_path
         if output_path is None:
+            format_suffix = request.format
+            if request.privacy_filter:
+                format_suffix = f"{format_suffix}-privacy"
             filename = (
                 f"{resolved.session_id}__{_sanitize_filename_component(resolved.agent_name)}__"
-                f"{request.format}.jsonl"
+                f"{format_suffix}.jsonl"
             )
             return (workspace_dir / filename).resolve()
         output_path = output_path.expanduser()
@@ -273,9 +317,14 @@ class SessionTraceExporter:
             timestamps.append(_message_timestamp(item))
         return tuple(timestamps)
 
-    def _writer_for_format(self, export_format: str):
+    def _writer_for_format(self, export_format: str, *, privacy_filter: bool):
         if export_format == "codex":
-            return CodexTraceWriter()
+            sanitizer = self._privacy_sanitizer if privacy_filter else None
+            if privacy_filter and sanitizer is None:
+                raise SessionExportPrivacyFilterError(
+                    "Privacy filtering was requested, but no privacy filter backend is configured."
+                )
+            return CodexTraceWriter(sanitizer=sanitizer, progress_callback=self._progress_callback)
         raise UnsupportedTraceExportFormatError(
             f"Unsupported session export format: {export_format}"
         )

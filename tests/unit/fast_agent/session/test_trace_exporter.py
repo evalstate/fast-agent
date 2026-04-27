@@ -22,6 +22,7 @@ from mcp.types import (
 from fast_agent.constants import FAST_AGENT_USAGE
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompt_serialization import save_json
+from fast_agent.privacy.sanitizer import PrivacyFilterModelInfo, RedactionSpan, SanitizedText
 from fast_agent.session import (
     SessionAgentSnapshot,
     SessionContinuationSnapshot,
@@ -32,6 +33,7 @@ from fast_agent.session import (
 from fast_agent.session.session_manager import SessionManager
 from fast_agent.session.trace_export_errors import (
     SessionExportAmbiguousAgentError,
+    SessionExportPrivacyFilterError,
     SessionExportReadError,
     SessionExportWriteError,
 )
@@ -45,6 +47,7 @@ def _write_session_snapshot(
     session_id: str,
     agents: dict[str, SessionAgentSnapshot],
     active_agent: str | None,
+    cwd: str | None = None,
 ) -> None:
     snapshot = SessionSnapshot(
         session_id=session_id,
@@ -52,6 +55,7 @@ def _write_session_snapshot(
         last_activity=datetime(2026, 4, 20, 13, 8, 0),
         continuation=SessionContinuationSnapshot(
             active_agent=active_agent,
+            cwd=cwd,
             agents=agents,
         ),
     )
@@ -105,6 +109,26 @@ def _build_manager(tmp_path: Path) -> SessionManager:
     )
 
 
+class _FakePrivacySanitizer:
+    @property
+    def model_info(self) -> PrivacyFilterModelInfo:
+        return PrivacyFilterModelInfo(backend="fake", repo_id="test/privacy")
+
+    def sanitize_text(self, text: str) -> SanitizedText:
+        spans: list[RedactionSpan] = []
+        start = 0
+        while True:
+            index = text.find("Alice", start)
+            if index < 0:
+                break
+            spans.append(RedactionSpan(label="private_person", start=index, end=index + 5))
+            start = index + 5
+        return SanitizedText(
+            text=text.replace("Alice", "<PRIVATE_PERSON>"),
+            spans=tuple(spans),
+        )
+
+
 def test_session_trace_exporter_writes_codex_trace(tmp_path: Path) -> None:
     manager = _build_manager(tmp_path)
     session_id = "2604201303-x5MNlH"
@@ -126,7 +150,8 @@ def test_session_trace_exporter_writes_codex_trace(tmp_path: Path) -> None:
         },
     )
 
-    exporter = SessionTraceExporter(session_manager=manager)
+    progress: list[str] = []
+    exporter = SessionTraceExporter(session_manager=manager, progress_callback=progress.append)
     result = exporter.export(
         ExportRequest(
             target=session_dir / "session.json",
@@ -135,6 +160,10 @@ def test_session_trace_exporter_writes_codex_trace(tmp_path: Path) -> None:
         )
     )
 
+    assert progress == [
+        "Export: preparing codex trace for agent 'dev' from 2 message(s): "
+        "1 user, 1 assistant, 0 tool call(s), 0 tool result(s)."
+    ]
     lines = (tmp_path / "trace.jsonl").read_text(encoding="utf-8").splitlines()
     records = [json.loads(line) for line in lines]
 
@@ -536,6 +565,242 @@ def test_session_trace_exporter_writes_native_codex_tool_items(tmp_path: Path) -
     assert records[6]["type"] == "event_msg"
     assert records[6]["payload"]["type"] == "turn_complete"
     assert records[6]["payload"]["last_agent_message"] == "Using tools"
+
+
+def test_session_trace_exporter_applies_privacy_sanitizer_to_codex_text(
+    tmp_path: Path,
+) -> None:
+    manager = _build_manager(tmp_path)
+    session_id = "2604201303-x5MNlH"
+    session_dir = manager.base_dir / session_id
+    session_dir.mkdir(parents=True)
+    messages = [
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="hello Alice")],
+        ),
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="Using tools for Alice")],
+            tool_calls={
+                "call_Alice": CallToolRequest(
+                    method="tools/call",
+                    params=CallToolRequestParams(
+                        name="lookup_Alice",
+                        arguments={"query": "Alice"},
+                    ),
+                )
+            },
+            channels={
+                "reasoning": [TextContent(type="text", text="Thinking about Alice")],
+            },
+            stop_reason=LlmStopReason.TOOL_USE,
+        ),
+        PromptMessageExtended(
+            role="user",
+            content=[],
+            tool_results={
+                "call_Alice": CallToolResult(
+                    content=[TextContent(type="text", text="Alice result")],
+                    isError=False,
+                )
+            },
+        ),
+    ]
+    save_json(messages, str(session_dir / "history_dev.json"))
+    _write_session_snapshot(
+        session_dir,
+        session_id=session_id,
+        active_agent="dev",
+        cwd="/home/Alice/work",
+        agents={
+            "dev": SessionAgentSnapshot(
+                history_file="history_dev.json",
+                resolved_prompt="Help Alice safely.",
+            )
+        },
+    )
+
+    exporter = SessionTraceExporter(
+        session_manager=manager,
+        privacy_sanitizer=_FakePrivacySanitizer(),
+    )
+    result = exporter.export(
+        ExportRequest(
+            target=session_dir,
+            agent_name="dev",
+            output_path=None,
+            privacy_filter=True,
+        )
+    )
+
+    assert result.output_path == tmp_path / f"{session_id}__dev__codex-privacy.jsonl"
+    assert result.redaction is not None
+    assert result.redaction.total == 9
+    assert result.redaction.by_label == {"private_person": 9}
+
+    records = [
+        json.loads(line)
+        for line in result.output_path.read_text(encoding="utf-8").splitlines()
+    ]
+    session_meta = records[0]["payload"]
+    assert session_meta["cwd"] == "/home/Alice/work"
+    assert session_meta["base_instructions"]["text"] == "Help <PRIVATE_PERSON> safely."
+    assert session_meta["privacy_filter"]["applied"] is True
+    assert session_meta["privacy_filter"]["backend"] == "fake"
+    redactions = session_meta["privacy_filter"]["redactions"]
+    assert redactions["total"] == 9
+    assert redactions["by_label"] == {"private_person": 9}
+    assert redactions["elapsed_seconds"] >= 0
+
+    payloads = [record["payload"] for record in records]
+    developer = next(
+        payload for payload in payloads if payload.get("role") == "developer"
+    )
+    assert developer["content"][0]["text"] == "Help <PRIVATE_PERSON> safely."
+    user_event = next(
+        payload for payload in payloads if payload.get("type") == "user_message"
+    )
+    assert user_event["message"] == "hello <PRIVATE_PERSON>"
+    function_call = next(
+        payload for payload in payloads if payload.get("type") == "function_call"
+    )
+    assert function_call["name"] == "lookup_Alice"
+    assert function_call["call_id"] == "call_Alice"
+    assert function_call["arguments"] == '{"query":"<PRIVATE_PERSON>"}'
+    tool_output = next(
+        payload for payload in payloads if payload.get("type") == "function_call_output"
+    )
+    assert tool_output["output"] == "<PRIVATE_PERSON> result"
+    turn_complete = next(
+        payload for payload in reversed(payloads) if payload.get("type") == "turn_complete"
+    )
+    assert turn_complete["last_agent_message"] == "Using tools for <PRIVATE_PERSON>"
+
+
+def test_session_trace_exporter_requires_privacy_sanitizer_for_privacy_filter(
+    tmp_path: Path,
+) -> None:
+    manager = _build_manager(tmp_path)
+    session_id = "2604201303-x5MNlH"
+    session_dir = manager.base_dir / session_id
+    session_dir.mkdir(parents=True)
+    _write_history(session_dir / "history_dev.json", assistant_text="done")
+    _write_session_snapshot(
+        session_dir,
+        session_id=session_id,
+        active_agent="dev",
+        agents={"dev": SessionAgentSnapshot(history_file="history_dev.json")},
+    )
+
+    exporter = SessionTraceExporter(session_manager=manager)
+    with pytest.raises(SessionExportPrivacyFilterError):
+        exporter.export(
+            ExportRequest(
+                target=session_dir,
+                agent_name="dev",
+                output_path=tmp_path / "trace.jsonl",
+                privacy_filter=True,
+            )
+        )
+    assert not (tmp_path / "trace.jsonl").exists()
+
+
+def test_session_trace_exporter_reports_privacy_filter_progress(tmp_path: Path) -> None:
+    manager = _build_manager(tmp_path)
+    session_id = "2604201303-x5MNlH"
+    session_dir = manager.base_dir / session_id
+    session_dir.mkdir(parents=True)
+    _write_history(session_dir / "history_dev.json", assistant_text="done for Alice")
+    _write_session_snapshot(
+        session_dir,
+        session_id=session_id,
+        active_agent="dev",
+        agents={
+            "dev": SessionAgentSnapshot(
+                history_file="history_dev.json",
+                resolved_prompt="Help Alice safely.",
+            )
+        },
+    )
+    progress: list[str] = []
+    exporter = SessionTraceExporter(
+        session_manager=manager,
+        privacy_sanitizer=_FakePrivacySanitizer(),
+        progress_callback=progress.append,
+    )
+
+    exporter.export(
+        ExportRequest(
+            target=session_dir,
+            agent_name="dev",
+            output_path=tmp_path / "trace.jsonl",
+            privacy_filter=True,
+        )
+    )
+
+    assert any(message.startswith("Privacy filter: sanitizing ") for message in progress)
+    assert any(message.startswith("Privacy filter: overall ") for message in progress)
+    assert any("100%" in message for message in progress)
+
+
+def test_session_trace_exporter_uploads_sanitized_trace_to_hf_dataset(
+    tmp_path: Path,
+) -> None:
+    manager = _build_manager(tmp_path)
+    session_id = "2604201303-x5MNlH"
+    session_dir = manager.base_dir / session_id
+    session_dir.mkdir(parents=True)
+    _write_history(session_dir / "history_dev.json", assistant_text="done for Alice")
+    _write_session_snapshot(
+        session_dir,
+        session_id=session_id,
+        active_agent="dev",
+        agents={"dev": SessionAgentSnapshot(history_file="history_dev.json")},
+    )
+
+    class _Uploader:
+        def __init__(self) -> None:
+            self.uploaded_text: str | None = None
+
+        def upload(
+            self,
+            *,
+            dataset_repo: str,
+            trace_path: Path,
+            dataset_path: str | None = None,
+        ) -> DatasetUploadResult:
+            del dataset_path
+            self.uploaded_text = trace_path.read_text(encoding="utf-8")
+            return DatasetUploadResult(
+                repo_id=dataset_repo,
+                path_in_repo=trace_path.name,
+                commit_url="https://huggingface.co/datasets/owner/traces/commit/main",
+                file_url=f"https://huggingface.co/datasets/{dataset_repo}/blob/main/{trace_path.name}",
+            )
+
+    uploader = _Uploader()
+    exporter = SessionTraceExporter(
+        session_manager=manager,
+        dataset_uploader=uploader,
+        privacy_sanitizer=_FakePrivacySanitizer(),
+    )
+
+    result = exporter.export(
+        ExportRequest(
+            target=session_dir,
+            agent_name="dev",
+            output_path=tmp_path / "trace.jsonl",
+            hf_dataset="owner/dataset",
+            privacy_filter=True,
+        )
+    )
+
+    assert result.upload is not None
+    assert result.redaction is not None
+    assert uploader.uploaded_text is not None
+    assert "done for <PRIVATE_PERSON>" in uploader.uploaded_text
+    assert "done for Alice" not in uploader.uploaded_text
 
 
 def test_session_trace_exporter_marks_tool_errors_in_codex_output(tmp_path: Path) -> None:

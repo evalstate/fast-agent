@@ -41,3 +41,7 @@ class SessionExportReadError(TraceExportError):
 
 class SessionExportWriteError(TraceExportError):
     """Raised when an exported trace cannot be written to disk."""
+
+
+class SessionExportPrivacyFilterError(TraceExportError):
+    """Raised when a privacy-filtered export cannot be completed."""

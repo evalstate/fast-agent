@@ -322,6 +322,12 @@ class ExportSessionCommand(CommandBase):
     output_path: str | None
     hf_dataset: str | None
     hf_dataset_path: str | None
+    privacy_filter: bool
+    privacy_filter_path: str | None
+    download_privacy_filter: bool
+    privacy_filter_device: str | None
+    privacy_filter_variant: str | None
+    show_redactions: bool
     show_help: bool
     error: str | None
     kind: Literal["export_session"] = "export_session"

@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+    from fast_agent.privacy.sanitizer import RedactionSummary
     from fast_agent.session.snapshot import SessionSnapshot
 
 ExportFormat = Literal["codex"]
@@ -26,6 +27,10 @@ class ExportRequest:
     hf_dataset_path: str | None = None
     format: str = "codex"
     current_session_id: str | None = None
+    privacy_filter: bool = False
+    privacy_filter_path: Path | None = None
+    download_privacy_filter: bool = False
+    privacy_filter_variant: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,3 +66,4 @@ class ExportResult:
     output_path: Path
     record_count: int
     upload: DatasetUploadResult | None = None
+    redaction: RedactionSummary | None = None
