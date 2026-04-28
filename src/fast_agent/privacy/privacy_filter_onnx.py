@@ -21,6 +21,8 @@ from fast_agent.privacy.sanitizer import (
     TraceSanitizer,
 )
 from fast_agent.privacy.viterbi import (
+    VITERBI_TRANSITION_BIAS_KEYS,
+    ZERO_TRANSITION_BIASES,
     ViterbiTables,
     build_viterbi_tables,
     constrained_viterbi_np,
@@ -41,7 +43,10 @@ _PLACEHOLDERS = {
     "private_url": "<PRIVATE_URL>",
     "secret": "<SECRET>",
 }
-_DEFAULT_MAX_WINDOW_TOKENS = 4096
+# CPU trace export intentionally uses a much smaller inference chunk than the
+# model's advertised default_n_ctx (currently 128k). 4096 keeps ORT memory and
+# latency manageable while still dwarfing the model's local attention radius.
+_DEFAULT_INFERENCE_WINDOW_TOKENS = 4096
 _DEFAULT_WINDOW_OVERLAP_TOKENS = 128
 _DEFAULT_DEVICE: Literal["auto"] = "auto"
 _SUPPORTED_DEVICES = ("auto", "cpu", "cuda")
@@ -80,12 +85,19 @@ class OpenAIPrivacyFilterOnnxSanitizer(TraceSanitizer):
         self._config = _load_json(self._files.config)
         self._labels = _load_labels(self._config)
         self._tokenizer, self._session, self._np = self._load_runtime()
-        self._viterbi_tables: ViterbiTables = build_viterbi_tables(self._labels, self._np)
+        transition_biases = _load_viterbi_transition_biases(
+            self._model_dir / "viterbi_calibration.json"
+        )
+        self._viterbi_tables: ViterbiTables = build_viterbi_tables(
+            self._labels,
+            self._np,
+            transition_biases=transition_biases,
+        )
         session_providers = list(self._session.get_providers())
         self._active_provider = session_providers[0] if session_providers else None
         self._max_window_tokens = _env_int(
             "FAST_AGENT_PRIVACY_FILTER_MAX_WINDOW_TOKENS",
-            default=_DEFAULT_MAX_WINDOW_TOKENS,
+            default=_DEFAULT_INFERENCE_WINDOW_TOKENS,
             minimum=128,
         )
         self._window_overlap_tokens = _env_int(
@@ -370,6 +382,46 @@ def _validate_labels(labels: list[str]) -> list[str]:
     if "O" not in labels:
         raise SessionExportPrivacyFilterError("Privacy filter labels must include O.")
     return labels
+
+
+def _load_viterbi_transition_biases(path: Path) -> dict[str, float]:
+    """Load optional calibrated BIOES transition biases.
+
+    The current OpenAI Privacy Filter calibration file contains all zeroes, so
+    this is usually behavior-preserving. Keeping support here lets newer model
+    revisions tune precision/recall without code changes.
+    """
+
+    if not path.is_file():
+        return dict(ZERO_TRANSITION_BIASES)
+    payload = _load_json(path)
+    raw_biases: object = payload
+    operating_points = payload.get("operating_points")
+    if operating_points is not None:
+        if not isinstance(operating_points, dict):
+            raise SessionExportPrivacyFilterError(
+                f"Invalid Viterbi calibration operating_points in {path}."
+            )
+        default = operating_points.get("default")
+        if isinstance(default, dict):
+            raw_biases = default.get("biases")
+        else:
+            raw_biases = None
+
+    if raw_biases in (None, {}):
+        return dict(ZERO_TRANSITION_BIASES)
+    if not isinstance(raw_biases, dict):
+        raise SessionExportPrivacyFilterError(f"Invalid Viterbi calibration biases in {path}.")
+
+    biases = dict(ZERO_TRANSITION_BIASES)
+    for key in VITERBI_TRANSITION_BIAS_KEYS:
+        raw_value = raw_biases.get(key, 0.0)
+        if isinstance(raw_value, bool) or not isinstance(raw_value, (int, float)):
+            raise SessionExportPrivacyFilterError(
+                f"Invalid Viterbi calibration value {key!r} in {path}."
+            )
+        biases[key] = float(raw_value)
+    return biases
 
 
 def _real_token_indices(offsets: list[tuple[int, int]]) -> list[int]:
