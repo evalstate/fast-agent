@@ -198,6 +198,13 @@ class ShellSettings(BaseModel):
         default="warn",
         description="Policy when an agent shell cwd is missing or invalid",
     )
+    prefer_local_shell: bool = Field(
+        default=False,
+        description=(
+            "In ACP mode, keep the local fast-agent shell runtime instead of replacing it "
+            "with the ACP client's terminal runtime when the client advertises terminal support"
+        ),
+    )
     enable_read_text_file: bool = Field(
         default=True,
         description=(
