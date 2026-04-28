@@ -92,6 +92,7 @@ def _build_run_request(
     no_permissions: bool,
     reload: bool,
     watch: bool,
+    prefer_local_shell: bool = False,
     missing_shell_cwd: MissingShellCwdPolicy | None = None,
 ) -> AgentRunRequest:
     resolved_env_dir = resolve_environment_dir_option(ctx, env_dir, set_env_var=not noenv)
@@ -119,6 +120,7 @@ def _build_run_request(
         noenv=noenv,
         force_smart=force_smart,
         shell_enabled=shell,
+        prefer_local_shell=prefer_local_shell,
         mode="serve",
         transport=transport.value,
         host=host,
@@ -186,6 +188,14 @@ def serve(
         help="Port to use when running as a server with HTTP transport",
     ),
     shell: bool = CommonAgentOptions.shell(),
+    prefer_local_shell: bool = typer.Option(
+        False,
+        "--prefer-local-shell",
+        help=(
+            "When serving ACP with shell mode, use fast-agent's local shell runtime "
+            "instead of the ACP client's terminal capability"
+        ),
+    ),
     instance_scope: InstanceScope = typer.Option(
         InstanceScope.SHARED,
         "--instance-scope",
@@ -230,6 +240,7 @@ def serve(
         host=host,
         port=port,
         shell=shell,
+        prefer_local_shell=prefer_local_shell,
         instance_scope=_resolve_instance_scope(
             ctx,
             transport=transport,

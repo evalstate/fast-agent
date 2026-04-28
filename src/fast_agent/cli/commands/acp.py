@@ -61,6 +61,7 @@ def _build_run_request(
     resume: str | None,
     reload: bool,
     watch: bool,
+    prefer_local_shell: bool = False,
     missing_shell_cwd: serve.MissingShellCwdPolicy | None = None,
 ) -> AgentRunRequest:
     resolved_env_dir = resolve_environment_dir_option(ctx, env_dir, set_env_var=not noenv)
@@ -88,6 +89,7 @@ def _build_run_request(
         noenv=noenv,
         force_smart=force_smart,
         shell_enabled=shell,
+        prefer_local_shell=prefer_local_shell,
         mode="serve",
         transport=serve.ServeTransport.ACP.value,
         host=host,
@@ -139,6 +141,14 @@ def run_acp(
         help="Description used for the exposed send tool (use {agent} to reference the agent name)",
     ),
     shell: bool = CommonAgentOptions.shell(),
+    prefer_local_shell: bool = typer.Option(
+        False,
+        "--prefer-local-shell",
+        help=(
+            "In ACP shell mode, use fast-agent's local shell runtime instead of the "
+            "ACP client's terminal capability"
+        ),
+    ),
     no_permissions: bool = typer.Option(
         False,
         "--no-permissions",
@@ -181,6 +191,7 @@ def run_acp(
         host=host,
         port=port,
         shell=shell,
+        prefer_local_shell=prefer_local_shell,
         no_permissions=no_permissions,
         resume=resume,
         reload=reload,

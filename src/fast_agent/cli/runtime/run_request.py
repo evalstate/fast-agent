@@ -81,6 +81,7 @@ class AgentRunRequest:
     execution_mode: ExecutionMode | None = None
     quiet: bool = False
     missing_shell_cwd_policy: Literal["ask", "create", "warn", "error"] | None = None
+    prefer_local_shell: bool = False
 
     def __post_init__(self) -> None:
         if self.noenv and self.environment_dir is not None:
@@ -142,6 +143,7 @@ class AgentRunRequest:
             "noenv": self.noenv,
             "force_smart": self.force_smart,
             "shell_runtime": self.shell_runtime,
+            "prefer_local_shell": self.prefer_local_shell,
             "mode": self.mode,
             "transport": self.transport,
             "host": self.host,

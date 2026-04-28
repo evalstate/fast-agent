@@ -1026,6 +1026,10 @@ async def run_agent_request(request: AgentRunRequest) -> None:
                 config.session_history = False
         if request.shell_runtime:
             setattr(fast.app.context, "shell_runtime", True)
+        if request.prefer_local_shell:
+            config = fast.app.context.config
+            if config is not None:
+                config.shell_execution.prefer_local_shell = True
 
     if request.url_servers:
         await add_servers_to_config(
