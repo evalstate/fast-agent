@@ -384,12 +384,12 @@ def _save_stream_chunk(filename_base: Path | None, chunk: Any) -> None:
 
 
 def _ensure_additional_properties_false(schema: dict[str, Any]) -> dict[str, Any]:
-    """Ensure object schemas explicitly set additionalProperties=false."""
+    """Ensure object schemas use Anthropic-compatible additionalProperties=false."""
     result = deepcopy(schema)
 
     def visit(node: Any) -> None:
         if isinstance(node, dict):
-            if node.get("type") == "object" and "additionalProperties" not in node:
+            if node.get("type") == "object" and node.get("additionalProperties") is not False:
                 node["additionalProperties"] = False
 
             for key, value in node.items():
@@ -930,6 +930,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                 schema = structured_model.model_json_schema()
         else:
             schema = {"type": "object"}
+        schema = _ensure_additional_properties_false(schema)
         return {"type": "json_schema", "schema": schema}
 
     async def _prepare_tools(
@@ -2283,7 +2284,11 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         request_params: RequestParams,
         tools: list[Tool] | None = None,
     ) -> tuple[list[PromptMessageExtended], RequestParams]:
-        if not request_params.structured_schema or not tools:
+        if (
+            not request_params.structured_schema
+            or not tools
+            or request_params.structured_tool_policy == "always"
+        ):
             return messages, request_params
         if any(message.tool_results for message in messages):
             return messages, request_params
