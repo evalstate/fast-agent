@@ -1212,7 +1212,9 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                             name=content_block.name,
                             index=event.index,
                         )
-                        tool_input_buffers.setdefault(state.tool_use_id, _AnthropicToolInputBuffer())
+                        tool_input_buffers.setdefault(
+                            state.tool_use_id, _AnthropicToolInputBuffer()
+                        )
                         self._notify_tool_stream_listeners(
                             "start",
                             {
@@ -1400,7 +1402,9 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                     state = tool_tracker.resolve_open(index=event.index)
                     if state is not None and state.kind == "tool":
                         tool_tracker.close(index=event.index)
-                        preview_raw = tool_input_buffers.get(state.tool_use_id, _AnthropicToolInputBuffer()).joined()
+                        preview_raw = tool_input_buffers.get(
+                            state.tool_use_id, _AnthropicToolInputBuffer()
+                        ).joined()
                         if preview_raw:
                             preview = (
                                 preview_raw
@@ -1556,9 +1560,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
             incomplete_tools = tool_tracker.incomplete()
             if incomplete_tools:
-                tool_labels = [
-                    f"{tool.name}:{tool.tool_use_id}" for tool in incomplete_tools
-                ]
+                tool_labels = [f"{tool.name}:{tool.tool_use_id}" for tool in incomplete_tools]
                 logger.error(
                     "Anthropic stream ended with incomplete tool state",
                     data={
@@ -1568,8 +1570,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                     },
                 )
                 raise RuntimeError(
-                    "Streaming completed but tool call(s) never finished: "
-                    + ", ".join(tool_labels)
+                    "Streaming completed but tool call(s) never finished: " + ", ".join(tool_labels)
                 )
 
             # Get the final message with complete usage data
@@ -1880,14 +1881,18 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             if otel_span is not None:
                 with trace.use_span(otel_span, end_on_exit=False):
                     async with stream_manager as stream:
-                        response, thinking_segments, streamed_text_segments = await self._process_stream(
-                            stream, model, capture_filename
-                        )
+                        (
+                            response,
+                            thinking_segments,
+                            streamed_text_segments,
+                        ) = await self._process_stream(stream, model, capture_filename)
             else:
                 async with stream_manager as stream:
-                    response, thinking_segments, streamed_text_segments = await self._process_stream(
-                        stream, model, capture_filename
-                    )
+                    (
+                        response,
+                        thinking_segments,
+                        streamed_text_segments,
+                    ) = await self._process_stream(stream, model, capture_filename)
         except APIError as error:
             if otel_span is not None and otel_span.is_recording():
                 otel_span.record_exception(error)
@@ -2213,7 +2218,11 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         _save_stream_request(capture_filename, arguments)
 
         try:
-            response, thinking_segments, streamed_text_segments = await self._execute_anthropic_stream(
+            (
+                response,
+                thinking_segments,
+                streamed_text_segments,
+            ) = await self._execute_anthropic_stream(
                 anthropic=anthropic,
                 arguments=arguments,
                 model=model,
@@ -2284,11 +2293,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         request_params: RequestParams,
         tools: list[Tool] | None = None,
     ) -> tuple[list[PromptMessageExtended], RequestParams]:
-        if (
-            not request_params.structured_schema
-            or not tools
-            or request_params.structured_tool_policy == "always"
-        ):
+        if not request_params.structured_schema or not tools:
             return messages, request_params
         if any(message.tool_results for message in messages):
             return messages, request_params
@@ -2370,7 +2375,9 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         last_message = multipart_messages[-1]
 
         if last_message.role == "user":
-            logger.debug("Last message in prompt is from user, generating structured schema response")
+            logger.debug(
+                "Last message in prompt is from user, generating structured schema response"
+            )
             message_param = AnthropicConverter.convert_to_anthropic(last_message)
             result = await self._anthropic_completion(
                 message_param,
