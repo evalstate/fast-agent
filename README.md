@@ -75,7 +75,7 @@ toad acp "fast-agent-acp -x --model sonnet"
 
 The simple declarative syntax lets you concentrate on composing your Prompts and MCP Servers to [build effective agents](https://www.anthropic.com/research/building-effective-agents).
 
-Model support is comprehensive with native support for Anthropic, OpenAI and Google providers as well as Azure, Ollama, Deepseek and dozens of others via TensorZero. Structured Outputs, PDF and Vision support is simple to use and well tested. Passthrough and Playback LLMs enable rapid development and test of Python glue-code for your applications.
+Model support is comprehensive with native support for Anthropic, OpenAI and Google providers as well as Azure, Ollama, Deepseek and dozens of others via TensorZero. The optional `[litellm]` extra adds an embedded [LiteLLM](https://docs.litellm.ai/) gateway provider that routes to 100+ underlying providers (Bedrock, Vertex AI, Cohere, Mistral, Together, Groq, Perplexity, Fireworks, Cerebras, Databricks, …) via standard `*_API_KEY` env vars or a LiteLLM proxy server. Structured Outputs, PDF and Vision support is simple to use and well tested. Passthrough and Playback LLMs enable rapid development and test of Python glue-code for your applications.
 
 Recent features include:
 

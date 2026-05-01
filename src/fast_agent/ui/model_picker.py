@@ -421,10 +421,7 @@ class _SplitListPicker:
             availability = self._provider_availability_label(option)
             provider_name = self._provider_display_name_for_option(option)
             count_label = self._provider_entry_count_label(option)
-            text = (
-                f"{cursor}{provider_name:<16} "
-                f"[{availability}] ({count_label})\n"
-            )
+            text = f"{cursor}{provider_name:<16} [{availability}] ({count_label})\n"
             fragments.append((line_style, text))
         return fragments
 
@@ -446,17 +443,25 @@ class _SplitListPicker:
         for index, model in enumerate(models):
             selected = index == self.state.model_index
             cursor = "❯ " if self._models_focused() and selected else "  "
+            # Per-model backing-available override (used by LiteLLM rows where
+            # each model's reachability depends on the backing provider's creds,
+            # not on the LiteLLM SDK alone). Falls back to provider-level signal.
+            row_available = (
+                provider_available
+                if model.backing_available is None
+                else (provider_available and model.backing_available)
+            )
             line_style = self._row_style(
                 selected=selected,
                 availability=(
                     "active"
-                    if provider_available
+                    if row_available
                     else "attention"
                     if model.activation_action is not None
                     else "inactive"
                 ),
             )
-            marker = "✓" if provider_available else "!" if model.activation_action else "✗"
+            marker = "✓" if row_available else "!" if model.activation_action else "✗"
             fragments.append(
                 (
                     line_style,
