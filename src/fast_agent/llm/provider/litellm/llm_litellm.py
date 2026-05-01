@@ -10,8 +10,12 @@ from fast_agent.llm.provider_key_manager import ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
 
 if TYPE_CHECKING:
-    from fast_agent.types import PromptMessageExtended  # noqa: F401
+    from openai.types.chat import (
+        ChatCompletionMessageParam,
+        ChatCompletionToolParam,
+    )
 
+    from fast_agent.types import RequestParams
 
 # Maps fast-agent config sections to the env vars LiteLLM reads when calling
 # the corresponding backing provider. Letting users put credentials in
@@ -172,13 +176,16 @@ class LiteLLMLLM(OpenAILLM):
     def _base_url(self) -> str | None:
         return self._litellm_api_base
 
-    def _openai_client(self):  # type: ignore[override]
+    # The shim duck-types AsyncOpenAI's `chat.completions.create` surface; we
+    # accept the Liskov violation because the OpenAILLM call sites only use that
+    # one method, not the full AsyncOpenAI API.
+    def _openai_client(self) -> _LiteLLMClientShim:  # ty: ignore[invalid-method-override]
         timeout: float | int | None = None
-        if (
-            self.default_request_params
-            and getattr(self.default_request_params, "timeout", None) is not None
-        ):
-            timeout = self.default_request_params.timeout
+        params = self.default_request_params
+        if params is not None:
+            streaming_timeout = getattr(params, "streaming_timeout", None)
+            if streaming_timeout is not None:
+                timeout = streaming_timeout
 
         return _LiteLLMClientShim(
             api_key=self._api_key() or None,
@@ -188,20 +195,22 @@ class LiteLLMLLM(OpenAILLM):
             timeout=timeout,
         )
 
-    async def _normalize_chat_completion_files(self, client: Any, messages: list[Any]) -> list[Any]:
+    async def _normalize_chat_completion_files(
+        self,
+        client: Any,
+        messages: list[ChatCompletionMessageParam],
+    ) -> list[ChatCompletionMessageParam]:
         # OpenAI's file-search file-upload path is not portable through LiteLLM.
         # Skip file normalization and pass messages through unchanged.
         return messages
 
     def _prepare_api_request(
         self,
-        messages: Any,
-        available_tools: Any,
-        request_params: Any,
+        messages: list[ChatCompletionMessageParam],
+        tools: list[ChatCompletionToolParam] | None,
+        request_params: RequestParams,
     ) -> dict[str, Any]:
-        arguments: dict[str, Any] = super()._prepare_api_request(
-            messages, available_tools, request_params
-        )
+        arguments: dict[str, Any] = super()._prepare_api_request(messages, tools, request_params)
         if self._litellm_extra_kwargs:
             for key, value in self._litellm_extra_kwargs.items():
                 arguments.setdefault(key, value)
