@@ -31,7 +31,9 @@ PROVIDER_CONFIG_KEY_ALIASES: dict[str, tuple[str, ...]] = {
     "responses": ("openai",),
 }
 API_KEY_HINT_TEXT = "<your-api-key-here>"
-API_KEYLESS_PROVIDERS: frozenset[str] = frozenset({"anthropic-vertex"})
+# LiteLLM is keyless at the fast-agent layer: the SDK resolves credentials per
+# backing provider (e.g. ANTHROPIC_API_KEY, OPENAI_API_KEY) at call time.
+API_KEYLESS_PROVIDERS: frozenset[str] = frozenset({"anthropic-vertex", "litellm"})
 
 
 @runtime_checkable

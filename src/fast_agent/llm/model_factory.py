@@ -129,6 +129,10 @@ _PROVIDER_CLASS_PATHS: dict[Provider, tuple[str, str]] = {
         "fast_agent.llm.provider.openai.openresponses",
         "OpenResponsesLLM",
     ),
+    Provider.LITELLM: (
+        "fast_agent.llm.provider.openai.llm_litellm",
+        "LiteLLMLLM",
+    ),
 }
 _MODEL_SPECIFIC_CLASS_PATHS: dict[str, tuple[str, str]] = {
     "playback": ("fast_agent.llm.internal.playback", "PlaybackLLM"),
