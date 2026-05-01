@@ -40,3 +40,4 @@ class Provider(Enum):
     CODEX_RESPONSES = ("codexresponses", "Codex Responses")
     RESPONSES = ("responses", "Responses")
     OPENRESPONSES = ("openresponses", "OpenResponses")
+    LITELLM = ("litellm", "LiteLLM")  # AI gateway routing to 100+ underlying providers

@@ -629,6 +629,12 @@ def test_curated_catalog_aliases_are_parseable():
             continue
         if entry.model.startswith("anthropic-vertex."):
             continue
+        # LiteLLM curated aliases (e.g. "gpt-4o", "claude-sonnet") intentionally
+        # mirror the popular short names users already know; they resolve to
+        # native providers when typed standalone, and to LiteLLM only when the
+        # full `litellm.<backing>/<model>` spec is selected from the picker.
+        if entry.model.startswith("litellm."):
+            continue
 
         alias_config = ModelFactory.parse_model_string(entry.alias)
         model_config = ModelFactory.parse_model_string(entry.model)

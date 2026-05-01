@@ -29,7 +29,9 @@ PROVIDER_CONFIG_KEY_ALIASES: dict[str, tuple[str, ...]] = {
     "responses": ("openai",),
 }
 API_KEY_HINT_TEXT = "<your-api-key-here>"
-API_KEYLESS_PROVIDERS: frozenset[str] = frozenset({"anthropic-vertex"})
+# LiteLLM is keyless at the fast-agent layer: the SDK resolves credentials per
+# backing provider (e.g. ANTHROPIC_API_KEY, OPENAI_API_KEY) at call time.
+API_KEYLESS_PROVIDERS: frozenset[str] = frozenset({"anthropic-vertex", "litellm"})
 
 
 class ProviderKeyManager:
@@ -128,6 +130,16 @@ class ProviderKeyManager:
 
         if provider_name == "anthropic-vertex":
             return ""
+
+        # LiteLLM resolves credentials internally per backing provider; an optional
+        # `litellm.api_key` is used only when routing through a LiteLLM proxy.
+        if provider_name == "litellm":
+            api_key = ProviderKeyManager.get_config_file_key("litellm", config)
+            # Read LITELLM_API_KEY directly because `litellm` is in the keyless
+            # provider set, which makes `get_env_var` return None.
+            if not api_key:
+                api_key = os.getenv("LITELLM_API_KEY")
+            return api_key or ""
 
         api_key = ProviderKeyManager.get_config_file_key(provider_name, config)
         if not api_key:

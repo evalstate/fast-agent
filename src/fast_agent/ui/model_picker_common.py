@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -15,6 +16,7 @@ from fast_agent.llm.provider.anthropic.vertex_config import (
     anthropic_vertex_ready,
 )
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
+from fast_agent.llm.provider_model_catalog import ProviderModelCatalogRegistry
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.reasoning_effort import available_reasoning_values, format_reasoning_setting
 
@@ -27,6 +29,7 @@ KEEP_VALUE = "__keep__"
 DEFAULT_VALUE = "__default__"
 
 PICKER_PROVIDER_ORDER: tuple[Provider, ...] = (
+    Provider.LITELLM,
     Provider.RESPONSES,
     Provider.OPENRESPONSES,
     Provider.CODEX_RESPONSES,
@@ -92,6 +95,10 @@ class ModelOption:
     fast: bool = False
     curated: bool = False
     activation_action: ProviderActivationAction | None = None
+    # When set, overrides the parent provider's availability for marker rendering.
+    # Used by LiteLLM rows where each model's reachability depends on the
+    # backing provider's credentials, not on the LiteLLM SDK alone.
+    backing_available: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -155,7 +162,95 @@ def _provider_is_active(provider: Provider, config_payload: dict[str, Any]) -> b
     if provider in {Provider.FAST_AGENT, Provider.GENERIC}:
         return True
 
+    # LiteLLM is "available" once the SDK is importable. The SDK resolves
+    # backing-provider credentials at call time, so showing the row as available
+    # lets the user pick a model and have LiteLLM raise its own clear error if
+    # the routed provider's API key is missing.
+    if provider == Provider.LITELLM:
+        try:
+            import litellm  # noqa: F401
+
+            return True
+        except ImportError:
+            return False
+
     return False
+
+
+def litellm_backing_provider_for_spec(spec: str) -> str | None:
+    """Extract the backing provider from a `litellm.<backing>/<model>` spec."""
+    if not spec.startswith("litellm."):
+        return None
+    body = spec[len("litellm.") :]
+    head = body.split("/", 1)[0]
+    return head or None
+
+
+_LITELLM_BACKING_ENV_KEYS: dict[str, tuple[str, ...]] = {
+    "openai": ("OPENAI_API_KEY",),
+    "anthropic": ("ANTHROPIC_API_KEY",),
+    "anthropic_text": ("ANTHROPIC_API_KEY",),
+    "azure": ("AZURE_API_KEY", "AZURE_OPENAI_API_KEY"),
+    "azure_ai": ("AZURE_AI_API_KEY", "AZURE_API_KEY"),
+    "azure_anthropic": ("AZURE_API_KEY",),
+    "bedrock": ("AWS_ACCESS_KEY_ID", "AWS_BEARER_TOKEN_BEDROCK"),
+    "amazon_nova": ("AWS_ACCESS_KEY_ID",),
+    "vertex_ai": ("GOOGLE_APPLICATION_CREDENTIALS", "VERTEXAI_PROJECT", "VERTEX_PROJECT"),
+    "vertex_ai_beta": ("GOOGLE_APPLICATION_CREDENTIALS",),
+    "gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+    "groq": ("GROQ_API_KEY",),
+    "cohere": ("COHERE_API_KEY",),
+    "cohere_chat": ("COHERE_API_KEY",),
+    "mistral": ("MISTRAL_API_KEY", "CODESTRAL_API_KEY"),
+    "codestral": ("CODESTRAL_API_KEY",),
+    "deepseek": ("DEEPSEEK_API_KEY",),
+    "xai": ("XAI_API_KEY",),
+    "perplexity": ("PERPLEXITYAI_API_KEY",),
+    "fireworks_ai": ("FIREWORKS_API_KEY", "FIREWORKS_AI_API_KEY"),
+    "cerebras": ("CEREBRAS_API_KEY",),
+    "together_ai": ("TOGETHERAI_API_KEY", "TOGETHER_API_KEY"),
+    "databricks": ("DATABRICKS_API_KEY",),
+    "ai21": ("AI21_API_KEY",),
+    "openrouter": ("OPENROUTER_API_KEY",),
+    "huggingface": ("HF_TOKEN", "HUGGINGFACE_API_KEY"),
+    "cloudflare": ("CLOUDFLARE_API_KEY",),
+    "replicate": ("REPLICATE_API_KEY",),
+    "anyscale": ("ANYSCALE_API_KEY",),
+    "watsonx": ("WATSONX_API_KEY", "WATSONX_TOKEN"),
+    "sambanova": ("SAMBANOVA_API_KEY",),
+    "nvidia_nim": ("NVIDIA_NIM_API_KEY",),
+    "deepinfra": ("DEEPINFRA_API_KEY",),
+    "voyage": ("VOYAGE_API_KEY",),
+    "novita": ("NOVITA_API_KEY",),
+    "moonshot": ("MOONSHOT_API_KEY",),
+    "dashscope": ("DASHSCOPE_API_KEY",),
+    "baseten": ("BASETEN_API_KEY",),
+    "lambda_ai": ("LAMBDA_API_KEY",),
+    "minimax": ("MINIMAX_API_KEY",),
+    "friendliai": ("FRIENDLIAI_API_KEY",),
+    "nlp_cloud": ("NLP_CLOUD_API_KEY",),
+    # Local / OAuth-driven backings (kept out of the map so we don't probe OAuth flows)
+    # github_copilot, ollama, llamafile -- treated as "unknown" -> falls back to provider-level
+}
+
+
+def litellm_backing_creds_present(spec: str) -> bool | None:
+    """Return True/False if any expected env key for the spec's backing is set.
+
+    Uses a static map rather than `litellm.validate_environment(...)` because
+    that API can trigger OAuth device-code flows for some backings (notably
+    `github_copilot`), which would block the wizard render. Returns None when
+    the backing isn't in the map so callers can fall back to the provider's
+    SDK-level availability without showing a misleading ✗.
+    """
+    backing = litellm_backing_provider_for_spec(spec)
+    if backing is None:
+        return None
+    keys = _LITELLM_BACKING_ENV_KEYS.get(backing)
+    if not keys:
+        return None
+    return any(os.getenv(key) for key in keys)
+
 
 def _catalog_options_from_entries(
     entries: tuple[CatalogModelEntry, ...],
@@ -163,6 +258,7 @@ def _catalog_options_from_entries(
     provider: Provider,
     source: ModelSource,
     spec_transform: Any = None,
+    discovered_specs: tuple[str, ...] = (),
 ) -> list[ModelOption]:
     transform = spec_transform or (lambda value: value)
 
@@ -182,6 +278,9 @@ def _catalog_options_from_entries(
         label = f"{entry_label:<19} → {spec}{suffix}"
         if entry.description:
             label = f"{label} — {entry.description}"
+        backing_available = (
+            litellm_backing_creds_present(spec) if provider == Provider.LITELLM else None
+        )
         curated_options.append(
             ModelOption(
                 spec=spec,
@@ -189,6 +288,7 @@ def _catalog_options_from_entries(
                 preset_token=entry.alias,
                 fast=entry.fast,
                 curated=entry.current,
+                backing_available=backing_available,
             )
         )
 
@@ -196,20 +296,57 @@ def _catalog_options_from_entries(
         return curated_options
 
     seen_identities: set[tuple[Provider, str]] = set()
+    seen_specs: set[str] = set()
     options: list[ModelOption] = list(curated_options)
     for curated in curated_options:
+        seen_specs.add(curated.spec)
         identity = model_identity(curated.spec)
         if identity is not None:
             seen_identities.add(identity)
 
+    is_litellm_provider = provider == Provider.LITELLM
+
     for spec in _static_provider_models(provider):
         transformed_spec = transform(spec)
+        if transformed_spec in seen_specs:
+            continue
         identity = model_identity(transformed_spec)
         if identity is not None and identity in seen_identities:
             continue
         if identity is not None:
             seen_identities.add(identity)
-        options.append(ModelOption(spec=transformed_spec, label=f"{transformed_spec} (catalog)"))
+        seen_specs.add(transformed_spec)
+        backing_available = (
+            litellm_backing_creds_present(transformed_spec) if is_litellm_provider else None
+        )
+        options.append(
+            ModelOption(
+                spec=transformed_spec,
+                label=f"{transformed_spec} (catalog)",
+                backing_available=backing_available,
+            )
+        )
+
+    for spec in discovered_specs:
+        transformed_spec = transform(spec)
+        if transformed_spec in seen_specs:
+            continue
+        identity = model_identity(transformed_spec)
+        if identity is not None and identity in seen_identities:
+            continue
+        if identity is not None:
+            seen_identities.add(identity)
+        seen_specs.add(transformed_spec)
+        backing_available = (
+            litellm_backing_creds_present(transformed_spec) if is_litellm_provider else None
+        )
+        options.append(
+            ModelOption(
+                spec=transformed_spec,
+                label=f"{transformed_spec} (catalog)",
+                backing_available=backing_available,
+            )
+        )
 
     return options
 
@@ -237,10 +374,17 @@ def model_options_for_option(
 
     provider = option.provider
     assert provider is not None
+
+    discovered_specs: tuple[str, ...] = ()
+    if source == "all":
+        discovered = ProviderModelCatalogRegistry.discover(provider, snapshot.config_payload)
+        discovered_specs = discovered.all_models
+
     return _catalog_options_from_entries(
         option.curated_entries,
         provider=provider,
         source=source,
+        discovered_specs=discovered_specs,
     )
 
 

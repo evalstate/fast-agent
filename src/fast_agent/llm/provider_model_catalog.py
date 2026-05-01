@@ -59,11 +59,53 @@ class OpenRouterModelCatalogAdapter:
             return ProviderModelInventory()
 
 
+class LiteLLMModelCatalogAdapter:
+    """LiteLLM model discovery via the SDK's bundled `models_by_provider` registry.
+
+    Returns every model LiteLLM knows about, prefixed with `litellm.` and the
+    underlying provider key (e.g. `litellm.anthropic/claude-3-5-sonnet`,
+    `litellm.bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0`). The same set
+    is returned for both `current_models` and `all_models` since LiteLLM does
+    not distinguish a "current" subset.
+    """
+
+    provider = Provider.LITELLM
+
+    def discover(self, config: dict[str, Any]) -> ProviderModelInventory:  # noqa: ARG002
+        try:
+            import litellm
+        except ImportError:
+            return ProviderModelInventory()
+
+        specs: list[str] = []
+        seen: set[str] = set()
+        models_by_provider = getattr(litellm, "models_by_provider", {})
+        for backing_provider, models in models_by_provider.items():
+            prefix = f"{backing_provider}/"
+            for model in models:
+                # Some LiteLLM model strings already include the provider prefix
+                # (e.g. `gemini/gemini-exp-1206` listed under the `gemini` key).
+                # Strip it so the spec stays single-prefixed.
+                model_id = model[len(prefix):] if model.startswith(prefix) else model
+                spec = f"litellm.{backing_provider}/{model_id}"
+                if spec in seen:
+                    continue
+                seen.add(spec)
+                specs.append(spec)
+
+        if not specs:
+            return ProviderModelInventory()
+
+        specs_tuple = tuple(specs)
+        return ProviderModelInventory(current_models=specs_tuple, all_models=specs_tuple)
+
+
 class ProviderModelCatalogRegistry:
     """Registry for provider-specific model discovery adapters."""
 
     _ADAPTERS: dict[Provider, ProviderModelCatalogAdapter] = {
         Provider.OPENROUTER: OpenRouterModelCatalogAdapter(),
+        Provider.LITELLM: LiteLLMModelCatalogAdapter(),
     }
 
     @classmethod
