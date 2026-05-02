@@ -36,6 +36,9 @@ class ModelParameters(BaseModel):
     json_mode: None | str = "schema"
     """Structured output style. 'schema', 'object' or None for unsupported """
 
+    structured_tool_policy: Literal["always", "defer"] | None = None
+    """Default raw-schema/tool coexistence policy for this model."""
+
     reasoning: None | str = None
     """Reasoning output style. 'tags' if enclosed in <thinking> tags, 'none' if not used"""
 
@@ -264,6 +267,7 @@ class ModelDatabase:
         max_output_tokens=4096,
         tokenizes=ANTHROPIC_MULTIMODAL,
         json_mode=None,
+        structured_tool_policy="defer",
         cache_ttl="5m",
         anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_LEGACY,
         anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_LEGACY,
@@ -275,6 +279,7 @@ class ModelDatabase:
         max_output_tokens=8192,
         tokenizes=ANTHROPIC_MULTIMODAL,
         json_mode=None,
+        structured_tool_policy="defer",
         cache_ttl="5m",
         anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_LEGACY,
         anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_LEGACY,
@@ -287,6 +292,7 @@ class ModelDatabase:
         max_output_tokens=16384,
         tokenizes=ANTHROPIC_MULTIMODAL,
         json_mode=None,
+        structured_tool_policy="defer",
         cache_ttl="5m",
         anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_LEGACY,
         anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_LEGACY,
@@ -352,6 +358,7 @@ class ModelDatabase:
         max_output_tokens=32766,
         tokenizes=TEXT_ONLY,
         json_mode="object",
+        structured_tool_policy="defer",
         reasoning="gpt_oss",
     )
     OPENAI_GPT_5 = ModelParameters(
@@ -461,6 +468,7 @@ class ModelDatabase:
         reasoning="anthropic_thinking",
         reasoning_effort_spec=ANTHROPIC_THINKING_EFFORT_SPEC,
         json_mode=None,
+        structured_tool_policy="defer",
         cache_ttl="5m",
         anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_LEGACY,
         anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_LEGACY,
@@ -497,6 +505,7 @@ class ModelDatabase:
         reasoning="anthropic_thinking",
         reasoning_effort_spec=ANTHROPIC_THINKING_EFFORT_SPEC,
         json_mode=None,
+        structured_tool_policy="defer",
         cache_ttl="5m",
         anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_LEGACY,
         anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_LEGACY,
@@ -510,6 +519,7 @@ class ModelDatabase:
         reasoning="anthropic_thinking",
         reasoning_effort_spec=ANTHROPIC_THINKING_EFFORT_SPEC,
         json_mode=None,
+        structured_tool_policy="defer",
         cache_ttl="5m",
         anthropic_web_search_version=ANTHROPIC_WEB_SEARCH_LEGACY,
         anthropic_web_fetch_version=ANTHROPIC_WEB_FETCH_LEGACY,
@@ -567,18 +577,12 @@ class ModelDatabase:
         tokenizes=TEXT_ONLY,
         json_mode="object",
     )
-    KIMI_MOONSHOT_THINKING = ModelParameters(
-        context_window=262144,
-        max_output_tokens=16384,
-        tokenizes=TEXT_ONLY,
-        json_mode="object",
-        reasoning="reasoning_content",
-    )
     KIMI_MOONSHOT_25 = ModelParameters(
         context_window=262144,
         max_output_tokens=16384,
         tokenizes=OPENAI_VISION,
-        json_mode="schema",
+        json_mode=None,
+        structured_tool_policy="defer",
         reasoning="reasoning_content",
         reasoning_effort_spec=KIMI_REASONING_TOGGLE_SPEC,
     )
@@ -589,6 +593,7 @@ class ModelDatabase:
         # supported in Moonshot's official API for now.
         tokenizes=OPENAI_VISION,
         json_mode="schema",
+        structured_tool_policy="defer",
         reasoning="reasoning_content",
         reasoning_effort_spec=KIMI_REASONING_TOGGLE_SPEC,
     )
@@ -659,30 +664,42 @@ class ModelDatabase:
         max_output_tokens=131072,
         tokenizes=TEXT_ONLY,
         json_mode="object",
+        structured_tool_policy="defer",
         reasoning="reasoning_content",
         reasoning_effort_spec=GLM_REASONING_TOGGLE_SPEC,
         stream_mode="manual",
     )
 
     HF_PROVIDER_DEEPSEEK31 = ModelParameters(
-        context_window=163_800, max_output_tokens=8192, tokenizes=TEXT_ONLY
+        context_window=163_800,
+        max_output_tokens=8192,
+        tokenizes=TEXT_ONLY,
+        structured_tool_policy="defer",
     )
 
     HF_PROVIDER_DEEPSEEK32 = ModelParameters(
         context_window=163_800,
         max_output_tokens=8192,
         tokenizes=TEXT_ONLY,
+        structured_tool_policy="defer",
         reasoning="gpt_oss",
     )
 
-    HF_PROVIDER_QWEN3_NEXT = ModelParameters(
-        context_window=262_000, max_output_tokens=8192, tokenizes=TEXT_ONLY
+    HF_PROVIDER_DEEPSEEK4_PRO = ModelParameters(
+        context_window=1_048_576,
+        max_output_tokens=393_216,
+        tokenizes=TEXT_ONLY,
+        structured_tool_policy="defer",
+        reasoning="reasoning_content",
+        default_provider=Provider.HUGGINGFACE,
     )
 
     HF_PROVIDER_QWEN35 = ModelParameters(
         context_window=262_144,
         max_output_tokens=65_536,
         tokenizes=QWEN_MULTIMODAL,
+        json_mode="object",
+        structured_tool_policy="defer",
         reasoning="reasoning_content",
         reasoning_effort_spec=GLM_REASONING_TOGGLE_SPEC,
         default_provider=Provider.HUGGINGFACE,
@@ -764,23 +781,9 @@ class ModelDatabase:
         ),
         "gpt-5.3-chat-latest": _with_fast(params=OPENAI_CHAT53_INSTANT),
         # Anthropic Models
-        "claude-3-haiku": ANTHROPIC_35_SERIES,
-        "claude-3-haiku-20240307": ANTHROPIC_LEGACY,
-        "claude-3-sonnet": ANTHROPIC_LEGACY,
-        "claude-3-opus": ANTHROPIC_LEGACY,
-        "claude-3-opus-20240229": ANTHROPIC_LEGACY,
-        "claude-3-opus-latest": ANTHROPIC_LEGACY,
         "claude-3-5-haiku": ANTHROPIC_35_SERIES,
         "claude-3-5-haiku-20241022": ANTHROPIC_35_SERIES,
         "claude-3-5-haiku-latest": _with_fast(ANTHROPIC_35_SERIES),
-        "claude-3-sonnet-20240229": ANTHROPIC_LEGACY,
-        "claude-3-5-sonnet": ANTHROPIC_35_SERIES,
-        "claude-3-5-sonnet-20240620": ANTHROPIC_35_SERIES,
-        "claude-3-5-sonnet-20241022": ANTHROPIC_35_SERIES,
-        "claude-3-5-sonnet-latest": ANTHROPIC_35_SERIES,
-        "claude-3-7-sonnet": ANTHROPIC_37_SERIES_THINKING,
-        "claude-3-7-sonnet-20250219": ANTHROPIC_37_SERIES_THINKING,
-        "claude-3-7-sonnet-latest": ANTHROPIC_37_SERIES_THINKING,
         "claude-sonnet-4-0": _with_long_context(
             ANTHROPIC_SONNET_4_LEGACY, ANTHROPIC_LONG_CONTEXT_WINDOW
         ),
@@ -829,8 +832,6 @@ class ModelDatabase:
         "grok-3-mini-fast": _with_fast(GROK_3),
         "moonshotai/kimi-k2": KIMI_MOONSHOT,
         "moonshotai/kimi-k2-instruct-0905": _with_fast(KIMI_MOONSHOT),
-        "moonshotai/kimi-k2-thinking": KIMI_MOONSHOT_THINKING,
-        "moonshotai/kimi-k2-thinking-0905": KIMI_MOONSHOT_THINKING,
         "moonshotai/kimi-k2.5": KIMI_MOONSHOT_25,
         "moonshotai/kimi-k2.6": KIMI_MOONSHOT_26,
         "qwen/qwen3-32b": QWEN3_REASONER,
@@ -840,14 +841,16 @@ class ModelDatabase:
         "zai-org/glm-4.6": GLM_46,
         "zai-org/glm-4.7": GLM_47,
         "zai-org/glm-5": _with_fast(GLM_5),
-        "zai-org/glm-5.1": _with_fast(GLM_5),
+        "zai-org/glm-5.1": _with_fast(
+            GLM_5.model_copy(update={"structured_tool_policy": "defer"})
+        ),
         "minimaxai/minimax-m2": GLM_46,
         "minimaxai/minimax-m2.1": MINIMAX_21,
         "minimaxai/minimax-m2.5": MINIMAX_25,
-        "qwen/qwen3-next-80b-a3b-instruct": HF_PROVIDER_QWEN3_NEXT,
         "qwen/qwen3.5-397b-a17b": HF_PROVIDER_QWEN35,
         "deepseek-ai/deepseek-v3.1": HF_PROVIDER_DEEPSEEK31,
         "deepseek-ai/deepseek-v3.2": HF_PROVIDER_DEEPSEEK32,
+        "deepseek-ai/deepseek-v4-pro": HF_PROVIDER_DEEPSEEK4_PRO,
         # aliyun modern
         "qwen3-max": ALIYUN_QWEN3_MODERN,
     }
